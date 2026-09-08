@@ -253,21 +253,25 @@ print(max(names) if names else "")
         --stats-one-line \
         --stats 10s
 
-    REQUIRED_FILES=(
-        database.dump
-        storage-app.tar.gz
-        environment.env
-        release.json
-        server-configuration.tar.gz
-        manifest.json
-        SHA256SUMS
-    )
+    # The downloaded manifest decides which closed file set this backup must
+    # carry (seven files for schema 1 and 2, eight for schema 3), so it has to
+    # have arrived first, and it is proven to be a plain regular file before
+    # it is read.
+    [[ -e "${TEMP_DIRECTORY}/${BACKUP_MANIFEST_FILE}" ]] \
+        || fail "missing downloaded backup file: ${BACKUP_MANIFEST_FILE}"
+
+    BACKUP_SCHEMA="$(backup_schema_of_directory "${TEMP_DIRECTORY}")"
+
+    local -a required_files=()
+    mapfile -t required_files < <(backup_required_files_for_schema "${BACKUP_SCHEMA}")
 
     local required_file
-    for required_file in "${REQUIRED_FILES[@]}"; do
+    for required_file in "${required_files[@]}"; do
         [[ -f "${TEMP_DIRECTORY}/${required_file}" ]] \
             || fail "missing downloaded backup file: ${required_file}"
     done
+
+    log "Backup schema:  ${BACKUP_SCHEMA}"
 
     log ""
     log "Checking downloaded SHA-256 checksums"

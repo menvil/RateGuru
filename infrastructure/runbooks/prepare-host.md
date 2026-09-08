@@ -115,6 +115,54 @@ Each step sits at the only point in the sequence where it can succeed:
 readiness aggregation — nothing else. Every child remains authoritative for
 its own contract.
 
+## Recovery preparation: the material comes from the backup
+
+`prepare-host --apply --target T --material-dir SEED --recovery-backup
+YYYYMMDD-HHMMSS` prepares a **clean replacement host for a clean-host
+recovery**. The difference from an ordinary preparation is exactly one thing —
+where the external material comes from — and it changes the pipeline into:
+
+```text
+install-bootstrap-runtime                       base packages, rclone, jq
+  → lifecycle gate (target must be active)
+  → fetch-recovery-material                     the backup's bootstrap subset → effective material
+  → install-target-prerequisites --scope host    from the effective material
+  → bootstrap-host
+  → OFFSITE-WRITE HOLD                           /home/www/rateguru/run/offsite-write-hold
+  → install-target-prerequisites --scope target  from the effective material
+  → install-target-database
+  → final prepare-host verification
+```
+
+`--material-dir` names a **seed** directory holding exactly two files,
+`rclone-config` (the recovery offsite credential) and
+`deploy-authorized-keys` (the deploy public key, derived on the runner) —
+anything else in it is refused, because a recovery takes the target's
+environment and host material from the backup itself, never from a supplied
+file. `fetch-recovery-material` downloads only `manifest.json`,
+`release.json`, `environment.env`, `recovery-material.tar.gz` and `SHA256SUMS`
+of the named backup from the fixed remote (never the data, never "latest",
+never an arbitrary path), verifies the manifest is the target's own and is
+**schema 3**, verifies the subset's checksums, has the prerequisite installer
+judge the recovery material archive before extracting a byte, and composes a
+root-only 0700 effective material directory under `/root`: `laravel-env` from
+`environment.env`, every host-scope logical name from the archive, and the two
+seeds. The prerequisite slices are fed that directory, and it is removed when
+the run ends, however it ends.
+
+The **offsite-write hold** is placed after host bootstrap created the run root
+and before the target slice installs the offsite credential, so the replacement
+machine can never upload into, or prune, the namespace the target's live host
+owns: `backup-cycle`, `offsite-backup` and `offsite-retention` refuse on it
+(`OFFSITE WRITES: HELD`). A hold that already exists is kept, never rewritten,
+and nothing in preparation releases it; the summary reports it whenever it is
+present. See [`recover-host.md`](recover-host.md) and
+[`github-recover.md`](github-recover.md) §9.
+
+`--recovery-backup` is `--apply`-only, requires an exact timestamp (there is no
+`latest`) and requires `--material-dir`. An ordinary preparation — without it —
+is unchanged: material from the supplied directory, no fetch, no hold.
+
 ## Convergence and idempotency
 
 Per slice: run the child's own verification; if it passes, **SKIP**;
@@ -226,6 +274,13 @@ belongs in this document or in any other repository file.**
 Every `PREPARE_*` secret is **optional**. An unset secret is simply not
 uploaded, and the server preserves whatever the host already holds. On an
 already-prepared host none of them are required at all.
+
+A **recovery preparation** — the shared action's optional `recovery-backup`
+input, set only by the Recover workflows — reads **none of the `PREPARE_*`
+secrets**: it seeds `rclone-config` from `RECOVERY_RCLONE_CONFIG` and
+`deploy-authorized-keys` from the public half of `DEPLOY_SSH_KEY`, and the
+action refuses any other material beside a recovery backup. See
+[`github-recover.md`](github-recover.md) §5.
 
 ## External prerequisites, and the safe-existing-file contract
 
@@ -414,6 +469,9 @@ one. Preparation stays the owner of packages, identities, layout,
 Nginx/FPM/Supervisor/cron, external material, `shared/.env`,
 `authorized_keys`, rclone, TLS, Basic Auth and the empty database; recovery
 fills that prepared, empty target with data and code and touches none of it.
+A recovery preparation (`--recovery-backup`, above) is still a preparation:
+the same slices, the same installers, the same verification — only the
+material's origin changes.
 
 A recovery rebuilds a lost application from the `source_sha` every backup
 already carries in its `release.json`, through the same single build

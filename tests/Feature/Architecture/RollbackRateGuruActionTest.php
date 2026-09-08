@@ -160,9 +160,32 @@ it('is the only GitHub rollback implementation, used by both operator workflows'
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
         $executable = executableSourceLines(File::get($path));
 
-        foreach (['rateguru-rollback', 'ssh-keygen', 'readlink -f'] as $mechanic) {
+        foreach (['rateguru-rollback', 'readlink -f'] as $mechanic) {
             expect(str_contains($executable, $mechanic))
                 ->toBeFalse(basename($path).' re-implements the shared rollback transport: '.$mechanic);
+        }
+
+        // ssh-keygen belongs to the transport too — the action proves the
+        // credential is a usable key before it connects. The one legitimate
+        // use outside it is the recovery workflows' identity job, which
+        // derives the deploy PUBLIC key on the runner and connects nowhere.
+        // Judged per job, so a job that both derives a key and reaches a
+        // host is still the transport re-implemented.
+        $workflow = Yaml::parse(File::get($path));
+
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            $encoded = json_encode($job);
+
+            if (! str_contains($encoded, 'ssh-keygen')) {
+                continue;
+            }
+
+            expect($encoded)->toContain('ssh-keygen -y -f');
+
+            foreach (['ssh ', 'scp ', 'KNOWN_HOSTS', 'known_hosts', '"uses"', 'StrictHostKeyChecking'] as $transport) {
+                expect(str_contains($encoded, $transport))
+                    ->toBeFalse(basename($path).":{$jobName} derives a key and also connects — that is the rollback transport re-implemented: {$transport}");
+            }
         }
     }
 });

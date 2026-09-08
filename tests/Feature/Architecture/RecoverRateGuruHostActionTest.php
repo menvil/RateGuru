@@ -259,6 +259,7 @@ it('exposes typed outputs drawn only from that result', function () {
         'current-release',
         'data-restored',
         'health',
+        'offsite-writes',
         'operation',
         'required-source-sha',
         'source-sha',

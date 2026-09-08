@@ -102,6 +102,45 @@
 # through /home/www/rateguru/bin (which only exists after bootstrap installs
 # the operational bundle).
 #
+# RECOVERY PREPARATION. `--apply --recovery-backup YYYYMMDD-HHMMSS` prepares
+# a clean replacement host for a clean-host recovery, and the difference from
+# an ordinary preparation is exactly one thing: where the external material
+# comes from. Nothing is supplied by hand. The material directory the caller
+# passes is a SEED holding only the recovery offsite credential
+# (`rclone-config`) and the deploy public key (`deploy-authorized-keys`);
+# everything else — the target's environment file and every host-scope
+# prerequisite — is taken out of the named offsite backup itself, by the
+# sibling fetch-recovery-material, after the runtime slice has put rclone and
+# jq on the host and before the host-scope slice needs it:
+#
+#   runtime slice
+#     -> lifecycle gate
+#     -> fetch-recovery-material            the backup's bootstrap subset,
+#                                           verified, laid out by logical name
+#     -> host-scope prerequisites           from that material
+#     -> bootstrap-host
+#     -> offsite-write hold                 before the offsite credential lands
+#     -> target-scope prerequisites         laravel-env from the backup, the
+#                                           two seed files
+#     -> target database
+#     -> final verification
+#
+# The pipeline underneath is the ordinary one, slice for slice, with the same
+# children, the same convergence rule and the same verifications. Recovery
+# mode only decides what the material directory contains and where in the
+# order it has to exist. The effective material lives in a root-only
+# directory that is removed when this run ends, on success and on failure.
+#
+# THE OFFSITE-WRITE HOLD. A host prepared for a recovery ends up a complete
+# RateGuru host with a backup cron, an offsite uploader and an offsite pruner,
+# while DEPLOY_HOST and DNS still point at the machine that owns the real
+# offsite namespace. So recovery preparation places the host-global
+# offsite-write hold as soon as the run root exists and BEFORE the offsite
+# credential is installed; backup-cycle, offsite-backup and offsite-retention
+# refuse on this host while it exists, the recovery proves it at every hold
+# check, and nothing here or in the recovery ever removes it. An ordinary
+# preparation never places it.
+#
 # Signals: SIGINT is never trapped or reinterpreted — interrupting a long child
 # verification terminates the orchestration without continuing downstream
 # slices, and the child's signal-derived exit status is propagated.
@@ -164,6 +203,15 @@ BOOTSTRAP_HOST_BIN="$(gated_default RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN "${S
 DATABASE_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN "${SCRIPT_DIR}/install-target-database")"
 TARGETS_CLI_BIN="$(gated_default RATEGURU_PREPAREHOST_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
 
+# The recovery-material helper, used by --recovery-backup only: it turns the
+# seed directory and one exact offsite backup into the effective material
+# directory the prerequisite slices are then fed.
+RECOVERY_MATERIAL_BIN="$(gated_default RATEGURU_PREPAREHOST_RECOVERY_MATERIAL_BIN "${SCRIPT_DIR}/fetch-recovery-material")"
+
+# Where the effective recovery material is staged: root's own home, 0700,
+# never /tmp — a directory the runtime user can never see into.
+RECOVERY_MATERIAL_PARENT="$(gated_default RATEGURU_PREPAREHOST_RECOVERY_MATERIAL_PARENT /root)"
+
 # The SOURCE registry in this checkout, never the installed runtime copy: on a
 # clean host nothing is installed yet, and the trusted bootstrap bundle is the
 # authority. Same source/runtime split bootstrap-host-preflight applies.
@@ -189,22 +237,33 @@ TARGET_ID=""
 TARGET_SEEN=false
 MATERIAL_DIR=""
 MATERIAL_DIR_SEEN=false
+RECOVERY_BACKUP=""
+RECOVERY_BACKUP_SEEN=false
 
 usage() {
     cat <<'USAGE'
 Usage:
   prepare-host --check  --target TARGET_ID [--material-dir DIR]
   prepare-host --apply  --target TARGET_ID [--material-dir DIR]
+  prepare-host --apply  --target TARGET_ID --material-dir SEED_DIR --recovery-backup YYYYMMDD-HHMMSS
   prepare-host --verify --target TARGET_ID
   prepare-host --help
 
 All modes require root and a lifecycle=active target.
 
-  --target        Deployment target ID from the RateGuru target registry.
-  --material-dir  Root-owned 0700 directory of operator-supplied external
-                  material, consumed by install-target-prerequisites. Only
-                  ever used to fill in what is ABSENT; existing material is
-                  never overwritten or rotated.
+  --target           Deployment target ID from the RateGuru target registry.
+  --material-dir     Root-owned 0700 directory of operator-supplied external
+                     material, consumed by install-target-prerequisites. Only
+                     ever used to fill in what is ABSENT; existing material is
+                     never overwritten or rotated.
+  --recovery-backup  Recovery preparation, --apply only: take the target's
+                     environment file and every host-scope prerequisite out of
+                     this exact offsite backup (schema 3 required), through
+                     fetch-recovery-material, instead of from supplied
+                     material. --material-dir then names the SEED directory,
+                     holding exactly rclone-config and deploy-authorized-keys.
+                     Places the host-global offsite-write hold before the
+                     offsite credential is installed.
 
   --check   Read-only, dependency-aware preparation status per slice
             (prerequisites -> host bootstrap -> database -> final), reporting
@@ -352,6 +411,10 @@ require_children_executable() {
     [[ -x "${RUNTIME_INSTALLER_BIN}" ]] || fail "runtime installer is not executable: ${RUNTIME_INSTALLER_BIN} — run from a full repository checkout"
 
     [[ -x "${TARGETS_CLI_BIN}" ]] || fail "targets CLI is not executable: ${TARGETS_CLI_BIN} — run from a full repository checkout"
+
+    if recovery_mode; then
+        [[ -x "${RECOVERY_MATERIAL_BIN}" ]] || fail "recovery-material helper is not executable: ${RECOVERY_MATERIAL_BIN} — run from a full repository checkout"
+    fi
 }
 
 # --- Target lifecycle gate ----------------------------------------------------
@@ -671,11 +734,25 @@ print_summary() {
     if [[ "${ready}" == true ]]; then
         printf '%s: YES\n' "${ready_label}"
         printf 'APPLICATION DEPLOYED: NOT REQUIRED — a prepared target legitimately has no release yet\n'
+        print_offsite_write_hold_status
         return 0
     fi
 
     printf '%s: NO\n' "${ready_label}"
+    print_offsite_write_hold_status
     return 1
+}
+
+# print_offsite_write_hold_status — reported whenever the hold exists, in
+# every mode, so a host prepared for a recovery says so in the same summary
+# block the GitHub run shows. An ordinary host has no hold and prints nothing.
+print_offsite_write_hold_status() {
+    local marker
+    marker="$(offsite_write_hold_path)"
+
+    if [[ -e "${marker}" ]] || [[ -L "${marker}" ]]; then
+        printf 'OFFSITE WRITES: HELD — %s (backup-cycle, offsite-backup and offsite-retention refuse on this host until it is deliberately adopted)\n' "${marker}"
+    fi
 }
 
 # --- Read-only walkers (--check / --verify) -----------------------------------
@@ -793,88 +870,236 @@ run_apply() {
     gate_data_operation_locks
     gate_no_data_operation_hold
 
-    local slice_id label bin apply_status precheck_mode
-    local -a precheck_args apply_args verify_args
-
-    for slice_id in "${SLICE_IDS[@]}"; do
-        label="$(slice_label "${slice_id}")"
-        bin="$(slice_bin "${slice_id}")"
-
-        # Idempotent, and unconditional for every target-specific slice: no
-        # RateGuru identity, directory, secret or database can come into
-        # existence for a target that has not passed the lifecycle gate.
-        gate_lifecycle_before "${slice_id}"
-
-        precheck_mode="$(slice_preapply_mode "${slice_id}")"
-
-        mapfile -t precheck_args < <(slice_args "${slice_id}" "${precheck_mode}")
-        mapfile -t apply_args < <(slice_args "${slice_id}" apply)
-
-        printf '\nSLICE %s — %s\n' "${slice_id}" "${label}"
-        printf '  %s %s%s...\n' "${precheck_mode^^}" "${label}" "$(slice_duration_note "${slice_id}")"
-
-        run_child_captured "${bin}" "${precheck_args[@]}"
-
-        # The convergence rule, and the reason a second prepare run is cheap
-        # and safe: an already-satisfied slice is SKIPPED outright. Nothing is
-        # reinstalled to "make sure", because "making sure" is what overwrites
-        # a live .env and rotates a working credential.
-        if (( CHILD_STATUS == 0 )); then
-            SLICE_STATUS[${slice_id}]='PASS (already satisfied — skipped)'
-            printf '  SKIP — already satisfied (%s %s passed); no child apply\n' "${bin}" "${precheck_args[*]}"
-            continue
-        fi
-
-        # Only the children's explicit "contract not satisfied" verdict (exit 1)
-        # triggers convergence. Abnormal termination — including a
-        # signal-derived status like 130 from an interrupted verification — is
-        # propagated verbatim and never escalated into a child apply.
-        if (( CHILD_STATUS != 1 )); then
-            print_child_excerpt
-            child_failed "slice ${slice_id} pre-apply verification" "${bin}" "${precheck_args[@]}"
-        fi
-
-        printf '  APPLY required (%s %s exit status %d)\n' "${bin}" "${precheck_args[*]}" "${CHILD_STATUS}"
-        printf '  APPLY %s %s (child output follows)\n' "${bin}" "${apply_args[*]}"
-
-        # The child's own --apply streams directly: its transaction, its
-        # rollback, its diagnostics — never captured, never swallowed.
-        apply_status=0
-        "${bin}" "${apply_args[@]}" || apply_status=$?
-
-        if (( apply_status != 0 )); then
-            printf 'ERROR: slice %s apply failed: %s %s (exit status %d)\n' \
-                "${slice_id}" "${bin}" "${apply_args[*]}" "${apply_status}" >&2
-            printf 'Earlier slices remain safely converged; fix the surfaced problem and re-run prepare-host --apply to resume at slice %s\n' \
-                "${slice_id}" >&2
-            exit "${apply_status}"
-        fi
-
-        printf '  VERIFY %s (post-apply)%s...\n' "${label}" "$(slice_duration_note "${slice_id}")"
-
-        # Always the authoritative --verify here, never the material-aware
-        # --check: afterwards the only question that matters is whether the
-        # host itself satisfies the contract.
-        mapfile -t verify_args < <(slice_args "${slice_id}" verify)
-        run_child_captured "${bin}" "${verify_args[@]}"
-
-        # The child's own apply reported success while its authoritative
-        # contract still does not hold — the one case where a summary excerpt
-        # is not enough, so the complete child report is printed.
-        if (( CHILD_STATUS != 0 )); then
-            printf '%s\n' "${CHILD_OUTPUT}"
-            child_failed "slice ${slice_id} post-apply verification" "${bin}" "${verify_args[@]}"
-        fi
-
-        SLICE_STATUS[${slice_id}]='PASS (applied and verified)'
-        printf '  PASS verified\n'
-    done
+    if recovery_mode; then
+        printf 'Recovery preparation: the environment file and every host-scope prerequisite come from offsite backup %s, not from supplied material\n' "${RECOVERY_BACKUP}"
+        run_recovery_slices
+    else
+        local slice_id
+        for slice_id in "${SLICE_IDS[@]}"; do
+            converge_slice "${slice_id}"
+        done
+    fi
 
     printf '\nFINAL PREPARATION STATE\n'
     FINAL_STATUS='PASS — target prepared'
     printf '  PASS — %s is prepared\n' "${TARGET_ID}"
 
     print_summary 'TARGET PREPARED' || exit 1
+}
+
+# converge_slice SLICE_ID — one slice of the convergent pipeline: the child's
+# own read-only verdict, SKIP when satisfied, otherwise the child's own --apply
+# followed by its authoritative --verify. Identical in both preparation modes.
+converge_slice() {
+    local slice_id="$1"
+    local label bin apply_status precheck_mode
+    local -a precheck_args apply_args verify_args
+
+    label="$(slice_label "${slice_id}")"
+    bin="$(slice_bin "${slice_id}")"
+
+    # Idempotent, and unconditional for every target-specific slice: no
+    # RateGuru identity, directory, secret or database can come into
+    # existence for a target that has not passed the lifecycle gate.
+    gate_lifecycle_before "${slice_id}"
+
+    precheck_mode="$(slice_preapply_mode "${slice_id}")"
+
+    mapfile -t precheck_args < <(slice_args "${slice_id}" "${precheck_mode}")
+    mapfile -t apply_args < <(slice_args "${slice_id}" apply)
+
+    printf '\nSLICE %s — %s\n' "${slice_id}" "${label}"
+    printf '  %s %s%s...\n' "${precheck_mode^^}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+    run_child_captured "${bin}" "${precheck_args[@]}"
+
+    # The convergence rule, and the reason a second prepare run is cheap
+    # and safe: an already-satisfied slice is SKIPPED outright. Nothing is
+    # reinstalled to "make sure", because "making sure" is what overwrites
+    # a live .env and rotates a working credential.
+    if (( CHILD_STATUS == 0 )); then
+        SLICE_STATUS[${slice_id}]='PASS (already satisfied — skipped)'
+        printf '  SKIP — already satisfied (%s %s passed); no child apply\n' "${bin}" "${precheck_args[*]}"
+        return 0
+    fi
+
+    # Only the children's explicit "contract not satisfied" verdict (exit 1)
+    # triggers convergence. Abnormal termination — including a
+    # signal-derived status like 130 from an interrupted verification — is
+    # propagated verbatim and never escalated into a child apply.
+    if (( CHILD_STATUS != 1 )); then
+        print_child_excerpt
+        child_failed "slice ${slice_id} pre-apply verification" "${bin}" "${precheck_args[@]}"
+    fi
+
+    printf '  APPLY required (%s %s exit status %d)\n' "${bin}" "${precheck_args[*]}" "${CHILD_STATUS}"
+    printf '  APPLY %s %s (child output follows)\n' "${bin}" "${apply_args[*]}"
+
+    # The child's own --apply streams directly: its transaction, its
+    # rollback, its diagnostics — never captured, never swallowed.
+    apply_status=0
+    "${bin}" "${apply_args[@]}" || apply_status=$?
+
+    if (( apply_status != 0 )); then
+        printf 'ERROR: slice %s apply failed: %s %s (exit status %d)\n' \
+            "${slice_id}" "${bin}" "${apply_args[*]}" "${apply_status}" >&2
+        printf 'Earlier slices remain safely converged; fix the surfaced problem and re-run prepare-host --apply to resume at slice %s\n' \
+            "${slice_id}" >&2
+        exit "${apply_status}"
+    fi
+
+    printf '  VERIFY %s (post-apply)%s...\n' "${label}" "$(slice_duration_note "${slice_id}")"
+
+    # Always the authoritative --verify here, never the material-aware
+    # --check: afterwards the only question that matters is whether the
+    # host itself satisfies the contract.
+    mapfile -t verify_args < <(slice_args "${slice_id}" verify)
+    run_child_captured "${bin}" "${verify_args[@]}"
+
+    # The child's own apply reported success while its authoritative
+    # contract still does not hold — the one case where a summary excerpt
+    # is not enough, so the complete child report is printed.
+    if (( CHILD_STATUS != 0 )); then
+        printf '%s\n' "${CHILD_OUTPUT}"
+        child_failed "slice ${slice_id} post-apply verification" "${bin}" "${verify_args[@]}"
+    fi
+
+    SLICE_STATUS[${slice_id}]='PASS (applied and verified)'
+    printf '  PASS verified\n'
+}
+
+# --- Recovery preparation ------------------------------------------------------
+#
+# The ordinary slices, in the ordinary order, with two things placed between
+# them: the recovery material, fetched after the runtime slice has installed
+# rclone and jq and before the host-scope slice needs it; and the offsite-write
+# hold, placed after host bootstrap has created the run root and before the
+# target-scope slice installs the offsite credential.
+
+EFFECTIVE_MATERIAL_DIR=""
+
+run_recovery_slices() {
+    converge_slice "${TARGET_AGNOSTIC_SLICE}"
+
+    # The runtime slice is satisfied, so the registry is readable now and the
+    # gate has to run here — the material fetch is target-specific.
+    gate_lifecycle_before recovery-material
+
+    stage_recovery_material
+
+    converge_slice host-prerequisites
+    converge_slice bootstrap
+
+    hold_offsite_writes
+
+    converge_slice target-prerequisites
+    converge_slice database
+}
+
+# stage_recovery_material — the seed directory the caller supplied becomes the
+# effective material directory the prerequisite slices are fed, through the
+# recovery-material helper. The effective directory is root-only, lives under
+# root's home, and is removed when this run ends however it ends.
+stage_recovery_material() {
+    local seed_dir="${MATERIAL_DIR}"
+
+    printf '\nRECOVERY MATERIAL — offsite backup %s\n' "${RECOVERY_BACKUP}"
+
+    [[ -x "${RECOVERY_MATERIAL_BIN}" ]] \
+        || fail "recovery-material helper is not executable: ${RECOVERY_MATERIAL_BIN} — run from a full repository checkout"
+
+    [[ -d "${RECOVERY_MATERIAL_PARENT}" ]] \
+        || fail "the recovery material parent directory does not exist: ${RECOVERY_MATERIAL_PARENT}"
+
+    EFFECTIVE_MATERIAL_DIR="$(mktemp -d "${RECOVERY_MATERIAL_PARENT%/}/rateguru-recovery-material.XXXXXX")" \
+        || fail "could not create a root-only directory for the recovery material under ${RECOVERY_MATERIAL_PARENT}"
+
+    chmod 0700 "${EFFECTIVE_MATERIAL_DIR}"
+    trap discard_recovery_material EXIT
+
+    printf '  FETCH %s --target %s --backup %s (child output follows)\n' \
+        "${RECOVERY_MATERIAL_BIN}" "${TARGET_ID}" "${RECOVERY_BACKUP}"
+
+    local fetch_status=0
+    "${RECOVERY_MATERIAL_BIN}" \
+        --target "${TARGET_ID}" \
+        --backup "${RECOVERY_BACKUP}" \
+        --seed-dir "${seed_dir}" \
+        --output-dir "${EFFECTIVE_MATERIAL_DIR}" \
+        || fetch_status=$?
+
+    if (( fetch_status != 0 )); then
+        printf 'ERROR: recovery material could not be staged from offsite backup %s (exit status %d)\n' \
+            "${RECOVERY_BACKUP}" "${fetch_status}" >&2
+        printf 'Nothing target-specific was prepared; the helper'"'"'s own diagnosis above says why. The runtime slice stays converged.\n' >&2
+        exit "${fetch_status}"
+    fi
+
+    MATERIAL_DIR="${EFFECTIVE_MATERIAL_DIR}"
+
+    printf '  PASS — effective material staged root-only in %s (removed when this run ends)\n' "${EFFECTIVE_MATERIAL_DIR}"
+}
+
+# discard_recovery_material — on every exit path. Guarded by construction:
+# only a directory this run created under the recovery material parent, by the
+# name mktemp gave it, is ever removed.
+discard_recovery_material() {
+    if [[ -n "${EFFECTIVE_MATERIAL_DIR}" ]] \
+        && [[ "${EFFECTIVE_MATERIAL_DIR}" == "${RECOVERY_MATERIAL_PARENT%/}/rateguru-recovery-material."* ]]
+    then
+        rm -rf -- "${EFFECTIVE_MATERIAL_DIR}"
+    fi
+}
+
+# offsite_write_hold_path — the same path common's offsite_write_hold_file
+# composes; stated here because this script cannot source common, and pinned
+# to it by a test.
+offsite_write_hold_path() {
+    printf '%s/offsite-write-hold\n' "${OPERATIONAL_RUN_ROOT%/}"
+}
+
+# hold_offsite_writes — after host bootstrap created the run root, before the
+# offsite credential exists on this host. Idempotent: a hold that is already
+# there is reported and kept, never rewritten. The document carries identity
+# only — which target, which backup, which operation placed it and when.
+hold_offsite_writes() {
+    local marker
+    marker="$(offsite_write_hold_path)"
+
+    printf '\nOFFSITE-WRITE HOLD\n'
+
+    [[ -d "${OPERATIONAL_RUN_ROOT}" ]] \
+        || fail "the operational run root ${OPERATIONAL_RUN_ROOT} does not exist after host bootstrap — the offsite-write hold cannot be recorded, so preparation stops before the offsite credential is installed"
+
+    if [[ -e "${marker}" ]] || [[ -L "${marker}" ]]; then
+        printf '  OFFSITE WRITES: HELD (already) — %s\n' "${marker}"
+        return 0
+    fi
+
+    jq -n \
+        --arg hold offsite-writes \
+        --arg reason host-recovery \
+        --arg target "${TARGET_ID}" \
+        --arg backup "${RECOVERY_BACKUP}" \
+        --arg created_by "prepare-host --recovery-backup" \
+        --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            hold: $hold,
+            reason: $reason,
+            target: $target,
+            backup: $backup,
+            created_by: $created_by,
+            created_at: $created_at
+        }' > "${marker}.tmp" \
+        || { rm -f "${marker}.tmp"; fail "could not write the offsite-write hold ${marker}"; }
+
+    chmod 0600 "${marker}.tmp"
+    mv -f "${marker}.tmp" "${marker}" \
+        || { rm -f "${marker}.tmp"; fail "could not install the offsite-write hold ${marker}"; }
+
+    printf '  OFFSITE WRITES: HELD — %s\n' "${marker}"
+    printf '  backup-cycle, offsite-backup and offsite-retention refuse on this host until it is\n'
+    printf '  deliberately adopted; the target scheduler and queue are not affected.\n'
 }
 
 # --- Entry point --------------------------------------------------------------
@@ -926,6 +1151,23 @@ parse_args() {
                 MATERIAL_DIR_SEEN=true
                 shift 2
                 ;;
+            --recovery-backup)
+                if [[ "${RECOVERY_BACKUP_SEEN}" == true ]]; then
+                    fail "--recovery-backup given more than once"
+                fi
+
+                if [[ $# -lt 2 ]] || [[ -z "${2-}" ]]; then
+                    fail "--recovery-backup requires a non-empty value"
+                fi
+
+                case "$2" in
+                    -*) fail "--recovery-backup requires a value, not another option: $2" ;;
+                esac
+
+                RECOVERY_BACKUP="$2"
+                RECOVERY_BACKUP_SEEN=true
+                shift 2
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -950,6 +1192,23 @@ parse_args() {
     if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
         fail "--verify never consults supplied material; it inspects the prepared host only"
     fi
+
+    if [[ "${RECOVERY_BACKUP_SEEN}" == true ]]; then
+        # An exact backup ID by shape; whether it is a real timestamp, and
+        # whether it exists, is the recovery-material helper's decision.
+        [[ "${RECOVERY_BACKUP}" =~ ^[0-9]{8}-[0-9]{6}$ ]] \
+            || fail "--recovery-backup requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${RECOVERY_BACKUP}); there is no 'latest'"
+
+        [[ "${MODE}" == apply ]] \
+            || fail "--recovery-backup is only valid with --apply: a recovery preparation fetches material from the backup, which a read-only mode never does"
+
+        [[ "${MATERIAL_DIR_SEEN}" == true ]] \
+            || fail "--recovery-backup requires --material-dir naming the seed directory (rclone-config and deploy-authorized-keys)"
+    fi
+}
+
+recovery_mode() {
+    [[ -n "${RECOVERY_BACKUP}" ]]
 }
 
 main() {

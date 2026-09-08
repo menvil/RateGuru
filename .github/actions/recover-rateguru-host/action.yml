@@ -34,10 +34,11 @@ description: >-
 # NO SECRETS, BY CONSTRUCTION. This action has no material inputs at all — not
 # a Laravel environment file, not authorized_keys, not an rclone config, not
 # Basic Auth hashes, not a TLS certificate or key. Prepare Host is what puts
-# external material on the replacement machine, from the GitHub Environment
-# that owns it. Recovery COMPARES the prepared environment file against the
-# backup's and refuses on a difference; it never writes one, never rotates a
-# secret and never alters a database password.
+# external material on the replacement machine — out of the same schema 3
+# backup this recovery restores, for a clean-host recovery. Recovery COMPARES
+# the prepared environment file against the backup's and refuses on a
+# difference; it never writes one, never rotates a secret and never alters a
+# database password.
 #
 # CREDENTIAL SEPARATION. This uses the privileged BOOTSTRAP credential, the
 # same one host preparation and repair use, and deliberately NOT the deploy
@@ -163,6 +164,15 @@ outputs:
   health:
     description: "The host's health after a completed recovery"
     value: ${{ steps.recover.outputs.health }}
+
+  offsite-writes:
+    description: >-
+      Whether the host-global offsite-write hold is in place on the
+      replacement machine — `held` whenever a recovery result is reported.
+      The recovered host's backup cron, offsite uploader and offsite pruner
+      refuse while it exists, because DEPLOY_HOST and DNS still point at the
+      machine that owns the real offsite namespace.
+    value: ${{ steps.recover.outputs['offsite-writes'] }}
 
 runs:
   using: composite
@@ -601,6 +611,7 @@ runs:
           echo "current-release=$(jq -r '.current_release' <<<"${result_json}")"
           echo "source-sha=$(jq -r '.source_sha' <<<"${result_json}")"
           echo "health=$(jq -r '.health' <<<"${result_json}")"
+          echo "offsite-writes=$(jq -r '.offsite_writes // empty' <<<"${result_json}")"
         } >> "${GITHUB_OUTPUT}"
 
         {
@@ -616,6 +627,7 @@ runs:
           echo "- Data restored: \`$(jq -r '.data_restored' <<<"${result_json}")\`"
           echo "- Current release: \`$(jq -r '.current_release' <<<"${result_json}")\` (source \`$(jq -r '.source_sha' <<<"${result_json}")\`)"
           echo "- Health: \`$(jq -r '.health' <<<"${result_json}")\` · Queue: \`$(jq -r '.queue' <<<"${result_json}")\` · Scheduler: \`$(jq -r '.scheduler' <<<"${result_json}")\`"
+          echo "- Offsite writes (backup cron, uploader, pruner): \`$(jq -r '.offsite_writes // "unknown"' <<<"${result_json}")\`"
         } >> "${GITHUB_STEP_SUMMARY}"
 
     # Runs on failure too. Uploaded tooling must never outlive the run that

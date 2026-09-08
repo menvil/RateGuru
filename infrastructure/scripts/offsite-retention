@@ -319,6 +319,13 @@ perform_offsite_retention() {
     REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"
     LOCK_FILE="${RUN_ROOT}/offsite-retention-${BACKUP_NAMESPACE}.lock"
 
+    # The offsite-write hold a host recovery leaves behind. Retention is the
+    # one step that DELETES remote history, and a recovered host must never
+    # prune the namespace the machine it replaced (or was rehearsed beside)
+    # still owns — in dry-run too, because a dry-run on a held host is a
+    # rehearsal of exactly the mistake the hold exists to prevent.
+    assert_no_offsite_write_hold "${RUN_ROOT}" "offsite retention"
+
     [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
 
     log "${LABEL} offsite retention"

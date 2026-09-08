@@ -104,9 +104,26 @@ Downloading, checksum verification, manifest identity, archive safety, the
 accepted primitives — `fetch-backup`, `verify-backup`, `restore-database`,
 `restore-storage`. Recovery implements none of them a second time.
 
-The backup format is unchanged. There is no manifest v3, no recovery-only
-field and no duplicate `source_sha`: the commit comes from the
-`release.json.source_sha` every backup already carries.
+There is no recovery-only field and no duplicate `source_sha`: the commit
+comes from the `release.json.source_sha` every backup already carries.
+
+**The backup must be clean-host-recovery-capable.** After `verify-backup` has
+proven the staged backup, and before anything is restored, `--apply` requires
+the manifest to be **schema 3** — the format that carries
+`recovery-material.tar.gz`, the target's host-scope external prerequisites
+under their logical names, which is what the recovery preparation was fed. An
+older backup is refused by name, before any mutation:
+
+```text
+backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema
+is 2, and a host recovery requires schema 3 … No data was staged or activated
+```
+
+There is deliberately no fallback to hand-supplied material. A schema 1 or 2
+backup stays fully restorable onto a **live** target through Restore Target
+Data; for a clean-host recovery, take a new backup on a live host. The accepted
+schema is recorded (`BACKUP SCHEMA: 3`) in the state, the history and every
+report. See [`backups.md`](backups.md) for the format.
 
 ---
 
@@ -380,11 +397,38 @@ RECOVERY STATUS: AWAITING CODE
 * `current` absent, `previous` absent;
 * **no maintenance mode** — a `PRE_DEPLOY` target has no `current`, so there is
   no artisan to run and nothing serving to take down;
-* the retained pre-recovery database and storage tree still present.
+* the retained pre-recovery database and storage tree still present;
+* the host-global **offsite-write hold** in place (below).
 
 Never: `cron` stopped globally, Supervisor stopped globally, Nginx, PostgreSQL
 or Redis touched at all. Only this target's own program group and its own cron
 file.
+
+### The offsite-write hold
+
+A recovered machine is a complete host: it carries the offsite credential, the
+`rateguru-backups` cron entry and the retention pruner, and — while the target
+is still bound to the long-lived host — it must never upload into, or prune,
+the namespace that host owns.
+
+So `--apply` writes `/home/www/rateguru/run/offsite-write-hold` (the path
+`common` composes as `offsite_write_hold_file`) right after the recovery guard
+and before it downloads a byte; the recovery preparation places the same
+marker earlier still, before the offsite credential is installed. A hold that
+is already there is kept, never rewritten. While it exists, `backup-cycle`,
+`offsite-backup` and `offsite-retention` refuse to run at all
+(`OFFSITE WRITES: HELD — … is refused on this host`); the local `backup` and
+`restore-test` are unaffected, and so is reading the namespace. The cron
+entry itself is neither deleted nor renamed — the fence is the marker, and
+the refusal is the writers' own.
+
+Every later mode proves it: `--inspect`, `--resume` and `--verify` fail if the
+marker is gone, and the guard, the state, the history, the machine-readable
+result (`offsite_writes: held`) and every report (`OFFSITE WRITES: HELD`)
+carry it. **Nothing releases it** — not `--resume`, not `--verify`, not a later
+preparation or repair. Removing the marker is part of deliberately adopting
+the machine as the target's host, alongside repointing `DEPLOY_HOST` and DNS,
+and is never automated.
 
 ---
 
@@ -694,7 +738,7 @@ digest, a private path or a host detail:
 ```
 RATEGURU_RECOVER_RESULT={"status":"awaiting-code","operation":"…","target":"staging-main",
   "environment":"staging","backup":"20260115-023000","backup_release":"…",
-  "required_source_sha":"…","data_restored":true, …}
+  "required_source_sha":"…","data_restored":true,"offsite_writes":"held", …}
 ```
 
 | Mode | `status` |
@@ -727,12 +771,21 @@ Read-only, and independent of any operation:
 * the storage tree is present with the ownership and modes deploy creates;
 * the scheduler cron entry is present;
 * the queue is **RUNNING**;
-* the health check **passes**.
+* the health check **passes**;
+* the offsite-write hold is in place — `OFFSITE WRITES: HELD`, and
+  `offsite_writes: held` in the result.
 
 `previous` being absent is **not** a failure. A freshly recovered host has had
 exactly one deployment and the recovery deployment leaves no implicit rollback
 target on purpose — demanding a deployment history that never existed would make
 a correct recovery unverifiable.
+
+Stated as the whole picture after a successful recovery: TARGET is still
+`staging-main`, HOST is the replacement machine, the data and the environment
+file are the exact backup's (schema 3), `current` is the exact `source_sha`,
+`previous` is absent, no migration ran, queue RUNNING, scheduler PRESENT, no
+guard, health PASS, offsite writers HELD, `DEPLOY_HOST` unchanged, DNS
+unchanged, and the old host untouched.
 
 ---
 

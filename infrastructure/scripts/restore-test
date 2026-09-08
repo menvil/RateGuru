@@ -27,6 +27,10 @@ CREATEDB_BIN_DEFAULT="/usr/bin/createdb"
 DROPDB_BIN_DEFAULT="/usr/bin/dropdb"
 PG_RESTORE_BIN_DEFAULT="/usr/bin/pg_restore"
 PSQL_BIN_DEFAULT="/usr/bin/psql"
+# The installed external-material installer: the one prerequisite table a
+# schema 3 backup's recovery material is judged against. The same override
+# name backup uses for the same binary.
+PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"
 
 BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
@@ -34,8 +38,13 @@ CREATEDB_BIN="${CREATEDB_BIN_DEFAULT}"
 DROPDB_BIN="${DROPDB_BIN_DEFAULT}"
 PG_RESTORE_BIN="${PG_RESTORE_BIN_DEFAULT}"
 PSQL_BIN="${PSQL_BIN_DEFAULT}"
+PREREQUISITES_BIN="${PREREQUISITES_BIN_DEFAULT}"
 
 if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
+        PREREQUISITES_BIN="${RATEGURU_PREREQUISITES_BIN}"
+    fi
+
     if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
         BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
     fi
@@ -120,13 +129,20 @@ resolve_restore_subject() {
 #
 # Runs before createdb, always — a manifest mismatch must never reach the
 # point of creating a temporary database. project/environment/database are
-# required on every backup this repository has ever produced, schema 1 or
-# schema 2 alike. backup_namespace is only demanded for schema 2, because
+# required on every backup this repository has ever produced, schema 1, 2 or
+# 3 alike. backup_namespace is only demanded for schema 2 and 3, because
 # schema 1 backups (everything produced before schema 2 was introduced)
 # never had that field. A schema 2 backup whose target is non-null must
 # match TARGET_ID; a null target (every backup produced before this cutover,
 # when the operational selector was not yet target-only) never triggers that
-# check — historical manifest content is immutable and stays restorable.
+# check — historical manifest content is immutable and stays restorable. A
+# schema 3 manifest is never written without a target, so there a null one
+# is a defect rather than history.
+#
+# Sets MANIFEST_SCHEMA to the classification, so the pipeline can demand
+# what a schema 3 backup additionally carries.
+MANIFEST_SCHEMA=""
+
 validate_backup_manifest() {
     local manifest_path="$1"
 
@@ -152,18 +168,20 @@ validate_backup_manifest() {
     # JSON number 2, and any non-scalar value into an indistinguishable bash
     # string, which previously let anything other than the literal string
     # "2" silently fall through as schema 1 (fail-open) — a schema_version of
-    # 3, 0, the JSON string "2" (not a number), "garbage", an array, an
-    # object or a boolean all compared unequal to "2" and were accepted as
+    # 0, 4, the JSON string "2" or "3" (not a number), "garbage", an array,
+    # an object or a boolean all compared unequal to "2" and were accepted as
     # legacy schema 1 without ever being rejected. `type` disambiguates this:
     # "null" covers both an absent key and an explicit JSON null (schema 1,
     # per contract); "number" is checked again, separately and strictly,
-    # against the literal value 2; every other type is rejected outright,
-    # before createdb, with the offending value's own JSON representation in
-    # the error.
+    # against the literal values 2 and 3; every other type is rejected
+    # outright, before createdb, with the offending value's own JSON
+    # representation in the error. This is the same contract common's
+    # manifest_schema_classify states, kept inline here on purpose and pinned
+    # to it by a test.
     local manifest_schema_type
     manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
 
-    local schema_is_v2=false
+    MANIFEST_SCHEMA=schema1
 
     case "${manifest_schema_type}" in
         null)
@@ -174,11 +192,11 @@ validate_backup_manifest() {
             local manifest_schema_version
             manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
 
-            if [[ "${manifest_schema_version}" == "2" ]]; then
-                schema_is_v2=true
-            else
-                fail "unsupported backup manifest schema_version: ${manifest_schema_version}"
-            fi
+            case "${manifest_schema_version}" in
+                2) MANIFEST_SCHEMA=schema2 ;;
+                3) MANIFEST_SCHEMA=schema3 ;;
+                *) fail "unsupported backup manifest schema_version: ${manifest_schema_version}" ;;
+            esac
             ;;
         *)
             local manifest_schema_value
@@ -187,7 +205,7 @@ validate_backup_manifest() {
             ;;
     esac
 
-    if [[ "${schema_is_v2}" == true ]]; then
+    if [[ "${MANIFEST_SCHEMA}" != schema1 ]]; then
         local manifest_backup_namespace
         manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -201,6 +219,9 @@ validate_backup_manifest() {
             null)
                 # Absent or explicit JSON null — a schema 2 manifest
                 # predating the target-only cutover; no target to compare.
+                # A schema 3 manifest is never written without one.
+                [[ "${MANIFEST_SCHEMA}" != schema3 ]] \
+                    || fail "backup manifest target is missing — a schema 3 manifest always names its target"
                 ;;
             string)
                 local manifest_target
@@ -219,6 +240,46 @@ validate_backup_manifest() {
                 ;;
         esac
     fi
+}
+
+# --- recovery material (schema 3) --------------------------------------------
+#
+# A schema 3 backup is what a clean-host recovery is seeded from, so a restore
+# test of one proves the extra half too: recovery-material.tar.gz is present,
+# checksummed exactly once, structurally safe, and holds exactly the target's
+# host-scope external prerequisites under their logical names. The vocabulary
+# and the structural check both belong to install-target-prerequisites — the
+# one prerequisite table Prepare Host installs from — and are delegated to its
+# read-only --validate-recovery-material mode, never re-derived here.
+#
+# Nothing is extracted, and nothing about the material's content is printed:
+# the validator reports logical names only.
+validate_recovery_material() {
+    local backup_directory="$1"
+    local archive="${backup_directory}/recovery-material.tar.gz"
+    local listed
+
+    [[ -e "${archive}" ]] || fail "schema 3 backup is missing recovery-material.tar.gz"
+    [[ ! -L "${archive}" ]] || fail "recovery-material.tar.gz must not be a symlink"
+    [[ -f "${archive}" ]] || fail "recovery-material.tar.gz must be a regular file"
+
+    listed="$(grep -c -E '^[0-9a-f]{64}  recovery-material\.tar\.gz$' "${backup_directory}/SHA256SUMS" || true)"
+
+    [[ "${listed}" == "1" ]] \
+        || fail "SHA256SUMS must cover recovery-material.tar.gz exactly once (found ${listed} entries)"
+
+    [[ -x "${PREREQUISITES_BIN}" ]] \
+        || fail "the external-material installer is not available at ${PREREQUISITES_BIN} — a schema 3 backup's recovery material cannot be checked without it"
+
+    local output status=0
+    output="$("${PREREQUISITES_BIN}" --validate-recovery-material --target "${TARGET_ID}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "recovery material archive is not acceptable for ${TARGET_ID}"
+    fi
+
+    log "Recovery material: OK ($(tail -n 1 <<<"${output}"))"
 }
 
 # --- restore-test pipeline -------------------------------------------------
@@ -290,6 +351,10 @@ perform_restore_test() {
         >/dev/null
 
     validate_backup_manifest "${BACKUP_DIRECTORY}/manifest.json"
+
+    if [[ "${MANIFEST_SCHEMA}" == schema3 ]]; then
+        validate_recovery_material "${BACKUP_DIRECTORY}"
+    fi
 
     runuser -u postgres -- \
         "${CREATEDB_BIN}" \

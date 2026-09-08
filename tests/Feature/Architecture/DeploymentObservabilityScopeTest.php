@@ -227,20 +227,22 @@ it('leaves the backup architecture and its manifest schema untouched', function 
     // anywhere.
     $backup = File::get(base_path('infrastructure/scripts/backup'));
 
-    // The same six files, written under the same names.
+    // The same files, written under the same names.
     foreach ([
         'database.dump',
         'storage-app.tar.gz',
         'environment.env',
         'server-configuration.tar.gz',
+        'recovery-material.tar.gz',
         'SHA256SUMS',
         'manifest.json',
     ] as $artifact) {
         expect($backup)->toContain($artifact);
     }
 
-    // The same manifest schema, and the classifier that reads it.
-    expect($backup)->toContain('--argjson manifest_schema_version 2');
+    // The manifest schema common states as current, and the classifier that
+    // reads it.
+    expect($backup)->toContain('--argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}"');
     expect(File::get(base_path('infrastructure/scripts/common')))
         ->toContain('manifest_schema_classify');
 

@@ -27,7 +27,9 @@ These are different operations and must never be conflated.
 A restore guard blocks Repair Target in every state, so these two can never run
 against the same target at the same time.
 
-A backup contains seven files. A live restore **applies exactly two of them**:
+A backup contains seven files (manifest schema 1 and 2) or eight (schema 3,
+which adds `recovery-material.tar.gz`). A live restore **applies exactly two
+of them**, whichever the schema:
 
 ```
 database.dump              restored
@@ -38,11 +40,13 @@ release.json               verified, never applied
 SHA256SUMS                 verified, never applied
 environment.env            verified, NEVER applied
 server-configuration.tar.gz  verified, NEVER applied
+recovery-material.tar.gz   verified (schema 3), NEVER applied
 ```
 
-`environment.env` and `server-configuration.tar.gz` are required to be present
-and checksum-valid — a backup missing either is incomplete and is refused —
-and are then never read again. A live restore therefore never changes
+`environment.env`, `server-configuration.tar.gz` and — for a schema 3 backup
+— `recovery-material.tar.gz` are required to be present and checksum-valid —
+a backup missing any of them is incomplete and is refused — and are then never
+read again. A live restore therefore never changes
 `shared/.env`, `rclone.conf`, TLS material, `authorized_keys`, the Nginx
 site, the PHP-FPM pool, the Supervisor program, the installed infrastructure
 under `/home/www/rateguru/bin`, or the `current` / `previous` release links.
@@ -156,18 +160,26 @@ operation, from scratch. An entry in `restore-tests.jsonl` proves a backup was
 good when it was tested; it proves nothing about the bytes in this workspace
 right now. In order:
 
-1. the seven backup files exist and are plain regular files;
-2. `SHA256SUMS` names exactly the six checksummed backup files, once each, and
-   nothing else — checked **before** `sha256sum --check` follows a single
-   path, so an entry naming `/etc/shadow` or `../../something` never reaches
-   it;
+1. the manifest is a plain regular file and decides the schema, and the
+   schema's closed file set — seven files for schema 1 and 2, eight for
+   schema 3 — exists exactly, as plain regular files, with nothing beyond it;
+2. `SHA256SUMS` names exactly the checksummed backup files of that schema (six,
+   or seven with `recovery-material.tar.gz`), once each, and nothing else —
+   checked **before** `sha256sum --check` follows a single path, so an entry
+   naming `/etc/shadow` or `../../something` never reaches it;
 3. every checksum matches;
 4. the manifest identifies THIS target — project, environment, database, and
-   (schema 2) backup namespace and target. The existing schema 1 / schema 2
-   contract is reused unchanged, including its acceptance of historical
-   manifests that predate the target field;
+   (schema 2 and 3) backup namespace and target. The existing schema 1 /
+   schema 2 contract is reused unchanged, including its acceptance of
+   historical schema 2 manifests that predate the target field; a schema 3
+   manifest always names its target;
 5. the storage archive would create nothing but directories and regular files,
-   all under `app/`.
+   all under `app/`;
+6. for schema 3, the recovery material archive is judged by
+   `install-target-prerequisites --validate-recovery-material`: exactly the
+   target's host-scope logical names, top-level regular files, nothing else.
+   Names are reported; content never is. The archive is never applied by a
+   live restore.
 
 For a destructive restore only, `--for-restore` adds the **recovery identity**
 gate: `release.json` must carry a usable `release` and `source_sha`, and a

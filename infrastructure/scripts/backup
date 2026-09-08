@@ -36,14 +36,24 @@ RUN_ROOT_DEFAULT="/home/www/rateguru/run"
 SYSTEM_ROOT_DEFAULT="/"
 PG_DUMP_BIN_DEFAULT="/usr/bin/pg_dump"
 PHP_BIN_DEFAULT="/usr/bin/php8.5"
+# The installed external-material installer. Its --capture mode is how a
+# backup gains the host-scope recovery material a clean-host recovery needs,
+# from the one prerequisite table Prepare Host installs from — this script
+# never lists that material itself.
+PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"
 
 BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
 SYSTEM_ROOT="${SYSTEM_ROOT_DEFAULT}"
 PG_DUMP_BIN="${PG_DUMP_BIN_DEFAULT}"
 PHP_BIN="${PHP_BIN_DEFAULT}"
+PREREQUISITES_BIN="${PREREQUISITES_BIN_DEFAULT}"
 
 if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
+        PREREQUISITES_BIN="${RATEGURU_PREREQUISITES_BIN}"
+    fi
+
     if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
         BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
     fi
@@ -199,12 +209,71 @@ build_server_configuration_archive() {
     fi
 }
 
+# --- recovery material ----------------------------------------------------
+#
+# The host-scope external material a clean-host recovery has to put back
+# before the host can even serve TLS: the target's certificate and private
+# key, the Basic Auth hashes, the shared Nginx TLS material and the
+# mail-capture certificate. Captured through install-target-prerequisites
+# --capture — the same prerequisite table Prepare Host installs from — so the
+# archive is written in the exact vocabulary the recovery will read it in, and
+# this script never carries a list of its own.
+#
+# Deliberately NOT in this archive, each for its own reason:
+#   environment.env         already a backup member of its own
+#   rclone.conf             the offsite credential — a recovery supplies its
+#                           own, so a backup can never hand out the key to the
+#                           namespace it is stored in
+#   the deploy public key   derived by the recovery from the deploy credential
+#   any private SSH key, any bootstrap credential, any database password apart
+#   from the ones inside environment.env, and any application artifact
+#
+# The archive holds top-level regular files only, one per logical name, and
+# a recovery validates exactly that before extracting a byte. Its members are
+# never read, hashed, measured or logged here; the only thing printed is a
+# logical name. A capture that cannot be completed safely FAILS the backup:
+# a backup missing this material would be reported as a success and then
+# found unusable on the worst day, which is worse than no backup at all.
+build_recovery_material_archive() {
+    local capture_dir="${TEMP_ROOT}/.recovery-material"
+
+    install -d -o root -g root -m 0700 "${capture_dir}"
+
+    [[ -x "${PREREQUISITES_BIN}" ]] \
+        || fail "the external-material installer is not available at ${PREREQUISITES_BIN} — a backup cannot capture the recovery material a clean-host recovery needs without it, so no backup is written"
+
+    "${PREREQUISITES_BIN}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}" \
+        || fail "host-scope recovery material could not be captured for ${TARGET_ID} — refusing to write a backup that a clean-host recovery could not use"
+
+    local -a names=()
+    mapfile -t names < <(find "${capture_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+
+    (( ${#names[@]} > 0 )) \
+        || fail "the recovery material capture for ${TARGET_ID} produced no files — refusing to write a backup that a clean-host recovery could not use"
+
+    # Named members from a fixed directory: the archive carries bare logical
+    # names and nothing else — no directory entry, no path prefix, no link.
+    tar \
+        -C "${capture_dir}" \
+        -czf "${TEMP_ROOT}/recovery-material.tar.gz" \
+        -- "${names[@]}"
+
+    chmod 0600 "${TEMP_ROOT}/recovery-material.tar.gz"
+
+    rm -rf -- "${capture_dir}"
+
+    log "Recovery material captured: ${#names[@]} host-scope files (${names[*]}); content never read or logged"
+}
+
 # --- manifest -----------------------------------------------------------
 #
-# manifest_schema_version 2, backward compatible with schema 1 (the format
-# every backup on disk before schema 2 was introduced used, with no
-# manifest_schema_version/selector/target/backup_namespace fields at all):
-# restore-test still accepts those, see its own manifest validation.
+# manifest_schema_version 3: the format that carries recovery-material.tar.gz,
+# which is what makes a backup usable for a clean-host recovery. Backward
+# compatible on the READ side with schema 2 (the same fields, seven files,
+# no recovery material) and schema 1 (no manifest_schema_version/selector/
+# target/backup_namespace fields at all): every reader in this repository —
+# restore-test, the offsite scripts and the restore primitives — still
+# accepts those for a live restore, see common's backup format contract.
 build_manifest() {
     # Captured into their own assignments — not inline inside the jq
     # invocation — so that a failure of either command (e.g. a broken
@@ -228,7 +297,7 @@ build_manifest() {
         --arg release "${CURRENT_RELEASE}" \
         --arg postgres_version "${postgres_version}" \
         --arg php_version "${php_version}" \
-        --argjson manifest_schema_version 2 \
+        --argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}" \
         '{
             manifest_schema_version: $manifest_schema_version,
             project: $project,
@@ -328,19 +397,18 @@ perform_backup() {
     log "Backing up server configuration"
 
     build_server_configuration_archive
+
+    log "Capturing host-scope recovery material"
+
+    build_recovery_material_archive
     build_manifest
 
+    # Every checksummed file of the current schema, in the one order common's
+    # backup format contract states — the same list every reader is held to.
     (
         cd "${TEMP_ROOT}"
 
-        sha256sum \
-            database.dump \
-            storage-app.tar.gz \
-            environment.env \
-            release.json \
-            server-configuration.tar.gz \
-            manifest.json \
-            > SHA256SUMS
+        sha256sum "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" > SHA256SUMS
     )
 
     mv "${TEMP_ROOT}" "${FINAL_ROOT}"

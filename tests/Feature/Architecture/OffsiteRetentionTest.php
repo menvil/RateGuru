@@ -1080,3 +1080,47 @@ it('reports no timestamped remote backups found without failing when the namespa
         offsiteRetentionOpsCleanup($scratch);
     }
 });
+
+// =============================================================================
+// The offsite-write hold
+// =============================================================================
+
+it('refuses to prune, or even to compute a prune, while offsite writes are held', function () {
+    $scratch = offsiteRetentionOpsScratchDir();
+
+    try {
+        $bucketRoot = $scratch.'/bucket';
+        mkdir($bucketRoot, 0o755, true);
+        $oldTs = offsiteRetentionOpsTimestampDaysAgo(40);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
+
+        $runRoot = $scratch.'/run-held';
+        mkdir($runRoot, 0o700, true);
+        file_put_contents($runRoot.'/offsite-write-hold', json_encode(['hold' => 'offsite-writes', 'created_by' => 'recover-host --apply']));
+        $invocationLog = $scratch.'/rclone-invocations.log';
+
+        $env = offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_RCLONE_BUCKET' => $bucketRoot,
+            'RATEGURU_RUN_ROOT' => $runRoot,
+            'RCLONE_INVOCATION_LOG' => $invocationLog,
+        ]);
+
+        foreach ([
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
+        ] as $body) {
+            [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, $body, $env);
+
+            expect($exit)->not->toBe(0, $output);
+            expect($output)->toContain('OFFSITE WRITES: HELD — offsite retention is refused on this host');
+        }
+
+        // Not one rclone call: a held machine does not even list the namespace
+        // it must not prune.
+        expect(File::exists($invocationLog) ? trim(File::get($invocationLog)) : '')->toBe('');
+        expect(is_dir("{$bucketRoot}/rateguru/staging/{$oldTs}"))->toBeTrue();
+    } finally {
+        offsiteRetentionOpsCleanup($scratch);
+    }
+});

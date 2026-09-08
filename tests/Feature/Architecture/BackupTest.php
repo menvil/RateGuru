@@ -451,7 +451,7 @@ function backupOpsBuildSystemRoot(string $scratch): string
  *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = []): array
 {
     $fixture = backupOpsBuildFixture($scratch);
     $sysroot = backupOpsBuildSystemRoot($scratch);
@@ -467,7 +467,12 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
 
     [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays, $minimumRetainedBackups);
 
-    $env = backupOpsBaseEnv($scratch, [
+    // The REAL external-material installer captures the recovery material,
+    // from a scratch host tree holding every host-scope prerequisite, through
+    // the same prerequisite table Prepare Host installs from.
+    // A caller's overrides win over the harness defaults (PHP's + keeps the
+    // left operand's keys).
+    $env = backupOpsBaseEnv($scratch, $extraEnv + recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_BACKUP_BASE' => $backupBase,
         'RATEGURU_RUN_ROOT' => $runRoot,
         'RATEGURU_SYSTEM_ROOT' => $sysroot,
@@ -492,6 +497,8 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
         'runRoot' => $runRoot,
         'sysroot' => $sysroot,
         'pgDumpLog' => $pgDumpLog,
+        'registryPath' => $registryPath,
+        'targetsPath' => $targetsPath,
     ];
 }
 
@@ -825,7 +832,7 @@ it('cannot run two backups concurrently against the same namespace', function ()
 // Full pipeline (root-bypassed via backupOpsPatchedScript)
 // =============================================================================
 
-it('creates all seven required backup files, with a passing SHA256SUMS', function () {
+it('creates exactly the eight files of a schema 3 backup, with a passing SHA256SUMS that covers the recovery material once', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -834,18 +841,143 @@ it('creates all seven required backup files, with a passing SHA256SUMS', functio
 
         $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
 
-        foreach ([
-            'database.dump', 'storage-app.tar.gz', 'environment.env',
-            'release.json', 'server-configuration.tar.gz', 'manifest.json', 'SHA256SUMS',
-        ] as $file) {
+        $expected = [
+            'database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json',
+            'server-configuration.tar.gz', 'recovery-material.tar.gz', 'manifest.json', 'SHA256SUMS',
+        ];
+
+        foreach ($expected as $file) {
             expect(file_exists($backupDir.'/'.$file))->toBeTrue("missing required backup file: {$file}");
         }
 
+        // Exactly the closed set: the capture's own working directory must not
+        // survive into the finished backup.
+        $present = array_values(array_diff(scandir($backupDir), ['.', '..']));
+        sort($present);
+        $sorted = $expected;
+        sort($sorted);
+        expect($present)->toBe($sorted);
+
         exec('cd '.escapeshellarg($backupDir).' && sha256sum --check SHA256SUMS 2>&1', $checkOutput, $checkExit);
         expect($checkExit)->toBe(0, implode("\n", $checkOutput));
+
+        // The checksummed list, in the exact order common states it, with the
+        // recovery material named exactly once.
+        $names = array_map(
+            static fn (string $line): string => preg_split('/ {2}/', $line, 2)[1],
+            array_filter(preg_split('/\R/', trim(File::get($backupDir.'/SHA256SUMS')))),
+        );
+
+        expect(array_values($names))->toBe([
+            'database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json',
+            'server-configuration.tar.gz', 'recovery-material.tar.gz', 'manifest.json',
+        ]);
     } finally {
         backupOpsCleanup($scratch);
     }
+});
+
+it('captures the recovery material under logical names, from the prerequisite table, and never logs its content', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $result = backupOpsRunFullBackup($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
+
+        exec('tar -tzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz'), $listing);
+        sort($listing);
+
+        $expected = recoveryMaterialNames();
+        sort($expected);
+
+        // Bare logical names only: no directory entry, no path prefix.
+        expect($listing)->toBe($expected);
+
+        // Regular files only, and the content is the host's own material —
+        // the certbot destinations on a real host are links, and the archive
+        // carries what they resolve to, never the link.
+        exec('tar -tvzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz'), $verbose);
+        foreach ($verbose as $line) {
+            expect($line)->toStartWith('-');
+        }
+
+        $extracted = $scratch.'/extracted-'.uniqid('', true);
+        mkdir($extracted, 0o700);
+        exec('tar -xzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz').' -C '.escapeshellarg($extracted));
+        expect(File::get($extracted.'/tls-private-key'))->toBe("host-tls-private-key-never-logged\n");
+
+        // Logical names are logged; content is not, and neither is a digest.
+        expect($result['output'])
+            ->toContain('Recovery material captured: 7 host-scope files')
+            ->toContain('tls-private-key')
+            ->not->toContain('never-logged')
+            ->not->toMatch('/[0-9a-f]{64}/');
+
+        // Nothing that must never be in a backup's recovery material is.
+        foreach (['rclone-config', 'rclone.conf', 'deploy-authorized-keys', 'laravel-env', 'environment.env', 'id_ed25519', 'bootstrap'] as $forbidden) {
+            expect($listing)->not->toContain($forbidden);
+        }
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('fails the whole backup, leaving no final directory, when the recovery material cannot be captured', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        // A host missing one of its own host-scope prerequisites: a backup
+        // written regardless would be reported as a success and found
+        // unusable by the recovery that needs it.
+        $result = backupOpsRunFullBackup($scratch, extraEnv: [
+            'RATEGURU_TARGETPREREQ_FS_ROOT' => $scratch.'/empty-host',
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('could not be captured')
+            ->toContain('refusing to write a backup that a clean-host recovery could not use');
+
+        expect(glob($result['backupBase'].'/parity/*'))->toBe([], 'no final backup directory may exist after a failed capture');
+        expect(glob($result['backupBase'].'/parity/.*.tmp'))->toBe([], 'the temporary working directory must be removed');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+
+    $scratch = backupOpsScratchDir();
+
+    try {
+        // And an installer that is simply not there is the same refusal: the
+        // capture is never optional.
+        $result = backupOpsRunFullBackup($scratch, extraEnv: [
+            'RATEGURU_PREREQUISITES_BIN' => $scratch.'/does-not-exist',
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('the external-material installer is not available');
+        expect(glob($result['backupBase'].'/parity/*'))->toBe([]);
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('derives the captured vocabulary from the prerequisite installer and carries no list of its own', function () {
+    $source = backupOpsSource();
+
+    expect($source)
+        ->toContain('"${PREREQUISITES_BIN}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}"')
+        ->toContain('PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"');
+
+    // No logical name is spelled out here: the table lives in the installer.
+    foreach (recoveryMaterialNames() as $name) {
+        expect($source)->not->toContain("'{$name}'");
+    }
+
+    // And the checksummed list is common's, never a second copy.
+    expect($source)->toContain('sha256sum "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" > SHA256SUMS')
+        ->toContain('--argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}"');
 });
 
 it('database dump command receives the resolved target database name', function () {
@@ -892,7 +1024,7 @@ it('copies .env and release metadata into the backup', function () {
     }
 });
 
-it('writes a schema 2 manifest with the correct selector, target, environment, namespace and database', function () {
+it('writes a schema 3 manifest with the correct selector, target, environment, namespace and database', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -903,7 +1035,7 @@ it('writes a schema 2 manifest with the correct selector, target, environment, n
         $manifest = json_decode(File::get($backupDir.'/manifest.json'), true);
 
         expect($manifest)->toMatchArray([
-            'manifest_schema_version' => 2,
+            'manifest_schema_version' => 3,
             'project' => 'rateguru',
             'selector' => 'target',
             'target' => 'parity-target',
@@ -999,7 +1131,7 @@ function backupOpsRunRetentionScenario(
     [$exit, $output] = backupOpsRunHarness(
         $scratch,
         "parse_backup_args --target parity-target\nresolve_backup_subject\nperform_backup",
-        backupOpsBaseEnv($scratch, [
+        backupOpsBaseEnv($scratch, recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
             'RATEGURU_TARGETS_CLI' => $targetsPath,
             'RATEGURU_BACKUP_BASE' => $backupBase,
@@ -1204,6 +1336,30 @@ it('removes the temporary working directory on both success and failure', functi
             ? array_filter(scandir($failureNamespaceRoot) ?: [], fn ($e) => str_starts_with($e, '.') && str_ends_with($e, '.tmp'))
             : [];
         expect($failureTempEntries)->toBeEmpty('no .tmp working directory may remain after a failed backup either');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The offsite-write hold does not reach the local backup
+// =============================================================================
+
+it('still writes a local backup while offsite writes are held', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $runRoot = $scratch.'/run-held';
+        mkdir($runRoot, 0o700, true);
+        file_put_contents($runRoot.'/offsite-write-hold', json_encode(['hold' => 'offsite-writes', 'created_by' => 'recover-host --apply']));
+
+        // A recovered machine keeps taking local backups of its own data;
+        // only the writers of the offsite namespace are fenced.
+        $result = backupOpsRunFullBackup($scratch, extraEnv: ['RATEGURU_RUN_ROOT' => $runRoot]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->not->toContain('OFFSITE WRITES');
+        expect(is_dir(backupOpsLatestBackupDir($result['backupBase'], 'parity')))->toBeTrue();
     } finally {
         backupOpsCleanup($scratch);
     }

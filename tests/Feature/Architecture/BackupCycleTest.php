@@ -1197,3 +1197,36 @@ it('honors every child-binary and backup/run-root override when the allow flag i
         backupCycleCleanup($scratch);
     }
 });
+
+// =============================================================================
+// The offsite-write hold
+// =============================================================================
+
+it('refuses to run at all while offsite writes are held, before its first child and before any record', function () {
+    $scratch = backupCycleScratchDir();
+
+    try {
+        $runRoot = $scratch.'/run-held';
+        mkdir($runRoot, 0o700, true);
+        file_put_contents($runRoot.'/offsite-write-hold', json_encode([
+            'hold' => 'offsite-writes',
+            'reason' => 'host-recovery',
+            'created_by' => 'recover-host --apply',
+        ]));
+
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: true, options: ['run_root' => $runRoot]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('OFFSITE WRITES: HELD — a backup cycle is refused on this host')
+            ->toContain($runRoot.'/offsite-write-hold');
+
+        // No child ran — not even the local backup, because the cycle IS the
+        // offsite pipeline — and no cycle was recorded.
+        expect($result['calls'])->toBe([]);
+        expect(File::exists($result['historyFile']))->toBeFalse();
+        expect(File::exists($runRoot.'/offsite-write-hold'))->toBeTrue('the refusal never removes the hold');
+    } finally {
+        backupCycleCleanup($scratch);
+    }
+});

@@ -12,14 +12,21 @@
 # restore-test passed" would be trusting a different file at a different time.
 #
 # What it proves, in order (each gate before the next has anything to read):
-#   1. the seven backup files exist and are plain regular files;
-#   2. SHA256SUMS names exactly the six checksummed backup files, once each,
-#      and nothing else — before `sha256sum --check` follows a single path;
+#   1. the manifest is a plain regular file whose schema decides the closed
+#      file set — seven files for schema 1 and 2, eight for schema 3 — and
+#      exactly those files exist as plain regular files, with nothing else
+#      beside them;
+#   2. SHA256SUMS names exactly the checksummed backup files of that schema,
+#      once each, and nothing else — before `sha256sum --check` follows a
+#      single path;
 #   3. every checksum matches;
-#   4. the manifest identifies THIS target (existing schema 1/schema 2
-#      contract, unchanged);
+#   4. the manifest identifies THIS target (the existing schema 1/schema 2
+#      contract, extended to schema 3 unchanged);
 #   5. the storage archive would create nothing but directories and regular
-#      files, all under app/.
+#      files, all under app/;
+#   6. for a schema 3 backup, the recovery material archive holds exactly the
+#      target's host-scope external prerequisites as top-level regular files,
+#      judged by the installer that owns that vocabulary and never extracted.
 #
 # --for-restore adds the recovery-identity gate a DESTRUCTIVE live restore
 # needs and a read-only restore test does not: release.json must carry a
@@ -133,14 +140,15 @@ perform_verify_backup() {
     log "${LABEL} verifying staged backup in ${SELECTED_BACKUP_DIR}"
 
     restore_assert_backup_file_set "${SELECTED_BACKUP_DIR}"
-    log "  required files: OK (${#RESTORE_BACKUP_REQUIRED_FILES[@]} regular files)"
+    log "  backup schema: ${RESTORE_BACKUP_SCHEMA}"
+    log "  required files: OK (exactly ${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]} regular files)"
 
     # Before a single checksum is followed: SHA256SUMS is content from the
     # backup, not a trusted index. An entry naming an absolute path, a
     # ../ escape, or any file that is not part of a RateGuru backup would
     # otherwise be handed straight to sha256sum --check.
     restore_assert_sha256sums_entries "${SELECTED_BACKUP_DIR}"
-    log "  SHA256SUMS entry list: OK (exactly the six checksummed backup files)"
+    log "  SHA256SUMS entry list: OK (exactly the ${#RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]} checksummed backup files)"
 
     (
         cd "${SELECTED_BACKUP_DIR}"
@@ -153,6 +161,18 @@ perform_verify_backup() {
 
     restore_assert_storage_archive_safe "${SELECTED_BACKUP_DIR}/storage-app.tar.gz"
     log "  storage archive: OK (directories and regular files under app/ only)"
+
+    # Only a schema 3 backup carries recovery material, and only a schema 3
+    # backup can seed a clean-host recovery. The archive is judged against the
+    # installer's own prerequisite table and never extracted here; the older
+    # schemas simply have nothing to check and stay restorable onto a live
+    # target exactly as before.
+    if backup_schema_supports_clean_host_recovery "${RESTORE_BACKUP_SCHEMA}"; then
+        restore_assert_recovery_material_safe "${SELECTED_BACKUP_DIR}" "${TARGET_ID}"
+        log "  recovery material: OK (${RESTORE_RECOVERY_MATERIAL_REPORT})"
+    else
+        log "  recovery material: none (a ${RESTORE_BACKUP_SCHEMA} backup carries no recovery material and cannot seed a clean-host recovery; it stays restorable onto a live target)"
+    fi
 
     RESTORE_BACKUP_RELEASE=""
     RESTORE_BACKUP_SOURCE_SHA=""
@@ -169,12 +189,17 @@ perform_verify_backup() {
 }
 
 # The orchestrator's machine-readable view of what was proven here. Carries
-# public build identity (an immutable release ID and a Git commit) and the
-# backup's own coordinates — never a checksum digest, an environment value or
-# anything that could act as a fingerprint for secret material.
+# public build identity (an immutable release ID and a Git commit), the
+# backup's own coordinates and its manifest schema — never a checksum digest,
+# an environment value or anything that could act as a fingerprint for secret
+# material. The schema is what lets a host recovery refuse a backup that
+# carries no recovery material before it touches the target.
 write_identity_document() {
     local identity_file
     identity_file="$(restore_identity_file "${WORKSPACE}")"
+
+    local schema_number
+    schema_number="$(restore_backup_schema_number "${RESTORE_BACKUP_SCHEMA}")"
 
     local tmp
     tmp="$(mktemp "${identity_file}.XXXXXX")"
@@ -190,6 +215,7 @@ write_identity_document() {
         --arg release "${RESTORE_BACKUP_RELEASE}" \
         --arg source_sha "${RESTORE_BACKUP_SOURCE_SHA}" \
         --argjson for_restore "${FOR_RESTORE}" \
+        --argjson backup_schema "${schema_number}" \
         '{
             verified_at: $verified_at,
             target: $target,
@@ -197,6 +223,7 @@ write_identity_document() {
             backup_namespace: $backup_namespace,
             operation: $operation,
             for_restore: $for_restore,
+            backup_schema: $backup_schema,
             release: $release,
             source_sha: $source_sha
         }' > "${tmp}" || { rm -f "${tmp}"; fail "could not write the verified identity document"; }

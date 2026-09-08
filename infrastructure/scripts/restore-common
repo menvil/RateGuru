@@ -14,6 +14,7 @@
 # restore ends up trusting a path in one place that another place rejects:
 #
 #   * backup path/identity validation  (which backup, belonging to whom)
+#   * the closed backup file set        (which files, decided by the schema)
 #   * operation workspace validation   (where an operation may write)
 #   * storage archive safety           (what may be extracted as root)
 #   * operation state handling         (which kind, and what phase, it is in)
@@ -88,6 +89,12 @@ RESTORE_VERIFY_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_VERIFY_BACKU
 RESTORE_DATABASE_BIN="$(restore_gated_default RATEGURU_RESTORE_DATABASE_BIN /home/www/rateguru/bin/restore-database)"
 RESTORE_STORAGE_BIN="$(restore_gated_default RATEGURU_RESTORE_STORAGE_BIN /home/www/rateguru/bin/restore-storage)"
 
+# The installed external-material installer, whose prerequisite table is the
+# one vocabulary a backup's recovery material is checked against. The same
+# override name backup and restore-test use for the same binary, so one
+# harness variable configures the whole capture/verify surface.
+RESTORE_PREREQUISITES_BIN="$(restore_gated_default RATEGURU_PREREQUISITES_BIN /home/www/rateguru/bin/install-target-prerequisites)"
+
 # The group Nginx runs as. Hardcoded exactly like deploy's own
 # `install -d -o "${RUNTIME_USER}" -g www-data` calls and
 # install-public-storage-access's WEB_USER — the public-storage access model
@@ -103,28 +110,39 @@ RESTORE_SCHEDULER_RETRY_DELAY="$(restore_gated_default RATEGURU_RESTORE_SCHEDULE
 
 # --- backup contract ---------------------------------------------------------
 #
-# The exact seven files infrastructure/scripts/backup produces, in the exact
-# order it writes them into SHA256SUMS. This is the existing, accepted backup
-# format: Restore Target Data reads it and never redefines it.
+# The closed file sets a backup may consist of are stated ONCE, in `common`
+# (see its "backup format contract" section), because backup, restore-test and
+# the offsite scripts read them without this library. Restore Target Data
+# reads the same constants and never redefines them.
+#
+# Two sets exist, and which one applies is decided by the manifest schema —
+# read safely, through backup_schema_of_directory, before anything else in a
+# backup is trusted:
+#
+#   schema 1 / schema 2   seven files, six of them checksummed
+#   schema 3              eight files, seven of them checksummed — the extra
+#                         one is recovery-material.tar.gz
 #
 # For a LIVE restore only database.dump and storage-app.tar.gz are ever
-# applied. environment.env and server-configuration.tar.gz are required to be
-# PRESENT and CHECKSUM-VALID (a backup missing them is incomplete and must not
-# be restored from), and are then never read: a live restore must not rewrite
-# shared/.env, TLS material, authorized_keys, Nginx, PHP-FPM, Supervisor or
-# cron. Reconstructing those belongs to Recover Host / Repair Target.
-RESTORE_BACKUP_CHECKSUMMED_FILES=(
-    database.dump
-    storage-app.tar.gz
-    environment.env
-    release.json
-    server-configuration.tar.gz
-    manifest.json
-)
+# applied. environment.env, server-configuration.tar.gz and
+# recovery-material.tar.gz are required to be PRESENT and CHECKSUM-VALID (a
+# backup missing them is incomplete and must not be restored from), and are
+# then never read: a live restore must not rewrite shared/.env, TLS material,
+# authorized_keys, Nginx, PHP-FPM, Supervisor or cron. Reconstructing those
+# belongs to Prepare Host (which consumes the recovery material of a schema 3
+# backup on a clean host) and to Repair Target.
+RESTORE_BACKUP_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}")
 
 RESTORE_BACKUP_REQUIRED_FILES=(
     "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"
-    SHA256SUMS
+    "${BACKUP_CHECKSUMS_FILE}"
+)
+
+RESTORE_BACKUP_SCHEMA3_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}")
+
+RESTORE_BACKUP_SCHEMA3_REQUIRED_FILES=(
+    "${RESTORE_BACKUP_SCHEMA3_CHECKSUMMED_FILES[@]}"
+    "${BACKUP_CHECKSUMS_FILE}"
 )
 
 # Files a live restore is allowed to APPLY. Anything else in a backup is
@@ -139,7 +157,44 @@ RESTORE_APPLIED_FILES=(
 RESTORE_NEVER_APPLIED_FILES=(
     environment.env
     server-configuration.tar.gz
+    recovery-material.tar.gz
 )
+
+# Set by restore_select_backup_file_set: the schema of the backup directory
+# last classified, and the closed file sets that schema demands.
+RESTORE_BACKUP_SCHEMA=""
+RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES=()
+RESTORE_BACKUP_EXPECTED_REQUIRED_FILES=()
+
+# restore_select_backup_file_set DIR — classify the backup in DIR and select
+# the closed file set its schema demands. The manifest is proven to be a plain
+# regular file before it is read (backup_schema_of_directory), and its content
+# decides only WHICH list applies — never a path, a name or a command.
+#
+# Called directly, never inside $(...): it fills arrays in the caller's shell.
+restore_select_backup_file_set() {
+    local dir="$1" schema
+
+    schema="$(backup_schema_of_directory "${dir}")"
+
+    RESTORE_BACKUP_SCHEMA="${schema}"
+    mapfile -t RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES < <(backup_checksummed_files_for_schema "${schema}")
+    mapfile -t RESTORE_BACKUP_EXPECTED_REQUIRED_FILES < <(backup_required_files_for_schema "${schema}")
+
+    (( ${#RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]} > 0 )) \
+        || fail "internal: the backup file set for ${schema} is empty"
+}
+
+# restore_backup_schema_number SCHEMA — the manifest_schema_version a verdict
+# stands for, as the number an identity document records.
+restore_backup_schema_number() {
+    case "${1-}" in
+        schema1) printf '1\n' ;;
+        schema2) printf '2\n' ;;
+        schema3) printf '3\n' ;;
+        *)       fail "internal: unrecognised manifest schema verdict: ${1-}" ;;
+    esac
+}
 
 # --- closed identifier formats ----------------------------------------------
 
@@ -1255,14 +1310,40 @@ restore_assert_backup_regular_file() {
         || fail "backup file resolves outside the staged backup directory: ${name}"
 }
 
+# restore_assert_backup_file_set DIR — every file the backup's own schema
+# requires exists as a plain regular file, and NOTHING else is present: the
+# set is closed in both directions, for every schema. A remote (or a source
+# directory) carrying an extra object must not have it silently staged
+# alongside the backup and later mistaken for part of it.
 restore_assert_backup_file_set() {
-    local dir="$1" name
+    local dir="$1" name entry
 
     restore_assert_directory_safe "${dir}" "staged backup directory"
 
-    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+    restore_select_backup_file_set "${dir}"
+
+    for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
         restore_assert_backup_regular_file "${dir}" "${name}"
     done
+
+    local staged_count
+    staged_count="$(find "${dir}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
+    staged_count="${staged_count//[[:space:]]/}"
+
+    [[ "${staged_count}" == "${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}" ]] \
+        || fail "staged backup directory holds ${staged_count} entries, expected exactly ${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]} for a ${RESTORE_BACKUP_SCHEMA} backup"
+
+    # Belt and braces over the count: name every stranger, so an operator
+    # reading the refusal knows what was there.
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
+            [[ "${entry}" != "${name}" ]] || continue 2
+        done
+
+        fail "staged backup directory holds an entry that is not part of a ${RESTORE_BACKUP_SCHEMA} backup: ${entry}"
+    done < <(find "${dir}" -mindepth 1 -maxdepth 1 -printf '%f\n')
 }
 
 # restore_assert_sha256sums_entries DIR — SHA256SUMS is itself untrusted
@@ -1271,14 +1352,17 @@ restore_assert_backup_file_set() {
 # successful check into an oracle) or at a file outside the backup entirely.
 #
 # The entry list is therefore validated as a closed set BEFORE any check runs:
-# every line must be "<64 hex>  <name>", every name must be one of the six
-# files backup itself checksums, and no name may repeat. Absolute paths,
-# "../" components, extra file references and unknown names all fail here.
+# every line must be "<64 hex>  <name>", every name must be one of the files
+# backup itself checksums for THIS backup's schema (six for schema 1 and 2,
+# seven for schema 3), and no name may repeat. Absolute paths, "../"
+# components, extra file references and unknown names all fail here.
 restore_assert_sha256sums_entries() {
     local dir="$1"
     local sums="${dir}/SHA256SUMS"
     local -a seen=()
     local line hash name known found
+
+    restore_select_backup_file_set "${dir}"
 
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ -n "${line}" ]] || continue
@@ -1294,7 +1378,7 @@ restore_assert_sha256sums_entries() {
         [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
 
         found=false
-        for known in "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"; do
+        for known in "${RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]}"; do
             if [[ "${name}" == "${known}" ]]; then
                 found=true
                 break
@@ -1312,7 +1396,7 @@ restore_assert_sha256sums_entries() {
         seen+=("${name}")
     done < "${sums}"
 
-    for known in "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"; do
+    for known in "${RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]}"; do
         found=false
         for name in "${seen[@]:-}"; do
             if [[ "${name}" == "${known}" ]]; then
@@ -1441,6 +1525,40 @@ restore_assert_extracted_tree_safe() {
         || fail "extracted storage tree contains a non-regular, non-directory entry: ${offender}"
 }
 
+# --- recovery material archive safety -------------------------------------------
+#
+# recovery-material.tar.gz is the one backup member whose CONTENT is a closed
+# vocabulary rather than application data: every entry must be a top-level
+# regular file named exactly as one of the target's host-scope external
+# prerequisites, and the archive must carry every one of them and nothing
+# else. That vocabulary belongs to install-target-prerequisites — the one
+# prerequisite table Prepare Host installs from — and the check is delegated
+# to its read-only --validate-recovery-material mode rather than re-derived
+# here, so a backup can never be judged "recovery-capable" against a list that
+# differs from the one the installer would actually consume.
+#
+# Read-only: nothing is extracted. The validator prints logical names only;
+# no content, digest or length of any member is ever reported.
+restore_assert_recovery_material_safe() {
+    local dir="$1" target_id="$2"
+    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
+    local output status=0
+
+    [[ -x "${RESTORE_PREREQUISITES_BIN}" ]] \
+        || fail "the external-material installer is not available at ${RESTORE_PREREQUISITES_BIN} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+
+    output="$("${RESTORE_PREREQUISITES_BIN}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
+    fi
+
+    RESTORE_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+}
+
+RESTORE_RECOVERY_MATERIAL_REPORT=""
+
 # --- backup identity ----------------------------------------------------------
 
 # restore_assert_manifest_identity DIR — proves the staged backup belongs to
@@ -1478,7 +1596,7 @@ restore_assert_manifest_identity() {
     case "${manifest_schema_status}" in
         schema1)
             ;;
-        schema2)
+        schema2|schema3)
             local manifest_backup_namespace
             manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -1492,7 +1610,10 @@ restore_assert_manifest_identity() {
                 null)
                     # A schema 2 manifest predating the target-only cutover
                     # carries no target to compare. Historical manifest
-                    # content is immutable and stays restorable.
+                    # content is immutable and stays restorable. A schema 3
+                    # manifest is never written without one.
+                    [[ "${manifest_schema_status}" != schema3 ]] \
+                        || fail "backup manifest target is missing — a schema 3 manifest always names its target"
                     ;;
                 string)
                     local manifest_target

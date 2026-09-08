@@ -592,16 +592,20 @@ backup root      = /home/www/rateguru/backups/staging
 lock             = /home/www/rateguru/run/backup-staging.lock
 ```
 
-### Manifest: schema 2, backward compatible with schema 1
+### Manifest: schema 3, backward compatible with schema 1 and 2
 
-Every backup carries a `manifest_schema_version: 2` manifest recording
+Every backup carries a `manifest_schema_version: 3` manifest recording
 `target`, `environment`, and `backup_namespace` alongside the pre-existing
-fields. `restore-test` requires `project`/`environment`/`database` always,
-`backup_namespace` for schema 2, and — for a schema 2 backup — a matching
-`target`. A schema 1 backup — everything produced before the registry-based
-model existed, with none of the new fields — remains fully restorable.
-Manifest validation, like checksum and storage-archive validation, always
-completes before the temporary database is created.
+fields, and — the one thing schema 3 adds — the eighth backup file,
+`recovery-material.tar.gz`, the target's host-scope external prerequisites by
+logical name (see [`backups.md`](backups.md)). `restore-test` requires
+`project`/`environment`/`database` always, `backup_namespace` and a matching
+`target` for schema 2 and 3, and a safe recovery material archive for schema
+3. A schema 1 backup — everything produced before the registry-based model
+existed, with none of the new fields — and a schema 2 backup remain fully
+restorable onto a live target; only a schema 3 backup can recover a clean
+host. Manifest validation, like checksum and storage-archive validation,
+always completes before the temporary database is created.
 
 ### Target-specific server configuration snapshot
 
@@ -637,14 +641,16 @@ lock (offsite-restore-test)  = /home/www/rateguru/run/offsite-restore-test-stagi
 `rclone`; `offsite-restore-test` validates the downloaded manifest before
 `createdb` — both using the identical strict, type-based
 `manifest_schema_version` classification `restore-test` uses: absent or JSON
-`null` is schema 1; a JSON *number* equal to `2` is schema 2 (additionally
-checking `backup_namespace` and a non-null manifest `target`); any other value
-— `3`, `0`, the JSON *string* `"2"`, an array, an object, a boolean — is
+`null` is schema 1; a JSON *number* equal to `2` is schema 2 and a JSON
+*number* equal to `3` is schema 3 (both additionally checking
+`backup_namespace` and a non-null manifest `target`); any other value — `4`,
+`0`, the JSON *string* `"2"` or `"3"`, an array, an object, a boolean — is
 rejected outright, before any mutation, with `unsupported backup manifest
 schema_version: ...` naming the offending value. The classifier
-(`manifest_schema_classify`) is shared, in `common`, between `offsite-backup`
-and `offsite-restore-test`; local `restore-test` keeps its own, contractually
-identical inline copy. Neither offsite script has an independently resolved
+(`manifest_schema_classify`) and the closed per-schema file sets are shared,
+in `common`, between `offsite-backup`, `offsite-restore-test` and the restore
+primitives; local `restore-test` keeps its own, contractually identical
+inline classifier. Neither offsite script has an independently resolved
 database name to compare against (unlike local `restore-test`) — `database` is
 only required to be present and non-empty.
 

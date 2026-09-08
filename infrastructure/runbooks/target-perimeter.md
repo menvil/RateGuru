@@ -36,6 +36,14 @@ Exactly six files:
 | `infrastructure/config/sudoers/rateguru-deploy` | `/etc/sudoers.d/rateguru-deploy` | `root:root` | `0440` |
 | `infrastructure/config/cron/rateguru-backups` | `/etc/cron.d/rateguru-backups` | `root:root` | `0644` |
 
+The backup cron entry is installed on every host, a recovered replacement
+machine included. On such a machine the entry stays exactly as installed and
+`backup-cycle` refuses every time it fires, because the recovery placed the
+host-global offsite-write hold (`/home/www/rateguru/run/offsite-write-hold`)
+before the offsite credential existed — `OFFSITE WRITES: HELD`. The perimeter
+neither reads nor removes that marker; see
+[`recover-host.md`](recover-host.md).
+
 `--apply` additionally **removes** six now-obsolete wrapper files at
 `/usr/local/sbin` — one per operation (deploy, rollback, cleanup), for each
 of the two per-environment identities the platform used to operate under

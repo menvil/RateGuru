@@ -1257,10 +1257,163 @@ function targetTreeFixture(string $scratch, array $options = []): string
 }
 
 /**
+ * The host-scope logical names the committed vhosts derive for a target whose
+ * site is the staging one — the vocabulary a schema 3 backup's recovery
+ * material is written in, in the order install-target-prerequisites lists it.
+ *
+ * @return list<string>
+ */
+function recoveryMaterialNames(): array
+{
+    return [
+        'basic-auth',
+        'tls-certificate',
+        'tls-private-key',
+        'nginx-tls-options',
+        'tls-dhparams',
+        'mail-tls-certificate',
+        'mail-tls-private-key',
+    ];
+}
+
+/**
+ * The default recovery material of a schema 3 fixture: every host-scope
+ * logical name, with deliberately unlike-real content that a test can prove
+ * never leaks into a log.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialMembers(): array
+{
+    $members = [];
+
+    foreach (recoveryMaterialNames() as $name) {
+        $members[$name] = "material-{$name}-never-logged\n";
+    }
+
+    return $members;
+}
+
+/**
+ * Builds recovery-material.tar.gz at $path exactly the way backup writes it:
+ * named top-level regular files from a fixed directory, no directory entry,
+ * no path prefix, no link.
+ *
+ * @param  array<string, string>  $members  logical name => content
+ */
+function buildRecoveryMaterialArchive(string $path, array $members): void
+{
+    $stage = $path.'.material-src';
+    mkdir($stage, 0o700, true);
+
+    $names = array_keys($members);
+    sort($names);
+
+    foreach ($members as $name => $content) {
+        file_put_contents($stage.'/'.$name, $content);
+        chmod($stage.'/'.$name, 0o600);
+    }
+
+    $quoted = implode(' ', array_map('escapeshellarg', $names));
+
+    exec('tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($path).' -- '.$quoted.' 2>&1', $out, $exit);
+    exec('rm -rf '.escapeshellarg($stage));
+
+    expect($exit)->toBe(0, "could not build the recovery material archive:\n".implode("\n", $out));
+}
+
+/**
+ * Everything the REAL install-target-prerequisites needs to capture, list or
+ * judge parity-target's recovery material without a real host: a scratch
+ * checkout carrying the parity registry and the committed vhosts under the
+ * target's own site name, and a scratch filesystem root where every
+ * host-scope prerequisite is present with the mode the table declares.
+ *
+ * Used by the backup, restore-test, verify-backup and recovery suites, so the
+ * vocabulary those scripts capture in and check against is the shipped
+ * installer's own — never a stub's idea of it.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath, string $targetsPath): array
+{
+    $repoRoot = $scratch.'/prereq-checkout';
+
+    if (! is_dir($repoRoot.'/infrastructure/config/nginx')) {
+        mkdir($repoRoot.'/infrastructure/config/nginx', 0o755, true);
+        copy($registryPath, $repoRoot.'/infrastructure/config/deployment-targets.json');
+        copy(base_path('infrastructure/config/nginx/rateguru-staging'), $repoRoot.'/infrastructure/config/nginx/parity-site');
+
+        foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
+            copy(base_path('infrastructure/config/nginx/'.$vhost), $repoRoot.'/infrastructure/config/nginx/'.$vhost);
+        }
+    }
+
+    $fsRoot = $scratch.'/prereq-host';
+
+    if (! is_dir($fsRoot)) {
+        recoveryMaterialHostFixture($fsRoot);
+    }
+
+    return [
+        'RATEGURU_PREREQUISITES_BIN' => infraScript('install-target-prerequisites'),
+        'RATEGURU_TARGETPREREQ_REPO_ROOT' => $repoRoot,
+        'RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN' => $targetsPath,
+        'RATEGURU_TARGETPREREQ_EUID' => '0',
+        'RATEGURU_TARGETPREREQ_FS_ROOT' => $fsRoot,
+        'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
+    ];
+}
+
+/**
+ * A scratch filesystem root holding every host-scope prerequisite the
+ * committed staging vhosts reference, as plain regular files with the mode
+ * install-target-prerequisites declares — what a live host looks like to
+ * `--capture`.
+ *
+ * @return array<string, string> logical name => the content planted for it
+ */
+function recoveryMaterialHostFixture(string $fsRoot): array
+{
+    $destinations = [
+        'basic-auth' => ['/etc/nginx/rateguru-staging.htpasswd', 0o640],
+        'tls-certificate' => ['/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem', 0o644],
+        'tls-private-key' => ['/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem', 0o600],
+        'nginx-tls-options' => ['/etc/letsencrypt/options-ssl-nginx.conf', 0o644],
+        'tls-dhparams' => ['/etc/letsencrypt/ssl-dhparams.pem', 0o644],
+        'mail-tls-certificate' => ['/etc/letsencrypt/live/staging-mail-capture/fullchain.pem', 0o644],
+        'mail-tls-private-key' => ['/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 0o600],
+    ];
+
+    $planted = [];
+
+    foreach ($destinations as $name => [$destination, $mode]) {
+        $path = $fsRoot.$destination;
+
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0o755, true);
+        }
+
+        $planted[$name] = "host-{$name}-never-logged\n";
+        file_put_contents($path, $planted[$name]);
+        chmod($path, $mode);
+    }
+
+    return $planted;
+}
+
+/**
  * A real, on-disk backup directory in exactly the shape
  * infrastructure/scripts/backup produces: a genuine gzip storage archive, the
- * six checksummed files, and a genuine SHA256SUMS computed with real
+ * checksummed files of its schema, and a genuine SHA256SUMS computed with real
  * sha256sum, so every checksum check downstream is a real check.
+ *
+ * Schema 2 (seven files) by default. `'schema' => 3`, or an explicit schema 3
+ * manifest, adds recovery-material.tar.gz — built from `recovery_material`
+ * (logical name => content, defaulting to every host-scope name), or from raw
+ * `recovery_material_bytes` for a malformed archive — and checksums it in the
+ * position backup writes it. `omit_recovery_material` builds a schema 3
+ * manifest whose archive is missing, for the refusal that must catch it.
  */
 function buildBackupFixture(string $namespaceRoot, string $timestamp, array $options = []): string
 {
@@ -1304,15 +1457,31 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
         is_string($releaseJson) ? $releaseJson : json_encode($releaseJson, JSON_PRETTY_PRINT),
     );
 
+    $schema3 = ($options['schema'] ?? null) === 3;
+
     $manifest = array_key_exists('manifest', $options)
         ? $options['manifest']
-        : backupManifestFixture();
+        : backupManifestFixture($schema3 ? ['manifest_schema_version' => 3] : []);
+
+    if (is_array($manifest) && ($manifest['manifest_schema_version'] ?? null) === 3) {
+        $schema3 = true;
+    }
 
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
     }
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
+
+    if ($schema3 && empty($options['omit_recovery_material'])) {
+        if (array_key_exists('recovery_material_bytes', $options)) {
+            file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
+        } else {
+            buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
+        }
+
+        $files[] = 'recovery-material.tar.gz';
+    }
 
     if ($manifest !== null) {
         $files[] = 'manifest.json';
@@ -2004,13 +2173,15 @@ set -uo pipefail
 printf '%s\n' "rclone $*" >> "${RGTEST_RCLONE_LOG}"
 
 # rclone --config X copy SOURCE DEST [flags...]
+# rclone --config X copyto SOURCE_FILE DEST_FILE [flags...]
 source_path=""
 dest_path=""
 seen_copy=false
+copy_verb=""
 positional=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        copy) seen_copy=true; shift ;;
+        copy|copyto) seen_copy=true; copy_verb="$1"; shift ;;
         --config) shift 2 ;;
         # `--stats 10s` takes a value; every other flag rclone is given here
         # is a bare switch. Counting positionals rather than taking "the last
@@ -2038,6 +2209,18 @@ done
 }
 
 local_source="${RGTEST_REMOTE_ROOT}/${source_path}"
+
+if [[ "${copy_verb}" == copyto ]]; then
+    # One object to one local file, exactly as B2 answers copyto: a missing
+    # object is an error, never an empty file.
+    if [[ ! -f "${local_source}" ]]; then
+        printf 'ERROR: remote object not found: %s\n' "${source_path}" >&2
+        exit 1
+    fi
+
+    cp "${local_source}" "${dest_path}"
+    exit 0
+fi
 
 if [[ ! -d "${local_source}" ]]; then
     printf 'ERROR: remote directory not found: %s\n' "${source_path}" >&2
@@ -2137,10 +2320,14 @@ BASH);
 function recoveryOffsiteBackupFixture(string $scratch, string $backupId = '20260115-023000', array $options = []): string
 {
     $remoteRoot = $scratch.'/remote/rateguru-b2:rateguru-database-backups/rateguru/parity';
-    mkdir($remoteRoot, 0o755, true);
+    @mkdir($remoteRoot, 0o755, true);
 
+    // A clean-host recovery requires a schema 3 backup — the one that carries
+    // the recovery material Prepare Host was fed — so that is what a recovery
+    // fixture is unless a test asks for an older one on purpose.
     return buildBackupFixture($remoteRoot, $backupId, array_merge([
         'environment' => preparedEnvironmentContents(),
+        'schema' => 3,
     ], $options));
 }
 
@@ -2157,7 +2344,9 @@ function recoveryEnv(string $scratch): array
     @mkdir($scratch.'/pg/tables', 0o755, true);
     @mkdir($scratch.'/pg/migrations', 0o755, true);
 
-    return [
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    return recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_RECOVERY_HISTORY_ROOT' => $scratch.'/recoveries',
         'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/prepare-host-stub',
         'RGTEST_PREPARE_HOST_LOG' => $scratch.'/prepare-host.log',

@@ -189,6 +189,40 @@ it('restores database and storage, resumes the target, and reports an aligned re
     }
 });
 
+it('restores from a schema 3 backup exactly as from an older one, and never applies its recovery material', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $paths = restoreTargetFixture($scratch, ['backup' => ['schema' => 3]]);
+
+        // verify-backup judges the recovery material through the REAL
+        // prerequisite installer; the live restore then leaves it alone.
+        $result = restoreTargetApply($scratch, recoveryMaterialPrerequisitesEnv($scratch, $paths['registry'], $paths['targets']));
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('backup schema: schema3')
+            ->toContain('recovery material: OK')
+            ->toContain('RESTORE DATA COMPLETE: YES')
+            ->toContain('TARGET RESUMED: YES');
+
+        expect(is_file(restoreTargetStorage($scratch).'/app/restored-marker.txt'))->toBeTrue();
+
+        // Nothing of the recovery material reached the target or the host:
+        // the archive's own content ("material-<name>-never-logged") exists
+        // only inside backups and staged workspaces. (The scratch host tree
+        // the prerequisite installer judges against holds its own, differently
+        // prefixed fixture files and is excluded by name.)
+        exec('grep -rl "material-.*-never-logged" '.escapeshellarg($scratch).' --exclude-dir=backups --exclude-dir=run --exclude-dir=emergency-template --exclude-dir=prereq-host 2>/dev/null', $leaks);
+        expect($leaks)->toBe([]);
+
+        expect(File::get($scratch.'/target/shared/.env'))->not->toContain('from-backup-never-applied');
+        expect(file_exists($scratch.'/etc'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('never rewrites shared/.env, the current link, the previous link or any server configuration', function () {
     $scratch = restoreScratchDir();
 

@@ -391,6 +391,13 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
+    // A schema 3 backup carries its recovery material, checksummed in the
+    // position backup writes it — unless a test omits it on purpose.
+    if (($options['schema'] ?? null) === 3 && empty($options['omit_recovery_material'])) {
+        buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', recoveryMaterialMembers());
+        $files[] = 'recovery-material.tar.gz';
+    }
+
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
         $files[] = 'manifest.json';
@@ -943,12 +950,46 @@ it('rejects an unsupported numeric manifest schema_version before creating the t
 
     try {
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
-        $manifest['manifest_schema_version'] = 3;
+        $manifest['manifest_schema_version'] = 4;
 
         $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: 4');
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+});
+
+it('restore-tests a schema 3 remote backup with all eight files, and refuses one missing its recovery material', function () {
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        $manifest = offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: ['schema' => 3]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('Backup schema:  schema3');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        $manifest = offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: [
+            'schema' => 3,
+            'omit_recovery_material' => true,
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('missing downloaded backup file: recovery-material.tar.gz');
         expect(trim(File::get($result['createdbLog'])))->toBe('');
     } finally {
         offsiteRestoreOpsCleanup($scratch);

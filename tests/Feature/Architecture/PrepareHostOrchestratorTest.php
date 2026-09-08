@@ -169,9 +169,27 @@ function prepWriteChildStubs(string $scratch): void
         scope=host
         case "$*" in *"--scope target"*) scope=target ;; esac
         key="prerequisites-${scope}"
+        # What the material directory held when this child ran, and whether
+        # the host-global offsite-write hold already existed: a recovery
+        # preparation places it between the host and target slices.
+        material=""
+        args=("$@")
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == --material-dir ]]; then
+                material="${args[$((i + 1))]}"
+            fi
+        done
+        if [[ -n "${material}" ]]; then
+            printf '%s %s: %s\n' "${key}" "${material}" "$(ls "${material}" | tr '\n' ' ')" >> "${STUB_LOG}/material-seen.log"
+        fi
         case "$*" in
             *--apply*)
                 printf '%s %s\n' "${key}" "$*" >> "${STUB_LOG}/mutations.log"
+                if [[ -e "${STUB_LOCK_ROOT}/offsite-write-hold" ]]; then
+                    printf '%s hold-present\n' "${key}" >> "${STUB_LOG}/hold-seen.log"
+                else
+                    printf '%s hold-absent\n' "${key}" >> "${STUB_LOG}/hold-seen.log"
+                fi
                 if [[ -e "${STUB_TOGGLES}/${key}-apply-fail" ]]; then
                     echo "ERROR: external prerequisite tls-private-key: already present and DIFFERS from the supplied material"
                     exit 1
@@ -211,6 +229,35 @@ function prepWriteChildStubs(string $scratch): void
         esac
         STUB);
 
+    // The recovery-material helper: records its arguments, the output
+    // directory it was given and that directory's mode, then fills it the way
+    // the real helper does — or refuses, on a toggle, the way the real one
+    // refuses a backup that is not recovery-capable.
+    prepWriteStub($scratch.'/bin/fetch', <<<'STUB'
+        #!/bin/bash
+        printf 'fetch %s\n' "$*" >> "${STUB_LOG}/children.log"
+        out=""
+        seed=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --output-dir) out="$2"; shift 2 ;;
+                --seed-dir) seed="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        printf '%s\n' "${out}" > "${STUB_LOG}/fetch-output-dir"
+        printf '%s\n' "${seed}" > "${STUB_LOG}/fetch-seed-dir"
+        stat -c '%a' "${out}" > "${STUB_LOG}/fetch-output-mode"
+        if [[ -e "${STUB_TOGGLES}/fetch-fail" ]]; then
+            echo "ERROR: backup 20260115-023000 is not clean-host-recovery-capable (stub)"
+            exit 1
+        fi
+        for name in laravel-env basic-auth tls-certificate tls-private-key tls-dhparams nginx-tls-options mail-tls-certificate mail-tls-private-key deploy-authorized-keys rclone-config; do
+            printf 'stub material\n' > "${out}/${name}"
+        done
+        echo "recovery material staged for staging-main from offsite backup (stub)"
+        STUB);
+
     foreach (['runtime', 'bootstrap', 'database'] as $child) {
         prepWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -230,6 +277,13 @@ function prepWriteChildStubs(string $scratch): void
                     fi
                     if [[ ! -e "${STUB_TOGGLES}/${me}-apply-no-converge" ]]; then
                         touch "${STUB_TOGGLES}/${me}-compliant"
+                    fi
+                    # bootstrap-host lays out the operational run root; the
+                    # offsite-write hold a recovery preparation places lives
+                    # there, so the stub creates it exactly when bootstrap
+                    # converges.
+                    if [[ "${me}" == bootstrap ]]; then
+                        mkdir -p "${STUB_LOCK_ROOT}"
                     fi
                     echo "${me} apply done"
                     exit 0
@@ -259,6 +313,7 @@ function prepWriteChildStubs(string $scratch): void
 function prepFixture(string $scratch, array $options = []): array
 {
     prepWriteChildStubs($scratch);
+    @mkdir($scratch.'/root-home', 0o700, true);
 
     foreach ($options['compliant'] ?? [] as $slice) {
         touch($scratch.'/toggles/'.$slice.'-compliant');
@@ -282,6 +337,10 @@ function prepFixture(string $scratch, array $options = []): array
         'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => $scratch.'/bin/prerequisites',
         'RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN' => $scratch.'/bin/bootstrap',
         'RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN' => $scratch.'/bin/database',
+        'RATEGURU_PREPAREHOST_RECOVERY_MATERIAL_BIN' => $scratch.'/bin/fetch',
+        // Where a recovery preparation stages the effective material: root's
+        // home on a real host, a scratch directory here.
+        'RATEGURU_PREPAREHOST_RECOVERY_MATERIAL_PARENT' => $scratch.'/root-home',
         // The run root the data-operation guards live under. Pointed inside
         // the scratch tree so a test can plant one without touching the host.
         'RATEGURU_PREPAREHOST_RUN_ROOT' => $scratch.'/run',
@@ -530,6 +589,7 @@ it('reuses bootstrap-host rather than duplicating its slices', function () {
         'bootstrap-host',
         'install-target-database',
         'targets',
+        'fetch-recovery-material',
     ]);
 
     $scratch = prepScratchDir();
@@ -1197,6 +1257,284 @@ it('prepares normally when the locks exist but nobody holds them', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)->not->toContain('is running for backup namespace');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Recovery preparation: the material comes out of the backup
+// =============================================================================
+
+/** The seed directory a recovery workflow stages: exactly the two seed files. */
+function prepSeedDir(string $scratch): string
+{
+    $seed = $scratch.'/seed';
+    mkdir($seed, 0o700, true);
+    chmod($seed, 0o700);
+    file_put_contents($seed.'/rclone-config', "[rateguru-b2]\ntype = b2\n");
+    file_put_contents($seed.'/deploy-authorized-keys', "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam deploy\n");
+    chmod($seed.'/rclone-config', 0o600);
+    chmod($seed.'/deploy-authorized-keys', 0o600);
+
+    return $seed;
+}
+
+/** @return list<string> */
+function prepRecoveryArguments(string $scratch): array
+{
+    return ['--apply', '--target', 'staging-main', '--material-dir', prepSeedDir($scratch), '--recovery-backup', '20260115-023000'];
+}
+
+it('prepares a replacement host in the only order that can succeed: runtime, material from the backup, host material, bootstrap, the hold, target material, database', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), prepFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+
+        // The mutating children, in order, are the ordinary five: recovery
+        // changes where the material comes from, not what is converged.
+        $order = array_map(
+            static fn (string $line): string => explode(' ', $line)[0],
+            prepLog($scratch, 'mutations'),
+        );
+
+        expect($order)->toBe(['runtime', 'prerequisites-host', 'bootstrap', 'prerequisites-target', 'database']);
+
+        // The fetch runs after the runtime slice (rclone and jq exist only
+        // then) and before the first prerequisite slice consumes its result.
+        $children = prepLog($scratch, 'children');
+        $firstIndexOf = static function (string $prefix) use ($children): int {
+            foreach ($children as $index => $line) {
+                if (str_starts_with($line, $prefix)) {
+                    return $index;
+                }
+            }
+
+            return -1;
+        };
+
+        expect($firstIndexOf('fetch '))->toBeGreaterThan($firstIndexOf('runtime --apply'))
+            ->toBeLessThan($firstIndexOf('prerequisites --'));
+
+        expect($children)->toContain('fetch --target staging-main --backup 20260115-023000 --seed-dir '.$scratch.'/seed --output-dir '.trim(File::get($scratch.'/log/fetch-output-dir')));
+
+        // The hold is placed after host bootstrap created the run root and
+        // before the target slice installs the offsite credential: the host
+        // slice ran without it, the target slice ran with it.
+        expect(prepLog($scratch, 'hold-seen'))->toBe(['prerequisites-host hold-absent', 'prerequisites-target hold-present']);
+
+        $hold = json_decode(File::get($scratch.'/run/offsite-write-hold'), true);
+
+        expect($hold)->toMatchArray([
+            'hold' => 'offsite-writes',
+            'reason' => 'host-recovery',
+            'target' => 'staging-main',
+            'backup' => '20260115-023000',
+            'created_by' => 'prepare-host --recovery-backup',
+        ]);
+        expect($hold)->toHaveKey('created_at');
+
+        expect($output)
+            ->toContain('RECOVERY MATERIAL — offsite backup 20260115-023000')
+            ->toContain('OFFSITE WRITES: HELD — '.$scratch.'/run/offsite-write-hold')
+            ->toContain('TARGET PREPARED');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('feeds the prerequisite slices the effective material, never the seed, and removes it however the run ends', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), prepFixture($scratch));
+        expect($exit)->toBe(0, $output);
+
+        $effective = trim(File::get($scratch.'/log/fetch-output-dir'));
+
+        // Root-only, under the recovery material parent, created for this run.
+        expect($effective)->toStartWith($scratch.'/root-home/rateguru-recovery-material.');
+        expect(trim(File::get($scratch.'/log/fetch-output-mode')))->toBe('700');
+        expect(trim(File::get($scratch.'/log/fetch-seed-dir')))->toBe($scratch.'/seed');
+
+        // Every prerequisite invocation that carried material carried the
+        // effective directory — the seed never reaches a slice.
+        $materialCalls = array_values(array_filter(
+            prepLog($scratch, 'children'),
+            static fn (string $line): bool => str_starts_with($line, 'prerequisites ') && str_contains($line, '--material-dir'),
+        ));
+
+        expect($materialCalls)->not->toBeEmpty();
+
+        foreach ($materialCalls as $call) {
+            expect($call)->toContain('--material-dir '.$effective)
+                ->not->toContain($scratch.'/seed');
+        }
+
+        // And what the slices saw in it was the composed material: the
+        // environment file, every host-scope name and both seeds.
+        foreach (prepLog($scratch, 'material-seen') as $seen) {
+            foreach ([
+                'laravel-env', 'basic-auth', 'tls-certificate', 'tls-private-key', 'tls-dhparams',
+                'nginx-tls-options', 'mail-tls-certificate', 'mail-tls-private-key', 'deploy-authorized-keys', 'rclone-config',
+            ] as $name) {
+                expect($seen)->toContain($name);
+            }
+        }
+
+        // Gone when the run ended.
+        expect(glob($scratch.'/root-home/rateguru-recovery-material.*'))->toBe([]);
+        expect($output)->toContain('removed when this run ends');
+    } finally {
+        prepCleanup($scratch);
+    }
+
+    $scratch = prepScratchDir();
+
+    try {
+        // A refused fetch stops the preparation before any target-specific
+        // slice, leaves no effective material behind and places no hold.
+        $env = prepFixture($scratch);
+        touch($scratch.'/toggles/fetch-fail');
+
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('not clean-host-recovery-capable');
+
+        $order = array_map(
+            static fn (string $line): string => explode(' ', $line)[0],
+            prepLog($scratch, 'mutations'),
+        );
+
+        expect($order)->toBe(['runtime']);
+        expect(glob($scratch.'/root-home/rateguru-recovery-material.*'))->toBe([]);
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeFalse();
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('accepts --recovery-backup only as an exact timestamp, only with --apply, and only beside a seed directory', function (array $arguments, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun($arguments, prepFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain($expected);
+        expect(File::exists($scratch.'/log/children.log'))->toBeFalse('no child may run on a refused invocation');
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a read-only mode' => [
+        ['--check', '--target', 'staging-main', '--material-dir', '/root/seed', '--recovery-backup', '20260115-023000'],
+        '--recovery-backup is only valid with --apply',
+    ],
+    'no seed directory' => [
+        ['--apply', '--target', 'staging-main', '--recovery-backup', '20260115-023000'],
+        '--recovery-backup requires --material-dir naming the seed directory',
+    ],
+    'no latest' => [
+        ['--apply', '--target', 'staging-main', '--material-dir', '/root/seed', '--recovery-backup', 'latest'],
+        "there is no 'latest'",
+    ],
+    'a date without a time' => [
+        ['--apply', '--target', 'staging-main', '--material-dir', '/root/seed', '--recovery-backup', '20260115'],
+        'exact offsite backup timestamp YYYYMMDD-HHMMSS',
+    ],
+]);
+
+it('gates a recovery preparation on lifecycle before fetching anything', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $arguments = prepRecoveryArguments($scratch);
+        $arguments[2] = 'tits-guru';
+
+        [$exit, $output] = prepRun($arguments, prepFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('lifecycle=planned');
+        expect(File::exists($scratch.'/log/children.log'))->toBeFalse();
+        expect(File::exists($scratch.'/log/fetch-output-dir'))->toBeFalse();
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('leaves an ordinary preparation exactly as it was: no fetch, no hold', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $seed = prepSeedDir($scratch);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main', '--material-dir', $seed], prepFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (prepLog($scratch, 'children') as $line) {
+            expect($line)->not->toStartWith('fetch ');
+        }
+
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeFalse();
+        expect($output)->not->toContain('OFFSITE WRITES')
+            ->not->toContain('RECOVERY MATERIAL');
+        expect(glob($scratch.'/root-home/*'))->toBe([]);
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('keeps a hold that is already in place, and never rewrites it', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        mkdir($scratch.'/run', 0o700, true);
+        $planted = json_encode(['hold' => 'offsite-writes', 'created_by' => 'somebody-earlier']);
+        file_put_contents($scratch.'/run/offsite-write-hold', $planted);
+
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), prepFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect(File::get($scratch.'/run/offsite-write-hold'))->toBe($planted);
+        expect($output)->toContain('OFFSITE WRITES: HELD (already)');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('never releases the offsite-write hold, in any mode', function () {
+    $source = executableSourceLines(prepSource());
+
+    // The hold is placed, reported and kept. Releasing it is part of
+    // deliberately adopting the machine, which is not a preparation concern.
+    foreach (preg_split('/\R/', $source) as $line) {
+        if (! str_contains($line, 'offsite-write-hold') && ! str_contains($line, 'offsite_write_hold')) {
+            continue;
+        }
+
+        expect($line)->not->toMatch('/\brm\b/')
+            ->not->toMatch('/\bmv\b/')
+            ->not->toMatch('/\bunlink\b/');
+    }
+
+    // A read-only mode reports the hold and changes nothing.
+    $scratch = prepScratchDir();
+
+    try {
+        mkdir($scratch.'/run', 0o700, true);
+        file_put_contents($scratch.'/run/offsite-write-hold', json_encode(['hold' => 'offsite-writes']));
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main'], prepPreparedFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('OFFSITE WRITES: HELD');
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeTrue();
     } finally {
         prepCleanup($scratch);
     }

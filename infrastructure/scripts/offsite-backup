@@ -140,6 +140,12 @@ perform_offsite_backup() {
     LOCK_FILE="${RUN_ROOT}/offsite-backup-${BACKUP_NAMESPACE}.lock"
     HISTORY_FILE="${BACKUP_BASE}/offsite-history.jsonl"
 
+    # The offsite-write hold a host recovery leaves behind: a recovered host
+    # must never upload into the namespace the machine it replaced (or was
+    # rehearsed beside) still owns. Checked before the credential is even
+    # looked for.
+    assert_no_offsite_write_hold "${RUN_ROOT}" "an offsite backup upload"
+
     [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
 
     install -d \
@@ -182,24 +188,23 @@ perform_offsite_backup() {
     LOCAL_DIRECTORY="${LOCAL_ROOT}/${LATEST_BACKUP}"
     REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
 
-    REQUIRED_FILES=(
-        database.dump
-        storage-app.tar.gz
-        environment.env
-        release.json
-        server-configuration.tar.gz
-        manifest.json
-        SHA256SUMS
-    )
+    # The manifest decides which closed file set the backup must carry (seven
+    # files for schema 1 and 2, eight for schema 3), and it is proven to be a
+    # plain regular file before it is read. A backup that is missing one of
+    # its own files is incomplete and is never uploaded.
+    BACKUP_SCHEMA="$(backup_schema_of_directory "${LOCAL_DIRECTORY}")"
+
+    local -a required_files=()
+    mapfile -t required_files < <(backup_required_files_for_schema "${BACKUP_SCHEMA}")
 
     local required_file
-    for required_file in "${REQUIRED_FILES[@]}"; do
+    for required_file in "${required_files[@]}"; do
         [[ -f "${LOCAL_DIRECTORY}/${required_file}" ]] \
             || fail "missing required backup file: ${required_file}"
     done
 
     log "${LABEL} offsite backup"
-    log "Local backup:  ${LOCAL_DIRECTORY}"
+    log "Local backup:  ${LOCAL_DIRECTORY} (${BACKUP_SCHEMA})"
     log "Remote backup: ${REMOTE_DIRECTORY}"
 
     log "Checking local SHA-256 checksums"

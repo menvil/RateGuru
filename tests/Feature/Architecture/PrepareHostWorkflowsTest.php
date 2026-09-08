@@ -474,3 +474,46 @@ it('leaves tits-guru lifecycle=planned and changes no registry entry', function 
         expect($source)->not->toMatch('/\b(sed\s+-i|mv|cp|install|tee)\b[^\n]*deployment-targets\.json/');
     }
 });
+
+// =============================================================================
+// Recovery preparation: one optional input, never set by the ordinary workflows
+// =============================================================================
+
+it('offers recovery preparation as one optional input that the ordinary workflows never set', function () {
+    $inputs = phwAction()['inputs'];
+
+    // The action prepares a replacement host FROM a backup when told which
+    // one; the ordinary workflows never say, so they keep supplying material
+    // by hand exactly as before.
+    expect($inputs)->toHaveKey('recovery-backup');
+    expect($inputs['recovery-backup']['required'] ?? false)->toBeFalse();
+    expect($inputs['recovery-backup']['default'] ?? '')->toBe('');
+
+    foreach (['prepare-staging-host.yml', 'prepare-production-host.yml'] as $workflow) {
+        $with = (array) data_get(phwPrepareStep($workflow), 'with');
+
+        expect($with)->not->toHaveKey('recovery-backup');
+        expect($with['laravel-env'] ?? null)->toBe('${{ secrets.PREPARE_LARAVEL_ENV }}');
+        expect($with['rclone-config'] ?? null)->toBe('${{ secrets.PREPARE_RCLONE_CONFIG }}');
+    }
+
+    // A recovery preparation seeds exactly the offsite credential and the
+    // deploy public key, and the action refuses hand-supplied material beside
+    // a recovery backup before it uploads anything.
+    $executable = phwExecutable(phwActionSource());
+
+    expect($executable)
+        ->toContain('Validate the recovery preparation contract')
+        ->toContain('--recovery-backup "${RECOVERY_BACKUP}"');
+
+    foreach ([
+        'LARAVEL_ENV_PRESENT', 'BASIC_AUTH_PRESENT', 'TLS_CERTIFICATE_PRESENT', 'TLS_PRIVATE_KEY_PRESENT',
+        'TLS_DHPARAMS_PRESENT', 'NGINX_TLS_OPTIONS_PRESENT', 'MAIL_TLS_CERTIFICATE_PRESENT', 'MAIL_TLS_PRIVATE_KEY_PRESENT',
+    ] as $refused) {
+        expect($executable)->toContain($refused);
+    }
+
+    // The validation runs before the material is staged on the host.
+    expect(mb_strpos($executable, 'Validate the recovery preparation contract'))
+        ->toBeLessThan(mb_strpos($executable, 'Prepare the host'));
+});

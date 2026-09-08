@@ -787,7 +787,11 @@ it('never sources the installed common, so it works on a clean host', function (
     // unreadable, and the host scope runs before any of that exists. Same
     // deliberate decision bootstrap-host-preflight documents.
     expect($source)->not->toContain('/home/www/rateguru/bin/common');
-    expect($source)->toContain('infrastructure/config/deployment-targets.json');
+    // The registry and the vhost sources are read from the config directory
+    // beside the script — infrastructure/config in a checkout, the installed
+    // config root on a host — so the same table serves both layouts.
+    expect($source)->toContain('${CONFIG_DIR}/deployment-targets.json');
+    expect($source)->toContain('infrastructure/config');
     expect($source)->toContain('validate --file');
 });
 
@@ -798,3 +802,439 @@ it('never eval-sources any operator-authored file', function () {
     expect($source)->not->toMatch('/^\s*source\s/m');
     expect($source)->not->toMatch('/^\s*\.\s+["$]/m');
 });
+
+// =============================================================================
+// Recovery material: listing, capturing and judging the host-scope vocabulary
+// =============================================================================
+
+/** The host-scope logical names of staging-main, as the committed vhosts declare them. */
+function itpHostScopeNames(): array
+{
+    return [
+        'basic-auth', 'tls-certificate', 'tls-private-key', 'nginx-tls-options',
+        'tls-dhparams', 'mail-tls-certificate', 'mail-tls-private-key',
+    ];
+}
+
+/**
+ * Builds a recovery material archive the way a test needs it wrong: $prepare
+ * populates a fresh stage directory, then tar archives $members (a list, or a
+ * callable given the stage path) with $flags, from the stage directory (plus
+ * $subdirectory) unless $fromStage is false. Returns the archive path.
+ */
+function itpArchive(string $scratch, callable $prepare, array|callable $members, string $flags = '', bool $fromStage = true, string $subdirectory = ''): string
+{
+    $stage = $scratch.'/archive-stage-'.uniqid('', true);
+    mkdir($stage, 0o700, true);
+    $prepare($stage);
+
+    $list = is_callable($members) ? $members($stage) : $members;
+    $archive = $scratch.'/material-'.uniqid('', true).'.tar.gz';
+
+    $command = 'tar '.$flags.' -czf '.escapeshellarg($archive)
+        .($fromStage ? ' -C '.escapeshellarg($stage.$subdirectory) : '')
+        .' -- '.implode(' ', array_map('escapeshellarg', $list)).' 2>&1';
+
+    exec($command, $out, $exit);
+    expect($exit)->toBe(0, "could not build the archive:\n".implode("\n", $out));
+
+    return $archive;
+}
+
+/** Writes a regular file for each name in the stage. */
+function itpRegularMembers(array $names): callable
+{
+    return static function (string $stage) use ($names): void {
+        foreach ($names as $name) {
+            file_put_contents($stage.'/'.$name, "content-of-{$name}\n");
+        }
+    };
+}
+
+it('lists exactly the host-scope logical names of the target, and nothing else', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        [$exit, $output] = itpRun($scratch, ['--list-material-names', '--target', 'staging-main', '--scope', 'host']);
+
+        expect($exit)->toBe(0, $output);
+
+        $names = array_values(array_filter(preg_split('/\R/', $output)));
+        sort($names);
+
+        $expected = itpHostScopeNames();
+        sort($expected);
+
+        // Names only: no destination, no owner, no mode, no prose — a caller
+        // reads this as a vocabulary.
+        expect($names)->toBe($expected);
+        expect($output)->not->toContain('/etc/');
+
+        // The target scope is the other half of the table and is never
+        // recovery material: the environment file comes from the backup's own
+        // environment.env, and the deploy key from the runner. Its names are
+        // listable, and none of them is a host-scope name.
+        [$exit, $output] = itpRun($scratch, ['--list-material-names', '--target', 'staging-main', '--scope', 'target']);
+        expect($exit)->toBe(0, $output);
+
+        $targetNames = array_values(array_filter(preg_split('/\R/', $output)));
+        expect($targetNames)->toContain('laravel-env');
+        expect(array_intersect($targetNames, itpHostScopeNames()))->toBe([]);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('captures every host-scope prerequisite under its logical name, dereferencing certbot links, root-only, without reading content into its output', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+        mkdir($scratch.'/capture', 0o700, true);
+        chmod($scratch.'/capture', 0o700);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+
+        expect($exit)->toBe(0, $output);
+
+        $captured = array_values(array_diff(scandir($scratch.'/capture'), ['.', '..']));
+        sort($captured);
+        $expected = itpHostScopeNames();
+        sort($expected);
+
+        expect($captured)->toBe($expected);
+
+        foreach ($captured as $name) {
+            $path = $scratch.'/capture/'.$name;
+            expect(is_link($path))->toBeFalse("{$name} must be a regular file, never a link");
+            expect(is_file($path))->toBeTrue();
+            expect(substr(sprintf('%o', fileperms($path)), -4))->toBe('0600');
+        }
+
+        // The certbot destinations on the host are links; the capture carries
+        // what they resolve to.
+        expect(File::get($scratch.'/capture/tls-certificate'))->toBe("certbot-fullchain\n");
+        expect(File::get($scratch.'/capture/tls-private-key'))->toBe("certbot-privkey\n");
+        expect(File::get($scratch.'/capture/basic-auth'))->toBe("hashes\n");
+
+        // Names and sources are reported; content, length and digest are not.
+        expect($output)
+            ->toContain('CAPTURED tls-private-key')
+            ->toContain('captured 7 host-scope prerequisites for staging-main')
+            ->toContain('content never read, hashed or logged')
+            ->not->toContain('certbot-privkey')
+            ->not->toContain('hashes')
+            ->not->toMatch('/[0-9a-f]{64}/');
+
+        // A capture is read-only on the host: nothing under the filesystem
+        // root changed.
+        expect(File::get($scratch.'/etc/nginx/rateguru-staging.htpasswd'))->toBe("hashes\n");
+        expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('captures nothing at all when any host-scope prerequisite is missing or unsafe', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+        unlink($scratch.'/etc/nginx/rateguru-staging.htpasswd');
+        mkdir($scratch.'/capture', 0o700, true);
+        chmod($scratch.'/capture', 0o700);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('basic-auth');
+        expect(array_diff(scandir($scratch.'/capture'), ['.', '..']))->toBe([], 'a refused capture writes nothing');
+    } finally {
+        itpCleanup($scratch);
+    }
+
+    $scratch = itpScratchDir();
+
+    try {
+        // A destination that is a link where no link is allowed: the same
+        // safety rule --verify applies, and a capture that copied through it
+        // would carry whatever the link pointed at.
+        itpValidHostScope($scratch);
+        unlink($scratch.'/etc/nginx/rateguru-staging.htpasswd');
+        symlink($scratch.'/etc/letsencrypt/ssl-dhparams.pem', $scratch.'/etc/nginx/rateguru-staging.htpasswd');
+        mkdir($scratch.'/capture', 0o700, true);
+        chmod($scratch.'/capture', 0o700);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('basic-auth');
+        expect(array_diff(scandir($scratch.'/capture'), ['.', '..']))->toBe([]);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('demands a root-only, empty, absolute output directory for a capture', function (callable $arrange, string $expected) {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+        $outputDir = $arrange($scratch);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $outputDir]);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain($expected);
+    } finally {
+        itpCleanup($scratch);
+    }
+})->with([
+    'group-readable' => [
+        function (string $scratch): string {
+            mkdir($scratch.'/capture', 0o750, true);
+            chmod($scratch.'/capture', 0o750);
+
+            return $scratch.'/capture';
+        },
+        '--output-dir must be mode 0700',
+    ],
+    'not empty' => [
+        function (string $scratch): string {
+            mkdir($scratch.'/capture', 0o700, true);
+            chmod($scratch.'/capture', 0o700);
+            touch($scratch.'/capture/leftover');
+
+            return $scratch.'/capture';
+        },
+        '--output-dir must be empty',
+    ],
+    'relative' => [
+        fn (string $scratch): string => 'capture',
+        '--output-dir must be an absolute path',
+    ],
+    'a symlink' => [
+        function (string $scratch): string {
+            mkdir($scratch.'/real-capture', 0o700, true);
+            chmod($scratch.'/real-capture', 0o700);
+            symlink($scratch.'/real-capture', $scratch.'/capture');
+
+            return $scratch.'/capture';
+        },
+        '--output-dir must not be a symlink',
+    ],
+    'missing' => [
+        fn (string $scratch): string => $scratch.'/capture',
+        '--output-dir is not a directory',
+    ],
+]);
+
+it('accepts a recovery material archive of exactly the host-scope names as top-level regular files', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $archive = itpArchive($scratch, itpRegularMembers(itpHostScopeNames()), itpHostScopeNames());
+
+        [$exit, $output] = itpRun($scratch, ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'host', '--archive', $archive]);
+
+        expect($exit)->toBe(0, $output);
+
+        $lines = array_values(array_filter(preg_split('/\R/', $output)));
+        $summary = end($lines);
+
+        expect($summary)->toStartWith('7 host-scope files for staging-main: ');
+        foreach (itpHostScopeNames() as $name) {
+            expect($summary)->toContain($name);
+        }
+
+        // Nothing about any member's content is printed, and nothing was
+        // extracted anywhere: the only basic-auth on disk is the stage's own.
+        expect($output)->not->toContain('content-of-');
+        expect(array_values(array_filter(
+            glob($scratch.'/*/basic-auth') ?: [],
+            static fn (string $path): bool => ! str_contains($path, '/archive-stage-'),
+        )))->toBe([]);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses every recovery material archive that is not exactly that', function (callable $build, string $expected) {
+    $scratch = itpScratchDir();
+
+    try {
+        $archive = $build($scratch);
+
+        [$exit, $output] = itpRun($scratch, ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'host', '--archive', $archive]);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain($expected);
+    } finally {
+        itpCleanup($scratch);
+    }
+})->with([
+    'a directory entry' => [
+        function (string $scratch): string {
+            return itpArchive($scratch, function (string $stage): void {
+                mkdir($stage.'/sub');
+                file_put_contents($stage.'/sub/basic-auth', "x\n");
+            }, ['sub']);
+        },
+        'nested path or a directory entry',
+    ],
+    'a nested path' => [
+        function (string $scratch): string {
+            return itpArchive($scratch, function (string $stage): void {
+                mkdir($stage.'/sub');
+                file_put_contents($stage.'/sub/basic-auth', "x\n");
+            }, ['sub/basic-auth']);
+        },
+        'nested path or a directory entry',
+    ],
+    'an absolute path' => [
+        fn (string $scratch): string => itpArchive(
+            $scratch,
+            itpRegularMembers(['basic-auth']),
+            static fn (string $stage): array => [$stage.'/basic-auth'],
+            '-P',
+            false,
+        ),
+        'absolute path',
+    ],
+    'a parent traversal' => [
+        fn (string $scratch): string => itpArchive(
+            $scratch,
+            function (string $stage): void {
+                mkdir($stage.'/sub');
+                file_put_contents($stage.'/basic-auth', "x\n");
+            },
+            ['../basic-auth'],
+            '-P',
+            true,
+            '/sub',
+        ),
+        'relative path component',
+    ],
+    'a symbolic link' => [
+        function (string $scratch): string {
+            return itpArchive($scratch, function (string $stage): void {
+                itpRegularMembers(array_diff(itpHostScopeNames(), ['basic-auth']))($stage);
+                symlink('/etc/hosts', $stage.'/basic-auth');
+            }, itpHostScopeNames());
+        },
+        'symbolic link',
+    ],
+    'a hard link' => [
+        function (string $scratch): string {
+            return itpArchive($scratch, function (string $stage): void {
+                itpRegularMembers(array_diff(itpHostScopeNames(), ['mail-tls-private-key']))($stage);
+                link($stage.'/mail-tls-certificate', $stage.'/mail-tls-private-key');
+            }, itpHostScopeNames());
+        },
+        'hard link',
+    ],
+    'a FIFO' => [
+        function (string $scratch): string {
+            return itpArchive($scratch, function (string $stage): void {
+                itpRegularMembers(array_diff(itpHostScopeNames(), ['tls-dhparams']))($stage);
+                posix_mkfifo($stage.'/tls-dhparams', 0o600);
+            }, itpHostScopeNames());
+        },
+        'FIFO',
+    ],
+    'a name outside the vocabulary' => [
+        fn (string $scratch): string => itpArchive(
+            $scratch,
+            itpRegularMembers([...itpHostScopeNames(), 'rclone-config']),
+            [...itpHostScopeNames(), 'rclone-config'],
+        ),
+        'not a host-scope prerequisite of staging-main: rclone-config',
+    ],
+    'a duplicate' => [
+        fn (string $scratch): string => itpArchive(
+            $scratch,
+            itpRegularMembers(itpHostScopeNames()),
+            [...itpHostScopeNames(), 'basic-auth'],
+        ),
+        'contains basic-auth more than once',
+    ],
+    'a missing name' => [
+        fn (string $scratch): string => itpArchive(
+            $scratch,
+            itpRegularMembers(array_diff(itpHostScopeNames(), ['mail-tls-private-key'])),
+            array_values(array_diff(itpHostScopeNames(), ['mail-tls-private-key'])),
+        ),
+        'missing the host-scope prerequisite mail-tls-private-key',
+    ],
+    'not a tar at all' => [
+        function (string $scratch): string {
+            file_put_contents($scratch.'/garbage.tar.gz', "definitely not gzip\n");
+
+            return $scratch.'/garbage.tar.gz';
+        },
+        'unreadable',
+    ],
+    'an empty archive' => [
+        function (string $scratch): string {
+            exec('tar -czf '.escapeshellarg($scratch.'/empty.tar.gz').' -T /dev/null 2>&1', $out, $exit);
+            expect($exit)->toBe(0, implode("\n", $out));
+
+            return $scratch.'/empty.tar.gz';
+        },
+        'is empty',
+    ],
+    'a symlink where the archive should be' => [
+        function (string $scratch): string {
+            symlink('/etc/hosts', $scratch.'/linked.tar.gz');
+
+            return $scratch.'/linked.tar.gz';
+        },
+        'must not be a symlink',
+    ],
+]);
+
+it('keeps the recovery modes and the installing modes apart in what they accept', function (array $arguments, string $expected) {
+    $scratch = itpScratchDir();
+
+    try {
+        [$exit, $output] = itpRun($scratch, $arguments);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain($expected);
+    } finally {
+        itpCleanup($scratch);
+    }
+})->with([
+    'capture with material' => [
+        ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', '/root/capture', '--material-dir', '/root/material'],
+        '--capture never consults supplied material',
+    ],
+    'capture without an output directory' => [
+        ['--capture', '--target', 'staging-main', '--scope', 'host'],
+        '--output-dir',
+    ],
+    'capture of the target scope' => [
+        ['--capture', '--target', 'staging-main', '--scope', 'target', '--output-dir', '/root/capture'],
+        '--scope host',
+    ],
+    'validation without an archive' => [
+        ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'host'],
+        '--archive',
+    ],
+    'validation with material' => [
+        ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'host', '--archive', '/root/a.tar.gz', '--material-dir', '/root/material'],
+        '--validate-recovery-material never consults supplied material',
+    ],
+    'listing with material' => [
+        ['--list-material-names', '--target', 'staging-main', '--scope', 'host', '--material-dir', '/root/material'],
+        '--list-material-names never consults supplied material',
+    ],
+    'apply with an output directory' => [
+        ['--apply', '--target', 'staging-main', '--scope', 'host', '--output-dir', '/root/capture'],
+        '--output-dir',
+    ],
+    'verify with an archive' => [
+        ['--verify', '--target', 'staging-main', '--scope', 'host', '--archive', '/root/a.tar.gz'],
+        '--archive',
+    ],
+]);

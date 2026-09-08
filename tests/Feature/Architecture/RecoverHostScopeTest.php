@@ -62,13 +62,22 @@ it('installs recover-host through the existing installer, and adds no second ins
         expect($installer)->not->toContain('scripts/'.$transported);
     }
 
+    // The external-material installer joins the bundle for the same reason,
+    // with the committed vhost sources it derives its table from: backup
+    // captures the recovery material through it, and restore-test and
+    // verify-backup judge that material through it, on a live host.
+    expect($installer)
+        ->toContain('infrastructure/scripts/install-target-prerequisites')
+        ->toContain('DST_BIN_ROOT}/install-target-prerequisites"')
+        ->toContain('DST_CONFIG_ROOT}/nginx"');
+
     // The authoritative counts were updated honestly, not left stale.
     expect($installer)
-        ->toContain('twenty-three files')
-        ->toContain('all twenty-three source files are present regular files')
-        ->toContain('bash -n passed for all twenty-one source shell scripts')
-        ->not->toContain('twenty-two files')
-        ->not->toContain('all twenty source');
+        ->toContain('twenty-eight files')
+        ->toContain('all twenty-eight source files are present regular files')
+        ->toContain('bash -n passed for all twenty-two source shell scripts')
+        ->not->toContain('twenty-three files')
+        ->not->toContain('all twenty-one source');
 
     // And no second installer was created for it.
     $installers = collect(glob(base_path('infrastructure/scripts/install-*')) ?: [])
@@ -205,11 +214,13 @@ it('refuses to prepare a host another data operation is holding', function () {
         ->toContain('recoveries/${TARGET_ID}/recovery-guard')
         ->toContain('preparation is refused while a data operation owns');
 
-    // The gate runs before any child, in every mode.
+    // The gate runs before any child, in every mode — before the ordinary
+    // slice loop and before the recovery pipeline alike.
     $apply = shellFunctionBody($prepare, 'run_apply');
 
     expect(mb_strpos($apply, 'gate_no_data_operation_hold'))
-        ->toBeLessThan(mb_strpos($apply, 'run_child_captured'));
+        ->toBeLessThan(mb_strpos($apply, 'converge_slice'))
+        ->toBeLessThan(mb_strpos($apply, 'run_recovery_slices'));
 
     foreach (['run_check', 'run_verify'] as $readOnly) {
         expect(shellFunctionBody($prepare, $readOnly))->toContain('gate_no_data_operation_hold');
@@ -599,18 +610,15 @@ it('records no observability marker of its own', function () {
 it('leaves every accepted operational surface it does not extend untouched', function () {
     $changed = branchChangedCodeFiles();
 
-    // The backup subsystem, the host perimeter, the SSH restriction, mail
+    // The host-global services, the host perimeter, the SSH restriction, mail
     // capture, the wrappers and the sudoers grants: a recovery reuses all of
     // them and adds nothing to any. install-target-operations and prepare-host
     // are deliberately NOT on this list — the first installs recover-host so a
     // deployment can reach it, the second gained the interlock that keeps it
-    // off a held target — and both are asserted positively above.
+    // off a held target — and both are asserted positively above. The backup
+    // writers are not on it either: they read the shared offsite-write hold,
+    // and that is asserted structurally below.
     foreach ([
-        'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/offsite-restore-test',
-        'infrastructure/scripts/restore-test',
         'infrastructure/scripts/install-target-perimeter',
         'infrastructure/scripts/install-mail-capture',
         'infrastructure/config/cron/rateguru-backups',
@@ -664,24 +672,52 @@ it('adds no wrapper and no sudoers grant of its own', function () {
     }
 });
 
-it('defines no second backup format and no new manifest schema', function () {
+it('reads the one backup format common states, and defines no second one', function () {
+    $common = File::get(base_path('infrastructure/scripts/common'));
     $library = File::get(base_path('infrastructure/scripts/restore-common'));
 
-    // The exact seven files backup produces, named once, in the order backup
-    // itself writes them — unchanged.
-    expect($library)->toContain("RESTORE_BACKUP_CHECKSUMMED_FILES=(\n    database.dump\n    storage-app.tar.gz\n    environment.env\n    release.json\n    server-configuration.tar.gz\n    manifest.json\n)");
-
-    expect(File::get(base_path('infrastructure/scripts/common')))
+    // The closed file sets and the current manifest schema are stated once,
+    // in common; restore-common binds to them and recover-host reads the
+    // schema through the shared verification, never by parsing a manifest
+    // itself.
+    expect($common)
+        ->toContain('BACKUP_MANIFEST_SCHEMA_CURRENT=3')
         ->toContain('TARGET_REGISTRY_SCHEMA_VERSION=1');
 
+    expect($library)
+        ->toContain('RESTORE_BACKUP_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}")')
+        ->toContain('RESTORE_BACKUP_SCHEMA3_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}")');
+
+    $recover = File::get(base_path('infrastructure/scripts/recover-host'));
+
+    expect(executableSourceLines($recover))
+        ->not->toContain('manifest_schema_version')
+        ->not->toContain('database.dump');
+
+    // The schema it requires is the verified identity's, and the requirement
+    // is the shared one: a backup is clean-host-recovery-capable exactly when
+    // it carries the recovery material.
+    expect($recover)
+        ->toContain('.backup_schema')
+        ->toContain('not clean-host-recovery-capable');
+
+    // Only backup writes a manifest, and it writes the current schema by
+    // name; no operational file spells the number out a second time.
     foreach (operationalFiles() as $path) {
-        expect(File::get($path))->not->toContain('manifest_schema_version: 3')
-            ->not->toContain('manifest_schema_version 3');
+        $source = executableSourceLines(File::get($path));
+
+        if (str_ends_with($path, '/scripts/backup')) {
+            expect($source)->toContain('--argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}"');
+
+            continue;
+        }
+
+        expect($source)->not->toContain('--argjson manifest_schema_version');
     }
 
     // The commit comes from the backup's existing release.json, never from a
     // new field duplicated for recovery.
-    expect(File::get(base_path('infrastructure/scripts/recover-host')))
+    expect($recover)
         ->toContain('release.json')
         ->not->toContain('recovery_source_sha');
 });
