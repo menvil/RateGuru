@@ -110,10 +110,22 @@ function runRecoverWorkflowStep(string $file, string $job, string $stepName, arr
 
     $script = tempnam(sys_get_temp_dir(), 'rateguru-workflow-step-');
 
-    file_put_contents($script, "#!/usr/bin/env bash\n".data_get($step, 'run'));
+    // The environment is written into the script rather than handed to
+    // proc_open: an empty value passed through the env array is dropped on
+    // some platforms, and the steps under test run with `set -u`, so an
+    // input that is legitimately empty would fail as "unbound variable"
+    // instead of exercising the rule it is there to exercise. Values may also
+    // be multi-line (known_hosts), which escapeshellarg handles exactly.
+    $exports = '';
+
+    foreach ($env as $name => $value) {
+        $exports .= 'export '.$name.'='.escapeshellarg((string) $value)."\n";
+    }
+
+    file_put_contents($script, "#!/usr/bin/env bash\n".$exports.data_get($step, 'run'));
 
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$env]);
+    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH')]);
 
     expect($process)->not->toBeFalse('could not start the workflow step under test');
 
@@ -210,8 +222,8 @@ it('offers exactly the two recovery modes and nothing that could name a backup v
     $inputs = (array) data_get($workflow, 'on.workflow_dispatch.inputs');
 
     expect(data_get($inputs, 'mode.type'))->toBe('choice')
-        ->and(data_get($inputs, 'mode.options'))->toBe(['start', 'continue-held'])
-        ->and(data_get($inputs, 'mode.default'))->toBe('start')
+        ->and(data_get($inputs, 'mode.options'))->toBe(['new', 'continue'])
+        ->and(data_get($inputs, 'mode.default'))->toBe('new')
         ->and(data_get($inputs, 'mode.required'))->toBeTrue();
 
     // No "latest" anywhere: a backup is named exactly, or not at all. And no
@@ -233,13 +245,22 @@ it('offers exactly the two recovery modes and nothing that could name a backup v
         ->not->toContain('restore-source')
         ->not->toContain('backup: latest');
 
-    // The replacement machine is the one thing an operator must supply, and
-    // the port has the only default in the workflow.
-    expect(data_get($inputs, 'replacement-host.type'))->toBe('string')
-        ->and(data_get($inputs, 'replacement-host.required'))->toBeTrue()
-        ->and(data_get($inputs, 'replacement-port.type'))->toBe('string')
-        ->and(data_get($inputs, 'replacement-port.required'))->toBeFalse()
-        ->and(data_get($inputs, 'replacement-port.default'))->toBe('22');
+    // The replacement machine is the one thing an operator must supply. Its
+    // SSH port is deliberately NOT an input: it is an environment binding
+    // (vars.RECOVERY_PORT), like every other property of how this target is
+    // reached, so the only thing typed is WHICH machine.
+    expect(data_get($inputs, 'recovery-host.type'))->toBe('string')
+        ->and(data_get($inputs, 'recovery-host.required'))->toBeTrue();
+
+    foreach (['replacement-port', 'recovery-port', 'port', 'ssh-port'] as $forbidden) {
+        expect(array_key_exists($forbidden, $inputs))
+            ->toBeFalse("{$file} must not let an operator choose a port: {$forbidden}");
+    }
+
+    // Both workflows are gated on typing the target out in full.
+    expect(data_get($inputs, 'confirmation.type'))->toBe('string')
+        ->and(data_get($inputs, 'confirmation.required'))->toBeTrue()
+        ->and(data_get($inputs, 'confirmation.default'))->toBe('');
 })->with('recover workflows');
 
 it('enforces the request contract before any environment or secret is reached', function (
@@ -255,10 +276,10 @@ it('enforces the request contract before any environment or secret is reached', 
         ->and(data_get($workflow, 'jobs.validate.steps.0.uses'))->toBeNull();
 
     expect($source)
-        ->toContain('mode=start requires an exact offsite backup timestamp YYYYMMDD-HHMMSS')
-        ->toContain('mode=start must not name an operation')
-        ->toContain('mode=continue-held requires the recovery operation ID')
-        ->toContain('mode=continue-held must not name a backup')
+        ->toContain('mode=new requires an exact offsite backup timestamp YYYYMMDD-HHMMSS')
+        ->toContain('mode=new must not name an operation')
+        ->toContain('mode=continue requires the recovery operation ID')
+        ->toContain('mode=continue must not name a backup')
         ->toContain('a new recovery must never be started over a held one')
         ->toContain('^[0-9]{8}-[0-9]{6}$')
         ->toContain('^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$');
@@ -287,14 +308,18 @@ it('treats the replacement address as data and refuses anything that is not one'
 
     expect($source)
         ->toContain("host_label='[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'")
-        ->toContain('replacement-host must be a DNS hostname or an IPv4 address')
-        ->toContain('replacement-host is required')
-        ->toContain('replacement-host is longer than a DNS name may be')
+        ->toContain('recovery-host must be a DNS hostname or an IPv4 address')
+        ->toContain('recovery-host is required')
+        ->toContain('recovery-host is longer than a DNS name may be')
         ->toContain('^([0-9]{1,3}\.){3}[0-9]{1,3}$')
-        ->toContain('replacement-port must be between 1 and 65535')
         // The leading-zero octal trap, in both places a number is compared.
-        ->toContain('10#${replacement_port}')
+        ->toContain('10#${RECOVERY_PORT}')
         ->toContain('10#${octet}');
+
+    // The port is an environment binding, validated once where the
+    // environment is actually available rather than trusted into every
+    // connection and failing there with a worse diagnostic.
+    expect($source)->toContain('RECOVERY_PORT must be configured for this environment as a port between 1 and 65535');
 })->with('recover workflows');
 
 it('refuses a target that is not active before any GitHub Environment is entered', function (
@@ -429,13 +454,13 @@ it('reads the current host binding only to refuse it, and never to connect to it
     // a second name gets MUTATED before anything checks it is empty.
     //
     // SSH host keys decide it without resolving anything: strict host key
-    // checking is mandatory, so RECOVERY_KNOWN_HOSTS must carry the
+    // checking is mandatory, so RECOVERY_BOOTSTRAP_KNOWN_HOSTS must carry the
     // replacement machine's own key, and if that machine is the bound one its
     // key is in both secrets whatever name was typed.
     expect($source)
         ->toContain('ed25519_identity()')
         ->toContain('CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}')
-        ->toContain('REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}')
+        ->toContain('REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}')
         ->toContain('if [[ "${current_identity}" == "${replacement_identity}" ]]; then')
         ->toContain('The replacement machine presents the same ssh-ed25519 host key as the machine currently bound to this target.');
 
@@ -528,8 +553,12 @@ it('decides machine identity by one canonical host key, and refuses when it cann
         $status = runRecoverWorkflowStep($file, 'binding', 'Refuse a recovery onto the host this target is already bound to', [
             'REPLACEMENT_HOST' => '203.0.113.10',
             'CURRENT_HOST' => 'current.example.com',
+            'RECOVERY_PORT' => '22',
             'CURRENT_KNOWN_HOSTS' => $currentKnownHosts,
             'REPLACEMENT_KNOWN_HOSTS' => $replacementKnownHosts,
+            // The deploy credential must name the machine the bootstrap one
+            // prepares; these cases vary only the bootstrap side.
+            'REPLACEMENT_DEPLOY_KNOWN_HOSTS' => $replacementKnownHosts,
         ]);
 
         expect($status)->toBe($expected, "{$file}: {$description}");
@@ -541,8 +570,8 @@ it('points every operation at the replacement machine and never at the target bi
 ) {
     [$workflow, $source] = recoverWorkflow($file);
 
-    $host = '${{ needs.validate.outputs.replacement_host }}';
-    $port = '${{ needs.validate.outputs.replacement_port }}';
+    $host = '${{ needs.validate.outputs.recovery_host }}';
+    $port = '${{ vars.RECOVERY_PORT }}';
 
     // Preparation, recovery, the controlled deployment and the Nightwatch
     // marker: every single one addresses the replacement machine.
@@ -593,7 +622,7 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
     expect($source)
         ->toContain('${{ vars.RECOVERY_BOOTSTRAP_USER }}')
         ->toContain('${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}')
-        ->toContain('${{ secrets.RECOVERY_KNOWN_HOSTS }}');
+        ->toContain('${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}');
 
     foreach ([
         '${{ secrets.BOOTSTRAP_SSH_KEY }}',
@@ -616,7 +645,7 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
         $encoded = json_encode(data_get($workflow, "jobs.{$jobName}"));
 
         expect($encoded)->toContain('secrets.RECOVERY_BOOTSTRAP_SSH_KEY')
-            ->toContain('secrets.RECOVERY_KNOWN_HOSTS');
+            ->toContain('secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS');
 
         // Never the deploy key: the deploy key reaches only the narrow sudo
         // wrappers and cannot prepare, recover or resume a host.
@@ -627,8 +656,12 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
         $encoded = json_encode(data_get($workflow, "jobs.{$jobName}"));
 
         expect($encoded)->toContain('secrets.DEPLOY_SSH_KEY')
-            // The host key of the machine actually being addressed.
-            ->toContain('secrets.RECOVERY_KNOWN_HOSTS');
+            // The host key of the machine actually being addressed, through
+            // the credential that belongs to the restricted connection.
+            ->toContain('secrets.RECOVERY_DEPLOY_KNOWN_HOSTS')
+            // ...and never the bootstrap one: they are separate credentials
+            // even when they describe the same physical machine.
+            ->not->toContain('secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS');
 
         // Never the privileged one: a deployment and a marker are ordinary
         // operations, and neither is host administration.
@@ -648,11 +681,11 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
     }
 
     foreach (recoverWorkflowInputsUsed($workflow, 'known-hosts') as $where => $value) {
-        expect($value)->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
+        expect($value)->toBe('${{ secrets.RECOVERY_DEPLOY_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
     }
 
     foreach (recoverWorkflowInputsUsed($workflow, 'bootstrap-known-hosts') as $where => $value) {
-        expect($value)->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
+        expect($value)->toBe('${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
     }
 
     // Strict host key checking is the shared actions' contract; nothing here
@@ -717,7 +750,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
     $prepare = data_get($workflow, 'jobs.prepare');
 
     expect(data_get($prepare, 'environment'))->toBe($environment)
-        ->and(data_get($prepare, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
+        ->and(data_get($prepare, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'new' }}")
         ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding']);
 
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
@@ -733,7 +766,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
 
     expect($recoverCondition)
         ->toContain("needs.prepare.result == 'success'")
-        ->toContain("needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue-held'");
+        ->toContain("needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue'");
 })->with('recover workflows');
 
 it('recovers through the shared action and decides the rest from its result alone', function (
@@ -752,12 +785,12 @@ it('recovers through the shared action and decides the rest from its result alon
     $inspect = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'inspect');
 
     expect(data_get($apply, 'uses'))->toBe('./.github/actions/recover-rateguru-host')
-        ->and(data_get($apply, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
+        ->and(data_get($apply, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'new' }}")
         ->and(data_get($apply, 'with.backup-id'))->toBe('${{ needs.validate.outputs.backup }}')
         ->and(data_get($apply, 'with.operation-id'))->toBeNull();
 
     expect(data_get($inspect, 'uses'))->toBe('./.github/actions/recover-rateguru-host')
-        ->and(data_get($inspect, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'continue-held' }}")
+        ->and(data_get($inspect, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'continue' }}")
         ->and(data_get($inspect, 'with.operation-id'))->toBe('${{ needs.validate.outputs.operation }}')
         ->and(data_get($inspect, 'with.backup-id'))->toBeNull();
 
@@ -976,7 +1009,7 @@ it('deploys through the one deploy action, to the replacement machine, without m
         ->and(data_get($deployStep, 'with.deploy-wrapper'))->toBe('${{ vars.DEPLOY_WRAPPER }}')
         ->and(data_get($deployStep, 'with.deploy-root'))->toBe('${{ vars.DEPLOY_ROOT }}')
         ->and(data_get($deployStep, 'with.ssh-private-key'))->toBe('${{ secrets.DEPLOY_SSH_KEY }}')
-        ->and(data_get($deployStep, 'with.known-hosts'))->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}');
+        ->and(data_get($deployStep, 'with.known-hosts'))->toBe('${{ secrets.RECOVERY_DEPLOY_KNOWN_HOSTS }}');
 
     foreach (['source-sha', 'required-source-sha', 'commit', 'previous', 'previous-release'] as $forbidden) {
         expect(data_get($deployStep, "with.{$forbidden}"))->toBeNull("{$file}: the recovery deploy must never name a commit or a previous release");
@@ -1174,8 +1207,8 @@ it('records a deployment marker only after the final verification passed', funct
     expect(json_encode($observability))->not->toContain('needs.build.outputs');
 
     // Nightwatch is reached on the machine that was actually recovered.
-    expect(data_get($record, 'with.deploy-host'))->toBe('${{ needs.validate.outputs.replacement_host }}')
-        ->and(data_get($record, 'with.deploy-port'))->toBe('${{ needs.validate.outputs.replacement_port }}');
+    expect(data_get($record, 'with.deploy-host'))->toBe('${{ needs.validate.outputs.recovery_host }}')
+        ->and(data_get($record, 'with.deploy-port'))->toBe('${{ vars.RECOVERY_PORT }}');
 
     // There is still exactly one marker implementation, and it is fail-open —
     // asserted where fail-open actually lives rather than restated here.
@@ -1190,6 +1223,7 @@ it('records a deployment marker only after the final verification passed', funct
 it('reports enough for an operator to continue, and no secret at all', function (
     string $file,
     string $name,
+    string $target,
 ) {
     [$workflow] = recoverWorkflow($file);
     $report = data_get($workflow, 'jobs.report');
@@ -1200,9 +1234,15 @@ it('reports enough for an operator to continue, and no secret at all', function 
 
     // It waits for everything, so a run that stopped anywhere still describes
     // where it stopped.
-    expect(data_get($report, 'needs'))->toBe([
-        'validate', 'binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability',
-    ]);
+    $expectedNeeds = ['validate', 'binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability'];
+
+    if ($file === 'recover-staging.yml') {
+        // The rehearsal hold is a staging-only job, and the report has to see
+        // it: a deliberate hold and a stuck recovery look identical without it.
+        array_splice($expectedNeeds, 6, 0, 'hold');
+    }
+
+    expect(data_get($report, 'needs'))->toBe($expectedNeeds);
 
     $run = (string) data_get($report, 'steps.0.run');
 
@@ -1236,7 +1276,10 @@ it('reports enough for an operator to continue, and no secret at all', function 
         ->toContain('Re-run "'.$name.'" with:')
         ->toContain('echo "mode=continue-held"')
         ->toContain('echo "operation=${operation}"')
-        ->toContain('echo "replacement-host=${REPLACEMENT_HOST}"')
+        ->toContain('echo "recovery-host=${REPLACEMENT_HOST}"')
+        // The confirmation is mandatory, so a re-run recipe without it would
+        // send the operator straight into a refusal.
+        ->toContain('echo "confirmation=RECOVER '.$target.'"')
         // Nothing is cleaned up to make a run look green.
         ->toContain('Nothing was cleaned up to make this run look green');
 
@@ -1253,12 +1296,126 @@ it('reports enough for an operator to continue, and no secret at all', function 
 })->with('recover workflows');
 
 // =============================================================================
+// The rehearsal hold
+// =============================================================================
+
+it('offers the rehearsal hold on staging only, off by default', function () {
+    [$staging] = recoverWorkflow('recover-staging.yml');
+    [$production, $productionSource] = recoverWorkflow('recover-production.yml');
+
+    $input = data_get($staging, 'on.workflow_dispatch.inputs.pause-after-controlled-deploy');
+
+    expect($input)->not->toBeNull()
+        ->and(data_get($input, 'type'))->toBe('boolean')
+        ->and(data_get($input, 'required'))->toBeFalse()
+        // Off unless asked for: a real recovery must never stop short of a
+        // serving host by accident.
+        ->and(data_get($input, 'default'))->toBeFalse();
+
+    // Production has neither the switch nor the job, and must never grow
+    // either: a production recovery that stopped halfway on purpose would be a
+    // production outage with a green tick next to it.
+    expect((array) data_get($production, 'on.workflow_dispatch.inputs'))
+        ->not->toHaveKey('pause-after-controlled-deploy');
+
+    expect(array_keys($production['jobs']))->not->toContain('hold');
+
+    // Executable content only: the production header legitimately EXPLAINS
+    // that it carries no rehearsal switch, and a blunt whole-file scan would
+    // forbid saying so.
+    $productionExecutable = executableSourceLines($productionSource);
+
+    // 'hold' is deliberately not on this list: the absence of the job is
+    // asserted above by name, and the word appears legitimately in "the final
+    // contract holds".
+    foreach (['pause', 'rehearsal'] as $forbidden) {
+        expect(str_contains(mb_strtolower($productionExecutable), mb_strtolower($forbidden)))
+            ->toBeFalse("recover-production.yml must carry no rehearsal switch: {$forbidden}");
+    }
+});
+
+it('holds the rehearsal after the controlled deployment, on the server\'s word', function () {
+    [$workflow, $source] = recoverWorkflow('recover-staging.yml');
+    $hold = data_get($workflow, 'jobs.hold');
+
+    // It runs only when asked, and only when a controlled deployment actually
+    // happened — there is nothing to hold at otherwise.
+    $condition = preg_replace('/\s+/', ' ', (string) data_get($hold, 'if'));
+
+    expect($condition)
+        ->toContain("needs.validate.outputs.pause_after_controlled_deploy == 'true'")
+        ->toContain("needs.recover.outputs.deploy_required == 'yes'")
+        // No status-check escape hatch: a failed deployment must skip it.
+        ->not->toContain('always()')
+        ->not->toContain('cancelled()');
+
+    expect(data_get($hold, 'needs'))->toBe(['validate', 'binding', 'recover', 'deploy'])
+        ->and(data_get($hold, 'environment'))->toBe('staging');
+
+    $steps = recoverWorkflowStepsByName($workflow, 'hold');
+
+    // Authoritative: it asks the server rather than assuming the deployment
+    // left the host where it meant to.
+    $inspect = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'inspect');
+
+    expect(data_get($inspect, 'uses'))->toBe('./.github/actions/recover-rateguru-host')
+        ->and(data_get($inspect, 'with.operation-id'))->toBe('${{ needs.recover.outputs.operation }}');
+
+    expect(data_get($steps['Prove the rehearsal is holding where it meant to'], 'run'))
+        ->toContain('if [[ "${STATUS}" != "ready-to-resume" ]]; then')
+        ->toContain('REHEARSAL HOLD — this recovery is NOT complete');
+
+    // Nothing in the hold finishes anything.
+    $encoded = json_encode($hold);
+
+    foreach (['mode: resume', 'mode: verify', 'record-rateguru-deployment', 'deploy-rateguru'] as $forbidden) {
+        expect(str_contains($encoded, $forbidden))
+            ->toBeFalse("the rehearsal hold must not finish the recovery: {$forbidden}");
+    }
+});
+
+it('finishes nothing on a paused run', function () {
+    [$workflow] = recoverWorkflow('recover-staging.yml');
+
+    // The resume is what ends a hold, so the pause has to be refused there —
+    // and that is the only place it needs to be refused, because verify needs
+    // resume and observability needs verify.
+    $resumeCondition = preg_replace('/\s+/', ' ', (string) data_get($workflow, 'jobs.resume.if'));
+
+    expect($resumeCondition)
+        ->toContain("needs.validate.outputs.pause_after_controlled_deploy != 'true'");
+
+    // verify cannot run without resume having run, and the marker cannot run
+    // without verify — so a paused run records nothing, by construction.
+    $verifyCondition = preg_replace('/\s+/', ' ', (string) data_get($workflow, 'jobs.verify.if'));
+
+    expect($verifyCondition)
+        ->toContain("needs.resume.result == 'success' || needs.resume.result == 'failure'")
+        // A resume that never ran leaves the recovery mid-flight, which is
+        // exactly the paused case.
+        ->not->toContain('skipped');
+
+    expect(data_get($workflow, 'jobs.observability.needs'))->toContain('verify')
+        ->and(data_get($workflow, 'jobs.observability.if'))->toBeNull();
+
+    // And the summary refuses to read as a completed recovery.
+    $report = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    expect($report)
+        ->toContain('REHEARSAL HOLD — the recovery is deliberately unfinished.')
+        ->toContain('This run is green and the host is NOT recovered');
+});
+
+// =============================================================================
 // Production stays fail-closed while tits-guru is planned
 // =============================================================================
 
-it('gates a production recovery behind an exact typed confirmation, before any environment', function () {
-    [$workflow, $source] = recoverWorkflow('recover-production.yml');
-    [$staging] = recoverWorkflow('recover-staging.yml');
+it('gates every recovery behind a confirmation that names its own target, before any environment', function (
+    string $file,
+    string $name,
+    string $target,
+) {
+    [$workflow, $source] = recoverWorkflow($file);
 
     $inputs = (array) data_get($workflow, 'on.workflow_dispatch.inputs');
 
@@ -1267,7 +1424,9 @@ it('gates a production recovery behind an exact typed confirmation, before any e
         ->and(data_get($inputs, 'confirmation.type'))->toBe('string')
         ->and(data_get($inputs, 'confirmation.default'))->toBe('');
 
-    expect($source)->toContain('if [[ "${CONFIRMATION}" != "RECOVER tits-guru" ]]; then');
+    // The literal names the target this workflow acts on, so a confirmation
+    // copied from the other workflow is refused rather than accepted.
+    expect($source)->toContain('if [[ "${CONFIRMATION}" != "RECOVER '.$target.'" ]]; then');
 
     // Checked in the job that holds no environment, and checked FIRST inside
     // it, so an unconfirmed run ends before approval is requested and long
@@ -1277,10 +1436,36 @@ it('gates a production recovery behind an exact typed confirmation, before any e
     $run = (string) data_get($workflow, 'jobs.validate.steps.0.run');
 
     expect(mb_strpos($run, 'CONFIRMATION'))->toBeLessThan((int) mb_strpos($run, 'case "${MODE}" in'));
+})->with('recover workflows');
 
-    // Staging has no such input: the confirmation is a production gate, and
-    // adding it to staging would train operators to type past it.
-    expect((array) data_get($staging, 'on.workflow_dispatch.inputs'))->not->toHaveKey('confirmation');
+it('refuses a confirmation that names the other target', function () {
+    foreach ([
+        'recover-staging.yml' => ['RECOVER staging-main', 'RECOVER tits-guru'],
+        'recover-production.yml' => ['RECOVER tits-guru', 'RECOVER staging-main'],
+    ] as $file => [$correct, $wrong]) {
+        $accepted = runRecoverWorkflowStep($file, 'validate', 'Validate the recovery request', [
+            'MODE' => 'new',
+            'BACKUP' => '20260115-023000',
+            'OPERATION' => '',
+            'REPLACEMENT_HOST' => '203.0.113.10',
+            'CONFIRMATION' => $correct,
+            'PAUSE_AFTER_CONTROLLED_DEPLOY' => 'false',
+            'GITHUB_OUTPUT' => tempnam(sys_get_temp_dir(), 'rateguru-output-'),
+        ]);
+
+        $refused = runRecoverWorkflowStep($file, 'validate', 'Validate the recovery request', [
+            'MODE' => 'new',
+            'BACKUP' => '20260115-023000',
+            'OPERATION' => '',
+            'REPLACEMENT_HOST' => '203.0.113.10',
+            'CONFIRMATION' => $wrong,
+            'PAUSE_AFTER_CONTROLLED_DEPLOY' => 'false',
+            'GITHUB_OUTPUT' => tempnam(sys_get_temp_dir(), 'rateguru-output-'),
+        ]);
+
+        expect($accepted)->toBe(0, "{$file} refuses its own confirmation")
+            ->and($refused)->toBe(1, "{$file} accepts the other workflow's confirmation");
+    }
 });
 
 it('cannot mutate production while tits-guru is planned, and does not activate it', function () {
@@ -1340,9 +1525,11 @@ it('keeps the two recovery workflows structurally identical apart from their ide
     [$staging] = recoverWorkflow('recover-staging.yml');
     [$production] = recoverWorkflow('recover-production.yml');
 
-    // Same jobs, same order, same shared actions: production is not a second
-    // implementation, it is the same one at a different identity.
-    expect(array_keys($staging['jobs']))->toBe(array_keys($production['jobs']));
+    // Same recovery mechanics at a different identity: production is not a
+    // second implementation. It differs by exactly one thing, in exactly one
+    // direction — staging carries the rehearsal hold and production must not.
+    expect(array_keys($production['jobs']))->toBe(['validate', 'binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability', 'report'])
+        ->and(array_keys($staging['jobs']))->toBe(['validate', 'binding', 'prepare', 'recover', 'build', 'deploy', 'hold', 'resume', 'verify', 'observability', 'report']);
 
     $usesOf = static fn (array $workflow): array => collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))
@@ -1352,13 +1539,22 @@ it('keeps the two recovery workflows structurally identical apart from their ide
         ->values()
         ->all();
 
-    expect($usesOf($staging))->toBe($usesOf($production));
+    // The hold job adds one checkout and one inspect to staging; every other
+    // action call site is identical, and no new KIND of action appears.
+    $stagingUses = $usesOf($staging);
+    $productionUses = $usesOf($production);
 
-    // The production surface is the staging one plus exactly one input.
+    expect(array_count_values($stagingUses)['./.github/actions/recover-rateguru-host'])
+        ->toBe(array_count_values($productionUses)['./.github/actions/recover-rateguru-host'] + 1);
+
+    expect(array_values(array_unique($stagingUses)))->toBe(array_values(array_unique($productionUses)));
+
+    // The staging surface is the production one plus exactly the rehearsal
+    // switch, which production must never grow.
     $inputsOf = static fn (array $workflow): array => array_keys((array) data_get($workflow, 'on.workflow_dispatch.inputs'));
 
-    expect($inputsOf($staging))->toBe(['mode', 'backup', 'operation', 'replacement-host', 'replacement-port'])
-        ->and($inputsOf($production))->toBe([...$inputsOf($staging), 'confirmation']);
+    expect($inputsOf($production))->toBe(['mode', 'backup', 'operation', 'recovery-host', 'confirmation'])
+        ->and($inputsOf($staging))->toBe([...$inputsOf($production), 'pause-after-controlled-deploy']);
 });
 
 it('ships the runbook and points the README and roadmap at it', function () {
@@ -1372,12 +1568,18 @@ it('ships the runbook and points the README and roadmap at it', function () {
         ->toContain('REPAIR TARGET')
         ->toContain('RESTORE TARGET DATA')
         ->toContain('RECOVER HOST')
-        ->toContain('continue-held')
+        ->toContain('mode=continue')
         ->toContain('RECOVER tits-guru')
+        ->toContain('RECOVER staging-main')
         ->toContain('RECOVERY_BOOTSTRAP_USER')
         ->toContain('RECOVERY_BOOTSTRAP_SSH_KEY')
-        ->toContain('RECOVERY_KNOWN_HOSTS')
+        ->toContain('RECOVERY_BOOTSTRAP_KNOWN_HOSTS')
+        ->toContain('RECOVERY_DEPLOY_KNOWN_HOSTS')
+        ->toContain('RECOVERY_PORT')
         ->toContain('RECOVERY_RCLONE_CONFIG')
+        ->toContain('pause-after-controlled-deploy')
+        // The disposable machine must match the bootstrap contract exactly.
+        ->toContain('Ubuntu 22.04')
         ->toContain('Clean-host acceptance checklist');
 
     // The rehearsal rule that protects the real backup namespace. Asserted

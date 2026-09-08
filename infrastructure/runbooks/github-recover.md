@@ -78,19 +78,29 @@ fact about this operation that is not already known, so it is an input:
 
 | input | meaning |
 |---|---|
-| `mode` | `start` (a new recovery) or `continue-held` (finish one already held) |
-| `backup` | exact `YYYYMMDD-HHMMSS`; required for `start`, forbidden otherwise |
-| `operation` | the recovery operation ID; required for `continue-held`, forbidden otherwise |
-| `replacement-host` | hostname or IPv4 address of the **new** machine — always required |
-| `replacement-port` | SSH port; defaults to `22` |
-| `confirmation` | **production only** — must be exactly `RECOVER tits-guru` |
+| `mode` | `new` (a fresh recovery) or `continue` (finish one already held) |
+| `backup` | exact `YYYYMMDD-HHMMSS`; required for `new`, forbidden otherwise |
+| `operation` | the recovery operation ID; required for `continue`, forbidden otherwise |
+| `recovery-host` | hostname or IPv4 address of the **replacement** machine — always required |
+| `confirmation` | exactly `RECOVER staging-main` / `RECOVER tits-guru` — always required |
+| `pause-after-controlled-deploy` | **staging only, rehearsal only** — stop at `ready-to-resume` |
+
+There is deliberately **no port input**: the replacement machine's SSH port is
+`vars.RECOVERY_PORT`, an environment binding like every other property of how a
+target is reached. The only thing an operator types about the machine is
+*which* machine.
+
+The confirmation names the target in full, and each workflow refuses the
+other's: pasting `RECOVER tits-guru` into the staging button fails in the first
+job.
 
 There is no `latest`, no `source` selector and no local option: a recovery
 models the loss of the machine the local backups lived on, so **offsite is the
 only source there is**. There is no `ref`, `branch`, `tag`, `release`,
-`source_sha` or `run-migrations` input either.
+`source_sha` or `run-migrations` input either — and no operation ID for a
+`new` recovery, because the server generates that itself.
 
-`replacement-host` is treated as data, never as shell syntax. It must be a
+`recovery-host` is treated as data, never as shell syntax. It must be a
 sequence of DNS labels — which is what both an ordinary hostname and an IPv4
 address are — so whitespace, control characters, shell metacharacters, a
 leading `-`, `user@host`, a `:port` suffix, a path and SSH option syntax are
@@ -102,7 +112,7 @@ ID and address first, exactly as the Restore workflows do it.
 ## 4. The replacement machine is never the current machine
 
 Before Prepare Host is invoked — and before the recovery credential is used at
-all — the workflow compares `replacement-host` against the target's current
+all — the workflow compares `recovery-host` against the target's current
 `vars.DEPLOY_HOST` binding and **refuses if they are equal**:
 
 ```text
@@ -214,12 +224,21 @@ Environment (`staging`, `production`) **before** the first recovery:
 | variable | meaning |
 |---|---|
 | `RECOVERY_BOOTSTRAP_USER` | the privileged user on the replacement machine: `root`, or a passwordless sudoer |
+| `RECOVERY_PORT` | the replacement machine's SSH port (usually `22`) |
 
 | secret | meaning |
 |---|---|
 | `RECOVERY_BOOTSTRAP_SSH_KEY` | privileged SSH private key for the replacement machine |
-| `RECOVERY_KNOWN_HOSTS` | the **verified** `known_hosts` entry for the replacement machine |
+| `RECOVERY_BOOTSTRAP_KNOWN_HOSTS` | the **verified** `known_hosts` entry the privileged connections check |
+| `RECOVERY_DEPLOY_KNOWN_HOSTS` | the **verified** `known_hosts` entry the restricted deploy connection checks |
 | `RECOVERY_RCLONE_CONFIG` | rclone configuration the replacement machine reads the offsite backup through |
+
+The two `known_hosts` secrets normally hold the **same** host key: one physical
+machine has one identity. They are separate inputs because the connections that
+use them are separate credentials with separate lifecycles, and the binding job
+refuses the run if they disagree — an operator who pastes one machine's key into
+one and another's into the other would otherwise prepare one VPS and deploy the
+recovered code onto a different one.
 
 `DEPLOY_KNOWN_HOSTS` — which the target already has — is also read, in the
 binding job only, to prove the replacement machine is not the bound one (§4).
@@ -240,10 +259,10 @@ the Nightwatch marker use `DEPLOY_SSH_KEY` and never the privileged one.
 
 | operation | credential | address | host key |
 |---|---|---|---|
-| Prepare Host | `RECOVERY_BOOTSTRAP_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
-| `recover-host --apply` / `--inspect` / `--resume` / `--verify` | `RECOVERY_BOOTSTRAP_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
-| controlled recovery deployment | `DEPLOY_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
-| Nightwatch deployment marker | `DEPLOY_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
+| Prepare Host | `RECOVERY_BOOTSTRAP_SSH_KEY` | `recovery-host` | `RECOVERY_KNOWN_HOSTS` |
+| `recover-host --apply` / `--inspect` / `--resume` / `--verify` | `RECOVERY_BOOTSTRAP_SSH_KEY` | `recovery-host` | `RECOVERY_KNOWN_HOSTS` |
+| controlled recovery deployment | `DEPLOY_SSH_KEY` | `recovery-host` | `RECOVERY_KNOWN_HOSTS` |
+| Nightwatch deployment marker | `DEPLOY_SSH_KEY` | `recovery-host` | `RECOVERY_KNOWN_HOSTS` |
 
 ### Reused target material
 
@@ -277,29 +296,51 @@ replacement machine's.
 
 ### What the operator must arrange outside RateGuru
 
-The replacement machine is expected to exist already, running a supported
-Ubuntu, with the public half of `RECOVERY_BOOTSTRAP_SSH_KEY` accepted for
-`RECOVERY_BOOTSTRAP_USER`. That first access is a provider concern: RateGuru
-does not create machines, does not call a cloud API and holds no provider
-credential. Nothing else is needed on it — Prepare Host does the rest.
+The replacement machine is expected to exist already, with the public half of
+`RECOVERY_BOOTSTRAP_SSH_KEY` accepted for `RECOVERY_BOOTSTRAP_USER`. That first
+access is a provider concern: RateGuru does not create machines, does not call
+a cloud API and holds no provider credential. Nothing else is needed on it —
+Prepare Host does the rest.
+
+That bootstrap credential is the **only** pre-existing host prerequisite a
+recovery is allowed to depend on. It is host access, equivalent to a provider's
+cloud-init SSH setup; it is not part of RateGuru application recovery, and
+nothing else may be hand-installed on the machine before the workflow runs.
+
+#### The supported-host contract
+
+| property | required value |
+|---|---|
+| OS | **Ubuntu 22.04 LTS (jammy)** |
+| architecture | **x86_64** |
+
+`bootstrap-host` enforces exactly 22.04 as a hard gate, deliberately — the
+runtime pins, the repository keys and the external-runtime versions are all
+written against it.
+
+**Do not upgrade a rehearsal machine to Ubuntu 24.04.** It will not be
+recovered onto; it will be refused, and the refusal is correct. Supporting a
+newer release is a deliberate change to the bootstrap contract with its own
+work, not something a rehearsal should discover.
 
 ---
 
-## 6. Running a recovery: `mode=start`
+## 6. Running a recovery: `mode=new`
 
 ```text
 Recover staging host
-  mode             = start
-  backup           = 20260115-023000
-  replacement-host = 203.0.113.24
-  replacement-port = 22
+  mode                          = new
+  backup                        = 20260115-023000
+  recovery-host                 = 203.0.113.24
+  confirmation                  = RECOVER staging-main
+  pause-after-controlled-deploy = false
 ```
 
 What runs, in order:
 
 ```text
 validate        request + target lifecycle          no environment, no secret
-binding         replacement-host != DEPLOY_HOST     no connection
+binding         recovery-host is a different machine no connection
 prepare         prepare-rateguru-host               --apply, then --verify
 recover         recover-host --apply                one exact offsite backup
 decide          read the server's own result        awaiting-code
@@ -319,7 +360,7 @@ data before it does.
 
 ---
 
-## 7. Continuing a recovery: `mode=continue-held`
+## 7. Continuing a recovery: `mode=continue`
 
 A recovery routinely outlives the workflow run that started it. The historical
 commit may no longer build, a runner may die, a run may be cancelled, or the
@@ -327,9 +368,10 @@ operator may come back the next day. None of that damages anything.
 
 ```text
 Recover staging host
-  mode             = continue-held
-  operation        = 20260115-041203-9fa2c7
-  replacement-host = 203.0.113.24
+  mode          = continue
+  operation     = 20260115-041203-9fa2c7
+  recovery-host = 203.0.113.24
+  confirmation  = RECOVER staging-main
 ```
 
 **No backup is supplied again**, and the workflow refuses one: the held
@@ -366,22 +408,22 @@ observed, never what it assumed.
 
 | what happened | where it stopped | what to do |
 |---|---|---|
-| the historical commit no longer builds | build failed | `continue-held` → `awaiting-code`; fix the build, run again |
-| the runner died after `--apply` | before the deployment | `continue-held` → `awaiting-code`; build and deploy, then resume |
-| the runner died after the deployment | before `--resume` | `continue-held` → `ready-to-resume`; resume only |
+| the historical commit no longer builds | build failed | `continue` → `awaiting-code`; fix the build, run again |
+| the runner died after `--apply` | before the deployment | `continue` → `awaiting-code`; build and deploy, then resume |
+| the runner died after the deployment | before `--resume` | `continue` → `ready-to-resume`; resume only |
 | the connection died **during** `--resume` | after the server finished | **nothing** — the run's own verification already settled it |
 
-The first three re-run the same button with the same `replacement-host` and the
+The first three re-run the same button with the same `recovery-host` and the
 operation ID from the failed run's summary. There is no manual data
 manipulation, no hand-run SSH command on the host, and nothing to clean up
 first.
 
-The fourth is different, and is the one case `continue-held` **cannot** help
+The fourth is different, and is the one case `continue` **cannot** help
 with. `recover-host --resume` clears the recovery guard as its commit point and
 prints its machine-readable result afterwards, so a connection that dies in
 between leaves a target that is finished — healthy, queue RUNNING, no longer
 guarded — while the workflow saw only a failed step. There is no held operation
-left for `continue-held` to continue, and `start` will not touch a host that is
+left for `continue` to continue, and `new` will not touch a host that is
 no longer empty.
 
 So the workflow does not ask the operator to resolve it. The final verification
@@ -487,6 +529,36 @@ recovered host into a failed recovery.
 
 ---
 
+## 8b. The rehearsal hold: `pause-after-controlled-deploy`
+
+Phase 7.7 has to prove that a recovery survives losing its runner between the
+controlled deployment and the resume. That interruption is real and hard to
+produce on purpose, so the staging workflow can create it deliberately.
+
+With `pause-after-controlled-deploy=true`, a `new` run does everything up to
+and including the controlled deployment, then:
+
+* asks the SERVER what state the host is in (`recover-host --inspect`);
+* **requires** the answer to be `ready-to-resume`;
+* prints a summary that says, in its heading, that the recovery is **not**
+  complete;
+* stops, green.
+
+Nothing is undone and nothing is finished: the recovery guard is still there,
+the queue is still stopped, the scheduler entry is still held aside, and
+`current` is exactly where the deployment put it. The run is green because a
+deliberate hold is not a failure — and the summary is written so it cannot be
+mistaken for a recovered host.
+
+The operator then finishes it with `mode=continue`, which is the same path a
+genuinely lost runner takes. That is the point: the rehearsal exercises the
+real continuation, not a special one.
+
+**This switch exists only on staging.** `Recover production host` has no such
+input and no such job, and a test asserts it never grows one.
+
+---
+
 ## 9. The disposable rehearsal, and offsite safety
 
 A clean-host rehearsal is performed against a genuinely disposable machine —
@@ -540,9 +612,9 @@ Recovery remains held on the replacement host.
 and, once the server has assigned one, the exact re-run:
 
 ```text
-mode=continue-held
+mode=continue
 operation=<id>
-replacement-host=<same host>
+recovery-host=<same host>
 ```
 
 **Nothing is cleaned up to make a run look green.** The recovered data, the
@@ -614,50 +686,106 @@ and the guard is what actually protects the host.
 ## 14. Clean-host acceptance checklist
 
 CI proves the structure, the trust boundaries and every refusal path. Only a
-real, genuinely disposable replacement machine proves the pipeline. Run this
-end to end, in order, and collect the evidence as you go:
+real, genuinely disposable replacement machine proves the pipeline. Run this end
+to end, in order, and collect the evidence as you go.
 
-1. Create a genuinely new disposable VPS on a supported Ubuntu release.
-2. Install only the provider/bootstrap SSH public key GitHub needs to reach it
-   — the public half of `RECOVERY_BOOTSTRAP_SSH_KEY`, for
-   `RECOVERY_BOOTSTRAP_USER`. No RateGuru setup by hand.
-3. Record its host key, verified out of band.
-4. Configure `RECOVERY_BOOTSTRAP_USER`, `RECOVERY_BOOTSTRAP_SSH_KEY`,
-   `RECOVERY_KNOWN_HOSTS` and `RECOVERY_RCLONE_CONFIG` in the `staging`
-   environment, with the read-only offsite credential of §9.
-5. Confirm the long-lived staging host is healthy, and note its current release
-   and source SHA so a comparison is possible afterwards.
-6. Create or choose a fresh, exact staging offsite backup.
-7. Ideally plant a database sentinel and a storage/media sentinel **before**
-   that backup is taken, so §16–17 can prove the data is the backup's.
-8. Dispatch **Recover staging host** with `mode=start`, that backup, and the
-   disposable machine as `replacement-host`.
-9. Prove Prepare Host runs from a genuinely clean machine and its verification
-   passes.
-10. Prove the recovery fetched the exact named offsite backup.
-11. Prove the build is of the backup's own `source_sha`, and of nothing else.
-12. Prove `run-migrations` was `false` throughout.
-13. Prove the controlled deployment left the runtime held: no queue, no
-    scheduler entry, guard still present, `current` present.
-14. Prove `--resume` restored the runtime.
-15. Prove the final `--verify` passed.
-16. Verify the database sentinel is present, with the backup's data.
-17. Verify the storage/media sentinel is present and served.
-18. Verify the queue is RUNNING.
-19. Verify the scheduler cron entry is PRESENT.
-20. Verify `current`'s `release.json.source_sha` equals the backup's
-    `source_sha`.
-21. Verify `previous` is ABSENT.
-22. Verify neither the restore guard nor the recovery guard remains.
-23. Verify the ordinary staging VPS is unchanged: same release, same source
-    SHA, same data, still healthy, and no connection was made to it.
-24. Verify the real staging B2 namespace was neither written to nor pruned by
+**No hand-run RateGuru command is part of this procedure.** Manual SSH is
+allowed only to *observe* and to plant/remove sentinels — never to make a step
+succeed. If a recovery needs a hand on the host to finish, it has not passed.
+
+### Prepare the machine and the bindings
+
+1. Create a genuinely new disposable VPS: **Ubuntu 22.04 LTS (jammy), x86_64**.
+   Do not upgrade it to 24.04 — the bootstrap contract supports exactly 22.04
+   and will refuse anything else (§5).
+2. Install only the bootstrap SSH public key GitHub needs to reach it — the
+   public half of `RECOVERY_BOOTSTRAP_SSH_KEY`, for `RECOVERY_BOOTSTRAP_USER`.
+   Nothing else. No RateGuru setup by hand.
+3. Capture its **ed25519** host key and verify it out of band (provider console
+   or a channel you trust). Never `ssh-keyscan` into a secret.
+4. Configure, in the `staging` GitHub Environment:
+   `RECOVERY_BOOTSTRAP_USER`, `RECOVERY_PORT`, `RECOVERY_BOOTSTRAP_SSH_KEY`,
+   `RECOVERY_BOOTSTRAP_KNOWN_HOSTS`, `RECOVERY_DEPLOY_KNOWN_HOSTS` and
+   `RECOVERY_RCLONE_CONFIG` — the last one with the read-only offsite
+   credential of §9. Leave every existing `DEPLOY_*` and `PREPARE_*` value
+   exactly as it is.
+
+### Plant the evidence
+
+5. Confirm the long-lived staging host is healthy, and record its current
+   release and source SHA so it can be compared afterwards.
+6. Plant acceptance sentinels **on the live staging host**, before the backup
+   is taken:
+   * a **database sentinel** — one row whose content and timestamp you record;
+   * a **storage/media sentinel** — one object under the target's storage tree,
+     whose path and checksum you record.
+
+   These are temporary acceptance data. They are removed again at step 15.
+   They are deliberately **not** referenced by any workflow or script: an
+   ordinary emergency recovery must never require them to exist.
+7. Take, or select, an exact offsite backup that contains both sentinels.
+   Record its `YYYYMMDD-HHMMSS`.
+
+### Rehearse the interruption
+
+8. Dispatch **Recover staging host**:
+   `mode=new`, that backup, `recovery-host` = the disposable VPS,
+   `confirmation=RECOVER staging-main`,
+   **`pause-after-controlled-deploy=true`**.
+9. Prove Prepare Host ran from a genuinely clean machine and its verification
+   passed.
+10. Prove the recovery fetched the exact named offsite backup, that the build
+    was of the backup's own `source_sha`, and that `run-migrations` was false.
+11. Confirm the run stopped at the **rehearsal hold**, green, with the server
+    reporting `ready-to-resume` — and confirm on the host, by observation only,
+    that the recovery guard is present, the queue is stopped, the scheduler
+    entry is absent and `current` carries the recovered commit.
+
+### Finish it the way a lost runner would
+
+12. Dispatch **Recover staging host** again: `mode=continue`, the operation ID
+    from the held run, the same `recovery-host`, `confirmation=RECOVER
+    staging-main`, `pause-after-controlled-deploy=false`.
+13. Prove it inspected, found `ready-to-resume`, skipped build and deploy,
+    resumed, verified and recorded the deployment marker.
+
+### Prove the recovered host
+
+14. On the disposable host, confirm every item of the acceptance contract:
+    1. Laravel health **PASS**;
+    2. the exact `source_sha` from the backup is active;
+    3. the `migrations` table is coherent and unchanged from the backup;
+    4. PostgreSQL is reachable through the application's own configuration;
+    5. the storage tree exists with the expected ownership and modes;
+    6. the **storage sentinel** from step 6 is present and byte-identical;
+    7. the **database sentinel** from step 6 is present and unchanged;
+    8. the queue is **RUNNING**;
+    9. the scheduler cron entry is **present**;
+    10. no restore guard;
+    11. no recovery guard;
+    12. `previous` is **ABSENT** (a freshly recovered host has one deployment).
+
+    Items 1–5 and 8–12 are exactly what `recover-host --verify` already proves,
+    and the workflow fails without it. Items 6–7 are the rehearsal's own
+    evidence that the DATA came from the backup, and are checked by hand
+    against what was planted.
+
+### Prove nothing else moved
+
+15. Verify the long-lived staging VPS is unchanged: same release, same source
+    SHA, still healthy, and no connection was made to it by the recovery.
+16. Verify `vars.DEPLOY_HOST` is untouched and still names the original staging
+    machine, and that no DNS record changed.
+17. Verify the real staging B2 namespace was neither written to nor pruned by
     the rehearsal.
-25. If practical, run one continuation exercise: interrupt a run after
-    `--apply` or after the controlled deployment, and finish it with
-    `mode=continue-held`.
-26. Destroy the disposable VPS once the evidence is collected. Destruction is a
+18. Remove the sentinels from the live staging host.
+
+### Clean up
+
+19. Destroy the disposable VPS once the evidence is collected. Destruction is a
     deliberate operator act; nothing automates it.
+20. Remove or rotate the rehearsal-only `RECOVERY_*` bindings if they were
+    issued for the rehearsal alone.
 
 Only after a real run of the above may Recover Host and this operator surface
 be recorded as accepted. A green CI run is not a clean-host recovery, and must

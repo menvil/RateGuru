@@ -3,16 +3,15 @@ name: Recover production host
 # The production counterpart of recover-staging.yml. Same operator semantics,
 # the same five shared actions, the same server-side prepare-host and
 # recover-host — a different fixed identity, a different concurrency domain,
-# and one extra gate.
+# and no rehearsal switch of any kind.
 #
 # IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
 # and unprovisioned. The validation job below reads that lifecycle out of the
 # committed target registry, in a job that holds no GitHub Environment, so a
-# real run of this workflow fails closed before production approval is
-# requested, before a production secret is loaded and before any connection is
-# opened to anything. It exists now to prove that production will be recovered
-# by exactly the same mechanism once the production launch activates and
-# provisions the target, rather than by a production-shaped procedure invented
+# real run fails closed before production approval is requested, before a
+# production secret is loaded and before any connection is opened to anything.
+# It exists now so that production activation inherits an operator surface that
+# has already been reviewed, rather than a production-shaped procedure invented
 # under pressure on the worst day of the year.
 #
 # Nothing here weakens that gate, nothing here edits the registry, and the
@@ -73,11 +72,11 @@ on:
       mode:
         description: start a new recovery, or continue one already held on the replacement host
         required: true
-        default: start
+        default: new
         type: choice
         options:
-          - start
-          - continue-held
+          - new
+          - continue
 
       backup:
         description: Exact offsite backup timestamp YYYYMMDD-HHMMSS (required when mode=start, must be empty otherwise)
@@ -91,23 +90,18 @@ on:
         default: ""
         type: string
 
-      replacement-host:
+      recovery-host:
         description: Hostname or IPv4 address of the REPLACEMENT machine (never the host this target is bound to now)
         required: true
         default: ""
         type: string
 
-      replacement-port:
-        description: SSH port of the replacement machine
-        required: false
-        default: "22"
-        type: string
-
       confirmation:
-        description: Type exactly "RECOVER tits-guru" to confirm rebuilding production onto a replacement machine
+        description: Type exactly "RECOVER tits-guru" to confirm rebuilding this target onto a replacement machine
         required: true
         default: ""
         type: string
+
 
 permissions:
   contents: read
@@ -142,8 +136,7 @@ jobs:
       mode: ${{ steps.request.outputs.mode }}
       backup: ${{ steps.request.outputs.backup }}
       operation: ${{ steps.request.outputs.operation }}
-      replacement_host: ${{ steps.request.outputs.replacement_host }}
-      replacement_port: ${{ steps.request.outputs.replacement_port }}
+      recovery_host: ${{ steps.request.outputs.recovery_host }}
 
     steps:
       # Deliberately first, and deliberately without a checkout: a malformed
@@ -155,21 +148,17 @@ jobs:
           MODE: ${{ inputs.mode }}
           BACKUP: ${{ inputs.backup }}
           OPERATION: ${{ inputs.operation }}
-          REPLACEMENT_HOST: ${{ inputs['replacement-host'] }}
-          REPLACEMENT_PORT: ${{ inputs['replacement-port'] }}
+          REPLACEMENT_HOST: ${{ inputs['recovery-host'] }}
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -Eeuo pipefail
 
           # First, and in a job that holds no GitHub Environment: an
-          # unconfirmed production recovery ends here, before the environment's
-          # approval is even requested and long before any connection is made.
-          # This is deliberately IN ADDITION to the production environment's own
-          # protection rules, not instead of them — one gate proves a human
-          # meant this specific target, the other proves the right humans
-          # approved it.
+          # unconfirmed recovery ends here, before the environment's own
+          # protection rules are consulted, before a secret is loaded and long
+          # before any connection is opened to anything.
           if [[ "${CONFIRMATION}" != "RECOVER tits-guru" ]]; then
-            echo "confirmation must be exactly 'RECOVER tits-guru' to rebuild production onto a replacement machine" >&2
+            echo "confirmation must be exactly 'RECOVER tits-guru' to rebuild this target onto a replacement machine" >&2
             exit 1
           fi
 
@@ -180,25 +169,24 @@ jobs:
           backup="$(printf '%s' "${BACKUP}" | tr -d '[:space:]')"
           operation="$(printf '%s' "${OPERATION}" | tr -d '[:space:]')"
           replacement_host="$(printf '%s' "${REPLACEMENT_HOST}" | tr -d '[:space:]')"
-          replacement_port="$(printf '%s' "${REPLACEMENT_PORT}" | tr -d '[:space:]')"
 
           case "${MODE}" in
-            start)
+            new)
               # An exact backup, always. There is no "latest" anywhere in this
               # pipeline: a recovery names the data it rebuilds a host from.
               if [[ ! "${backup}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
-                echo "mode=start requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP})" >&2
+                echo "mode=new requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP})" >&2
                 exit 1
               fi
 
               if [[ -n "${operation}" ]]; then
-                echo "mode=start must not name an operation: a new recovery generates its own operation ID on the server. To continue a recovery that is already held on the replacement host, use mode=continue-held" >&2
+                echo "mode=new must not name an operation: a new recovery generates its own operation ID on the server. To continue a recovery that is already held on the replacement host, use mode=continue" >&2
                 exit 1
               fi
               ;;
-            continue-held)
+            continue)
               if [[ ! "${operation}" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$ ]]; then
-                echo "mode=continue-held requires the recovery operation ID to continue (got: ${OPERATION})" >&2
+                echo "mode=continue requires the recovery operation ID to continue (got: ${OPERATION})" >&2
                 exit 1
               fi
 
@@ -208,23 +196,23 @@ jobs:
               # it would replace that data — and the code being built would
               # then be for the wrong commit. The server refuses it too.
               if [[ -n "${backup}" ]]; then
-                echo "mode=continue-held must not name a backup: the held operation's own state records which backup it recovered, and a new recovery must never be started over a held one" >&2
+                echo "mode=continue must not name a backup: the held operation's own state records which backup it recovered, and a new recovery must never be started over a held one" >&2
                 exit 1
               fi
               ;;
             *)
-              echo "mode must be start or continue-held" >&2
+              echo "mode must be new or continue" >&2
               exit 1
               ;;
           esac
 
           if [[ -z "${replacement_host}" ]]; then
-            echo "replacement-host is required: a recovery rebuilds a target onto a named machine, and there is no default" >&2
+            echo "recovery-host is required: a recovery rebuilds a target onto a named machine, and there is no default" >&2
             exit 1
           fi
 
           if (( ${#replacement_host} > 253 )); then
-            echo "replacement-host is longer than a DNS name may be (253 characters)" >&2
+            echo "recovery-host is longer than a DNS name may be (253 characters)" >&2
             exit 1
           fi
 
@@ -237,7 +225,7 @@ jobs:
           host_label='[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'
 
           if [[ ! "${replacement_host}" =~ ^${host_label}(\.${host_label})*$ ]]; then
-            echo "replacement-host must be a DNS hostname or an IPv4 address (got: ${REPLACEMENT_HOST})" >&2
+            echo "recovery-host must be a DNS hostname or an IPv4 address (got: ${REPLACEMENT_HOST})" >&2
             exit 1
           fi
 
@@ -246,7 +234,7 @@ jobs:
           # diagnostic says which of the two the operator got wrong.
           if [[ "${replacement_host}" =~ ^[0-9.]+$ ]]; then
             if [[ ! "${replacement_host}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-              echo "replacement-host looks like an address but is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
+              echo "recovery-host looks like an address but is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
               exit 1
             fi
 
@@ -257,35 +245,23 @@ jobs:
               # (( )) as octal, so 010 would be 8 and 08 would raise an error
               # this || chain would read as "the condition did not hold".
               if (( 10#${octet} > 255 )); then
-                echo "replacement-host is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
+                echo "recovery-host is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
                 exit 1
               fi
             done
-          fi
-
-          # A syntactically numeric port is not enough: 0 and anything above
-          # 65535 would sail through and fail later inside every ssh call with
-          # a far less obvious diagnostic.
-          if [[ ! "${replacement_port}" =~ ^[0-9]{1,5}$ ]] \
-            || (( 10#${replacement_port} < 1 )) \
-            || (( 10#${replacement_port} > 65535 ))
-          then
-            echo "replacement-port must be between 1 and 65535 (got: ${REPLACEMENT_PORT})" >&2
-            exit 1
           fi
 
           {
             echo "mode=${MODE}"
             echo "backup=${backup}"
             echo "operation=${operation}"
-            echo "replacement_host=${replacement_host}"
-            echo "replacement_port=${replacement_port}"
+            echo "recovery_host=${replacement_host}"
           } >> "${GITHUB_OUTPUT}"
 
           echo "Mode: ${MODE}"
           echo "Backup: ${backup:-n/a}"
           echo "Operation: ${operation:-n/a}"
-          echo "Replacement host: ${replacement_host}:${replacement_port}"
+          echo "Replacement host: ${replacement_host}"
 
       # Trusted develop, purely so the lifecycle question below can be asked of
       # this repository's own registry rather than of a rule copied into YAML.
@@ -354,12 +330,14 @@ jobs:
       - name: Refuse a recovery onto the host this target is already bound to
         shell: bash
         env:
-          REPLACEMENT_HOST: ${{ needs.validate.outputs.replacement_host }}
+          REPLACEMENT_HOST: ${{ needs.validate.outputs.recovery_host }}
           CURRENT_HOST: ${{ vars.DEPLOY_HOST }}
           # Read to COMPARE, never to connect. No step in this job opens a
           # connection to anything, and neither value is ever printed.
           CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
+          REPLACEMENT_DEPLOY_KNOWN_HOSTS: ${{ secrets.RECOVERY_DEPLOY_KNOWN_HOSTS }}
+          RECOVERY_PORT: ${{ vars.RECOVERY_PORT }}
         run: |
           set -Eeuo pipefail
 
@@ -399,7 +377,7 @@ jobs:
           # secrets can easily hold different ones for the SAME machine —
           #
           #   DEPLOY_KNOWN_HOSTS     current.example.com ssh-ed25519 AAAA1111
-          #   RECOVERY_KNOWN_HOSTS   203.0.113.10        ssh-rsa     AAAA2222
+          #   RECOVERY_BOOTSTRAP_KNOWN_HOSTS  203.0.113.10 ssh-rsa   AAAA2222
           #
           # — which is no overlap and one machine, and would have walked
           # straight into Prepare Host on the live host. So identity is pinned
@@ -435,7 +413,7 @@ jobs:
           fi
 
           if (( replacement_identity_count != 1 )); then
-            echo "RECOVERY_KNOWN_HOSTS does not carry exactly one direct ssh-ed25519 host key (found ${replacement_identity_count})." >&2
+            echo "RECOVERY_BOOTSTRAP_KNOWN_HOSTS does not carry exactly one direct ssh-ed25519 host key (found ${replacement_identity_count})." >&2
             echo "Recovery is refused. That key is the canonical machine identity this run compares, and an RSA or ECDSA entry alone cannot answer whether this is the machine the target is already bound to." >&2
             echo "Record the replacement machine's own ssh-ed25519 entry, verified out of band." >&2
             exit 1
@@ -474,7 +452,41 @@ jobs:
             exit 1
           fi
 
+          # The bootstrap connection prepares and recovers the machine; the
+          # restricted deploy connection installs code on it. They are separate
+          # credentials by design, and nothing else checks that they describe
+          # the SAME machine — so an operator who pastes one host's key into
+          # RECOVERY_BOOTSTRAP_KNOWN_HOSTS and another's into
+          # RECOVERY_DEPLOY_KNOWN_HOSTS would prepare one VPS and deploy to a
+          # different one. Both must carry the same canonical identity.
+          replacement_deploy_identity="$(printf '%s\n' "${REPLACEMENT_DEPLOY_KNOWN_HOSTS}" | ed25519_identity)"
+          replacement_deploy_identity_count="$(grep -c . <<<"${replacement_deploy_identity}" || true)"
+
+          if (( replacement_deploy_identity_count != 1 )); then
+            echo "RECOVERY_DEPLOY_KNOWN_HOSTS does not carry exactly one direct ssh-ed25519 host key (found ${replacement_deploy_identity_count})." >&2
+            echo "Recovery is refused: the controlled deployment verifies that material, and it must name the same machine this run is about to prepare." >&2
+            exit 1
+          fi
+
+          if [[ "${replacement_deploy_identity}" != "${replacement_identity}" ]]; then
+            echo "RECOVERY_BOOTSTRAP_KNOWN_HOSTS and RECOVERY_DEPLOY_KNOWN_HOSTS name two different machines." >&2
+            echo "Recovery is refused rather than preparing one VPS and deploying the recovered code onto another." >&2
+            exit 1
+          fi
+
+          # The replacement machine's SSH port is an environment binding, not
+          # an operator input, so it is validated once here rather than failing
+          # later inside every connection with a less obvious diagnostic.
+          if [[ ! "${RECOVERY_PORT}" =~ ^[0-9]{1,5}$ ]] \
+            || (( 10#${RECOVERY_PORT} < 1 )) \
+            || (( 10#${RECOVERY_PORT} > 65535 ))
+          then
+            echo "RECOVERY_PORT must be configured for this environment as a port between 1 and 65535 (got: ${RECOVERY_PORT:-<unset>})" >&2
+            exit 1
+          fi
+
           echo "The replacement machine is not the machine tits-guru is currently bound to: different name, and a different canonical ssh-ed25519 host key."
+          echo "Its bootstrap and deploy known_hosts agree on one machine, and its SSH port is configured."
           echo "The current binding is left exactly as it is: recovery never edits DEPLOY_HOST, the target registry or DNS."
 
   # START ONLY. A recovery that is already held deliberately must not be
@@ -487,7 +499,7 @@ jobs:
     needs:
       - validate
       - binding
-    if: ${{ needs.validate.outputs.mode == 'start' }}
+    if: ${{ needs.validate.outputs.mode == 'new' }}
     runs-on: ubuntu-latest
     environment: production
     # A genuinely clean VPS installs the full base runtime before it does
@@ -513,8 +525,8 @@ jobs:
           deployment-target: tits-guru
           environment: production
 
-          bootstrap-host: ${{ needs.validate.outputs.replacement_host }}
-          bootstrap-port: ${{ needs.validate.outputs.replacement_port }}
+          bootstrap-host: ${{ needs.validate.outputs.recovery_host }}
+          bootstrap-port: ${{ vars.RECOVERY_PORT }}
 
           # A replacement machine has its own privileged credential, separate
           # from the long-lived host's. The public half is installed by
@@ -523,7 +535,7 @@ jobs:
           # fallback to BOOTSTRAP_SSH_KEY or to the deployment key.
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
-          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
 
           # The target's own external material, unchanged. The environment file
           # in particular must be the one the backup was taken under: recovery
@@ -564,7 +576,7 @@ jobs:
           && needs.validate.result == 'success'
           && needs.binding.result == 'success'
           && (needs.prepare.result == 'success'
-              || (needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue-held')) }}
+              || (needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue')) }}
     runs-on: ubuntu-latest
     environment: production
     # A real recovery downloads, fully verifies and stages a whole backup and
@@ -600,19 +612,19 @@ jobs:
 
       - name: Recover tits-guru from the named offsite backup
         id: apply
-        if: ${{ needs.validate.outputs.mode == 'start' }}
+        if: ${{ needs.validate.outputs.mode == 'new' }}
         uses: ./.github/actions/recover-rateguru-host
         with:
           mode: apply
           deployment-target: tits-guru
           environment: production
 
-          recovery-host: ${{ needs.validate.outputs.replacement_host }}
-          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          recovery-host: ${{ needs.validate.outputs.recovery_host }}
+          recovery-port: ${{ vars.RECOVERY_PORT }}
 
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
-          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
 
           backup-id: ${{ needs.validate.outputs.backup }}
 
@@ -622,19 +634,19 @@ jobs:
       # picked up today without touching the host's data again.
       - name: Inspect the held recovery operation
         id: inspect
-        if: ${{ needs.validate.outputs.mode == 'continue-held' }}
+        if: ${{ needs.validate.outputs.mode == 'continue' }}
         uses: ./.github/actions/recover-rateguru-host
         with:
           mode: inspect
           deployment-target: tits-guru
           environment: production
 
-          recovery-host: ${{ needs.validate.outputs.replacement_host }}
-          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          recovery-host: ${{ needs.validate.outputs.recovery_host }}
+          recovery-port: ${{ vars.RECOVERY_PORT }}
 
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
-          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
 
           operation-id: ${{ needs.validate.outputs.operation }}
 
@@ -912,15 +924,15 @@ jobs:
         with:
           deployment-target: tits-guru
 
-          deploy-host: ${{ needs.validate.outputs.replacement_host }}
-          deploy-port: ${{ needs.validate.outputs.replacement_port }}
+          deploy-host: ${{ needs.validate.outputs.recovery_host }}
+          deploy-port: ${{ vars.RECOVERY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}
           deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
           deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
           deploy-root: ${{ vars.DEPLOY_ROOT }}
 
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-          known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          known-hosts: ${{ secrets.RECOVERY_DEPLOY_KNOWN_HOSTS }}
 
           release-id: ${{ needs.build.outputs.release-id }}
 
@@ -981,12 +993,12 @@ jobs:
           deployment-target: tits-guru
           environment: production
 
-          recovery-host: ${{ needs.validate.outputs.replacement_host }}
-          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          recovery-host: ${{ needs.validate.outputs.recovery_host }}
+          recovery-port: ${{ vars.RECOVERY_PORT }}
 
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
-          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
 
           operation-id: ${{ needs.recover.outputs.operation }}
 
@@ -1088,12 +1100,12 @@ jobs:
           deployment-target: tits-guru
           environment: production
 
-          recovery-host: ${{ needs.validate.outputs.replacement_host }}
-          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          recovery-host: ${{ needs.validate.outputs.recovery_host }}
+          recovery-port: ${{ vars.RECOVERY_PORT }}
 
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
-          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_BOOTSTRAP_KNOWN_HOSTS }}
 
       # --verify proves the target satisfies the final contract; it does not
       # know which commit this OPERATION was for, because it takes no operation
@@ -1171,12 +1183,12 @@ jobs:
           sentry-project: ${{ vars.SENTRY_PROJECT }}
 
           # Nightwatch is reached on the machine that was actually recovered.
-          deploy-host: ${{ needs.validate.outputs.replacement_host }}
-          deploy-port: ${{ needs.validate.outputs.replacement_port }}
+          deploy-host: ${{ needs.validate.outputs.recovery_host }}
+          deploy-port: ${{ vars.RECOVERY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}
 
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-          known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+          known-hosts: ${{ secrets.RECOVERY_DEPLOY_KNOWN_HOSTS }}
 
   # Always, including on every failure path. A recovery that stops halfway
   # leaves a real host in a real state, and the operator's next move depends on
@@ -1209,8 +1221,7 @@ jobs:
           MODE: ${{ needs.validate.outputs.mode }}
           BACKUP: ${{ needs.validate.outputs.backup }}
           REQUESTED_OPERATION: ${{ needs.validate.outputs.operation }}
-          REPLACEMENT_HOST: ${{ needs.validate.outputs.replacement_host }}
-          REPLACEMENT_PORT: ${{ needs.validate.outputs.replacement_port }}
+          REPLACEMENT_HOST: ${{ needs.validate.outputs.recovery_host }}
           STATUS: ${{ needs.recover.outputs.status }}
           OPERATION: ${{ needs.recover.outputs.operation }}
           SERVER_BACKUP: ${{ needs.recover.outputs.backup }}
@@ -1238,7 +1249,7 @@ jobs:
             echo "| Fact | Value |"
             echo "| --- | --- |"
             echo "| Target | \`tits-guru\` (\`production\`) |"
-            echo "| Replacement host | \`${REPLACEMENT_HOST:-unknown}:${REPLACEMENT_PORT:-unknown}\` |"
+            echo "| Replacement host | \`${REPLACEMENT_HOST:-unknown}\` |"
             echo "| Mode | \`${MODE:-unknown}\` |"
             echo "| Backup | \`${backup:-n/a}\` |"
             echo "| Recovery operation | \`${operation:-not yet assigned}\` |"
@@ -1306,7 +1317,8 @@ jobs:
               echo '```text'
               echo "mode=continue-held"
               echo "operation=${operation}"
-              echo "replacement-host=${REPLACEMENT_HOST}"
+              echo "recovery-host=${REPLACEMENT_HOST}"
+              echo "confirmation=RECOVER tits-guru"
               echo '```'
               echo
               echo "It will ask the server which stage the recovery is at and continue from there:"

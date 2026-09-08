@@ -1370,8 +1370,11 @@ Slices, in order:
      precondition and the prepared/EMPTY contract that refuses a live target
      belongs to `recover-host --apply` a whole job later. Two gates: the
      literal `vars.DEPLOY_HOST` comparison catches the common paste mistake,
-     and one canonical `ssh-ed25519` host key — required in both
-     `DEPLOY_KNOWN_HOSTS` and `RECOVERY_KNOWN_HOSTS` — catches the same machine
+     and one canonical `ssh-ed25519` host key — required in
+     `DEPLOY_KNOWN_HOSTS`, `RECOVERY_BOOTSTRAP_KNOWN_HOSTS` and
+     `RECOVERY_DEPLOY_KNOWN_HOSTS`, with the last two required to agree so a
+     recovery cannot prepare one machine and deploy onto another — catches the
+     same machine
      under any other name or address, without resolving anything, so it holds
      when the lost machine's DNS is stale or gone. Requiring the canonical key
      on both sides is what makes "no match" mean *different machine* rather
@@ -1386,12 +1389,23 @@ Slices, in order:
      checking throughout: no TOFU, no `ssh-keyscan`, no password fallback.
      The controlled deployment and the Nightwatch marker keep using the
      restricted deploy credential, on the replacement machine's address.
-   - **Start and continue-held.** A continuation never prepares, never supplies
-     a backup again and never starts a second recovery over a held one: it asks
+   - **`new` and `continue`.** A continuation never prepares, never supplies a
+     backup again and never starts a second recovery over a held one: it asks
      `recover-host --inspect` and branches on the server's own answer —
      `awaiting-code` rebuilds and redeploys, `ready-to-resume` skips straight to
      the resume, anything else fails closed. The job graph is written so the
      skipped build and deployment cannot skip the resume with them.
+   - **A rehearsal hold, on staging only.**
+     `pause-after-controlled-deploy` stops a run after the controlled
+     deployment, requires the SERVER to confirm `ready-to-resume`, and exits
+     green with a summary whose heading says the recovery is not complete. It
+     manufactures, on purpose, the one interruption that is otherwise hard to
+     produce — a runner lost between the deployment and the resume — and the
+     operator finishes it through the ordinary `mode=continue` path. Production
+     has neither the input nor the job, and a test keeps it that way.
+   - **Both buttons are confirmed.** `RECOVER staging-main` and
+     `RECOVER tits-guru`, each refusing the other's wording, checked first in
+     the job that holds no GitHub Environment.
    - **The historical build trust boundary.** `contents: read`, no GitHub
      Environment, no SSH, B2, Sentry, Prepare or `RECOVERY_*` credential; two
      checkouts, tooling always from `develop` and the application at the exact
@@ -1422,10 +1436,26 @@ Slices, in order:
    the clean-host acceptance checklist and the offsite-safety rule for a
    rehearsal credential.
    *Acceptance:* a disposable host is recovered end to end from a workflow
-   dispatch, without hand-run commands. CI proves the structure, the trust
-   boundaries and every refusal path; only a real disposable machine proves the
-   pipeline, so this slice is implemented, not accepted. No RPO or RTO is
-   claimed by it.
+   dispatch, without hand-run RateGuru commands. CI proves the structure, the
+   trust boundaries and every refusal path; only a real disposable machine
+   proves the pipeline, so this slice is **implemented, awaiting real
+   disposable-host acceptance**. No RPO or RTO is claimed by it.
+
+   The rehearsal machine is **external to this repository**: it is created by
+   the operator, never named in the registry or in any committed file, and must
+   match the current supported-host contract exactly — **Ubuntu 22.04 LTS
+   (jammy), x86_64**. `bootstrap-host` gates on exactly 22.04 on purpose, so a
+   rehearsal machine upgraded to 24.04 is refused rather than recovered onto.
+   The only pre-existing prerequisite the machine may carry is the bootstrap
+   SSH credential that lets GitHub reach it at all — provider-side host access,
+   not part of RateGuru application recovery.
+
+   The acceptance procedure, including the database and storage sentinels
+   planted on live staging before the backup and removed afterwards, is
+   [`runbooks/github-recover.md`](runbooks/github-recover.md) §14. Those
+   sentinels are rehearsal evidence only: no workflow or script requires them,
+   because an emergency recovery must never depend on data someone remembered
+   to plant.
 8. **7.8 Full DR acceptance, measured RPO and RTO.** Turn recovery
    technology into an operational procedure: rehearse full host loss with
    backup selection, release selection, provisioning, restore, DNS/TLS
