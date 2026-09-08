@@ -132,7 +132,7 @@ it('keeps one operator-facing workflow per environment, with no target selector 
             // all still come from somewhere other than the operator. The two
             // recovery workflows read the environment's own binding once, to
             // refuse a recovery pointed at it.
-            expect($input)->toBe('replacement-host', "{$name} lets the operator select {$input}");
+            expect($input)->toBe('recovery-host', "{$name} lets the operator select {$input}");
 
             expect(str_starts_with($name, 'recover-'))
                 ->toBeTrue("{$name} is not a host recovery and must not let an operator name a machine");
@@ -429,6 +429,10 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'recover-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:verify' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
+        // The staging-only rehearsal hold. It changes nothing on the host —
+        // it inspects and stops — but it addresses the target, so it belongs
+        // to the same serialized domain as everything else that does.
+        'recover-staging.yml:hold' => ['staging-main', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

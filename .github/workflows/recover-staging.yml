@@ -957,9 +957,10 @@ jobs:
 
   # REHEARSAL ONLY, and a deliberate stop rather than a failure.
   #
-  # Phase 7.7 has to prove that a recovery survives losing its runner between
-  # the controlled deployment and the resume — the one interruption that is
-  # otherwise hard to produce on purpose. This job creates it: after a
+  # The disposable-host rehearsal has to prove that a recovery survives losing
+  # its runner between the controlled deployment and the resume — the one
+  # interruption that is otherwise hard to produce on purpose. This job
+  # creates it: after a
   # successful controlled deployment it asks the SERVER what state the host is
   # in, requires the answer to be ready-to-resume, and stops.
   #

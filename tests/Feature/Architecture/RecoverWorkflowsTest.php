@@ -1605,7 +1605,12 @@ it('ships the runbook and points the README and roadmap at it', function () {
 
     expect($flattened)
         ->toContain('implemented, awaiting the real disposable-host acceptance')
-        ->toContain('this slice is implemented, not accepted. No RPO or RTO is claimed by it');
+        ->toContain('this slice is **implemented, awaiting real disposable-host acceptance**. No RPO or RTO is claimed by it')
+        // The rehearsal machine is external, and pinned to the contract
+        // bootstrap-host actually gates on.
+        ->toContain('external to this repository')
+        ->toContain('Ubuntu 22.04 LTS')
+        ->toContain('upgraded to 24.04 is refused rather than recovered onto');
 });
 
 it('creates no second implementation of anything it uses', function (
