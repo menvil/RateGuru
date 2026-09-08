@@ -370,6 +370,30 @@ it('reads the current host binding only to refuse it, and never to connect to it
         // A missing binding cannot be read as "not the same host".
         ->toContain('if [[ -z "${CURRENT_HOST}" ]]; then');
 
+    // The name comparison alone is not enough, and the reason is the job that
+    // runs NEXT. Prepare Host has no empty-host precondition — it converges
+    // whatever it finds, including a target that is already serving — and the
+    // prepared/EMPTY contract that would refuse a live host belongs to
+    // `recover-host --apply`, a whole job later. So one machine reached under
+    // a second name gets MUTATED before anything checks it is empty.
+    //
+    // SSH host keys decide it without resolving anything: strict host key
+    // checking is mandatory, so RECOVERY_KNOWN_HOSTS must carry the
+    // replacement machine's own key, and if that machine is the bound one its
+    // key is in both secrets whatever name was typed.
+    expect($source)
+        ->toContain('host_key_blobs()')
+        ->toContain('CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}')
+        ->toContain('REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}')
+        ->toContain('if (( shared_keys > 0 )); then')
+        ->toContain('The replacement machine presents an SSH host key that the machine currently bound to this target also presents.')
+        // Unreadable material cannot be read as "different machine".
+        ->toContain('if [[ -z "${current_keys}" ]] || [[ -z "${replacement_keys}" ]]; then');
+
+    // Host keys only: the hostname fields are what differ between the two
+    // spellings, so comparing them would defeat the entire check.
+    expect($source)->toContain('keytype " " blob');
+
     // Both jobs that could reach the host wait for that refusal.
     foreach (['prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability'] as $job) {
         expect(in_array('binding', (array) data_get($workflow, "jobs.{$job}.needs"), true))
@@ -440,7 +464,6 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
         '${{ secrets.BOOTSTRAP_SSH_KEY }}',
         '${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}',
         '${{ vars.BOOTSTRAP_USER }}',
-        '${{ secrets.DEPLOY_KNOWN_HOSTS }}',
     ] as $forbidden) {
         // str_contains + toBeFalse rather than not->toContain: toContain is
         // variadic and has no message parameter, so a trailing diagnostic
@@ -477,9 +500,29 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
         expect($encoded)->not->toContain('secrets.RECOVERY_BOOTSTRAP_SSH_KEY');
     }
 
+    // The current host's known_hosts is readable in exactly one job, for
+    // exactly one purpose: proving the replacement machine is a different
+    // physical machine. It is never a connection parameter.
+    expect(substr_count(executableSourceLines($source), 'secrets.DEPLOY_KNOWN_HOSTS'))->toBe(1);
+
+    foreach ((array) data_get($workflow, 'jobs') as $jobName => $job) {
+        $encoded = json_encode($job);
+
+        expect(str_contains($encoded, 'secrets.DEPLOY_KNOWN_HOSTS') && $jobName !== 'binding')
+            ->toBeFalse("{$file}:{$jobName} reads the current host's known_hosts outside the identity gate");
+    }
+
+    foreach (recoverWorkflowInputsUsed($workflow, 'known-hosts') as $where => $value) {
+        expect($value)->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
+    }
+
+    foreach (recoverWorkflowInputsUsed($workflow, 'bootstrap-known-hosts') as $where => $value) {
+        expect($value)->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}', "{$file}: {$where} verifies the wrong machine's host key");
+    }
+
     // Strict host key checking is the shared actions' contract; nothing here
     // may weaken it, and nothing here may discover a host key at run time.
-    foreach (['ssh-keyscan', 'StrictHostKeyChecking', 'UserKnownHostsFile', 'known_hosts'] as $forbidden) {
+    foreach (['ssh-keyscan', 'StrictHostKeyChecking', 'UserKnownHostsFile'] as $forbidden) {
         expect($source)->not->toContain($forbidden);
     }
 })->with('recover workflows');
@@ -884,11 +927,26 @@ it('treats the independent final verification as the definition of success', fun
     $steps = recoverWorkflowStepsByName($workflow, 'verify');
 
     expect(data_get($verify, 'environment'))->toBe($environment)
-        ->and(data_get($verify, 'needs'))->toBe(['validate', 'binding', 'recover', 'resume'])
-        // No condition at all: every dependency must have SUCCEEDED, which is
-        // exactly the gate this job is supposed to have. A `!cancelled()` here
-        // would let a failed resume through.
-        ->and(data_get($verify, 'if'))->toBeNull();
+        ->and(data_get($verify, 'needs'))->toBe(['validate', 'binding', 'recover', 'resume']);
+
+    // Deliberately tolerant of a FAILED resume, and only of a failed one.
+    // recover-host --resume clears the recovery guard as its commit point and
+    // prints its machine-readable result afterwards, so a connection that dies
+    // in between fails this workflow over a host that is fully recovered and
+    // no longer held. Refusing to verify there strands the operator:
+    // continue-held cannot continue an operation whose guard is gone, and
+    // start cannot begin one on a host that is no longer empty.
+    //
+    // It weakens nothing — a resume that genuinely failed leaves the guard,
+    // and --verify refuses any target that still carries one.
+    $verifyCondition = preg_replace('/\s+/', ' ', (string) data_get($verify, 'if'));
+
+    expect($verifyCondition)
+        ->toContain("needs.resume.result == 'success' || needs.resume.result == 'failure'")
+        ->toContain("needs.recover.result == 'success'")
+        ->toContain('!cancelled()')
+        // A resume that never ran means the recovery is still mid-flight.
+        ->not->toContain('skipped');
 
     $verifyStep = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'verify');
 
@@ -898,6 +956,18 @@ it('treats the independent final verification as the definition of success', fun
         // neither operand; the action refuses them outright.
         ->and(data_get($verifyStep, 'with.operation-id'))->toBeNull()
         ->and(data_get($verifyStep, 'with.backup-id'))->toBeNull();
+
+    // --verify takes no operation and reads no operation state, so it proves
+    // the final contract but not WHICH commit this recovery was for. That last
+    // identity check is made here, against the commit the server named when
+    // the data was recovered — otherwise a host healthy on some other release
+    // could be read as this recovery having succeeded.
+    expect(data_get($steps['Prove the verified host serves the commit its data belongs to'], 'run'))
+        ->toContain('if [[ "${SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then')
+        ->toContain('if [[ -z "${CURRENT_RELEASE}" ]]; then');
+
+    expect(data_get($verify, 'outputs.current_release'))->toBe("\${{ steps.verify.outputs['current-release'] }}")
+        ->and(data_get($verify, 'outputs.source_sha'))->toBe("\${{ steps.verify.outputs['source-sha'] }}");
 })->with('recover workflows');
 
 it('never succeeds around a failed stage', function (
@@ -920,9 +990,12 @@ it('never succeeds around a failed stage', function (
             ->toBeFalse("{$file}:{$jobName} may run after a failure");
     }
 
-    // And the three jobs that must never tolerate a skipped or failed
-    // predecessor carry no status-check escape hatch at all.
-    foreach (['build', 'deploy', 'verify', 'observability'] as $jobName) {
+    // And the jobs that must never tolerate a skipped or failed predecessor
+    // carry no status-check escape hatch at all. `verify` is deliberately NOT
+    // among them: it is the one job that must still adjudicate a resume whose
+    // transport died over an already-recovered host, and its own condition is
+    // asserted where that behaviour is described.
+    foreach (['build', 'deploy', 'observability'] as $jobName) {
         expect(str_contains((string) data_get($workflow, "jobs.{$jobName}.if"), 'cancelled()'))
             ->toBeFalse("{$file}:{$jobName} loosens its own gate");
     }
@@ -944,7 +1017,10 @@ it('records a deployment marker only after the final verification passed', funct
 
     // Depending on `verify` with no condition IS the gate: a marker cannot be
     // recorded for a recovery whose final contract did not hold.
-    expect(data_get($observability, 'needs'))->toBe(['validate', 'binding', 'recover', 'resume', 'verify'])
+    // Deliberately NOT `needs: resume`. On the lost-runner path the resume job
+    // fails over a host that is nonetheless complete, and a marker is still
+    // owed for the release that host is provably serving.
+    expect(data_get($observability, 'needs'))->toBe(['validate', 'binding', 'recover', 'verify'])
         ->and(data_get($observability, 'if'))->toBeNull()
         ->and(data_get($observability, 'environment'))->toBe($environment);
 
@@ -954,11 +1030,11 @@ it('records a deployment marker only after the final verification passed', funct
         ->and(data_get($record, 'with.deployment-target'))->toBe($target)
         ->and(data_get($record, 'with.environment'))->toBe($environment);
 
-    // The release the SERVER reported after a completed recovery, not the one
-    // the build job produced — and on the continue-held path there is no build
-    // job at all.
-    expect(data_get($record, 'with.release-id'))->toBe('${{ needs.resume.outputs.current_release }}')
-        ->and(data_get($record, 'with.source-sha'))->toBe('${{ needs.resume.outputs.source_sha }}');
+    // What the final VERIFICATION read off the host: the one source that is
+    // present on every path a marker is owed on, including the one where the
+    // resume result never arrived.
+    expect(data_get($record, 'with.release-id'))->toBe('${{ needs.verify.outputs.current_release }}')
+        ->and(data_get($record, 'with.source-sha'))->toBe('${{ needs.verify.outputs.source_sha }}');
 
     expect(json_encode($observability))->not->toContain('needs.build.outputs');
 
@@ -1012,6 +1088,13 @@ it('reports enough for an operator to continue, and no secret at all', function 
     // a guard that was never written.
     expect(mb_strpos($run, 'if [[ -n "${operation}" ]]; then'))
         ->toBeLessThan((int) mb_strpos($run, 'Recovery remains held on the replacement host.'));
+
+    // A recovery finished by the server but lost in transport must not be
+    // re-run: there is no held operation left to continue.
+    expect($run)
+        ->toContain('if [[ "${RESUME_RESULT}" != "success" ]]; then')
+        ->toContain('That is the lost-runner case: the server finished the recovery')
+        ->toContain('The host is complete. Do NOT re-run this workflow');
 
     expect($run)
         ->toContain('Recovery remains held on the replacement host.')

@@ -356,6 +356,10 @@ jobs:
         env:
           REPLACEMENT_HOST: ${{ needs.validate.outputs.replacement_host }}
           CURRENT_HOST: ${{ vars.DEPLOY_HOST }}
+          # Read to COMPARE, never to connect. No step in this job opens a
+          # connection to anything, and neither value is ever printed.
+          CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
         run: |
           set -Eeuo pipefail
 
@@ -374,7 +378,70 @@ jobs:
             exit 1
           fi
 
-          echo "The replacement machine is not the machine tits-guru is currently bound to."
+          # The comparison above catches the common paste mistake and nothing
+          # more: one machine answers to a name, an alias and an address, and
+          # only one of those spellings is in DEPLOY_HOST.
+          #
+          # This second gate does not care how the machine is spelled, and it
+          # has to exist HERE rather than be left to the server, because of
+          # what runs next. The job after this one is Prepare Host, and Prepare
+          # Host is convergent by design: it has no empty-host precondition, it
+          # reconverges whatever it finds, and it is perfectly willing to act
+          # on a target that is already serving. The prepared/EMPTY contract
+          # that would refuse a live host belongs to `recover-host --apply`,
+          # which runs a whole job LATER. So an alias that slips past a literal
+          # string comparison reaches a mutating operation on the live machine
+          # before anything checks whether that machine is empty.
+          #
+          # SSH host keys settle it. Strict host key checking is mandatory
+          # everywhere in this pipeline, so a recovery can only reach the
+          # replacement machine if RECOVERY_KNOWN_HOSTS carries THAT machine's
+          # own host key. If the machine is the one the target is already bound
+          # to, its key is therefore in both secrets — whatever name was typed.
+          #
+          # It resolves nothing and touches no network, so it stays true when
+          # DNS for the old machine is stale, deleted or already repointed,
+          # which is the normal state of affairs during a real recovery.
+          #
+          # Key material only: the hostname fields are deliberately ignored
+          # (that is the whole point), comments are ignored, and the verdict
+          # that reaches the log is a count rather than a key.
+          host_key_blobs() {
+            awk '
+              { sub(/\r$/, "") }
+              /^[[:space:]]*($|#)/ { next }
+              {
+                if ($1 ~ /^@/) { keytype = $3; blob = $4 }
+                else           { keytype = $2; blob = $3 }
+                if (keytype != "" && blob != "") { print keytype " " blob }
+              }
+            ' | sort -u
+          }
+
+          current_keys="$(printf '%s\n' "${CURRENT_KNOWN_HOSTS}" | host_key_blobs)"
+          replacement_keys="$(printf '%s\n' "${REPLACEMENT_KNOWN_HOSTS}" | host_key_blobs)"
+
+          if [[ -z "${current_keys}" ]] || [[ -z "${replacement_keys}" ]]; then
+            echo "No usable SSH host key could be read from DEPLOY_KNOWN_HOSTS and RECOVERY_KNOWN_HOSTS." >&2
+            echo "Recovery is refused: without both, this run cannot prove the replacement machine is a different physical machine, and the next job would prepare whatever answers at that address." >&2
+            exit 1
+          fi
+
+          shared_keys="$(
+            comm -12 \
+              <(printf '%s\n' "${current_keys}") \
+              <(printf '%s\n' "${replacement_keys}") \
+              | grep -c . || true
+          )"
+
+          if (( shared_keys > 0 )); then
+            echo "The replacement machine presents an SSH host key that the machine currently bound to this target also presents." >&2
+            echo "That is one physical machine under two names. Recover Host is only for a lost/replacement machine, and the next job — Prepare Host — would converge this one: it has no empty-host precondition, and the prepared/EMPTY contract that refuses a live host does not run until a job later." >&2
+            echo "Use Restore or Repair for the existing host." >&2
+            exit 1
+          fi
+
+          echo "The replacement machine is not the machine tits-guru is currently bound to: different name, and no SSH host key in common."
           echo "The current binding is left exactly as it is: recovery never edits DEPLOY_HOST, the target registry or DNS."
 
   # START ONLY. A recovery that is already held deliberately must not be
@@ -941,9 +1008,36 @@ jobs:
       - binding
       - recover
       - resume
+    # Deliberately tolerant of a FAILED resume, and this is the whole reason a
+    # recovery does not depend on a runner surviving to the end.
+    #
+    # `recover-host --resume` clears the recovery guard as its commit point and
+    # only prints its machine-readable result afterwards. A connection that
+    # dies in between leaves a target that is fully recovered, healthy, queue
+    # RUNNING and no longer guarded — while this workflow saw nothing but a
+    # failed step. Skipping the verification there would strand the operator:
+    # `continue-held` cannot continue an operation whose guard is gone, and
+    # `start` cannot begin one on a host that is no longer empty.
+    #
+    # So the final contract is asked regardless, and it is what decides. It
+    # weakens nothing: a resume that genuinely failed leaves the guard in
+    # place, and `--verify` refuses any target that still carries one.
+    #
+    # `skipped` is deliberately NOT accepted — a resume that never ran means
+    # the recovery is still mid-flight, not finished.
+    if: >-
+      ${{ !cancelled()
+          && needs.recover.result == 'success'
+          && (needs.resume.result == 'success' || needs.resume.result == 'failure') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
+
+    outputs:
+      status: ${{ steps.verify.outputs.status }}
+      current_release: ${{ steps.verify.outputs['current-release'] }}
+      source_sha: ${{ steps.verify.outputs['source-sha'] }}
+      health: ${{ steps.verify.outputs.health }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -954,6 +1048,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify the recovered target
+        id: verify
         uses: ./.github/actions/recover-rateguru-host
         with:
           mode: verify
@@ -966,6 +1061,33 @@ jobs:
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
           bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+      # --verify proves the target satisfies the final contract; it does not
+      # know which commit this OPERATION was for, because it takes no operation
+      # and reads no operation state. That last identity check is made here,
+      # against the commit the server named when the data was recovered — so a
+      # host that is healthy on some other release can never be read as this
+      # recovery having succeeded.
+      - name: Prove the verified host serves the commit its data belongs to
+        shell: bash
+        env:
+          CURRENT_RELEASE: ${{ steps.verify.outputs['current-release'] }}
+          SOURCE_SHA: ${{ steps.verify.outputs['source-sha'] }}
+          REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${CURRENT_RELEASE}" ]]; then
+            echo "The verified host names no current release" >&2
+            exit 1
+          fi
+
+          if [[ "${SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then
+            echo "The verified host serves commit ${SOURCE_SHA:-<empty>}, not the ${REQUIRED_SOURCE_SHA} its recovered data belongs to" >&2
+            exit 1
+          fi
+
+          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}."
 
   # Only once the host is provably recovered, and only for what it is provably
   # serving. Depending on `verify` with no `if` is the gate: a marker cannot be
@@ -981,7 +1103,6 @@ jobs:
       - validate
       - binding
       - recover
-      - resume
       - verify
     runs-on: ubuntu-latest
     environment: production
@@ -998,18 +1119,19 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # The release the SERVER reported after a completed recovery, not the one
-      # the build job produced. On the continue-held path there is no build job
-      # at all, and the recovered host is still serving a release that deserves
-      # a marker.
+      # The release the final VERIFICATION read off the host, not the one the
+      # build job produced and not the one the resume step reported. On the
+      # continue-held path there is no build job at all, and on the lost-runner
+      # path there is no usable resume result either — the verification is the
+      # one source that is always present when a marker is owed.
       - name: Record deployment in Sentry and Nightwatch
         uses: ./.github/actions/record-rateguru-deployment
         with:
           deployment-target: tits-guru
           environment: production
 
-          release-id: ${{ needs.resume.outputs.current_release }}
-          source-sha: ${{ needs.resume.outputs.source_sha }}
+          release-id: ${{ needs.verify.outputs.current_release }}
+          source-sha: ${{ needs.verify.outputs.source_sha }}
 
           sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-org: ${{ vars.SENTRY_ORG }}
@@ -1061,7 +1183,7 @@ jobs:
           SERVER_BACKUP: ${{ needs.recover.outputs.backup }}
           REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
           BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
-          RECOVERED_RELEASE: ${{ needs.resume.outputs.current_release }}
+          RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           BINDING_RESULT: ${{ needs.binding.result }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
@@ -1113,6 +1235,23 @@ jobs:
               echo "The machine \`tits-guru\` was bound to before this run is unchanged: nothing here"
               echo "edited DEPLOY_HOST, the target registry or DNS, and no traffic moved."
             } >> "${GITHUB_STEP_SUMMARY}"
+
+            # The lost-runner case, stated plainly so nobody re-runs a recovery
+            # that is already finished. --resume clears the guard before it
+            # prints its result, so a connection that dies in between fails the
+            # step over a target that is complete. The final contract was asked
+            # independently and held.
+            if [[ "${RESUME_RESULT}" != "success" ]]; then
+              {
+                echo
+                echo "The resume stage reports \`${RESUME_RESULT}\`, and the final verification"
+                echo "still passed. That is the lost-runner case: the server finished the recovery"
+                echo "and cleared its own guard before this workflow could read the result."
+                echo
+                echo "The host is complete. Do NOT re-run this workflow: \`mode=continue-held\`"
+                echo "would fail, because there is no longer a held operation to continue."
+              } >> "${GITHUB_STEP_SUMMARY}"
+            fi
 
             exit 0
           fi

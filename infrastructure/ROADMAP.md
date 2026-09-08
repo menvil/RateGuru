@@ -1364,11 +1364,17 @@ Slices, in order:
      environment, source, ref, tag, release, commit, migration or backup-location
      input anywhere, and no `latest`: recovery is offsite-only, from one exact
      backup.
-   - **`replacement-host` is refused when it equals `vars.DEPLOY_HOST`**, in
-     its own job, before Prepare Host and before the recovery credential is
-     used. That comparison is the only place the current binding is read; no
-     job in a recovery connects to the machine the target is bound to, and
-     nothing repoints the binding, the registry or DNS.
+   - **The replacement machine is proven to be a different machine**, in its
+     own job, before Prepare Host and before the recovery credential is used —
+     which is where it has to happen, because Prepare Host has no empty-host
+     precondition and the prepared/EMPTY contract that refuses a live target
+     belongs to `recover-host --apply` a whole job later. Two gates: the
+     literal `vars.DEPLOY_HOST` comparison catches the common paste mistake,
+     and an SSH host-key comparison against `DEPLOY_KNOWN_HOSTS` catches the
+     same machine under any other name or address — without resolving
+     anything, so it holds when the lost machine's DNS is stale or gone. Both
+     fail closed. No job in a recovery connects to the machine the target is
+     bound to, and nothing repoints the binding, the registry or DNS.
    - **Recovery-specific host credentials.** `RECOVERY_BOOTSTRAP_USER`,
      `RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS` and
      `RECOVERY_RCLONE_CONFIG`, with no fallback to the lost host's
@@ -1389,9 +1395,17 @@ Slices, in order:
      artifact and still no durable archive.
    - **One deploy, one marker.** The existing `deploy-rateguru` with
      `recovery-operation` and `run-migrations: "false"`, and the existing
-     `record-rateguru-deployment` — recorded only after the deployment, the
-     resume AND the independent `--verify`, from the release the SERVER reports
-     the host is serving, and fail-open as everywhere else.
+     `record-rateguru-deployment` — recorded only after the independent
+     `--verify` passed, from the release that verification read off the host,
+     and fail-open as everywhere else.
+   - **The final verification is authoritative, including over a lost
+     transport.** `--resume` clears the recovery guard as its commit point and
+     prints its result afterwards, so a connection dying in between leaves a
+     finished host and a failed step. `--verify` therefore runs on that path
+     too and decides: a resume that really failed leaves the guard, and
+     `--verify` refuses any target carrying one. The summary tells the operator
+     the host is complete and must not be re-run — the one interruption
+     `continue-held` cannot resolve, because there is no held operation left.
    - **A summary on every path**, identity only, naming the exact
      `mode=continue-held` re-run when a recovery remains held. Nothing is
      cleaned up to make a run green.

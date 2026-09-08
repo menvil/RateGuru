@@ -116,32 +116,56 @@ workflow. It is read to refuse, never to connect: no job in a recovery opens a
 connection to the machine the target is currently bound to, and nothing in a
 recovery reads, writes or repoints that binding.
 
-### What that comparison is, and is not
+### …and then it proves it by SSH host key
 
-It is a literal, case-insensitive comparison of the two strings. It deliberately
-resolves nothing: if `DEPLOY_HOST` is a name and you paste the **IP address that
-name currently points at**, the two strings differ and this check passes.
+The name comparison alone would not be enough, because one machine answers to a
+name, an alias and an address, and only one of those spellings is in
+`DEPLOY_HOST`.
 
-That is a considered trade, not an oversight. Resolving names here would make a
-safety refusal depend on DNS at the one moment DNS is least trustworthy — a
-recovery happens because the old machine is gone, so its record may be deleted,
-stale, already repointed, or pointing at a recycled address that now belongs to
-someone else. A lookup that fails would either wave the run through or block a
-legitimate disaster recovery, and a lookup that succeeds might do either for the
-wrong reason.
+That gap matters **here** rather than being something the server can be left to
+catch, because of what runs next:
 
-**The check that actually protects a live host is on the host.**
-`recover-host --apply` refuses anything that is not a prepared, EMPTY machine:
-no `current`, no `previous`, no release directories, a canonical database with
-zero public tables, a storage tree that is absent or empty, nothing running on
-the queue, and neither guard present. A live target fails every one of those, so
-a recovery aimed at it by any spelling — name, alias or address — is refused
-before a single destructive step, without depending on name resolution. See
-[`recover-host.md`](recover-host.md) §2.
+```text
+binding check            ← a name comparison alone lets an alias through
+      ↓
+Prepare Host             ← ALREADY MUTATING, and it has no empty-host precondition
+      ↓
+recover-host --apply     ← only now is "is this host empty?" ever asked
+```
 
-This comparison is the cheap, early "you pasted the wrong thing" guard in front
-of that, and it is worth exactly what it costs: it catches the common mistake in
-the job before the recovery credential is ever used.
+Prepare Host is convergent by design: it reconverges whatever it finds and is
+perfectly willing to act on a target that is already serving. The prepared/EMPTY
+contract that refuses a live host belongs to `recover-host --apply`, a whole job
+later. So a machine reached under a second name would be **changed before
+anything checked it was empty**.
+
+The second gate therefore settles machine identity without caring how it is
+spelled, and does it before Prepare Host:
+
+* strict host key checking is mandatory everywhere in this pipeline, so a
+  recovery can only reach the replacement machine if `RECOVERY_KNOWN_HOSTS`
+  carries **that machine's own** SSH host key;
+* if the machine is the one the target is already bound to, its key is
+  therefore in `DEPLOY_KNOWN_HOSTS` **and** `RECOVERY_KNOWN_HOSTS`, whatever
+  name was typed;
+* any key in common ⇒ refused.
+
+Only the key material is compared. The hostname fields — the very things that
+differ between the two spellings — are ignored, so `staging.example.com`,
+`203.0.113.24`, `[host]:2222`, a hashed `known_hosts` and an `@cert-authority`
+line are all handled alike. Nothing is printed but a verdict.
+
+It resolves nothing and touches no network, so it stays true when DNS for the
+old machine is stale, deleted or already repointed — the normal state of affairs
+during a real recovery, and the reason name resolution is deliberately **not**
+used for this.
+
+`DEPLOY_KNOWN_HOSTS` is read in this one job, to compare and never to connect.
+Every actual connection in a recovery verifies `RECOVERY_KNOWN_HOSTS`.
+
+Both gates fail closed: a missing `DEPLOY_HOST`, or material that yields no
+usable key on either side, refuses the run rather than assuming the machines
+differ.
 
 The practical consequence, and the reason it matters: during a rehearsal the
 long-lived staging host keeps serving, untouched, while a completely separate
@@ -168,6 +192,10 @@ Environment (`staging`, `production`) **before** the first recovery:
 | `RECOVERY_BOOTSTRAP_SSH_KEY` | privileged SSH private key for the replacement machine |
 | `RECOVERY_KNOWN_HOSTS` | the **verified** `known_hosts` entry for the replacement machine |
 | `RECOVERY_RCLONE_CONFIG` | rclone configuration the replacement machine reads the offsite backup through |
+
+`DEPLOY_KNOWN_HOSTS` — which the target already has — is also read, in the
+binding job only, to prove the replacement machine is not the bound one (§4).
+It is compared, never connected to.
 
 **No TOFU, ever.** `RECOVERY_KNOWN_HOSTS` is host key material an operator
 verified out of band — from the provider's console, or from the machine itself
@@ -306,18 +334,33 @@ queue has been started, if the scheduler cron entry is back, or if the host is
 serving code it should not be. Those two fields in its result describe what it
 observed, never what it assumed.
 
-### The three interruptions this covers
+### The four interruptions this covers
 
-| what happened | where it stopped | what `continue-held` finds |
+| what happened | where it stopped | what to do |
 |---|---|---|
-| the historical commit no longer builds | build failed | `awaiting-code` — fix the build, run again |
-| the runner died after `--apply` | before the deployment | `awaiting-code` — build and deploy, then resume |
-| the runner died after the deployment | before `--resume` | `ready-to-resume` — resume only |
+| the historical commit no longer builds | build failed | `continue-held` → `awaiting-code`; fix the build, run again |
+| the runner died after `--apply` | before the deployment | `continue-held` → `awaiting-code`; build and deploy, then resume |
+| the runner died after the deployment | before `--resume` | `continue-held` → `ready-to-resume`; resume only |
+| the connection died **during** `--resume` | after the server finished | **nothing** — the run's own verification already settled it |
 
-In every case the operator re-runs the same button with the same
-`replacement-host` and the operation ID from the failed run's summary. There is
-no manual data manipulation, no hand-run SSH command on the host, and nothing
-to clean up first.
+The first three re-run the same button with the same `replacement-host` and the
+operation ID from the failed run's summary. There is no manual data
+manipulation, no hand-run SSH command on the host, and nothing to clean up
+first.
+
+The fourth is different, and is the one case `continue-held` **cannot** help
+with. `recover-host --resume` clears the recovery guard as its commit point and
+prints its machine-readable result afterwards, so a connection that dies in
+between leaves a target that is finished — healthy, queue RUNNING, no longer
+guarded — while the workflow saw only a failed step. There is no held operation
+left for `continue-held` to continue, and `start` will not touch a host that is
+no longer empty.
+
+So the workflow does not ask the operator to resolve it. The final verification
+runs anyway on that path and adjudicates the host directly (§8), and the run
+summary says plainly that the host is complete and must not be re-run. The
+resume stage still shows `failure`, because something really did go wrong — the
+transport — and that deserves to be visible.
 
 ---
 
@@ -380,6 +423,29 @@ runs `recover-host --verify` as a separate, read-only question about the host
 as it stands now: `current` canonical with valid release metadata, neither
 guard present, database reachable and coherent, storage present, scheduler
 present, queue RUNNING, health PASS. `previous` being absent is not a failure.
+
+**And it is not unsuccessful merely because `--resume` failed.** The
+verification also runs when the resume step failed, precisely because of the
+commit-point ordering above: that is the only way to tell a recovery that never
+finished from one that finished and lost its transport. It is what decides
+either way, and it weakens nothing —
+
+* resume genuinely failed ⇒ the guard is still on the host ⇒ `--verify`
+  refuses any target that carries one ⇒ the run fails, correctly;
+* resume finished and the transport died ⇒ no guard, queue RUNNING, health
+  PASS ⇒ `--verify` passes, correctly.
+
+`--verify` takes no operation and reads no operation state, so it proves the
+final contract but not *which* commit this recovery was for. The workflow adds
+that last check itself, against the commit the server named when the data was
+recovered, so a host that is healthy on some other release can never be read as
+this recovery having succeeded. The deployment marker is then recorded from
+what the verification read off the host — the one identity that is present on
+every path a marker is owed on.
+
+A resume that never ran at all is deliberately *not* covered by this: the
+verification is skipped there, because a recovery still mid-flight is not a
+recovery to adjudicate.
 
 **No manual SSH command is part of the success path.**
 
