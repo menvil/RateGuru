@@ -1,0 +1,28 @@
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_621fa5f7d7c714::t_3a5e1a56110cba 79-129,466-535
+  s_621fa5f7d7c714::t_4850573600ebe7 436,439-454,456-457
+infrastructure/runbooks/github-recover.md
+  s_621fa5f7d7c714::t_494197bdb0d537 143-184
+.github/workflows/recover-staging.yml
+  s_621fa5f7d7c714::t_f149eb964746be 359-362,364-365,367-378,382-383,387-398,400-410,414-426,429-430,435-436,440
+.github/workflows/recover-production.yml
+  s_621fa5f7d7c714::t_f149eb964746be 396-399,401-402,404-415,419-420,424-435,437-447,451-463,466-467,472-473,477
+infrastructure/ROADMAP.md
+  s_621fa5f7d7c714::t_494197bdb0d537 1373-1380
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "775efd6616d6d3c91aea8c3f66a70b69cae677b2",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
