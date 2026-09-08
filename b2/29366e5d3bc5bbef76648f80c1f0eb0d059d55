@@ -1,0 +1,150 @@
+tests/Feature/Architecture/DeploymentObservabilityScopeTest.php
+  s_9a6ca54786c126::t_62e060436dfe7e 230,236,243-245
+tests/Feature/Architecture/OffsiteRetentionTest.php
+  s_9a6ca54786c126::t_2c657ae5039d1c 1083-1126
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_9a6ca54786c126::t_0dc15284d1a1b1 262
+infrastructure/scripts/prepare-host
+  s_9a6ca54786c126::t_06c9ecbf8bba2a 105-143,206-214,240-241,248,254-266,414-417,737,742,746-757,873-895,898-899,901-904,906,908-909,911-912,914,916-924,926-933,935-936,938-941,943-949,951,953-957,959-965,967-969,971-977,979-1102,1154-1170,1195-1211
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_9a6ca54786c126::t_ec5af9b97144e1 611-613,667,670,676-690,692-695,709-786,805,1288
+  s_9a6ca54786c126::t_8afa10062cd47a 698-700,787,1467-1470,1472-1474,1487-1489,1493-1494
+tests/Pest.php
+  s_9a6ca54786c126::t_c5b571e610a573 1260-1404,1408,1410-1416,1460-1461,1464-1468,1476-1485,2176,2180,2184,2213-2224,2323,2325-2327,2330,2347-2349
+infrastructure/runbooks/deployment-targets.md
+  s_9a6ca54786c126::t_6fc3fd77acd0ed 595,597,599-608,644-647,650-653
+.github/workflows/recover-production.yml
+  s_9a6ca54786c126::t_e26d57d719fc32 1309,1336-1339,1345-1346
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_9a6ca54786c126::t_8afa10062cd47a 1284-1288,1301
+  s_9a6ca54786c126::t_cbf10de2432aef 867-883,910,968,971-977,1001,1004-1008,1014-1015,1054,1059,1100,1104-1113,1224-1226,1247,1279,1323,2473,2513-2514,2517-2522,2534-2538
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_9a6ca54786c126::t_8afa10062cd47a 420
+  s_9a6ca54786c126::t_2a39f520d7c6e6 124-131,136-137,148-152,297,300-302,316-352,388-395,397,399-404,408-415,417-419,478,505
+  s_9a6ca54786c126::t_334882cfebff68 527-531,541-542,547-548,550,554,562-563,567-571,584-598,600-601
+infrastructure/scripts/restore-common
+  s_9a6ca54786c126::t_799fd6f1be7e53 17,92-97,113-124,127-134,138-145,160,163-198,1313-1317,1319,1323-1325,1328-1346,1355-1358,1365-1366,1381,1399,1528-1561,1599,1613-1616
+tests/Feature/Architecture/FetchBackupTest.php
+  s_9a6ca54786c126::t_e95cf8787c87bb 271-400
+infrastructure/scripts/fetch-recovery-material
+  s_9a6ca54786c126::t_f7ecb30c846e17 1-121,124-430,432-435,460,463,471-473,476-752,754,756-766
+  s_9a6ca54786c126::t_6cf729517bf2d7 122-123
+  s_9a6ca54786c126::t_039682eda45489 431,436-459,461-462,464-470,474-475,753,755
+tests/Feature/Architecture/RecoverHostTest.php
+  s_9a6ca54786c126::t_0fd34151a0573a 477,492-710
+infrastructure/runbooks/prepare-host.md
+  s_9a6ca54786c126::t_4d153651c24f61 118-165,278-284,472-474
+infrastructure/runbooks/restore-target.md
+  s_9a6ca54786c126::t_6fc3fd77acd0ed 30-32,43,46-49,163-169,172-175,177-182
+infrastructure/scripts/recover-host
+  s_9a6ca54786c126::t_f21e10efb70f0e 2151
+  s_9a6ca54786c126::t_109efd0f9c1c86 68-86,158-159,163-165,325,422,430,471-533,1107-1108,1187-1191,1446-1447,1459,1468-1469,1516,1531-1532,1542,1716-1722,1776-1781,1802-1812,1829-1830,1833,1957,1959,2010,2156,2293,2320-2323,2367
+infrastructure/scripts/install-target-operations
+  s_9a6ca54786c126::t_f58083eb34df89 892
+  s_9a6ca54786c126::t_dd22985d0ee005 9,15-19,25,30-44,77-80,124,127-135,161,164-171,194-197,200,367,373,387,398,403,406,489,495-501,955-964,994-1037,1062,1065-1070,1085,1088,1787,1790-1793,1833-1840,1855-1856
+  s_9a6ca54786c126::t_dd62e2e5db822b 889-891,893-896,1498,1747,1969-1970
+infrastructure/ROADMAP.md
+  s_9a6ca54786c126::t_557b97c1d813ec 1012,1340-1348,1358-1408,1435-1443,1477-1478,1480-1484
+tests/Feature/Architecture/OffsiteRestoreTest.php
+  s_9a6ca54786c126::t_30c898404e023a 394-400,953,958-992
+infrastructure/scripts/backup-cycle
+  s_9a6ca54786c126::t_ec06478a0e7ea6 215-223
+infrastructure/config/required-clis.txt
+  s_9a6ca54786c126::t_ce54f784fc6815 8
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_9a6ca54786c126::t_489c5475655e21 65-73,76-80,217-218,222-223,613,618-620,675-676,679-684,687-705,707-715,720
+infrastructure/runbooks/target-perimeter.md
+  s_9a6ca54786c126::t_288a0c22c9985d 39-46
+.github/workflows/recover-staging.yml
+  s_9a6ca54786c126::t_e26d57d719fc32 1272,1299-1302,1308-1309
+tests/Feature/Architecture/RestoreTargetTest.php
+  s_9a6ca54786c126::t_43b612265afe45 212-216
+  s_9a6ca54786c126::t_b0079acb00199e 192-211,217-225
+infrastructure/scripts/offsite-backup
+  s_9a6ca54786c126::t_ec06478a0e7ea6 143-148,191-198,201,207
+tests/Feature/Architecture/OffsiteBackupTest.php
+  s_9a6ca54786c126::t_2c657ae5039d1c 385,1041-1065
+  s_9a6ca54786c126::t_30c898404e023a 338-344,921,926-971
+infrastructure/scripts/restore-test
+  s_9a6ca54786c126::t_9b559473927b5d 30-33,41,44-47,132-133,138-145,171-172,176-180,184,195-199,208,222-224,245-284,355-357
+tests/Feature/Architecture/BackupTest.php
+  s_9a6ca54786c126::t_a6cf2a76f75159 473-475
+  s_9a6ca54786c126::t_5aa2eb09ae1544 454,470-472,500-501,835,844-849,853-860,863-939,941-944,948-980,1027,1038
+  s_9a6ca54786c126::t_c30425bdf799f4 1134
+  s_9a6ca54786c126::t_2c657ae5039d1c 1343-1366
+  s_9a6ca54786c126::t_79c4ff87e6cdcc 940
+infrastructure/scripts/install-target-prerequisites
+  s_9a6ca54786c126::t_4b39ab5108b873 48-76,134-146,158-162,173,200-203,211-213,226-229,232-234,241,251-272,323,334-364,1105-1142,1146-1149,1151-1217,1219-1275,1279-1400,1411-1416
+  s_9a6ca54786c126::t_c30425bdf799f4 1143-1145,1150,1218,1276-1278
+infrastructure/scripts/verify-backup
+  s_9a6ca54786c126::t_a66ff6d06a0f4b 15-21,23-24,26-29,143-144,151,165-176,192-196,201-203,218,226
+tests/Feature/Architecture/RestoreTest.php
+  s_9a6ca54786c126::t_ea176a166bc6af 350-362,470-473
+  s_9a6ca54786c126::t_30c898404e023a 1066,1071,1076,1081-1147
+tests/Feature/Architecture/VerifyBackupTest.php
+  s_9a6ca54786c126::t_6fc592ea5b7d35 47-49,89-91,94-247,402,407,410
+infrastructure/scripts/offsite-restore-test
+  s_9a6ca54786c126::t_ec06478a0e7ea6 256,263-266,269,274
+  s_9a6ca54786c126::t_c30425bdf799f4 257-262
+tests/Feature/Architecture/OffsiteWriteHoldTest.php
+  s_9a6ca54786c126::t_b2f4d9ae616f42 1-62,66-101,103-146,161-208,210-219
+  s_9a6ca54786c126::t_a6c9ce5994e05c 147-148,150,152-160
+  s_9a6ca54786c126::t_8afa10062cd47a 63-65,102,149,151,209
+infrastructure/scripts/offsite-retention
+  s_9a6ca54786c126::t_ec06478a0e7ea6 322-328
+tests/Feature/Architecture/RollbackRateGuruActionTest.php
+  s_9a6ca54786c126::t_ef99a2fbcb7b79 163,167-188
+tests/Feature/Architecture/FetchRecoveryMaterialTest.php
+  s_9a6ca54786c126::t_a4e56277531703 1-55,57-467
+  s_9a6ca54786c126::t_36aef9814a88ba 56
+infrastructure/scripts/fetch-backup
+  s_9a6ca54786c126::t_a66ff6d06a0f4b 249-255,257,266,315-320,322,391-395,401
+tests/Feature/Architecture/BackupCycleTest.php
+  s_9a6ca54786c126::t_2c657ae5039d1c 1200-1232
+infrastructure/scripts/common
+  s_9a6ca54786c126::t_7ed7802448f9d3 367
+  s_9a6ca54786c126::t_913ebc92fba3d3 107-197,200-203,208,230-234,244-255,259-278,326,340-342
+  s_9a6ca54786c126::t_272cd5c30b3884 256-258
+  s_9a6ca54786c126::t_b977d01c6d990e 956-1030
+infrastructure/scripts/backup
+  s_9a6ca54786c126::t_162575a61921df 39-43,50,53-56,212-267,270-276,300,400-403,406-407,411
+infrastructure/README.md
+  s_9a6ca54786c126::t_f03625829afb3c 41-46,99-111
+infrastructure/runbooks/install-target-operations.md
+  s_9a6ca54786c126::t_288a0c22c9985d 19,25-28,48-49,54-55,59-71,93,159,200,309,373
+.github/actions/prepare-rateguru-host/action.yml
+  s_9a6ca54786c126::t_4332a7ef9f0773 33-45,154-167,243-293,597,612-618,642,681-685
+infrastructure/runbooks/recover-host.md
+  s_9a6ca54786c126::t_0e87bcd78c31cd 107-126,400-401,407-432,741,774-776,783-788
+tests/Feature/Architecture/InstallTargetPrerequisitesTest.php
+  s_9a6ca54786c126::t_36aef9814a88ba 821-823,825,831,835-836,1095-1101,1105-1107,1110-1115
+  s_9a6ca54786c126::t_0092b094d65d42 790-794,805-820,824,826-830,832-834,837-874,877,883-1050,1052,1057-1094,1102-1104,1108-1109,1116-1209,1211-1225,1227-1229,1231-1240
+  s_9a6ca54786c126::t_8afa10062cd47a 875-876,878-882,1051,1053-1056,1210,1226,1230
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_9a6ca54786c126::t_57a6b1747843c7 477-519
+infrastructure/runbooks/backups.md
+  s_9a6ca54786c126::t_64ea071d031a28 30-31,37-84,140,142-149,153,155-164,167-176,181-195,256-265
+  s_9a6ca54786c126::t_0dc15284d1a1b1 32-36
+.github/actions/recover-rateguru-host/action.yml
+  s_9a6ca54786c126::t_c249cbfc4f16fe 37-41,168-176,614,630
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_9a6ca54786c126::t_4f28ae384ad446 172-184,188-192,232-260,281-287,316,340-343,592,1264-1537
+infrastructure/runbooks/github-recover.md
+  s_9a6ca54786c126::t_2d3c937297625e 243-244,249,251-257,259-278,280-283,285-290,293-296,303-313,340-342,358-383,559-587,590-591,680-688,706,709-711,716-720,735-740,742,744,747-748
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b229366e5d3bc5bbef76648f80c1f0eb0d059d55",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    }
+  }
+}
