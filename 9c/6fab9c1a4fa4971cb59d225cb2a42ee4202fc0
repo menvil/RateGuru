@@ -1,0 +1,24 @@
+.github/workflows/recover-staging.yml
+  s_621fa5f7d7c714::t_1601cf9276640d 960-963
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_621fa5f7d7c714::t_1601cf9276640d 135,432-435
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_621fa5f7d7c714::t_1601cf9276640d 1608,1612
+  s_621fa5f7d7c714::t_dd9ffcf0743b46 1609-1611,1613
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9c6fab9c1a4fa4971cb59d225cb2a42ee4202fc0",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
