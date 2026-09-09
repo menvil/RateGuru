@@ -532,3 +532,110 @@ it('offers recovery preparation as one optional input that the ordinary workflow
         ->not->toContain('--material-dir');
     expect(data_get($verify, 'env.RECOVERY_BACKUP'))->toBe('${{ inputs.recovery-backup }}');
 });
+
+// =============================================================================
+// What a failed remote preparation says
+// =============================================================================
+
+/** The runner-side environment the preparation steps run in. */
+function phwStepEnv(string $scratch, array $overrides = []): array
+{
+    return actionStepEnv($scratch, array_merge([
+        'BOOTSTRAP_HOST' => '203.0.113.24',
+        'BOOTSTRAP_PORT' => '22',
+        'BOOTSTRAP_USER' => 'recovery',
+        'DEPLOYMENT_TARGET' => 'staging-main',
+        'ENVIRONMENT' => 'staging',
+        'RECOVERY_BACKUP' => '20260909-113248',
+        'RATEGURU_PRIVILEGED_PREFIX' => 'sudo -n',
+        'RATEGURU_REMOTE_ROOT' => '/root/.rateguru-bootstrap-1-1',
+        'RATEGURU_BOOTSTRAP_SSH_KEY_PATH' => $scratch.'/key',
+        'RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH' => $scratch.'/known_hosts',
+    ], $overrides));
+}
+
+it('always prints what a failed remote preparation said and exits with its status', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/prepare-rateguru-host/action.yml', 'Prepare the host', phwStepEnv($scratch, [
+            'RGTEST_SSH_STDOUT' => "SLICE bootstrap-services — FAIL\n  DRIFT queue:rateguru-staging-queue — the installed program does not match its source",
+            'RGTEST_SSH_STDERR' => 'ERROR: install-bootstrap-services refused: 1 slice failed; nothing was rolled back',
+            'RGTEST_SSH_EXIT' => '1',
+        ]));
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])
+            ->toContain('SLICE bootstrap-services — FAIL')
+            ->toContain('the installed program does not match its source')
+            ->toContain('install-bootstrap-services refused');
+
+        expect(File::get($scratch.'/github-output'))->toContain('failure-cause=preparation-failed');
+        expect(File::get($scratch.'/github-step-summary'))
+            ->toContain('Host preparation failed — preparation-failed')
+            ->toContain('Preparation is convergent')
+            ->toContain('infrastructure/runbooks/clean-host-recovery.md');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('names the GitHub value behind each refusal a recovery preparation can meet', function (string $remote, string $cause) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/prepare-rateguru-host/action.yml', 'Prepare the host', phwStepEnv($scratch, [
+            'RGTEST_SSH_STDERR' => $remote,
+            'RGTEST_SSH_EXIT' => '2',
+        ]));
+
+        expect($result['exit'])->toBe(2);
+        expect($result['output'])->toContain($remote);
+        expect(File::get($scratch.'/github-output'))->toContain("failure-cause={$cause}");
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    ['ERROR: backup 20260909-113248 is not clean-host-recovery-capable: its manifest schema is 2', 'backup-not-recovery-capable'],
+    ['ERROR: could not download the manifest of backup 20260909-113248 from the offsite remote', 'backup-not-found'],
+    ['ERROR: the recovery material archive of backup 20260909-113248 is not acceptable for staging-main', 'recovery-material-invalid'],
+    ['ERROR: seed material is missing: rclone-config — the recovery workflow supplies it', 'rclone-config-unavailable'],
+    ['ERROR: the offsite-write hold /home/www/rateguru/run/offsite-write-hold is missing', 'offsite-hold-missing'],
+]);
+
+it('refuses a recovery preparation without the offsite credential by naming the secret it comes from', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/prepare-rateguru-host/action.yml', 'Validate the recovery preparation contract', actionStepEnv($scratch, [
+            'RECOVERY_BACKUP' => '20260909-113248',
+            'SEED_RCLONE_CONFIG_PRESENT' => 'false',
+            'SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT' => 'true',
+            'LARAVEL_ENV_PRESENT' => 'false',
+            'BASIC_AUTH_PRESENT' => 'false',
+            'TLS_CERTIFICATE_PRESENT' => 'false',
+            'TLS_PRIVATE_KEY_PRESENT' => 'false',
+            'TLS_DHPARAMS_PRESENT' => 'false',
+            'NGINX_TLS_OPTIONS_PRESENT' => 'false',
+            'MAIL_TLS_CERTIFICATE_PRESENT' => 'false',
+            'MAIL_TLS_PRIVATE_KEY_PRESENT' => 'false',
+        ]));
+
+        // The refusal an operator actually met, now saying which GitHub value
+        // is missing and what kind it has to be.
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('requires the rclone-config seed')
+            ->toContain('RECOVERY_RCLONE_CONFIG Environment SECRET')
+            ->toContain('Environment secrets')
+            ->toContain('never as an Environment variable')
+            ->toContain('Nothing was uploaded and nothing was changed');
+
+        expect(File::get($scratch.'/github-output'))->toContain('failure-cause=rclone-config-unavailable');
+
+        // Presence only: no value of any kind is read, so none can be printed.
+        expect(File::get($scratch.'/ssh.log'))->toBe('');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});

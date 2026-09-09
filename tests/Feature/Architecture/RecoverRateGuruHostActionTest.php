@@ -377,3 +377,143 @@ it('never builds, deploys, prepares, repairs or restores', function () {
         'infrastructure/scripts/targets',
     ]);
 });
+
+// =============================================================================
+// What a failed remote invocation says
+// =============================================================================
+
+/** The runner-side environment the server-side recovery step runs in. */
+function recoverStepEnv(string $scratch, array $overrides = []): array
+{
+    return actionStepEnv($scratch, array_merge([
+        'RECOVERY_HOST' => '203.0.113.24',
+        'RECOVERY_PORT' => '22',
+        'BOOTSTRAP_USER' => 'recovery',
+        'DEPLOYMENT_TARGET' => 'staging-main',
+        'ENVIRONMENT' => 'staging',
+        'MODE' => 'apply',
+        'BACKUP_ID' => '20260909-113248',
+        'OPERATION_ID' => '',
+        'RATEGURU_PRIVILEGED_PREFIX' => 'sudo -n',
+        'RATEGURU_REMOTE_ROOT' => '/root/.rateguru-recovery-1-1',
+        'RATEGURU_BOOTSTRAP_SSH_KEY_PATH' => $scratch.'/key',
+        'RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH' => $scratch.'/known_hosts',
+    ], $overrides));
+}
+
+it('always prints what a failed remote recovery said, exits with its status, and parses no result out of it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // The first real clean-host recovery: the server refused the
+        // prepared/EMPTY contract, named the one problem on stdout and the
+        // verdict on stderr, and exited 1. The actionable half must reach the
+        // operator — losing it to a command substitution under `set -e` is the
+        // defect this test exists for.
+        $result = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'RGTEST_SSH_STDOUT' => implode("\n", [
+                'RECOVERY REFUSED — staging-main is not a prepared, empty replacement host:',
+                '  * cannot observe the target queue program rateguru-staging-queue: supervisorctl status exited 4 (supervisorctl said: rateguru-staging-queue: ERROR (no such group))',
+            ]),
+            'RGTEST_SSH_STDERR' => 'ERROR: staging-main does not satisfy the prepared/EMPTY recovery contract (1 problems above); nothing was created and nothing was changed',
+            'RGTEST_SSH_EXIT' => '1',
+        ]));
+
+        // The remote status is preserved, never turned into a success.
+        expect($result['exit'])->toBe(1);
+
+        // Both halves of the diagnosis are in the log.
+        expect($result['output'])
+            ->toContain('RECOVERY REFUSED — staging-main is not a prepared, empty replacement host')
+            ->toContain('cannot observe the target queue program rateguru-staging-queue')
+            ->toContain('ERROR (no such group)')
+            ->toContain('does not satisfy the prepared/EMPTY recovery contract');
+
+        // And nothing was parsed out of a failed invocation: the "expected
+        // exactly one result line" complaint would be a second, misleading
+        // failure on top of the real one.
+        foreach (['RATEGURU_RECOVER_RESULT line', 'does not carry a status', 'describes a different target'] as $parsing) {
+            expect(str_contains($result['output'], $parsing))
+                ->toBeFalse("a failed remote invocation must not be parsed: {$parsing}");
+        }
+
+        // The workflow is told which refusal it was, and the summary carries
+        // the server's own lines rather than the whole log.
+        expect(File::get($scratch.'/github-output'))->toContain('failure-cause=host-not-prepared');
+        expect(File::get($scratch.'/github-step-summary'))
+            ->toContain('Host recovery — apply refused (host-not-prepared)')
+            ->toContain('does not satisfy the prepared/EMPTY recovery contract')
+            ->toContain('Operator runbook: infrastructure/runbooks/clean-host-recovery.md');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('classifies each refusal a mode can meet, in every mode', function (string $mode, string $remote, string $cause) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'MODE' => $mode,
+            'OPERATION_ID' => $mode === 'apply' ? '' : '20260909-120000-abc123',
+            'RGTEST_SSH_STDERR' => $remote,
+            'RGTEST_SSH_EXIT' => '3',
+        ]));
+
+        expect($result['exit'])->toBe(3, 'the remote status is what the step exits with');
+        expect($result['output'])->toContain($remote);
+        expect(File::get($scratch.'/github-output'))->toContain("failure-cause={$cause}");
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    ['apply', 'ERROR: backup 20260909-113248 is not clean-host-recovery-capable: its manifest schema is 2', 'backup-not-recovery-capable'],
+    ['apply', 'ERROR: could not download SHA256SUMS of backup 20260909-113248 from the offsite remote', 'backup-not-found'],
+    ['apply', 'ERROR: environment material: MISMATCH — the shared/.env Prepare Host placed', 'environment-mismatch'],
+    ['inspect', 'ERROR: the offsite-write hold is missing (/home/www/rateguru/run/offsite-write-hold)', 'offsite-hold-missing'],
+    ['inspect', 'ERROR: something nobody has a word for yet', 'inspect-failed'],
+    ['resume', 'ERROR: recovery operation 20260909-120000-abc123 has status \'in-progress\', not \'awaiting-code\'', 'awaiting-code'],
+    ['resume', 'ERROR: rclone is not available at /usr/local/bin/rclone', 'rclone-config-unavailable'],
+    ['verify', 'ERROR: staging-main still carries a recovery guard (/home/www/rateguru/run/recoveries/staging-main/recovery-guard)', 'guard-present'],
+    ['verify', 'ERROR: nothing this action has a word for', 'verify-failed'],
+]);
+
+it('still reads the machine-readable result of a successful invocation, including the runtime it reports', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'RGTEST_SSH_STDOUT' => 'step: activate the recovered data'."\n".'RATEGURU_RECOVER_RESULT='.json_encode([
+                'status' => 'awaiting-code',
+                'target' => 'staging-main',
+                'operation' => '20260909-120000-abc123',
+                'backup' => '20260909-113248',
+                'backup_release' => '20260909-104500-1a2b3c4',
+                'required_source_sha' => str_repeat('a', 40),
+                'data_restored' => true,
+                'current_release' => '',
+                'source_sha' => '',
+                'health' => 'not-checked',
+                'queue' => 'stopped',
+                'scheduler' => 'held',
+                'offsite_writes' => 'held',
+            ]),
+            'RGTEST_SSH_EXIT' => '0',
+        ]));
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $outputs = File::get($scratch.'/github-output');
+
+        expect($outputs)
+            ->toContain('status=awaiting-code')
+            ->toContain('operation=20260909-120000-abc123')
+            ->toContain('backup=20260909-113248')
+            ->toContain('offsite-writes=held')
+            ->toContain('queue=stopped')
+            ->toContain('scheduler=held');
+        expect($outputs)->not->toContain('failure-cause=');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});

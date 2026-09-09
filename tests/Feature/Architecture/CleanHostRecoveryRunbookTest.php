@@ -47,9 +47,9 @@ function recoveryValuesRead(string $workflow): array
 }
 
 it('is self-contained — every section an operator needs, in order — and every recovery surface points at it', function () {
-    preg_match_all('/^## ([A-L])\. (.+)$/m', cleanHostRunbook(), $headings);
+    preg_match_all('/^## ([A-M])\. (.+)$/m', cleanHostRunbook(), $headings);
 
-    expect($headings[1])->toBe(range('A', 'L'));
+    expect($headings[1])->toBe(range('A', 'M'));
     expect($headings[2])->toBe([
         'What to prepare on the new VPS',
         'Prove bootstrap access from your own machine',
@@ -63,6 +63,7 @@ it('is self-contained — every section an operator needs, in order — and ever
         'What counts as success',
         'When a run stops half way',
         'Never',
+        'What a prepared, never-deployed host looks like',
     ]);
 
     foreach ([
@@ -329,4 +330,85 @@ it('separates Environment variables from Environment secrets exactly as the work
         expect(str_contains($action, 'vars.RECOVERY_RCLONE_CONFIG') || str_contains($action, 'secrets.RECOVERY_RCLONE_CONFIG'))
             ->toBeFalse(basename(dirname($path)).' must take the credential as an input, never read the environment');
     }
+});
+
+it('describes the PRE_DEPLOY state the recovery requires exactly as recover-host judges it', function () {
+    $runbook = cleanHostRunbook();
+    $section = substr($runbook, strpos($runbook, '## M. '));
+    $recover = File::get(base_path('infrastructure/scripts/recover-host'));
+
+    // Every line of the contract an operator is told to expect.
+    foreach ([
+        '| `current` | **absent** |',
+        '| `previous` | **absent** |',
+        '| `releases/` | **empty** |',
+        '**0 tables** in the `public` schema',
+        '| `shared/storage/app` | **absent**, or present and empty',
+        '| `shared/.env` | **present**',
+        '| queue program configuration | **installed and valid**',
+        '| Supervisor runtime group | **may be absent**',
+        '| queue worker | definitely **not RUNNING** |',
+        '| offsite-write hold | **present** |',
+        '| restore guard, recovery guard | **absent** |',
+    ] as $row) {
+        expect($section)->toContain($row);
+    }
+
+    // And the reason it may be absent, stated the way the primitive states
+    // it. Flattened, because these sentences wrap and a rewrap is not a change
+    // in what they say.
+    expect(preg_replace('/\s+/', ' ', $section))
+        ->toContain('ERROR (no such group)')
+        ->toContain('exit status 4')
+        ->toContain('the program configuration installed on the machine')
+        ->toContain('Restore Target Data still fails closed on it');
+
+    expect($recover)
+        ->toContain('recovery_queue_group_not_loaded')
+        ->toContain('RECOVERY_SUPERVISOR_RC_UNKNOWN_NAME=4')
+        ->toContain('ERROR (no such group)');
+});
+
+it('sends an operator diagnosing a refused precondition to the trusted bundle, never to a command that cannot work', function () {
+    $runbook = cleanHostRunbook();
+
+    expect($runbook)
+        ->toContain('does not satisfy the prepared/EMPTY recovery contract')
+        ->toContain('sudo <checkout>/infrastructure/scripts/recover-host \\')
+        ->toContain('--check --target staging-main --backup YYYYMMDD-HHMMSS')
+        ->toContain('**Delete nothing until the failed precondition is known.**');
+
+    expect(preg_replace('/\s+/', ' ', $runbook))
+        ->toContain('the installed operational bundle carries no `prepare-host`');
+
+    // The one command the documentation must never OFFER: the installed copy
+    // has no prepare-host beside it and refuses --check for that reason. It is
+    // named once, as the thing not to run.
+    expect($runbook)->toContain('Not `/home/www/rateguru/bin/recover-host --check`');
+
+    preg_match_all('/```(?:bash|text)?\n(.*?)```/s', $runbook, $blocks);
+
+    expect($blocks[1])->not->toBeEmpty();
+
+    foreach ($blocks[1] as $block) {
+        expect(str_contains($block, '/home/www/rateguru/bin/recover-host --check'))
+            ->toBeFalse('the runbook must never give an operator a command that cannot work');
+    }
+
+    foreach (['infrastructure/runbooks/github-recover.md', 'infrastructure/runbooks/recover-host.md'] as $document) {
+        expect(str_contains(File::get(base_path($document)), '/home/www/rateguru/bin/recover-host --check'))
+            ->toBeFalse("{$document} must not offer the installed --check either");
+    }
+
+    // The installed copy still answers the modes that need no bootstrap
+    // tooling, and the runbook keeps using it for them.
+    expect($runbook)->toContain('sudo /home/www/rateguru/bin/recover-host --verify --target staging-main');
+
+    // recover-host says the same thing itself, so an operator who runs it
+    // rather than reading is told, not left guessing.
+    $usage = shellFunctionBody(File::get(base_path('infrastructure/scripts/recover-host')), 'usage');
+
+    expect($usage)
+        ->toContain('run from the trusted')
+        ->toContain('--inspect, --resume and --verify need no bootstrap tooling');
 });

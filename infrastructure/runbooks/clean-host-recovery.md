@@ -249,7 +249,7 @@ On the replacement machine, as root:
 | `cat /home/www/rateguru/run/offsite-write-hold` | present: `{"hold":"offsite-writes", …}` |
 | `sudo /home/www/rateguru/bin/backup-cycle --target staging-main` | refuses with `OFFSITE WRITES: HELD` |
 
-Or in one command:
+Or in one command, from the operational bundle the recovery installed:
 
 ```bash
 sudo /home/www/rateguru/bin/recover-host --verify --target staging-main
@@ -258,6 +258,12 @@ sudo /home/www/rateguru/bin/recover-host --verify --target staging-main
 which prints `RECOVERED: YES`, `PREVIOUS: absent (normal for a freshly
 recovered host)`, `HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT` and
 `OFFSITE WRITES: HELD`.
+
+`--verify`, `--inspect` and `--resume` need no bootstrap tooling and run from
+that installed copy. `--check` and `--apply` do not: both prove the machine is
+prepared by running the `prepare-host` **beside** them, and the operational
+bundle deliberately carries none, so they run from the trusted infrastructure
+bundle instead (§K). The installed copy says so rather than pretending.
 
 ---
 
@@ -330,6 +336,28 @@ cleaned up to make a run look green. Read the summary:
 * **The offsite-write hold is missing**: `--inspect` and `--verify` refuse
   and name the remediation; `--resume` re-establishes it. See
   [`recover-host.md`](recover-host.md).
+* **The recovery refused the prepared/EMPTY contract**
+  (`does not satisfy the prepared/EMPTY recovery contract`): the recover job's
+  log lists every problem it found, one line each, above that verdict — read
+  those first, because the verdict alone says nothing actionable. Nothing was
+  created or changed on the machine.
+
+  Diagnose it read-only, from a checkout of `develop` **on the host**, which
+  is the same trusted bundle the workflow uploads:
+
+  ```bash
+  sudo <checkout>/infrastructure/scripts/recover-host \
+    --check --target staging-main --backup YYYYMMDD-HHMMSS
+  ```
+
+  Not `/home/www/rateguru/bin/recover-host --check`: the installed operational
+  bundle carries no `prepare-host`, so that copy cannot prove a machine is
+  prepared and refuses `--check` by name instead of guessing.
+
+  **Delete nothing until the failed precondition is known.** §M is what a
+  prepared, never-deployed host is supposed to look like; a machine that does
+  not match it is either not prepared, or not the machine you think it is, and
+  in both cases the answer is a new one — never a hand-cleaned one.
 
 ---
 
@@ -351,6 +379,53 @@ cleaned up to make a run look green. Read the summary:
   and releasing the hold is part of adopting the machine, not of a rehearsal.
 * Never reuse a machine that was refused by the preflight, or "clean it up"
   for a recovery: provision a new one.
+
+---
+
+## M. What a prepared, never-deployed host looks like
+
+This is the PRE_DEPLOY state Prepare Host leaves behind, and the state
+`recover-host --apply` requires. It is what "prepared and EMPTY" means:
+
+| Thing | Expected |
+|---|---|
+| `current` | **absent** |
+| `previous` | **absent** |
+| `releases/` | **empty** |
+| database | **exists**, with **0 tables** in the `public` schema |
+| `shared/storage/app` | **absent**, or present and empty (an empty `public/` is allowed) |
+| `shared/.env` | **present** — placed by Prepare Host from the backup |
+| queue program configuration | **installed and valid** (`supervisorctl reread` parses it) |
+| Supervisor runtime group | **may be absent** — see below |
+| queue worker | definitely **not RUNNING** |
+| scheduler | as Prepare Host installed it |
+| offsite-write hold | **present** |
+| restore guard, recovery guard | **absent** |
+
+**A Supervisor runtime group that is absent is normal here, not an error.**
+The services installer installs the queue program's configuration, validates
+it with `supervisorctl reread` — which parses and adds nothing — and defers
+`supervisorctl update` until a release exists, because the committed program
+sets `autostart=true` and a prepared host has no application for a worker to
+run. So a prepared, never-deployed host answers
+
+```text
+rateguru-staging-queue: ERROR (no such group)
+```
+
+about its own queue, with exit status 4. For a clean-host recovery that is the
+normal PRE_DEPLOY state and holds the target more firmly than `STOPPED` does:
+a group the running Supervisor does not know cannot have a process running in
+it. The recovery accepts it only on that exact evidence — status 4, that one
+line about this target's own group and nothing else, and the program
+configuration installed on the machine — and refuses everything else,
+including an unreachable Supervisor, which reports itself differently. The
+recovery's `--resume` is what finally adds the group, from the configuration
+already installed, at the moment the target legitimately starts serving.
+
+A **live** target answering the same thing is a different matter entirely, and
+Restore Target Data still fails closed on it: there, the group vanished from
+under a running application.
 
 ---
 

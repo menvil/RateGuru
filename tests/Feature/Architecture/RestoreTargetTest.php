@@ -558,6 +558,59 @@ it('stops a queue group that is only partly running, and leaves it stopped after
     }
 });
 
+it('still fails closed when a live target says its queue group does not exist', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // The exact answer a clean-host recovery is allowed to accept, because
+        // there the group has simply not been added to the running Supervisor
+        // yet. On a LIVE target it means the group vanished from under a
+        // running application, and "I cannot see it" is never "it is not
+        // running": a live restore fails closed on it, as it always has.
+        $result = restoreTargetApply($scratch, [
+            'RGTEST_SUPERVISOR_STATUS_STDOUT' => 'parity-queue: ERROR (no such group)',
+            'RGTEST_SUPERVISOR_STATUS_RC' => '4',
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('cannot observe the target queue program parity-queue')
+            ->toContain('supervisorctl status exited 4')
+            ->toContain('no such group');
+
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+        expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
+        expect(restoreTargetMaintenanceActive($scratch))->toBeFalse();
+
+        // The shared observer stays the one implementation, and the recovery's
+        // classification of this answer lives in the recovery alone. Asserted
+        // on executable lines: restore-common's comments explain exactly why
+        // it rejects "no such group", and that prose is the point.
+        foreach (['restore-common', 'restore-target'] as $script) {
+            $source = executableSourceLines(File::get(base_path('infrastructure/scripts/'.$script)));
+
+            foreach (['recovery_queue_group_not_loaded', 'no such group', 'RC_UNKNOWN_NAME'] as $forbidden) {
+                expect(str_contains($source, $forbidden))
+                    ->toBeFalse("{$script} must not classify a queue answer the way a clean-host recovery does: {$forbidden}");
+            }
+        }
+
+        // The observer accepts exactly two statuses, and 4 is not one of them.
+        $observer = shellFunctionBody(File::get(base_path('infrastructure/scripts/restore-common')), 'observe_queue_program');
+
+        expect($observer)
+            ->toContain('(( status != RESTORE_SUPERVISOR_RC_RUNNING ))')
+            ->toContain('(( status != RESTORE_SUPERVISOR_RC_NOT_RUNNING ))');
+        expect(File::get(base_path('infrastructure/scripts/restore-common')))
+            ->toContain('RESTORE_SUPERVISOR_RC_RUNNING=0')
+            ->toContain('RESTORE_SUPERVISOR_RC_NOT_RUNNING=3');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('refuses to restore when the target queue program cannot be observed at all', function () {
     $scratch = restoreScratchDir();
 
