@@ -1,0 +1,38 @@
+tests/Feature/Architecture/NightwatchAgentInstallerTest.php
+  s_9a6ca54786c126::t_9299757a313c08 1083
+  s_9a6ca54786c126::t_e68e54407002ec 1133-1134,1138
+  s_9a6ca54786c126::t_cd9c227c112b10 950-1082,1084-1132,1135-1137,1139-1180
+infrastructure/scripts/install-nightwatch-agent
+  s_9a6ca54786c126::t_102ca2cadec268 1153,1161-1227,1245-1252,1254-1273,1279,1281-1284,1295
+  s_9a6ca54786c126::t_2e6be7e4f4efd6 1274-1278,1280
+  s_9a6ca54786c126::t_d3e41485186393 205-207,232-235,242,1228-1244,1354
+  s_9a6ca54786c126::t_e68e54407002ec 612-616,623-632,809-814,843-846,1253
+  s_9a6ca54786c126::t_b644ce8186433a 757-761,763-778
+  s_9a6ca54786c126::t_c07677f975eab1 220-231,762,779-799,1352-1353
+infrastructure/scripts/install-bootstrap-services
+  s_9a6ca54786c126::t_d3e41485186393 1370,2428-2435,2439
+  s_9a6ca54786c126::t_56657e8e55dab7 44-47,205-210,1367-1369,1371-1376,2414-2427,2436-2438,2440-2450,2666-2670
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_9a6ca54786c126::t_86f1aa5d5e88ff 2452,2486
+  s_9a6ca54786c126::t_7a006c5d99bc56 292,508,538,774-775,2437-2451,2453-2485,2487-2515,2520,2522-2549
+  s_9a6ca54786c126::t_5f400104da233b 299-305
+  s_9a6ca54786c126::t_9b7fd2da91a8c4 2516-2519,2521
+infrastructure/runbooks/nightwatch-evaluation.md
+  s_9a6ca54786c126::t_258f67f9e8b6e8 142-164,170-176,915-918
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0399d83acb8a26d97f6ca4692c5353bbfcf7e26",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
