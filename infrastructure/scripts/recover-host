@@ -140,6 +140,9 @@ Usage:
   recover-host --resume  --target TARGET_ID --operation OPERATION_ID
   recover-host --verify  --target TARGET_ID
 
+Operator runbook (the whole clean-host recovery, end to end):
+  infrastructure/runbooks/clean-host-recovery.md
+
   --check    Strictly read-only. Reports whether this prepared, empty
              replacement host may be recovered from the named backup. Creates
              no lock, no workspace, no guard, no staging and no directory.
@@ -532,6 +535,12 @@ ensure_offsite_writes_held() {
 # host without it is a second writer on the real offsite namespace, and no
 # stage of a recovery is safe to continue into that.
 assert_offsite_writes_held() {
+    offsite_writes_held "${RUN_ROOT}" || operator_action_required \
+        "the offsite-write hold $(offsite_write_hold_file "${RUN_ROOT}") is missing on this machine" \
+        "the replacement host's backup cron, offsite uploader and offsite pruner are no longer fenced, while the target's deployment binding still points at the machine that owns the real offsite namespace; this mode refuses until the fence is back" \
+        "re-run the mode that refused (a recovery still awaiting its code: mode=continue-held, whose --resume re-establishes the hold itself)" \
+        "for --inspect or --verify: re-place the hold by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD (HOLD is the path above)" \
+        "never release the hold to make a mode pass: removing it is part of deliberately adopting this machine"
     offsite_writes_held "${RUN_ROOT}" \
         || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, so this mode refuses. To continue: a recovery still awaiting its code re-establishes the hold itself when recover-host --resume runs (after the controlled recovery deployment); for any other stage, re-place it by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD, where HOLD is the path above — and re-run this mode. Nothing releases the hold; removing it is part of deliberately adopting this machine"
 
@@ -1815,6 +1824,12 @@ perform_recovery() {
     # names the format and offers no fallback: the fix is a new backup on a
     # live host, never a hand-supplied environment file.
     step "require a clean-host-recovery-capable backup"
+    [[ "${BACKUP_SCHEMA}" == "3" ]] || operator_action_required \
+        "backup ${BACKUP_ID} is a schema ${BACKUP_SCHEMA:-unknown} backup, written before the recovery material joined the format" \
+        "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 3); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
+        "re-run \"Recover staging host\" with mode=start and that backup's exact timestamp" \
+        "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
+        "confirm it is schema 3 and passed the offsite restore test"
     [[ "${BACKUP_SCHEMA}" == "3" ]] \
         || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
 
@@ -2198,6 +2213,12 @@ perform_resume() {
     step "check the deployed code"
     classify_recovery_stage
 
+    [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] || operator_action_required \
+        "recovery operation ${OPERATION_ID} is still awaiting its code: no current release is deployed" \
+        "the data is restored and held; --resume only finishes a recovery whose exact commit (${BACKUP_SOURCE_SHA}) has been deployed by the controlled recovery deployment" \
+        "re-run \"Recover staging host\" with mode=continue-held and operation=${OPERATION_ID}" \
+        "let the workflow build and deploy the exact commit the backup names (it reads the stage from --inspect and continues from there)" \
+        "do not deploy anything else, run a migration or clear the guard by hand"
     [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] \
         || fail "${TARGET_ID} still has no current release — the recovery is waiting for a controlled recovery deployment of ${BACKUP_SOURCE_SHA}, and --resume only finishes a recovery whose code has arrived"
 

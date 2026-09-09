@@ -258,10 +258,13 @@ it('exposes typed outputs drawn only from that result', function () {
         'backup-release',
         'current-release',
         'data-restored',
+        'failure-cause',
         'health',
         'offsite-writes',
         'operation',
+        'queue',
         'required-source-sha',
+        'scheduler',
         'source-sha',
         'status',
     ]);

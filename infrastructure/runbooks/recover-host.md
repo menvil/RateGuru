@@ -813,6 +813,8 @@ unchanged, and the old host untouched.
 
 ## See also
 
+* [`clean-host-recovery.md`](clean-host-recovery.md) — the operator runbook
+  for the whole clean-host recovery, end to end
 * [`prepare-host.md`](prepare-host.md) — producing the prepared machine this
   operation requires
 * [`restore-target.md`](restore-target.md) — restoring data onto a live,

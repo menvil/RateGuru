@@ -165,6 +165,30 @@ fail() {
     exit 1
 }
 
+# action_required CAUSE MEANING THEN STEP... — the one operator-facing refusal
+# format every recovery surface prints (common carries the same function for
+# the bundle scripts; this script cannot source common on a clean host).
+action_required() {
+    local cause="$1" meaning="$2" then="$3"
+    shift 3
+
+    {
+        printf '\nRECOVERY ACTION REQUIRED\n'
+        printf 'Cause: %s\n' "${cause}"
+        printf 'What this means: %s\n' "${meaning}"
+        printf 'Do:\n'
+
+        local n=1 step
+        for step in "$@"; do
+            printf '  %d. %s\n' "${n}" "${step}"
+            n=$(( n + 1 ))
+        done
+
+        printf 'Then: %s\n' "${then}"
+        printf 'Runbook: infrastructure/runbooks/clean-host-recovery.md\n'
+    } >&2
+}
+
 usage() {
     cat <<'USAGE'
 Usage:
@@ -362,7 +386,15 @@ assert_root_only_directory() {
 assert_seed_material_file() {
     local path="$1" name="$2"
 
-    [[ -e "${path}" ]] || fail "seed material is missing: ${name} — the recovery workflow supplies it, and there is no fallback"
+    [[ -e "${path}" ]] || {
+        action_required \
+            "seed material ${name} is missing" \
+            "the recovery workflow seeds exactly rclone-config (RECOVERY_RCLONE_CONFIG) and deploy-authorized-keys (derived from DEPLOY_SSH_KEY); without both, the backup cannot be read and the deploy user cannot be given its identity" \
+            "re-run \"Recover staging host\" with mode=start" \
+            "configure RECOVERY_RCLONE_CONFIG and DEPLOY_SSH_KEY in the GitHub Environment" \
+            "never place an rclone configuration or a key on the host by hand"
+        fail "seed material is missing: ${name} — the recovery workflow supplies it, and there is no fallback"
+    }
     [[ ! -L "${path}" ]] || fail "seed material must not be a symlink: ${name}"
     [[ -f "${path}" ]] || fail "seed material must be a regular file: ${name}"
     [[ -s "${path}" ]] || fail "seed material is empty: ${name}"
@@ -461,7 +493,30 @@ download_manifest() {
 
     log "downloading the manifest of offsite backup ${BACKUP_ID} from ${REMOTE_DIRECTORY}"
 
-    download_object "${MANIFEST_FILE}"
+    # The one download whose failure an operator meets first, so it is the
+    # one that carries the operator guidance; every later object is part of a
+    # backup the manifest has already proven to exist.
+    if ! "${RCLONE_BIN}" \
+        --config "${SEED_DIR}/rclone-config" \
+        copyto \
+        "${REMOTE_DIRECTORY}/${MANIFEST_FILE}" \
+        "${SCRATCH}/subset/${MANIFEST_FILE}" \
+        --stats 0
+    then
+        action_required \
+            "backup ${BACKUP_ID} could not be read from the offsite namespace ${REMOTE_DIRECTORY}" \
+            "either no backup with that exact timestamp exists there, or RECOVERY_RCLONE_CONFIG cannot reach or read the namespace; nothing on this host was changed" \
+            "re-run \"Recover staging host\" with mode=start and the exact timestamp of an existing schema 3 backup" \
+            "list the namespace ${RCLONE_REMOTE}:${RCLONE_BUCKET}/rateguru/${BACKUP_NAMESPACE}/ with the same rclone configuration (the runbook shows the command)" \
+            "confirm the backup passed the nightly offsite restore test, and that RECOVERY_RCLONE_CONFIG holds a key that can read the bucket"
+        fail "could not download ${MANIFEST_FILE} of backup ${BACKUP_ID} from the offsite remote — the backup may not exist, may be incomplete, or the seed rclone configuration may not reach it"
+    fi
+
+    [[ -e "${SCRATCH}/subset/${MANIFEST_FILE}" ]] || fail "downloaded backup file is missing: ${MANIFEST_FILE}"
+    [[ ! -L "${SCRATCH}/subset/${MANIFEST_FILE}" ]] || fail "downloaded backup file must not be a symlink: ${MANIFEST_FILE}"
+    [[ -f "${SCRATCH}/subset/${MANIFEST_FILE}" ]] || fail "downloaded backup file must be a regular file: ${MANIFEST_FILE}"
+    [[ -s "${SCRATCH}/subset/${MANIFEST_FILE}" ]] || fail "downloaded backup file is empty: ${MANIFEST_FILE}"
+    chmod 0600 "${SCRATCH}/subset/${MANIFEST_FILE}"
 }
 
 # download_bootstrap_subset — the rest of the fixed subset, one object each,
@@ -509,7 +564,15 @@ verify_manifest() {
     esac
 
     [[ "${schema_type}" == number ]] && [[ "${schema_value}" == "${REQUIRED_MANIFEST_SCHEMA}" ]] \
-        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${schema_value}, and a clean-host recovery requires schema ${REQUIRED_MANIFEST_SCHEMA} — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. Take a new backup on a live host and recover from that; this backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
+        || {
+            action_required \
+                "backup ${BACKUP_ID} is a schema ${schema_value} backup, written before the recovery material joined the format" \
+                "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema ${REQUIRED_MANIFEST_SCHEMA}); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
+                "re-run \"Recover staging host\" with mode=start and that backup's exact timestamp" \
+                "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
+                "confirm it is schema ${REQUIRED_MANIFEST_SCHEMA} and passed the offsite restore test"
+            fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${schema_value}, and a clean-host recovery requires schema ${REQUIRED_MANIFEST_SCHEMA} — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. Take a new backup on a live host and recover from that; this backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
+        }
 
     local project environment target namespace database
     project="$(jq -r '.project // empty' "${manifest}")"

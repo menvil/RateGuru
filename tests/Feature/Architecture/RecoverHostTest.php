@@ -509,6 +509,11 @@ it('refuses a backup written before the recovery material existed, before stagin
             ->toContain('step: require a clean-host-recovery-capable backup')
             ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a host recovery requires schema 3')
             ->toContain('No data was staged or activated')
+            // The operator is told what to do, in the one shared format.
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: backup 20260115-023000 is a schema 2 backup, written before the recovery material joined the format')
+            ->toContain('Then: re-run "Recover staging host" with mode=start and that backup\'s exact timestamp')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
             // No fallback to hand-supplied material is offered, anywhere.
             ->not->toContain('PREPARE_')
             ->not->toContain('--material-dir');
@@ -669,6 +674,8 @@ it('refuses to inspect, resume or verify a machine whose hold has gone', functio
         $inspected = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
         expect($inspected['exit'])->not->toBe(0);
         expect($inspected['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('never release the hold to make a mode pass')
             ->toContain('the offsite-write hold is missing')
             ->toContain('recover-host --resume runs')
             ->toContain('re-place it by hand as root');
@@ -708,6 +715,8 @@ it('refuses to inspect, resume or verify a machine whose hold has gone', functio
         $verified = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
         expect($verified['exit'])->not->toBe(0);
         expect($verified['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
             ->toContain('the offsite-write hold is missing')
             ->toContain('re-place it by hand as root');
     } finally {

@@ -47,6 +47,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'prepare-rateguru-host',
         'record-rateguru-deployment',
         'recover-rateguru-host',
+        'recovery-host-preflight',
         'repair-rateguru-target',
         'restore-rateguru',
         'rollback-rateguru',

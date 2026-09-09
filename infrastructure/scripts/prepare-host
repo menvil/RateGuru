@@ -252,6 +252,10 @@ Usage:
 
 All modes require root and a lifecycle=active target.
 
+Operator runbook for a clean-host recovery (what to prepare on a new server,
+what must be configured before Recover, how to verify the result):
+  infrastructure/runbooks/clean-host-recovery.md
+
   --target           Deployment target ID from the RateGuru target registry.
   --material-dir     Root-owned 0700 directory of operator-supplied external
                      material, consumed by install-target-prerequisites. Only

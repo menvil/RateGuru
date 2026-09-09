@@ -71,6 +71,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // only: it carries no material, names no commit and cannot build,
         // deploy, restore, repair or prepare.
         'recover-rateguru-host',
+        // The read-only clean-host proof a recovery runs before it prepares
+        // anything: transport only, carries no material, installs nothing.
+        'recovery-host-preflight',
         // One REPAIR implementation, covering both environments. Transport
         // only: it carries no material and cannot deploy, restore or prepare.
         'repair-rateguru-target',
@@ -417,12 +420,17 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // must not interleave with it. Six jobs each, all at the fixed
         // identity — preparation, the recovery itself, the controlled
         // deployment, the resume, the final verification and the marker.
+        // The clean-host preflight mutates nothing — it is the read-only proof
+        // that the machine may be prepared — but it names the target and
+        // sits inside the same workflow-level group as everything after it.
+        'recover-staging.yml:preflight' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:recover' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
         'recover-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-production.yml:preflight' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:recover' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:deploy' => ['tits-guru', 'rateguru-production-release'],

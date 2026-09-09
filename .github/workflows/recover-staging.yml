@@ -307,6 +307,133 @@ jobs:
 
           echo "Target ${DEPLOYMENT_TARGET}: lifecycle=active — recovery may proceed"
 
+  # ---------------------------------------------------------------------------
+  # The values this environment must hold, proven present BEFORE any
+  # connection is made and before anything on the replacement host changes.
+  #
+  # Presence only: each value reaches this job as a boolean (`!= ''`), never
+  # as its content, so nothing here can print a secret. A missing value is
+  # named to the operator with the exact place to put it and the KIND it must
+  # be — a variable or a secret — because the one real failure this job exists
+  # for was a recovery that reached the preparation with RECOVERY_RCLONE_CONFIG
+  # absent and could only say "both seed inputs are required".
+  # ---------------------------------------------------------------------------
+  values:
+    name: Refuse to start without the recovery values the environment must hold
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+
+    outputs:
+      cause: ${{ steps.values.outputs.cause }}
+
+    steps:
+      - name: Prove every recovery value is configured, without reading any
+        id: values
+        shell: bash
+        env:
+          MODE: ${{ needs.validate.outputs.mode }}
+          BACKUP: ${{ needs.validate.outputs.backup }}
+          RECOVERY_BOOTSTRAP_USER_PRESENT: ${{ vars.RECOVERY_BOOTSTRAP_USER != '' }}
+          RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY != '' }}
+          RECOVERY_KNOWN_HOSTS_PRESENT: ${{ secrets.RECOVERY_KNOWN_HOSTS != '' }}
+          RECOVERY_RCLONE_CONFIG_PRESENT: ${{ secrets.RECOVERY_RCLONE_CONFIG != '' }}
+          DEPLOY_SSH_KEY_PRESENT: ${{ secrets.DEPLOY_SSH_KEY != '' }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${MODE}" == "start" ]]; then
+            then_action="re-run \"Recover staging host\" with mode=start and the same exact backup (backup=${BACKUP})"
+          else
+            then_action="re-run \"Recover staging host\" with mode=continue-held and the same operation"
+          fi
+
+          # action_required WORD CAUSE MEANING DO... — the shared operator-facing
+          # refusal format, written to the log, to this step's summary and to
+          # the job's cause output. The first missing value ends the job.
+          action_required() {
+            local word="$1" cause="$2" meaning="$3"
+            shift 3
+
+            {
+              echo "RECOVERY ACTION REQUIRED"
+              echo "Cause: ${cause}"
+              echo "What this means: ${meaning}"
+              echo "Do:"
+              local n=1
+              for step in "$@"; do
+                echo "  ${n}. ${step}"
+                n=$(( n + 1 ))
+              done
+              echo "Then: ${then_action}"
+              echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+            } | tee "${RUNNER_TEMP}/rateguru_values_action_required" >&2
+
+            echo "cause=${word}" >> "${GITHUB_OUTPUT}"
+
+            {
+              echo "## Recovery refused before any connection — ${word}"
+              echo
+              echo '```text'
+              cat "${RUNNER_TEMP}/rateguru_values_action_required"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            exit 1
+          }
+
+          if [[ "${RECOVERY_BOOTSTRAP_USER_PRESENT}" != "true" ]]; then
+            action_required bootstrap-user-variable-missing \
+              "the staging GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+              "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> staging -> Environment variables" \
+              "create RECOVERY_BOOTSTRAP_USER" \
+              "set it to the privileged user on the replacement host (root, or a user with passwordless sudo)" \
+              "it is an Environment variable, not a secret"
+          fi
+
+          if [[ "${RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT}" != "true" ]]; then
+            action_required bootstrap-ssh-key-secret-missing \
+              "the staging GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+              "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
+              "Settings -> Environments -> staging -> Environment secrets" \
+              "create RECOVERY_BOOTSTRAP_SSH_KEY" \
+              "paste the complete OpenSSH private key whose public half is installed for RECOVERY_BOOTSTRAP_USER on the replacement host" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${RECOVERY_KNOWN_HOSTS_PRESENT}" != "true" ]]; then
+            action_required known-hosts-secret-missing \
+              "the staging GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+              "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
+              "Settings -> Environments -> staging -> Environment secrets" \
+              "create RECOVERY_KNOWN_HOSTS" \
+              "paste the one verified known_hosts line for the replacement host (runbook section C)" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${MODE}" == "start" ]] && [[ "${RECOVERY_RCLONE_CONFIG_PRESENT}" != "true" ]]; then
+            action_required rclone-config-secret-missing \
+              "the staging GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+              "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> staging -> Environment secrets" \
+              "create RECOVERY_RCLONE_CONFIG" \
+              "paste the complete contents of the recovery rclone configuration file" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${DEPLOY_SSH_KEY_PRESENT}" != "true" ]]; then
+            action_required deploy-ssh-key-secret-missing \
+              "the staging GitHub Environment has no DEPLOY_SSH_KEY secret" \
+              "the deploy public key installed on the replacement host is derived from it on the runner, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> staging -> Environment secrets" \
+              "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key (the ordinary deploy identity, not a recovery-only value)" \
+              "do not create it as an Environment variable"
+          fi
+
+          echo "Every recovery value the staging environment must hold is configured (presence only; no value was read)."
+
   # The one place vars.DEPLOY_HOST is read, and it is read only to REFUSE.
   #
   # Recover Host is for a machine that is gone. Pointing it at the machine the
@@ -322,7 +449,9 @@ jobs:
   # deliberate act.
   binding:
     name: Confirm the replacement host is not the current host
-    needs: validate
+    needs:
+      - validate
+      - values
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 5
@@ -523,11 +652,55 @@ jobs:
   # its scheduler cron entry, which is exactly what a recovery holds aside, and
   # the server-side interlock refuses a Prepare against any guarded target.
   # Skipping the job is orchestration; the refusal on the host is the guarantee.
+  # The clean-host proof, asked before the first byte of preparation reaches
+  # the machine. Prepare Host is convergent and has no empty-host
+  # precondition of its own, and the prepared/EMPTY contract recover-host
+  # --apply enforces belongs to a job that runs only after preparation has
+  # already installed packages, identities and services — so this is the one
+  # place a machine that is not a genuinely clean, supported replacement host
+  # is refused with nothing changed on it. Read-only on the host; it
+  # installs, repairs, removes and repoints nothing. START ONLY: a
+  # continuation addresses a machine the recovery already owns.
+  preflight:
+    name: Prove the replacement host is a clean, supported machine
+    needs:
+      - validate
+      - binding
+    if: ${{ needs.validate.outputs.mode == 'start' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    outputs:
+      result: ${{ steps.preflight.outputs.result }}
+      cause: ${{ steps.preflight.outputs.cause }}
+
+    steps:
+      - name: Checkout trusted recovery tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Refuse a replacement host that is not a clean, supported machine
+        id: preflight
+        uses: ./.github/actions/recovery-host-preflight
+        with:
+          deployment-target: staging-main
+          environment: staging
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
   prepare:
     name: Prepare the replacement host from the backup
     needs:
       - validate
       - binding
+      - preflight
       - deploy-identity
     if: ${{ needs.validate.outputs.mode == 'start' }}
     runs-on: ubuntu-latest
@@ -535,6 +708,9 @@ jobs:
     # A genuinely clean VPS installs the full base runtime before it does
     # anything else, which is by far the slowest step here.
     timeout-minutes: 45
+
+    outputs:
+      cause: ${{ steps.prepare.outputs.failure-cause }}
 
     steps:
       - name: Checkout trusted bootstrap tooling
@@ -553,6 +729,7 @@ jobs:
       # backup's own, which is also why recover-host can later prove the
       # prepared shared/.env is byte-identical to the backup's.
       - name: Prepare staging-main on the replacement machine from backup ${{ needs.validate.outputs.backup }}
+        id: prepare
         uses: ./.github/actions/prepare-rateguru-host
         with:
           deployment-target: staging-main
@@ -623,6 +800,7 @@ jobs:
       resume_required: ${{ steps.decide.outputs.resume_required }}
       release_version: ${{ steps.decide.outputs.release_version }}
       release_metadata: ${{ steps.decide.outputs.release_metadata }}
+      cause: ${{ steps.apply.outputs.failure-cause || steps.inspect.outputs.failure-cause }}
 
     steps:
       # Recovery business logic stays entirely server-side; nothing from this
@@ -1002,6 +1180,7 @@ jobs:
       current_release: ${{ steps.resume.outputs['current-release'] }}
       source_sha: ${{ steps.resume.outputs['source-sha'] }}
       health: ${{ steps.resume.outputs.health }}
+      cause: ${{ steps.resume.outputs['failure-cause'] }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -1110,6 +1289,9 @@ jobs:
       source_sha: ${{ steps.verify.outputs['source-sha'] }}
       health: ${{ steps.verify.outputs.health }}
       offsite_writes: ${{ steps.verify.outputs['offsite-writes'] }}
+      cause: ${{ steps.verify.outputs['failure-cause'] }}
+      queue: ${{ steps.verify.outputs.queue }}
+      scheduler: ${{ steps.verify.outputs.scheduler }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -1234,7 +1416,9 @@ jobs:
     name: Report what this recovery did
     needs:
       - validate
+      - values
       - binding
+      - preflight
       - deploy-identity
       - prepare
       - recover
@@ -1266,8 +1450,20 @@ jobs:
           BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
           RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
           OFFSITE_WRITES: ${{ needs.verify.outputs.offsite_writes }}
+          RECOVERED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RECOVERED_QUEUE: ${{ needs.verify.outputs.queue }}
+          RECOVERED_SCHEDULER: ${{ needs.verify.outputs.scheduler }}
+          RECOVERED_HEALTH: ${{ needs.verify.outputs.health }}
+          VALUES_CAUSE: ${{ needs.values.outputs.cause }}
+          PREFLIGHT_CAUSE: ${{ needs.preflight.outputs.cause }}
+          PREPARATION_CAUSE: ${{ needs.prepare.outputs.cause }}
+          RECOVER_CAUSE: ${{ needs.recover.outputs.cause }}
+          RESUME_CAUSE: ${{ needs.resume.outputs.cause }}
+          VERIFY_CAUSE: ${{ needs.verify.outputs.cause }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
+          VALUES_RESULT: ${{ needs.values.result }}
           BINDING_RESULT: ${{ needs.binding.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           DEPLOY_IDENTITY_RESULT: ${{ needs.deploy-identity.result }}
           PREPARATION_RESULT: ${{ needs.prepare.result }}
           RECOVER_RESULT: ${{ needs.recover.result }}
@@ -1304,7 +1500,9 @@ jobs:
             echo "| Stage | Result |"
             echo "| --- | --- |"
             echo "| Validate request | \`${VALIDATE_RESULT}\` |"
+            echo "| Recovery values present | \`${VALUES_RESULT}\` |"
             echo "| Replacement-host binding check | \`${BINDING_RESULT}\` |"
+            echo "| Clean-host preflight (read-only) | \`${PREFLIGHT_RESULT}\` |"
             echo "| Derive deploy public key | \`${DEPLOY_IDENTITY_RESULT}\` |"
             echo "| Prepare replacement host from the backup | \`${PREPARATION_RESULT}\` |"
             echo "| Recover data | \`${RECOVER_RESULT}\` |"
@@ -1318,6 +1516,23 @@ jobs:
 
           if [[ "${VERIFY_RESULT}" == "success" ]]; then
             {
+              echo "### Recovered — the final contract, as verified on the host"
+              echo
+              echo "| Fact | Value |"
+              echo "| --- | --- |"
+              echo "| Target | \`staging-main\` |"
+              echo "| Replacement host | \`${REPLACEMENT_HOST}:${REPLACEMENT_PORT}\` |"
+              echo "| Exact backup | \`${backup}\` |"
+              echo "| Exact source_sha | \`${RECOVERED_SOURCE_SHA:-${REQUIRED_SOURCE_SHA:-not reported}}\` |"
+              echo "| Queue | \`${RECOVERED_QUEUE:-running}\` |"
+              echo "| Scheduler | \`${RECOVERED_SCHEDULER:-present}\` |"
+              echo "| Health | \`${RECOVERED_HEALTH:-pass}\` |"
+              echo "| Guards | none (restore guard absent, recovery guard absent) |"
+              echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES:-held}\`) |"
+              echo "| Migrations run | none |"
+              echo "| DNS | unchanged |"
+              echo "| DEPLOY_HOST | unchanged |"
+              echo
               echo "The replacement host is recovered and verified against the final contract:"
               echo "the exact backup's data and environment, the exact commit its data belongs to,"
               echo "no migration, queue RUNNING, scheduler PRESENT, no guard, health PASS."
@@ -1348,6 +1563,301 @@ jobs:
 
             exit 0
           fi
+
+          # The stage the run stopped at, and the one operator-facing refusal
+          # format every recovery surface prints: what happened, what it
+          # means, what to do, what to run. Rendered from the cause word a
+          # stage reported — never from a secret, a digest or a private path.
+          stage=""
+          for pair in \
+            "validate:${VALIDATE_RESULT}" \
+            "values:${VALUES_RESULT}" \
+            "binding:${BINDING_RESULT}" \
+            "preflight:${PREFLIGHT_RESULT}" \
+            "deploy-identity:${DEPLOY_IDENTITY_RESULT}" \
+            "prepare:${PREPARATION_RESULT}" \
+            "recover:${RECOVER_RESULT}" \
+            "build:${BUILD_RESULT}" \
+            "deploy:${DEPLOY_RESULT}" \
+            "resume:${RESUME_RESULT}" \
+            "verify:${VERIFY_RESULT}"
+          do
+            if [[ "${pair#*:}" == "failure" ]] || [[ "${pair#*:}" == "cancelled" ]]; then
+              stage="${pair%%:*}"
+              break
+            fi
+          done
+
+          if [[ -n "${operation}" ]]; then
+            then_action="re-run \"Recover staging host\" with mode=continue-held, operation=${operation} and replacement-host=${REPLACEMENT_HOST}"
+            recommendation="CONTINUE"
+          else
+            then_action="re-run \"Recover staging host\" with mode=start (backup=${backup:-<exact timestamp>}, replacement-host=<the clean machine>, replacement-port=${REPLACEMENT_PORT:-22})"
+            recommendation="START"
+          fi
+
+          action_required() {
+            local cause="$1" meaning="$2"
+            shift 2
+
+            {
+              echo "### Stopped at: ${stage:-unknown} — recommendation: ${recommendation}"
+              echo
+              echo '```text'
+              echo "RECOVERY ACTION REQUIRED"
+              echo "Cause: ${cause}"
+              echo "What this means: ${meaning}"
+              echo "Do:"
+              local n=1
+              for step in "$@"; do
+                echo "  ${n}. ${step}"
+                n=$(( n + 1 ))
+              done
+              echo "Then: ${then_action}"
+              echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              echo '```'
+              echo
+            } >> "${GITHUB_STEP_SUMMARY}"
+          }
+
+
+          # A missing environment value is refused before any connection, and
+          # its guidance names the value and the KIND it must be created as.
+          if [[ "${stage}" == "values" ]] && [[ "${MODE}" == "start" ]]; then
+            then_action="re-run \"Recover staging host\" with mode=start and the same exact backup (backup=${backup:-<exact timestamp>})"
+          fi
+
+          case "${stage}:${VALUES_CAUSE}" in
+            values:rclone-config-secret-missing)
+              action_required "the staging GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+                "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> staging -> Environment secrets" \
+                "create RECOVERY_RCLONE_CONFIG" \
+                "paste the complete contents of the recovery rclone configuration file" \
+                "do not create it as an Environment variable"
+              ;;
+            values:bootstrap-user-variable-missing)
+              action_required "the staging GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+                "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> staging -> Environment variables" \
+                "create RECOVERY_BOOTSTRAP_USER and set it to the privileged user on the replacement host" \
+                "it is an Environment variable, not a secret"
+              ;;
+            values:bootstrap-ssh-key-secret-missing)
+              action_required "the staging GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+                "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
+                "Settings -> Environments -> staging -> Environment secrets" \
+                "create RECOVERY_BOOTSTRAP_SSH_KEY and paste the complete OpenSSH private key" \
+                "do not create it as an Environment variable"
+              ;;
+            values:known-hosts-secret-missing)
+              action_required "the staging GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+                "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
+                "Settings -> Environments -> staging -> Environment secrets" \
+                "create RECOVERY_KNOWN_HOSTS and paste the one verified known_hosts line (runbook section C)" \
+                "do not create it as an Environment variable"
+              ;;
+            values:deploy-ssh-key-secret-missing)
+              action_required "the staging GitHub Environment has no DEPLOY_SSH_KEY secret" \
+                "the deploy public key installed on the replacement host is derived from it, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> staging -> Environment secrets" \
+                "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key" \
+                "do not create it as an Environment variable"
+              ;;
+            values:*)
+              action_required "a recovery value the staging GitHub Environment must hold is missing (see the values job log)" \
+                "nothing was connected to and nothing was changed" \
+                "create the value it names, under the heading it names (Environment variables or Environment secrets)"
+              ;;
+          esac
+
+          case "${stage}:${PREFLIGHT_CAUSE}:${PREPARATION_CAUSE}:${RECOVER_CAUSE}:${RESUME_CAUSE}:${VERIFY_CAUSE}" in
+            values:*)
+              ;;
+            validate:*)
+              action_required "the request was refused before any environment or secret was read" \
+                "mode, backup, replacement-host or replacement-port is malformed, or the target is not active (see the validate job log)" \
+                "use mode=start with backup=YYYYMMDD-HHMMSS (an exact schema 3 backup), replacement-host=<IP> and replacement-port=22" \
+                "for a continuation, use mode=continue-held with the operation ID from the earlier summary"
+              ;;
+            binding:*)
+              action_required "the replacement host is the machine staging-main is already bound to, or its host key could not be proven different" \
+                "a recovery rebuilds a target onto a NEW machine; the binding check compares replacement-host with DEPLOY_HOST and the ssh-ed25519 key in RECOVERY_KNOWN_HOSTS with the one in DEPLOY_KNOWN_HOSTS" \
+                "name a genuinely new machine as replacement-host" \
+                "record that machine's ssh-ed25519 host key as RECOVERY_KNOWN_HOSTS, verified out of band (runbook section C)" \
+                "leave DEPLOY_HOST and DEPLOY_KNOWN_HOSTS exactly as they are"
+              ;;
+            preflight:unsupported-os:*)
+              action_required "the replacement host is not Ubuntu 22.04" \
+                "every bootstrap installer is written for exactly that release; nothing was installed or changed" \
+                "create a new VPS from an Ubuntu 22.04 x86_64 image" \
+                "install only the public half of RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:unsupported-architecture:*)
+              action_required "the replacement host is not x86_64" \
+                "the pinned runtime binaries and packages exist for x86_64 only; nothing was installed or changed" \
+                "create a new x86_64 VPS from an Ubuntu 22.04 image" \
+                "install only the public half of RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:host-not-clean:*)
+              action_required "the replacement host already carries RateGuru state (the preflight job names it)" \
+                "a clean-host recovery prepares a machine that holds no RateGuru tree, account, database, service or guard; preparing over existing state would turn the recovery into a partial repair, so nothing was changed or removed" \
+                "do not clean the machine up by hand: create a NEW VPS from an Ubuntu 22.04 x86_64 image" \
+                "if that machine is the live host or an earlier recovery, it is not a replacement host — use Repair Target or Restore Target Data for a live host" \
+                "install only the bootstrap SSH public key on the new machine and record its host key into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:host-unreachable:*)
+              action_required "the replacement host did not answer the bootstrap SSH connection" \
+                "the address, the port, a firewall or the machine itself is not ready; nothing was uploaded or changed" \
+                "confirm the machine is up and replacement-host:replacement-port is reachable (nc -vz <IP> 22)" \
+                "confirm the inputs name the NEW machine"
+              ;;
+            preflight:known-hosts-mismatch:*)
+              action_required "the replacement host's SSH host key is not the one in RECOVERY_KNOWN_HOSTS" \
+                "either another machine answered, or RECOVERY_KNOWN_HOSTS holds a different machine's key; the workflow never scans or trusts a key on first use" \
+                "read the machine's ssh-ed25519 host key from your own machine (runbook section C)" \
+                "verify that ssh-ed25519 line against the provider console or the machine's /etc/ssh/ssh_host_ed25519_key.pub" \
+                "store exactly that line as RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:ssh-authentication-failed:*)
+              action_required "the replacement host did not accept RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "the public half of the recovery key is not installed for that user, or RECOVERY_BOOTSTRAP_USER names the wrong account" \
+                "install the public half of RECOVERY_BOOTSTRAP_SSH_KEY into that user's ~/.ssh/authorized_keys on the replacement host" \
+                "confirm from your own machine that an SSH login as that user with the recovery key runs 'id -u' (runbook section B)"
+              ;;
+            preflight:passwordless-sudo-missing:*)
+              action_required "RECOVERY_BOOTSTRAP_USER is neither root nor a passwordless sudoer on the replacement host" \
+                "the preflight, the preparation and the recovery all need root on that machine; nothing was uploaded or changed" \
+                "grant that user passwordless sudo (a sudoers entry with NOPASSWD), or set RECOVERY_BOOTSTRAP_USER to root" \
+                "confirm from your own machine that 'sudo -n true' succeeds for that user over SSH (runbook section B)"
+              ;;
+            preflight:*)
+              action_required "the clean-host preflight did not pass (see the preflight job log)" \
+                "nothing was changed on the replacement host" \
+                "read the REFUSED lines in the preflight job and fix the machine or the GitHub values they name"
+              ;;
+            deploy-identity:*)
+              action_required "the deploy public key could not be derived from DEPLOY_SSH_KEY" \
+                "the staging environment has no usable DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity; nothing on the host was changed" \
+                "configure DEPLOY_SSH_KEY in the staging GitHub Environment as the deployment private key (a usable OpenSSH private key)"
+              ;;
+            prepare:*:backup-not-recovery-capable:*)
+              action_required "backup ${backup} is a schema 1 or 2 backup, written before the recovery material joined the format" \
+                "a clean-host recovery can only be prepared from a schema 3 backup; there is no fallback to hand-supplied material, and this backup stays restorable onto a LIVE target" \
+                "take a new backup on the live host (backup --target staging-main, or the nightly backup-cycle) and let it reach the offsite namespace" \
+                "confirm it passed the offsite restore test, then use its exact timestamp"
+              ;;
+            prepare:*:backup-not-found:*)
+              action_required "backup ${backup} could not be read from the offsite namespace" \
+                "no backup with that exact timestamp exists there, or RECOVERY_RCLONE_CONFIG cannot reach or read the namespace; nothing on the host was changed" \
+                "list the namespace with the recovery rclone configuration: rclone --config <cfg> lsf rateguru-b2:rateguru-database-backups/rateguru/<namespace>/" \
+                "use the exact timestamp of an existing schema 3 backup that passed the offsite restore test"
+              ;;
+            prepare:*:recovery-material-invalid:*)
+              action_required "the recovery material of backup ${backup} is not acceptable for staging-main" \
+                "its archive is unsafe or does not hold exactly the target's host-scope prerequisites as the current prerequisite table states them; nothing was extracted or installed" \
+                "take a new backup on the live host so its recovery material matches the current prerequisite table" \
+                "confirm the new backup passed the offsite restore test, then use its exact timestamp"
+              ;;
+            prepare:*:rclone-config-unavailable:*)
+              action_required "the recovery offsite credential is missing or cannot reach the backup namespace" \
+                "RECOVERY_RCLONE_CONFIG is the only way the replacement host reads the backup; nothing was installed" \
+                "configure RECOVERY_RCLONE_CONFIG in the staging GitHub Environment with an rclone configuration whose key can READ the backup bucket" \
+                "never copy an rclone configuration onto the host by hand"
+              ;;
+            prepare:*:offsite-hold-missing:*)
+              action_required "the offsite-write hold vanished on the replacement host before the preparation finished" \
+                "a replacement machine whose offsite writers are not fenced could upload into, or prune, the real offsite namespace, so the preparation refused to report the host prepared" \
+                "nothing on the machine releases the hold by itself: find what removed /home/www/rateguru/run/offsite-write-hold" \
+                "re-run the preparation; it places the hold again"
+              ;;
+            prepare:*)
+              action_required "Prepare Host failed on the replacement host (see the prepare job log for the slice that failed)" \
+                "preparation is convergent: safely converged slices are kept, nothing is rolled back, and a re-run resumes at the first unsatisfied slice" \
+                "read the failing slice's own output in the prepare job log and fix what it names" \
+                "re-run against the same clean machine — or a new one if the preflight would now refuse it"
+              ;;
+            recover:*:backup-not-recovery-capable:*|recover:*:*:backup-not-recovery-capable:*)
+              action_required "backup ${backup} is a schema 1 or 2 backup" \
+                "recover-host requires a schema 3 backup and staged no data; nothing was activated" \
+                "take a new backup on the live host and let it reach the offsite namespace" \
+                "confirm it passed the offsite restore test, then use its exact timestamp"
+              ;;
+            recover:*:*:backup-not-found:*)
+              action_required "backup ${backup} could not be downloaded from the offsite namespace" \
+                "no backup with that exact timestamp exists there, or the host's rclone configuration cannot read it; nothing was staged" \
+                "list the namespace and use the exact timestamp of an existing schema 3 backup"
+              ;;
+            recover:*:*:recovery-material-invalid:*)
+              action_required "the recovery material of backup ${backup} is not acceptable" \
+                "the staged backup's archive is unsafe as data; nothing was activated" \
+                "take a new backup on the live host and use its exact timestamp"
+              ;;
+            recover:*:*:rclone-config-unavailable:*)
+              action_required "the replacement host has no usable rclone configuration" \
+                "Prepare Host installs it from RECOVERY_RCLONE_CONFIG; a prepared host without it cannot download the backup" \
+                "configure RECOVERY_RCLONE_CONFIG in the staging GitHub Environment and re-prepare the machine"
+              ;;
+            recover:*:*:offsite-hold-missing:*|resume:*:*:*:offsite-hold-missing:*|verify:*:*:*:*:offsite-hold-missing)
+              action_required "the offsite-write hold is missing on the replacement host" \
+                "the host's backup cron, uploader and pruner are no longer fenced while DEPLOY_HOST still points at the machine that owns the real offsite namespace; the mode refused" \
+                "a recovery still awaiting its code re-establishes the hold when it resumes: re-run with mode=continue-held" \
+                "for --inspect or --verify, re-place /home/www/rateguru/run/offsite-write-hold by hand as root (see recover-host.md), then re-run"
+              ;;
+            recover:*:*:host-not-prepared:*)
+              action_required "the replacement host is not a prepared host" \
+                "recover-host runs prepare-host --verify first and refuses a machine whose preparation does not pass; nothing was staged" \
+                "read the prepare job log; re-run mode=start so the preparation converges before the recovery"
+              ;;
+            recover:*:*:environment-mismatch:*)
+              action_required "the prepared shared/.env is not byte-identical to the backup's environment.env" \
+                "the machine was prepared from a different backup than the one being recovered; nothing was activated" \
+                "re-run mode=start with the same backup for the preparation and the recovery (the workflow does this by construction)"
+              ;;
+            recover:*)
+              action_required "recover-host --apply refused or failed (see the recover job log for the step)" \
+                "nothing was activated unless the log says so; a held operation, if one was assigned, keeps its data and its guard" \
+                "read the ERROR line in the recover job log and fix what it names"
+              ;;
+            build:*)
+              action_required "the exact commit ${REQUIRED_SOURCE_SHA:-the backup names} could not be built" \
+                "the recovered data belongs to that commit and no other; the data is restored and held on the replacement host" \
+                "confirm the commit exists in this repository's history (git cat-file -e ${REQUIRED_SOURCE_SHA:-<sha>})" \
+                "read the build job log for the failing step; nothing on the host needs to change"
+              ;;
+            deploy:*)
+              action_required "the controlled recovery deployment failed" \
+                "the data is restored and held, no migration ran, and the host's guard is intact; deploy rolled back what it staged" \
+                "read the deploy job log for the failing step"
+              ;;
+            resume:*:*:*:awaiting-code:*)
+              action_required "the recovery is still awaiting its code" \
+                "no current release is deployed yet, so --resume refused; the data is restored and held" \
+                "let the workflow build and deploy the exact commit: re-run mode=continue-held"
+              ;;
+            resume:*)
+              action_required "recover-host --resume refused or failed (see the resume job log)" \
+                "the target stays held with its data, its retained pre-recovery copies and its guard untouched" \
+                "read the ERROR line in the resume job log and fix what it names"
+              ;;
+            verify:*:*:*:*:guard-present)
+              action_required "the recovered target still carries a recovery guard" \
+                "the resume did not complete, so the final verification refuses; the host is held" \
+                "re-run mode=continue-held (the server reports whether the recovery is ready-to-resume)"
+              ;;
+            verify:*)
+              action_required "the independent final verification failed" \
+                "the host does not meet the final contract (current, database, storage, queue, scheduler, health, no guard, offsite writes held); read the verify job log for the line that failed" \
+                "fix what it names on the host, then re-run mode=continue-held if a held operation exists, or run recover-host --verify --target staging-main on the host"
+              ;;
+            *)
+              action_required "the run did not complete (stage: ${stage:-unknown})" \
+                "read the failing job's log; nothing is cleaned up to make a run look green" \
+                "fix what the log names"
+              ;;
+          esac
 
           # A hold is claimed only when an operation ID is actually known.
           # Every failure before the server assigned one — a malformed request,

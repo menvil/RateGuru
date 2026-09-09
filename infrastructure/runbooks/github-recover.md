@@ -1,5 +1,10 @@
 # Recovering a host from GitHub
 
+> **Operator runbook.** The end-to-end instruction — what to prepare on a new
+> VPS, what to configure, how to run, verify and continue a recovery — is
+> [`clean-host-recovery.md`](clean-host-recovery.md). This document is the
+> workflow's own contract and trust boundaries.
+
 This runbook covers the **operator layer** over the server-side Recover Host
 primitive: the two workflows an operator actually clicks, what each one does,
 and — the part that matters most — how a recovery is picked up again after the
@@ -310,11 +315,24 @@ machine's.
 
 ### The complete GitHub surface
 
-A recovery needs exactly these values and nothing else: `RECOVERY_BOOTSTRAP_USER`,
-`RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS`, `RECOVERY_RCLONE_CONFIG`,
-and the existing `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_ROOT`, `DEPLOY_INCOMING`,
-`DEPLOY_WRAPPER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` (plus the
-observability values every deploying workflow reads). A test pins the list.
+A recovery needs exactly these values and nothing else, and the **kind** of
+each is part of the contract — a value created under the wrong heading is
+absent to the workflow:
+
+* Environment **variables**: `RECOVERY_BOOTSTRAP_USER`, and the existing
+  `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_ROOT`, `DEPLOY_INCOMING`,
+  `DEPLOY_WRAPPER`.
+* Environment **secrets**: `RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS`,
+  `RECOVERY_RCLONE_CONFIG` (a secret, never a variable), and the existing
+  `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`.
+
+(Plus the observability values every deploying workflow reads.) A test pins
+the list and the kinds. The `values` job proves every one of them present —
+by presence only, never by reading a value — before any connection is made,
+and a missing one is named with the heading to create it under; the case
+that happened for real, a `staging` environment without the
+`RECOVERY_RCLONE_CONFIG` secret, is spelled out in
+[`clean-host-recovery.md`](clean-host-recovery.md) §D.
 
 ### What the operator must arrange outside RateGuru
 
@@ -340,7 +358,9 @@ What runs, in order:
 
 ```text
 validate        request + target lifecycle          no environment, no secret
+values          every GitHub value present           presence only; no connection, nothing read
 binding         replacement-host != DEPLOY_HOST     no connection
+preflight       recovery-host-preflight             read-only: Ubuntu 22.04, x86_64, NO RateGuru state
 deploy-identity ssh-keygen -y on DEPLOY_SSH_KEY     runner only, public half out
 prepare         prepare-rateguru-host               --apply --recovery-backup, then --verify --recovery-backup (hold required)
 recover         recover-host --apply                the same exact offsite backup
@@ -372,11 +392,15 @@ data before it does.
    live host, then the ordinary `backup-cycle` upload).
 4. Open Actions → **Recover staging host** and dispatch `mode=start`,
    `backup=YYYYMMDD-HHMMSS`, `replacement-host`, `replacement-port` (22).
-5. Watch the chain: binding refusal, deploy identity, Prepare Host from the
-   backup (runtime → material fetch → host material → bootstrap → offsite-write
-   hold → target material → database), `recover-host --apply`, the historical
-   build of the backup's `source_sha`, the controlled deployment with
-   migrations forbidden, `--resume`, `--verify`.
+5. Watch the chain: the presence of every GitHub value (a missing one is
+   named with its kind before anything connects), binding refusal, the
+   read-only clean-host preflight (refuses a machine that is not Ubuntu 22.04
+   x86_64 or already carries RateGuru state, with nothing changed), deploy
+   identity, Prepare Host from
+   the backup (runtime → material fetch → host material → bootstrap →
+   offsite-write hold → target material → database), `recover-host --apply`,
+   the historical build of the backup's `source_sha`, the controlled
+   deployment with migrations forbidden, `--resume`, `--verify`.
 6. Read the summary: backup schema 3, offsite writes `held`, `DEPLOY_HOST`
    unchanged, DNS unchanged, migrations none.
 7. Verify on the machine what §14 lists, and verify the long-lived host and
@@ -765,6 +789,9 @@ never be reported as one.
 
 ## See also
 
+* [`clean-host-recovery.md`](clean-host-recovery.md) — the operator runbook:
+  preparing the VPS, the GitHub values, running, verifying without DNS,
+  continuing an interrupted run
 * [`recover-host.md`](recover-host.md) — the server-side recovery state
   machine, its guard, its refusals and its final contract
 * [`prepare-host.md`](prepare-host.md) — producing the prepared machine a

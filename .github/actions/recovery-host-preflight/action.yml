@@ -1,0 +1,488 @@
+name: Recovery host preflight
+description: >-
+  Prove, before anything on it is changed, that a replacement machine is a
+  supported and genuinely clean host a clean-host recovery may be prepared on
+  — by transporting the read-only recovery-host-preflight primitive to it and
+  running it there.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/recovery-host-preflight owns every check: the exact
+# supported Ubuntu release and architecture, and the closed list of RateGuru
+# state a clean host must not carry. None of that is reimplemented here. This
+# action packages that one script, proves privileged access, runs it and
+# cleans up after itself.
+#
+# WHY A SEPARATE STEP. Prepare Host has no clean-host precondition: it is
+# convergent, and an already prepared or partially prepared machine is a
+# normal input for it. A RECOVERY, however, must start from nothing — the
+# prepared/EMPTY contract recover-host --apply enforces belongs to a job that
+# runs only after Prepare Host has already installed packages, identities and
+# services. So the clean-host question is asked here, after the request, the
+# lifecycle, the binding and the host-key proofs, and before the first byte of
+# preparation reaches the machine.
+#
+# WHAT IT NEVER DOES. It never installs, repairs, removes or repoints
+# anything, carries no material and no secret other than the bootstrap
+# credential it connects with, names no backup and cannot prepare, recover,
+# build or deploy. A refusal leaves the machine exactly as it found it.
+#
+# CREDENTIAL SEPARATION. The privileged BOOTSTRAP credential, exactly as
+# preparation and recovery use it, and never the deploy credential: the
+# checks read files only root may read. No fallback in either direction.
+#
+# LONG SILENT PHASES do not exist here — the script runs in seconds — but the
+# ssh invocations carry the same keepalives the preparation and recovery
+# actions use, so the transport never differs between the stages of one run.
+
+inputs:
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. A structural
+      property of the calling workflow, never operator input.
+
+  environment:
+    required: true
+    description: Environment class this recovery runs in (staging or production)
+
+  recovery-host:
+    required: true
+    description: >-
+      SSH hostname or IP of the REPLACEMENT machine — the machine about to be
+      prepared, never the target's current host binding.
+
+  recovery-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap/recovery user. Must be root, or hold passwordless
+      non-interactive sudo; proven before the script is uploaded.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from the deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the replacement host. Strict host key
+      checking is non-negotiable here: there is no TOFU, no relaxed host-key
+      policy and no password fallback anywhere in this action.
+
+outputs:
+  result:
+    description: "pass when the machine is a supported, clean replacement host; refused otherwise"
+    value: ${{ steps.preflight.outputs.result }}
+
+  cause:
+    description: >-
+      Why the machine was refused, as one closed word an operator can act on:
+      unsupported-os, unsupported-architecture, host-not-clean, or a
+      transport cause — host-unreachable, known-hosts-mismatch,
+      ssh-authentication-failed, passwordless-sudo-missing. Empty on pass.
+    value: ${{ steps.access.outputs.cause || steps.preflight.outputs.cause }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fixed caller inputs only. Everything checked here is a structural
+    # property of the calling workflow or a closed-format operator value, so a
+    # violation fails closed before the privileged credential is used at all.
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RECOVERY_HOST: ${{ inputs.recovery-host }}
+        RECOVERY_PORT: ${{ inputs.recovery-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters and
+        # a flag-shaped value (a leading "-") in one closed character class.
+        # The same expression every other operation action validates a target
+        # with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production (got: ${ENVIRONMENT})" >&2
+            exit 1
+            ;;
+        esac
+
+        # 10# forces decimal: a leading-zero port would otherwise be read as
+        # octal inside (( )) and quietly pass validation.
+        if [[ ! "${RECOVERY_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${RECOVERY_PORT} < 1 )) \
+          || (( 10#${RECOVERY_PORT} > 65535 ))
+        then
+          echo "Invalid recovery port (expected 1-65535): ${RECOVERY_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in RECOVERY_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for this recovery" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "The ${ENVIRONMENT} environment has no bootstrap SSH credential." >&2
+          echo "The preflight deliberately refuses to fall back to the deployment key: that key is restricted to the deploy wrappers and cannot read a host as root." >&2
+          exit 1
+        fi
+
+    # The server-side lifecycle gate stays authoritative. This is the same
+    # question the workflow's validate job asked without any environment; it
+    # is asked once more here, from the committed registry in the trusted
+    # checkout, so a clean host — which cannot read JSON — is never even
+    # connected to for a target that must not be provisioned.
+    - name: Validate the target lifecycle before anything is uploaded
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        registry="${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+        targets_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/targets"
+
+        test -x "${targets_cli}"
+        test -f "${registry}"
+
+        if ! target_json="$("${targets_cli}" show --target "${DEPLOYMENT_TARGET}" --file "${registry}" 2>&1)"; then
+          echo "${target_json}" >&2
+          echo "Unknown or unusable deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        fi
+
+        lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+
+        if [[ "${lifecycle}" != "active" ]]; then
+          echo "Target ${DEPLOYMENT_TARGET} has lifecycle=${lifecycle:-unknown}, not active." >&2
+          echo "The preflight is refused before any connection is made: a recovery rebuilds a target that is already live somewhere, and activating one is a deliberate registry change, never a side effect." >&2
+          exit 1
+        fi
+
+        echo "Target ${DEPLOYMENT_TARGET}: lifecycle=active — the replacement host may be examined"
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_preflight_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_preflight_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        # Proven usable before its path is exported; a malformed credential is
+        # removed here, because the always() cleanup only knows exported paths.
+        if ! ssh-keygen -y -f "${key_path}" >/dev/null; then
+          rm -f "${key_path}" "${known_hosts_path}"
+
+          echo "The bootstrap SSH private key for this environment is not a usable key." >&2
+          echo "Nothing was uploaded, no connection was made, and the key material was removed from the runner." >&2
+          exit 1
+        fi
+
+        {
+          echo "RATEGURU_PREFLIGHT_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    # The privileged-access proof, with the transport failures an operator
+    # actually meets told apart and named: a host that does not answer, a host
+    # key that is not the recorded one, a key the machine does not accept, and
+    # a user who cannot sudo without a password. Each is reported in the one
+    # RECOVERY ACTION REQUIRED format, and none prints a secret.
+    - name: Verify privileged access on the replacement host
+      id: access
+      shell: bash
+      env:
+        RECOVERY_HOST: ${{ inputs.recovery-host }}
+        RECOVERY_PORT: ${{ inputs.recovery-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${RECOVERY_PORT}" \
+            -i "${RATEGURU_PREFLIGHT_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
+            "$@"
+        }
+
+        # action_required CAUSE-WORD CAUSE MEANING THEN DO... — the shared
+        # operator-facing refusal format. Written to the step summary as well,
+        # so the run's own page says what to do.
+        action_required() {
+          local word="$1" cause="$2" meaning="$3" then="$4"
+          shift 4
+
+          {
+            echo "RECOVERY ACTION REQUIRED"
+            echo "Cause: ${cause}"
+            echo "What this means: ${meaning}"
+            echo "Do:"
+            local n=1
+            for step in "$@"; do
+              echo "  ${n}. ${step}"
+              n=$(( n + 1 ))
+            done
+            echo "Then: ${then}"
+            echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+          } | tee -a /dev/stderr >> "${RUNNER_TEMP}/rateguru_preflight_action_required"
+
+          echo "cause=${word}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Recovery host preflight — refused before any change"
+            echo
+            echo '```text'
+            cat "${RUNNER_TEMP}/rateguru_preflight_action_required"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+        }
+
+        rm -f "${RUNNER_TEMP}/rateguru_preflight_action_required"
+
+        set +e
+        probe="$(ssh_bootstrap 'id -u' 2>&1)"
+        probe_status=$?
+        set -e
+
+        if (( probe_status != 0 )); then
+          # ssh reports its own transport failures as 255 and says why on
+          # stderr; the words are OpenSSH's, matched rather than reinterpreted.
+          if grep -qiE 'host key verification failed|remote host identification has changed|no (ed25519|rsa|ecdsa) host key is known' <<<"${probe}"; then
+            action_required known-hosts-mismatch \
+              "the replacement host's SSH host key is not the one recorded in RECOVERY_KNOWN_HOSTS" \
+              "either the wrong machine answered, or RECOVERY_KNOWN_HOSTS holds the key of another machine (or none); the workflow never scans or trusts a key on first use" \
+              "re-run \"Recover staging host\" with mode=start" \
+              "read the machine's ssh-ed25519 host key from your own machine (runbook section C)" \
+              "compare it with the provider console or the machine's /etc/ssh/ssh_host_ed25519_key.pub over a channel you trust" \
+              "store exactly that verified line as RECOVERY_KNOWN_HOSTS in the GitHub Environment"
+          elif grep -qiE 'permission denied|no supported authentication|too many authentication failures' <<<"${probe}"; then
+            action_required ssh-authentication-failed \
+              "the replacement host did not accept RECOVERY_BOOTSTRAP_SSH_KEY for ${BOOTSTRAP_USER}" \
+              "the public half of the recovery key is not installed for that user on this machine, or RECOVERY_BOOTSTRAP_USER names the wrong account" \
+              "re-run \"Recover staging host\" with mode=start" \
+              "install the public half of RECOVERY_BOOTSTRAP_SSH_KEY into ~${BOOTSTRAP_USER}/.ssh/authorized_keys on the replacement host" \
+              "confirm from your own machine that an SSH login as ${BOOTSTRAP_USER} with the recovery key runs 'id -u' (runbook section B)"
+          else
+            action_required host-unreachable \
+              "the replacement host ${RECOVERY_HOST}:${RECOVERY_PORT} did not answer the bootstrap SSH connection" \
+              "the address, the port, a firewall or the machine itself is not ready; nothing was uploaded and nothing was changed" \
+              "re-run \"Recover staging host\" with mode=start" \
+              "confirm the machine is up and its SSH port is reachable: nc -vz ${RECOVERY_HOST} ${RECOVERY_PORT}" \
+              "confirm replacement-host and replacement-port name the NEW machine"
+          fi
+
+          printf '%s\n' "${probe}" | grep -viE 'private|BEGIN|END' >&2 || true
+          exit 1
+        fi
+
+        if [[ "${probe}" == "0" ]]; then
+          privileged_prefix=""
+          echo "Bootstrap user ${BOOTSTRAP_USER} is root."
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+          echo "Bootstrap user ${BOOTSTRAP_USER} holds passwordless non-interactive sudo."
+        else
+          action_required passwordless-sudo-missing \
+            "${BOOTSTRAP_USER} is neither root nor a passwordless sudoer on the replacement host" \
+            "the preflight, the preparation and the recovery all need root on that machine; nothing was uploaded and nothing was changed" \
+            "re-run \"Recover staging host\" with mode=start" \
+            "grant ${BOOTSTRAP_USER} passwordless sudo on the replacement host (a sudoers entry with NOPASSWD), or set RECOVERY_BOOTSTRAP_USER to root" \
+            "confirm from your own machine that 'sudo -n true' succeeds for ${BOOTSTRAP_USER} over SSH (runbook section B)"
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # One script, uploaded to the bootstrap user's own home and run as root
+    # from there. Nothing else is transported: the preflight needs no registry,
+    # no material and no other tooling on the host.
+    - name: Run the read-only preflight on the replacement host
+      id: preflight
+      shell: bash
+      env:
+        RECOVERY_HOST: ${{ inputs.recovery-host }}
+        RECOVERY_PORT: ${{ inputs.recovery-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        script="${GITHUB_WORKSPACE}/infrastructure/scripts/recovery-host-preflight"
+        test -x "${script}"
+
+        remote_dir=".rateguru-preflight-${RUN_ID}-${RUN_ATTEMPT}"
+        echo "RATEGURU_PREFLIGHT_REMOTE_DIR=${remote_dir}" >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${RECOVERY_PORT}" \
+            -i "${RATEGURU_PREFLIGHT_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_remote 'umask 077 && rm -rf %q && mkdir -p %q' "${remote_dir}" "${remote_dir}"
+        ssh_bootstrap "${prepare_remote}"
+
+        scp \
+          -P "${RECOVERY_PORT}" \
+          -i "${RATEGURU_PREFLIGHT_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH}" \
+          "${script}" \
+          "${BOOTSTRAP_USER}@${RECOVERY_HOST}:${remote_dir}/recovery-host-preflight"
+
+        # A fixed argv, quoted element-wise: the script accepts only a closed
+        # flag set and no free-text command of any kind.
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          bash
+          "${remote_dir}/recovery-host-preflight"
+          --check
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        set +e
+        preflight_output="$(ssh_bootstrap "${remote_command[@]@Q}" 2>&1)"
+        preflight_status=$?
+        set -e
+
+        printf '%s\n' "${preflight_output}"
+
+        result_line="$(grep '^RATEGURU_RECOVERY_PREFLIGHT=' <<<"${preflight_output}" || true)"
+        result_json="${result_line#RATEGURU_RECOVERY_PREFLIGHT=}"
+
+        result="$(jq -r '.result // empty' <<<"${result_json:-{\}}" 2>/dev/null || true)"
+        cause="$(jq -r '.cause // empty' <<<"${result_json:-{\}}" 2>/dev/null || true)"
+
+        {
+          echo "result=${result:-refused}"
+          echo "cause=${cause}"
+        } >> "${GITHUB_OUTPUT}"
+
+        if (( preflight_status == 0 )) && [[ "${result}" == "pass" ]]; then
+          {
+            echo "## Recovery host preflight — PASS"
+            echo
+            echo "- Target: \`${DEPLOYMENT_TARGET}\` (\`${ENVIRONMENT}\`)"
+            echo "- Replacement host: \`${RECOVERY_HOST}:${RECOVERY_PORT}\`"
+            echo "- Verdict: a supported, genuinely clean replacement host; nothing was changed"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          exit 0
+        fi
+
+        # The script's own refusal and its RECOVERY ACTION REQUIRED block: names
+        # of files, accounts and units only, never a secret.
+        {
+          echo "## Recovery host preflight — REFUSED before any change"
+          echo
+          echo "- Target: \`${DEPLOYMENT_TARGET}\` (\`${ENVIRONMENT}\`)"
+          echo "- Replacement host: \`${RECOVERY_HOST}:${RECOVERY_PORT}\`"
+          echo "- Cause: \`${cause:-preflight-failed}\`"
+          echo
+          echo '```text'
+          awk '/^RECOVERY PREFLIGHT: REFUSED/ { collecting = 1 } collecting && !/^RATEGURU_RECOVERY_PREFLIGHT=/ { print }' <<<"${preflight_output}"
+          echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        exit 1
+
+    # Runs on failure too. The uploaded script must never outlive the run.
+    - name: Remove the uploaded preflight
+      if: ${{ always() }}
+      shell: bash
+      env:
+        RECOVERY_HOST: ${{ inputs.recovery-host }}
+        RECOVERY_PORT: ${{ inputs.recovery-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_PREFLIGHT_REMOTE_DIR:-}" ]] || [[ -z "${RATEGURU_PREFLIGHT_SSH_KEY_PATH:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command 'rm -rf %q' "${RATEGURU_PREFLIGHT_REMOTE_DIR}"
+
+        if ssh \
+          -p "${RECOVERY_PORT}" \
+          -i "${RATEGURU_PREFLIGHT_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
+          "${cleanup_command}"
+        then
+          echo "Removed ${RATEGURU_PREFLIGHT_REMOTE_DIR} from the replacement host."
+        else
+          echo "WARNING: could not remove ${RATEGURU_PREFLIGHT_REMOTE_DIR} from the replacement host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_PREFLIGHT_SSH_KEY_PATH:-}" \
+          "${RATEGURU_PREFLIGHT_KNOWN_HOSTS_PATH:-}" \
+          "${RUNNER_TEMP}/rateguru_preflight_action_required"
