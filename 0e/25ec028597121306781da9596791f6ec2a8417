@@ -1,0 +1,43 @@
+app/Notifications/PostApprovedNotification.php
+  s_621fa5f7d7c714::t_e83535ae155139 26-31,43-44
+tests/Feature/Notifications/PostCommentedNotificationTest.php
+  s_621fa5f7d7c714::t_4b65c52a4361a8 7-8,44-45,48-54
+lang/en/ui.php
+  s_621fa5f7d7c714::t_75917cfc1f3e55 155-162
+resources/views/livewire/notifications/notification-bell.blade.php
+  s_621fa5f7d7c714::t_d981270698296b 46
+lang/ru/ui.php
+  s_621fa5f7d7c714::t_75917cfc1f3e55 159-166
+app/Notifications/PostCommentedNotification.php
+  s_621fa5f7d7c714::t_e83535ae155139 40-41
+app/Support/Notifications/NotificationMessage.php
+  s_621fa5f7d7c714::t_d981270698296b 1-50
+app/Notifications/FollowedAuthorPostedNotification.php
+  s_621fa5f7d7c714::t_e83535ae155139 41-42
+database/migrations/2026_09_09_090000_backfill_notification_message_keys.php
+  s_621fa5f7d7c714::t_8b305c252948e9 1-97
+tests/Feature/Notifications/PostApprovedNotificationTest.php
+  s_621fa5f7d7c714::t_4b65c52a4361a8 6-7,35-36,39-46,48
+lang/bg/ui.php
+  s_621fa5f7d7c714::t_75917cfc1f3e55 155-162
+tests/Feature/Notifications/NotificationLifecycleSafetyTest.php
+  s_621fa5f7d7c714::t_843f02440eb2c3 12,124-128,167-168
+tests/Feature/Localization/NotificationMessageLocaleTest.php
+  s_621fa5f7d7c714::t_f5941b6cf6720f 1-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0e25ec028597121306781da9596791f6ec2a8417",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
