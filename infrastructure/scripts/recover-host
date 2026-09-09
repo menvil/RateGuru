@@ -480,6 +480,7 @@ clear_recovery_guard() {
 # carries this host's identity and this host's cron.
 
 ensure_offsite_writes_held() {
+    local placed_by="${1:-recover-host --apply}"
     local marker
     marker="$(offsite_write_hold_file "${RUN_ROOT}")"
 
@@ -492,12 +493,18 @@ ensure_offsite_writes_held() {
         return 0
     fi
 
+    # Created 0600 before any content reaches it: the document is not secret,
+    # but a marker other operations read must never be writable by anyone else
+    # for even a moment.
+    install -m 0600 /dev/null "${marker}.tmp" 2>/dev/null \
+        || fail "could not create the offsite-write hold ${marker} — refusing to recover a host whose backup cron nothing would then stop from writing to the real offsite namespace"
+
     if ! jq -n \
         --arg hold offsite-writes \
         --arg reason host-recovery \
         --arg target "${TARGET_ID}" \
         --arg backup "${BACKUP_ID}" \
-        --arg created_by "recover-host --apply" \
+        --arg created_by "${placed_by}" \
         --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{
             hold: $hold,
@@ -517,7 +524,7 @@ ensure_offsite_writes_held() {
     mv -f "${marker}.tmp" "${marker}" 2>/dev/null \
         || { rm -f "${marker}.tmp" 2>/dev/null || true; fail "could not install the offsite-write hold ${marker}"; }
 
-    log "offsite writes: HELD — ${marker} (backup-cycle, offsite-backup and offsite-retention refuse on this host until it is deliberately adopted)"
+    log "offsite writes: HELD by ${placed_by} — ${marker} (backup-cycle, offsite-backup and offsite-retention refuse on this host until it is deliberately adopted)"
 }
 
 # assert_offsite_writes_held — the OBSERVED half: every hold check and the
@@ -526,7 +533,7 @@ ensure_offsite_writes_held() {
 # stage of a recovery is safe to continue into that.
 assert_offsite_writes_held() {
     offsite_writes_held "${RUN_ROOT}" \
-        || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, and nothing re-holds it automatically. The recovery flow is not safe to continue until it is back in place"
+        || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, so this mode refuses. To continue: a recovery still awaiting its code re-establishes the hold itself when recover-host --resume runs (after the controlled recovery deployment); for any other stage, re-place it by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD, where HOLD is the path above — and re-run this mode. Nothing releases the hold; removing it is part of deliberately adopting this machine"
 
     RECOVER_OFFSITE_WRITES="held"
 }
@@ -1809,7 +1816,7 @@ perform_recovery() {
     # live host, never a hand-supplied environment file.
     step "require a clean-host-recovery-capable backup"
     [[ "${BACKUP_SCHEMA}" == "3" ]] \
-        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated"
+        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
 
     [[ "${BACKUP_RELEASE}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] \
         || fail "the verified backup identity carries no canonical RateGuru release: ${BACKUP_RELEASE:-<unset>}"
@@ -2178,6 +2185,13 @@ perform_resume() {
 
     step "authorize resume"
     assert_awaiting_code
+
+    # The fence, re-established rather than merely demanded: --resume is the
+    # mutating stage that brings the runtime back, and a hold that vanished
+    # between the controlled deployment and now is put back before a single
+    # service is started. Kept as is when present; never rewritten.
+    step "hold offsite writes"
+    ensure_offsite_writes_held "recover-host --resume"
 
     # The same classifier --inspect reports and the deployment authorizes
     # against, so "resumable" cannot come to mean two different things.

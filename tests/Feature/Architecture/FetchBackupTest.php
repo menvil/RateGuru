@@ -299,6 +299,12 @@ it('stages all eight files of a schema 3 backup, and refuses one missing its rec
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('backup is missing a required file: recovery-material.tar.gz');
+
+        // Refused before a single file was staged: whatever workspace exists
+        // holds an empty selected-backup, never a partial one.
+        foreach (glob($scratch.'/run/restores/parity-target/*/selected-backup') ?: [] as $staged) {
+            expect(array_values(array_diff(scandir($staged), ['.', '..'])))->toBe([]);
+        }
     } finally {
         removeScratchDir($scratch);
     }

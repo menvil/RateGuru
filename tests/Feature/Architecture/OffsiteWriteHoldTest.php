@@ -134,7 +134,10 @@ it('is placed by the recovery preparation and the recovery, and released by no s
     $recover = File::get(base_path('infrastructure/scripts/recover-host'));
 
     expect($prepare)->toContain('--arg created_by "prepare-host --recovery-backup"');
-    expect($recover)->toContain('--arg created_by "recover-host --apply"');
+    // The recovery names the mode that placed it: the apply by default, and
+    // the resume when it re-establishes a hold that went missing.
+    expect($recover)->toContain('local placed_by="${1:-recover-host --apply}"')
+        ->toContain('ensure_offsite_writes_held "recover-host --resume"');
 
     // Every recovery mode after --apply proves the hold rather than trusting it.
     foreach (['assert_runtime_still_held', 'assert_runtime_resumed'] as $proof) {

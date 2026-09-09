@@ -350,13 +350,7 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
     // A schema 3 backup carries its recovery material, checksummed in the
     // position backup writes it — built from an explicit member map, raw
     // bytes, or every host-scope name by default; omitted only on purpose.
-    if (($options['schema'] ?? null) === 3 && empty($options['omit_recovery_material'])) {
-        if (array_key_exists('recovery_material_bytes', $options)) {
-            file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
-        } else {
-            buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
-        }
-
+    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -1132,7 +1126,7 @@ it('refuses a schema 3 backup whose recovery material is missing, not checksumme
         restoreTestOpsCleanup($scratch);
     }
 })->with([
-    'the archive is missing' => [['omit_recovery_material' => true], 'recovery-material.tar.gz'],
+    'the archive is missing' => [['omit_recovery_material' => true], 'backup is missing a required file: recovery-material.tar.gz'],
     'the archive names a file outside the vocabulary' => [
         ['recovery_material' => recoveryMaterialMembers() + ['laravel-env' => "APP_KEY=x\n"]],
         'not a host-scope prerequisite',

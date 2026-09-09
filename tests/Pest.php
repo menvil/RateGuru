@@ -1399,6 +1399,31 @@ function recoveryMaterialArchiveBytes(string $shape, string $name = 'basic-auth'
 }
 
 /**
+ * Writes recovery-material.tar.gz into $dir the way a schema 3 backup fixture
+ * carries it, from the same options every fixture builder accepts:
+ * `omit_recovery_material` suppresses it, `recovery_material_bytes` wins over
+ * `recovery_material` (a logical name => content map), and the default is
+ * every host-scope name. Returns whether the archive was written, so the
+ * caller checksums it exactly when it exists.
+ */
+function maybeWriteRecoveryMaterial(string $dir, array $options): bool
+{
+    if (! empty($options['omit_recovery_material'])) {
+        return false;
+    }
+
+    if (array_key_exists('recovery_material_bytes', $options)) {
+        file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
+
+        return true;
+    }
+
+    buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
+
+    return true;
+}
+
+/**
  * Everything the REAL install-target-prerequisites needs to capture, list or
  * judge parity-target's recovery material without a real host: a scratch
  * checkout carrying the parity registry and the committed vhosts under the
@@ -1417,13 +1442,16 @@ function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath,
 
     if (! is_dir($repoRoot.'/infrastructure/config/nginx')) {
         mkdir($repoRoot.'/infrastructure/config/nginx', 0o755, true);
-        copy($registryPath, $repoRoot.'/infrastructure/config/deployment-targets.json');
         copy(base_path('infrastructure/config/nginx/rateguru-staging'), $repoRoot.'/infrastructure/config/nginx/parity-site');
 
         foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
             copy(base_path('infrastructure/config/nginx/'.$vhost), $repoRoot.'/infrastructure/config/nginx/'.$vhost);
         }
     }
+
+    // Refreshed on every call: a later call with different registry options
+    // must not keep judging against the first registry it copied.
+    copy($registryPath, $repoRoot.'/infrastructure/config/deployment-targets.json');
 
     $fsRoot = $scratch.'/prereq-host';
 
@@ -1549,13 +1577,7 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
-    if ($schema3 && empty($options['omit_recovery_material'])) {
-        if (array_key_exists('recovery_material_bytes', $options)) {
-            file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
-        } else {
-            buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
-        }
-
+    if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -2295,7 +2317,7 @@ if [[ "${copy_verb}" == copyto ]]; then
     fi
 
     cp "${local_source}" "${dest_path}"
-    exit 0
+    exit $?
 fi
 
 if [[ ! -d "${local_source}" ]]; then

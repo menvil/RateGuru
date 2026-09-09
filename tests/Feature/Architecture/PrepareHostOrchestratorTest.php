@@ -252,7 +252,8 @@ function prepWriteChildStubs(string $scratch): void
         done
         printf '%s\n' "${out}" > "${STUB_LOG}/fetch-output-dir"
         printf '%s\n' "${seed}" > "${STUB_LOG}/fetch-seed-dir"
-        stat -c '%a' "${out}" > "${STUB_LOG}/fetch-output-mode"
+        # GNU stat on Linux, BSD stat where GNU syntax is unsupported.
+        { stat -c '%a' "${out}" 2>/dev/null || stat -f '%Lp' "${out}"; } > "${STUB_LOG}/fetch-output-mode"
         if [[ -e "${STUB_TOGGLES}/fetch-fail" ]]; then
             echo "ERROR: backup 20260115-023000 is not clean-host-recovery-capable (stub)"
             exit 1
@@ -318,7 +319,10 @@ function prepWriteChildStubs(string $scratch): void
 function prepFixture(string $scratch, array $options = []): array
 {
     prepWriteChildStubs($scratch);
-    @mkdir($scratch.'/root-home', 0o700, true);
+
+    if (! is_dir($scratch.'/root-home')) {
+        expect(@mkdir($scratch.'/root-home', 0o700, true))->toBeTrue("could not create {$scratch}/root-home");
+    }
 
     foreach ($options['compliant'] ?? [] as $slice) {
         touch($scratch.'/toggles/'.$slice.'-compliant');

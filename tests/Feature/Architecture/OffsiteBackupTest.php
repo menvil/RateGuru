@@ -337,8 +337,7 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
 
     // A schema 3 backup carries its recovery material, checksummed in the
     // position backup writes it — unless a test omits it on purpose.
-    if (($options['schema'] ?? null) === 3 && empty($options['omit_recovery_material'])) {
-        buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', recoveryMaterialMembers());
+    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 

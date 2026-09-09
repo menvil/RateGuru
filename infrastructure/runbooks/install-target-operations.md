@@ -157,8 +157,9 @@ clear error before anything else runs.
 ### `--check` — repository-only, no root
 
 Validates the twenty-eight source files (exist, regular, not a symlink), runs
-`bash -n` on the twenty shell scripts (every source file except the
-registry and `deployment.conf`, neither of which is shell), confirms `jq`
+`bash -n` on the twenty-two shell scripts (every source file except the
+registry, `deployment.conf` and the four Nginx vhost sources, none of which
+is shell), confirms `jq`
 can parse the registry, runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
 as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms
@@ -230,6 +231,9 @@ sudo infrastructure/scripts/install-target-operations --apply
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
    `offsite-restore-test`, `backup-cycle`, `restore-common`, `fetch-backup`,
    `verify-backup`, `restore-database`, `restore-storage`, `restore-target`,
+   `recover-host`, the four Nginx vhost sources (into `config/nginx/`, which
+   is created root-owned `0755` first when absent), then
+   `install-target-prerequisites` (which reads those sources), then
    `verify-required-clis`, then `deployment.conf` last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
@@ -303,8 +307,9 @@ line — `--verify` never claims success after a step it didn't actually pass.
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
 | `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
-| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
+| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `recover-host`, `install-target-prerequisites`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
+| `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — read by the installed `install-target-prerequisites`, never applied to Nginx |
 
 None of the twenty-eight may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing

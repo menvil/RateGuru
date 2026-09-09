@@ -148,7 +148,10 @@ it('installs every new primitive through the existing target-operations installe
     // The registry and deployment.conf are data, and so are the committed
     // vhost sources; everything else — the two sourced libraries included —
     // is `bash -n`'d as a shell script.
-    $nginxSources = preg_match_all('/^DST_NGINX_SOURCE_[A-Z_]+=/m', $installer, $ignored);
+    $nginxSources = count(array_filter(
+        $destinations[1],
+        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_'),
+    ));
     $scripts = $installedFiles - 2 - $nginxSources;
 
     expect($installer)
@@ -345,7 +348,11 @@ it('keeps the backup subsystem free of every restore concern', function () {
             '/restores/',
             '/recoveries/',
         ] as $forbidden) {
-            expect($source)->not->toContain($forbidden, basename($script)." must not know {$forbidden}");
+            // str_contains + toBeFalse: toContain is variadic, so a trailing
+            // diagnostic would become a second needle and the negation would
+            // pass on anything.
+            expect(str_contains($source, $forbidden))
+                ->toBeFalse(basename($script)." must not know {$forbidden}");
         }
     }
 });

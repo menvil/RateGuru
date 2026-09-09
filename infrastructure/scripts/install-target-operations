@@ -495,7 +495,7 @@ verify_staged_candidates() {
     # The prerequisite installer never sources common and takes no --target
     # probe here (every one of its modes needs root and a real filesystem);
     # --help is the one thing a staged copy can prove about itself.
-    "${staged_target_prerequisites}" --help >/dev/null \
+    no_overrides_env "${staged_target_prerequisites}" --help >/dev/null \
         || fail "staged install-target-prerequisites --help failed"
     log "  staged install-target-prerequisites --help: OK"
 

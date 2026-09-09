@@ -584,10 +584,11 @@ it downloads a byte. While it exists:
   `--verify --recovery-backup` requires the hold to exist as a genuine hold
   document — so the Prepare step of a recovery can never say "prepared"
   about an unfenced machine;
-* every recovery mode after `--apply` (`--inspect`, `--resume`, `--verify`)
-  proves the hold is still there and refuses if it is not; the guard, the
-  state, the history, the machine-readable result and the GitHub summary all
-  carry `offsite_writes=held` (`OFFSITE WRITES: HELD`).
+* every recovery mode after `--apply` proves the hold: `--inspect` and
+  `--verify` refuse if it is gone (naming the remediation), `--resume`
+  re-establishes it before it restores the runtime; the guard, the state, the
+  history, the machine-readable result and the GitHub summary all carry
+  `offsite_writes=held` (`OFFSITE WRITES: HELD`).
 
 Nothing releases the hold — not `--resume`, not `--verify`, not a later
 Prepare or Repair. Releasing it (`rm` of the marker, as root) is part of

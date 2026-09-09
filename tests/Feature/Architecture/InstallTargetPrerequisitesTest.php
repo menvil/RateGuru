@@ -810,10 +810,7 @@ it('never eval-sources any operator-authored file', function () {
 /** The host-scope logical names of staging-main, as the committed vhosts declare them. */
 function itpHostScopeNames(): array
 {
-    return [
-        'basic-auth', 'tls-certificate', 'tls-private-key', 'nginx-tls-options',
-        'tls-dhparams', 'mail-tls-certificate', 'mail-tls-private-key',
-    ];
+    return ITP_HOST_MATERIAL;
 }
 
 /**

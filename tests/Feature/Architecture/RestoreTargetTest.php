@@ -222,7 +222,11 @@ it('restores from a schema 3 backup exactly as from an older one, and never appl
         // only inside backups and staged workspaces. (The scratch host tree
         // the prerequisite installer judges against holds its own, differently
         // prefixed fixture files and is excluded by name.)
-        exec('grep -rl "material-.*-never-logged" '.escapeshellarg($scratch).' --exclude-dir=backups --exclude-dir=run --exclude-dir=emergency-template --exclude-dir=prereq-host 2>/dev/null', $leaks);
+        exec('grep -rl "material-.*-never-logged" '.escapeshellarg($scratch).' --exclude-dir=backups --exclude-dir=run --exclude-dir=emergency-template --exclude-dir=prereq-host 2>&1', $leaks, $grepStatus);
+
+        // grep: 0 = matches (a leak), 1 = none, anything else = the scan
+        // itself failed and proved nothing.
+        expect(in_array($grepStatus, [0, 1], true))->toBeTrue('the leak scan failed to run: '.implode("\n", $leaks));
         expect($leaks)->toBe([]);
 
         expect(File::get($scratch.'/target/shared/.env'))->not->toContain('from-backup-never-applied');

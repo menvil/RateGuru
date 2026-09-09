@@ -391,16 +391,13 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
-    // A schema 3 backup carries its recovery material, checksummed in the
-    // position backup writes it — every host-scope name by default, an
-    // explicit member map or raw bytes on request, omitted only on purpose.
-    if (($options['schema'] ?? null) === 3 && empty($options['omit_recovery_material'])) {
-        if (array_key_exists('recovery_material_bytes', $options)) {
-            file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
-        } else {
-            buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
-        }
+    // A schema 3 backup — by option, or by the manifest it carries — holds
+    // its recovery material, checksummed in the position backup writes it:
+    // every host-scope name by default, an explicit member map or raw bytes
+    // on request, omitted only on purpose.
+    $schema3 = ($options['schema'] ?? null) === 3 || ($manifest['manifest_schema_version'] ?? null) === 3;
 
+    if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 

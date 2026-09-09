@@ -280,11 +280,14 @@ runs:
           exit 1
         fi
 
-        for supplied in LARAVEL_ENV BASIC_AUTH TLS_CERTIFICATE TLS_PRIVATE_KEY TLS_DHPARAMS NGINX_TLS_OPTIONS MAIL_TLS_CERTIFICATE MAIL_TLS_PRIVATE_KEY; do
-          present="${supplied}_PRESENT"
+        # Each pair names the presence variable and the action input an
+        # operator would have to omit, so the refusal names the exact input.
+        for pair in LARAVEL_ENV:laravel-env BASIC_AUTH:basic-auth TLS_CERTIFICATE:tls-certificate TLS_PRIVATE_KEY:tls-private-key TLS_DHPARAMS:tls-dhparams NGINX_TLS_OPTIONS:nginx-tls-options MAIL_TLS_CERTIFICATE:mail-tls-certificate MAIL_TLS_PRIVATE_KEY:mail-tls-private-key; do
+          present="${pair%%:*}_PRESENT"
+          input="${pair#*:}"
 
           if [[ "${!present}" == "true" ]]; then
-            echo "A recovery preparation takes the target's environment file and host-scope material out of backup ${RECOVERY_BACKUP} itself; ${supplied,,} must not be supplied. Nothing was staged." >&2
+            echo "A recovery preparation takes the target's environment file and host-scope material out of backup ${RECOVERY_BACKUP} itself; ${input} must not be supplied. Nothing was staged." >&2
             exit 1
           fi
         done

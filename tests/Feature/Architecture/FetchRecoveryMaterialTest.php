@@ -176,7 +176,7 @@ it('downloads only the bootstrap subset of the exact backup from the fixed remot
             ->toContain('recovery material staged for parity-target from offsite backup 20260115-023000')
             ->toContain('laravel-env')
             ->toContain('backup environment.env')
-            ->toContain('effective material: 10 files')
+            ->toContain('effective material: '.(count(recoveryMaterialNames()) + 3).' files')
             ->not->toContain('never-logged')
             ->not->toContain('recovery-reader')
             ->not->toContain('s3cr3t')
@@ -438,7 +438,9 @@ it('never restores data, deploys, activates, or touches a service', function () 
         'restore-storage',
         'restore-target',
         'recover-host',
-        'deploy',
+        'scripts/deploy',
+        'deploy-rateguru',
+        'rateguru-deploy',
         'supervisorctl',
         'systemctl',
         'crontab',
@@ -448,18 +450,28 @@ it('never restores data, deploys, activates, or touches a service', function () 
         'shared/.env',
         '/current',
         '/previous',
-        'database.dump',
-        'storage-app.tar.gz',
-        'server-configuration.tar.gz',
         ' lsf ',
         ' ls ',
         'copy ',
     ] as $forbidden) {
-        expect($source)->not->toContain($forbidden, "fetch-recovery-material must never: {$forbidden}");
+        // str_contains + toBeFalse rather than not->toContain: toContain is
+        // variadic and has no message parameter, so a trailing diagnostic
+        // becomes a second needle and the negation then passes on anything.
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("fetch-recovery-material must never: {$forbidden}");
     }
 
-    // Exactly one rclone verb, one object at a time.
-    expect($source)->toContain('copyto');
+    // Exactly one rclone verb, one object at a time — and the fixed subset it
+    // fetches is the bootstrap subset: the data files are named only as
+    // members of the closed SHA256SUMS set it verifies, never downloaded.
+    expect($source)->toContain('copyto')
+        ->toContain('BOOTSTRAP_SUBSET=("${MANIFEST_FILE}" release.json environment.env recovery-material.tar.gz SHA256SUMS)')
+        ->toContain('download_object "${name}"');
+
+    foreach (['database.dump', 'storage-app.tar.gz', 'server-configuration.tar.gz'] as $data) {
+        expect(str_contains($source, 'download_object '.$data) || str_contains($source, 'copyto '.$data))
+            ->toBeFalse("fetch-recovery-material must never download {$data}");
+    }
 
     // The remote is composed from the fixed defaults and the target's own
     // namespace, never from an argument.

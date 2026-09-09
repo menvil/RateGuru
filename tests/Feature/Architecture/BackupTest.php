@@ -914,7 +914,7 @@ it('captures the recovery material under logical names, from the prerequisite ta
 
         // Logical names are logged; content is not, and neither is a digest.
         expect($result['output'])
-            ->toContain('Recovery material captured: 7 host-scope files')
+            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' host-scope files')
             ->toContain('tls-private-key')
             ->not->toContain('never-logged')
             ->not->toMatch('/[0-9a-f]{64}/');
@@ -928,7 +928,7 @@ it('captures the recovery material under logical names, from the prerequisite ta
     }
 });
 
-it('fails the whole backup, leaving no final directory, when the recovery material cannot be captured', function () {
+it('fails the whole backup, leaving no final directory, when a host-scope prerequisite cannot be captured', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -949,12 +949,14 @@ it('fails the whole backup, leaving no final directory, when the recovery materi
     } finally {
         backupOpsCleanup($scratch);
     }
+});
 
+it('fails the whole backup, leaving no final directory, when the external-material installer is unavailable', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        // And an installer that is simply not there is the same refusal: the
-        // capture is never optional.
+        // The capture is never optional: an installer that is simply not
+        // there is the same refusal as a prerequisite that cannot be read.
         $result = backupOpsRunFullBackup($scratch, extraEnv: [
             'RATEGURU_PREREQUISITES_BIN' => $scratch.'/does-not-exist',
         ]);
@@ -962,6 +964,7 @@ it('fails the whole backup, leaving no final directory, when the recovery materi
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('the external-material installer is not available');
         expect(glob($result['backupBase'].'/parity/*'))->toBe([]);
+        expect(glob($result['backupBase'].'/parity/.*.tmp'))->toBe([]);
     } finally {
         backupOpsCleanup($scratch);
     }

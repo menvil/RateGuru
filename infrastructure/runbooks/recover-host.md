@@ -426,10 +426,28 @@ is already there is kept, never rewritten. While it exists, `backup-cycle`,
 entry itself is neither deleted nor renamed — the fence is the marker, and
 the refusal is the writers' own.
 
-Every later mode proves it: `--inspect`, `--resume` and `--verify` fail if the
-marker is gone, and the guard, the state, the history, the machine-readable
-result (`offsite_writes: held`) and every report (`OFFSITE WRITES: HELD`)
-carry it. **Nothing releases it** — not `--resume`, not `--verify`, not a later
+Every later mode proves it: `--inspect` and `--verify` fail if the marker is
+gone, `--resume` re-establishes it (as `created_by: recover-host --resume`)
+before it starts a single service, and the guard, the state, the history, the
+machine-readable result (`offsite_writes: held`) and every report
+(`OFFSITE WRITES: HELD`) carry it.
+
+If the marker is ever found missing, the supported path forward is:
+
+* a recovery still **awaiting its code** finishes normally — the controlled
+  recovery deployment does not read the hold, and `--resume` puts it back
+  before restoring the runtime;
+* for `--inspect` (which is read-only and never writes one) and for
+  `--verify` on a completed recovery, re-place the marker by hand as root and
+  re-run the mode:
+
+  ```bash
+  HOLD=/home/www/rateguru/run/offsite-write-hold
+  install -m 0600 /dev/null "$HOLD"
+  printf '{"hold":"offsite-writes","reason":"host-recovery","target":"staging-main","created_by":"operator"}\n' > "$HOLD"
+  ```
+
+**Nothing releases it** — not `--resume`, not `--verify`, not a later
 preparation or repair. Removing the marker is part of deliberately adopting
 the machine as the target's host, alongside repointing `DEPLOY_HOST` and DNS,
 and is never automated.

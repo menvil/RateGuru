@@ -1127,6 +1127,12 @@ hold_offsite_writes() {
         return 0
     fi
 
+    # Created 0600 before any content reaches it: the document is not secret,
+    # but a marker other operations read must never be writable by anyone else
+    # for even a moment.
+    install -m 0600 /dev/null "${marker}.tmp" \
+        || fail "could not create the offsite-write hold ${marker}"
+
     jq -n \
         --arg hold offsite-writes \
         --arg reason host-recovery \

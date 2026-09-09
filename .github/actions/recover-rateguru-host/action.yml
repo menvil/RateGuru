@@ -601,6 +601,15 @@ runs:
           exit 1
         }
 
+        # Every recovery result reports the offsite-write hold; a result that
+        # says nothing about it is not one this action will pass on as a
+        # success, because the calling workflow's final gate reads exactly
+        # this field.
+        jq -e '.offsite_writes | type == "string" and length > 0' <<<"${result_json}" >/dev/null || {
+          echo "The machine-readable recovery result does not report the offsite-write hold: ${result_json}" >&2
+          exit 1
+        }
+
         {
           echo "status=$(jq -r '.status' <<<"${result_json}")"
           echo "operation=$(jq -r '.operation' <<<"${result_json}")"
@@ -611,7 +620,7 @@ runs:
           echo "current-release=$(jq -r '.current_release' <<<"${result_json}")"
           echo "source-sha=$(jq -r '.source_sha' <<<"${result_json}")"
           echo "health=$(jq -r '.health' <<<"${result_json}")"
-          echo "offsite-writes=$(jq -r '.offsite_writes // empty' <<<"${result_json}")"
+          echo "offsite-writes=$(jq -r '.offsite_writes' <<<"${result_json}")"
         } >> "${GITHUB_OUTPUT}"
 
         {
@@ -627,7 +636,7 @@ runs:
           echo "- Data restored: \`$(jq -r '.data_restored' <<<"${result_json}")\`"
           echo "- Current release: \`$(jq -r '.current_release' <<<"${result_json}")\` (source \`$(jq -r '.source_sha' <<<"${result_json}")\`)"
           echo "- Health: \`$(jq -r '.health' <<<"${result_json}")\` · Queue: \`$(jq -r '.queue' <<<"${result_json}")\` · Scheduler: \`$(jq -r '.scheduler' <<<"${result_json}")\`"
-          echo "- Offsite writes (backup cron, uploader, pruner): \`$(jq -r '.offsite_writes // "unknown"' <<<"${result_json}")\`"
+          echo "- Offsite writes (backup cron, uploader, pruner): \`$(jq -r '.offsite_writes' <<<"${result_json}")\`"
         } >> "${GITHUB_STEP_SUMMARY}"
 
     # Runs on failure too. Uploaded tooling must never outlive the run that
