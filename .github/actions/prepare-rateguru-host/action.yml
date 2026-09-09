@@ -183,7 +183,7 @@ outputs:
       Why the preparation failed, as one closed word an operator can act on:
       backup-not-recovery-capable, backup-not-found, recovery-material-invalid,
       rclone-config-unavailable, offsite-hold-missing, or preparation-failed.
-      Empty on success.
+      Every refusal this action makes sets one; empty ONLY on success.
     value: ${{ steps.contract.outputs['failure-cause'] || steps.prepare.outputs['failure-cause'] || steps.verify.outputs['failure-cause'] }}
 
 runs:
@@ -286,7 +286,9 @@ runs:
         # recovery pipeline; the server proves the ID is a real timestamp and
         # that the backup exists and is recovery-capable.
         if [[ ! "${RECOVERY_BACKUP}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+          echo "failure-cause=preparation-failed" >> "${GITHUB_OUTPUT}"
           echo "recovery-backup must be an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${RECOVERY_BACKUP})" >&2
+          echo "Nothing was uploaded and nothing was changed." >&2
           exit 1
         fi
 
@@ -315,6 +317,7 @@ runs:
           input="${pair#*:}"
 
           if [[ "${!present}" == "true" ]]; then
+            echo "failure-cause=preparation-failed" >> "${GITHUB_OUTPUT}"
             echo "A recovery preparation takes the target's environment file and host-scope material out of backup ${RECOVERY_BACKUP} itself; ${input} must not be supplied. Nothing was staged." >&2
             exit 1
           fi

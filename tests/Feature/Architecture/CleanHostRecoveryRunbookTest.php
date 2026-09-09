@@ -35,19 +35,10 @@ function stagingRegistryTarget(): array
     return json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets']['staging-main'];
 }
 
-/** @return list<string> */
-function recoveryValuesRead(string $workflow): array
-{
-    preg_match_all('/\b(?:vars|secrets)\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', File::get(base_path('.github/workflows/'.$workflow)), $matches);
-
-    $names = array_values(array_unique($matches[1]));
-    sort($names);
-
-    return $names;
-}
-
 it('is self-contained — every section an operator needs, in order — and every recovery surface points at it', function () {
-    preg_match_all('/^## ([A-M])\. (.+)$/m', cleanHostRunbook(), $headings);
+    // Any lettered section matches, so a section appended past the end is
+    // caught by the sequence below rather than quietly skipped by the pattern.
+    preg_match_all('/^## ([A-Z])\. (.+)$/m', cleanHostRunbook(), $headings);
 
     expect($headings[1])->toBe(range('A', 'M'));
     expect($headings[2])->toBe([
@@ -141,9 +132,9 @@ it('documents exactly the inputs the recovery workflow is dispatched with', func
 });
 
 it('documents exactly the GitHub Environment values the recovery workflow reads, and no PREPARE_* value', function () {
-    $read = recoveryValuesRead('recover-staging.yml');
+    $read = recoveryValuesRead('recover-staging.yml')['all'];
 
-    expect(recoveryValuesRead('recover-production.yml'))->toBe($read);
+    expect(recoveryValuesRead('recover-production.yml')['all'])->toBe($read);
     expect($read)->toBe([
         'DEPLOY_HOST',
         'DEPLOY_INCOMING',
@@ -254,15 +245,7 @@ it('states the final contract the run summary reports', function () {
 });
 
 it('separates Environment variables from Environment secrets exactly as the workflow reads them, and never offers the offsite credential as a variable', function () {
-    $workflow = File::get(base_path('.github/workflows/recover-staging.yml'));
-
-    preg_match_all('/\bvars\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $workflow, $vars);
-    preg_match_all('/\bsecrets\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $workflow, $secrets);
-
-    $vars = array_values(array_unique($vars[1]));
-    $secrets = array_values(array_unique($secrets[1]));
-    sort($vars);
-    sort($secrets);
+    ['vars' => $vars, 'secrets' => $secrets] = recoveryValuesRead('recover-staging.yml');
 
     expect($vars)->toBe(['DEPLOY_HOST', 'DEPLOY_INCOMING', 'DEPLOY_ROOT', 'DEPLOY_USER', 'DEPLOY_WRAPPER', 'RECOVERY_BOOTSTRAP_USER']);
     expect($secrets)->toBe(['DEPLOY_KNOWN_HOSTS', 'DEPLOY_SSH_KEY', 'RECOVERY_BOOTSTRAP_SSH_KEY', 'RECOVERY_KNOWN_HOSTS', 'RECOVERY_RCLONE_CONFIG']);
@@ -271,9 +254,20 @@ it('separates Environment variables from Environment secrets exactly as the work
     // The runbook's section D: a variables table and a secrets table, each
     // naming exactly the values the workflow reads that way.
     $runbook = cleanHostRunbook();
-    $sectionD = substr($runbook, strpos($runbook, '## D. '), strpos($runbook, '## E. ') - strpos($runbook, '## D. '));
-    $variablesTable = substr($sectionD, strpos($sectionD, '**Environment variables**'), strpos($sectionD, '**Environment secrets**') - strpos($sectionD, '**Environment variables**'));
-    $secretsTable = substr($sectionD, strpos($sectionD, '**Environment secrets**'), strpos($sectionD, 'The workflow proves all of them present') - strpos($sectionD, '**Environment secrets**'));
+
+    // Each boundary is asserted before it is used: a false offset would slice
+    // a misleading section out of the document and assert against that.
+    $offset = static function (string $marker, string $haystack): int {
+        $at = strpos($haystack, $marker);
+
+        expect($at)->not->toBeFalse("the runbook has no \"{$marker}\" to read the value tables from");
+
+        return (int) $at;
+    };
+
+    $sectionD = substr($runbook, $offset('## D. ', $runbook), $offset('## E. ', $runbook) - $offset('## D. ', $runbook));
+    $variablesTable = substr($sectionD, $offset('**Environment variables**', $sectionD), $offset('**Environment secrets**', $sectionD) - $offset('**Environment variables**', $sectionD));
+    $secretsTable = substr($sectionD, $offset('**Environment secrets**', $sectionD), $offset('The workflow proves all of them present', $sectionD) - $offset('**Environment secrets**', $sectionD));
 
     foreach ($vars as $name) {
         expect($variablesTable)->toContain("`{$name}`");
@@ -302,8 +296,8 @@ it('separates Environment variables from Environment secrets exactly as the work
 
     // The compact guide draws the same line.
     $guide = cleanHostOperatorGuide();
-    $guideVariables = substr($guide, strpos($guide, 'Environment variables (Settings'), strpos($guide, 'Environment secrets (Settings') - strpos($guide, 'Environment variables (Settings'));
-    $guideSecrets = substr($guide, strpos($guide, 'Environment secrets (Settings'), strpos($guide, 'NO PREPARE_*') - strpos($guide, 'Environment secrets (Settings'));
+    $guideVariables = substr($guide, $offset('Environment variables (Settings', $guide), $offset('Environment secrets (Settings', $guide) - $offset('Environment variables (Settings', $guide));
+    $guideSecrets = substr($guide, $offset('Environment secrets (Settings', $guide), $offset('NO PREPARE_*', $guide) - $offset('Environment secrets (Settings', $guide));
 
     foreach ($vars as $name) {
         expect($guideVariables)->toContain($name);
@@ -411,4 +405,112 @@ it('sends an operator diagnosing a refused precondition to the trusted bundle, n
     expect($usage)
         ->toContain('run from the trusted')
         ->toContain('--inspect, --resume and --verify need no bootstrap tooling');
+});
+
+it('tells an operator what a stopped run left behind, stage by stage, and never to remove the hold', function () {
+    $runbook = cleanHostRunbook();
+    $section = substr($runbook, strpos($runbook, '## K. '), strpos($runbook, '## L. ') - strpos($runbook, '## K. '));
+    $flat = preg_replace('/\s+/', ' ', $section);
+
+    // Stage 1: nothing was touched.
+    expect($flat)
+        ->toContain('Stopped before Prepare Host ran')
+        ->toContain('nothing on the machine was touched');
+
+    // Stage 2: the hold IS there, it stays, and mode=start re-enters.
+    expect($flat)
+        ->toContain('Stopped after Prepare Host started, with no operation ID in the summary')
+        ->toContain('it **is** carrying the offsite-write hold Prepare Host places')
+        ->toContain('That hold stays where it is')
+        ->toContain('Re-run with **`mode=start`, the same target and the same exact backup**')
+        ->toContain('Prepare Host is convergent and converges it again')
+        ->toContain('A **different** backup or a **different** target is refused');
+
+    // Stage 3: an operation exists, so it is continued.
+    expect($flat)
+        ->toContain('Stopped after `recover-host --apply` started')
+        ->toContain('mode = continue-held');
+
+    // And the instruction that must never appear, stated as a prohibition.
+    expect($flat)
+        ->toContain('Never remove the offsite-write hold to make a re-run pass')
+        ->toContain('Nothing in a recovery ever asks you to');
+
+    // The claim this section used to make, which the first real acceptance
+    // proved false, is gone.
+    expect(str_contains($flat, 'nothing is held on the machine'))->toBeFalse('a preparation that ran leaves the hold behind');
+
+    // The two states a start may enter from are documented where the workflow
+    // is described, and where the PRE_DEPLOY contract is stated.
+    expect(preg_replace('/\s+/', ' ', $runbook))
+        ->toContain('It accepts a machine in exactly one of two states')
+        ->toContain('a preparation of this same recovery, to converge')
+        ->toContain('proven by the offsite-write hold it placed');
+});
+
+it('documents the bootstrap access a clean replacement host necessarily already has', function () {
+    $flat = preg_replace('/\s+/', ' ', cleanHostRunbook());
+
+    expect($flat)
+        ->toContain('It may be named `rateguru-*`; it must never be the target\'s own runtime or deploy account')
+        ->toContain('That account, its own group and a sudoers grant named for it are the only RateGuru-shaped things the preflight expects to find')
+        ->toContain('The **recovery bootstrap account** (§A) is the one identity that may already exist')
+        ->toContain('Any other `rateguru-*` account or grant is still refused');
+
+    // The script enforces exactly that, and only that.
+    $preflight = File::get(base_path('infrastructure/scripts/recovery-host-preflight'));
+
+    expect($preflight)
+        ->toContain('users="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${users}" || true)"')
+        ->toContain('groups="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${groups}" || true)"')
+        ->toContain('sudoers="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${sudoers}" || true)"')
+        ->toContain('assert_bootstrap_identity');
+});
+
+it('names the workflow of the environment it is talking about, everywhere guidance is printed', function () {
+    // A production host told to re-run "Recover staging host" is told to run
+    // the wrong workflow against the wrong environment.
+    foreach ([
+        'infrastructure/scripts/recover-host',
+        'infrastructure/scripts/fetch-recovery-material',
+        'infrastructure/scripts/recovery-host-preflight',
+    ] as $script) {
+        $source = File::get(base_path($script));
+
+        expect($source)
+            ->toContain('recovery_workflow_name() {')
+            ->toContain("staging)    printf 'Recover staging host\\n' ;;")
+            ->toContain("production) printf 'Recover production host\\n' ;;");
+
+        // The name appears exactly once — inside that function. Every piece of
+        // guidance calls it.
+        expect(substr_count($source, 'Recover staging host'))->toBe(1, "{$script} still hardcodes a workflow name");
+        expect($source)->toContain('$(recovery_workflow_name)');
+    }
+
+    // The transport guidance in the action names the environment it was given.
+    $action = File::get(base_path('.github/actions/recovery-host-preflight/action.yml'));
+
+    expect($action)->toContain('"re-run \"Recover ${ENVIRONMENT} host\" with mode=start"');
+    expect(substr_count($action, 'Recover staging host'))->toBe(0);
+});
+
+it('never derives a hostname from a sentence explaining that it has none', function () {
+    $preflight = base_path('infrastructure/scripts/recovery-host-preflight');
+
+    // With no readable registry the guide has no hostname, and says so with a
+    // placeholder rather than pasting prose into a curl command.
+    [$exit, $output] = runInfraScript($preflight, ['--operator-guide'], [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_RECOVERYPREFLIGHT_SOURCE_REGISTRY' => '/nonexistent/deployment-targets.json',
+    ]);
+
+    expect($exit)->toBe(0, $output);
+    expect($output)
+        ->toContain('curl --resolve <public-hostname>:443:<IP> https://<public-hostname>/up')
+        ->toContain('(public hostnames of this target: unknown here (registry: public_hostnames))');
+
+    expect(str_contains($output, 'curl --resolve the:'))->toBeFalse('a sentence is not a hostname');
 });

@@ -768,6 +768,18 @@ check_database() {
         || problem "${DATABASE_NAME} already holds ${tables} tables in the public schema: a recovery restores into the EMPTY database Prepare Host created, and it never drops, truncates or overwrites data it did not put there. If this really is a discardable replacement host, remove the data deliberately and by hand first"
 }
 
+# recovery_workflow_name — the operator-facing name of the workflow that drives
+# this target's recovery. Derived from the target's own environment class, so
+# guidance on a production host never tells an operator to re-run the staging
+# workflow.
+recovery_workflow_name() {
+    case "${ENVIRONMENT_CLASS:-}" in
+        staging)    printf 'Recover staging host\n' ;;
+        production) printf 'Recover production host\n' ;;
+        *)          printf "the recovery workflow for %s\n" "${TARGET_ID:-this target}" ;;
+    esac
+}
+
 # --- the PRE_DEPLOY Supervisor state ---------------------------------------------
 #
 # A prepared, never-deployed host does not have its queue program loaded into
@@ -1980,7 +1992,7 @@ perform_recovery() {
     [[ "${BACKUP_SCHEMA}" == "3" ]] || operator_action_required \
         "backup ${BACKUP_ID} is a schema ${BACKUP_SCHEMA:-unknown} backup, written before the recovery material joined the format" \
         "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 3); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
-        "re-run \"Recover staging host\" with mode=start and that backup's exact timestamp" \
+        "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
         "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
         "confirm it is schema 3 and passed the offsite restore test"
     [[ "${BACKUP_SCHEMA}" == "3" ]] \
@@ -2369,7 +2381,7 @@ perform_resume() {
     [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] || operator_action_required \
         "recovery operation ${OPERATION_ID} is still awaiting its code: no current release is deployed" \
         "the data is restored and held; --resume only finishes a recovery whose exact commit (${BACKUP_SOURCE_SHA}) has been deployed by the controlled recovery deployment" \
-        "re-run \"Recover staging host\" with mode=continue-held and operation=${OPERATION_ID}" \
+        "re-run \"$(recovery_workflow_name)\" with mode=continue-held and operation=${OPERATION_ID}" \
         "let the workflow build and deploy the exact commit the backup names (it reads the stage from --inspect and continues from there)" \
         "do not deploy anything else, run a migration or clear the guard by hand"
     [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] \

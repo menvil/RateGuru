@@ -60,6 +60,7 @@ it('is transport only: one read-only script to the bootstrap home, one fixed arg
         'bootstrap-user',
         'deployment-target',
         'environment',
+        'recovery-backup',
         'recovery-host',
         'recovery-port',
     ]);
@@ -72,7 +73,11 @@ it('is transport only: one read-only script to the bootstrap home, one fixed arg
         ->toContain('test -x "${script}"')
         ->toContain('remote_dir=".rateguru-preflight-${RUN_ID}-${RUN_ATTEMPT}"')
         ->toContain('"${BOOTSTRAP_USER}@${RECOVERY_HOST}:${remote_dir}/recovery-host-preflight"')
-        ->toContain("remote_command=(\n  \${RATEGURU_PRIVILEGED_PREFIX}\n  bash\n  \"\${remote_dir}/recovery-host-preflight\"\n  --check\n  --target \"\${DEPLOYMENT_TARGET}\"\n)")
+        ->toContain("remote_command=(\n  \${RATEGURU_PRIVILEGED_PREFIX}\n  bash\n  \"\${remote_dir}/recovery-host-preflight\"\n  --check\n  --target \"\${DEPLOYMENT_TARGET}\"\n  --bootstrap-user \"\${BOOTSTRAP_USER}\"\n  --environment \"\${ENVIRONMENT}\"\n)")
+        // Identity only, and only when the caller has one: the exact backup
+        // this start is for, compared with the one an earlier preparation
+        // recorded on the machine. Nothing is read from the backup itself.
+        ->toContain('remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")')
         ->toContain('"${remote_command[@]@Q}"')
         ->toContain("grep '^RATEGURU_RECOVERY_PREFLIGHT='");
 
@@ -80,7 +85,7 @@ it('is transport only: one read-only script to the bootstrap home, one fixed arg
     $runs = preflightActionRuns();
 
     foreach ([
-        'tar ', 'bundle', '--material-dir', '--recovery-backup', '--backup', 'rclone',
+        'tar ', 'bundle', '--material-dir', '--backup ', 'rclone',
         'prepare-host', 'recover-host', 'build-rateguru', 'deploy-rateguru', 'eval', 'bash -c',
     ] as $forbidden) {
         expect(str_contains($runs, $forbidden))->toBeFalse("the preflight action must never carry or invoke: {$forbidden}");
@@ -111,8 +116,23 @@ it('proves privileged access first and names each transport failure in the share
         ->toContain('host key verification failed|remote host identification has changed')
         ->toContain('permission denied|no supported authentication');
 
-    // Every refusal ends the step before anything is uploaded.
+    // Two refusal branches, and each one ends the step before anything is
+    // uploaded: the transport classification above, and the passwordless-sudo
+    // branch below it. Asserted as branches rather than as a bare count.
+    $transport = mb_substr($access, mb_strpos($access, 'if (( probe_status != 0 )); then'));
+    $sudo = mb_substr($access, mb_strpos($access, 'action_required passwordless-sudo-missing'));
+
+    expect($transport)->toContain('exit 1');
+    expect($sudo)->toContain('exit 1');
     expect(substr_count($access, 'exit 1'))->toBe(2);
+
+    // The helper reports and records the cause; the branch that called it is
+    // what ends the step. A helper that exited would make every refusal look
+    // identical to the one before it.
+    $helper = mb_substr($access, mb_strpos($access, 'action_required() {'), mb_strpos($access, 'rm -f "${RUNNER_TEMP}/rateguru_preflight_action_required"') - mb_strpos($access, 'action_required() {'));
+
+    expect(str_contains($helper, 'exit '))->toBeFalse('the helper reports; the caller exits');
+    expect($helper)->toContain('echo "cause=${word}" >> "${GITHUB_OUTPUT}"');
 
     // The step's own diagnostic never carries key material.
     expect($access)->toContain("grep -viE 'private|BEGIN|END' >&2");
@@ -213,19 +233,52 @@ it('asks the lifecycle question on the runner before it connects anywhere, and o
 it('exposes a result and a closed cause, read only from its own steps', function () {
     $outputs = preflightAction()['outputs'];
 
-    expect(array_keys($outputs))->toBe(['result', 'cause']);
+    expect(array_keys($outputs))->toBe(['result', 'state', 'cause']);
     expect($outputs['result']['value'])->toBe('${{ steps.preflight.outputs.result }}');
+    expect($outputs['state']['value'])->toBe('${{ steps.preflight.outputs.state }}');
     expect($outputs['cause']['value'])->toBe('${{ steps.access.outputs.cause || steps.preflight.outputs.cause }}');
 
     $run = preflightActionStep('Run the read-only preflight on the replacement host');
 
+    // A pass is the ONLY outcome without a cause. A transport that died before
+    // the script printed a verdict leaves no machine-readable line at all, and
+    // that must still reach the workflow as a word it can act on.
     expect($run)
-        ->toContain('echo "result=${result:-refused}"')
-        ->toContain('echo "cause=${cause}"')
+        ->toContain('echo "result=pass"')
+        ->toContain('echo "cause="')
+        ->toContain('echo "result=refused"')
+        ->toContain('echo "cause=${cause:-preflight-failed}"')
+        ->toContain('echo "state=${state:-pristine}"')
+        ->toContain('echo "state=${state:-unknown}"')
         ->toContain('if (( preflight_status == 0 )) && [[ "${result}" == "pass" ]]; then')
         // The summary carries the script's own REFUSED lines and its action
         // block — names of files, accounts and units — never the whole log.
         ->toContain("awk '/^RECOVERY PREFLIGHT: REFUSED/ { collecting = 1 } collecting && !/^RATEGURU_RECOVERY_PREFLIGHT=/ { print }'")
         ->toContain('## Recovery host preflight — REFUSED before any change')
         ->toContain('## Recovery host preflight — PASS');
+});
+
+it('refuses a bootstrap user that is the target\'s own identity, on the runner, before any connection', function () {
+    $lifecycle = preflightActionStep('Validate the target lifecycle before anything is uploaded');
+
+    expect($lifecycle)
+        ->toContain("runtime_user=\"\$(printf '%s' \"\${target_json}\" | jq -r '.runtime_user // empty')\"")
+        ->toContain("deploy_user=\"\$(printf '%s' \"\${target_json}\" | jq -r '.deploy_user // empty')\"")
+        ->toContain('if [[ "${BOOTSTRAP_USER}" == "${runtime_user}" ]] || [[ "${BOOTSTRAP_USER}" == "${deploy_user}" ]]; then')
+        ->toContain('Nothing was connected to.');
+
+    // Asked here as well as on the host, because a clean machine cannot read
+    // the registry at all — and the answer decides which identity the
+    // host-side check is allowed to treat as expected.
+    expect(data_get(preflightAction(), 'runs.steps.1.env.BOOTSTRAP_USER'))->toBe('${{ inputs.bootstrap-user }}');
+});
+
+it('reports which of the two accepted states a passing machine was in', function () {
+    $run = preflightActionStep('Run the read-only preflight on the replacement host');
+
+    expect($run)
+        ->toContain('state="$(jq -r \'.state // empty\' <<<"${result_json:-{\}}" 2>/dev/null || true)"')
+        ->toContain('if [[ "${state}" == "recovery-preparation-retry" ]]; then')
+        ->toContain('the machine an earlier start of this recovery already prepared for')
+        ->toContain('Prepare Host converges it again');
 });

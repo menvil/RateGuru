@@ -517,3 +517,86 @@ it('still reads the machine-readable result of a successful invocation, includin
         removeScratchDir($scratch);
     }
 });
+
+it('refuses to pass on a final verification that did not report the contract it exists to prove', function (string $missing) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = json_decode(json_encode([
+            'status' => 'verified',
+            'target' => 'staging-main',
+            'operation' => '20260909-120000-abc123',
+            'backup' => '20260909-113248',
+            'backup_release' => '20260909-104500-1a2b3c4',
+            'required_source_sha' => str_repeat('a', 40),
+            'data_restored' => true,
+            'current_release' => '20260909-104500-1a2b3c4',
+            'source_sha' => str_repeat('a', 40),
+            'health' => 'pass',
+            'queue' => 'running',
+            'scheduler' => 'present',
+            'offsite_writes' => 'held',
+        ]), true);
+
+        unset($result[$missing]);
+
+        $run = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'MODE' => 'verify',
+            'BACKUP_ID' => '',
+            'OPERATION_ID' => '',
+            'RGTEST_SSH_STDOUT' => 'RATEGURU_RECOVER_RESULT='.json_encode($result),
+            'RGTEST_SSH_EXIT' => '0',
+        ]));
+
+        expect($run['exit'])->not->toBe(0);
+        expect($run['output'])->toContain($missing === 'offsite_writes'
+            // The offsite-write hold has its own gate, in every mode: no
+            // result that says nothing about it is passed on, ever.
+            ? 'The machine-readable recovery result does not report the offsite-write hold'
+            : "The final verification did not report {$missing}, which is part of the contract it exists to prove");
+
+        // Nothing is passed on: a workflow that received the outputs would
+        // otherwise have to invent the missing fact or hide it.
+        expect(File::get($scratch.'/github-output'))->not->toContain('status=verified');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['queue', 'scheduler', 'health', 'offsite_writes']);
+
+it('passes on a final verification that reports all of it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $run = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'MODE' => 'verify',
+            'BACKUP_ID' => '',
+            'OPERATION_ID' => '',
+            'RGTEST_SSH_STDOUT' => 'RATEGURU_RECOVER_RESULT='.json_encode([
+                'status' => 'verified',
+                'target' => 'staging-main',
+                'operation' => '20260909-120000-abc123',
+                'backup' => '20260909-113248',
+                'backup_release' => '20260909-104500-1a2b3c4',
+                'required_source_sha' => str_repeat('a', 40),
+                'data_restored' => true,
+                'current_release' => '20260909-104500-1a2b3c4',
+                'source_sha' => str_repeat('a', 40),
+                'health' => 'pass',
+                'queue' => 'running',
+                'scheduler' => 'present',
+                'offsite_writes' => 'held',
+            ]),
+            'RGTEST_SSH_EXIT' => '0',
+        ]));
+
+        expect($run['exit'])->toBe(0, $run['output']);
+        expect(File::get($scratch.'/github-output'))
+            ->toContain('status=verified')
+            ->toContain('queue=running')
+            ->toContain('scheduler=present')
+            ->toContain('health=pass')
+            ->toContain('offsite-writes=held');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});

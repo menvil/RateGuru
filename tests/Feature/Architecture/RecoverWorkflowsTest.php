@@ -1574,11 +1574,21 @@ it('proves the replacement host is a clean, supported machine before it prepares
         ->and(data_get($step, 'with.bootstrap-ssh-key'))->toBe('${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}')
         ->and(data_get($step, 'with.bootstrap-known-hosts'))->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}');
 
-    // Nothing is passed that could make the preflight anything but a proof:
-    // no backup, no material, no command.
-    foreach (['recovery-backup', 'backup-id', 'laravel-env', 'rclone-config', 'command', 'material-dir'] as $input) {
+    // The exact backup this start is for, as IDENTITY: it is compared with
+    // the backup an earlier preparation of this same recovery recorded on the
+    // machine, so a start that already prepared this host is recognised as one
+    // to converge rather than refused as dirty. Nothing is read from the
+    // backup here, and nothing else is passed that could make the preflight
+    // anything but a proof.
+    expect(data_get($step, 'with.recovery-backup'))->toBe('${{ needs.validate.outputs.backup }}');
+
+    foreach (['backup-id', 'laravel-env', 'rclone-config', 'command', 'material-dir'] as $input) {
         expect(data_get($step, "with.{$input}"))->toBeNull();
     }
+
+    // And the state it found is reported, so the summary can say which of the
+    // two accepted states the machine was in.
+    expect(data_get($preflight, 'outputs.state'))->toBe('${{ steps.preflight.outputs.state }}');
 
     // Prepare Host never runs after a refused preflight: it needs the job
     // and carries no always()/!cancelled() escape around that dependency.
@@ -1724,4 +1734,71 @@ it('refuses to start without the recovery values the environment must hold, nami
         ->toContain('| Recovery values present |')
         ->toContain('"values:${VALUES_RESULT}"');
     expect(data_get($workflow, 'jobs.report.steps.0.env.VALUES_CAUSE'))->toBe('${{ needs.values.outputs.cause }}');
+})->with('recover workflows');
+
+// =============================================================================
+// The summary states what was reported, and nothing else
+// =============================================================================
+
+it('never turns an unreported final-contract fact into a successful one', function (
+    string $file,
+    string $name,
+    string $target,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    // Every fact under "as verified on the host" is one the server-side
+    // verification reported. A default THERE would be this summary inventing
+    // the answer the contract hopes for. (Elsewhere a fallback is honest:
+    // the overview table says "not verified", and a refusal says "<empty>".)
+    $success = mb_substr($run, mb_strpos($run, 'if [[ "${VERIFY_RESULT}" == "success" ]]; then'));
+
+    foreach (['RECOVERED_QUEUE', 'RECOVERED_SCHEDULER', 'RECOVERED_HEALTH', 'OFFSITE_WRITES', 'RECOVERED_SOURCE_SHA'] as $fact) {
+        expect(str_contains($success, '${'.$fact.':-'))
+            ->toBeFalse("{$file}: the success summary must not default {$fact}");
+    }
+
+    foreach (['running', 'present', 'pass', 'held'] as $optimistic) {
+        expect(str_contains($success, ":-{$optimistic}}"))
+            ->toBeFalse("{$file}: the success summary must not fall back to {$optimistic}");
+    }
+
+    expect($run)
+        ->toContain('missing=()')
+        ->toContain('[[ -n "${RECOVERED_QUEUE}" ]]       || missing+=("queue")')
+        ->toContain('[[ -n "${RECOVERED_SCHEDULER}" ]]   || missing+=("scheduler")')
+        ->toContain('[[ -n "${RECOVERED_HEALTH}" ]]      || missing+=("health")')
+        ->toContain('[[ -n "${OFFSITE_WRITES}" ]]        || missing+=("offsite_writes")')
+        ->toContain('Recovery NOT confirmed — the final verification reported an incomplete contract')
+        ->toContain('this summary will not')
+        ->toContain('exit 1');
+
+    // The verification job is where those values come from, and the action is
+    // required to report them for the verify mode.
+    expect(data_get($workflow, 'jobs.verify.outputs.queue'))->toBe('${{ steps.verify.outputs.queue }}')
+        ->and(data_get($workflow, 'jobs.verify.outputs.scheduler'))->toBe('${{ steps.verify.outputs.scheduler }}');
+})->with('recover workflows');
+
+it('tells a values job that judged nothing apart from one that found a value missing', function (
+    string $file,
+    string $name,
+    string $target,
+    string $environment,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    // An approval that was rejected or timed out, or a cancelled run, leaves
+    // the values job with a result and no cause. Guidance about a missing
+    // GitHub value would be a guess.
+    expect($run)
+        ->toContain('if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then')
+        ->toContain('if [[ "${VALUES_RESULT}" == "cancelled" ]]; then')
+        ->toContain("the run was cancelled before the {$environment} environment's recovery values were judged")
+        ->toContain("the {$environment} environment's approval was rejected or timed out")
+        ->toContain('read the values job\'s own log and its environment approval');
+
+    // The missing-value guidance stays for the case it was written for.
+    expect($run)->toContain('values:rclone-config-secret-missing)');
 })->with('recover workflows');

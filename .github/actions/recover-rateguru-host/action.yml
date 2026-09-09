@@ -698,6 +698,20 @@ runs:
           exit 1
         }
 
+        # The final verification is where a recovery's whole contract is
+        # stated, and the calling workflow announces it as fact. A verify that
+        # does not report the runtime it verified is not one this action will
+        # pass on as a success: an absent field would otherwise become an
+        # optimistic default somewhere downstream.
+        if [[ "${MODE}" == "verify" ]]; then
+          for field in queue scheduler health; do
+            jq -e --arg field "${field}" '.[$field] | type == "string" and length > 0' <<<"${result_json}" >/dev/null || {
+              echo "The final verification did not report ${field}, which is part of the contract it exists to prove: ${result_json}" >&2
+              exit 1
+            }
+          done
+        fi
+
         {
           echo "status=$(jq -r '.status' <<<"${result_json}")"
           echo "operation=$(jq -r '.operation' <<<"${result_json}")"

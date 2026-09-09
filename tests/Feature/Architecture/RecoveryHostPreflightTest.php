@@ -21,7 +21,7 @@ function preflightScript(): string
  * directories every Ubuntu image has, and none of the services a clean image
  * lacks — no /etc/nginx, no /etc/php, no /etc/supervisor, no psql.
  */
-function preflightCleanHost(string $scratch): string
+function preflightCleanHost(string $scratch, array $options = []): string
 {
     $fs = $scratch.'/fs';
 
@@ -39,9 +39,24 @@ function preflightCleanHost(string $scratch): string
         '',
     ]));
 
+    // The bootstrap access a recovery reaches a replacement host through is
+    // installed out of band BEFORE any of this can run, so a genuinely clean
+    // machine already carries the account, its own group, its authorized_keys
+    // and its sudoers grant. This is what the real one looks like.
+    $bootstrap = $options['bootstrap_account'] ?? 'rateguru-bootstrap';
+
     mkdir($scratch.'/accounts', 0o755, true);
     file_put_contents($scratch.'/accounts/passwd', "root:x:0:0:root:/root:/bin/bash\nubuntu:x:1000:1000::/home/ubuntu:/bin/bash\n");
     file_put_contents($scratch.'/accounts/group', "root:x:0:\nsudo:x:27:ubuntu\nubuntu:x:1000:\n");
+
+    if ($bootstrap !== '') {
+        file_put_contents($scratch.'/accounts/passwd', "{$bootstrap}:x:1001:1001::/home/{$bootstrap}:/bin/bash\n", FILE_APPEND);
+        file_put_contents($scratch.'/accounts/group', "{$bootstrap}:x:1001:\n", FILE_APPEND);
+
+        mkdir($fs.'/home/'.$bootstrap.'/.ssh', 0o700, true);
+        file_put_contents($fs.'/home/'.$bootstrap.'/.ssh/authorized_keys', "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRecoveryBootstrapKey recovery\n");
+        file_put_contents($fs.'/etc/sudoers.d/'.$bootstrap, "{$bootstrap} ALL=(ALL) NOPASSWD:ALL\n");
+    }
 
     @mkdir($scratch.'/bin', 0o755, true);
 
@@ -151,7 +166,7 @@ function preflightEnv(string $scratch, array $overrides = []): array
  * @param  array<string, string>  $overrides
  * @return array{exit: int, output: string}
  */
-function preflightRun(string $scratch, array $arguments = ['--check', '--target', 'parity-target'], array $overrides = []): array
+function preflightRun(string $scratch, array $arguments = ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging'], array $overrides = []): array
 {
     [$exit, $output] = runInfraScript(preflightScript(), $arguments, preflightEnv($scratch, $overrides));
 
@@ -237,7 +252,7 @@ it('passes a clean Ubuntu 22.04 x86_64 machine, counting every absent service as
             ->toContain('PASS     postgresql — not installed')
             ->toContain("SUMMARY\nPASS: 17\nREFUSED: 0")
             ->toContain('RECOVERY PREFLIGHT: PASS — x86_64 is a supported, clean replacement host for parity-target; nothing was changed')
-            ->toContain('RATEGURU_RECOVERY_PREFLIGHT={"result":"pass","cause":"","target":"parity-target","refusals":0}');
+            ->toContain('RATEGURU_RECOVERY_PREFLIGHT={"result":"pass","cause":"","state":"pristine","target":"parity-target","refusals":0}');
 
         expect(str_contains($result['output'], 'REFUSED '))->toBeFalse('a clean host refuses nothing');
         expect(str_contains($result['output'], 'ACTION REQUIRED'))->toBeFalse('a passing preflight asks nothing of the operator');
@@ -280,20 +295,22 @@ it('refuses a machine that already carries the RateGuru tree, naming the release
 
         expect($result['exit'])->toBe(1);
         expect($result['output'])
-            ->toContain('REFUSED  rateguru-root — /home/www/rateguru already exists (holds: run staging) — a replacement host carries no RateGuru tree at all')
+            ->toContain('REFUSED  rateguru-root — /home/www/rateguru already exists (holds: run staging)')
             ->toContain('REFUSED  releases — a deployed or partially deployed target is present: staging/current staging/releases')
-            ->toContain('REFUSED  guards — a data operation owns or owned a target on this machine: run/recoveries/staging-main/recovery-guard run/offsite-write-hold')
+            ->toContain('REFUSED  guards — a data operation owns this target on this machine: run/recoveries/staging-main/recovery-guard')
+            ->toContain('never started again')
             ->toContain('REFUSED: 3')
-            ->toContain('RECOVERY PREFLIGHT: REFUSED — this machine is not a genuinely clean replacement host for parity-target; nothing was changed')
+            ->toContain('RECOVERY PREFLIGHT: REFUSED — this machine is neither a genuinely clean replacement host for parity-target nor a recovery preparation of it to converge; nothing was changed')
             ->toContain('RECOVERY ACTION REQUIRED')
-            ->toContain('Cause: RateGuru state already exists on this machine (see the REFUSED lines above)')
-            ->toContain('What this means: a clean-host recovery prepares a machine that holds no RateGuru tree, account, database, service or guard')
-            ->toContain("Do:\n  1. do not clean this machine up by hand for a recovery: provision a NEW VPS from a ubuntu 22.04 image instead")
-            ->toContain("  2. if this machine is the target's live host, or a previously recovered one, it is not a replacement host — use Repair Target or Restore Target Data for a live host")
-            ->toContain('  3. install only the bootstrap SSH public key for the recovery user on the new machine, and record its ssh-ed25519 host key into RECOVERY_KNOWN_HOSTS')
-            ->toContain('Then: re-run "Recover staging host" with mode=start against a genuinely clean machine')
+            ->toContain('Cause: a data operation already owns parity-target on this machine (see the REFUSED lines above)')
+            ->toContain('a recovery that reached its own --apply holds the target with a guard and an operation ID')
+            ->toContain('never remove a guard or the offsite-write hold by hand to make a start pass')
+            ->toContain('for a held recovery, re-run "Recover staging host" with mode=continue-held and the operation ID from that run\'s summary')
             ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
-            ->toContain('RATEGURU_RECOVERY_PREFLIGHT={"result":"refused","cause":"host-not-clean","target":"parity-target","refusals":3}');
+            ->toContain('"result":"refused"')
+            // The guard is what an operator must act on first: a held recovery
+            // is continued, never started again.
+            ->toContain('"cause":"operation-in-progress"');
 
         // Nothing was removed or "cleaned up": the tree, the guard and the
         // hold are exactly as they were. That is the whole point of a refusal.
@@ -552,6 +569,10 @@ it('refuses to run unprivileged and refuses a malformed request', function (arra
     }
 })->with([
     'not root' => [['--check', '--target', 'parity-target'], ['RATEGURU_RECOVERYPREFLIGHT_EUID' => '1000'], 'recovery-host-preflight must run as root'],
+    'a malformed bootstrap user' => [['--check', '--target', 'parity-target', '--bootstrap-user', 'Root User'], [], 'invalid bootstrap user: Root User'],
+    'a malformed environment' => [['--check', '--target', 'parity-target', '--environment', 'prod'], [], 'invalid environment: prod'],
+    'a malformed recovery backup' => [['--check', '--target', 'parity-target', '--recovery-backup', 'latest'], [], '--recovery-backup requires an exact offsite backup timestamp'],
+    'a repeated bootstrap user' => [['--check', '--target', 'parity-target', '--bootstrap-user', 'a', '--bootstrap-user', 'b'], [], '--bootstrap-user given more than once'],
     'no mode' => [['--target', 'parity-target'], [], 'one of --check or --operator-guide is required'],
     'both modes' => [['--check', '--operator-guide', '--target', 'parity-target'], [], 'exactly one of --check or --operator-guide is required'],
     'no target' => [['--check'], [], '--target is required'],
@@ -657,9 +678,7 @@ it('explains itself: --help names the runbook, and --operator-guide states the e
 
     // Exactly the values the recovery workflow reads: no value it does not
     // read, and none of the PREPARE_* values a recovery never reads.
-    preg_match_all('/\b(?:vars|secrets)\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', File::get(base_path('.github/workflows/recover-staging.yml')), $read);
-    $read = array_values(array_unique($read[1]));
-    sort($read);
+    $read = recoveryValuesRead('recover-staging.yml')['all'];
 
     preg_match_all('/\b((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $guide, $named);
     $named = array_values(array_unique($named[1]));
@@ -671,3 +690,317 @@ it('explains itself: --help names the runbook, and --operator-guide states the e
     // Without a target, the guide still names every active target's hostname.
     expect(preflightFromCheckout(['--operator-guide']))->toContain("(public hostnames of this target: {$hostname})");
 });
+
+// =============================================================================
+// The bootstrap access a clean replacement host necessarily already has
+// =============================================================================
+
+it('accepts the recovery bootstrap account, its group and its sudoers grant on an otherwise untouched machine', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // Exactly the machine the first real recovery met: a fresh VPS with
+        // the out-of-band access installed and nothing else.
+        preflightCleanHost($scratch);
+
+        $result = preflightRun($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Bootstrap user: rateguru-bootstrap (the out-of-band access this machine is reached through)')
+            ->toContain('PASS     users — none')
+            ->toContain('PASS     groups — none')
+            ->toContain('PASS     sudoers — none')
+            ->toContain('RECOVERY PREFLIGHT: PASS')
+            ->toContain('"state":"pristine"');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('exempts only that exact account, and refuses every other RateGuru identity or grant', function (array $accounts, array $files, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $fs = preflightCleanHost($scratch);
+
+        foreach ($accounts as $database => $line) {
+            file_put_contents($scratch.'/accounts/'.$database, $line, FILE_APPEND);
+        }
+
+        foreach ($files as $path => $contents) {
+            @mkdir(dirname($fs.$path), 0o755, true);
+            file_put_contents($fs.$path, $contents);
+        }
+
+        $result = preflightRun($scratch);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])
+            ->toContain($expected)
+            ->toContain('"cause":"host-not-clean"');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'the target runtime account' => [
+        ['passwd' => "rateguru-staging:x:1101:1101::/nonexistent:/usr/sbin/nologin\n"],
+        [],
+        'REFUSED  users — RateGuru accounts exist: rateguru-staging',
+    ],
+    'the target deploy account' => [
+        ['passwd' => "deploy-rateguru-staging:x:1102:1102::/home/deploy-rateguru-staging:/bin/bash\n"],
+        [],
+        'REFUSED  users — RateGuru accounts exist: deploy-rateguru-staging',
+    ],
+    'another bootstrap-shaped account' => [
+        ['passwd' => "rateguru-bootstrap-old:x:1103:1103::/home/rateguru-bootstrap-old:/bin/bash\n"],
+        [],
+        'REFUSED  users — RateGuru accounts exist: rateguru-bootstrap-old',
+    ],
+    'another RateGuru group' => [
+        ['group' => "rateguru-staging-code:x:1104:\n"],
+        [],
+        'REFUSED  groups — RateGuru groups exist: rateguru-staging-code',
+    ],
+    'another RateGuru sudoers grant' => [
+        [],
+        ['/etc/sudoers.d/rateguru-deploy' => "deploy-rateguru-staging ALL=(ALL) NOPASSWD:/usr/local/sbin/rateguru-deploy\n"],
+        'REFUSED  sudoers — RateGuru sudoers grants exist: rateguru-deploy',
+    ],
+]);
+
+it("refuses outright when the bootstrap user is the target's own runtime or deploy identity", function (string $user) {
+    $scratch = restoreScratchDir();
+
+    try {
+        preflightCleanHost($scratch, ['bootstrap_account' => $user]);
+
+        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', $user, '--environment', 'staging']);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain("Cause: the recovery bootstrap user is {$user}, which is parity-target's own runtime or deploy identity")
+            ->toContain('set RECOVERY_BOOTSTRAP_USER to root, or to a dedicated bootstrap account')
+            ->toContain("ERROR: the recovery bootstrap user {$user} is parity-target's own runtime or deploy identity");
+
+        // Refused before a single check ran: no verdict, no state, nothing read.
+        expect(str_contains($result['output'], 'SUPPORTED HOST'))->toBeFalse();
+        expect(str_contains($result['output'], 'RATEGURU_RECOVERY_PREFLIGHT='))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'the deploy user' => ['parity-deploy'],
+    'the runtime user' => [trim((string) shell_exec('id -un'))],
+]);
+
+// =============================================================================
+// A start that re-enters a preparation it already made
+// =============================================================================
+
+/**
+ * The machine an earlier `mode=start` left behind: prepared (or part way
+ * there) for one exact target and backup, with the offsite-write hold
+ * prepare-host places and nothing deployed.
+ */
+function preflightPreparedHost(string $scratch, array $options = []): string
+{
+    $fs = preflightCleanHost($scratch, $options);
+
+    // Everything Prepare Host installs, which a pristine check would refuse.
+    mkdir($fs.'/home/www/rateguru/staging/releases', 0o755, true);
+    mkdir($fs.'/home/www/rateguru/staging/shared', 0o755, true);
+    file_put_contents($fs.'/home/www/rateguru/staging/shared/.env', "APP_ENV=staging\n");
+    mkdir($fs.'/home/www/rateguru/run', 0o755, true);
+    mkdir($fs.'/etc/nginx/sites-available', 0o755, true);
+    file_put_contents($fs.'/etc/nginx/sites-available/rateguru-staging', "server {}\n");
+    file_put_contents($fs.'/etc/cron.d/rateguru-staging-scheduler', "* * * * * root true\n");
+    file_put_contents($scratch.'/accounts/passwd', "rateguru-staging:x:1201:1201::/nonexistent:/usr/sbin/nologin\n", FILE_APPEND);
+
+    file_put_contents(
+        $fs.'/home/www/rateguru/run/offsite-write-hold',
+        json_encode($options['hold'] ?? [
+            'hold' => 'offsite-writes',
+            'reason' => 'host-recovery',
+            'target' => 'parity-target',
+            'backup' => '20260115-023000',
+            'created_by' => 'prepare-host --recovery-backup',
+            'created_at' => '2026-01-15T04:00:00Z',
+        ]),
+    );
+
+    return $fs;
+}
+
+/** @param list<string> $extra */
+function preflightStartRun(string $scratch, array $extra = [], string $backup = '20260115-023000'): array
+{
+    return preflightRun($scratch, array_merge(
+        ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging', '--recovery-backup', $backup],
+        $extra,
+    ));
+}
+
+it('recognises the machine an earlier start of this exact recovery already prepared, and converges it rather than refusing it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // RUN 1 left this behind: Prepare Host succeeded and recover-host
+        // refused before it created an operation, so no operation ID exists
+        // and continue-held is not available. RUN 2 is a mode=start.
+        preflightPreparedHost($scratch);
+        $before = preflightHostSnapshot($scratch);
+
+        $result = preflightStartRun($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Backup: 20260115-023000')
+            ->toContain('PASS     releases — none')
+            ->toContain('PASS     guards — none')
+            ->toContain('an earlier start of this recovery prepared this machine for parity-target from backup 20260115-023000')
+            ->toContain('Prepare Host is convergent and this start converges it again')
+            ->toContain('RECOVERY PREFLIGHT: PASS — this machine is the one an earlier start of this recovery already prepared')
+            ->toContain('"state":"recovery-preparation-retry"');
+
+        // Read-only here too: the hold that proves it is not touched.
+        expect(preflightHostSnapshot($scratch))->toBe($before);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('accepts a preparation only for the exact recovery it was made for', function (array $options, array $extra, string $backup, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        preflightPreparedHost($scratch, $options);
+
+        foreach ($extra as $path => $contents) {
+            @mkdir(dirname($scratch.'/fs'.$path), 0o755, true);
+            file_put_contents($scratch.'/fs'.$path, $contents);
+        }
+
+        $result = preflightStartRun($scratch, backup: $backup);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])->toContain($expected);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    // The hold authorises one recovery, not the machine in general.
+    'a different backup' => [
+        [],
+        [],
+        '20260220-030000',
+        'REFUSED  rateguru-root — /home/www/rateguru already exists',
+    ],
+    'a hold for another target' => [
+        ['hold' => ['hold' => 'offsite-writes', 'reason' => 'host-recovery', 'target' => 'other-target', 'backup' => '20260115-023000']],
+        [],
+        '20260115-023000',
+        'REFUSED  rateguru-root — /home/www/rateguru already exists',
+    ],
+    'a hold placed for something other than a recovery' => [
+        ['hold' => ['hold' => 'offsite-writes', 'reason' => 'operator', 'target' => 'parity-target', 'backup' => '20260115-023000']],
+        [],
+        '20260115-023000',
+        'this one carries no recovery preparation for parity-target from backup 20260115-023000',
+    ],
+]);
+
+it('refuses a prepared machine that is serving code, or that a data operation already owns', function (array $paths, string $expected, string $cause) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $fs = preflightPreparedHost($scratch);
+
+        foreach ($paths as $path => $contents) {
+            @mkdir(dirname($fs.$path), 0o755, true);
+
+            if ($contents === null) {
+                mkdir($fs.$path, 0o755, true);
+
+                continue;
+            }
+
+            file_put_contents($fs.$path, $contents);
+        }
+
+        $result = preflightStartRun($scratch);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])
+            ->toContain($expected)
+            ->toContain("\"cause\":\"{$cause}\"");
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'a deployed release' => [
+        ['/home/www/rateguru/staging/current' => "not-a-symlink\n"],
+        'REFUSED  releases — a deployed or partially deployed target is present: staging/current',
+        'host-not-clean',
+    ],
+    'a previous release' => [
+        ['/home/www/rateguru/staging/previous' => "not-a-symlink\n"],
+        'REFUSED  releases — a deployed or partially deployed target is present: staging/previous',
+        'host-not-clean',
+    ],
+    'a release inside releases/' => [
+        ['/home/www/rateguru/staging/releases/20260115-010000-abcdef' => null],
+        'REFUSED  releases — a deployed or partially deployed target is present: staging/releases',
+        'host-not-clean',
+    ],
+    'a recovery already holding the target' => [
+        ['/home/www/rateguru/run/recoveries/parity-target/recovery-guard' => "{\"operation\":\"20260115-041233-9be21c\"}\n"],
+        'a recovery that is already held is continued with mode=continue-held and its operation ID, never started again',
+        'operation-in-progress',
+    ],
+    'a live restore holding the target' => [
+        ['/home/www/rateguru/run/restores/parity-target/restore-guard' => "{\"operation\":\"20260115-041233-9be21c\"}\n"],
+        'REFUSED  guards — a data operation owns this target on this machine',
+        'operation-in-progress',
+    ],
+]);
+
+it('proves nothing from a preparation it cannot tie to this exact start', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        preflightPreparedHost($scratch);
+
+        // No --recovery-backup: the start named no backup to compare, so the
+        // hold authorises nothing and the machine is judged as it stands.
+        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging']);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])
+            ->toContain('REFUSED  rateguru-root — /home/www/rateguru already exists')
+            ->toContain('"state":"pristine"');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('names the workflow of the environment it was asked about', function (string $environment, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        preflightCleanHost($scratch);
+        file_put_contents($scratch.'/os-release', "ID=debian\nVERSION_ID=\"12\"\n");
+
+        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', $environment]);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])->toContain("Then: re-run \"{$expected}\" with mode=start against the new machine");
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    ['staging', 'Recover staging host'],
+    ['production', 'Recover production host'],
+]);

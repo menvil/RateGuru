@@ -674,6 +674,7 @@ jobs:
     outputs:
       result: ${{ steps.preflight.outputs.result }}
       cause: ${{ steps.preflight.outputs.cause }}
+      state: ${{ steps.preflight.outputs.state }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -694,6 +695,13 @@ jobs:
           bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
           bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          # Identity only, and only on the start path: compared with the backup
+          # an earlier preparation of THIS recovery recorded on the machine, so
+          # a start that already prepared this host is recognised as one to
+          # converge rather than refused as dirty. Nothing is read from the
+          # backup here.
+          recovery-backup: ${{ needs.validate.outputs.backup }}
 
   prepare:
     name: Prepare the replacement host from the backup
@@ -1515,6 +1523,35 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [[ "${VERIFY_RESULT}" == "success" ]]; then
+            # Every fact below is one the server-side verification REPORTED.
+            # A summary headed "as verified on the host" may not fill a gap
+            # with the value the contract hopes for: an absent field means the
+            # verification did not report it, and a recovery whose final
+            # contract cannot be stated in full is not a recovery to announce
+            # as complete.
+            missing=()
+            [[ -n "${RECOVERED_SOURCE_SHA}" ]]  || missing+=("source_sha")
+            [[ -n "${RECOVERED_QUEUE}" ]]       || missing+=("queue")
+            [[ -n "${RECOVERED_SCHEDULER}" ]]   || missing+=("scheduler")
+            [[ -n "${RECOVERED_HEALTH}" ]]      || missing+=("health")
+            [[ -n "${OFFSITE_WRITES}" ]]        || missing+=("offsite_writes")
+
+            if (( ${#missing[@]} > 0 )); then
+              {
+                echo "### Recovery NOT confirmed — the final verification reported an incomplete contract"
+                echo
+                echo "\`recover-host --verify\` succeeded, but the run has no value for: \`${missing[*]}\`."
+                echo "These are the facts the final contract is made of, and this summary will not"
+                echo "invent them. The host may well be correct — read the verify job's own output,"
+                echo "or run \`recover-host --verify --target staging-main\` on the machine."
+                echo
+                echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              } >> "${GITHUB_STEP_SUMMARY}"
+
+              echo "The final verification did not report: ${missing[*]}" >&2
+              exit 1
+            fi
+
             {
               echo "### Recovered — the final contract, as verified on the host"
               echo
@@ -1523,12 +1560,12 @@ jobs:
               echo "| Target | \`staging-main\` |"
               echo "| Replacement host | \`${REPLACEMENT_HOST}:${REPLACEMENT_PORT}\` |"
               echo "| Exact backup | \`${backup}\` |"
-              echo "| Exact source_sha | \`${RECOVERED_SOURCE_SHA:-${REQUIRED_SOURCE_SHA:-not reported}}\` |"
-              echo "| Queue | \`${RECOVERED_QUEUE:-running}\` |"
-              echo "| Scheduler | \`${RECOVERED_SCHEDULER:-present}\` |"
-              echo "| Health | \`${RECOVERED_HEALTH:-pass}\` |"
-              echo "| Guards | none (restore guard absent, recovery guard absent) |"
-              echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES:-held}\`) |"
+              echo "| Exact source_sha | \`${RECOVERED_SOURCE_SHA}\` |"
+              echo "| Queue | \`${RECOVERED_QUEUE}\` |"
+              echo "| Scheduler | \`${RECOVERED_SCHEDULER}\` |"
+              echo "| Health | \`${RECOVERED_HEALTH}\` |"
+              echo "| Guards | none (recover-host --verify refuses a target that carries a restore or recovery guard) |"
+              echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES}\`) |"
               echo "| Migrations run | none |"
               echo "| DNS | unchanged |"
               echo "| DEPLOY_HOST | unchanged |"
@@ -1627,6 +1664,25 @@ jobs:
             then_action="re-run \"Recover staging host\" with mode=start and the same exact backup (backup=${backup:-<exact timestamp>})"
           fi
 
+          # A values job that never reported a cause did not judge anything:
+          # an environment approval was rejected or timed out, the run was
+          # cancelled, or the job failed before its own step. Guidance about a
+          # missing GitHub value would be a guess, so it is not given.
+          if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then
+            if [[ "${VALUES_RESULT}" == "cancelled" ]]; then
+              action_required "the run was cancelled before the staging environment's recovery values were judged" \
+                "nothing was connected to and nothing was changed" \
+                "re-run the workflow when you are ready; a cancelled run holds nothing on any machine"
+            else
+              action_required "the values job did not complete (its result is \`${VALUES_RESULT}\`, and it reported no cause)" \
+                "the staging environment's approval was rejected or timed out, or the job failed before it could judge anything; nothing was connected to and nothing was changed" \
+                "read the values job's own log and its environment approval" \
+                "approve the staging environment deployment, or fix what the log names, and re-run"
+            fi
+
+            exit 0
+          fi
+
           case "${stage}:${VALUES_CAUSE}" in
             values:rclone-config-secret-missing)
               action_required "the staging GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
@@ -1702,11 +1758,18 @@ jobs:
                 "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
               ;;
             preflight:host-not-clean:*)
-              action_required "the replacement host already carries RateGuru state (the preflight job names it)" \
-                "a clean-host recovery prepares a machine that holds no RateGuru tree, account, database, service or guard; preparing over existing state would turn the recovery into a partial repair, so nothing was changed or removed" \
+              action_required "the replacement host already carries RateGuru state that no earlier start of this recovery put there (the preflight job names it)" \
+                "a start may enter from a genuinely clean machine, or from one an earlier start of THIS recovery already prepared — proven by the offsite-write hold naming this target and this exact backup. This machine is neither, and preparing over unknown state would turn the recovery into a partial repair of it, so nothing was changed or removed" \
                 "do not clean the machine up by hand: create a NEW VPS from an Ubuntu 22.04 x86_64 image" \
                 "if that machine is the live host or an earlier recovery, it is not a replacement host — use Repair Target or Restore Target Data for a live host" \
                 "install only the bootstrap SSH public key on the new machine and record its host key into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:operation-in-progress:*)
+              action_required "a data operation already owns staging-main on the replacement host" \
+                "a recovery that reached its own --apply holds the target with a guard and an operation ID; a restore guard means a live restore owns the data. Starting a second operation over either is never safe, and nothing was changed" \
+                "if a recovery is held there, continue it: re-run with mode=continue-held and the operation ID from that run's summary" \
+                "read what it is waiting for on the host: recover-host --inspect --target staging-main --operation <id>" \
+                "never remove a guard or the offsite-write hold by hand to make a start pass"
               ;;
             preflight:host-unreachable:*)
               action_required "the replacement host did not answer the bootstrap SSH connection" \

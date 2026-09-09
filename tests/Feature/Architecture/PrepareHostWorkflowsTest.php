@@ -639,3 +639,81 @@ it('refuses a recovery preparation without the offsite credential by naming the 
         removeScratchDir($scratch);
     }
 });
+
+it('names a cause for every refusal the recovery contract makes, never an empty one', function (array $env, string $expected, string $cause) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/prepare-rateguru-host/action.yml', 'Validate the recovery preparation contract', actionStepEnv($scratch, array_merge([
+            'RECOVERY_BACKUP' => '20260909-113248',
+            'SEED_RCLONE_CONFIG_PRESENT' => 'true',
+            'SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT' => 'true',
+            'LARAVEL_ENV_PRESENT' => 'false',
+            'BASIC_AUTH_PRESENT' => 'false',
+            'TLS_CERTIFICATE_PRESENT' => 'false',
+            'TLS_PRIVATE_KEY_PRESENT' => 'false',
+            'TLS_DHPARAMS_PRESENT' => 'false',
+            'NGINX_TLS_OPTIONS_PRESENT' => 'false',
+            'MAIL_TLS_CERTIFICATE_PRESENT' => 'false',
+            'MAIL_TLS_PRIVATE_KEY_PRESENT' => 'false',
+        ], $env)));
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+
+        // A closed word, always: the calling workflow renders its guidance
+        // from this, and an empty cause would render none.
+        expect(File::get($scratch.'/github-output'))->toContain("failure-cause={$cause}");
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'a backup that is not an exact timestamp' => [
+        ['RECOVERY_BACKUP' => 'latest'],
+        'recovery-backup must be an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: latest)',
+        'preparation-failed',
+    ],
+    'a hand-supplied environment file' => [
+        ['LARAVEL_ENV_PRESENT' => 'true'],
+        'laravel-env must not be supplied',
+        'preparation-failed',
+    ],
+    'hand-supplied TLS material' => [
+        ['TLS_CERTIFICATE_PRESENT' => 'true'],
+        'tls-certificate must not be supplied',
+        'preparation-failed',
+    ],
+    'no offsite credential' => [
+        ['SEED_RCLONE_CONFIG_PRESENT' => 'false'],
+        'RECOVERY_RCLONE_CONFIG Environment SECRET',
+        'rclone-config-unavailable',
+    ],
+]);
+
+it('reports no cause at all when the contract is satisfied', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $result = runActionStep('.github/actions/prepare-rateguru-host/action.yml', 'Validate the recovery preparation contract', actionStepEnv($scratch, [
+            'RECOVERY_BACKUP' => '',
+            'SEED_RCLONE_CONFIG_PRESENT' => 'false',
+            'SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT' => 'false',
+            'LARAVEL_ENV_PRESENT' => 'true',
+            'BASIC_AUTH_PRESENT' => 'false',
+            'TLS_CERTIFICATE_PRESENT' => 'false',
+            'TLS_PRIVATE_KEY_PRESENT' => 'false',
+            'TLS_DHPARAMS_PRESENT' => 'false',
+            'NGINX_TLS_OPTIONS_PRESENT' => 'false',
+            'MAIL_TLS_CERTIFICATE_PRESENT' => 'false',
+            'MAIL_TLS_PRIVATE_KEY_PRESENT' => 'false',
+        ]));
+
+        // An ordinary preparation: material comes from the inputs, and none of
+        // the recovery contract applies.
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('Ordinary preparation');
+        expect(File::get($scratch.'/github-output'))->toBe('');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});

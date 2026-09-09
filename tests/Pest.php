@@ -1905,6 +1905,37 @@ function runInfraScript(string $scriptPath, array $arguments, array $env): array
 }
 
 /**
+ * The GitHub Environment values one recovery workflow actually reads, by kind.
+ *
+ * Derived from the workflow source rather than restated, so a value that is
+ * added, removed or moved between a variable and a secret is a change every
+ * test and every document that names the set has to answer for.
+ *
+ * @return array{vars: list<string>, secrets: list<string>, all: list<string>}
+ */
+function recoveryValuesRead(string $workflow): array
+{
+    $source = File::get(base_path('.github/workflows/'.$workflow));
+
+    $byKind = static function (string $kind) use ($source): array {
+        preg_match_all('/\b'.$kind.'\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $source, $matches);
+
+        $names = array_values(array_unique($matches[1]));
+        sort($names);
+
+        return $names;
+    };
+
+    $vars = $byKind('vars');
+    $secrets = $byKind('secrets');
+
+    $all = array_values(array_unique([...$vars, ...$secrets]));
+    sort($all);
+
+    return ['vars' => $vars, 'secrets' => $secrets, 'all' => $all];
+}
+
+/**
  * One composite action step's `run:` body, executed for real.
  *
  * A transport step is ordinary Bash under `set -Eeuo pipefail`, and the way it

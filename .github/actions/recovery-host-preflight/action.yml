@@ -74,17 +74,36 @@ inputs:
       checking is non-negotiable here: there is no TOFU, no relaxed host-key
       policy and no password fallback anywhere in this action.
 
+  recovery-backup:
+    required: false
+    default: ""
+    description: >-
+      The exact backup (YYYYMMDD-HHMMSS) this start is for. Nothing is
+      downloaded, read or verified from it here: it is compared with the backup
+      an earlier recovery preparation recorded on the machine, so a start that
+      already prepared this host FOR THIS TARGET AND THIS BACKUP is recognised
+      as a preparation to converge again rather than as a dirty host.
+
 outputs:
   result:
     description: "pass when the machine is a supported, clean replacement host; refused otherwise"
     value: ${{ steps.preflight.outputs.result }}
 
+  state:
+    description: >-
+      Which of the two states a passing machine was in: pristine, or
+      recovery-preparation-retry — the machine an earlier start of this exact
+      recovery already prepared. `unknown` when no verdict was reached.
+    value: ${{ steps.preflight.outputs.state }}
+
   cause:
     description: >-
       Why the machine was refused, as one closed word an operator can act on:
-      unsupported-os, unsupported-architecture, host-not-clean, or a
-      transport cause — host-unreachable, known-hosts-mismatch,
-      ssh-authentication-failed, passwordless-sudo-missing. Empty on pass.
+      unsupported-os, unsupported-architecture, host-not-clean,
+      operation-in-progress, a transport cause — host-unreachable,
+      known-hosts-mismatch, ssh-authentication-failed,
+      passwordless-sudo-missing — or preflight-failed when the check could not
+      reach a verdict at all. Empty ONLY on a pass.
     value: ${{ steps.access.outputs.cause || steps.preflight.outputs.cause }}
 
 runs:
@@ -161,6 +180,7 @@ runs:
       shell: bash
       env:
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
       run: |
         set -Eeuo pipefail
 
@@ -181,6 +201,19 @@ runs:
         if [[ "${lifecycle}" != "active" ]]; then
           echo "Target ${DEPLOYMENT_TARGET} has lifecycle=${lifecycle:-unknown}, not active." >&2
           echo "The preflight is refused before any connection is made: a recovery rebuilds a target that is already live somewhere, and activating one is a deliberate registry change, never a side effect." >&2
+          exit 1
+        fi
+
+        # The bootstrap account is the one identity the read-only check accepts
+        # as already present on a clean machine, so it must not be an identity
+        # the preparation itself creates. Asked here as well as on the host,
+        # because a clean machine cannot read the registry at all.
+        runtime_user="$(printf '%s' "${target_json}" | jq -r '.runtime_user // empty')"
+        deploy_user="$(printf '%s' "${target_json}" | jq -r '.deploy_user // empty')"
+
+        if [[ "${BOOTSTRAP_USER}" == "${runtime_user}" ]] || [[ "${BOOTSTRAP_USER}" == "${deploy_user}" ]]; then
+          echo "RECOVERY_BOOTSTRAP_USER is ${BOOTSTRAP_USER}, which is ${DEPLOYMENT_TARGET}'s own runtime or deploy identity." >&2
+          echo "The bootstrap account is the out-of-band access a replacement host is reached through; reusing the target's own account would make the identities this preflight exists to find invisible to it. Set RECOVERY_BOOTSTRAP_USER to root or to a dedicated bootstrap account. Nothing was connected to." >&2
           exit 1
         fi
 
@@ -230,6 +263,7 @@ runs:
         RECOVERY_HOST: ${{ inputs.recovery-host }}
         RECOVERY_PORT: ${{ inputs.recovery-port }}
         BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        ENVIRONMENT: ${{ inputs.environment }}
       run: |
         set -Eeuo pipefail
 
@@ -294,7 +328,7 @@ runs:
             action_required known-hosts-mismatch \
               "the replacement host's SSH host key is not the one recorded in RECOVERY_KNOWN_HOSTS" \
               "either the wrong machine answered, or RECOVERY_KNOWN_HOSTS holds the key of another machine (or none); the workflow never scans or trusts a key on first use" \
-              "re-run \"Recover staging host\" with mode=start" \
+              "re-run \"Recover ${ENVIRONMENT} host\" with mode=start" \
               "read the machine's ssh-ed25519 host key from your own machine (runbook section C)" \
               "compare it with the provider console or the machine's /etc/ssh/ssh_host_ed25519_key.pub over a channel you trust" \
               "store exactly that verified line as RECOVERY_KNOWN_HOSTS in the GitHub Environment"
@@ -302,14 +336,14 @@ runs:
             action_required ssh-authentication-failed \
               "the replacement host did not accept RECOVERY_BOOTSTRAP_SSH_KEY for ${BOOTSTRAP_USER}" \
               "the public half of the recovery key is not installed for that user on this machine, or RECOVERY_BOOTSTRAP_USER names the wrong account" \
-              "re-run \"Recover staging host\" with mode=start" \
+              "re-run \"Recover ${ENVIRONMENT} host\" with mode=start" \
               "install the public half of RECOVERY_BOOTSTRAP_SSH_KEY into ~${BOOTSTRAP_USER}/.ssh/authorized_keys on the replacement host" \
               "confirm from your own machine that an SSH login as ${BOOTSTRAP_USER} with the recovery key runs 'id -u' (runbook section B)"
           else
             action_required host-unreachable \
               "the replacement host ${RECOVERY_HOST}:${RECOVERY_PORT} did not answer the bootstrap SSH connection" \
               "the address, the port, a firewall or the machine itself is not ready; nothing was uploaded and nothing was changed" \
-              "re-run \"Recover staging host\" with mode=start" \
+              "re-run \"Recover ${ENVIRONMENT} host\" with mode=start" \
               "confirm the machine is up and its SSH port is reachable: nc -vz ${RECOVERY_HOST} ${RECOVERY_PORT}" \
               "confirm replacement-host and replacement-port name the NEW machine"
           fi
@@ -328,7 +362,7 @@ runs:
           action_required passwordless-sudo-missing \
             "${BOOTSTRAP_USER} is neither root nor a passwordless sudoer on the replacement host" \
             "the preflight, the preparation and the recovery all need root on that machine; nothing was uploaded and nothing was changed" \
-            "re-run \"Recover staging host\" with mode=start" \
+            "re-run \"Recover ${ENVIRONMENT} host\" with mode=start" \
             "grant ${BOOTSTRAP_USER} passwordless sudo on the replacement host (a sudoers entry with NOPASSWD), or set RECOVERY_BOOTSTRAP_USER to root" \
             "confirm from your own machine that 'sudo -n true' succeeds for ${BOOTSTRAP_USER} over SSH (runbook section B)"
           exit 1
@@ -348,6 +382,7 @@ runs:
         BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
         ENVIRONMENT: ${{ inputs.environment }}
+        RECOVERY_BACKUP: ${{ inputs.recovery-backup }}
         RUN_ID: ${{ github.run_id }}
         RUN_ATTEMPT: ${{ github.run_attempt }}
       run: |
@@ -395,7 +430,15 @@ runs:
           "${remote_dir}/recovery-host-preflight"
           --check
           --target "${DEPLOYMENT_TARGET}"
+          --bootstrap-user "${BOOTSTRAP_USER}"
+          --environment "${ENVIRONMENT}"
         )
+
+        # Identity only: the check compares it with the backup an earlier
+        # preparation recorded here, and reads nothing from the backup itself.
+        if [[ -n "${RECOVERY_BACKUP}" ]]; then
+          remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
+        fi
 
         set +e
         preflight_output="$(ssh_bootstrap "${remote_command[@]@Q}" 2>&1)"
@@ -409,22 +452,39 @@ runs:
 
         result="$(jq -r '.result // empty' <<<"${result_json:-{\}}" 2>/dev/null || true)"
         cause="$(jq -r '.cause // empty' <<<"${result_json:-{\}}" 2>/dev/null || true)"
+        state="$(jq -r '.state // empty' <<<"${result_json:-{\}}" 2>/dev/null || true)"
 
-        {
-          echo "result=${result:-refused}"
-          echo "cause=${cause}"
-        } >> "${GITHUB_OUTPUT}"
-
+        # A pass is the only outcome with no cause. Anything else — including a
+        # transport that died before the script could reach a verdict, leaving
+        # no machine-readable line at all — is refused with a word the calling
+        # workflow can act on, never with an empty one.
         if (( preflight_status == 0 )) && [[ "${result}" == "pass" ]]; then
+          {
+            echo "result=pass"
+            echo "cause="
+            echo "state=${state:-pristine}"
+          } >> "${GITHUB_OUTPUT}"
+
           {
             echo "## Recovery host preflight — PASS"
             echo
             echo "- Target: \`${DEPLOYMENT_TARGET}\` (\`${ENVIRONMENT}\`)"
             echo "- Replacement host: \`${RECOVERY_HOST}:${RECOVERY_PORT}\`"
-            echo "- Verdict: a supported, genuinely clean replacement host; nothing was changed"
+
+            if [[ "${state}" == "recovery-preparation-retry" ]]; then
+              echo "- Verdict: the machine an earlier start of this recovery already prepared for \`${DEPLOYMENT_TARGET}\`${RECOVERY_BACKUP:+ from backup \`${RECOVERY_BACKUP}\`}, with no release deployed and no operation held; Prepare Host converges it again"
+            else
+              echo "- Verdict: a supported, genuinely clean replacement host; nothing was changed"
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
           exit 0
         fi
+
+        {
+          echo "result=refused"
+          echo "cause=${cause:-preflight-failed}"
+          echo "state=${state:-unknown}"
+        } >> "${GITHUB_OUTPUT}"
 
         # The script's own refusal and its RECOVERY ACTION REQUIRED block: names
         # of files, accounts and units only, never a secret.
@@ -433,7 +493,7 @@ runs:
           echo
           echo "- Target: \`${DEPLOYMENT_TARGET}\` (\`${ENVIRONMENT}\`)"
           echo "- Replacement host: \`${RECOVERY_HOST}:${RECOVERY_PORT}\`"
-          echo "- Cause: \`${cause:-preflight-failed}\`"
+          echo "- Cause: \`${cause:-preflight-failed}\` (the check reached no verdict of its own when this says preflight-failed)"
           echo
           echo '```text'
           awk '/^RECOVERY PREFLIGHT: REFUSED/ { collecting = 1 } collecting && !/^RATEGURU_RECOVERY_PREFLIGHT=/ { print }' <<<"${preflight_output}"

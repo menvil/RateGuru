@@ -32,8 +32,11 @@ machine anything RateGuru-shaped was ever installed on.
 | Operating system | Ubuntu **22.04** exactly (`ID=ubuntu`, `VERSION_ID="22.04"` in `/etc/os-release`) — the bootstrap installers refuse every other release |
 | Architecture | **x86_64** (`amd64`) — the pinned runtime binaries and packages exist for it only |
 | SSH access | the SSH server listening on the port you will pass as `replacement-port` (normally 22) |
-| Recovery user | the account named by `RECOVERY_BOOTSTRAP_USER`: `root`, or a user with **passwordless** non-interactive `sudo` |
+| Recovery user | the account named by `RECOVERY_BOOTSTRAP_USER`: `root`, or a user with **passwordless** non-interactive `sudo`. It may be named `rateguru-*`; it must never be the target's own runtime or deploy account |
 | Its key | the **public** half of `RECOVERY_BOOTSTRAP_SSH_KEY` in that user's `~/.ssh/authorized_keys` — the only thing you install |
+
+That account, its own group and a sudoers grant named for it are the only
+RateGuru-shaped things the preflight expects to find on an untouched machine.
 
 **Install nothing else by hand.** No packages, no Nginx, no PostgreSQL, no
 PHP, no Supervisor, no `.env`, no TLS certificate or key, no Basic Auth
@@ -199,13 +202,26 @@ In order, and it stops at the first refusal:
    `DEPLOY_KNOWN_HOSTS` versus `RECOVERY_KNOWN_HOSTS`. No connection.
 4. **preflight** — connects as the recovery user, proves root or
    passwordless sudo, uploads the read-only `recovery-host-preflight` and
-   runs it: Ubuntu 22.04 exactly, x86_64, and **no RateGuru state** — no
-   `/home/www/rateguru`, no release, no guard, no RateGuru database or role
-   where PostgreSQL exists, no RateGuru-managed Nginx site, PHP-FPM pool,
-   Supervisor program, cron entry, systemd unit, sudo wrapper or sudoers
-   grant, no RateGuru account. Absent PostgreSQL, Nginx and Supervisor are
-   what a clean machine looks like and pass. A refusal changes nothing and
-   names the reason; Prepare Host does not run.
+   runs it. It accepts a machine in exactly one of two states, and nothing
+   else:
+
+   * **pristine** — Ubuntu 22.04 exactly, x86_64, and **no RateGuru state**:
+     no `/home/www/rateguru`, no release, no guard, no RateGuru database or
+     role where PostgreSQL exists, no RateGuru-managed Nginx site, PHP-FPM
+     pool, Supervisor program, cron entry, systemd unit, sudo wrapper or
+     sudoers grant, no RateGuru account. Absent PostgreSQL, Nginx and
+     Supervisor are what a clean machine looks like and pass. The **recovery
+     bootstrap account** (§A) is the one identity that may already exist —
+     that exact account, its own group, and a sudoers grant named for it. Any
+     other `rateguru-*` account or grant is still refused, and a bootstrap
+     user that is the target's own runtime or deploy identity is refused
+     outright.
+   * **a preparation of this same recovery, to converge** — a machine an
+     earlier `mode=start` already prepared for **this target and this exact
+     backup**, proven by the offsite-write hold it placed, with no release
+     deployed and no guard held (§K).
+
+   A refusal changes nothing and names the reason; Prepare Host does not run.
 5. **deploy-identity** — derives the deploy public key from `DEPLOY_SSH_KEY`
    on the runner; the private key never leaves it.
 6. **prepare** — Prepare Host in its recovery form: runtime, then
@@ -310,13 +326,40 @@ The run's summary states every one of those facts (no secrets).
 A recovery routinely outlives the run that started it, and nothing is
 cleaned up to make a run look green. Read the summary:
 
-* **Stopped before an operation ID exists** (request, environment values,
-  binding, preflight, deploy identity, or Prepare Host): nothing is held on
-  the machine. Fix
-  what the `RECOVERY ACTION REQUIRED` block names and re-run with
-  `mode=start`. If Prepare Host itself failed part way, the same clean
-  machine can usually be prepared again — preparation is convergent — but a
-  refused preflight means a **new** machine.
+A run stops in exactly one of three stages, and the machine is in a different
+state in each.
+
+* **Stopped before Prepare Host ran** (request, environment values, binding,
+  preflight, deploy identity): **nothing on the machine was touched** — no
+  RateGuru tree, no hold, no state of any kind. Fix what the
+  `RECOVERY ACTION REQUIRED` block names and re-run with `mode=start`. A
+  refused preflight means the machine is not one a recovery may start on:
+  take a new one, and do not clean this one up by hand.
+* **Stopped after Prepare Host started, with no operation ID in the summary**:
+  the machine is prepared, or part way there, and it **is** carrying the
+  offsite-write hold Prepare Host places. That hold stays where it is. It is
+  not damage and it is not a leftover: it fences the replacement machine's
+  backup writers, it names this target and this exact backup, and it is the
+  proof the next run uses to recognise this machine as the one this recovery
+  already began preparing.
+
+  Re-run with **`mode=start`, the same target and the same exact backup**:
+
+  ```text
+  mode             = start
+  backup           = <the same YYYYMMDD-HHMMSS>
+  replacement-host = <the same IP>
+  ```
+
+  The preflight recognises the preparation by that hold and accepts the
+  machine; Prepare Host is convergent and converges it again, resuming at the
+  first unsatisfied slice; the recovery then runs. A **different** backup or a
+  **different** target is refused, because that hold does not authorise them.
+
+  **Never remove the offsite-write hold to make a re-run pass.** Removing it
+  unfences a machine whose backup writers would then reach the real offsite
+  namespace, and it destroys the only proof that this machine belongs to this
+  recovery. Nothing in a recovery ever asks you to.
 * **Stopped after `recover-host --apply` started** (an operation ID is in
   the summary): the data is restored and the host is held. Re-run with:
 
@@ -335,7 +378,9 @@ cleaned up to make a run look green. Read the summary:
   the result. The host is complete; do not re-run.
 * **The offsite-write hold is missing**: `--inspect` and `--verify` refuse
   and name the remediation; `--resume` re-establishes it. See
-  [`recover-host.md`](recover-host.md).
+  [`recover-host.md`](recover-host.md). Nothing in a recovery removes that
+  hold: it stays until the machine is deliberately adopted, and a machine
+  missing one a preparation placed is a machine something else changed.
 * **The recovery refused the prepared/EMPTY contract**
   (`does not satisfy the prepared/EMPTY recovery contract`): the recover job's
   log lists every problem it found, one line each, above that verdict — read
@@ -426,6 +471,11 @@ already installed, at the moment the target legitimately starts serving.
 A **live** target answering the same thing is a different matter entirely, and
 Restore Target Data still fails closed on it: there, the group vanished from
 under a running application.
+
+This is also the state a `mode=start` may legitimately find and re-enter: such
+a machine carries the offsite-write hold naming this target and this exact
+backup, no deployed release and no guard, and the preflight recognises it as
+the preparation this recovery already began rather than as a dirty host (§K).
 
 ---
 
