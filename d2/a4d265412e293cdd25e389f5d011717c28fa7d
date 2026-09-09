@@ -1,0 +1,41 @@
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_9a6ca54786c126::t_9e9c462cc1c1da 535-641
+tests/Feature/Architecture/CleanHostRecoveryRunbookTest.php
+  s_9a6ca54786c126::t_a766f09a3a80b6 357-360,379-381
+  s_9a6ca54786c126::t_5d103a41035b30 50,52,66,334-356,361-378,382-383,388,398,401-413
+  s_9a6ca54786c126::t_7ecc70cbca6e72 384-387,389-397,399-400
+tests/Feature/Architecture/RestoreTargetTest.php
+  s_9a6ca54786c126::t_e55bc89ced0600 588-590,592,594,599-608
+  s_9a6ca54786c126::t_3969f3c1339911 561-587,591,593,595-598,609-613
+tests/Feature/Architecture/RecoverHostTest.php
+  s_9a6ca54786c126::t_ab41567e8e2ba0 64-78,279-288,291-329,332-356,362-504,509-556
+infrastructure/runbooks/recover-host.md
+  s_9a6ca54786c126::t_14b9591a22742f 816-818
+tests/Pest.php
+  s_9a6ca54786c126::t_a5f41c5517e9ab 1908-1929,1931-1936,1949,1951,1953-2009
+  s_9a6ca54786c126::t_57e07bd5b5b59d 1937-1948,1950,1952
+  s_9a6ca54786c126::t_330b7d3a4dccd2 2212-2225,2227-2237,2239-2240,2292-2293,2304-2305,2585,2624-2626
+  s_9a6ca54786c126::t_42b2b31f124cee 32,1930
+infrastructure/runbooks/clean-host-recovery.md
+  s_9a6ca54786c126::t_14b9591a22742f 252,262-267,339-360,385-428
+infrastructure/scripts/recover-host
+  s_9a6ca54786c126::t_a999566d91c423 134-143,159-163,179-181,632-644,771-827,834-843,1114-1124,1142-1176,1213-1216,1254-1264,1267
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_9a6ca54786c126::t_9e9c462cc1c1da 380-519
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2a4d265412e293cdd25e389f5d011717c28fa7d",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
