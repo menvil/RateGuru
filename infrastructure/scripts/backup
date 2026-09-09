@@ -235,6 +235,31 @@ build_recovery_material_archive() {
 
     install -d -o root -g root -m 0700 "${capture_dir}"
 
+    # The backup tree carries setgid semantics, and a directory created inside
+    # one inherits the bit on Linux — `install -d -m 0700` then yields 2700,
+    # which the installer's exact-0700 contract rightly refuses. Normalized
+    # here, by the producer, with the special bits cleared explicitly: GNU
+    # chmod preserves a directory's setuid/setgid bits under a numeric mode,
+    # so a plain `chmod 0700` would not do it. Then proven, so the directory
+    # handed to --capture is exactly what that contract demands: a real
+    # directory, not a symlink, owned by the identity running this backup
+    # (root in production), mode exactly 0700.
+    chmod u=rwx,g=,o=,u-s,g-s "${capture_dir}" \
+        || fail "could not normalize the recovery material capture directory to mode 0700: ${capture_dir}"
+
+    [[ ! -L "${capture_dir}" ]] && [[ -d "${capture_dir}" ]] \
+        || fail "the recovery material capture directory is not a plain directory: ${capture_dir}"
+
+    local capture_mode capture_owner
+    capture_mode="$(stat -c '%a' "${capture_dir}")"
+    capture_owner="$(stat -c '%u:%g' "${capture_dir}")"
+
+    [[ "${capture_mode}" == "700" ]] \
+        || fail "the recovery material capture directory is mode ${capture_mode}, not exactly 0700, after normalization: ${capture_dir} — refusing to hand --capture a directory its contract would refuse"
+
+    [[ "${capture_owner}" == "${EUID}:$(id -g)" ]] \
+        || fail "the recovery material capture directory is owned by ${capture_owner}, not by the identity running this backup: ${capture_dir}"
+
     local prerequisites_bin
     prerequisites_bin="$(backup_prerequisites_bin)"
 

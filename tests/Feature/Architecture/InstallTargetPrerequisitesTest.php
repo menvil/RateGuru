@@ -996,6 +996,18 @@ it('demands a root-only, empty, absolute output directory for a capture', functi
         },
         '--output-dir must be mode 0700',
     ],
+    // Exactly what a directory created under a setgid backup tree looks like
+    // on Linux: private, but carrying the inherited bit. The producer must
+    // normalize it; this contract stays exact and refuses it by name.
+    'setgid inherited' => [
+        function (string $scratch): string {
+            mkdir($scratch.'/capture', 0o700, true);
+            chmod($scratch.'/capture', 0o2700);
+
+            return $scratch.'/capture';
+        },
+        '--output-dir must be mode 0700 (is 2700)',
+    ],
     'not empty' => [
         function (string $scratch): string {
             mkdir($scratch.'/capture', 0o700, true);
