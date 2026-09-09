@@ -1,0 +1,19 @@
+tests/Feature/Architecture/TranslationParityTest.php
+  s_621fa5f7d7c714::t_02224e534eb934 77-78,81-100,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "646de6ef6cf308e4997b8fb618777ff6bbad7065",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
