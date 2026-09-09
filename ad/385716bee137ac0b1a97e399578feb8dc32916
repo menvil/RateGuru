@@ -1,0 +1,30 @@
+bootstrap/providers.php
+  s_621fa5f7d7c714::t_2f2eb9b99a2c5d 5,10
+lang/ru/mail.php
+  s_621fa5f7d7c714::t_be4a6a8946921d 1-31
+tests/Feature/Localization/MailContentLocaleTest.php
+  s_621fa5f7d7c714::t_63f5ca642dfb33 1-98
+app/Providers/MailLocalizationServiceProvider.php
+  s_621fa5f7d7c714::t_026e0a2c541063 76-78,82,85
+  s_621fa5f7d7c714::t_2f2eb9b99a2c5d 1-75,79-81,83-84,86-87
+lang/bg/mail.php
+  s_621fa5f7d7c714::t_be4a6a8946921d 1-31
+lang/en/mail.php
+  s_621fa5f7d7c714::t_be4a6a8946921d 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ad385716bee137ac0b1a97e399578feb8dc32916",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
