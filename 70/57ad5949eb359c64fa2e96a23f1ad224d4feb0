@@ -1,0 +1,26 @@
+resources/views/mail/contact-message.blade.php
+  s_621fa5f7d7c714::t_c6e1d82736021a 2,4,6-8
+app/Actions/Contact/SendContactMessageAction.php
+  s_621fa5f7d7c714::t_af6d9ffa7d40e5 25
+  s_621fa5f7d7c714::t_c6e1d82736021a 9,14-15,21,24,26-54,56,58-63,68
+app/Mail/ContactMessageMail.php
+  s_621fa5f7d7c714::t_c6e1d82736021a 30-33
+tests/Feature/Localization/ContactMailLocaleTest.php
+  s_621fa5f7d7c714::t_f3d595acfc621a 1-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7057ad5949eb359c64fa2e96a23f1ad224d4feb0",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
