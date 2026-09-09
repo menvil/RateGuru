@@ -3052,3 +3052,23 @@ function githubWorkflowJobResults(array $workflow, array $outcomes = [], array $
 
     return $results;
 }
+
+/**
+ * One recovery workflow, parsed and raw.
+ *
+ * Shared because two files ask about the same two documents from opposite
+ * directions: one asserts the policy those workflows implement, the other
+ * states the disaster-recovery contract they are one surface of.
+ *
+ * @return array{0: array, 1: string}
+ */
+function recoverWorkflow(string $file): array
+{
+    $path = base_path(".github/workflows/{$file}");
+
+    expect(File::exists($path))->toBeTrue("{$file} is missing");
+
+    $source = File::get($path);
+
+    return [Yaml::parse($source), $source];
+}

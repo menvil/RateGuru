@@ -1801,6 +1801,67 @@ it('finishes the recovery once the exact commit is deployed', function () {
     }
 });
 
+it('tells an operator a recovery is already finished rather than that its workspace is missing', function (string $mode) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+
+        // A completed recovery removes its own workspace and clears its own
+        // guard, so the operation the finished run's summary names is exactly
+        // the one an operator is most likely to hand back to continue-held.
+        // Read as "workspace does not exist" that says the machine lost its
+        // recovery, and the response to THAT is to start a second recovery
+        // over a host already serving the right code on the right data.
+        $again = recoverHostRun($scratch, [$mode, '--target', 'parity-target', '--operation', $operation]);
+
+        expect($again['exit'])->not->toBe(0);
+        expect($again['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('has already completed on parity-target')
+            ->toContain('recover-host --verify --target parity-target')
+            ->toContain('do not re-run the recovery workflow in either mode')
+            ->not->toContain('recovery operation workspace does not exist');
+
+        // It diagnoses; it never continues. Nothing on the host moved.
+        expect(recoveryGuard($scratch))->toBeNull()
+            ->and(File::exists($scratch.'/run/recoveries/parity-target/'.$operation))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['--inspect', '--resume']);
+
+it('still names a missing workspace plainly when the host is not a finished recovery', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        // A prepared, never-recovered host: no guard, and nothing serving. An
+        // operation ID that was never here is exactly that and nothing more,
+        // and inventing a completed recovery for it would be worse than the
+        // plain refusal.
+        $unknown = recoverHostRun($scratch, [
+            '--inspect', '--target', 'parity-target', '--operation', '20260115-041233-9be21c',
+        ]);
+
+        expect($unknown['exit'])->not->toBe(0);
+        expect($unknown['output'])
+            ->toContain('recovery operation workspace does not exist')
+            ->not->toContain('has already completed');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('refuses to resume when the deployed commit is not the one the data belongs to', function () {
     $scratch = restoreScratchDir();
 

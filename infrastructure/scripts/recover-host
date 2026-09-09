@@ -2166,13 +2166,54 @@ print_awaiting_code_report() {
 
 # --- shared operation loading -----------------------------------------------------------
 
+# report_absent_recovery_operation — why an operation is not on this host.
+#
+# A recovery removes its own workspace and clears its own guard when it
+# completes, so an operation that is not here is EITHER a recovery that
+# finished OR a name that was never on this machine. Both refuse, and neither
+# continues anything — but they need opposite things from an operator, and
+# "workspace does not exist" reads as the second when it is very often the
+# first: the summary of the run that finished names the operation, and typing
+# it into `mode=continue-held` is the natural next thing to try.
+#
+# Getting that wrong is not cosmetic. An operator who reads a finished
+# recovery as a lost one starts a second recovery over a host that is already
+# serving the right code on the right data, and a `--apply` on a serving host
+# is refused far too late in the story to be the place this is explained.
+#
+# The distinction is a read-only question this host can answer for itself: a
+# completed recovery leaves no guard behind and leaves `current` serving.
+report_absent_recovery_operation() {
+    local marker
+    marker="$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+    if [[ ! -e "${marker}" ]]; then
+        read_current_identity
+
+        if [[ -n "${CURRENT_RELEASE}" ]] && [[ -n "${CURRENT_SOURCE_SHA}" ]]; then
+            operator_action_required \
+                "recovery operation ${OPERATION_ID} is not on this host, and ${TARGET_ID} carries no recovery guard while serving ${CURRENT_RELEASE} (${CURRENT_SOURCE_SHA})" \
+                "this is what a FINISHED recovery looks like: a completed operation removes its own workspace and clears its own guard, so there is nothing left to continue. Starting another recovery over a serving host would restore over data that is already canonical" \
+                "confirm the host instead of recovering it again" \
+                "run: recover-host --verify --target ${TARGET_ID}" \
+                "if that reports RECOVERED: YES, this recovery is complete — do not re-run the recovery workflow in either mode" \
+                "if it refuses, act on what it names; it reports the final contract as it stands on the machine now" \
+                "adopting this machine — DEPLOY_HOST, DNS and the offsite-write hold — is a separate, deliberate operation that is not part of a recovery"
+
+            fail "recovery operation ${OPERATION_ID} has already completed on ${TARGET_ID}: its workspace was removed when it finished and the host carries no recovery guard. There is nothing to continue, and nothing was read or changed"
+        fi
+    fi
+
+    fail "recovery operation workspace does not exist: ${WORKSPACE}"
+}
+
 load_recovery_operation() {
     validate_operation_id "${OPERATION_ID}" recovery
 
     WORKSPACE="$(recovery_operation_root "${TARGET_ID}" "${OPERATION_ID}")"
 
     [[ -e "${WORKSPACE}" ]] \
-        || fail "recovery operation workspace does not exist: ${WORKSPACE}"
+        || report_absent_recovery_operation
     restore_assert_directory_safe "${WORKSPACE}" "recovery operation workspace"
 
     STATE_FILE="$(restore_state_file "${WORKSPACE}")"

@@ -36,18 +36,10 @@ use Symfony\Component\Yaml\Yaml;
  *     success except recover-host --verify, and nothing records a marker until
  *     that verification passed.
  *
- * @return array{0: array, 1: string}
+ * The two documents themselves come from `recoverWorkflow()` in Pest.php: the
+ * disaster-recovery contract asks about the same pair from the other
+ * direction, and two readers of one file is exactly what that file is for.
  */
-function recoverWorkflow(string $file): array
-{
-    $path = base_path(".github/workflows/{$file}");
-
-    expect(File::exists($path))->toBeTrue("{$file} is missing");
-
-    $source = File::get($path);
-
-    return [Yaml::parse($source), $source];
-}
 
 /** @return array<string, array> */
 function recoverWorkflowStepsByName(array $workflow, string $job): array
@@ -1769,14 +1761,23 @@ it('ships the runbook and points the README and roadmap at it', function () {
         ->toContain('runbooks/github-recover.md')
         ->toContain('7.7 GitHub Recover + clean-host rehearsal');
 
-    // Implementation-ready, not accepted: CI proves the structure, only a
-    // real disposable machine proves the pipeline — and no RPO or RTO is
-    // claimed.
+    // Accepted on a real replacement machine, on BOTH operator paths — and
+    // the roadmap has to keep saying which parts of that were real. The
+    // marker fix in particular was proved by executing the job graph, not by
+    // re-running a recovery on a VPS, and a roadmap that blurred those two
+    // would be claiming an acceptance nobody performed.
     $flattened = preg_replace('/\s+/', ' ', $roadmap);
 
     expect($flattened)
-        ->toContain('implementation ready for the REAL clean-host acceptance')
-        ->toContain('this slice is implementation-ready for that acceptance, not accepted. No RPO or RTO is claimed by it');
+        ->toContain('ACCEPTED on a real replacement VPS')
+        ->toContain('Uninterrupted clean-host recovery — PASS')
+        ->toContain('Interrupted recovery, continued — PASS')
+        ->toContain('it was NOT re-run on a real VPS, and nothing here claims it was');
+
+    // And no RPO or RTO is claimed anywhere, because none was measured.
+    expect($flattened)
+        ->toContain('No RPO or RTO is claimed')
+        ->toContain('the recovery duration was not instrumented during the 7.7 rehearsals');
 });
 
 it('creates no second implementation of anything it uses', function (
