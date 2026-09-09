@@ -2674,3 +2674,381 @@ function targetRuntimeEnv(string $scratch): array
         'RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY' => '0',
     ];
 }
+
+// =============================================================================
+// GitHub Actions job gating
+// =============================================================================
+
+/**
+ * Tokenize one GitHub Actions expression.
+ *
+ * @return list<array{kind: string, value: string}>
+ */
+function githubExpressionTokens(string $expression): array
+{
+    $source = trim($expression);
+
+    if (preg_match('/^\$\{\{(.*)\}\}$/s', $source, $matches) === 1) {
+        $source = trim($matches[1]);
+    }
+
+    $tokens = [];
+    $length = strlen($source);
+    $offset = 0;
+
+    while ($offset < $length) {
+        $character = $source[$offset];
+
+        if (ctype_space($character)) {
+            $offset++;
+
+            continue;
+        }
+
+        // Single-quoted string, with '' as the escape for a literal quote.
+        if ($character === "'") {
+            $offset++;
+            $literal = '';
+
+            while ($offset < $length) {
+                if ($source[$offset] === "'") {
+                    if (($source[$offset + 1] ?? '') === "'") {
+                        $literal .= "'";
+                        $offset += 2;
+
+                        continue;
+                    }
+
+                    $offset++;
+                    break;
+                }
+
+                $literal .= $source[$offset];
+                $offset++;
+            }
+
+            $tokens[] = ['kind' => 'string', 'value' => $literal];
+
+            continue;
+        }
+
+        foreach (['&&', '||', '==', '!='] as $operator) {
+            if (substr($source, $offset, 2) === $operator) {
+                $tokens[] = ['kind' => 'operator', 'value' => $operator];
+                $offset += 2;
+
+                continue 2;
+            }
+        }
+
+        if ($character === '!' || $character === '(' || $character === ')') {
+            $tokens[] = ['kind' => 'operator', 'value' => $character];
+            $offset++;
+
+            continue;
+        }
+
+        // A path or a function name. Job identifiers carry hyphens, so a
+        // hyphen is part of a name here and never a minus: these expressions
+        // do no arithmetic.
+        if (preg_match('/[A-Za-z_][A-Za-z0-9_.\-]*/A', $source, $matches, 0, $offset) === 1) {
+            $tokens[] = ['kind' => 'name', 'value' => $matches[0]];
+            $offset += strlen($matches[0]);
+
+            continue;
+        }
+
+        throw new RuntimeException("unsupported character '{$character}' at offset {$offset} of: {$expression}");
+    }
+
+    return $tokens;
+}
+
+/**
+ * Evaluate one GitHub Actions expression against a context, and return the
+ * value it produces — a string, or a bool for the status functions.
+ *
+ * The subset is the one job gates are written in: `&&`, `||`, `!`, `==`, `!=`,
+ * parentheses, single-quoted strings, the four status functions, and property
+ * paths under `needs`. `&&` and `||` return an OPERAND rather than a boolean,
+ * exactly as GitHub does, because that is what makes an empty-string operand
+ * behave the way it does in a real run.
+ *
+ * @param  array{needs?: array<string, array{result?: string, outputs?: array<string, string>}>, always?: bool, cancelled?: bool, success?: bool, failure?: bool}  $context
+ */
+function githubExpressionValue(string $expression, array $context): bool|string
+{
+    $tokens = githubExpressionTokens($expression);
+    $position = 0;
+
+    $peek = static function () use (&$tokens, &$position): ?array {
+        return $tokens[$position] ?? null;
+    };
+
+    $truthy = static function (bool|string $value): bool {
+        // GitHub coerces a string to a boolean by emptiness, and the empty
+        // string is exactly what an undeclared `needs.<job>` produces.
+        return is_bool($value) ? $value : $value !== '';
+    };
+
+    $parseOr = null;
+
+    $parsePrimary = function () use (&$peek, &$position, &$parseOr, $context, $expression): bool|string {
+        $token = $peek();
+
+        if ($token === null) {
+            throw new RuntimeException("expression ends early: {$expression}");
+        }
+
+        if ($token['kind'] === 'operator' && $token['value'] === '(') {
+            $position++;
+            $value = $parseOr();
+
+            $closing = $peek();
+
+            if ($closing === null || $closing['value'] !== ')') {
+                throw new RuntimeException("unbalanced parentheses in: {$expression}");
+            }
+
+            $position++;
+
+            return $value;
+        }
+
+        if ($token['kind'] === 'string') {
+            $position++;
+
+            return $token['value'];
+        }
+
+        if ($token['kind'] !== 'name') {
+            throw new RuntimeException("unexpected '{$token['value']}' in: {$expression}");
+        }
+
+        $position++;
+        $name = $token['value'];
+
+        $next = $peek();
+
+        if ($next !== null && $next['kind'] === 'operator' && $next['value'] === '(') {
+            $position++;
+
+            $closing = $peek();
+
+            if ($closing === null || $closing['value'] !== ')') {
+                throw new RuntimeException("only zero-argument functions are supported: {$expression}");
+            }
+
+            $position++;
+
+            if (! array_key_exists($name, $context)) {
+                throw new RuntimeException("the scenario does not say what {$name}() is: {$expression}");
+            }
+
+            return (bool) $context[$name];
+        }
+
+        // `needs.<job>.result` and `needs.<job>.outputs.<name>`. Anything a
+        // scenario has no value for is the empty string, which is what GitHub
+        // produces for an unset output and for a job that is not needed.
+        $path = explode('.', $name);
+
+        $value = $context;
+
+        foreach ($path as $segment) {
+            if (! is_array($value) || ! array_key_exists($segment, $value)) {
+                return '';
+            }
+
+            $value = $value[$segment];
+        }
+
+        return is_array($value) ? '' : (string) $value;
+    };
+
+    $parseUnary = function () use (&$peek, &$position, &$parseUnary, $parsePrimary, $truthy): bool|string {
+        $token = $peek();
+
+        if ($token !== null && $token['kind'] === 'operator' && $token['value'] === '!') {
+            $position++;
+
+            return ! $truthy($parseUnary());
+        }
+
+        return $parsePrimary();
+    };
+
+    $parseComparison = function () use (&$peek, &$position, $parseUnary): bool|string {
+        $left = $parseUnary();
+
+        $token = $peek();
+
+        if ($token !== null && $token['kind'] === 'operator' && in_array($token['value'], ['==', '!='], true)) {
+            $position++;
+            $right = $parseUnary();
+
+            $equal = is_bool($left) || is_bool($right)
+                ? $left === $right
+                : (string) $left === (string) $right;
+
+            return $token['value'] === '==' ? $equal : ! $equal;
+        }
+
+        return $left;
+    };
+
+    $parseAnd = function () use (&$peek, &$position, $parseComparison, $truthy): bool|string {
+        $value = $parseComparison();
+
+        while (($token = $peek()) !== null && $token['kind'] === 'operator' && $token['value'] === '&&') {
+            $position++;
+            $right = $parseComparison();
+
+            // GitHub returns the first falsy operand, or the last one.
+            $value = $truthy($value) ? $right : $value;
+        }
+
+        return $value;
+    };
+
+    $parseOr = function () use (&$peek, &$position, $parseAnd, $truthy): bool|string {
+        $value = $parseAnd();
+
+        while (($token = $peek()) !== null && $token['kind'] === 'operator' && $token['value'] === '||') {
+            $position++;
+            $right = $parseAnd();
+
+            $value = $truthy($value) ? $value : $right;
+        }
+
+        return $value;
+    };
+
+    $result = $parseOr();
+
+    if ($position !== count($tokens)) {
+        throw new RuntimeException("trailing input in: {$expression}");
+    }
+
+    return $result;
+}
+
+/**
+ * Every job a workflow job transitively depends on.
+ *
+ * @param  array<string, array>  $jobs
+ * @return list<string>
+ */
+function githubJobAncestors(array $jobs, string $job): array
+{
+    $ancestors = [];
+    $queue = (array) data_get($jobs, $job.'.needs', []);
+
+    while ($queue !== []) {
+        $name = array_shift($queue);
+
+        if (in_array($name, $ancestors, true)) {
+            continue;
+        }
+
+        $ancestors[] = $name;
+
+        foreach ((array) data_get($jobs, $name.'.needs', []) as $parent) {
+            $queue[] = $parent;
+        }
+    }
+
+    return $ancestors;
+}
+
+/**
+ * Run a workflow's job graph on paper and report what each job's `result`
+ * would be.
+ *
+ * The rule this models is the one that is easy to get wrong and expensive to
+ * discover in production: a job with no `if:` carries GitHub's implicit
+ * `success()`, and at job level that is not "the jobs I need succeeded" — it
+ * is "no job anywhere in my ancestry failed or was skipped". A legitimately
+ * skipped stage therefore withholds every unconditioned job downstream of it,
+ * however many successful jobs stand in between. A job that names its own
+ * condition is judged by that condition alone.
+ *
+ * @param  array  $workflow  the parsed workflow
+ * @param  array<string, string>  $outcomes  what a job reports IF it runs; success by default
+ * @param  array<string, array<string, string>>  $outputs  outputs by job, for the gates that read them
+ * @return array<string, string> each job's result: success, failure, cancelled or skipped
+ */
+function githubWorkflowJobResults(array $workflow, array $outcomes = [], array $outputs = [], bool $runCancelled = false): array
+{
+    $jobs = (array) data_get($workflow, 'jobs', []);
+
+    $results = [];
+    $pending = array_keys($jobs);
+
+    while ($pending !== []) {
+        $progressed = false;
+
+        foreach ($pending as $index => $name) {
+            $needs = (array) data_get($jobs, $name.'.needs', []);
+
+            foreach ($needs as $dependency) {
+                if (! array_key_exists($dependency, $results)) {
+                    continue 2;
+                }
+            }
+
+            unset($pending[$index]);
+            $progressed = true;
+
+            $ancestors = githubJobAncestors($jobs, $name);
+
+            $ancestorsSucceeded = true;
+            $ancestorFailed = false;
+
+            foreach ($ancestors as $ancestor) {
+                if (($results[$ancestor] ?? '') !== 'success') {
+                    $ancestorsSucceeded = false;
+                }
+
+                if (($results[$ancestor] ?? '') === 'failure') {
+                    $ancestorFailed = true;
+                }
+            }
+
+            $condition = data_get($jobs, $name.'.if');
+
+            if ($condition === null) {
+                $results[$name] = $ancestorsSucceeded ? ($outcomes[$name] ?? 'success') : 'skipped';
+
+                continue;
+            }
+
+            $needsContext = [];
+
+            foreach ($needs as $dependency) {
+                $needsContext[$dependency] = [
+                    'result' => $results[$dependency] ?? '',
+                    'outputs' => $outputs[$dependency] ?? [],
+                ];
+            }
+
+            $runs = githubExpressionValue((string) $condition, [
+                'needs' => $needsContext,
+                'always' => true,
+                'cancelled' => $runCancelled,
+                'success' => $ancestorsSucceeded,
+                'failure' => $ancestorFailed,
+            ]);
+
+            $results[$name] = (is_bool($runs) ? $runs : $runs !== '')
+                ? ($outcomes[$name] ?? 'success')
+                : 'skipped';
+        }
+
+        if (! $progressed) {
+            throw new RuntimeException('the workflow job graph has a cycle: '.implode(', ', $pending));
+        }
+    }
+
+    return $results;
+}

@@ -1360,8 +1360,29 @@ jobs:
           echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}; offsite writes held."
 
   # Only once the host is provably recovered, and only for what it is provably
-  # serving. Depending on `verify` with no `if` is the gate: a marker cannot be
-  # recorded for a recovery whose final contract did not hold.
+  # serving. The final verification is the entire gate, and it is enough to be
+  # one: it is the stage that proves the target holds the recovered data, is
+  # serving the exact commit that data belongs to, is healthy, has its queue
+  # RUNNING and its scheduler PRESENT, carries no guard, and still holds its
+  # offsite writers.
+  #
+  # That gate is written out rather than left implicit, and the difference is
+  # the whole reason this job exists in this shape. A job with no `if` inherits
+  # GitHub's default `success()`, which does not mean "the jobs I need
+  # succeeded" — it means "no job anywhere in my ancestry failed or was
+  # skipped". On `continue-held` the preparation, the historical build and the
+  # controlled deployment are all legitimately skipped, because the first half
+  # of the operation already performed them; the implicit gate inherited those
+  # skips and withheld the marker from a recovery that had verified perfectly.
+  #
+  # Naming the condition stops that inheritance. Nothing but the verification's
+  # own result decides, so `start` and `continue-held` record the same marker
+  # for the same reason.
+  #
+  # `always()` here means "whatever the rest of the graph did", never "whatever
+  # the verification did": a verify that reports `failure`, `cancelled` or
+  # `skipped` fails the equality and records nothing. The verification is not
+  # loosened anywhere to make this possible.
   #
   # Same shared implementation the deploy, release, rollback and restore
   # workflows use, and fail-open throughout: an unreachable Sentry or a
@@ -1374,6 +1395,7 @@ jobs:
       - binding
       - recover
       - verify
+    if: ${{ always() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 10
