@@ -6,12 +6,14 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Support\Locale\LocaleManager;
 use App\Support\Media\AvatarUrlResolver;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
@@ -32,7 +34,7 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable implements FilamentUser, MustVerifyEmail
+class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
@@ -75,6 +77,33 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     // Lifecycle capability conveniences. Every method delegates to the
     // central contract on UserStatus and fails closed when status is null —
     // no lifecycle meaning may live here (docs/architecture/user-lifecycle.md).
+
+    /**
+     * The language this user is written to in, for anything that leaves the
+     * application — mail today, anything queued tomorrow.
+     *
+     * Returning NULL rather than the fallback is deliberate, and is what makes
+     * this safe to add. Laravel's NotificationSender treats a null preference
+     * as "no preference" and renders in the CURRENT application locale, which
+     * inside a web request is the language the visitor is looking at. So a
+     * user who has never chosen a language keeps exactly today's behaviour,
+     * while a user who has one stops depending on which browser happens to be
+     * asking — which is the whole point for a password reset, where the person
+     * is not logged in and the request locale is not theirs.
+     *
+     * A stored locale that is no longer supported (removed from the config) is
+     * treated the same way as none at all.
+     */
+    public function preferredLocale(): ?string
+    {
+        $locale = $this->locale;
+
+        if (! is_string($locale) || $locale === '') {
+            return null;
+        }
+
+        return app(LocaleManager::class)->isSupported($locale) ? $locale : null;
+    }
 
     public function canCreateContent(): bool
     {
