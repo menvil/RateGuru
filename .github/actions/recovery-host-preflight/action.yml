@@ -431,7 +431,6 @@ runs:
           --check
           --target "${DEPLOYMENT_TARGET}"
           --bootstrap-user "${BOOTSTRAP_USER}"
-          --environment "${ENVIRONMENT}"
         )
 
         # Identity only: the check compares it with the backup an earlier

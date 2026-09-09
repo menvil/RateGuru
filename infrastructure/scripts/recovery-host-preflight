@@ -133,8 +133,7 @@ usage() {
     cat <<'USAGE'
 Usage:
   recovery-host-preflight --check --target TARGET_ID
-      [--bootstrap-user USER] [--environment staging|production]
-      [--recovery-backup YYYYMMDD-HHMMSS]
+      [--bootstrap-user USER] [--recovery-backup YYYYMMDD-HHMMSS]
   recovery-host-preflight --operator-guide [--target TARGET_ID]
   recovery-host-preflight --help
 
@@ -155,8 +154,6 @@ and repoints nothing.
                      shaped identities this check accepts. Every other one is
                      still refused, and an account that is the target's own
                      runtime or deploy identity is refused outright.
-  --environment      staging or production: which recovery workflow the
-                     guidance names. A clean host cannot read the registry.
   --recovery-backup  The exact backup this start is for. Given, a machine an
                      earlier start already prepared FOR THIS TARGET AND THIS
                      BACKUP is recognised as a preparation to converge again
@@ -224,14 +221,6 @@ parse_args() {
                 BOOTSTRAP_USER="$2"
                 shift 2
                 ;;
-            # Which recovery workflow the guidance below should tell the
-            # operator to re-run. A clean host cannot read the registry.
-            --environment)
-                [[ -z "${ENVIRONMENT_CLASS}" ]] || fail "--environment given more than once"
-                require_value --environment "$#" "${2-}"
-                ENVIRONMENT_CLASS="$2"
-                shift 2
-                ;;
             # The exact backup this start is for, compared with the one an
             # earlier recovery preparation recorded on this machine. Nothing is
             # downloaded, read or verified from it here.
@@ -268,13 +257,6 @@ parse_args() {
             || fail "invalid bootstrap user: ${BOOTSTRAP_USER}"
     fi
 
-    if [[ -n "${ENVIRONMENT_CLASS}" ]]; then
-        case "${ENVIRONMENT_CLASS}" in
-            staging|production) ;;
-            *) fail "invalid environment: ${ENVIRONMENT_CLASS} (expected staging or production)" ;;
-        esac
-    fi
-
     if [[ -n "${BACKUP_ID}" ]]; then
         [[ "${BACKUP_ID}" =~ ^[0-9]{8}-[0-9]{6}$ ]] \
             || fail "--recovery-backup requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP_ID})"
@@ -282,8 +264,11 @@ parse_args() {
 }
 
 # recovery_workflow_name — the operator-facing name of the workflow to re-run.
-# Taken from the environment class the caller named, or from the registry where
-# it can be read; never assumed to be staging.
+# Read from the target's own registry entry where the registry can be read; on
+# a machine that has none it stays unnamed rather than assuming staging. The
+# recovery workflow that ran this check names itself in its own summary, and
+# there is deliberately no flag for it here: an environment selector beside
+# --target is the interface this repository removed.
 recovery_workflow_name() {
     case "${ENVIRONMENT_CLASS}" in
         staging)    printf 'Recover staging host\n' ;;
@@ -342,12 +327,7 @@ resolve_target() {
 
     REGISTRY_READABLE=true
 
-    # The caller names the environment, because a clean host can read no
-    # registry at all; where one can be read it fills the gap, and the two
-    # cannot legitimately disagree — the workflow that dispatches is the one
-    # the guidance names.
-    [[ -n "${ENVIRONMENT_CLASS}" ]] \
-        || ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
+    ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
 
     TARGET_DATABASE="$(jq -r '.database.name // empty' <<<"${target_json}")"
     TARGET_DATABASE_ROLE="$(jq -r '.database.application_role // empty' <<<"${target_json}")"
@@ -856,8 +836,7 @@ run_operator_guide() {
         local target_json
         if target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}" 2>/dev/null)"; then
             hostnames="$(jq -r '(.public_hostnames // []) | join(" ")' <<<"${target_json}")"
-            [[ -n "${ENVIRONMENT_CLASS}" ]] \
-                || ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
+            ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
         fi
     elif registry_available; then
         hostnames="$(jq -r '[.targets[]? // empty | select(.lifecycle == "active") | .public_hostnames[]?] | join(" ")' "${SOURCE_REGISTRY}" 2>/dev/null || true)"
@@ -891,14 +870,14 @@ CLEAN-HOST RECOVERY — OPERATOR GUIDE (compact; the full runbook is ${RUNBOOK_P
    - That verified line, and only that line, is RECOVERY_KNOWN_HOSTS. The
      workflow never scans, never guesses, never relaxes host-key checking.
 
-4. GitHub Environment values (${ENVIRONMENT_CLASS:-staging}) — the KIND matters; a value created under
+4. GitHub Environment values (${ENVIRONMENT_CLASS:-the target environment}) — the KIND matters; a value created under
    the wrong heading is absent to the workflow, which then stops before it connects
    anywhere and names the value and the heading.
-   Environment variables (Settings -> Environments -> ${ENVIRONMENT_CLASS:-staging} -> Environment variables):
+   Environment variables (Settings -> Environments -> ${ENVIRONMENT_CLASS:-<environment>} -> Environment variables):
    - vars.RECOVERY_BOOTSTRAP_USER      the privileged user on the replacement host
    - the existing vars.DEPLOY_HOST, DEPLOY_USER, DEPLOY_ROOT, DEPLOY_INCOMING and
      DEPLOY_WRAPPER values, unchanged
-   Environment secrets (Settings -> Environments -> ${ENVIRONMENT_CLASS:-staging} -> Environment secrets):
+   Environment secrets (Settings -> Environments -> ${ENVIRONMENT_CLASS:-<environment>} -> Environment secrets):
    - secrets.RECOVERY_BOOTSTRAP_SSH_KEY the complete private key for that user, recovery-only
    - secrets.RECOVERY_KNOWN_HOSTS      the verified known_hosts line from step 3
    - secrets.RECOVERY_RCLONE_CONFIG    the complete recovery rclone.conf (READ access to the

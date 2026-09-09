@@ -73,7 +73,7 @@ it('is transport only: one read-only script to the bootstrap home, one fixed arg
         ->toContain('test -x "${script}"')
         ->toContain('remote_dir=".rateguru-preflight-${RUN_ID}-${RUN_ATTEMPT}"')
         ->toContain('"${BOOTSTRAP_USER}@${RECOVERY_HOST}:${remote_dir}/recovery-host-preflight"')
-        ->toContain("remote_command=(\n  \${RATEGURU_PRIVILEGED_PREFIX}\n  bash\n  \"\${remote_dir}/recovery-host-preflight\"\n  --check\n  --target \"\${DEPLOYMENT_TARGET}\"\n  --bootstrap-user \"\${BOOTSTRAP_USER}\"\n  --environment \"\${ENVIRONMENT}\"\n)")
+        ->toContain("remote_command=(\n  \${RATEGURU_PRIVILEGED_PREFIX}\n  bash\n  \"\${remote_dir}/recovery-host-preflight\"\n  --check\n  --target \"\${DEPLOYMENT_TARGET}\"\n  --bootstrap-user \"\${BOOTSTRAP_USER}\"\n)")
         // Identity only, and only when the caller has one: the exact backup
         // this start is for, compared with the one an earlier preparation
         // recorded on the machine. Nothing is read from the backup itself.

@@ -166,7 +166,7 @@ function preflightEnv(string $scratch, array $overrides = []): array
  * @param  array<string, string>  $overrides
  * @return array{exit: int, output: string}
  */
-function preflightRun(string $scratch, array $arguments = ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging'], array $overrides = []): array
+function preflightRun(string $scratch, array $arguments = ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap'], array $overrides = []): array
 {
     [$exit, $output] = runInfraScript(preflightScript(), $arguments, preflightEnv($scratch, $overrides));
 
@@ -570,7 +570,6 @@ it('refuses to run unprivileged and refuses a malformed request', function (arra
 })->with([
     'not root' => [['--check', '--target', 'parity-target'], ['RATEGURU_RECOVERYPREFLIGHT_EUID' => '1000'], 'recovery-host-preflight must run as root'],
     'a malformed bootstrap user' => [['--check', '--target', 'parity-target', '--bootstrap-user', 'Root User'], [], 'invalid bootstrap user: Root User'],
-    'a malformed environment' => [['--check', '--target', 'parity-target', '--environment', 'prod'], [], 'invalid environment: prod'],
     'a malformed recovery backup' => [['--check', '--target', 'parity-target', '--recovery-backup', 'latest'], [], '--recovery-backup requires an exact offsite backup timestamp'],
     'a repeated bootstrap user' => [['--check', '--target', 'parity-target', '--bootstrap-user', 'a', '--bootstrap-user', 'b'], [], '--bootstrap-user given more than once'],
     'no mode' => [['--target', 'parity-target'], [], 'one of --check or --operator-guide is required'],
@@ -776,7 +775,7 @@ it("refuses outright when the bootstrap user is the target's own runtime or depl
     try {
         preflightCleanHost($scratch, ['bootstrap_account' => $user]);
 
-        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', $user, '--environment', 'staging']);
+        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', $user]);
 
         expect($result['exit'])->toBe(1);
         expect($result['output'])
@@ -838,7 +837,7 @@ function preflightPreparedHost(string $scratch, array $options = []): string
 function preflightStartRun(string $scratch, array $extra = [], string $backup = '20260115-023000'): array
 {
     return preflightRun($scratch, array_merge(
-        ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging', '--recovery-backup', $backup],
+        ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--recovery-backup', $backup],
         $extra,
     ));
 }
@@ -975,7 +974,7 @@ it('proves nothing from a preparation it cannot tie to this exact start', functi
 
         // No --recovery-backup: the start named no backup to compare, so the
         // hold authorises nothing and the machine is judged as it stands.
-        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', 'staging']);
+        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap']);
 
         expect($result['exit'])->toBe(1);
         expect($result['output'])
@@ -986,21 +985,30 @@ it('proves nothing from a preparation it cannot tie to this exact start', functi
     }
 });
 
-it('names the workflow of the environment it was asked about', function (string $environment, string $expected) {
+it('names the workflow the target itself belongs to, and names none it cannot know', function () {
     $scratch = restoreScratchDir();
 
     try {
         preflightCleanHost($scratch);
         file_put_contents($scratch.'/os-release', "ID=debian\nVERSION_ID=\"12\"\n");
 
-        $result = preflightRun($scratch, ['--check', '--target', 'parity-target', '--bootstrap-user', 'rateguru-bootstrap', '--environment', $environment]);
+        // The registry beside the script says which environment the target
+        // lives in; there is deliberately no flag for it, because an
+        // environment selector beside --target is the interface this
+        // repository removed.
+        $result = preflightRun($scratch);
 
         expect($result['exit'])->toBe(1);
-        expect($result['output'])->toContain("Then: re-run \"{$expected}\" with mode=start against the new machine");
+        expect($result['output'])->toContain('Then: re-run "Recover staging host" with mode=start against the new machine');
+
+        // On the machine a recovery actually runs on there is no registry at
+        // all, and the guidance says so rather than assuming staging.
+        $result = preflightRun($scratch, overrides: ['RATEGURU_RECOVERYPREFLIGHT_SOURCE_REGISTRY' => $scratch.'/no-registry.json']);
+
+        expect($result['exit'])->toBe(1);
+        expect($result['output'])->toContain('Then: re-run "the recovery workflow for parity-target" with mode=start against the new machine');
+        expect(str_contains($result['output'], 'Recover staging host'))->toBeFalse('a machine with no registry is not assumed to be staging');
     } finally {
         removeScratchDir($scratch);
     }
-})->with([
-    ['staging', 'Recover staging host'],
-    ['production', 'Recover production host'],
-]);
+});
