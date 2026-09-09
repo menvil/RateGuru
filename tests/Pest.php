@@ -3026,9 +3026,15 @@ function githubWorkflowJobResults(array $workflow, array $outcomes = [], array $
             $needsContext = [];
 
             foreach ($needs as $dependency) {
+                $result = $results[$dependency] ?? '';
+
                 $needsContext[$dependency] = [
-                    'result' => $results[$dependency] ?? '',
-                    'outputs' => $outputs[$dependency] ?? [],
+                    'result' => $result,
+                    // A job that did not run published nothing. Handing a
+                    // skipped job's declared outputs to a downstream gate
+                    // would let a scenario pass on a value GitHub would have
+                    // delivered as the empty string.
+                    'outputs' => $result === 'success' ? ($outputs[$dependency] ?? []) : [],
                 ];
             }
 

@@ -2198,7 +2198,7 @@ report_absent_recovery_operation() {
                 "run: recover-host --verify --target ${TARGET_ID}" \
                 "if that reports RECOVERED: YES, this recovery is complete — do not re-run the recovery workflow in either mode" \
                 "if it refuses, act on what it names; it reports the final contract as it stands on the machine now" \
-                "adopting this machine — DEPLOY_HOST, DNS and the offsite-write hold — is a separate, deliberate operation that is not part of a recovery"
+                "adopting this machine — repointing the target's deployment binding and its DNS, and releasing the offsite-write hold — is a separate, deliberate operation that no recovery performs"
 
             fail "recovery operation ${OPERATION_ID} has already completed on ${TARGET_ID}: its workspace was removed when it finished and the host carries no recovery guard. There is nothing to continue, and nothing was read or changed"
         fi

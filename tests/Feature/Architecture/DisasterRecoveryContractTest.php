@@ -298,9 +298,16 @@ it('runs the exact commit the recovered data belongs to, without a migration', f
         }
     }
 
-    // The server holds the same line from its own side: a resume refuses to
-    // finish an operation whose staged migration count is not the one it
-    // recorded, so "no migration ran" is proved rather than promised.
+    // Neither end of the pipeline takes the other's word for it. The shared
+    // deployment action refuses its own recovery mode with migrations on, so
+    // a workflow that ever asked for one would be refused rather than obeyed
+    // — the switch in the YAML is the request, not the guarantee.
+    expect(File::get(base_path('.github/actions/deploy-rateguru/action.yml')))
+        ->toContain('run-migrations must be false when recovery-operation is set');
+
+    // And the server proves it after the fact: a resume refuses to finish an
+    // operation whose staged migration count is not the one it recorded, so
+    // "no migration ran" is observed rather than promised.
     expect(disasterRecoveryScript('recover-host'))
         ->toContain('refusing to claim the schema is unchanged without the number it was staged with');
 });
