@@ -38,7 +38,8 @@ final class FollowedAuthorPostedNotification extends Notification
             'author_id' => $this->author->id,
             'author_name' => $this->author->name,
             'author_username' => $this->author->username,
-            'message' => '@'.$this->author->username.' posted '.$this->post->title,
+            'message_key' => 'ui.notifications.messages.followed_author_posted',
+            'message_params' => ['username' => $this->author->username, 'title' => $this->post->title],
             'url' => $this->postUrl(),
         ];
     }

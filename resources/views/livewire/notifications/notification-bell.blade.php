@@ -43,7 +43,7 @@
                         >
                             <a href="{{ $notification->data['url'] ?? '#' }}" class="block">
                                 <span class="block break-words font-medium text-rg-text">
-                                    {{ $notification->data['message'] ?? __('ui.notifications.fallback_message') }}
+                                    {{ \App\Support\Notifications\NotificationMessage::for($notification) }}
                                 </span>
                             </a>
 

@@ -152,6 +152,14 @@ return [
         'empty' => 'No notifications yet',
         'mark_as_read' => 'Mark as read',
         'fallback_message' => 'Notification',
+
+        // Keyed by the notification's own `type`, so the renderer
+        // builds the key from the payload rather than knowing each one.
+        'messages' => [
+            'post_approved' => 'Your post was approved',
+            'post_commented' => '@:username commented on your post',
+            'followed_author_posted' => '@:username posted :title',
+        ],
     ],
     'theme' => 'Theme',
     'settings' => [

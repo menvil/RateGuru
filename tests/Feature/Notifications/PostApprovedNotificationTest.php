@@ -3,6 +3,8 @@
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;
+use App\Support\Notifications\NotificationMessage;
+use Illuminate\Notifications\DatabaseNotification;
 
 it('creates post approved notification payload', function () {
     $postOwner = User::factory()->create([
@@ -30,10 +32,18 @@ it('creates post approved notification payload', function () {
         'post_title' => 'Approved sample post',
         'actor_id' => $moderator->id,
         'actor_username' => 'moderator',
-        'message' => 'Your post was approved',
+        'message_key' => 'ui.notifications.messages.post_approved',
+        'message_params' => [],
     ]);
 
-    expect(strtolower($data['message']))->not->toContain('dish');
-    expect(strtolower($data['message']))->not->toContain('food');
+    // The payload stores a key, never a sentence — the language is decided
+    // when it is read. The wording guard therefore applies to what renders.
+    $rendered = strtolower(NotificationMessage::for(
+        tap(new DatabaseNotification, fn ($n) => $n->forceFill(['data' => $data]))
+    ));
+
+    expect($rendered)->not->toContain('dish');
+    expect($rendered)->not->toContain('food');
     expect($data)->toHaveKey('url');
+    expect($data)->not->toHaveKey('message');
 });

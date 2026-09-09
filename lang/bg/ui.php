@@ -152,6 +152,14 @@ return [
         'empty' => 'Все още няма известия',
         'mark_as_read' => 'Маркирай като прочетено',
         'fallback_message' => 'Известие',
+
+        // Keyed by the notification's own `type`, so the renderer
+        // builds the key from the payload rather than knowing each one.
+        'messages' => [
+            'post_approved' => 'Вашата публикация е одобрена',
+            'post_commented' => '@:username коментира вашата публикация',
+            'followed_author_posted' => '@:username публикува :title',
+        ],
     ],
     'theme' => 'Тема',
     'settings' => [
