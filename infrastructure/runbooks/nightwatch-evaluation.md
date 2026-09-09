@@ -139,16 +139,40 @@ nothing.
 
 ### Installing the marker primitive
 
-It is installed by `install-nightwatch-agent`, alongside the agent — not by
-`install-target-operations` or `install-target-perimeter`. Nightwatch is still
-a time-boxed Phase 6B/6C evaluation: keeping the whole integration in one
-installer means `--remove` takes all of it away in one step, and no host is
-ever *required* to carry any of it. The accepted Phase 5.4 host contract is
-untouched.
+It is installed by `install-nightwatch-agent`, which owns all three marker
+files — not by `install-target-operations` or `install-target-perimeter`.
+
+**Host convergence installs it, the agent stays opt-in.** The deploy channel
+invokes the marker wrapper after every deployment of a target whose own
+environment configures Nightwatch, as that target's ordinary deploy user
+through `sudo -n`. The authorization for that is therefore part of what a
+prepared host must carry, and `install-bootstrap-services` converges it
+through the installer's marker-only modes:
+
+```bash
+sudo infrastructure/scripts/install-nightwatch-agent --apply-deployment-marker  --target staging-main
+sudo infrastructure/scripts/install-nightwatch-agent --verify-deployment-marker --target staging-main
+```
+
+Neither mode installs, starts or requires the agent, a deployed release, a
+Nightwatch token or a reachable ingest port — a machine gets its deploy
+channel's authorization while it is still PRE_DEPLOY, which is the only moment
+a clean-host recovery could install it. `prepare-host --verify` proves the
+authorization through the same modes.
+
+The agent itself is unchanged: a time-boxed evaluation, installed only when an
+operator asks for it, and removable in one step.
 
 ```bash
 sudo infrastructure/scripts/install-nightwatch-agent --apply --target staging-main
 ```
+
+The first real clean-host recovery is why the split exists. The recovered host
+served its exact restored release correctly and then failed to record its
+deployment marker with `sudo: a password is required`: the wrapper's grant had
+only ever arrived with an agent installation, which nobody performs on a
+brand-new machine. A canonically prepared host now carries the authorization
+whether or not the agent was ever installed.
 
 The sudo grant lives in its own drop-in, `/etc/sudoers.d/rateguru-nightwatch-deployment`,
 separate from the operational grant `install-target-perimeter` owns. It is
@@ -888,6 +912,10 @@ sudo infrastructure/scripts/install-nightwatch-agent --remove --target staging-m
 
 `--remove` also removes the deployment-marker primitive, its sudo wrapper and
 its sudoers grant — the grant can never outlive the integration it exists for.
+Host convergence puts the marker files back on the next `prepare-host --apply`,
+because the deploy channel invokes the wrapper for any target whose own
+environment configures Nightwatch; to keep them off a host, stop configuring
+Nightwatch for that target.
 It leaves the Composer package, `config/nightwatch.php` and the target's `.env`
 untouched. It stops telemetry infrastructure; it does not un-evaluate
 Nightwatch.

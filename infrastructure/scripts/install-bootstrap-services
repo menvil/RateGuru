@@ -41,6 +41,10 @@
 #   install-target-operations    owns the runtime registry, deployment.conf
 #                                and the installed operational bundle under
 #                                /home/www/rateguru/bin;
+#   install-nightwatch-agent     owns the deployment-marker wrapper, its
+#                                sudoers grant and the primitive behind it,
+#                                converged here through its marker-only modes
+#                                — never the agent itself, which stays opt-in
 #   install-target-perimeter     owns the generic sudo wrappers, sudoers and
 #                                the backup cron;
 #   install-public-storage-access owns the narrow www-data POSIX ACL on
@@ -198,6 +202,12 @@ HOSTLAYOUT_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTA
 OPERATIONS_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN "${SCRIPT_DIR}/install-target-operations")"
 PERIMETER_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN "${SCRIPT_DIR}/install-target-perimeter")"
 PUBLIC_STORAGE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN "${SCRIPT_DIR}/install-public-storage-access")"
+# The deployment-marker half of the Nightwatch installer, and only that half:
+# the sudo wrapper the GitHub deploy channel invokes after a deployment, its
+# sudoers grant and the primitive behind it. The AGENT stays what it always
+# was — opt-in, Supervisor-managed, removable in one step, and not part of any
+# host contract.
+NIGHTWATCH_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN "${SCRIPT_DIR}/install-nightwatch-agent")"
 MAIL_CAPTURE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-capture")"
 VERIFY_MAIL_CAPTURE_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
 
@@ -1354,6 +1364,16 @@ report_child_contracts() {
             "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify --target "${target_id}"
     done
 
+    # The deploy channel's own authorization: read-only, and only for the
+    # targets that record a deployment marker at all.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        records_deployment_marker "${target_id}" || continue
+
+        report_child_state "deployment-marker:${target_id}" \
+            "the deployment-marker sudo wrapper and the sudoers grant its deploy user invokes it through" \
+            "${NIGHTWATCH_INSTALLER_BIN}" --verify-deployment-marker --target "${target_id}"
+    done
+
     # --read-only is mandatory here: verify-mail-capture's default (--e2e)
     # sends SMTP, deletes messages and stops/starts the mirror service, which
     # would make this installer's --check/--verify — and bootstrap-host's,
@@ -2391,6 +2411,43 @@ converge_public_storage_access() {
         || fail "install-public-storage-access --apply --target ${target_id} failed — aborting before any later component"
 }
 
+# converge_deployment_marker — the authorization the deploy channel needs, on
+# every host that has a target which records deployment markers at all.
+#
+# The channel is ordinary: after a deployment, GitHub connects as the target's
+# own deploy user and runs `sudo -n /usr/local/sbin/rateguru-nightwatch-deployment`.
+# Nothing in that path is privileged beyond that one wrapper, and nothing about
+# it depends on whether an operator has installed the Nightwatch agent — so the
+# grant belongs to host convergence, exactly like the operational wrappers and
+# their sudoers do.
+#
+# Which targets get it is not this installer's decision: the marker installer
+# refuses any target that has no Nightwatch program in the closed allowlist in
+# common, so a planned production target is passed over here and would be
+# refused there too.
+# records_deployment_marker TARGET — asked of the installer that owns the
+# closed allowlist, never answered from a copy of it here. This installer reads
+# the registry directly and deliberately does not source `common`, so the one
+# place that knows which targets record a marker is the one that installs it.
+records_deployment_marker() {
+    "${NIGHTWATCH_INSTALLER_BIN}" --supports-deployment-marker --target "$1" >/dev/null 2>&1
+}
+
+converge_deployment_marker() {
+    local target_id="$1"
+
+    records_deployment_marker "${target_id}" || return 0
+
+    if "${NIGHTWATCH_INSTALLER_BIN}" --verify-deployment-marker --target "${target_id}" >/dev/null 2>&1; then
+        action "child:install-nightwatch-agent --verify-deployment-marker --target ${target_id} already compliant — skipped"
+        return 0
+    fi
+
+    action "child:install-nightwatch-agent --apply-deployment-marker --target ${target_id} (owns the deployment-marker wrapper, its sudoers grant and the primitive behind it)"
+    "${NIGHTWATCH_INSTALLER_BIN}" --apply-deployment-marker --target "${target_id}" \
+        || fail "install-nightwatch-agent --apply-deployment-marker --target ${target_id} failed — aborting before any later component (its own transaction restored its files)"
+}
+
 # converge_mail_capture — both probes use --read-only on purpose. The skip
 # decision must not itself mutate (otherwise a fully compliant host would
 # send mail and bounce the mirror service on every idempotent --apply), and
@@ -2604,6 +2661,13 @@ perform_apply() {
     # 13. Public-storage ACL — active targets only.
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         converge_public_storage_access "${target_id}"
+    done
+
+    # 13b. The deployment-marker authorization, for the active targets that
+    # record one. Nothing here installs, starts or requires the Nightwatch
+    # agent.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_deployment_marker "${target_id}"
     done
 
     # 14-15. Shared mail capture and base service enablement. Host-wide, and

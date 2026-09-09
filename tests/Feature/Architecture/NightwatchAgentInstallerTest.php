@@ -947,3 +947,234 @@ it('runs the agent transition after the queue transition and before the success 
         $source,
     ))->toBe(1);
 });
+
+// =============================================================================
+// The deployment marker, on its own
+//
+// The first real clean-host recovery served its recovered release correctly and
+// then failed to record a Nightwatch deployment marker with "sudo: a password
+// is required": the grant that authorizes the target's deploy user to run the
+// marker wrapper only ever arrived with an agent installation, and nobody had
+// performed one on a brand-new machine. These modes are what host convergence
+// installs so that never happens again — the marker's half, and nothing else.
+// =============================================================================
+
+/**
+ * A PRE_DEPLOY host: the directories bootstrap creates, and no release, no
+ * .env, no agent and no Nightwatch token anywhere — the state a machine is in
+ * while it is being prepared, which is the only time a clean-host recovery
+ * could install this authorization.
+ */
+function nightwatchUndeployedHost(string $scratch): void
+{
+    @mkdir($scratch.'/fs'.nightwatchRegistryTarget()['application_root'].'/releases', 0o755, true);
+}
+
+/** The committed grant, rewritten in a scratch repository the installer reads. */
+function nightwatchTamperedRepo(string $scratch, string $grant): string
+{
+    $repo = $scratch.'/repo';
+
+    foreach (['/infrastructure/config/sudoers', '/infrastructure/config/wrappers', '/infrastructure/scripts', '/infrastructure/config/supervisor'] as $sub) {
+        @mkdir($repo.$sub, 0o755, true);
+    }
+
+    // Everything except the grant is the real committed artefact.
+    copy(base_path('infrastructure/config/wrappers/rateguru-nightwatch-deployment'), $repo.'/infrastructure/config/wrappers/rateguru-nightwatch-deployment');
+    copy(base_path('infrastructure/scripts/record-nightwatch-deployment'), $repo.'/infrastructure/scripts/record-nightwatch-deployment');
+    copy(nightwatchProgramFile(), $repo.'/infrastructure/config/supervisor/'.nightwatchProgramName().'.conf');
+
+    file_put_contents($repo.'/infrastructure/config/sudoers/rateguru-nightwatch-deployment', $grant);
+
+    return $repo;
+}
+
+it('installs the deployment-marker authorization on a host with no release, no agent and no Nightwatch token', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+
+        $wrapper = $scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment';
+        $sudoers = $scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment';
+        $primitive = $scratch.'/fs/home/www/rateguru/bin/record-nightwatch-deployment';
+
+        foreach ([$wrapper, $sudoers, $primitive] as $path) {
+            expect(is_file($path))->toBeTrue("not installed: {$path}");
+        }
+
+        // Byte-identical to what this repository commits: the authorization is
+        // reconstructed from today's trusted infrastructure, never carried
+        // over from a host or a backup.
+        expect(file_get_contents($sudoers))->toBe(File::get(base_path('infrastructure/config/sudoers/rateguru-nightwatch-deployment')));
+        expect(file_get_contents($wrapper))->toBe(File::get(base_path('infrastructure/config/wrappers/rateguru-nightwatch-deployment')));
+
+        expect($output)
+            ->toContain('deployment-marker authorization verified: deploy-rateguru-staging may run /usr/local/sbin/rateguru-nightwatch-deployment as root without a password, and nothing else')
+            ->toContain('PASS: deployment-marker primitive, sudo wrapper and sudoers grant installed for staging-main');
+
+        // The agent is untouched: no Supervisor program, and supervisorctl was
+        // never asked to do anything.
+        expect(is_file($scratch.'/fs/etc/supervisor/conf.d/'.nightwatchProgramName().'.conf'))->toBeFalse();
+        expect(nightwatchStubLog($scratch, 'supervisorctl'))->toBe('');
+        expect(nightwatchStubLog($scratch, 'ss'))->toBe('');
+        expect(nightwatchStubLog($scratch, 'runuser'))->toBe('');
+
+        // And the verification of the same half passes on that host.
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--verify-deployment-marker', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS: deployment-marker authorization verified for staging-main');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('converges: a second marker apply changes nothing and never duplicates the grant', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        [$exit] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main']);
+        expect($exit)->toBe(0);
+
+        $sudoers = $scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment';
+        $before = file_get_contents($sudoers);
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect(file_get_contents($sudoers))->toBe($before);
+
+        // One file, one rule: nothing appended, and no second drop-in.
+        $drops = array_values(array_diff(scandir($scratch.'/fs/etc/sudoers.d'), ['.', '..']));
+        expect($drops)->toBe(['rateguru-nightwatch-deployment']);
+        expect(substr_count((string) $before, 'NOPASSWD'))->toBe(1);
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('fails the marker verification when the authorization is missing, and passes when it is there', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        // Exactly the state the recovered host was in: the wrapper is there,
+        // the grant is not, and every deployment marker fails with
+        // "sudo: a password is required".
+        [$exit] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main']);
+        expect($exit)->toBe(0);
+
+        unlink($scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--verify-deployment-marker', '--target', 'staging-main']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('sudo: a password is required');
+
+        // Put back by the same convergence, with no operator intervention.
+        [$exit] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main']);
+        expect($exit)->toBe(0);
+
+        [$exit] = runNightwatchInstaller($scratch, ['--verify-deployment-marker', '--target', 'staging-main']);
+        expect($exit)->toBe(0);
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses a grant that widens the deploy user beyond the one wrapper', function (string $grant, string $expected) {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_REPO_ROOT' => nightwatchTamperedRepo($scratch, $grant),
+        ]);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain($expected);
+
+        // Refused before anything reached /etc/sudoers.d.
+        expect(is_file($scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+})->with([
+    'a blanket grant' => [
+        "deploy-rateguru-staging ALL=(ALL) NOPASSWD: ALL\n",
+        'must never be a blanket NOPASSWD: ALL',
+    ],
+    'a shell beside the wrapper' => [
+        "deploy-rateguru-staging ALL=(root) NOPASSWD: /usr/local/sbin/rateguru-nightwatch-deployment, /bin/bash\n",
+        'must name /usr/local/sbin/rateguru-nightwatch-deployment and nothing else',
+    ],
+    'php beside the wrapper' => [
+        "deploy-rateguru-staging ALL=(root) NOPASSWD: /usr/local/sbin/rateguru-nightwatch-deployment, /usr/bin/php\n",
+        'must name /usr/local/sbin/rateguru-nightwatch-deployment and nothing else',
+    ],
+    'the artisan binary instead of the wrapper' => [
+        "deploy-rateguru-staging ALL=(root) NOPASSWD: /home/www/rateguru/staging/current/artisan\n",
+        'does not name /usr/local/sbin/rateguru-nightwatch-deployment',
+    ],
+    'another target\'s deploy user' => [
+        "deploy-rateguru-staging ALL=(root) NOPASSWD: /usr/local/sbin/rateguru-nightwatch-deployment\ndeploy-rateguru-tits-guru ALL=(root) NOPASSWD: /usr/local/sbin/rateguru-nightwatch-deployment\n",
+        'must not mention deploy-rateguru-tits-guru',
+    ],
+    'a grant for a user that is not this target\'s deploy user' => [
+        "www-data ALL=(root) NOPASSWD: /usr/local/sbin/rateguru-nightwatch-deployment\n",
+        'does not grant deploy-rateguru-staging access',
+    ],
+]);
+
+it('installs a marker authorization only for a target that records one', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        // tits-guru is lifecycle=planned and has no Nightwatch program in the
+        // closed allowlist, so there is nothing to authorize and no installer
+        // may invent it.
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'tits-guru']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('tits-guru');
+        expect(is_file($scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('ships a grant the real sudoers parser accepts', function () {
+    $visudo = null;
+
+    foreach (['/usr/sbin/visudo', '/sbin/visudo', '/usr/bin/visudo'] as $candidate) {
+        if (is_executable($candidate)) {
+            $visudo = $candidate;
+
+            break;
+        }
+    }
+
+    if ($visudo === null) {
+        test()->markTestSkipped('no visudo on this host; CI validates the committed grant with the real parser');
+    }
+
+    exec(escapeshellarg($visudo).' -cf '.escapeshellarg(base_path('infrastructure/config/sudoers/rateguru-nightwatch-deployment')).' 2>&1', $output, $exit);
+
+    expect($exit)->toBe(0, 'the committed grant is not valid sudoers: '.implode("\n", $output));
+});
