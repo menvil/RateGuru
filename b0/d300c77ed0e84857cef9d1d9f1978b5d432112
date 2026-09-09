@@ -1,0 +1,109 @@
+tests/Feature/Architecture/RecoveryHostPreflightActionTest.php
+  s_9a6ca54786c126::t_0443859124e509 1-123,128-130,143-144,147-231
+  s_9a6ca54786c126::t_1b7011ea557448 124-127
+  s_9a6ca54786c126::t_a5dfb6cb27ea68 131-142,145-146
+tests/Feature/Architecture/CleanHostRecoveryRunbookTest.php
+  s_9a6ca54786c126::t_f1bc7dab218903 324-325,327-330
+  s_9a6ca54786c126::t_763bf71cef00e1 298
+  s_9a6ca54786c126::t_0e595a69d853d5 98-99,132,226
+  s_9a6ca54786c126::t_ca500d6f9fa143 1-97,100-131,133-225,227-253
+  s_9a6ca54786c126::t_a5dfb6cb27ea68 254-297,299-323,326,331-332
+tests/Feature/Architecture/FetchRecoveryMaterialTest.php
+  s_9a6ca54786c126::t_e763381c7e8320 209-213,351-369,371-377
+  s_9a6ca54786c126::t_763bf71cef00e1 370
+infrastructure/ROADMAP.md
+  s_9a6ca54786c126::t_3cdd148df9d86d 1486-1495,1498-1499
+.github/workflows/recover-staging.yml
+  s_9a6ca54786c126::t_763bf71cef00e1 422,1636
+  s_9a6ca54786c126::t_a54bd7456c8a93 655-697,703,712-714,732,803,1183,1292-1294,1421,1453-1456,1458-1462,1466,1505,1519-1535,1567-1573,1575-1621,1629,1674,1677-1686,1688-1692,1694-1699,1701-1706,1708-1719,1721-1727,1729-1733,1735-1743,1745-1860
+  s_9a6ca54786c126::t_3ee776cfb2ea93 1693,1700,1707,1744
+  s_9a6ca54786c126::t_403ad8b400a183 310-421,423-436,452-454,1419,1457,1464,1503,1574,1622-1628,1630-1635,1637-1673,1675-1676
+  s_9a6ca54786c126::t_0e595a69d853d5 1687,1720,1728,1734
+tests/Feature/Architecture/RecoverHostTest.php
+  s_9a6ca54786c126::t_e763381c7e8320 512-516,677-678,718-719
+infrastructure/config/required-clis.txt
+  s_9a6ca54786c126::t_e76bd58fd1f41e 26
+infrastructure/runbooks/clean-host-recovery.md
+  s_9a6ca54786c126::t_763bf71cef00e1 105,112,131
+  s_9a6ca54786c126::t_a447348fb9cd13 1-98,135-193,198-199,201-208,210,212-216,218-220,222,224,226-227,229,231-306,310-366
+  s_9a6ca54786c126::t_8c4c1c6fcf7bdf 99-104,106-111,113-130,132-134,194-197,200,209,211,217,221,223,225,228,230,307-309
+infrastructure/scripts/fetch-recovery-material
+  s_9a6ca54786c126::t_78e21fd7dd2f82 575
+  s_9a6ca54786c126::t_1b7011ea557448 496-498,510,515-519
+  s_9a6ca54786c126::t_4de65f86f6dcb1 168-191,389-394,396-397,499-509,511-513,567-574
+  s_9a6ca54786c126::t_8c4c1c6fcf7bdf 395
+.github/actions/recovery-host-preflight/action.yml
+  s_9a6ca54786c126::t_763bf71cef00e1 298-299,307,333
+  s_9a6ca54786c126::t_a20955d5387cb5 1-297,300-306,308-332,334-488
+.github/workflows/recover-production.yml
+  s_9a6ca54786c126::t_403ad8b400a183 347-458,460-473,489-491,1456,1494,1501,1540,1611,1659-1665,1667-1672,1674-1710,1712-1713
+  s_9a6ca54786c126::t_a54bd7456c8a93 692-734,740,749-751,769,840,1220,1329-1331,1458,1490-1493,1495-1499,1503,1542,1556-1572,1604-1610,1612-1658,1666,1711,1714-1723,1725-1729,1731-1736,1738-1743,1745-1756,1758-1764,1766-1770,1772-1780,1782-1897
+  s_9a6ca54786c126::t_3ee776cfb2ea93 1730,1737,1744,1781
+  s_9a6ca54786c126::t_0e595a69d853d5 1724,1757,1765,1771
+  s_9a6ca54786c126::t_763bf71cef00e1 459,1673
+infrastructure/README.md
+  s_9a6ca54786c126::t_3cdd148df9d86d 111-118
+infrastructure/runbooks/prepare-host.md
+  s_9a6ca54786c126::t_3cdd148df9d86d 473-486
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_9a6ca54786c126::t_3ee776cfb2ea93 261
+  s_9a6ca54786c126::t_11d1c1eb9d14e5 265,267
+infrastructure/scripts/recovery-host-preflight
+  s_9a6ca54786c126::t_c300751c56f797 576
+  s_9a6ca54786c126::t_8c4c1c6fcf7bdf 641-644,646-649,651-653
+  s_9a6ca54786c126::t_a42035ceb840f5 511-512,516-520
+  s_9a6ca54786c126::t_ee6eba2a992392 513,515,521
+  s_9a6ca54786c126::t_e71f06e2c33345 1-339,343-345,349-500,502-508,510,522-575,577-640,645,650,654-698
+infrastructure/runbooks/github-recover.md
+  s_9a6ca54786c126::t_580946e4bdb382 318-335,361,395-399
+  s_9a6ca54786c126::t_3cdd148df9d86d 3-7,363,400-403,792-794
+infrastructure/scripts/prepare-host
+  s_9a6ca54786c126::t_4de65f86f6dcb1 255-258
+infrastructure/scripts/common
+  s_9a6ca54786c126::t_4de65f86f6dcb1 1325-1354
+infrastructure/runbooks/recover-host.md
+  s_9a6ca54786c126::t_3cdd148df9d86d 816-817
+.github/actions/prepare-rateguru-host/action.yml
+  s_9a6ca54786c126::t_8c4c1c6fcf7bdf 187,263,293-306
+  s_9a6ca54786c126::t_bba990330cc52a 181-186,188
+  s_9a6ca54786c126::t_763bf71cef00e1 307
+  s_9a6ca54786c126::t_190cbc6d367124 654-659,671-718,755,768,770-771,775-800
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_9a6ca54786c126::t_a5dfb6cb27ea68 273,1288,1637-1694,1696-1726
+  s_9a6ca54786c126::t_b41c31817b4e1c 414
+  s_9a6ca54786c126::t_3ee776cfb2ea93 614,805,1327-1330,1334,1336-1341,1539-1635
+  s_9a6ca54786c126::t_763bf71cef00e1 1695
+  s_9a6ca54786c126::t_0e595a69d853d5 1524
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_9a6ca54786c126::t_3ee776cfb2ea93 50
+infrastructure/scripts/recover-host
+  s_9a6ca54786c126::t_4de65f86f6dcb1 143-145,538-539,541-543,1827-1832,2216-2221
+  s_9a6ca54786c126::t_0e595a69d853d5 540
+.github/actions/recover-rateguru-host/action.yml
+  s_9a6ca54786c126::t_190cbc6d367124 185-202,594-596,609,611-612,616-666,712-713
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_9a6ca54786c126::t_3ee776cfb2ea93 74-76
+  s_9a6ca54786c126::t_0e595a69d853d5 423-426,433
+tests/Feature/Architecture/RecoveryHostPreflightTest.php
+  s_9a6ca54786c126::t_1b7011ea557448 591-593
+  s_9a6ca54786c126::t_a5dfb6cb27ea68 596-600
+  s_9a6ca54786c126::t_0e595a69d853d5 238,549
+  s_9a6ca54786c126::t_c300751c56f797 589
+  s_9a6ca54786c126::t_b14310a2e5eb43 1-237,239-548,550-588,590,594-595,601-673
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0d300c77ed0e84857cef9d1d9f1978b5d432112",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
