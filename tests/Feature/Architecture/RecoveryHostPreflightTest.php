@@ -858,6 +858,9 @@ it('recognises the machine an earlier start of this exact recovery already prepa
         expect($result['output'])
             ->toContain('Backup: 20260115-023000')
             ->toContain('PASS     releases — none')
+            // Recognised from the document prepare-host actually writes,
+            // including its `hold` type — the same field prepare-host's own
+            // verification demands before it will call a marker a fence.
             ->toContain('PASS     guards — none')
             ->toContain('an earlier start of this recovery prepared this machine for parity-target from backup 20260115-023000')
             ->toContain('Prepare Host is convergent and this start converges it again')
@@ -908,6 +911,22 @@ it('accepts a preparation only for the exact recovery it was made for', function
         [],
         '20260115-023000',
         'this one carries no recovery preparation for parity-target from backup 20260115-023000',
+    ],
+    // The document's own type, checked before anything it says is believed: a
+    // file at this path naming a target and a backup is not automatically the
+    // fence those fields describe, and this is what lets a start proceed onto
+    // a machine that already carries RateGuru state.
+    'a document that is not an offsite-write hold at all' => [
+        ['hold' => ['reason' => 'host-recovery', 'target' => 'parity-target', 'backup' => '20260115-023000']],
+        [],
+        '20260115-023000',
+        'REFUSED  rateguru-root — /home/www/rateguru already exists',
+    ],
+    'a document holding something else' => [
+        ['hold' => ['hold' => 'maintenance', 'reason' => 'host-recovery', 'target' => 'parity-target', 'backup' => '20260115-023000']],
+        [],
+        '20260115-023000',
+        'REFUSED  rateguru-root — /home/www/rateguru already exists',
     ],
 ]);
 
@@ -1011,4 +1030,35 @@ it('names the workflow the target itself belongs to, and names none it cannot kn
     } finally {
         removeScratchDir($scratch);
     }
+});
+
+it('reads the same hold document prepare-host writes, and demands the same proof of it', function () {
+    $producer = File::get(base_path('infrastructure/scripts/prepare-host'));
+    $preflight = File::get(base_path('infrastructure/scripts/recovery-host-preflight'));
+
+    // One producer, one document shape: reason, target and backup are the
+    // fields a preparation records, and `hold` is what the document IS.
+    expect($producer)
+        ->toContain('--arg hold offsite-writes')
+        ->toContain('--arg reason host-recovery')
+        ->toContain('--arg target "${TARGET_ID}"')
+        ->toContain('--arg backup "${RECOVERY_BACKUP}"');
+
+    // prepare-host proves the type before it treats a marker as a fence; a
+    // classification that lets a start proceed onto a machine carrying
+    // RateGuru state proves no less.
+    expect($producer)->toContain('[[ "${hold}" == "offsite-writes" ]]');
+
+    $classifier = shellFunctionBody($preflight, 'classify_preparation_state');
+
+    expect($classifier)
+        ->toContain('hold="$(jq -r \'.hold // empty\' "${marker}" 2>/dev/null || true)"')
+        ->toContain('[[ "${hold}" == "offsite-writes" ]] || return 0')
+        ->toContain('[[ "${reason}" == "host-recovery" ]] || return 0')
+        ->toContain('[[ "${target}" == "${TARGET_ID}" ]] || return 0')
+        ->toContain('[[ -n "${BACKUP_ID}" ]] && [[ "${backup}" == "${BACKUP_ID}" ]] || return 0');
+
+    // Nothing about the document is enforced by writing to it: the classifier
+    // reads, and every unproven answer leaves the machine judged as it stands.
+    expect($classifier)->not->toMatch('/(^|[|;&(]|\bthen\b|\bdo\b)\s*(rm|install|chmod|chown|mv|cp|touch|tee|jq -n)\b/m');
 });

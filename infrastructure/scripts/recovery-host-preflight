@@ -514,26 +514,36 @@ PREPARATION_STATE="pristine"
 PREPARATION_DETAIL=""
 
 classify_preparation_state() {
-    local hold reason target backup
+    local marker hold reason target backup
 
-    hold="$(physical "${RATEGURU_ROOT}/run/offsite-write-hold")"
+    marker="$(physical "${RATEGURU_ROOT}/run/offsite-write-hold")"
 
-    [[ -f "${hold}" ]] && [[ ! -L "${hold}" ]] || return 0
+    [[ -f "${marker}" ]] && [[ ! -L "${marker}" ]] || return 0
 
     # jq is part of the runtime every prepared host has. Without it nothing can
     # be proven from the document, and unproven is judged as dirty.
     command -v jq >/dev/null 2>&1 || return 0
 
-    reason="$(jq -r '.reason // empty' "${hold}" 2>/dev/null || true)"
-    target="$(jq -r '.target // empty' "${hold}" 2>/dev/null || true)"
-    backup="$(jq -r '.backup // empty' "${hold}" 2>/dev/null || true)"
+    # WHAT the document is, before anything it says is believed. `.hold` is the
+    # document's own type, and prepare-host's verification demands exactly this
+    # value for exactly this reason: a file at this path carrying a target and
+    # a backup is not automatically the fence those fields describe. Something
+    # else — an operator's note, a half-written file, a document for a
+    # different kind of hold — may name a target and a backup and mean nothing
+    # about offsite writers at all, and this classification is what lets a
+    # start proceed onto a machine that already carries RateGuru state.
+    hold="$(jq -r '.hold // empty' "${marker}" 2>/dev/null || true)"
+    reason="$(jq -r '.reason // empty' "${marker}" 2>/dev/null || true)"
+    target="$(jq -r '.target // empty' "${marker}" 2>/dev/null || true)"
+    backup="$(jq -r '.backup // empty' "${marker}" 2>/dev/null || true)"
 
+    [[ "${hold}" == "offsite-writes" ]] || return 0
     [[ "${reason}" == "host-recovery" ]] || return 0
     [[ "${target}" == "${TARGET_ID}" ]] || return 0
     [[ -n "${BACKUP_ID}" ]] && [[ "${backup}" == "${BACKUP_ID}" ]] || return 0
 
     PREPARATION_STATE="recovery-preparation-retry"
-    PREPARATION_DETAIL="${hold#"${FS_ROOT}"}"
+    PREPARATION_DETAIL="${marker#"${FS_ROOT}"}"
 }
 
 check_preparation_identity() {
