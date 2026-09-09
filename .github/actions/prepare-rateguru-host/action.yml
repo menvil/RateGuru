@@ -31,6 +31,14 @@ description: >-
 # operational code that must not depend on — or be selectable by — an
 # application ref.
 #
+# LONG SILENT PHASES. prepare-host captures each child's output and prints it
+# when the child finishes, so a slice like the host bootstrap's post-apply
+# verification can run for several minutes without a byte reaching the
+# runner. Every ssh invocation therefore sends keepalives
+# (ServerAliveInterval=30, ServerAliveCountMax=10): without them an idle
+# timeout between the runner and the host cuts the session mid-run and the
+# preparation is reported failed after it succeeded on the host.
+#
 # RECOVERY PREPARATION. With `recovery-backup` set, this is the preparation a
 # clean-host recovery runs, and the material contract inverts: nothing
 # target-specific is supplied from GitHub. Only two SEED files may be given —
@@ -339,6 +347,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
@@ -536,6 +546,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
@@ -625,6 +637,8 @@ runs:
           -o BatchMode=yes \
           -o IdentitiesOnly=yes \
           -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
           -o StrictHostKeyChecking=yes \
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
@@ -672,6 +686,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
@@ -732,6 +748,8 @@ runs:
           -o BatchMode=yes \
           -o IdentitiesOnly=yes \
           -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
           -o StrictHostKeyChecking=yes \
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \

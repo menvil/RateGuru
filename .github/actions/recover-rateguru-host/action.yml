@@ -54,6 +54,14 @@ description: >-
 # historical application commit: the whole premise of a recovery is that the
 # code being rebuilt is OLD, and letting old code define how a host is
 # recovered would hand a historical commit the recovery credential.
+#
+# LONG SILENT PHASES. A recovery downloads and restores a whole backup and
+# runs the prepared-host verification, minutes during which nothing may reach
+# the runner. Every ssh invocation therefore sends keepalives
+# (ServerAliveInterval=30, ServerAliveCountMax=10): without them an idle
+# timeout between the runner and the host cuts the session mid-run, and the
+# server-side state machine is then reported failed by a transport that
+# merely stopped listening.
 
 inputs:
   mode:
@@ -387,6 +395,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
@@ -476,6 +486,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
@@ -568,6 +580,8 @@ runs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
@@ -668,6 +682,8 @@ runs:
           -o BatchMode=yes \
           -o IdentitiesOnly=yes \
           -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
           -o StrictHostKeyChecking=yes \
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
