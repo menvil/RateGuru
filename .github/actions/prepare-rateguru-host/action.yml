@@ -653,6 +653,15 @@ runs:
           --target "${DEPLOYMENT_TARGET}"
         )
 
+        # A recovery preparation is verified AS one: the read-only verification
+        # then also requires the offsite-write hold the apply placed, naming
+        # this target and this backup, so this step can never report
+        # "prepared" about a replacement machine whose offsite writers are not
+        # fenced — whatever happened between the apply and now.
+        if [[ -n "${RECOVERY_BACKUP}" ]]; then
+          remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
+        fi
+
         verification_output="$(
           ssh \
             -p "${BOOTSTRAP_PORT}" \

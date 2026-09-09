@@ -27,10 +27,6 @@ CREATEDB_BIN_DEFAULT="/usr/bin/createdb"
 DROPDB_BIN_DEFAULT="/usr/bin/dropdb"
 PG_RESTORE_BIN_DEFAULT="/usr/bin/pg_restore"
 PSQL_BIN_DEFAULT="/usr/bin/psql"
-# The installed external-material installer: the one prerequisite table a
-# schema 3 backup's recovery material is judged against. The same override
-# name backup uses for the same binary.
-PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"
 
 BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
@@ -38,13 +34,8 @@ CREATEDB_BIN="${CREATEDB_BIN_DEFAULT}"
 DROPDB_BIN="${DROPDB_BIN_DEFAULT}"
 PG_RESTORE_BIN="${PG_RESTORE_BIN_DEFAULT}"
 PSQL_BIN="${PSQL_BIN_DEFAULT}"
-PREREQUISITES_BIN="${PREREQUISITES_BIN_DEFAULT}"
 
 if rateguru_test_overrides_allowed; then
-    if [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
-        PREREQUISITES_BIN="${RATEGURU_PREREQUISITES_BIN}"
-    fi
-
     if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
         BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
     fi
@@ -245,42 +236,12 @@ validate_backup_manifest() {
 # --- recovery material (schema 3) --------------------------------------------
 #
 # A schema 3 backup is what a clean-host recovery is seeded from, so a restore
-# test of one proves the extra half too: recovery-material.tar.gz is present,
-# checksummed exactly once, structurally safe, and holds exactly the target's
-# host-scope external prerequisites under their logical names. The vocabulary
-# and the structural check both belong to install-target-prerequisites — the
-# one prerequisite table Prepare Host installs from — and are delegated to its
-# read-only --validate-recovery-material mode, never re-derived here.
-#
-# Nothing is extracted, and nothing about the material's content is printed:
-# the validator reports logical names only.
-validate_recovery_material() {
-    local backup_directory="$1"
-    local archive="${backup_directory}/recovery-material.tar.gz"
-    local listed
-
-    [[ -e "${archive}" ]] || fail "schema 3 backup is missing recovery-material.tar.gz"
-    [[ ! -L "${archive}" ]] || fail "recovery-material.tar.gz must not be a symlink"
-    [[ -f "${archive}" ]] || fail "recovery-material.tar.gz must be a regular file"
-
-    listed="$(grep -c -E '^[0-9a-f]{64}  recovery-material\.tar\.gz$' "${backup_directory}/SHA256SUMS" || true)"
-
-    [[ "${listed}" == "1" ]] \
-        || fail "SHA256SUMS must cover recovery-material.tar.gz exactly once (found ${listed} entries)"
-
-    [[ -x "${PREREQUISITES_BIN}" ]] \
-        || fail "the external-material installer is not available at ${PREREQUISITES_BIN} — a schema 3 backup's recovery material cannot be checked without it"
-
-    local output status=0
-    output="$("${PREREQUISITES_BIN}" --validate-recovery-material --target "${TARGET_ID}" --scope host --archive "${archive}" 2>&1)" || status=$?
-
-    if (( status != 0 )); then
-        printf '%s\n' "${output}" >&2
-        fail "recovery material archive is not acceptable for ${TARGET_ID}"
-    fi
-
-    log "Recovery material: OK ($(tail -n 1 <<<"${output}"))"
-}
+# test of one CERTIFIES the extra half too, through common's shared check:
+# recovery-material.tar.gz is present, checksummed exactly once, safe as data,
+# and holds exactly the target's host-scope external prerequisites as the
+# installed prerequisite table states them today — proven by
+# install-target-prerequisites itself, never re-derived here. Nothing is
+# extracted, and nothing about the material's content is printed.
 
 # --- restore-test pipeline -------------------------------------------------
 
@@ -341,6 +302,18 @@ perform_restore_test() {
     log "Testing backup:"
     log "${BACKUP_DIRECTORY}"
 
+    # The manifest decides the closed file set, and the set is proven exact —
+    # every file present as a plain regular file, nothing beyond it, and
+    # SHA256SUMS naming exactly the checksummed files — before a single
+    # checksum path is followed.
+    local backup_schema
+    backup_schema="$(backup_schema_of_directory "${BACKUP_DIRECTORY}")"
+
+    backup_assert_file_set "${BACKUP_DIRECTORY}" "${backup_schema}"
+    backup_assert_sha256sums_entries "${BACKUP_DIRECTORY}" "${backup_schema}"
+
+    log "Backup schema: ${backup_schema}"
+
     (
         cd "${BACKUP_DIRECTORY}"
         sha256sum --check SHA256SUMS
@@ -353,7 +326,8 @@ perform_restore_test() {
     validate_backup_manifest "${BACKUP_DIRECTORY}/manifest.json"
 
     if [[ "${MANIFEST_SCHEMA}" == schema3 ]]; then
-        validate_recovery_material "${BACKUP_DIRECTORY}"
+        backup_assert_recovery_material_certified "${BACKUP_DIRECTORY}" "${TARGET_ID}"
+        log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
     fi
 
     runuser -u postgres -- \

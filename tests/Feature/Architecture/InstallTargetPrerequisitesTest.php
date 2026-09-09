@@ -1238,3 +1238,91 @@ it('keeps the recovery modes and the installing modes apart in what they accept'
         '--archive',
     ],
 ]);
+
+// =============================================================================
+// The archive-as-data rules are the same rules common applies to a backup
+// =============================================================================
+
+it('applies the same archive-as-data rules common applies, and only adds the vocabulary on top', function () {
+    // The installer judges a recovery material archive on a clean host, where
+    // common cannot be sourced; common judges the same archive as DATA for a
+    // live restore, which never installs it. The structural verdicts must
+    // agree on every shape; only the vocabulary — which names the archive
+    // holds — is the installer's alone.
+    $scratch = itpScratchDir();
+
+    try {
+        $judge = function (string $archive) use ($scratch): array {
+            [$installerExit, $installerOutput] = itpRun($scratch, [
+                '--validate-recovery-material', '--target', 'staging-main', '--scope', 'host', '--archive', $archive,
+            ]);
+
+            [$commonExit, $commonOutput] = commonFunctionHarness($scratch, implode("\n", [
+                '( backup_assert_recovery_material_archive_safe '.escapeshellarg($archive).' ) || { echo "common refused: $?"; exit 0; }',
+                'backup_assert_recovery_material_archive_safe '.escapeshellarg($archive),
+                'echo "common accepted ${BACKUP_RECOVERY_MATERIAL_COUNT} members"',
+            ]));
+
+            expect($commonExit)->toBe(0, $commonOutput);
+
+            return [
+                'installer' => $installerExit === 0,
+                'common' => str_contains($commonOutput, 'common accepted'),
+                'installer_output' => $installerOutput,
+                'common_output' => $commonOutput,
+            ];
+        };
+
+        // Structurally unsafe: both refuse, for the same reason.
+        // The shapes whose wrongness is a member's TYPE carry the rest of the
+        // vocabulary as plain files, so the installer — which checks names
+        // first — reaches its type check and both judges name the same reason.
+        $rest = array_values(array_diff(itpHostScopeNames(), ['basic-auth']));
+        // The hard-link shape supplies tls-dhparams itself, as the link.
+        $restWithoutLinkTarget = array_values(array_diff($rest, ['tls-dhparams']));
+
+        foreach ([
+            'link' => ['symbolic link', $rest],
+            'nested' => ['nested path or a directory entry', []],
+            'traversal' => ['relative path component', []],
+            'directory' => ['nested path or a directory entry', []],
+            'hardlink' => ['hard link', $restWithoutLinkTarget],
+            'fifo' => ['FIFO', $rest],
+            'duplicate' => ['more than once', $rest],
+            'empty' => ['is empty', []],
+        ] as $shape => [$reason, $others]) {
+            $archive = $scratch.'/shape-'.$shape.'.tar.gz';
+            file_put_contents($archive, recoveryMaterialArchiveBytes($shape, 'basic-auth', $others));
+
+            $verdict = $judge($archive);
+
+            expect($verdict['installer'])->toBeFalse("the installer must refuse a {$shape} archive");
+            expect($verdict['common'])->toBeFalse("common must refuse a {$shape} archive");
+            expect($verdict['installer_output'])->toContain($reason);
+            expect($verdict['common_output'])->toContain($reason);
+        }
+
+        // Not a tar: both refuse.
+        file_put_contents($scratch.'/garbage.tar.gz', "not gzip\n");
+        $verdict = $judge($scratch.'/garbage.tar.gz');
+        expect($verdict['installer'])->toBeFalse();
+        expect($verdict['common'])->toBeFalse();
+
+        // Exactly the vocabulary: both accept.
+        $verdict = $judge(itpArchive($scratch, itpRegularMembers(itpHostScopeNames()), itpHostScopeNames()));
+        expect($verdict['installer'])->toBeTrue($verdict['installer_output']);
+        expect($verdict['common'])->toBeTrue($verdict['common_output']);
+        expect($verdict['common_output'])->toContain('common accepted 7 members');
+
+        // A vocabulary the installer no longer knows: safe as data — common
+        // accepts, so a live restore of an older backup still works — while
+        // the installer, which would INSTALL these names, refuses.
+        $verdict = $judge(itpArchive($scratch, itpRegularMembers(['legacy-tls-bundle', 'basic-auth']), ['legacy-tls-bundle', 'basic-auth']));
+        expect($verdict['common'])->toBeTrue($verdict['common_output']);
+        expect($verdict['common_output'])->toContain('common accepted 2 members');
+        expect($verdict['installer'])->toBeFalse();
+        expect($verdict['installer_output'])->toContain('not a host-scope prerequisite of staging-main: legacy-tls-bundle');
+    } finally {
+        itpCleanup($scratch);
+    }
+});

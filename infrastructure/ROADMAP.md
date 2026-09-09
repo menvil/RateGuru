@@ -1367,11 +1367,19 @@ Slices, in order:
      that cannot be completed safely fails the backup. `SHA256SUMS` covers it;
      `server-configuration.tar.gz` is not replaced and is still never applied.
      The closed per-schema file sets and the current schema live once in
-     `common`; schema 1 and 2 backups stay fully restorable onto a live
+     `common`, and every reader of a whole backup — the restore tests, the
+     uploader, the restore primitives — holds a backup to exactly that set
+     and `SHA256SUMS` to exactly its entries before following a path. A
+     backup is written only for a deployed target naming its full
+     `source_sha`. Schema 1 and 2 backups stay fully restorable onto a live
      target, are refused by name as the source of a clean-host recovery, and
      no reader applies `environment.env`, the server snapshot or the recovery
-     material to a live target. Never in a backup: the rclone credential, the
-     deploy private key, the bootstrap credential, any artifact.
+     material to a live target. Two judgements of the material, on purpose:
+     a live restore judges it as data only, so an older backup stays
+     restorable whatever today's prerequisite table says; the restore tests
+     and the recovery preparation certify it against that table. Never in a
+     backup: the rclone credential, the deploy private key, the bootstrap
+     credential, any artifact.
    - **No `PREPARE_*` secret, no hand-copied file.** `prepare-host --apply
      --recovery-backup ID --material-dir SEED` prepares the replacement from
      the backup itself: after the runtime slice, `fetch-recovery-material`
@@ -1395,7 +1403,9 @@ Slices, in order:
      places it before the first download, and `backup-cycle`, `offsite-backup`
      and `offsite-retention` refuse on it before their first child, lock or
      record (`OFFSITE WRITES: HELD`). The local `backup` and `restore-test`
-     are unaffected. Every later recovery mode proves the hold; the guard,
+     are unaffected. The preparation refuses to report the host prepared
+     without it, and its verification requires it by name. Every later
+     recovery mode proves the hold; the guard,
      state, history, result and GitHub summary carry `offsite_writes=held`;
      nothing releases it — adopting the machine is a deliberate act, with
      `DEPLOY_HOST` and DNS. The rehearsal no longer depends on a read-only

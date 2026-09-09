@@ -193,16 +193,25 @@ it('restores from a schema 3 backup exactly as from an older one, and never appl
     $scratch = restoreScratchDir();
 
     try {
-        $paths = restoreTargetFixture($scratch, ['backup' => ['schema' => 3]]);
+        // Recovery material written under a prerequisite table that has since
+        // changed — a name the installer no longer knows, a name it now
+        // requires missing. A live restore never applies it, so the database
+        // and the storage inside are as restorable as ever, and no
+        // prerequisite installer is consulted at all.
+        restoreTargetFixture($scratch, ['backup' => [
+            'schema' => 3,
+            'recovery_material' => [
+                'legacy-tls-bundle' => "material-legacy-tls-bundle-never-logged\n",
+                'basic-auth' => "material-basic-auth-never-logged\n",
+            ],
+        ]]);
 
-        // verify-backup judges the recovery material through the REAL
-        // prerequisite installer; the live restore then leaves it alone.
-        $result = restoreTargetApply($scratch, recoveryMaterialPrerequisitesEnv($scratch, $paths['registry'], $paths['targets']));
+        $result = restoreTargetApply($scratch);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
             ->toContain('backup schema: schema3')
-            ->toContain('recovery material: OK')
+            ->toContain('recovery material: OK (2 top-level regular files, structurally safe; never applied by a live restore)')
             ->toContain('RESTORE DATA COMPLETE: YES')
             ->toContain('TARGET RESUMED: YES');
 

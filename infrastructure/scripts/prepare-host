@@ -247,6 +247,7 @@ Usage:
   prepare-host --apply  --target TARGET_ID [--material-dir DIR]
   prepare-host --apply  --target TARGET_ID --material-dir SEED_DIR --recovery-backup YYYYMMDD-HHMMSS
   prepare-host --verify --target TARGET_ID
+  prepare-host --verify --target TARGET_ID --recovery-backup YYYYMMDD-HHMMSS
   prepare-host --help
 
 All modes require root and a lifecycle=active target.
@@ -256,14 +257,19 @@ All modes require root and a lifecycle=active target.
                      material, consumed by install-target-prerequisites. Only
                      ever used to fill in what is ABSENT; existing material is
                      never overwritten or rotated.
-  --recovery-backup  Recovery preparation, --apply only: take the target's
+  --recovery-backup  Recovery preparation. With --apply: take the target's
                      environment file and every host-scope prerequisite out of
                      this exact offsite backup (schema 3 required), through
                      fetch-recovery-material, instead of from supplied
                      material. --material-dir then names the SEED directory,
                      holding exactly rclone-config and deploy-authorized-keys.
                      Places the host-global offsite-write hold before the
-                     offsite credential is installed.
+                     offsite credential is installed, and refuses to report the
+                     host prepared unless that hold is still in place at the
+                     end. With --verify: verify a recovery preparation AS one —
+                     the read-only walk, plus the requirement that the
+                     offsite-write hold exists and names this target and this
+                     backup. Never with --check.
 
   --check   Read-only, dependency-aware preparation status per slice
             (prerequisites -> host bootstrap -> database -> final), reporting
@@ -412,7 +418,7 @@ require_children_executable() {
 
     [[ -x "${TARGETS_CLI_BIN}" ]] || fail "targets CLI is not executable: ${TARGETS_CLI_BIN} — run from a full repository checkout"
 
-    if recovery_mode; then
+    if recovery_mode && [[ "${MODE}" == apply ]]; then
         [[ -x "${RECOVERY_MATERIAL_BIN}" ]] || fail "recovery-material helper is not executable: ${RECOVERY_MATERIAL_BIN} — run from a full repository checkout"
     fi
 }
@@ -755,6 +761,36 @@ print_offsite_write_hold_status() {
     fi
 }
 
+# assert_recovery_preparation_held — the offsite-write hold exists and is a
+# genuine hold document this script can read. Required at the end of a
+# recovery --apply and by --verify --recovery-backup: a replacement machine
+# whose offsite writers are not fenced could upload into, or prune, the
+# namespace the target's live host owns, and no verification may call such a
+# machine prepared. The hold is host-global: one placed by an earlier
+# preparation or recovery of this machine fences it just the same and is kept,
+# never rewritten, so its own identity is reported rather than enforced.
+# Nothing re-holds it automatically — a missing hold means the preparation
+# must be applied again.
+assert_recovery_preparation_held() {
+    local marker
+    marker="$(offsite_write_hold_path)"
+
+    [[ -e "${marker}" ]] || [[ -L "${marker}" ]] \
+        || fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: the offsite-write hold ${marker} is missing — a replacement machine whose offsite writers are not held could upload into, or prune, the namespace the target's live host owns. Nothing re-holds it automatically; apply the recovery preparation again"
+
+    [[ ! -L "${marker}" ]] && [[ -f "${marker}" ]] \
+        || fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: the offsite-write hold ${marker} is not a regular file — refusing to reason about a hold this verification cannot read"
+
+    local hold placed_by
+    hold="$(jq -r '.hold // empty' "${marker}" 2>/dev/null || true)"
+    placed_by="$(jq -r '"\(.created_by // "unknown") for \(.target // "unknown") from backup \(.backup // "unknown")"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    [[ "${hold}" == "offsite-writes" ]] \
+        || fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: ${marker} is not an offsite-write hold document — refusing to treat an unreadable marker as a fence"
+
+    printf 'RECOVERY PREPARATION: HELD — offsite writes held on this host for %s from backup %s (%s; placed by %s)\n' "${TARGET_ID}" "${RECOVERY_BACKUP}" "${marker}" "${placed_by}"
+}
+
 # --- Read-only walkers (--check / --verify) -----------------------------------
 
 # run_readonly_walk CHILD_MODE UNSATISFIED_STATUS — the shared dependency-aware,
@@ -844,10 +880,20 @@ run_verify() {
     printf 'RateGuru prepare host (verify mode, read-only)\n'
     printf 'Target: %s\n' "${TARGET_ID}"
 
+    if recovery_mode; then
+        printf 'Recovery preparation from offsite backup %s: the offsite-write hold is required\n' "${RECOVERY_BACKUP}"
+    fi
+
     gate_lifecycle_now_if_possible
     gate_data_operation_locks
     gate_no_data_operation_hold
     run_readonly_walk verify FAIL
+
+    # A recovery preparation is verified AS one: every slice satisfied is not
+    # enough on a replacement machine whose offsite writers are not fenced.
+    if recovery_mode; then
+        assert_recovery_preparation_held
+    fi
 
     print_summary 'TARGET PREPARED' || exit 1
 }
@@ -873,6 +919,11 @@ run_apply() {
     if recovery_mode; then
         printf 'Recovery preparation: the environment file and every host-scope prerequisite come from offsite backup %s, not from supplied material\n' "${RECOVERY_BACKUP}"
         run_recovery_slices
+
+        # Placed between the host and target slices above; proven again here,
+        # after every child has run, so this run can never report a
+        # replacement machine prepared with its offsite writers unfenced.
+        assert_recovery_preparation_held
     else
         local slice_id
         for slice_id in "${SLICE_IDS[@]}"; do
@@ -1199,11 +1250,13 @@ parse_args() {
         [[ "${RECOVERY_BACKUP}" =~ ^[0-9]{8}-[0-9]{6}$ ]] \
             || fail "--recovery-backup requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${RECOVERY_BACKUP}); there is no 'latest'"
 
-        [[ "${MODE}" == apply ]] \
-            || fail "--recovery-backup is only valid with --apply: a recovery preparation fetches material from the backup, which a read-only mode never does"
+        [[ "${MODE}" == apply ]] || [[ "${MODE}" == verify ]] \
+            || fail "--recovery-backup is valid with --apply (a recovery preparation) or --verify (its verification, which requires the offsite-write hold), never with --check"
 
-        [[ "${MATERIAL_DIR_SEEN}" == true ]] \
-            || fail "--recovery-backup requires --material-dir naming the seed directory (rclone-config and deploy-authorized-keys)"
+        if [[ "${MODE}" == apply ]]; then
+            [[ "${MATERIAL_DIR_SEEN}" == true ]] \
+                || fail "--recovery-backup requires --material-dir naming the seed directory (rclone-config and deploy-authorized-keys)"
+        fi
     fi
 }
 

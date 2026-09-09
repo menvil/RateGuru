@@ -44,9 +44,10 @@ function verifyBackupRun(string $scratch, array $arguments, array $envOverrides 
 {
     [$registryPath, $targetsPath] = parityRegistryFixture($scratch, $registryOptions);
 
-    // The REAL external-material installer judges a schema 3 backup's
-    // recovery material, against a scratch checkout and a scratch host tree.
-    $env = infraScriptEnv($scratch, $registryPath, $targetsPath, recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + $envOverrides);
+    // Deliberately WITHOUT the external-material installer: a live restore
+    // judges a schema 3 backup's recovery material as data only, and must
+    // not depend on today's prerequisite table.
+    $env = infraScriptEnv($scratch, $registryPath, $targetsPath, $envOverrides);
 
     [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'verify-backup'), $arguments, $env);
 
@@ -116,8 +117,8 @@ it('verifies a schema 3 backup, judging its recovery material by the prerequisit
             ->toContain('backup schema: schema3')
             ->toContain('required files: OK (exactly 8 regular files)')
             ->toContain('SHA256SUMS entry list: OK (exactly the 7 checksummed backup files)')
-            ->toContain('recovery material: OK (7 host-scope files for parity-target')
-            // Names are reported; the material's content and digest never are.
+            ->toContain('recovery material: OK (7 top-level regular files, structurally safe; never applied by a live restore)')
+            // The material's content and digest are never reported.
             ->not->toContain('material-tls-private-key-never-logged')
             ->not->toMatch('/[0-9a-f]{64}/');
 
@@ -145,7 +146,34 @@ it('records the manifest schema of a legacy backup in the identity document, so 
     }
 });
 
-it('refuses a schema 3 backup whose recovery material is missing or unsafe', function (array $options, string $expected) {
+it('accepts recovery material that no longer matches today\'s prerequisite table, because a live restore never applies it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // A backup written under a table that has since changed: a name the
+        // installer no longer knows, and a name it now requires missing. The
+        // database and the storage inside are as restorable as ever.
+        $backup = buildBackupFixture($scratch.'/source', '20260115-120000', [
+            'schema' => 3,
+            'recovery_material' => [
+                'legacy-tls-bundle' => "material-legacy-tls-bundle-never-logged\n",
+                'basic-auth' => "material-basic-auth-never-logged\n",
+            ],
+        ]);
+        $operation = verifyBackupStage($scratch, $backup);
+
+        $result = verifyBackupRun($scratch, ['--target', 'parity-target', '--operation', $operation, '--for-restore']);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('recovery material: OK (2 top-level regular files, structurally safe; never applied by a live restore)')
+            ->not->toContain('never-logged');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a schema 3 backup whose recovery material is missing or unsafe as data', function (array $options, string $expected) {
     $scratch = restoreScratchDir();
 
     try {
@@ -161,15 +189,19 @@ it('refuses a schema 3 backup whose recovery material is missing or unsafe', fun
     }
 })->with([
     'the archive is missing' => [['omit_recovery_material' => true], 'backup is missing a required file: recovery-material.tar.gz'],
-    'a name outside the vocabulary' => [
-        ['recovery_material' => recoveryMaterialMembers() + ['rclone-config' => "[b2]\n"]],
-        'not a host-scope prerequisite of parity-target: rclone-config',
-    ],
-    'a required name missing' => [
-        ['recovery_material' => array_diff_key(recoveryMaterialMembers(), ['basic-auth' => true])],
-        'missing the host-scope prerequisite basic-auth',
-    ],
     'not an archive' => [['recovery_material_bytes' => "definitely not gzip\n"], 'recovery material archive is unreadable'],
+    'a symbolic link inside' => [
+        ['recovery_material_bytes' => recoveryMaterialArchiveBytes('link', 'basic-auth')],
+        'recovery material archive contains a symbolic link',
+    ],
+    'a nested path inside' => [
+        ['recovery_material_bytes' => recoveryMaterialArchiveBytes('nested', 'basic-auth')],
+        'nested path or a directory entry',
+    ],
+    'a parent traversal inside' => [
+        ['recovery_material_bytes' => recoveryMaterialArchiveBytes('traversal', 'basic-auth')],
+        'relative path component',
+    ],
 ]);
 
 it('refuses a staged backup that carries a file beyond its schema\'s closed set', function () {
@@ -186,7 +218,7 @@ it('refuses a staged backup that carries a file beyond its schema\'s closed set'
         $result = verifyBackupRun($scratch, ['--target', 'parity-target', '--operation', $operation]);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('holds 8 entries, expected exactly 7 for a schema2 backup');
+        expect($result['output'])->toContain('holds an entry that is not part of a schema2 backup: recovery-material.tar.gz');
     } finally {
         removeScratchDir($scratch);
     }
@@ -201,7 +233,7 @@ it('refuses a staged backup that carries a file beyond its schema\'s closed set'
         $result = verifyBackupRun($scratch, ['--target', 'parity-target', '--operation', $operation]);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('holds 9 entries, expected exactly 8 for a schema3 backup');
+        expect($result['output'])->toContain('holds an entry that is not part of a schema3 backup: extra-payload.bin');
     } finally {
         removeScratchDir($scratch);
     }

@@ -15,37 +15,6 @@ use Illuminate\Support\Facades\File;
  * mode, and released by nobody: releasing it is part of deliberately adopting
  * the machine.
  */
-
-/**
- * Runs a bash body with common sourced, the way every operational script has
- * it: the deployment.conf template and the committed registry stand in for
- * the installed ones.
- *
- * @return array{0: int, 1: string}
- */
-function offsiteWriteHoldCommonHarness(string $scratch, string $body): array
-{
-    $harness = $scratch.'/harness-'.uniqid('', true).'.sh';
-    file_put_contents($harness, "set -Eeuo pipefail\nsource ".escapeshellarg(base_path('infrastructure/scripts/common'))."\n".$body."\n");
-
-    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-    $process = proc_open(['bash', $harness], $descriptors, $pipes, null, [
-        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
-        'HOME' => getenv('HOME') ?: '/tmp',
-        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
-        'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
-        'RATEGURU_TARGET_REGISTRY_FILE' => base_path('infrastructure/config/deployment-targets.json'),
-        'RATEGURU_TARGETS_CLI' => base_path('infrastructure/scripts/targets'),
-    ]);
-
-    expect($process)->not->toBeFalse();
-
-    $output = stream_get_contents($pipes[1]);
-    fclose($pipes[1]);
-
-    return [proc_close($process), $output];
-}
-
 it('composes one deterministic hold path under the run root, and reads it without touching it', function () {
     $scratch = restoreScratchDir();
 
@@ -53,7 +22,7 @@ it('composes one deterministic hold path under the run root, and reads it withou
         $runRoot = $scratch.'/run';
         mkdir($runRoot, 0o700, true);
 
-        [$exit, $output] = offsiteWriteHoldCommonHarness($scratch, implode("\n", [
+        [$exit, $output] = commonFunctionHarness($scratch, implode("\n", [
             'offsite_write_hold_file /var/run/rateguru',
             'offsite_write_hold_file /var/run/rateguru/',
             'offsite_writes_held '.escapeshellarg($runRoot).' && echo held || echo free',

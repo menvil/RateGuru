@@ -123,7 +123,11 @@ There is deliberately no fallback to hand-supplied material. A schema 1 or 2
 backup stays fully restorable onto a **live** target through Restore Target
 Data; for a clean-host recovery, take a new backup on a live host. The accepted
 schema is recorded (`BACKUP SCHEMA: 3`) in the state, the history and every
-report. See [`backups.md`](backups.md) for the format.
+report. The recovery material itself was already installed by the recovery
+preparation, from this same backup, and certified against the prerequisite
+table there and by the nightly restore tests; `verify-backup` here judges it
+as data only, exactly as a live restore does. See [`backups.md`](backups.md)
+for the format.
 
 ---
 

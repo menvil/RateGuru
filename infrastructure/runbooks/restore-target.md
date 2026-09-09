@@ -175,11 +175,15 @@ right now. In order:
    manifest always names its target;
 5. the storage archive would create nothing but directories and regular files,
    all under `app/`;
-6. for schema 3, the recovery material archive is judged by
-   `install-target-prerequisites --validate-recovery-material`: exactly the
-   target's host-scope logical names, top-level regular files, nothing else.
-   Names are reported; content never is. The archive is never applied by a
-   live restore.
+6. for schema 3, the recovery material archive is judged **as data**: a
+   readable gzip tar of top-level regular files with plain names — no
+   directory, link, device, FIFO, absolute, nested or parent-relative path,
+   no duplicate — through `common`'s shared rule, never extracted, content
+   never reported. Deliberately **not** against today's prerequisite table: a
+   live restore never applies the archive, so a schema 3 backup written under
+   an older table stays restorable. The vocabulary-aware judgement is
+   `restore-test`'s, `offsite-restore-test`'s and the recovery
+   preparation's.
 
 For a destructive restore only, `--for-restore` adds the **recovery identity**
 gate: `release.json` must carry a usable `release` and `source_sha`, and a

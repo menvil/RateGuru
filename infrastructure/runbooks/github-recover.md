@@ -285,7 +285,11 @@ schema is 2, and a host recovery requires schema 3 …
 There is no fallback to hand-supplied material. An older backup stays fully
 restorable onto a **live** target through Restore Target Data; for a
 clean-host recovery, take a new backup on a live host and recover from that.
-See [`backups.md`](backups.md).
+A backup is only written for a deployed target whose `release.json` names a
+full `source_sha`, and the nightly `restore-test` / `offsite-restore-test`
+certify a schema 3 backup's recovery material against the installed
+prerequisite table — so a backup that passed its nightly test is one a
+recovery can be prepared from. See [`backups.md`](backups.md).
 
 ### The rclone credential
 
@@ -338,7 +342,7 @@ What runs, in order:
 validate        request + target lifecycle          no environment, no secret
 binding         replacement-host != DEPLOY_HOST     no connection
 deploy-identity ssh-keygen -y on DEPLOY_SSH_KEY     runner only, public half out
-prepare         prepare-rateguru-host               --apply --recovery-backup, then --verify
+prepare         prepare-rateguru-host               --apply --recovery-backup, then --verify --recovery-backup (hold required)
 recover         recover-host --apply                the same exact offsite backup
 decide          read the server's own result        awaiting-code
 build           the EXACT commit the backup names   no environment, no secret
@@ -575,6 +579,11 @@ it downloads a byte. While it exists:
 * the local `backup` and `restore-test` keep working — a recovered machine
   keeps taking local backups of its own data;
 * the recovered host still **reads** its backup normally;
+* the recovery preparation itself refuses to report the host prepared unless
+  the hold is still in place at the end of its apply, and its independent
+  `--verify --recovery-backup` requires the hold to exist as a genuine hold
+  document — so the Prepare step of a recovery can never say "prepared"
+  about an unfenced machine;
 * every recovery mode after `--apply` (`--inspect`, `--resume`, `--verify`)
   proves the hold is still there and refuses if it is not; the guard, the
   state, the history, the machine-readable result and the GitHub summary all

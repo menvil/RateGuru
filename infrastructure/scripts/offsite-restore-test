@@ -271,7 +271,13 @@ print(max(names) if names else "")
             || fail "missing downloaded backup file: ${required_file}"
     done
 
-    log "Backup schema:  ${BACKUP_SCHEMA}"
+    # Exactly the closed set, and SHA256SUMS naming exactly it: the download
+    # copied the whole remote directory, so a stray object there would
+    # otherwise be tested as if it were part of the backup.
+    backup_assert_file_set "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+    backup_assert_sha256sums_entries "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+
+    log "Backup schema:  ${BACKUP_SCHEMA} (exactly ${#required_files[@]} files)"
 
     log ""
     log "Checking downloaded SHA-256 checksums"
@@ -289,6 +295,21 @@ print(max(names) if names else "")
         >/dev/null
 
     validate_backup_manifest "${TEMP_DIRECTORY}/manifest.json"
+
+    # A schema 3 backup is CERTIFIED here, the same way local restore-test
+    # certifies it: the recovery material must be exactly what a clean-host
+    # recovery could be prepared from today — safe as data, covered by
+    # SHA256SUMS exactly once, and holding exactly the target's host-scope
+    # prerequisite names as the installed table states them. A nightly PASS
+    # on a backup a recovery could not use would be the worst kind of pass.
+    if backup_schema_supports_clean_host_recovery "${BACKUP_SCHEMA}"; then
+        log ""
+        log "Checking recovery material against the prerequisite table"
+
+        backup_assert_recovery_material_certified "${TEMP_DIRECTORY}" "${TARGET_ID}"
+
+        log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
+    fi
 
     # PostgreSQL silently truncates identifiers longer than 63 bytes
     # (NAMEDATALEN - 1). "rateguru_offsite_restore_" (25) + "_" + a 14-digit

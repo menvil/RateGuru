@@ -372,6 +372,16 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
     }
     file_put_contents($dir.'/SHA256SUMS', implode("\n", $lines)."\n");
 
+    // Strangers a test plants on purpose: an extra file beside the closed
+    // set, or an extra SHA256SUMS line naming something outside it.
+    foreach ($options['extra_files'] ?? [] as $name => $content) {
+        file_put_contents($dir.'/'.$name, $content);
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        file_put_contents($dir.'/SHA256SUMS', $extra."\n", FILE_APPEND);
+    }
+
     if (! empty($options['corrupt_checksum'])) {
         file_put_contents($dir.'/database.dump', "TAMPERED-AFTER-CHECKSUM\n");
     }
@@ -1132,6 +1142,36 @@ it('refuses a schema 3 backup whose recovery material is missing, not checksumme
         'missing the host-scope prerequisite tls-private-key',
     ],
     'the archive is not a tar at all' => [['recovery_material_bytes' => "not a gzip archive\n"], 'unreadable'],
+]);
+
+it('refuses a backup that carries anything beyond its closed file set, before the temporary database exists', function (array $options, string $expected) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with([
+    'a stray file beside the set' => [
+        ['extra_files' => ['stray-object.bin' => "not part of any backup\n"]],
+        'backup directory holds an entry that is not part of a schema3 backup: stray-object.bin',
+    ],
+    'a SHA256SUMS entry pointing outside the set' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  ../../etc/shadow']],
+        'SHA256SUMS references a file that is not part of a RateGuru backup: ../../etc/shadow',
+    ],
+    'a SHA256SUMS entry naming a backup file twice' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  database.dump']],
+        'SHA256SUMS references database.dump more than once',
+    ],
 ]);
 
 it('refuses a schema 3 manifest that names no target', function () {

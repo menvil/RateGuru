@@ -39,21 +39,17 @@ PHP_BIN_DEFAULT="/usr/bin/php8.5"
 # The installed external-material installer. Its --capture mode is how a
 # backup gains the host-scope recovery material a clean-host recovery needs,
 # from the one prerequisite table Prepare Host installs from — this script
-# never lists that material itself.
-PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"
+# never lists that material itself. The installer is resolved by common
+# (backup_prerequisites_bin), the same way every certifier of that material
+# resolves it.
 
 BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
 SYSTEM_ROOT="${SYSTEM_ROOT_DEFAULT}"
 PG_DUMP_BIN="${PG_DUMP_BIN_DEFAULT}"
 PHP_BIN="${PHP_BIN_DEFAULT}"
-PREREQUISITES_BIN="${PREREQUISITES_BIN_DEFAULT}"
 
 if rateguru_test_overrides_allowed; then
-    if [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
-        PREREQUISITES_BIN="${RATEGURU_PREREQUISITES_BIN}"
-    fi
-
     if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
         BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
     fi
@@ -239,10 +235,13 @@ build_recovery_material_archive() {
 
     install -d -o root -g root -m 0700 "${capture_dir}"
 
-    [[ -x "${PREREQUISITES_BIN}" ]] \
-        || fail "the external-material installer is not available at ${PREREQUISITES_BIN} — a backup cannot capture the recovery material a clean-host recovery needs without it, so no backup is written"
+    local prerequisites_bin
+    prerequisites_bin="$(backup_prerequisites_bin)"
 
-    "${PREREQUISITES_BIN}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}" \
+    [[ -x "${prerequisites_bin}" ]] \
+        || fail "the external-material installer is not available at ${prerequisites_bin} — a backup cannot capture the recovery material a clean-host recovery needs without it, so no backup is written"
+
+    "${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}" \
         || fail "host-scope recovery material could not be captured for ${TARGET_ID} — refusing to write a backup that a clean-host recovery could not use"
 
     local -a names=()
@@ -346,15 +345,16 @@ perform_backup() {
 
     install -d -o root -g root -m 0700 "${TEMP_ROOT}"
 
-    CURRENT_RELEASE="unknown"
+    # Before the first byte is dumped: a backup written today is the source of
+    # a clean-host recovery, which rebuilds the EXACT commit the data belongs
+    # to. A target with no deployed release, or a release that cannot name
+    # its full source_sha, is not backed up at all — a schema 3 backup with an
+    # empty identity would be reported as a success and found unusable on the
+    # worst day. The manifest's release is the one release.json names.
+    backup_assert_release_identity "${TARGET_ROOT}/current/release.json" \
+        "a backup is the source of a clean-host recovery, which rebuilds exactly the commit the data belongs to, so a target without a deployed release naming its full source_sha is not backed up"
 
-    if [[ -L "${TARGET_ROOT}/current" ]]; then
-        CURRENT_RELEASE="$(
-            basename "$(
-                readlink -f "${TARGET_ROOT}/current"
-            )"
-        )"
-    fi
+    CURRENT_RELEASE="${BACKUP_RELEASE}"
 
     log "Backing up PostgreSQL database ${DATABASE_NAME}"
 
@@ -383,16 +383,13 @@ perform_backup() {
         "${TARGET_ROOT}/shared/.env" \
         "${TEMP_ROOT}/environment.env"
 
-    if [[ -f "${TARGET_ROOT}/current/release.json" ]]; then
-        install \
-            -o root \
-            -g root \
-            -m 0600 \
-            "${TARGET_ROOT}/current/release.json" \
-            "${TEMP_ROOT}/release.json"
-    else
-        printf '{}\n' > "${TEMP_ROOT}/release.json"
-    fi
+    # Proven above to name the release and its full source_sha; copied as is.
+    install \
+        -o root \
+        -g root \
+        -m 0600 \
+        "${TARGET_ROOT}/current/release.json" \
+        "${TEMP_ROOT}/release.json"
 
     log "Backing up server configuration"
 

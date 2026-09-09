@@ -190,6 +190,11 @@ function prepWriteChildStubs(string $scratch): void
                 else
                     printf '%s hold-absent\n' "${key}" >> "${STUB_LOG}/hold-seen.log"
                 fi
+                # Simulates the hold vanishing between the slice that placed
+                # it and the end of the run.
+                if [[ "${key}" == prerequisites-target ]] && [[ -e "${STUB_TOGGLES}/remove-hold-after-target" ]]; then
+                    rm -f "${STUB_LOCK_ROOT}/offsite-write-hold"
+                fi
                 if [[ -e "${STUB_TOGGLES}/${key}-apply-fail" ]]; then
                     echo "ERROR: external prerequisite tls-private-key: already present and DIFFERS from the supplied material"
                     exit 1
@@ -1431,9 +1436,13 @@ it('accepts --recovery-backup only as an exact timestamp, only with --apply, and
         prepCleanup($scratch);
     }
 })->with([
-    'a read-only mode' => [
+    'the check mode' => [
         ['--check', '--target', 'staging-main', '--material-dir', '/root/seed', '--recovery-backup', '20260115-023000'],
-        '--recovery-backup is only valid with --apply',
+        'never with --check',
+    ],
+    'a verification given material' => [
+        ['--verify', '--target', 'staging-main', '--material-dir', '/root/seed', '--recovery-backup', '20260115-023000'],
+        '--verify never consults supplied material',
     ],
     'no seed directory' => [
         ['--apply', '--target', 'staging-main', '--recovery-backup', '20260115-023000'],
@@ -1535,6 +1544,150 @@ it('never releases the offsite-write hold, in any mode', function () {
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('OFFSITE WRITES: HELD');
         expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeTrue();
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// A recovery preparation is verified as one: the hold is part of "prepared"
+// =============================================================================
+
+/** The hold document prepare-host writes, for staging-main from one backup. */
+function prepPlantHold(string $scratch, array $overrides = []): string
+{
+    @mkdir($scratch.'/run', 0o700, true);
+
+    $path = $scratch.'/run/offsite-write-hold';
+    file_put_contents($path, json_encode(array_merge([
+        'hold' => 'offsite-writes',
+        'reason' => 'host-recovery',
+        'target' => 'staging-main',
+        'backup' => '20260115-023000',
+        'created_by' => 'prepare-host --recovery-backup',
+        'created_at' => '2026-01-15T03:00:00Z',
+    ], $overrides)));
+
+    return $path;
+}
+
+it('verifies a recovery preparation only when the offsite-write hold is in place', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        prepPlantHold($scratch);
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main', '--recovery-backup', '20260115-023000'], prepPreparedFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('Recovery preparation from offsite backup 20260115-023000: the offsite-write hold is required')
+            ->toContain('RECOVERY PREPARATION: HELD — offsite writes held on this host for staging-main from backup 20260115-023000')
+            ->toContain('placed by prepare-host --recovery-backup for staging-main from backup 20260115-023000')
+            ->toContain('OFFSITE WRITES: HELD')
+            ->toContain('TARGET PREPARED: YES');
+
+        // Read-only: no child apply, and the hold is untouched.
+        expect(File::exists($scratch.'/log/mutations.log'))->toBeFalse();
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeTrue();
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses to call a recovery preparation prepared when its hold is missing or unreadable', function (callable $arrange, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        $arrange($scratch);
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main', '--recovery-backup', '20260115-023000'], prepPreparedFixture($scratch));
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('recovery preparation of staging-main from backup 20260115-023000 is NOT complete')
+            ->toContain($expected)
+            ->not->toContain('TARGET PREPARED: YES');
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'no hold at all' => [
+        function (string $scratch): void {},
+        '/run/offsite-write-hold is missing',
+    ],
+    'not a hold document' => [
+        function (string $scratch): void {
+            prepPlantHold($scratch, ['hold' => 'something-else']);
+        },
+        'is not an offsite-write hold document',
+    ],
+    'a hold that is a symlink' => [
+        function (string $scratch): void {
+            @mkdir($scratch.'/run', 0o700, true);
+            file_put_contents($scratch.'/elsewhere.json', json_encode(['hold' => 'offsite-writes']));
+            symlink($scratch.'/elsewhere.json', $scratch.'/run/offsite-write-hold');
+        },
+        'is not a regular file',
+    ],
+]);
+
+it('accepts the hold an earlier preparation or recovery of this machine placed, and reports whose it is', function () {
+    // The hold is host-global: whoever placed it, and for whichever backup,
+    // the machine's offsite writers are fenced. It is kept, never rewritten,
+    // so the verification reports its identity rather than enforcing it.
+    $scratch = prepScratchDir();
+
+    try {
+        prepPlantHold($scratch, ['backup' => '20260101-000000', 'created_by' => 'recover-host --apply']);
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main', '--recovery-backup', '20260115-023000'], prepPreparedFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('RECOVERY PREPARATION: HELD')
+            ->toContain('placed by recover-host --apply for staging-main from backup 20260101-000000')
+            ->toContain('TARGET PREPARED: YES');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses to report a recovery preparation applied when the hold vanished before the end of the run', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        touch($scratch.'/toggles/remove-hold-after-target');
+
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('recovery preparation of staging-main from backup 20260115-023000 is NOT complete')
+            ->toContain('the offsite-write hold')
+            ->toContain('is missing')
+            ->not->toContain('TARGET PREPARED: YES');
+
+        // Every slice ran; the refusal is about the fence, not the slices.
+        $order = array_map(
+            static fn (string $line): string => explode(' ', $line)[0],
+            prepLog($scratch, 'mutations'),
+        );
+        expect($order)->toBe(['runtime', 'prerequisites-host', 'bootstrap', 'prerequisites-target', 'database']);
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('verifies an ordinary preparation without demanding a hold, and reports one when it happens to exist', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main'], prepPreparedFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->not->toContain('RECOVERY PREPARATION')
+            ->not->toContain('OFFSITE WRITES');
     } finally {
         prepCleanup($scratch);
     }

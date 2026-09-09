@@ -89,12 +89,6 @@ RESTORE_VERIFY_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_VERIFY_BACKU
 RESTORE_DATABASE_BIN="$(restore_gated_default RATEGURU_RESTORE_DATABASE_BIN /home/www/rateguru/bin/restore-database)"
 RESTORE_STORAGE_BIN="$(restore_gated_default RATEGURU_RESTORE_STORAGE_BIN /home/www/rateguru/bin/restore-storage)"
 
-# The installed external-material installer, whose prerequisite table is the
-# one vocabulary a backup's recovery material is checked against. The same
-# override name backup and restore-test use for the same binary, so one
-# harness variable configures the whole capture/verify surface.
-RESTORE_PREREQUISITES_BIN="$(restore_gated_default RATEGURU_PREREQUISITES_BIN /home/www/rateguru/bin/install-target-prerequisites)"
-
 # The group Nginx runs as. Hardcoded exactly like deploy's own
 # `install -d -o "${RUNTIME_USER}" -g www-data` calls and
 # install-public-storage-access's WEB_USER — the public-storage access model
@@ -1316,34 +1310,15 @@ restore_assert_backup_regular_file() {
 # directory) carrying an extra object must not have it silently staged
 # alongside the backup and later mistaken for part of it.
 restore_assert_backup_file_set() {
-    local dir="$1" name entry
+    local dir="$1"
 
     restore_assert_directory_safe "${dir}" "staged backup directory"
 
     restore_select_backup_file_set "${dir}"
 
-    for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
-        restore_assert_backup_regular_file "${dir}" "${name}"
-    done
-
-    local staged_count
-    staged_count="$(find "${dir}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
-    staged_count="${staged_count//[[:space:]]/}"
-
-    [[ "${staged_count}" == "${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}" ]] \
-        || fail "staged backup directory holds ${staged_count} entries, expected exactly ${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]} for a ${RESTORE_BACKUP_SCHEMA} backup"
-
-    # Belt and braces over the count: name every stranger, so an operator
-    # reading the refusal knows what was there.
-    while IFS= read -r entry; do
-        [[ -n "${entry}" ]] || continue
-
-        for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
-            [[ "${entry}" != "${name}" ]] || continue 2
-        done
-
-        fail "staged backup directory holds an entry that is not part of a ${RESTORE_BACKUP_SCHEMA} backup: ${entry}"
-    done < <(find "${dir}" -mindepth 1 -maxdepth 1 -printf '%f\n')
+    # The closed-set check itself is common's, shared with every reader of a
+    # backup; this wrapper adds the staged directory's own safety.
+    backup_assert_file_set "${dir}" "${RESTORE_BACKUP_SCHEMA}"
 }
 
 # restore_assert_sha256sums_entries DIR — SHA256SUMS is itself untrusted
@@ -1358,56 +1333,10 @@ restore_assert_backup_file_set() {
 # components, extra file references and unknown names all fail here.
 restore_assert_sha256sums_entries() {
     local dir="$1"
-    local sums="${dir}/SHA256SUMS"
-    local -a seen=()
-    local line hash name known found
 
     restore_select_backup_file_set "${dir}"
 
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        [[ -n "${line}" ]] || continue
-
-        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
-            || fail "SHA256SUMS carries a malformed entry: ${line}"
-
-        hash="${BASH_REMATCH[1]}"
-        name="${BASH_REMATCH[2]}"
-
-        # Silences the "assigned but unused" reading of $hash while keeping
-        # the capture explicit about what each half of the line is.
-        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
-
-        found=false
-        for known in "${RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]}"; do
-            if [[ "${name}" == "${known}" ]]; then
-                found=true
-                break
-            fi
-        done
-
-        [[ "${found}" == true ]] \
-            || fail "SHA256SUMS references a file that is not part of a RateGuru backup: ${name}"
-
-        for known in "${seen[@]:-}"; do
-            [[ "${known}" != "${name}" ]] \
-                || fail "SHA256SUMS references ${name} more than once"
-        done
-
-        seen+=("${name}")
-    done < "${sums}"
-
-    for known in "${RESTORE_BACKUP_EXPECTED_CHECKSUMMED_FILES[@]}"; do
-        found=false
-        for name in "${seen[@]:-}"; do
-            if [[ "${name}" == "${known}" ]]; then
-                found=true
-                break
-            fi
-        done
-
-        [[ "${found}" == true ]] \
-            || fail "SHA256SUMS does not cover ${known}"
-    done
+    backup_assert_sha256sums_entries "${dir}" "${RESTORE_BACKUP_SCHEMA}"
 }
 
 # --- storage archive safety ----------------------------------------------------
@@ -1527,34 +1456,29 @@ restore_assert_extracted_tree_safe() {
 
 # --- recovery material archive safety -------------------------------------------
 #
-# recovery-material.tar.gz is the one backup member whose CONTENT is a closed
-# vocabulary rather than application data: every entry must be a top-level
-# regular file named exactly as one of the target's host-scope external
-# prerequisites, and the archive must carry every one of them and nothing
-# else. That vocabulary belongs to install-target-prerequisites — the one
-# prerequisite table Prepare Host installs from — and the check is delegated
-# to its read-only --validate-recovery-material mode rather than re-derived
-# here, so a backup can never be judged "recovery-capable" against a list that
-# differs from the one the installer would actually consume.
+# recovery-material.tar.gz is the one backup member a live restore verifies
+# and never applies. A restore therefore judges it as DATA only — a safe
+# archive of top-level regular files, through common's shared rule — and
+# deliberately NOT against today's prerequisite table: a backup written under
+# an older table (a changed TLS scheme, a retired mail-capture vhost) is still
+# a perfectly good source of database and storage for a live target, and a
+# live restore that refused it over material it never installs would be a
+# refusal about nothing. The strict vocabulary judgement belongs where the
+# material is installed (fetch-recovery-material) and where a backup is
+# certified for a clean-host recovery (restore-test, offsite-restore-test).
 #
-# Read-only: nothing is extracted. The validator prints logical names only;
-# no content, digest or length of any member is ever reported.
+# Read-only: nothing is extracted; no content, digest or length of any member
+# is ever reported.
 restore_assert_recovery_material_safe() {
-    local dir="$1" target_id="$2"
-    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
-    local output status=0
+    local dir="$1"
 
-    [[ -x "${RESTORE_PREREQUISITES_BIN}" ]] \
-        || fail "the external-material installer is not available at ${RESTORE_PREREQUISITES_BIN} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+    # As DATA only: a live restore never applies the archive, so a backup
+    # written under an older prerequisite table stays restorable. Whether the
+    # names match today's table is asked only where the material is installed
+    # or a backup is certified for a clean-host recovery — see common.
+    backup_assert_recovery_material_archive_safe "${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
 
-    output="$("${RESTORE_PREREQUISITES_BIN}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
-
-    if (( status != 0 )); then
-        printf '%s\n' "${output}" >&2
-        fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
-    fi
-
-    RESTORE_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+    RESTORE_RECOVERY_MATERIAL_REPORT="${BACKUP_RECOVERY_MATERIAL_COUNT} top-level regular files, structurally safe; never applied by a live restore"
 }
 
 RESTORE_RECOVERY_MATERIAL_REPORT=""

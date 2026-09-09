@@ -364,6 +364,300 @@ validate_backup_manifest() {
     esac
 }
 
+# --- the backup as a whole: closed sets, safety as data, release identity ---
+#
+# The checks below read a backup the way every consumer must, and are stated
+# here once so restore-test, offsite-backup, offsite-restore-test and — through
+# restore-common — the restore and recovery primitives cannot come to mean
+# different things by "a backup":
+#
+#   backup_assert_file_set                    exactly the schema's closed set
+#   backup_assert_sha256sums_entries          SHA256SUMS names exactly that set
+#   backup_assert_recovery_material_archive_safe
+#                                             the recovery material is a safe
+#                                             archive of plain files (as DATA)
+#   backup_assert_recovery_material_certified the material also matches the
+#                                             installed prerequisite table
+#   backup_assert_release_identity            release.json names the exact commit
+#
+# Two levels of judgement for the recovery material, on purpose. A live
+# restore never applies the archive: it only has to be safe to stage beside
+# the data, and a backup written under an older prerequisite table stays
+# restorable forever. Whether the names match TODAY's table is asked only
+# where the material is installed (fetch-recovery-material, on the replacement
+# machine) and where a backup is certified for a clean-host recovery
+# (restore-test and offsite-restore-test, which must fail on a backup a
+# recovery could not use).
+
+# backup_assert_file_set DIR SCHEMA — DIR holds exactly the closed file set of
+# SCHEMA: every required file present as a plain regular file that resolves
+# inside DIR, and not one entry more. Run wherever a backup is read as a
+# whole — before its checksums are followed, before it is uploaded, before a
+# temporary database is created — so a stranger never rides along.
+backup_assert_file_set() {
+    local dir="$1" schema="$2" name entry path resolved
+    local -a expected=()
+    mapfile -t expected < <(backup_required_files_for_schema "${schema}")
+
+    for name in "${expected[@]}"; do
+        path="${dir}/${name}"
+
+        [[ -e "${path}" ]] || fail "backup is missing a required file: ${name}"
+        [[ ! -L "${path}" ]] || fail "backup file must not be a symlink: ${name}"
+        [[ -f "${path}" ]] || fail "backup file must be a regular file: ${name}"
+
+        resolved="$(readlink -f "${path}")" \
+            || fail "could not resolve backup file: ${name}"
+
+        [[ "$(dirname "${resolved}")" == "$(readlink -f "${dir}")" ]] \
+            || fail "backup file resolves outside the backup directory: ${name}"
+    done
+
+    # Every stranger is named, so an operator reading the refusal knows what
+    # was there; the count below is belt and braces over the two loops.
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        for name in "${expected[@]}"; do
+            [[ "${entry}" != "${name}" ]] || continue 2
+        done
+
+        fail "backup directory holds an entry that is not part of a ${schema} backup: ${entry}"
+    done < <(find "${dir}" -mindepth 1 -maxdepth 1 -printf '%f\n')
+
+    local count
+    count="$(find "${dir}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
+    count="${count//[[:space:]]/}"
+
+    [[ "${count}" == "${#expected[@]}" ]] \
+        || fail "backup directory holds ${count} entries, expected exactly ${#expected[@]} for a ${schema} backup"
+}
+
+# backup_assert_sha256sums_entries DIR SCHEMA — SHA256SUMS names exactly the
+# checksummed files of SCHEMA, once each, as bare names. Checked BEFORE
+# `sha256sum --check` follows a single path, so an entry naming /etc/shadow
+# or ../../something never reaches it.
+backup_assert_sha256sums_entries() {
+    local dir="$1" schema="$2"
+    local sums="${dir}/${BACKUP_CHECKSUMS_FILE}"
+    local -a expected=() seen=()
+    local line hash name known found
+
+    mapfile -t expected < <(backup_checksummed_files_for_schema "${schema}")
+
+    [[ -f "${sums}" ]] && [[ ! -L "${sums}" ]] \
+        || fail "backup is missing a required file: ${BACKUP_CHECKSUMS_FILE}"
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
+            || fail "SHA256SUMS carries a malformed entry: ${line}"
+
+        hash="${BASH_REMATCH[1]}"
+        name="${BASH_REMATCH[2]}"
+
+        # Silences the "assigned but unused" reading of $hash while keeping
+        # the capture explicit about what each half of the line is.
+        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
+
+        found=false
+        for known in "${expected[@]}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS references a file that is not part of a RateGuru backup: ${name}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${name}" ]] \
+                || fail "SHA256SUMS references ${name} more than once"
+        done
+
+        seen+=("${name}")
+    done < "${sums}"
+
+    for known in "${expected[@]}"; do
+        found=false
+        for name in "${seen[@]:-}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS does not cover ${known}"
+    done
+}
+
+# backup_assert_recovery_material_archive_safe ARCHIVE — the recovery material
+# judged as DATA: a readable gzip tar whose members are top-level regular
+# files with plain names — no directory, symlink, hard link, device, FIFO or
+# socket, no absolute, nested or parent-relative path, no duplicate. Nothing
+# is extracted and nothing about any member's content is printed. Which
+# names it holds is not this function's question. Sets
+# BACKUP_RECOVERY_MATERIAL_COUNT to the number of members.
+#
+# install-target-prerequisites applies these same rules on a clean host,
+# where common cannot be sourced; a test pins the two together.
+backup_assert_recovery_material_archive_safe() {
+    local archive="$1"
+
+    [[ -e "${archive}" ]] || fail "recovery material archive is missing: ${archive}"
+    [[ ! -L "${archive}" ]] || fail "recovery material archive must not be a symlink: ${archive}"
+    [[ -f "${archive}" ]] || fail "recovery material archive must be a regular file: ${archive}"
+    [[ -r "${archive}" ]] || fail "recovery material archive is not readable: ${archive}"
+
+    local listing
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable (not a gzip tar, or truncated): ${archive}"
+
+    [[ -n "${listing}" ]] || fail "recovery material archive is empty: ${archive}"
+
+    local entry known
+    local -a seen=()
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        [[ "${entry}" != *\\* ]] \
+            || fail "recovery material archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "recovery material archive entry contains a control character"
+        [[ "${entry}" != /* ]] \
+            || fail "recovery material archive contains an absolute path: ${entry}"
+        [[ "${entry}" != "." ]] && [[ "${entry}" != ".." ]] && [[ "${entry}" != *..* ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+        [[ "${entry}" != */* ]] \
+            || fail "recovery material archive contains a nested path or a directory entry, where only top-level logical names are allowed: ${entry}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${entry}" ]] \
+                || fail "recovery material archive contains ${entry} more than once"
+        done
+
+        seen+=("${entry}")
+    done <<< "${listing}"
+
+    local verbose line
+    verbose="$(tar -tvzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${archive}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string.
+        case "${line:0:1}" in
+            -) ;;
+            d) fail "recovery material archive contains a directory entry — only top-level regular files are allowed" ;;
+            l) fail "recovery material archive contains a symbolic link — refusing to extract as root" ;;
+            h) fail "recovery material archive contains a hard link — refusing to extract as root" ;;
+            c|b) fail "recovery material archive contains a device node — refusing to extract as root" ;;
+            p) fail "recovery material archive contains a FIFO — refusing to extract as root" ;;
+            s) fail "recovery material archive contains a socket — refusing to extract as root" ;;
+            *) fail "recovery material archive contains an entry of an unrecognized type: ${line}" ;;
+        esac
+    done <<< "${verbose}"
+
+    BACKUP_RECOVERY_MATERIAL_COUNT="${#seen[@]}"
+}
+
+# backup_prerequisites_bin — the installed external-material installer, whose
+# prerequisite table is the one vocabulary a backup's recovery material is
+# captured from and certified against. Resolved at call time, so the gated
+# override is honoured wherever this runs.
+backup_prerequisites_bin() {
+    local bin="/home/www/rateguru/bin/install-target-prerequisites"
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
+        bin="${RATEGURU_PREREQUISITES_BIN}"
+    fi
+
+    printf '%s\n' "${bin}"
+}
+
+# backup_assert_recovery_material_certified DIR TARGET_ID — the STRICT
+# judgement: the archive is safe as data, SHA256SUMS covers it exactly once,
+# and it holds exactly the host-scope prerequisite names the installed table
+# states for TARGET_ID today — proven by the installer itself, which never
+# reads a member's content. This is what a backup verification must fail on,
+# because a backup that passes it and nothing else is one a clean-host
+# recovery could not be prepared from. Sets BACKUP_RECOVERY_MATERIAL_REPORT
+# to the installer's one-line summary (names only).
+backup_assert_recovery_material_certified() {
+    local dir="$1" target_id="$2"
+    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
+    local bin listed output status=0
+    local pattern="^[0-9a-f]{64}  ${BACKUP_RECOVERY_MATERIAL_FILE//./\\.}\$"
+
+    backup_assert_recovery_material_archive_safe "${archive}"
+
+    listed="$(grep -c -E "${pattern}" "${dir}/${BACKUP_CHECKSUMS_FILE}" || true)"
+
+    [[ "${listed}" == "1" ]] \
+        || fail "SHA256SUMS must cover ${BACKUP_RECOVERY_MATERIAL_FILE} exactly once (found ${listed} entries)"
+
+    bin="$(backup_prerequisites_bin)"
+
+    [[ -x "${bin}" ]] \
+        || fail "the external-material installer is not available at ${bin} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+
+    output="$("${bin}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
+    fi
+
+    BACKUP_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+}
+
+# A backup names the exact commit its data belongs to: the full 40-character
+# form, never an abbreviation a recovery would have to resolve.
+BACKUP_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
+
+# backup_assert_release_identity FILE REASON — FILE is a release.json naming
+# a well-formed release and a full source_sha. A backup written today is the
+# source of a clean-host recovery, which rebuilds exactly that commit, so a
+# target that cannot name it is not backed up at all: a schema 3 backup with
+# an empty or partial identity would be reported as a success and found
+# unusable on the worst day. REASON is appended to every refusal. Sets
+# BACKUP_RELEASE and BACKUP_SOURCE_SHA.
+backup_assert_release_identity() {
+    local file="$1" reason="$2"
+
+    [[ -e "${file}" ]] || fail "release.json is missing: ${file} — ${reason}"
+    [[ ! -L "${file}" ]] || fail "release.json must not be a symlink: ${file} — ${reason}"
+    [[ -f "${file}" ]] || fail "release.json must be a regular file: ${file} — ${reason}"
+
+    jq -e 'type == "object"' "${file}" >/dev/null 2>&1 \
+        || fail "release.json is not a JSON object: ${file} — ${reason}"
+
+    local release="" source_sha=""
+
+    if [[ "$(jq -r '.release | type' "${file}")" == "string" ]]; then
+        release="$(jq -r '.release' "${file}")"
+    fi
+
+    if [[ "$(jq -r '.source_sha | type' "${file}")" == "string" ]]; then
+        source_sha="$(jq -r '.source_sha' "${file}")"
+    fi
+
+    [[ "${release}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "release.json carries no well-formed release (${release:-<unset>}): ${file} — ${reason}"
+
+    [[ "${source_sha}" =~ ${BACKUP_SOURCE_SHA_REGEX} ]] \
+        || fail "release.json carries no full 40-character source_sha (${source_sha:-<unset>}): ${file} — ${reason}"
+
+    BACKUP_RELEASE="${release}"
+    BACKUP_SOURCE_SHA="${source_sha}"
+}
+
 # --- backup format contract (end) ---
 
 # --- deployment target registry (begin) ---

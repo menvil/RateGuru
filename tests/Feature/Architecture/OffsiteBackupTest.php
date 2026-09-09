@@ -357,6 +357,16 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
         file_put_contents($dir.'/database.dump', "TAMPERED-AFTER-CHECKSUM\n");
     }
 
+    // Strangers a test plants on purpose: an extra file beside the closed
+    // set, or an extra SHA256SUMS line naming something outside it.
+    foreach ($options['extra_files'] ?? [] as $name => $content) {
+        file_put_contents($dir.'/'.$name, $content);
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        file_put_contents($dir.'/SHA256SUMS', $extra."\n", FILE_APPEND);
+    }
+
     return $dir;
 }
 
@@ -940,7 +950,7 @@ it('uploads a schema 3 backup with all eight of its files, and refuses one missi
         $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: ['schema' => 3]);
 
         expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])->toContain('(schema3)');
+        expect($result['output'])->toContain('(schema3, exactly 8 files)');
 
         $uploaded = array_values(array_diff(scandir($result['remoteDir']), ['.', '..']));
         sort($uploaded);
@@ -974,6 +984,36 @@ it('uploads a schema 3 backup with all eight of its files, and refuses one missi
         offsiteBackupOpsCleanup($scratch);
     }
 });
+
+it('refuses to upload a backup carrying anything beyond its closed file set, before rclone is ever invoked', function (array $options, string $expected) {
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $manifest = offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+
+        // Nothing reached the remote: an upload copies the whole directory,
+        // and a stranger beside the backup would have landed in the namespace.
+        expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
+        expect(File::exists($result['historyFile']))->toBeFalse();
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+})->with([
+    'a stray file beside the set' => [
+        ['extra_files' => ['stray-object.bin' => "not part of any backup\n"]],
+        'backup directory holds an entry that is not part of a schema3 backup: stray-object.bin',
+    ],
+    'a SHA256SUMS entry pointing outside the set' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  /etc/shadow']],
+        'SHA256SUMS references a file that is not part of a RateGuru backup: /etc/shadow',
+    ],
+]);
 
 it('rejects a string manifest schema_version of "2" before rclone is ever invoked', function () {
     $scratch = offsiteBackupOpsScratchDir();

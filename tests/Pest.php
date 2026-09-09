@@ -1263,6 +1263,37 @@ function targetTreeFixture(string $scratch, array $options = []): string
  *
  * @return list<string>
  */
+/**
+ * Runs a bash body with `common` sourced, the way every operational script
+ * has it: the deployment.conf template and the committed registry stand in
+ * for the installed ones, and test overrides are enabled. `fail` exits the
+ * shell it runs in, so a refusal is observed from a subshell: `( fn ) || …`.
+ *
+ * @return array{0: int, 1: string}
+ */
+function commonFunctionHarness(string $scratch, string $body, array $env = []): array
+{
+    $harness = $scratch.'/common-harness-'.uniqid('', true).'.sh';
+    file_put_contents($harness, "set -Eeuo pipefail\nsource ".escapeshellarg(base_path('infrastructure/scripts/common'))."\n".$body."\n");
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes, null, array_merge([
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
+        'RATEGURU_TARGET_REGISTRY_FILE' => base_path('infrastructure/config/deployment-targets.json'),
+        'RATEGURU_TARGETS_CLI' => base_path('infrastructure/scripts/targets'),
+    ], $env));
+
+    expect($process)->not->toBeFalse();
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
 function recoveryMaterialNames(): array
 {
     return [
@@ -1320,6 +1351,51 @@ function buildRecoveryMaterialArchive(string $path, array $members): void
     exec('rm -rf '.escapeshellarg($stage));
 
     expect($exit)->toBe(0, "could not build the recovery material archive:\n".implode("\n", $out));
+}
+
+/**
+ * The bytes of a recovery material archive built WRONG on purpose, so a test
+ * can prove the archive-as-data rules: 'link' (a symbolic link named $name),
+ * 'nested' (sub/$name), 'traversal' (../$name, kept with -P), 'directory'
+ * (a directory entry), 'hardlink' ($name plus a hard link to it), 'fifo'
+ * (a FIFO named $name), 'duplicate' ($name listed twice), 'empty'.
+ */
+function recoveryMaterialArchiveBytes(string $shape, string $name = 'basic-auth', array $others = []): string
+{
+    $stage = sys_get_temp_dir().'/recovery-material-shape-'.uniqid('', true);
+    mkdir($stage.'/sub', 0o700, true);
+    $archive = $stage.'.tar.gz';
+    $quoted = escapeshellarg($name);
+
+    // Plain regular members beside the wrong one, so a judge that checks the
+    // vocabulary first still reaches the shape under test.
+    $prelude = '';
+    $more = '';
+
+    foreach ($others as $other) {
+        $prelude .= 'printf x > '.escapeshellarg($stage.'/'.$other).' && ';
+        $more .= ' '.escapeshellarg($other);
+    }
+
+    $command = $prelude.match ($shape) {
+        'link' => 'ln -s /etc/hosts '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.$more,
+        'nested' => 'printf x > '.escapeshellarg($stage.'/sub/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- sub/'.$name.$more,
+        'traversal' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && tar -P -C '.escapeshellarg($stage.'/sub').' -czf '.escapeshellarg($archive).' -- ../'.$name.str_replace(" '", " '../", $more),
+        'directory' => 'printf x > '.escapeshellarg($stage.'/sub/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- sub'.$more,
+        'hardlink' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && ln '.escapeshellarg($stage.'/'.$name).' '.escapeshellarg($stage.'/tls-dhparams').' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.' tls-dhparams'.$more,
+        'fifo' => 'mkfifo '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.$more,
+        'duplicate' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.' '.$quoted.$more,
+        'empty' => 'tar -czf '.escapeshellarg($archive).' -T /dev/null',
+        default => throw new InvalidArgumentException("unknown archive shape: {$shape}"),
+    };
+
+    exec($command.' 2>&1', $out, $exit);
+    expect($exit)->toBe(0, "could not build the {$shape} archive:\n".implode("\n", $out));
+
+    $bytes = file_get_contents($archive);
+    exec('rm -rf '.escapeshellarg($stage).' '.escapeshellarg($archive));
+
+    return $bytes;
 }
 
 /**

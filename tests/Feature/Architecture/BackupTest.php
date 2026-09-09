@@ -291,7 +291,7 @@ function backupOpsBuildFixture(string $scratch): array
 
     file_put_contents($root.'/shared/storage/app/marker.txt', "app data\n");
     file_put_contents($root.'/shared/.env', "APP_ENV=testing\nAPP_KEY=test-key\n");
-    file_put_contents($root.'/releases/'.$releaseId.'/release.json', json_encode(['release' => $releaseId]));
+    file_put_contents($root.'/releases/'.$releaseId.'/release.json', json_encode(['release' => $releaseId, 'source_sha' => FIXTURE_SOURCE_SHA]));
 
     symlink($root.'/releases/'.$releaseId, $root.'/current');
 
@@ -451,9 +451,13 @@ function backupOpsBuildSystemRoot(string $scratch): string
  *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = []): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = [], ?callable $reshapeFixture = null): array
 {
     $fixture = backupOpsBuildFixture($scratch);
+
+    if ($reshapeFixture !== null) {
+        $reshapeFixture($fixture);
+    }
     $sysroot = backupOpsBuildSystemRoot($scratch);
     backupOpsInstallRunuserStub($scratch);
 
@@ -967,8 +971,13 @@ it('derives the captured vocabulary from the prerequisite installer and carries 
     $source = backupOpsSource();
 
     expect($source)
-        ->toContain('"${PREREQUISITES_BIN}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}"')
-        ->toContain('PREREQUISITES_BIN_DEFAULT="/home/www/rateguru/bin/install-target-prerequisites"');
+        ->toContain('"${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}"')
+        ->toContain('prerequisites_bin="$(backup_prerequisites_bin)"');
+
+    // The installer is resolved by common, once, for the capture here and
+    // for every certification of the captured material.
+    expect(File::get(base_path('infrastructure/scripts/common')))
+        ->toContain('local bin="/home/www/rateguru/bin/install-target-prerequisites"');
 
     // No logical name is spelled out here: the table lives in the installer.
     foreach (recoveryMaterialNames() as $name) {
@@ -1018,11 +1027,65 @@ it('copies .env and release metadata into the backup', function () {
         $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
 
         expect(File::get($backupDir.'/environment.env'))->toContain('APP_ENV=testing');
-        expect(json_decode(File::get($backupDir.'/release.json'), true))->toBe(['release' => $result['fixture']['release']]);
+        expect(json_decode(File::get($backupDir.'/release.json'), true))->toBe([
+            'release' => $result['fixture']['release'],
+            'source_sha' => FIXTURE_SOURCE_SHA,
+        ]);
     } finally {
         backupOpsCleanup($scratch);
     }
 });
+
+it('refuses to write a backup for a target that cannot name the exact commit its data belongs to', function (callable $reshape, string $expected) {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $result = backupOpsRunFullBackup($scratch, reshapeFixture: $reshape);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain($expected)
+            ->toContain('a backup is the source of a clean-host recovery, which rebuilds exactly the commit the data belongs to');
+
+        // Refused before the first byte was dumped, and nothing was written.
+        expect(trim(File::get($result['pgDumpLog'])))->toBe('');
+        expect(glob($result['backupBase'].'/parity/*'))->toBe([]);
+        expect(glob($result['backupBase'].'/parity/.*.tmp'))->toBe([]);
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+})->with([
+    'no deployed release at all' => [
+        function (array $fixture): void {
+            unlink($fixture['root'].'/current');
+        },
+        'release.json is missing',
+    ],
+    'a release without its commit' => [
+        function (array $fixture): void {
+            file_put_contents($fixture['root'].'/releases/'.$fixture['release'].'/release.json', json_encode(['release' => $fixture['release']]));
+        },
+        'release.json carries no full 40-character source_sha',
+    ],
+    'an abbreviated commit' => [
+        function (array $fixture): void {
+            file_put_contents($fixture['root'].'/releases/'.$fixture['release'].'/release.json', json_encode(['release' => $fixture['release'], 'source_sha' => 'a81d7f2']));
+        },
+        'release.json carries no full 40-character source_sha (a81d7f2)',
+    ],
+    'a malformed release' => [
+        function (array $fixture): void {
+            file_put_contents($fixture['root'].'/releases/'.$fixture['release'].'/release.json', json_encode(['release' => 'latest', 'source_sha' => FIXTURE_SOURCE_SHA]));
+        },
+        'release.json carries no well-formed release (latest)',
+    ],
+    'not a JSON object' => [
+        function (array $fixture): void {
+            file_put_contents($fixture['root'].'/releases/'.$fixture['release'].'/release.json', "[]\n");
+        },
+        'release.json is not a JSON object',
+    ],
+]);
 
 it('writes a schema 3 manifest with the correct selector, target, environment, namespace and database', function () {
     $scratch = backupOpsScratchDir();

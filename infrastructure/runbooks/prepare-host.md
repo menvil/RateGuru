@@ -159,9 +159,22 @@ and nothing in preparation releases it; the summary reports it whenever it is
 present. See [`recover-host.md`](recover-host.md) and
 [`github-recover.md`](github-recover.md) §9.
 
-`--recovery-backup` is `--apply`-only, requires an exact timestamp (there is no
-`latest`) and requires `--material-dir`. An ordinary preparation — without it —
-is unchanged: material from the supplied directory, no fetch, no hold.
+`--recovery-backup` requires an exact timestamp (there is no `latest`). With
+`--apply` it requires `--material-dir` (the seed), and the run refuses to
+report the host prepared unless the hold is still in place after every slice
+has run. With `--verify` it verifies a recovery preparation **as one**: the
+ordinary read-only walk, plus the requirement that the offsite-write hold
+exists and is a genuine hold document this script can read —
+`RECOVERY PREPARATION: HELD …`, naming who placed it and for which backup —
+so a verification can never call a replacement machine prepared while its
+offsite writers are unfenced, whatever happened between the apply and the
+verify. The hold is host-global and is kept, never rewritten: one placed by
+an earlier preparation or recovery of the same machine fences it just the
+same, so its identity is reported rather than enforced. The shared GitHub
+action passes the backup to both invocations from the same input. `--check`
+never takes it. An ordinary preparation — without it — is unchanged: material
+from the supplied directory, no fetch, no hold, and `--verify` demands none
+(it still reports a hold it happens to find).
 
 ## Convergence and idempotency
 

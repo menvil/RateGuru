@@ -392,9 +392,15 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
     // A schema 3 backup carries its recovery material, checksummed in the
-    // position backup writes it — unless a test omits it on purpose.
+    // position backup writes it — every host-scope name by default, an
+    // explicit member map or raw bytes on request, omitted only on purpose.
     if (($options['schema'] ?? null) === 3 && empty($options['omit_recovery_material'])) {
-        buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', recoveryMaterialMembers());
+        if (array_key_exists('recovery_material_bytes', $options)) {
+            file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
+        } else {
+            buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
+        }
+
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -412,6 +418,16 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
 
     if (! empty($options['corrupt_checksum'])) {
         file_put_contents($dir.'/database.dump', "TAMPERED-AFTER-CHECKSUM\n");
+    }
+
+    // Strangers a test plants on purpose: a stray remote object beside the
+    // closed set, or an extra SHA256SUMS line naming something outside it.
+    foreach ($options['extra_files'] ?? [] as $name => $content) {
+        file_put_contents($dir.'/'.$name, $content);
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        file_put_contents($dir.'/SHA256SUMS', $extra."\n", FILE_APPEND);
     }
 
     return $dir;
@@ -482,6 +498,10 @@ function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $usePa
         [$registryPath, $targetsPath] = offsiteRestoreOpsParityRegistry($scratch, $namespace, $databaseName);
         $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
         $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
+
+        // The REAL external-material installer certifies a schema 3 backup's
+        // recovery material, against a scratch checkout and a scratch host.
+        $env = array_merge($env, recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath));
     } else {
         $targetId = 'staging-main';
     }
@@ -972,7 +992,12 @@ it('restore-tests a schema 3 remote backup with all eight files, and refuses one
         $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: ['schema' => 3]);
 
         expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])->toContain('Backup schema:  schema3');
+        expect($result['output'])
+            ->toContain('Backup schema:  schema3 (exactly 8 files)')
+            // Certified against the prerequisite table, exactly as the local
+            // restore-test certifies it: names reported, content never.
+            ->toContain('Recovery material: OK (7 host-scope files for parity-target')
+            ->not->toContain('material-tls-private-key-never-logged');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
@@ -995,6 +1020,41 @@ it('restore-tests a schema 3 remote backup with all eight files, and refuses one
         offsiteRestoreOpsCleanup($scratch);
     }
 });
+
+it('refuses a schema 3 remote backup whose recovery material a clean-host recovery could not use, before the temporary database exists', function (array $options, string $expected) {
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        $manifest = offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'a nightly PASS on a backup a recovery could not use would be the worst kind of pass');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+})->with([
+    'a name outside the vocabulary' => [
+        ['recovery_material' => recoveryMaterialMembers() + ['rclone-config' => "[b2]\n"]],
+        'not a host-scope prerequisite of parity-target: rclone-config',
+    ],
+    'a required name missing' => [
+        ['recovery_material' => array_diff_key(recoveryMaterialMembers(), ['basic-auth' => true])],
+        'missing the host-scope prerequisite basic-auth',
+    ],
+    'not an archive' => [['recovery_material_bytes' => "definitely not gzip\n"], 'unreadable'],
+    'a stray object beside the set' => [
+        ['extra_files' => ['stray-object.bin' => "not part of any backup\n"]],
+        'backup directory holds an entry that is not part of a schema3 backup: stray-object.bin',
+    ],
+    'a SHA256SUMS entry pointing outside the set' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  ../../etc/shadow']],
+        'SHA256SUMS references a file that is not part of a RateGuru backup: ../../etc/shadow',
+    ],
+]);
 
 it('rejects a string manifest schema_version of "2" before creating the temporary database', function () {
     $scratch = offsiteRestoreOpsScratchDir();

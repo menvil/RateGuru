@@ -163,12 +163,14 @@ perform_verify_backup() {
     log "  storage archive: OK (directories and regular files under app/ only)"
 
     # Only a schema 3 backup carries recovery material, and only a schema 3
-    # backup can seed a clean-host recovery. The archive is judged against the
-    # installer's own prerequisite table and never extracted here; the older
-    # schemas simply have nothing to check and stay restorable onto a live
-    # target exactly as before.
+    # backup can seed a clean-host recovery. Here it is judged as DATA — a safe
+    # archive of plain files, never extracted — and not against today's
+    # prerequisite table: a live restore never applies it, so a backup written
+    # under an older table stays restorable. The strict, vocabulary-aware
+    # judgement is restore-test's, offsite-restore-test's and the recovery
+    # preparation's. The older schemas simply have nothing to check.
     if backup_schema_supports_clean_host_recovery "${RESTORE_BACKUP_SCHEMA}"; then
-        restore_assert_recovery_material_safe "${SELECTED_BACKUP_DIR}" "${TARGET_ID}"
+        restore_assert_recovery_material_safe "${SELECTED_BACKUP_DIR}"
         log "  recovery material: OK (${RESTORE_RECOVERY_MATERIAL_REPORT})"
     else
         log "  recovery material: none (a ${RESTORE_BACKUP_SCHEMA} backup carries no recovery material and cannot seed a clean-host recovery; it stays restorable onto a live target)"

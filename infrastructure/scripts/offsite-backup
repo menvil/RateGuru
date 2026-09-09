@@ -203,8 +203,14 @@ perform_offsite_backup() {
             || fail "missing required backup file: ${required_file}"
     done
 
+    # Exactly the closed set, and SHA256SUMS naming exactly it: an upload
+    # copies the whole directory, so a stranger beside the backup would
+    # otherwise land in the offsite namespace as if it were part of it.
+    backup_assert_file_set "${LOCAL_DIRECTORY}" "${BACKUP_SCHEMA}"
+    backup_assert_sha256sums_entries "${LOCAL_DIRECTORY}" "${BACKUP_SCHEMA}"
+
     log "${LABEL} offsite backup"
-    log "Local backup:  ${LOCAL_DIRECTORY} (${BACKUP_SCHEMA})"
+    log "Local backup:  ${LOCAL_DIRECTORY} (${BACKUP_SCHEMA}, exactly ${#required_files[@]} files)"
     log "Remote backup: ${REMOTE_DIRECTORY}"
 
     log "Checking local SHA-256 checksums"

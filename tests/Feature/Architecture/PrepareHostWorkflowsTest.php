@@ -516,4 +516,19 @@ it('offers recovery preparation as one optional input that the ordinary workflow
     // The validation runs before the material is staged on the host.
     expect(mb_strpos($executable, 'Validate the recovery preparation contract'))
         ->toBeLessThan(mb_strpos($executable, 'Prepare the host'));
+
+    // And a recovery preparation is VERIFIED as one: the independent --verify
+    // invocation carries the backup too, so the server requires the
+    // offsite-write hold before this action may report the host prepared.
+    // Both the apply and the verify pass it, from the same input.
+    expect(substr_count($executable, 'remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")'))->toBe(2);
+
+    $verify = collect(phwAction()['runs']['steps'])->firstWhere('name', 'Verify the prepared host');
+
+    expect($verify)->not->toBeNull();
+    expect(phwExecutable((string) data_get($verify, 'run')))
+        ->toContain('--verify')
+        ->toContain('remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")')
+        ->not->toContain('--material-dir');
+    expect(data_get($verify, 'env.RECOVERY_BACKUP'))->toBe('${{ inputs.recovery-backup }}');
 });

@@ -365,7 +365,7 @@ it('refuses a remote directory that carries anything beyond the schema\'s closed
             ]);
 
             expect($result['exit'])->not->toBe(0, "a schema {$schema} backup with a stray object must be refused");
-            expect($result['output'])->toContain('expected exactly '.($schema === 3 ? 8 : 7));
+            expect($result['output'])->toContain("holds an entry that is not part of a schema{$schema} backup: stray-object.bin");
         } finally {
             removeScratchDir($scratch);
         }

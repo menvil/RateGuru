@@ -50,7 +50,21 @@ SHA256SUMS                    the seven files above, in that order
 
 The set is **closed**, and it is stated once, in `common` (the backup format
 contract every producer and consumer reads): a backup with a file missing from
-its schema's set, or with any file beyond it, is refused wherever it is read.
+its schema's set, or with any file beyond it, is refused wherever it is read
+as a whole — `restore-test` and `offsite-restore-test` before the temporary
+database exists, `offsite-backup` before `rclone` is invoked (an upload copies
+the whole directory, so a stranger would otherwise land in the namespace),
+and the restore primitives before a single checksum path is followed.
+`SHA256SUMS` is held to the same rule: it names exactly the checksummed files
+of the schema, once each, as bare names, checked before `sha256sum --check`
+runs.
+
+A backup is written only for a **deployed** target: `current/release.json`
+must name a well-formed release and a full 40-character `source_sha`, or
+`backup` refuses before the first byte is dumped and writes nothing. A backup
+written today is the source of a clean-host recovery, which rebuilds exactly
+that commit; a schema 3 backup with an empty or abbreviated identity would be
+reported as a success and found unusable on the worst day.
 
 **`recovery-material.tar.gz`** is what makes a backup usable for a clean-host
 recovery without any external material being supplied by hand. `backup`
@@ -154,14 +168,32 @@ files, without `recovery-material.tar.gz`; schema 3 carries exactly **eight**.
   resolved namespace, and a non-null manifest `target` matching the target ID
   given (a schema 3 manifest always names its target);
 - additionally for schema 3: `recovery-material.tar.gz` present, covered by
-  `SHA256SUMS` exactly once, and judged safe by
-  `install-target-prerequisites --validate-recovery-material` — exactly the
-  target's host-scope names, top-level regular files, nothing else. Names are
-  reported; content never is;
+  `SHA256SUMS` exactly once, and **certified** by
+  `install-target-prerequisites --validate-recovery-material` — safe as data
+  and holding exactly the target's host-scope names as the installed
+  prerequisite table states them today, top-level regular files, nothing
+  else. Names are reported; content never is. `offsite-restore-test`
+  certifies the remote backup the same way, so a nightly PASS can never be
+  reported for a backup a clean-host recovery could not be prepared from;
 - a schema 1 or 2 backup remains fully restorable onto a **live** target, as
   long as the fields above still match. It is **not** clean-host-recovery-
   capable: `recover-host --apply` and the recovery preparation refuse it by
   name, and there is no fallback to hand-supplied material.
+
+Two levels of judgement for the recovery material, on purpose. A **live
+restore** (`restore-target`, through `verify-backup`) never applies the
+archive, so it judges it as **data only** — a readable archive of top-level
+regular files with plain names, through `common`'s shared rule — and
+deliberately not against today's prerequisite table: a schema 3 backup
+written under an older table (a changed TLS scheme, a retired mail-capture
+vhost) is still a perfectly good source of database and storage, and a live
+restore that refused it over material it never installs would be a refusal
+about nothing. The strict, vocabulary-aware judgement belongs where the
+material is **installed** (`fetch-recovery-material`, on the replacement
+machine) and where a backup is **certified** for a clean-host recovery
+(`restore-test`, `offsite-restore-test`). `install-target-prerequisites`
+applies the same archive-as-data rules on a clean host, where `common` cannot
+be sourced; a test pins the two together.
 
 `manifest_schema_version` is recognized strictly, by its JSON type: absent or
 JSON `null` is schema 1; a JSON *number* equal to `2` is schema 2; a JSON
