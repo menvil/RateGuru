@@ -74,18 +74,34 @@ it('has English as a complete reference', function () {
         ->and(supportedLocales())->toContain('en');
 });
 
-it('ships every reference file for every supported language', function () {
-    $missing = [];
+it('ships exactly the reference files for every supported language', function () {
+    $problems = [];
 
     foreach (supportedLocales() as $locale) {
-        foreach (referenceFiles() as $file) {
-            if (! is_file(lang_path("{$locale}/{$file}.php"))) {
-                $missing[] = "{$locale}/{$file}.php";
-            }
+        $expected = referenceFiles();
+
+        $actual = collect(glob(lang_path("{$locale}/*.php")) ?: [])
+            ->map(fn (string $path): string => basename($path, '.php'))
+            ->sort()
+            ->values()
+            ->all();
+
+        foreach (array_diff($expected, $actual) as $file) {
+            $problems[] = "{$locale}/{$file}.php is missing";
+        }
+
+        // Both directions, for the same reason extra KEYS are a problem: a
+        // catalog English does not have is usually a rename applied to one
+        // language only. Worse, every check below iterates the English files,
+        // so an orphan is never opened at all — its keys, blanks and
+        // placeholders are unverified, and it looks translated to anyone
+        // reading the directory.
+        foreach (array_diff($actual, $expected) as $file) {
+            $problems[] = "{$locale}/{$file}.php has no English reference, so nothing checks it";
         }
     }
 
-    expect($missing)->toBe([], "missing translation files:\n".implode("\n", $missing));
+    expect($problems)->toBe([], "translation catalog drift:\n".implode("\n", $problems));
 });
 
 it('translates every key, with nothing extra', function () {
