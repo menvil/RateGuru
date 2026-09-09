@@ -451,7 +451,7 @@ function backupOpsBuildSystemRoot(string $scratch): string
  *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = [], ?callable $reshapeFixture = null): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = [], ?callable $reshapeFixture = null, ?string $backupBase = null): array
 {
     $fixture = backupOpsBuildFixture($scratch);
 
@@ -466,7 +466,9 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
     $pgDumpStub = $failPgDump ? backupOpsFailingPgDumpStub($scratch) : backupOpsPgDumpStub($scratch, $pgDumpLog);
     $phpStub = backupOpsPhpStub($scratch);
 
-    $backupBase = $scratch.'/backups-'.uniqid('', true);
+    // A caller may pre-shape the backup base — a setgid tree, say — so the
+    // run goes through exactly the directory semantics a real host has.
+    $backupBase ??= $scratch.'/backups-'.uniqid('', true);
     $runRoot = $scratch.'/run-'.uniqid('', true);
 
     [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays, $minimumRetainedBackups);
@@ -923,6 +925,67 @@ it('captures the recovery material under logical names, from the prerequisite ta
         foreach (['rclone-config', 'rclone.conf', 'deploy-authorized-keys', 'laravel-env', 'environment.env', 'id_ed25519', 'bootstrap'] as $forbidden) {
             expect($listing)->not->toContain($forbidden);
         }
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('captures the recovery material into an exactly 0700 directory even under a setgid backup tree', function () {
+    // The production failure: the host's backup tree carries setgid
+    // semantics, a directory created inside it inherits the bit on Linux, so
+    // the capture directory the producer made with `install -d -m 0700` came
+    // out 2700 — and the installer's exact-0700 contract refused it:
+    //
+    //   ERROR: --output-dir must be mode 0700 (is 2700): …/.recovery-material
+    //
+    // The premise is proven first, then the real backup runs through a tree
+    // shaped exactly that way. The validator is not loosened; the producer
+    // normalizes what it hands over.
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $backupBase = $scratch.'/backups-setgid';
+        expect(@mkdir($backupBase, 0o770, true))->toBeTrue("could not create {$backupBase}");
+        expect(chmod($backupBase, 0o2770))->toBeTrue();
+        clearstatcache(true, $backupBase);
+        expect(fileperms($backupBase) & 0o7777)->toBe(0o2770, 'the fixture backup base must carry the setgid bit');
+
+        // The premise: the very call the producer makes, under that tree,
+        // inherits the bit where the kernel propagates it (Linux; macOS does
+        // not, so the outcome below is what a developer machine proves).
+        exec('install -d -m 0700 '.escapeshellarg($backupBase.'/premise').' 2>&1', $out, $exit);
+        expect($exit)->toBe(0, implode("\n", $out));
+        clearstatcache(true, $backupBase.'/premise');
+        $premise = fileperms($backupBase.'/premise') & 0o7777;
+        rmdir($backupBase.'/premise');
+
+        if (PHP_OS_FAMILY === 'Linux') {
+            expect($premise)->toBe(0o2700, 'a private directory created under a setgid tree must inherit the bit for this test to reproduce the production failure');
+        }
+
+        $result = backupOpsRunFullBackup($scratch, backupBase: $backupBase);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' host-scope files')
+            ->not->toContain('must be mode 0700');
+
+        $backupDir = backupOpsLatestBackupDir($backupBase, 'parity');
+        expect(is_file($backupDir.'/recovery-material.tar.gz'))->toBeTrue('the schema 3 backup must carry its recovery material');
+
+        // And the run really went through the setgid tree: the finished
+        // backup directory, created by the producer under it, carries the
+        // inherited bit where the kernel propagates it. Only the capture
+        // directory is normalized — the tree's own semantics are not the
+        // producer's to change.
+        if (PHP_OS_FAMILY === 'Linux') {
+            clearstatcache(true, $backupDir);
+            expect(fileperms($backupDir) & 0o2000)->toBe(0o2000, 'the backup directory itself inherits the tree\'s setgid bit; only the capture directory is normalized');
+        }
+
+        // The finished backup is complete and internally consistent.
+        exec('cd '.escapeshellarg($backupDir).' && sha256sum --check SHA256SUMS 2>&1', $checkOutput, $checkExit);
+        expect($checkExit)->toBe(0, implode("\n", $checkOutput));
     } finally {
         backupOpsCleanup($scratch);
     }
