@@ -131,6 +131,16 @@ RECOVER_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 
 
 PREPARE_HOST_BIN="$(restore_gated_default RATEGURU_RECOVER_PREPARE_HOST_BIN "${RECOVER_SCRIPT_DIR}/prepare-host")"
 
+# Where the bootstrap services slice installs this target's Supervisor program
+# configuration. Read for exactly one question — is this group configured on
+# this machine — and never written, parsed or installed from here.
+SUPERVISOR_CONF_D="$(restore_gated_default RATEGURU_RECOVER_SUPERVISOR_CONF_D /etc/supervisor/conf.d)"
+
+# supervisorctl's exit status for "the request was understood and the name
+# matched nothing" (supervisorctl.py LSBStatusExitStatuses.UNKNOWN). A
+# supervisord that cannot be reached fails differently and says so.
+RECOVERY_SUPERVISOR_RC_UNKNOWN_NAME=4
+
 usage() {
     cat <<'USAGE'
 Usage:
@@ -140,9 +150,17 @@ Usage:
   recover-host --resume  --target TARGET_ID --operation OPERATION_ID
   recover-host --verify  --target TARGET_ID
 
+Operator runbook (the whole clean-host recovery, end to end):
+  infrastructure/runbooks/clean-host-recovery.md
+
   --check    Strictly read-only. Reports whether this prepared, empty
              replacement host may be recovered from the named backup. Creates
              no lock, no workspace, no guard, no staging and no directory.
+             Like --apply it proves the machine is prepared by running the
+             prepare-host beside it, so both run from the trusted
+             infrastructure bundle (a checkout of this repository, or the
+             bundle the recovery workflow uploads) and not from the installed
+             operational bundle, which carries no bootstrap tooling.
   --apply    Recover this target's database and storage from the named OFFSITE
              backup onto a prepared, EMPTY target. Ends with the data restored
              and the target deliberately NOT serving, awaiting the exact code
@@ -157,6 +175,9 @@ Usage:
              retained pre-recovery database and storage tree.
   --verify   Read-only. Prove a recovered target satisfies the final contract,
              including that the host-global offsite-write hold is in place.
+
+--inspect, --resume and --verify need no bootstrap tooling and run from the
+installed operational bundle as well as from a checkout.
 
 The backup timestamp is mandatory and exact: there is no "latest", no implicit
 selection and no local source. A recovery models the loss of the old machine,
@@ -532,6 +553,12 @@ ensure_offsite_writes_held() {
 # host without it is a second writer on the real offsite namespace, and no
 # stage of a recovery is safe to continue into that.
 assert_offsite_writes_held() {
+    offsite_writes_held "${RUN_ROOT}" || operator_action_required \
+        "the offsite-write hold $(offsite_write_hold_file "${RUN_ROOT}") is missing on this machine" \
+        "the replacement host's backup cron, offsite uploader and offsite pruner are no longer fenced, while the target's deployment binding still points at the machine that owns the real offsite namespace; this mode refuses until the fence is back" \
+        "re-run the mode that refused (a recovery still awaiting its code: mode=continue-held, whose --resume re-establishes the hold itself)" \
+        "for --inspect or --verify: re-place the hold by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD (HOLD is the path above)" \
+        "never release the hold to make a mode pass: removing it is part of deliberately adopting this machine"
     offsite_writes_held "${RUN_ROOT}" \
         || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, so this mode refuses. To continue: a recovery still awaiting its code re-establishes the hold itself when recover-host --resume runs (after the controlled recovery deployment); for any other stage, re-place it by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD, where HOLD is the path above — and re-run this mode. Nothing releases the hold; removing it is part of deliberately adopting this machine"
 
@@ -602,9 +629,19 @@ check_prepared_host() {
     fi
 
     if [[ ! -x "${PREPARE_HOST_BIN}" ]]; then
-        problem "Prepare Host is not available at ${PREPARE_HOST_BIN} — recovery runs from the trusted infrastructure bundle, and its own verification is what proves the replacement machine is prepared"
+        # Not a fact about the host: a fact about which copy of recover-host is
+        # running. No amount of fixing the machine makes this copy able to
+        # answer, so it is reported as what it is instead of joining the list
+        # of host problems.
+        operator_action_required \
+            "this copy of recover-host has no prepare-host beside it (${PREPARE_HOST_BIN})" \
+            "a recovery proves the replacement machine is prepared by running prepare-host --verify from the SAME trusted infrastructure bundle it runs from, and the installed operational bundle deliberately carries no bootstrap tooling — so the installed copy cannot answer this question about any host" \
+            "re-run this mode from the trusted bundle, or dispatch the recovery workflow, which uploads it and runs exactly this" \
+            "run it from a checkout of this repository's develop branch on the host: sudo <checkout>/infrastructure/scripts/recover-host --${MODE} --target ${TARGET_ID}${BACKUP_ID:+ --backup ${BACKUP_ID}}" \
+            "do not copy prepare-host into the operational bundle, and do not take one out of a release: the proof has to come from today's trusted tooling" \
+            "the installed operational copy still answers the modes that need no bootstrap tooling — --inspect, --resume and --verify"
 
-        return 0
+        fail "prepare-host is not available beside this recover-host (${PREPARE_HOST_BIN}): --${MODE} cannot prove the machine is prepared. Nothing was read, created or changed"
     fi
 
     local output status=0
@@ -731,12 +768,91 @@ check_database() {
         || problem "${DATABASE_NAME} already holds ${tables} tables in the public schema: a recovery restores into the EMPTY database Prepare Host created, and it never drops, truncates or overwrites data it did not put there. If this really is a discardable replacement host, remove the data deliberately and by hand first"
 }
 
+# recovery_workflow_name — the operator-facing name of the workflow that drives
+# this target's recovery. Derived from the target's own environment class, so
+# guidance on a production host never tells an operator to re-run the staging
+# workflow.
+recovery_workflow_name() {
+    case "${ENVIRONMENT_CLASS:-}" in
+        staging)    printf 'Recover staging host\n' ;;
+        production) printf 'Recover production host\n' ;;
+        *)          printf "the recovery workflow for %s\n" "${TARGET_ID:-this target}" ;;
+    esac
+}
+
+# --- the PRE_DEPLOY Supervisor state ---------------------------------------------
+#
+# A prepared, never-deployed host does not have its queue program loaded into
+# the running Supervisor. install-bootstrap-services installs the program
+# configuration and validates it with `supervisorctl reread` — which parses and
+# adds nothing — then deliberately DEFERS `supervisorctl update` until a
+# release exists, because the committed program keeps autostart=true and a
+# prepared host has no application for a worker to run. So on a freshly
+# prepared replacement machine, `supervisorctl status <program>:*` answers
+#
+#   <program>: ERROR (no such group)        exit 4
+#
+# and the shared observer in restore-common is right to refuse to read that as
+# "stopped": for a LIVE target it means the group vanished from under a running
+# application, and a live restore must fail closed on it.
+#
+# For a clean-host recovery it is the normal PRE_DEPLOY state, and it is
+# strictly STRONGER than STOPPED — a group the running Supervisor does not know
+# cannot have a process running in it. Accepting it therefore demands proof of
+# exactly that state and nothing weaker:
+#
+#   * exit status 4 — supervisorctl reached supervisord, understood the request
+#     and matched no name. An unreachable or refusing supervisord is a
+#     different failure with its own status and its own message;
+#   * the entire answer, on either stream, is the single line naming THIS
+#     target's own group with that exact diagnosis. An extra line, another
+#     wording, another program's name, or anything appended is not this state;
+#   * this target's program configuration is installed on this machine, so the
+#     group is one the preparation put there and merely has not been added yet
+#     — rather than a machine on which nothing was ever configured.
+#
+# Anything else — a refused connection, a permission failure, malformed output,
+# an answer about another program, or any process in RUNNING, STARTING or
+# STOPPING — is NOT this state, and every caller below then refuses exactly as
+# it did before.
+recovery_queue_group_not_loaded() {
+    local stdout stderr status=0 stderr_file answer
+
+    [[ -f "${SUPERVISOR_CONF_D}/${SUPERVISOR_PROGRAM}.conf" ]] || return 1
+
+    stderr_file="$(mktemp)" || return 1
+
+    stdout="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>"${stderr_file}")" || status=$?
+    stderr="$(<"${stderr_file}")"
+    rm -f "${stderr_file}"
+
+    (( status == RECOVERY_SUPERVISOR_RC_UNKNOWN_NAME )) || return 1
+
+    # Both streams together with the blank lines dropped: supervisorctl writes
+    # this diagnosis to stdout, and the answer must be that one line and no
+    # other.
+    answer="$(printf '%s\n%s\n' "${stdout}" "${stderr}" | sed '/^[[:space:]]*$/d')"
+
+    [[ "${answer}" == "${SUPERVISOR_PROGRAM}: ERROR (no such group)" ]] \
+        || [[ "${answer}" == "${SUPERVISOR_PROGRAM}:*: ERROR (no such group)" ]]
+}
+
 # check_queue — the target's own program group must not be serving the
 # application. An unobservable group fails closed: recording it as "not
 # running" would mean activating data underneath workers this operation simply
 # could not see.
 check_queue() {
     if ! observe_queue_program; then
+        # The one shape an unobservable group is allowed to have here, and only
+        # once THIS run has proven the machine is a prepared host: Prepare Host
+        # is what installed and validated the program configuration whose group
+        # has not been added to the running Supervisor yet.
+        if [[ "${PREPARED_HOST_VERIFIED}" == true ]] && recovery_queue_group_not_loaded; then
+            log "queue program ${SUPERVISOR_PROGRAM}: configured on this host and not yet loaded into the running Supervisor — the PRE_DEPLOY state a prepared, never-deployed machine is in, in which no worker can be running"
+
+            return 0
+        fi
+
         problem "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to recover without knowing whether a worker is running"
 
         return 0
@@ -1007,6 +1123,17 @@ stop_queue_program() {
         return 0
     fi
 
+    # A group the running Supervisor does not know has nothing to stop, and
+    # `supervisorctl stop` on it would fail for exactly that reason. The
+    # preconditions above already proved this machine is that prepared host.
+    if recovery_queue_group_not_loaded; then
+        log "queue program ${SUPERVISOR_PROGRAM} is configured and not loaded into the running Supervisor — there is no worker to stop"
+        QUEUE_STOPPED_BY_RECOVERY=true
+        restore_state_set "${STATE_FILE}" queue_stopped_by_recovery true
+
+        return 0
+    fi
+
     "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null \
         || fail "could not stop the target queue program ${SUPERVISOR_PROGRAM}"
 
@@ -1022,6 +1149,41 @@ stop_queue_program() {
 start_queue_program() {
     if queue_program_running; then
         return 0
+    fi
+
+    # The resume is the moment a recovered target legitimately starts serving,
+    # and on a clean-host recovery it is also the FIRST such moment: the
+    # preparation deferred `supervisorctl update` because there was no release,
+    # and a controlled recovery deployment refuses the whole runtime transition
+    # so that the target stays held. Nothing else was ever going to add the
+    # group, so the resume adds it — from the configuration already installed
+    # and already validated on this machine, with the same two commands an
+    # ordinary first deployment runs, and never a configuration of its own.
+    if recovery_queue_group_not_loaded; then
+        log "queue program ${SUPERVISOR_PROGRAM} is configured and not loaded into the running Supervisor — adding it from its installed configuration"
+
+        "${RESTORE_SUPERVISORCTL_BIN}" reread >/dev/null || {
+            log "ERROR: supervisorctl reread failed — the installed configuration of ${SUPERVISOR_PROGRAM} could not be parsed"
+
+            return 1
+        }
+
+        "${RESTORE_SUPERVISORCTL_BIN}" update "${SUPERVISOR_PROGRAM}" >/dev/null || {
+            log "ERROR: supervisorctl update ${SUPERVISOR_PROGRAM} failed — the queue program could not be added to the running Supervisor"
+
+            return 1
+        }
+
+        # update starts an autostart program itself; anything else falls
+        # through to the start below.
+        if queue_program_running; then
+            QUEUE_STOPPED_BY_RECOVERY=false
+            ( restore_state_set "${STATE_FILE}" queue_stopped_by_recovery false ) || true
+
+            log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
+
+            return 0
+        fi
     fi
 
     "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
@@ -1060,7 +1222,10 @@ hold_runtime() {
     fi
 
     if ! queue_program_fully_stopped; then
-        if "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 \
+        if recovery_queue_group_not_loaded; then
+            QUEUE_STOPPED_BY_RECOVERY=true
+            log "queue program ${SUPERVISOR_PROGRAM} is configured and not loaded into the running Supervisor — there is no worker to stop"
+        elif "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 \
             && wait_for_queue_state queue_program_fully_stopped
         then
             QUEUE_STOPPED_BY_RECOVERY=true
@@ -1098,11 +1263,20 @@ assert_runtime_still_held() {
     # queue_program_fully_stopped, which would observe a second time: two reads
     # can legitimately disagree, and the states named in the refusal below must
     # be the ones the decision was actually made on.
-    observe_queue_program \
-        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to report a host as held without knowing whether a worker is running"
+    if ! observe_queue_program; then
+        # A configured group the running Supervisor has not been given is the
+        # PRE_DEPLOY state this recovery started from, and it holds the target
+        # more strongly than STOPPED does: there is no process to be in a state
+        # at all. Any other unobservable group is still a refusal.
+        recovery_queue_group_not_loaded \
+            || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to report a host as held without knowing whether a worker is running"
+
+        log "queue program ${SUPERVISOR_PROGRAM}: configured and not loaded into the running Supervisor — no worker can be running in a group Supervisor does not know"
+        QUEUE_PROCESS_STATES=()
+    fi
 
     local state
-    for state in "${QUEUE_PROCESS_STATES[@]}"; do
+    for state in "${QUEUE_PROCESS_STATES[@]+"${QUEUE_PROCESS_STATES[@]}"}"; do
         [[ "${state}" == "STOPPED" ]] \
             || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully STOPPED (${QUEUE_PROCESS_STATES[*]}) — the hold this recovery depends on is gone, and it is not safe to continue the recovery flow"
     done
@@ -1815,6 +1989,12 @@ perform_recovery() {
     # names the format and offers no fallback: the fix is a new backup on a
     # live host, never a hand-supplied environment file.
     step "require a clean-host-recovery-capable backup"
+    [[ "${BACKUP_SCHEMA}" == "3" ]] || operator_action_required \
+        "backup ${BACKUP_ID} is a schema ${BACKUP_SCHEMA:-unknown} backup, written before the recovery material joined the format" \
+        "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 3); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
+        "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
+        "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
+        "confirm it is schema 3 and passed the offsite restore test"
     [[ "${BACKUP_SCHEMA}" == "3" ]] \
         || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
 
@@ -2198,6 +2378,12 @@ perform_resume() {
     step "check the deployed code"
     classify_recovery_stage
 
+    [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] || operator_action_required \
+        "recovery operation ${OPERATION_ID} is still awaiting its code: no current release is deployed" \
+        "the data is restored and held; --resume only finishes a recovery whose exact commit (${BACKUP_SOURCE_SHA}) has been deployed by the controlled recovery deployment" \
+        "re-run \"$(recovery_workflow_name)\" with mode=continue-held and operation=${OPERATION_ID}" \
+        "let the workflow build and deploy the exact commit the backup names (it reads the stage from --inspect and continues from there)" \
+        "do not deploy anything else, run a migration or clear the guard by hand"
     [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] \
         || fail "${TARGET_ID} still has no current release — the recovery is waiting for a controlled recovery deployment of ${BACKUP_SOURCE_SHA}, and --resume only finishes a recovery whose code has arrived"
 

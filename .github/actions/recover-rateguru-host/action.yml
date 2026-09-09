@@ -182,6 +182,24 @@ outputs:
       machine that owns the real offsite namespace.
     value: ${{ steps.recover.outputs['offsite-writes'] }}
 
+  queue:
+    description: "Queue worker state the server-side primitive reported (running on a completed recovery)"
+    value: ${{ steps.recover.outputs.queue }}
+
+  scheduler:
+    description: "Scheduler state the server-side primitive reported (active on a completed recovery)"
+    value: ${{ steps.recover.outputs.scheduler }}
+
+  failure-cause:
+    description: >-
+      Why the mode refused or failed, as one closed word an operator can act
+      on: backup-not-recovery-capable, backup-not-found,
+      recovery-material-invalid, rclone-config-unavailable,
+      offsite-hold-missing, awaiting-code, guard-present,
+      environment-mismatch, host-not-prepared, or <mode>-failed. Empty on
+      success.
+    value: ${{ steps.recover.outputs['failure-cause'] }}
+
 runs:
   using: composite
 
@@ -573,6 +591,9 @@ runs:
           verify)  expected_statuses='["verified"]' ;;
         esac
 
+        # stderr is captured with stdout: the primitive's refusals are written
+        # there, and a refusal has to be named to the operator afterwards.
+        set +e
         recovery_output="$(
           ssh \
             -p "${RECOVERY_PORT}" \
@@ -585,10 +606,63 @@ runs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${RECOVERY_HOST}" \
-            "${remote_command[@]@Q}"
+            "${remote_command[@]@Q}" 2>&1
         )"
+        status="$?"
+        set -e
 
         printf '%s\n' "${recovery_output}"
+
+        if [[ "${status}" -ne 0 ]]; then
+          # One closed word for the calling workflow to turn into operator
+          # guidance, taken from recover-host's own refusal vocabulary. The
+          # summary carries only the lines the primitive wrote for an
+          # operator, never the whole log.
+          cause="${MODE}-failed"
+
+          if grep -q 'is not clean-host-recovery-capable' <<<"${recovery_output}"; then
+            cause="backup-not-recovery-capable"
+          elif grep -q 'could not download .* from the offsite remote\|could not be read from the offsite namespace' <<<"${recovery_output}"; then
+            cause="backup-not-found"
+          elif grep -q 'recovery material archive .* is not acceptable\|failed SHA-256 verification' <<<"${recovery_output}"; then
+            cause="recovery-material-invalid"
+          elif grep -q 'rclone is not available\|no usable rclone configuration' <<<"${recovery_output}"; then
+            cause="rclone-config-unavailable"
+          elif grep -q 'offsite-write hold is missing\|could not .* the offsite-write hold' <<<"${recovery_output}"; then
+            cause="offsite-hold-missing"
+          elif grep -q "not 'awaiting-code'\|expected awaiting-code\|still awaiting its code" <<<"${recovery_output}"; then
+            cause="awaiting-code"
+          elif grep -q 'still carries a recovery guard\|carries a restore guard' <<<"${recovery_output}"; then
+            cause="guard-present"
+          elif grep -q 'environment material: MISMATCH' <<<"${recovery_output}"; then
+            cause="environment-mismatch"
+          elif grep -q 'does not satisfy the prepared/EMPTY recovery contract' <<<"${recovery_output}"; then
+            cause="host-not-prepared"
+          fi
+
+          echo "failure-cause=${cause}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Host recovery — ${MODE} refused (${cause})"
+            echo
+            echo "- Target: \`${DEPLOYMENT_TARGET}\` (\`${ENVIRONMENT}\`)"
+            echo "- Replacement host: \`${RECOVERY_HOST}\`"
+            if [[ -n "${BACKUP_ID}" ]]; then
+              echo "- Backup: \`${BACKUP_ID}\`"
+            fi
+            if [[ -n "${OPERATION_ID}" ]]; then
+              echo "- Operation: \`${OPERATION_ID}\`"
+            fi
+            echo
+            echo '```text'
+            grep -A 12 '^RECOVERY ACTION REQUIRED$' <<<"${recovery_output}" || grep '^ERROR' <<<"${recovery_output}" || echo "recover-host --${MODE} exited ${status}; see the job log"
+            echo '```'
+            echo
+            echo "Operator runbook: infrastructure/runbooks/clean-host-recovery.md"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          exit "${status}"
+        fi
 
         # Exactly one machine-readable line, counted rather than taken with
         # `grep -m1`: the primitive's contract is EXACTLY one result per
@@ -624,6 +698,20 @@ runs:
           exit 1
         }
 
+        # The final verification is where a recovery's whole contract is
+        # stated, and the calling workflow announces it as fact. A verify that
+        # does not report the runtime it verified is not one this action will
+        # pass on as a success: an absent field would otherwise become an
+        # optimistic default somewhere downstream.
+        if [[ "${MODE}" == "verify" ]]; then
+          for field in queue scheduler health; do
+            jq -e --arg field "${field}" '.[$field] | type == "string" and length > 0' <<<"${result_json}" >/dev/null || {
+              echo "The final verification did not report ${field}, which is part of the contract it exists to prove: ${result_json}" >&2
+              exit 1
+            }
+          done
+        fi
+
         {
           echo "status=$(jq -r '.status' <<<"${result_json}")"
           echo "operation=$(jq -r '.operation' <<<"${result_json}")"
@@ -635,6 +723,8 @@ runs:
           echo "source-sha=$(jq -r '.source_sha' <<<"${result_json}")"
           echo "health=$(jq -r '.health' <<<"${result_json}")"
           echo "offsite-writes=$(jq -r '.offsite_writes' <<<"${result_json}")"
+          echo "queue=$(jq -r '.queue // empty' <<<"${result_json}")"
+          echo "scheduler=$(jq -r '.scheduler // empty' <<<"${result_json}")"
         } >> "${GITHUB_OUTPUT}"
 
         {

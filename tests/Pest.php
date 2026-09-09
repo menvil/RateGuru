@@ -29,6 +29,7 @@ use Sentry\State\HubInterface as SentryHubInterface;
 use Sentry\Transport\Result as SentryTransportResult;
 use Sentry\Transport\ResultStatus as SentryResultStatus;
 use Sentry\Transport\TransportInterface as SentryTransportInterface;
+use Symfony\Component\Yaml\Yaml;
 use Tests\TestCase;
 
 /*
@@ -1904,6 +1905,140 @@ function runInfraScript(string $scriptPath, array $arguments, array $env): array
 }
 
 /**
+ * The GitHub Environment values one recovery workflow actually reads, by kind.
+ *
+ * Derived from the workflow source rather than restated, so a value that is
+ * added, removed or moved between a variable and a secret is a change every
+ * test and every document that names the set has to answer for.
+ *
+ * @return array{vars: list<string>, secrets: list<string>, all: list<string>}
+ */
+function recoveryValuesRead(string $workflow): array
+{
+    $source = File::get(base_path('.github/workflows/'.$workflow));
+
+    $byKind = static function (string $kind) use ($source): array {
+        preg_match_all('/\b'.$kind.'\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $source, $matches);
+
+        $names = array_values(array_unique($matches[1]));
+        sort($names);
+
+        return $names;
+    };
+
+    $vars = $byKind('vars');
+    $secrets = $byKind('secrets');
+
+    $all = array_values(array_unique([...$vars, ...$secrets]));
+    sort($all);
+
+    return ['vars' => $vars, 'secrets' => $secrets, 'all' => $all];
+}
+
+/**
+ * One composite action step's `run:` body, executed for real.
+ *
+ * A transport step is ordinary Bash under `set -Eeuo pipefail`, and the way it
+ * treats a remote failure — what it captures, what it prints, what it exits
+ * with — is behaviour, not text. Running the step against a stub `ssh` is the
+ * only way to prove it, and it is exactly how the diagnostics of a failed
+ * remote invocation got lost once already.
+ *
+ * @param  array<string, string>  $env
+ * @return array{exit: int, output: string}
+ */
+function runActionStep(string $actionPath, string $stepName, array $env): array
+{
+    // The steps are written for ubuntu-latest and use Bash 4+ parameter
+    // expansion (${array[@]@Q}). macOS ships Bash 3.2 as /bin/bash, which
+    // cannot execute them faithfully — skipping is honest there; CI runs it.
+    exec('bash -c \'echo "${BASH_VERSINFO[0]}"\' 2>/dev/null', $probe, $probeStatus);
+
+    if ($probeStatus !== 0 || (int) ($probe[0] ?? 0) < 4) {
+        test()->markTestSkipped('needs Bash 4+; this host offers '.($probe[0] ?? 'no bash'));
+    }
+
+    $action = Yaml::parseFile(base_path($actionPath));
+
+    $step = collect($action['runs']['steps'] ?? [])
+        ->first(static fn (array $candidate): bool => ($candidate['name'] ?? '') === $stepName);
+
+    expect($step)->not->toBeNull("{$actionPath} has no step named {$stepName}");
+
+    // GitHub defines every variable a step declares under `env:`, including
+    // the ones whose value is empty — an unset optional input is empty, not
+    // absent, and a step reading it under `set -u` depends on that. PHP's
+    // proc_open drops an empty value entirely, so those are declared in the
+    // script instead of being passed through the process environment.
+    $empty = array_filter($env, static fn (string $value): bool => $value === '');
+
+    $preamble = implode('', array_map(
+        static fn (string $name): string => 'export '.$name."=''\n",
+        array_keys($empty),
+    ));
+
+    $script = tempnam(sys_get_temp_dir(), 'rateguru-action-step-');
+    file_put_contents($script, "#!/usr/bin/env bash\n".$preamble.($step['run'] ?? ''));
+
+    [$exit, $output] = runInfraScript($script, [], array_diff_key($env, $empty));
+
+    unlink($script);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+/**
+ * The `ssh` a transport step meets in these tests: it records its argv, writes
+ * whatever the case needs to stdout and stderr, and exits with the status the
+ * case needs. Nothing connects anywhere.
+ */
+function sshStub(string $scratch): string
+{
+    @mkdir($scratch.'/bin', 0o755, true);
+    touch($scratch.'/ssh.log');
+
+    foreach (['ssh', 'scp'] as $name) {
+        writeExecutable($scratch.'/bin/'.$name, <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "$(basename -- "$0") $*" >> "${RGTEST_SSH_LOG}"
+
+[[ -z "${RGTEST_SSH_STDOUT:-}" ]] || printf '%s\n' "${RGTEST_SSH_STDOUT}"
+[[ -z "${RGTEST_SSH_STDERR:-}" ]] || printf '%s\n' "${RGTEST_SSH_STDERR}" >&2
+
+exit "${RGTEST_SSH_EXIT:-0}"
+BASH);
+    }
+
+    return $scratch.'/bin/ssh';
+}
+
+/**
+ * The runner-side environment a transport step runs in: the GitHub files it
+ * appends to, a scratch RUNNER_TEMP, and a PATH whose ssh is the stub.
+ *
+ * @param  array<string, string>  $overrides
+ * @return array<string, string>
+ */
+function actionStepEnv(string $scratch, array $overrides = []): array
+{
+    sshStub($scratch);
+
+    foreach (['github-output', 'github-step-summary'] as $file) {
+        touch($scratch.'/'.$file);
+    }
+
+    return array_merge([
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RUNNER_TEMP' => $scratch,
+        'GITHUB_OUTPUT' => $scratch.'/github-output',
+        'GITHUB_STEP_SUMMARY' => $scratch.'/github-step-summary',
+        'RGTEST_SSH_LOG' => $scratch.'/ssh.log',
+    ], $overrides);
+}
+
+/**
  * Sources a script (so its functions exist without main() running) and
  * executes an arbitrary body against them — the technique BackupTest and
  * RestoreTest already use for coverage that must bypass require_root.
@@ -2105,8 +2240,35 @@ supervisor_status_rc() {
     printf '%s\n' "${rc}"
 }
 
+# The PRE_DEPLOY shape a prepared, never-deployed host is in: the program
+# configuration is installed, and its group has not been added to the running
+# Supervisor because `supervisorctl update` was deferred. supervisorctl answers
+# every request about such a group on STDOUT with exit 4, and `update` is what
+# adds it (starting it, because the committed program sets autostart=true).
+group_absent() {
+    [[ -n "${RGTEST_SUPERVISOR_GROUP_ABSENT:-}" ]] && [[ -e "${RGTEST_SUPERVISOR_GROUP_ABSENT}" ]]
+}
+
+no_such_group() {
+    printf '%s: ERROR (no such group)\n' "${group%:*}"
+    exit 4
+}
+
 case "${action}" in
+    reread)
+        exit "${RGTEST_SUPERVISOR_REREAD_EXIT:-0}"
+        ;;
+    update)
+        [[ "${RGTEST_SUPERVISOR_UPDATE_EXIT:-0}" == 0 ]] || exit "${RGTEST_SUPERVISOR_UPDATE_EXIT}"
+
+        if group_absent; then
+            rm -f "${RGTEST_SUPERVISOR_GROUP_ABSENT}"
+            printf '%s\n' "${RGTEST_SUPERVISOR_UPDATE_STATE:-RUNNING}" > "${RGTEST_SUPERVISOR_STATE}"
+        fi
+        ;;
     status)
+        group_absent && no_such_group
+
         # An observation failure that is NOT a process state: supervisord
         # unreachable, or the group unknown. do_status overrides the exit
         # status to 4 for both.
@@ -2158,6 +2320,8 @@ case "${action}" in
         exit "$(supervisor_status_rc "${state}" ${second:+"${second}"})"
         ;;
     stop)
+        group_absent && no_such_group
+
         # supervisorctl stop takes the whole group down, second process included.
         # RGTEST_SUPERVISOR_STOP_STATE models a stop that TOOK EFFECT but landed
         # somewhere other than STOPPED — the state a confirmation timeout sees.
@@ -2168,6 +2332,8 @@ case "${action}" in
             || printf '%s\n' "${RGTEST_SUPERVISOR_STOP_STATE:-STOPPED}" > "${RGTEST_SUPERVISOR_SECOND_STATE}"
         ;;
     start)
+        group_absent && no_such_group
+
         # RGTEST_SUPERVISOR_START_STATE models a start that TOOK EFFECT but has
         # not reached RUNNING — STARTING, or a worker crash-looping in BACKOFF.
         printf '%s\n' "${RGTEST_SUPERVISOR_START_STATE:-RUNNING}" > "${RGTEST_SUPERVISOR_STATE}"
@@ -2447,6 +2613,7 @@ function recoveryEnv(string $scratch): array
     return recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_RECOVERY_HISTORY_ROOT' => $scratch.'/recoveries',
         'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/prepare-host-stub',
+        'RATEGURU_RECOVER_SUPERVISOR_CONF_D' => $scratch.'/supervisor-conf.d',
         'RGTEST_PREPARE_HOST_LOG' => $scratch.'/prepare-host.log',
 
         'RATEGURU_RESTORE_FETCH_BACKUP_BIN' => patchedInfraScript($scratch, 'fetch-backup'),
@@ -2485,6 +2652,9 @@ function targetRuntimeEnv(string $scratch): array
         'RGTEST_SUPERVISOR_LOG' => $scratch.'/supervisor.log',
         'RGTEST_SUPERVISOR_STATE' => $scratch.'/supervisor-state',
         'RGTEST_SUPERVISOR_SECOND_STATE' => $scratch.'/supervisor-second-state',
+        // Its EXISTENCE means "this group is not loaded in the running
+        // Supervisor"; no file, no change to any other test.
+        'RGTEST_SUPERVISOR_GROUP_ABSENT' => $scratch.'/supervisor-group-absent',
         'RGTEST_PHP_LOG' => $scratch.'/php.log',
         'RGTEST_MAINTENANCE_FLAG' => $scratch.'/target/shared/storage/framework/down',
         'RGTEST_BACKUP_LOG' => $scratch.'/backup.log',

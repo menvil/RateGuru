@@ -61,6 +61,21 @@ function recoveryFixture(string $scratch, array $options = []): void
     // deployment exists. FATAL is what that looks like, and it is not RUNNING.
     file_put_contents($scratch.'/supervisor-state', ($options['queue_state'] ?? 'FATAL')."\n");
 
+    // Prepare Host installs the target's Supervisor program configuration and
+    // validates it; whether its GROUP is loaded into the running Supervisor is
+    // a separate question, and on a freshly prepared host it is not
+    // ('queue_group_absent'), because activation is deferred until a release
+    // exists.
+    @mkdir($scratch.'/supervisor-conf.d', 0o755, true);
+
+    if (($options['queue_config'] ?? true) === true) {
+        file_put_contents($scratch.'/supervisor-conf.d/parity-queue.conf', "[program:parity-queue]\nautostart=true\n");
+    }
+
+    if (($options['queue_group_absent'] ?? false) === true) {
+        touch($scratch.'/supervisor-group-absent');
+    }
+
     // The prepared database exists and is EMPTY.
     @mkdir($scratch.'/pg/tables', 0o755, true);
     @mkdir($scratch.'/pg/migrations', 0o755, true);
@@ -261,11 +276,284 @@ it('refuses a running queue program, and an unobservable one', function (array $
     }
 })->with([
     'a live worker' => [[], 'reports RUNNING'],
-    'an unobservable group' => [
-        ['RGTEST_SUPERVISOR_STATUS_FAILURE' => 'parity-queue: ERROR (no such group)'],
+    'an unreachable supervisord' => [
+        ['RGTEST_SUPERVISOR_STATUS_FAILURE' => 'unix:///var/run/supervisor.sock refused connection'],
+        'refusing to recover without knowing whether a worker is running',
+    ],
+    'a permission failure' => [
+        ['RGTEST_SUPERVISOR_STATUS_FAILURE' => 'error: <class \'PermissionError\'>, [Errno 13] Permission denied'],
+        'refusing to recover without knowing whether a worker is running',
+    ],
+    'an answer about another program' => [
+        ['RGTEST_SUPERVISOR_STATUS_STDOUT' => 'other-project-queue: ERROR (no such group)', 'RGTEST_SUPERVISOR_STATUS_RC' => '4'],
+        'refusing to recover without knowing whether a worker is running',
+    ],
+    'more than the one diagnosis' => [
+        [
+            'RGTEST_SUPERVISOR_STATUS_STDOUT' => "parity-queue: ERROR (no such group)\nparity-queue:parity-queue_00   RUNNING   pid 1, uptime 0:01:00",
+            'RGTEST_SUPERVISOR_STATUS_RC' => '4',
+        ],
         'refusing to recover without knowing whether a worker is running',
     ],
 ]);
+
+it('judges a loaded queue group by the state its processes are in', function (string $state, bool $recoverable) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch, ['queue_state' => $state]);
+
+        $result = recoverHostRun($scratch, ['--check', '--target', 'parity-target', '--backup', '20260115-023000']);
+
+        if ($recoverable) {
+            expect($result['exit'])->toBe(0, $result['output']);
+            expect($result['output'])->toContain('RECOVERABLE: YES');
+
+            return;
+        }
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain("reports {$state}")
+            ->toContain('a live worker means this is not the empty replacement host a recovery is for');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'RUNNING' => ['RUNNING', false],
+    'STARTING' => ['STARTING', false],
+    'STOPPING' => ['STOPPING', false],
+    'STOPPED' => ['STOPPED', true],
+    // A prepared host's worker crash-loops: autostart=true with no
+    // application to run. Not serving, and not a reason to refuse.
+    'FATAL' => ['FATAL', true],
+]);
+
+// =============================================================================
+// The PRE_DEPLOY Supervisor state
+//
+// install-bootstrap-services installs and validates the target's queue program
+// and DEFERS `supervisorctl update` until a release exists, so a prepared,
+// never-deployed host answers "no such group" about its own queue. That is the
+// normal state of the machine a clean-host recovery is for, and it holds the
+// target more strongly than STOPPED does — but only when it is proven to be
+// exactly that state.
+// =============================================================================
+
+it('accepts a queue program that is configured and not yet loaded into the running Supervisor', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch, ['queue_group_absent' => true]);
+
+        $result = recoverHostRun($scratch, ['--check', '--target', 'parity-target', '--backup', '20260115-023000']);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('configured on this host and not yet loaded into the running Supervisor')
+            ->toContain('in which no worker can be running')
+            ->toContain('RECOVERABLE: YES');
+
+        // Read-only: the check asked Supervisor for this target's own status —
+        // once through the shared observer and once more to classify what it
+        // could not read — and for nothing else. No stop, start, reread or
+        // update, and no question about another program.
+        expect(File::get($scratch.'/supervisor.log'))->toBe(str_repeat("supervisorctl status parity-queue:*\n", 2));
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a queue program it cannot see for any other reason, and one on a machine that is not a prepared host', function (array $options, array $env, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch, $options);
+
+        $result = recoverHostRun($scratch, ['--check', '--target', 'parity-target', '--backup', '20260115-023000'], $env);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    // Exit 4 alone proves nothing: supervisorctl uses it for "the name matched
+    // nothing" AND for an upcheck it could not complete.
+    'exit 4 because supervisord could not be reached' => [
+        ['queue_group_absent' => true],
+        ['RGTEST_SUPERVISOR_GROUP_ABSENT' => '', 'RGTEST_SUPERVISOR_STATUS_FAILURE' => 'unix:///var/run/supervisor.sock refused connection'],
+        'refusing to recover without knowing whether a worker is running',
+    ],
+    // A group nothing on this machine ever configured is not a deferred
+    // activation; it is a machine that was never prepared for this target.
+    'no such group, and no installed program configuration' => [
+        ['queue_group_absent' => true, 'queue_config' => false],
+        [],
+        'refusing to recover without knowing whether a worker is running',
+    ],
+    // The whole licence for accepting it is that Prepare Host proved the
+    // configuration is installed, parses and belongs to a prepared machine.
+    'no such group, on a machine prepare-host --verify refuses' => [
+        ['queue_group_absent' => true],
+        ['RGTEST_PREPARE_HOST_EXIT' => '1'],
+        'this machine is not a prepared host',
+    ],
+]);
+
+it('recovers a host whose queue group was never loaded, and loads it when the recovery resumes', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // Exactly the machine the first real clean-host recovery met: Prepare
+        // Host succeeded, and the queue program's group is not in the running
+        // Supervisor because there was no release to activate it for.
+        recoveryFixture($scratch, ['queue_group_absent' => true]);
+
+        $applied = recoveryApply($scratch);
+
+        expect($applied['exit'])->toBe(0, $applied['output']);
+        expect($applied['output'])->toContain('there is no worker to stop');
+
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        // Nothing was stopped, because there was nothing to stop.
+        expect(File::get($scratch.'/supervisor.log'))->not->toContain('supervisorctl stop');
+        expect(recoveryGuard($scratch))->toMatchArray(['status' => 'awaiting-code']);
+
+        // The authoritative hold proof the controlled recovery deployment runs
+        // reports the host as held, rather than refusing to describe it.
+        $inspected = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($inspected['exit'])->toBe(0, $inspected['output']);
+        expect($inspected['output'])
+            ->toContain('no worker can be running in a group Supervisor does not know')
+            ->toContain('"queue":"stopped"');
+
+        deployRecoveredRelease($scratch);
+
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+        expect($resumed['output'])
+            ->toContain('adding it from its installed configuration')
+            ->toContain('"status":"completed"')
+            ->toContain('"queue":"running"');
+
+        // The two commands an ordinary first deployment runs, and no
+        // configuration of its own: reread parses, update adds exactly this
+        // target's program, and autostart brings it up.
+        $supervisor = File::get($scratch.'/supervisor.log');
+
+        expect($supervisor)
+            ->toContain('supervisorctl reread')
+            ->toContain('supervisorctl update parity-queue');
+        expect(str_contains($supervisor, 'supervisorctl update all'))->toBeFalse('the resume updates exactly this target\'s program');
+
+        expect(recoveryGuard($scratch))->toBeNull();
+        expect(File::exists($scratch.'/cron.d/parity-scheduler'))->toBeTrue();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('starts a queue group that update added without starting', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch, ['queue_group_absent' => true]);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        // `update` added the group and left it STOPPED (autostart=false, or a
+        // program that exits immediately): the explicit start still runs.
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation], [
+            'RGTEST_SUPERVISOR_UPDATE_STATE' => 'STOPPED',
+        ]);
+
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+        expect(File::get($scratch.'/supervisor.log'))
+            ->toContain('supervisorctl update parity-queue')
+            ->toContain('supervisorctl start parity-queue:*');
+        expect($resumed['output'])->toContain('"queue":"running"');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('stays held when the queue group cannot be added at all', function (array $env, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch, ['queue_group_absent' => true]);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation], $env);
+
+        expect($resumed['exit'])->not->toBe(0);
+        expect($resumed['output'])
+            ->toContain($expected)
+            ->toContain('the target stays held');
+
+        // Held means held: the guard stands, and says the resume failed with
+        // the target still held rather than pretending the recovery finished.
+        expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
+        expect(File::exists($scratch.'/run/recoveries/parity-target/'.$operation))->toBeTrue();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'a configuration that no longer parses' => [
+        ['RGTEST_SUPERVISOR_REREAD_EXIT' => '1'],
+        'supervisorctl reread failed',
+    ],
+    'an update supervisord refuses' => [
+        ['RGTEST_SUPERVISOR_UPDATE_EXIT' => '1'],
+        'could not be added to the running Supervisor',
+    ],
+]);
+
+it('names the trusted bundle when this copy of recover-host has no prepare-host beside it', function (string $mode) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $arguments = ['--'.$mode, '--target', 'parity-target', '--backup', '20260115-023000'];
+
+        // The installed operational bundle deliberately carries no bootstrap
+        // tooling, which is exactly what an operator following a failed run
+        // reaches for first.
+        $result = recoverHostRun($scratch, $arguments, [
+            'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/no-prepare-host-here',
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: this copy of recover-host has no prepare-host beside it')
+            ->toContain('the installed operational bundle deliberately carries no bootstrap tooling')
+            ->toContain('sudo <checkout>/infrastructure/scripts/recover-host --'.$mode.' --target parity-target --backup 20260115-023000')
+            ->toContain('do not copy prepare-host into the operational bundle, and do not take one out of a release')
+            ->toContain('--inspect, --resume and --verify')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
+            ->toContain('Nothing was read, created or changed');
+
+        // It is not reported as one host problem among others: no amount of
+        // fixing the machine makes this copy able to answer.
+        expect(str_contains($result['output'], 'RECOVERABLE:'))->toBeFalse('the check could not run at all');
+        expect(File::exists($scratch.'/run/recoveries'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['check', 'apply']);
 
 it('refuses a target held by a restore, and a target already being recovered', function () {
     $scratch = restoreScratchDir();
@@ -509,6 +797,11 @@ it('refuses a backup written before the recovery material existed, before stagin
             ->toContain('step: require a clean-host-recovery-capable backup')
             ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a host recovery requires schema 3')
             ->toContain('No data was staged or activated')
+            // The operator is told what to do, in the one shared format.
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: backup 20260115-023000 is a schema 2 backup, written before the recovery material joined the format')
+            ->toContain('Then: re-run "Recover staging host" with mode=start and that backup\'s exact timestamp')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
             // No fallback to hand-supplied material is offered, anywhere.
             ->not->toContain('PREPARE_')
             ->not->toContain('--material-dir');
@@ -669,6 +962,8 @@ it('refuses to inspect, resume or verify a machine whose hold has gone', functio
         $inspected = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
         expect($inspected['exit'])->not->toBe(0);
         expect($inspected['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('never release the hold to make a mode pass')
             ->toContain('the offsite-write hold is missing')
             ->toContain('recover-host --resume runs')
             ->toContain('re-place it by hand as root');
@@ -708,6 +1003,8 @@ it('refuses to inspect, resume or verify a machine whose hold has gone', functio
         $verified = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
         expect($verified['exit'])->not->toBe(0);
         expect($verified['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
             ->toContain('the offsite-write hold is missing')
             ->toContain('re-place it by hand as root');
     } finally {

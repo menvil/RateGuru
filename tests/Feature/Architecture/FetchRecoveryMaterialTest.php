@@ -206,6 +206,11 @@ it('refuses a backup that carries no recovery material, by name, with no fallbac
             ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a clean-host recovery requires schema 3')
             ->toContain('there is deliberately no fallback to hand-supplied material')
             ->toContain('Nothing on this host was changed')
+            // And the operator is told what to do, in the one shared format.
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: backup 20260115-023000 is a schema 2 backup, written before the recovery material joined the format')
+            ->toContain('Then: re-run "Recover staging host" with mode=start and that backup\'s exact timestamp')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
             ->not->toContain('PREPARE_');
 
         expect(array_diff(scandir($scratch.'/effective'), ['.', '..']))->toBe([]);
@@ -342,6 +347,34 @@ it('accepts a seed directory holding exactly the two seed files, root-only', fun
         '--seed-dir must be mode 0700',
     ],
 ]);
+
+it('tells the operator which GitHub value a missing seed comes from, in the shared format', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryOffsiteBackupFixture($scratch);
+
+        $seed = fetchRecoveryMaterialSeed($scratch, ['deploy-authorized-keys' => "ssh-ed25519 AAAA deploy\n"]);
+
+        $result = fetchRecoveryMaterialRun($scratch, [
+            '--target', 'parity-target', '--backup', '20260115-023000',
+            '--seed-dir', $seed, '--output-dir', fetchRecoveryMaterialOutputDir($scratch),
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: seed material rclone-config is missing')
+            ->toContain('the recovery workflow seeds exactly rclone-config (RECOVERY_RCLONE_CONFIG) and deploy-authorized-keys (derived from DEPLOY_SSH_KEY)')
+            ->toContain('  1. configure RECOVERY_RCLONE_CONFIG and DEPLOY_SSH_KEY in the GitHub Environment')
+            ->toContain('  2. never place an rclone configuration or a key on the host by hand')
+            ->toContain('Then: re-run "Recover staging host" with mode=start')
+            ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
+            ->toContain('ERROR: seed material is missing: rclone-config');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
 
 // =============================================================================
 // What it will never do

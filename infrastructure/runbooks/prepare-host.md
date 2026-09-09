@@ -470,6 +470,20 @@ restore and recover operations will join. `Prepare production host` runs in
 orchestration on top of, never a replacement for, the server-side deployment
 lock.
 
+## Before a recovery preparation: the read-only preflight
+
+A recovery preparation is preceded, in the Recover workflows, by
+`infrastructure/scripts/recovery-host-preflight --check --target T` on the
+replacement machine — read-only, and refusing by name a machine that is not
+Ubuntu 22.04 on x86_64 or that already carries any RateGuru state (a
+`/home/www/rateguru` tree, a release, a guard, a RateGuru database or role,
+a managed Nginx site, PHP-FPM pool, Supervisor program, cron entry, systemd
+unit, sudo wrapper, sudoers grant, or account). Preparation is convergent
+and has no clean-host precondition of its own; the preflight is where that
+question is asked, before the first byte of preparation reaches the host.
+Its `--operator-guide` prints the compact operator instruction; the full one
+is [`clean-host-recovery.md`](clean-host-recovery.md).
+
 ## What builds on this
 
 Restore Target Data, Repair Target and Recover Host all build on this

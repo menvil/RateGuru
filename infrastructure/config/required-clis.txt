@@ -23,6 +23,7 @@ offsite-retention
 prepare-host
 record-nightwatch-deployment
 recover-host
+recovery-host-preflight
 repair-target
 restore-database
 restore-storage

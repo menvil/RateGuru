@@ -270,7 +270,7 @@ it('enforces the request contract before any environment or secret is reached', 
     // Every job that touches the target or the replacement machine depends on
     // that validation — not just the first one. A job later rewired to start
     // earlier would silently stop being gated, so each one names it directly.
-    foreach (['binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify'] as $job) {
+    foreach (['values', 'binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify'] as $job) {
         expect(data_get($workflow, "jobs.{$job}"))->not->toBeNull("{$file} must define the {$job} job");
 
         // in_array + toBeTrue rather than toContain: toContain is variadic in
@@ -411,7 +411,7 @@ it('reads the current host binding only to refuse it, and never to connect to it
     $binding = data_get($workflow, 'jobs.binding');
 
     expect(data_get($binding, 'environment'))->toBe($environment)
-        ->and(data_get($binding, 'needs'))->toBe('validate')
+        ->and(data_get($binding, 'needs'))->toBe(['validate', 'values'])
         ->and(collect(data_get($binding, 'steps'))->pluck('uses')->filter()->all())->toBe([]);
 
     expect($source)
@@ -611,7 +611,7 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
     // the whole point is that they never mix. The identity job reads the
     // deploy credential to derive its public half and connects nowhere; it
     // is asserted on its own below.
-    $privileged = ['prepare', 'recover', 'resume', 'verify'];
+    $privileged = ['preflight', 'prepare', 'recover', 'resume', 'verify'];
     $restricted = ['deploy', 'observability'];
 
     foreach ($privileged as $jobName) {
@@ -802,7 +802,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
 
     expect(data_get($prepare, 'environment'))->toBe($environment)
         ->and(data_get($prepare, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
-        ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding', 'deploy-identity']);
+        ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding', 'preflight', 'deploy-identity']);
 
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
 
@@ -1285,7 +1285,7 @@ it('reports enough for an operator to continue, and no secret at all', function 
     // It waits for everything, so a run that stopped anywhere still describes
     // where it stopped.
     expect(data_get($report, 'needs'))->toBe([
-        'validate', 'binding', 'deploy-identity', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability',
+        'validate', 'values', 'binding', 'preflight', 'deploy-identity', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability',
     ]);
 
     $run = (string) data_get($report, 'steps.0.run');
@@ -1324,15 +1324,21 @@ it('reports enough for an operator to continue, and no secret at all', function 
         // Nothing is cleaned up to make a run look green.
         ->toContain('Nothing was cleaned up to make this run look green');
 
-    // Identity only. No material, no credential, no fingerprint, no size, no
-    // digest — and no GitHub Environment above to read one from.
+    // Identity only. No credential is READ (no secrets or vars context at
+    // all — there is no GitHub Environment above to read one from), and no
+    // fingerprint, size or digest is computed. The operator guidance may
+    // NAME a GitHub value an operator has to configure; it never holds one.
     $encoded = json_encode($report);
 
     foreach ([
-        'secrets.', 'vars.', 'SSH_KEY', 'KNOWN_HOSTS', 'RCLONE', 'LARAVEL_ENV',
-        'sha256sum', 'md5sum', 'wc -c', 'ssh-keygen',
+        'secrets.', 'vars.', 'sha256sum', 'md5sum', 'wc -c', 'ssh-keygen', 'cat ',
     ] as $forbidden) {
-        expect($encoded)->not->toContain($forbidden);
+        expect(str_contains($encoded, $forbidden))->toBeFalse("{$file}: the report must never {$forbidden}");
+    }
+
+    // Every value the report job reads is a job output or a job result.
+    foreach ((array) data_get($report, 'steps.0.env') as $name => $value) {
+        expect($value)->toMatch('/^\$\{\{ needs\.[a-z-]+\.(outputs\.[a-z_]+|result) \}\}$/', "{$file}: report env {$name} must come from a job, never from an environment");
     }
 })->with('recover workflows');
 
@@ -1515,6 +1521,7 @@ it('creates no second implementation of anything it uses', function (
         './.github/actions/prepare-rateguru-host',
         './.github/actions/record-rateguru-deployment',
         './.github/actions/recover-rateguru-host',
+        './.github/actions/recovery-host-preflight',
         'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
         'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
     ]);
@@ -1528,4 +1535,270 @@ it('creates no second implementation of anything it uses', function (
     ] as $rejected) {
         expect(File::exists(base_path($rejected)))->toBeFalse("{$rejected} must not exist");
     }
+})->with('recover workflows');
+
+// =============================================================================
+// The clean-host proof runs before anything is prepared
+// =============================================================================
+
+it('proves the replacement host is a clean, supported machine before it prepares it', function (
+    string $file,
+    string $name,
+    string $target,
+    string $environment,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $preflight = data_get($workflow, 'jobs.preflight');
+
+    expect($preflight)->not->toBeNull("{$file} must run the clean-host preflight");
+
+    // After the request, the lifecycle and the binding proofs — and only on
+    // the START path: a continuation addresses a machine the recovery owns.
+    expect(data_get($preflight, 'needs'))->toBe(['validate', 'binding'])
+        ->and(data_get($preflight, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
+        ->and(data_get($preflight, 'environment'))->toBe($environment);
+
+    $jobs = array_keys($workflow['jobs']);
+    expect(array_search('preflight', $jobs, true))->toBeLessThan(array_search('prepare', $jobs, true));
+
+    $steps = recoverWorkflowStepsByName($workflow, 'preflight');
+    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
+
+    $step = collect($steps)->first(static fn (array $step): bool => data_get($step, 'uses') === './.github/actions/recovery-host-preflight');
+
+    expect($step)->not->toBeNull("{$file} must preflight through the shared action");
+    expect(data_get($step, 'with.deployment-target'))->toBe($target)
+        ->and(data_get($step, 'with.recovery-host'))->toBe('${{ needs.validate.outputs.replacement_host }}')
+        ->and(data_get($step, 'with.recovery-port'))->toBe('${{ needs.validate.outputs.replacement_port }}')
+        ->and(data_get($step, 'with.bootstrap-user'))->toBe('${{ vars.RECOVERY_BOOTSTRAP_USER }}')
+        ->and(data_get($step, 'with.bootstrap-ssh-key'))->toBe('${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}')
+        ->and(data_get($step, 'with.bootstrap-known-hosts'))->toBe('${{ secrets.RECOVERY_KNOWN_HOSTS }}');
+
+    // The exact backup this start is for, as IDENTITY: it is compared with
+    // the backup an earlier preparation of this same recovery recorded on the
+    // machine, so a start that already prepared this host is recognised as one
+    // to converge rather than refused as dirty. Nothing is read from the
+    // backup here, and nothing else is passed that could make the preflight
+    // anything but a proof.
+    expect(data_get($step, 'with.recovery-backup'))->toBe('${{ needs.validate.outputs.backup }}');
+
+    foreach (['backup-id', 'laravel-env', 'rclone-config', 'command', 'material-dir'] as $input) {
+        expect(data_get($step, "with.{$input}"))->toBeNull();
+    }
+
+    // And the state it found is reported, so the summary can say which of the
+    // two accepted states the machine was in.
+    expect(data_get($preflight, 'outputs.state'))->toBe('${{ steps.preflight.outputs.state }}');
+
+    // Prepare Host never runs after a refused preflight: it needs the job
+    // and carries no always()/!cancelled() escape around that dependency.
+    $prepare = data_get($workflow, 'jobs.prepare');
+    expect(data_get($prepare, 'needs'))->toContain('preflight');
+    expect((string) data_get($prepare, 'if'))->not->toContain('always()')
+        ->not->toContain('cancelled()')
+        ->not->toContain('preflight');
+
+    // Production still stops at lifecycle=planned in the validate job, which
+    // holds no environment — long before this job could connect anywhere.
+    expect(data_get($workflow, 'jobs.validate.environment'))->toBeNull();
+})->with('recover workflows');
+
+it('tells the operator where a failed run stopped, what to do and what to re-run, and the whole final contract on success', function (
+    string $file,
+    string $name,
+    string $target,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    // The one operator-facing refusal format, rendered from the cause a
+    // stage reported, with the stage and the START/CONTINUE recommendation.
+    expect($run)
+        ->toContain('RECOVERY ACTION REQUIRED')
+        ->toContain('Cause: ${cause}')
+        ->toContain('What this means: ${meaning}')
+        ->toContain('Then: ${then_action}')
+        ->toContain('Runbook: infrastructure/runbooks/clean-host-recovery.md')
+        ->toContain('Stopped at: ${stage:-unknown} — recommendation: ${recommendation}')
+        ->toContain('recommendation="CONTINUE"')
+        ->toContain('recommendation="START"')
+        ->toContain('mode=continue-held, operation=${operation}')
+        ->toContain('| Clean-host preflight (read-only) |');
+
+    // Every cause a stage can report has its own guidance.
+    foreach ([
+        'preflight:unsupported-os:', 'preflight:unsupported-architecture:', 'preflight:host-not-clean:',
+        'preflight:host-unreachable:', 'preflight:known-hosts-mismatch:', 'preflight:ssh-authentication-failed:',
+        'preflight:passwordless-sudo-missing:', 'backup-not-recovery-capable', 'backup-not-found',
+        'recovery-material-invalid', 'rclone-config-unavailable', 'offsite-hold-missing', 'awaiting-code',
+        'guard-present', 'build:*', 'deploy:*', 'resume:*', 'verify:*', 'binding:*', 'deploy-identity:*',
+    ] as $cause) {
+        expect($run)->toContain($cause);
+    }
+
+    // The success summary states the whole final contract.
+    foreach ([
+        '| Exact backup |', '| Exact source_sha |', '| Queue |', '| Scheduler |', '| Health |',
+        '| Guards | none', 'OFFSITE WRITES: HELD', '| DNS | unchanged |', '| DEPLOY_HOST | unchanged |',
+        '| Migrations run | none |', "| Target | \\`{$target}\\` |",
+    ] as $fact) {
+        expect($run)->toContain($fact);
+    }
+})->with('recover workflows');
+
+// =============================================================================
+// The environment's values are proven present before any connection
+// =============================================================================
+
+it('refuses to start without the recovery values the environment must hold, naming the value and its kind, before any connection', function (
+    string $file,
+    string $name,
+    string $target,
+    string $environment,
+) {
+    [$workflow, $source] = recoverWorkflow($file);
+    $values = data_get($workflow, 'jobs.values');
+
+    expect($values)->not->toBeNull("{$file} must prove the environment's values before anything else");
+    expect(data_get($values, 'needs'))->toBe('validate')
+        ->and(data_get($values, 'environment'))->toBe($environment)
+        ->and(data_get($values, 'outputs.cause'))->toBe('${{ steps.values.outputs.cause }}');
+
+    // Everything that could connect anywhere waits for it, through binding.
+    expect(data_get($workflow, 'jobs.binding.needs'))->toBe(['validate', 'values']);
+
+    $jobs = array_keys($workflow['jobs']);
+    expect(array_search('values', $jobs, true))->toBeLessThan(array_search('binding', $jobs, true));
+
+    $step = data_get($values, 'steps.0');
+    expect(data_get($step, 'id'))->toBe('values');
+
+    // Presence only: every value reaches the step as a `!= ''` boolean, and
+    // exactly these five — the four recovery-only values and the existing
+    // deploy key the deploy identity is derived from.
+    $env = (array) data_get($step, 'env');
+
+    expect($env)->toBe([
+        'MODE' => '${{ needs.validate.outputs.mode }}',
+        'BACKUP' => '${{ needs.validate.outputs.backup }}',
+        'RECOVERY_BOOTSTRAP_USER_PRESENT' => "\${{ vars.RECOVERY_BOOTSTRAP_USER != '' }}",
+        'RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT' => "\${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY != '' }}",
+        'RECOVERY_KNOWN_HOSTS_PRESENT' => "\${{ secrets.RECOVERY_KNOWN_HOSTS != '' }}",
+        'RECOVERY_RCLONE_CONFIG_PRESENT' => "\${{ secrets.RECOVERY_RCLONE_CONFIG != '' }}",
+        'DEPLOY_SSH_KEY_PRESENT' => "\${{ secrets.DEPLOY_SSH_KEY != '' }}",
+    ]);
+
+    // The offsite credential is a SECRET, read as one, and never a variable —
+    // here and everywhere else in the workflow.
+    expect($source)->toContain("secrets.RECOVERY_RCLONE_CONFIG != ''");
+    expect(str_contains($source, 'vars.RECOVERY_RCLONE_CONFIG'))->toBeFalse("{$file} must never read RECOVERY_RCLONE_CONFIG as a variable");
+    expect(substr_count($source, 'secrets.RECOVERY_RCLONE_CONFIG'))->toBe(2);
+
+    // The refusal that actually happened once, spelled out for the operator.
+    $run = (string) data_get($step, 'run');
+
+    expect($run)
+        ->toContain('action_required rclone-config-secret-missing \\')
+        ->toContain("\"the {$environment} GitHub Environment has no RECOVERY_RCLONE_CONFIG secret\"")
+        ->toContain("\"Settings -> Environments -> {$environment} -> Environment secrets\"")
+        ->toContain('"create RECOVERY_RCLONE_CONFIG"')
+        ->toContain('"paste the complete contents of the recovery rclone configuration file"')
+        ->toContain('"do not create it as an Environment variable"')
+        ->toContain("then_action=\"re-run \\\"{$name}\\\" with mode=start and the same exact backup (backup=\${BACKUP})\"")
+        ->toContain('echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"')
+        ->toContain('echo "cause=${word}" >> "${GITHUB_OUTPUT}"');
+
+    foreach (['bootstrap-user-variable-missing', 'bootstrap-ssh-key-secret-missing', 'known-hosts-secret-missing', 'deploy-ssh-key-secret-missing'] as $cause) {
+        expect($run)->toContain("action_required {$cause} \\");
+    }
+
+    // The variable is named as a variable, every secret as a secret.
+    expect($run)
+        ->toContain("\"Settings -> Environments -> {$environment} -> Environment variables\"")
+        ->toContain('"it is an Environment variable, not a secret"');
+
+    // A continuation needs no offsite credential: it prepares nothing.
+    expect($run)->toContain('if [[ "${MODE}" == "start" ]] && [[ "${RECOVERY_RCLONE_CONFIG_PRESENT}" != "true" ]]; then');
+
+    // No value is ever read, so none can be printed: the step's environment
+    // holds booleans and two request fields, and the run echoes only its
+    // own words.
+    expect($run)->not->toMatch('/echo[^\n]*\$\{(RECOVERY|DEPLOY)_[A-Z_]+\}/');
+
+    // And the final summary renders the same guidance from the cause.
+    $report = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    expect($report)
+        ->toContain('values:rclone-config-secret-missing)')
+        ->toContain('"do not create it as an Environment variable"')
+        ->toContain('| Recovery values present |')
+        ->toContain('"values:${VALUES_RESULT}"');
+    expect(data_get($workflow, 'jobs.report.steps.0.env.VALUES_CAUSE'))->toBe('${{ needs.values.outputs.cause }}');
+})->with('recover workflows');
+
+// =============================================================================
+// The summary states what was reported, and nothing else
+// =============================================================================
+
+it('never turns an unreported final-contract fact into a successful one', function (
+    string $file,
+    string $name,
+    string $target,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    // Every fact under "as verified on the host" is one the server-side
+    // verification reported. A default THERE would be this summary inventing
+    // the answer the contract hopes for. (Elsewhere a fallback is honest:
+    // the overview table says "not verified", and a refusal says "<empty>".)
+    $success = mb_substr($run, mb_strpos($run, 'if [[ "${VERIFY_RESULT}" == "success" ]]; then'));
+
+    foreach (['RECOVERED_QUEUE', 'RECOVERED_SCHEDULER', 'RECOVERED_HEALTH', 'OFFSITE_WRITES', 'RECOVERED_SOURCE_SHA'] as $fact) {
+        expect(str_contains($success, '${'.$fact.':-'))
+            ->toBeFalse("{$file}: the success summary must not default {$fact}");
+    }
+
+    foreach (['running', 'present', 'pass', 'held'] as $optimistic) {
+        expect(str_contains($success, ":-{$optimistic}}"))
+            ->toBeFalse("{$file}: the success summary must not fall back to {$optimistic}");
+    }
+
+    expect($run)
+        ->toContain('missing=()')
+        ->toContain('[[ -n "${RECOVERED_QUEUE}" ]]       || missing+=("queue")')
+        ->toContain('[[ -n "${RECOVERED_SCHEDULER}" ]]   || missing+=("scheduler")')
+        ->toContain('[[ -n "${RECOVERED_HEALTH}" ]]      || missing+=("health")')
+        ->toContain('[[ -n "${OFFSITE_WRITES}" ]]        || missing+=("offsite_writes")')
+        ->toContain('Recovery NOT confirmed — the final verification reported an incomplete contract')
+        ->toContain('this summary will not')
+        ->toContain('exit 1');
+
+    // The verification job is where those values come from, and the action is
+    // required to report them for the verify mode.
+    expect(data_get($workflow, 'jobs.verify.outputs.queue'))->toBe('${{ steps.verify.outputs.queue }}')
+        ->and(data_get($workflow, 'jobs.verify.outputs.scheduler'))->toBe('${{ steps.verify.outputs.scheduler }}');
+})->with('recover workflows');
+
+it('tells a values job that judged nothing apart from one that found a value missing', function (
+    string $file,
+    string $name,
+    string $target,
+    string $environment,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
+
+    // An approval that was rejected or timed out, or a cancelled run, leaves
+    // the values job with a result and no cause. Guidance about a missing
+    // GitHub value would be a guess.
+    expect($run)
+        ->toContain('if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then')
+        ->toContain('if [[ "${VALUES_RESULT}" == "cancelled" ]]; then')
+        ->toContain("the run was cancelled before the {$environment} environment's recovery values were judged")
+        ->toContain("the {$environment} environment's approval was rejected or timed out")
+        ->toContain('read the values job\'s own log and its environment approval');
+
+    // The missing-value guidance stays for the case it was written for.
+    expect($run)->toContain('values:rclone-config-secret-missing)');
 })->with('recover workflows');

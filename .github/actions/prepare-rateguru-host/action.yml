@@ -178,6 +178,14 @@ outputs:
     description: "true when prepare-host --verify confirmed the target is prepared"
     value: ${{ steps.verify.outputs.prepared }}
 
+  failure-cause:
+    description: >-
+      Why the preparation failed, as one closed word an operator can act on:
+      backup-not-recovery-capable, backup-not-found, recovery-material-invalid,
+      rclone-config-unavailable, offsite-hold-missing, or preparation-failed.
+      Every refusal this action makes sets one; empty ONLY on success.
+    value: ${{ steps.contract.outputs['failure-cause'] || steps.prepare.outputs['failure-cause'] || steps.verify.outputs['failure-cause'] }}
+
 runs:
   using: composite
 
@@ -252,6 +260,7 @@ runs:
     # accepts exactly two seed files. Judged on presence only — whether each
     # material input is empty or not — so no secret value is ever read here.
     - name: Validate the recovery preparation contract
+      id: contract
       shell: bash
       env:
         RECOVERY_BACKUP: ${{ inputs.recovery-backup }}
@@ -277,14 +286,27 @@ runs:
         # recovery pipeline; the server proves the ID is a real timestamp and
         # that the backup exists and is recovery-capable.
         if [[ ! "${RECOVERY_BACKUP}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+          echo "failure-cause=preparation-failed" >> "${GITHUB_OUTPUT}"
           echo "recovery-backup must be an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${RECOVERY_BACKUP})" >&2
+          echo "Nothing was uploaded and nothing was changed." >&2
           exit 1
         fi
 
-        if [[ "${SEED_RCLONE_CONFIG_PRESENT}" != "true" ]] \
-          || [[ "${SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT}" != "true" ]]
-        then
-          echo "A recovery preparation requires both seed inputs: rclone-config (the recovery offsite credential) and deploy-authorized-keys (the deploy public key derived on the runner)." >&2
+        # Each seed is named with the GitHub value it comes from and the KIND
+        # that value must be: the one real refusal here was a recovery whose
+        # environment held no RECOVERY_RCLONE_CONFIG secret, and "both seed
+        # inputs are required" did not say so.
+        if [[ "${SEED_RCLONE_CONFIG_PRESENT}" != "true" ]]; then
+          echo "failure-cause=rclone-config-unavailable" >> "${GITHUB_OUTPUT}"
+          echo "A recovery preparation requires the rclone-config seed (the recovery offsite credential), and none was supplied." >&2
+          echo "The calling workflow passes it from the RECOVERY_RCLONE_CONFIG Environment SECRET (Settings -> Environments -> <environment> -> Environment secrets); that secret is absent. Create it there, never as an Environment variable, and re-run. Nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        if [[ "${SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT}" != "true" ]]; then
+          echo "failure-cause=preparation-failed" >> "${GITHUB_OUTPUT}"
+          echo "A recovery preparation requires the deploy-authorized-keys seed (the deploy public key), and none was supplied." >&2
+          echo "The calling workflow derives it on the runner, in its deploy-identity job, from the target's existing deployment private key; read that job's log. Nothing was uploaded and nothing was changed." >&2
           exit 1
         fi
 
@@ -295,6 +317,7 @@ runs:
           input="${pair#*:}"
 
           if [[ "${!present}" == "true" ]]; then
+            echo "failure-cause=preparation-failed" >> "${GITHUB_OUTPUT}"
             echo "A recovery preparation takes the target's environment file and host-scope material out of backup ${RECOVERY_BACKUP} itself; ${input} must not be supplied. Nothing was staged." >&2
             exit 1
           fi
@@ -631,6 +654,12 @@ runs:
           remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
         fi
 
+        # The host's output is shown as it arrives and kept on the runner, so
+        # that a refusal can be named to the operator afterwards. The step's
+        # status is ssh's, never tee's.
+        apply_log="${RUNNER_TEMP}/rateguru-prepare-apply.log"
+
+        set +e
         ssh \
           -p "${BOOTSTRAP_PORT}" \
           -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
@@ -642,7 +671,54 @@ runs:
           -o StrictHostKeyChecking=yes \
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
-          "${remote_command[@]@Q}"
+          "${remote_command[@]@Q}" 2>&1 | tee "${apply_log}"
+        status="${PIPESTATUS[0]}"
+        set -e
+
+        if [[ "${status}" -eq 0 ]]; then
+          rm -f "${apply_log}"
+          exit 0
+        fi
+
+        # One closed word for the calling workflow to turn into operator
+        # guidance, taken from the refusal vocabulary of prepare-host and of
+        # fetch-recovery-material. Never the log itself: the log may name paths
+        # and files, and the summary carries only the lines those scripts
+        # wrote for an operator.
+        cause="preparation-failed"
+
+        if grep -q 'is not clean-host-recovery-capable' "${apply_log}"; then
+          cause="backup-not-recovery-capable"
+        elif grep -q 'could not download .* from the offsite remote\|could not be read from the offsite namespace' "${apply_log}"; then
+          cause="backup-not-found"
+        elif grep -q 'recovery material archive .* is not acceptable\|extracted recovery material\|failed SHA-256 verification' "${apply_log}"; then
+          cause="recovery-material-invalid"
+        elif grep -q 'seed material is missing: rclone-config\|rclone is not available' "${apply_log}"; then
+          cause="rclone-config-unavailable"
+        elif grep -q 'offsite-write hold .* is missing\|could not .* the offsite-write hold' "${apply_log}"; then
+          cause="offsite-hold-missing"
+        fi
+
+        echo "failure-cause=${cause}" >> "${GITHUB_OUTPUT}"
+
+        {
+          echo "## Host preparation failed — ${cause}"
+          echo
+          echo "- Target: \`${DEPLOYMENT_TARGET}\`"
+          echo "- Host: \`${BOOTSTRAP_HOST}\`"
+          if [[ -n "${RECOVERY_BACKUP}" ]]; then
+            echo "- Recovery preparation from offsite backup: \`${RECOVERY_BACKUP}\`"
+          fi
+          echo
+          echo '```text'
+          grep -A 12 '^RECOVERY ACTION REQUIRED$' "${apply_log}" || grep '^ERROR' "${apply_log}" || echo "prepare-host exited ${status}; see the job log for the slice that failed"
+          echo '```'
+          echo
+          echo "Preparation is convergent: nothing safely converged is rolled back, and a re-run resumes at the first unsatisfied slice. Operator runbook: infrastructure/runbooks/clean-host-recovery.md"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        rm -f "${apply_log}"
+        exit "${status}"
 
     # A second, independent invocation rather than a claim inherited from the
     # apply above: "prepared" means the read-only verification passes on the
@@ -679,6 +755,7 @@ runs:
           remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
         fi
 
+        set +e
         verification_output="$(
           ssh \
             -p "${BOOTSTRAP_PORT}" \
@@ -691,10 +768,39 @@ runs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
-            "${remote_command[@]@Q}"
+            "${remote_command[@]@Q}" 2>&1
         )"
+        status="$?"
+        set -e
 
         printf '%s\n' "${verification_output}"
+
+        if [[ "${status}" -ne 0 ]]; then
+          # The apply passed and the independent verification did not: a
+          # recovery preparation whose hold is gone, or a slice that drifted
+          # between the two. Named to the workflow as one closed word.
+          cause="preparation-failed"
+          if grep -q 'offsite-write hold .* is missing\|is not an offsite-write hold document\|offsite-write hold .* is not a regular file' <<<"${verification_output}"; then
+            cause="offsite-hold-missing"
+          fi
+
+          echo "failure-cause=${cause}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Host preparation NOT verified — ${cause}"
+            echo
+            echo "- Target: \`${DEPLOYMENT_TARGET}\`"
+            echo "- Host: \`${BOOTSTRAP_HOST}\`"
+            echo
+            echo '```text'
+            grep '^ERROR' <<<"${verification_output}" || echo "prepare-host --verify exited ${status}; see the job log"
+            echo '```'
+            echo
+            echo "Operator runbook: infrastructure/runbooks/clean-host-recovery.md"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          exit "${status}"
+        fi
 
         echo "prepared=true" >> "${GITHUB_OUTPUT}"
 

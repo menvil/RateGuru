@@ -108,7 +108,14 @@ infrastructure, and moves out once a second project exists.
   machine the target is currently bound to; its offsite writers (backup cron,
   uploader, pruner) stay held until it is deliberately adopted; and nothing
   on the current machine is touched, repointed or cut over — see
-  [`runbooks/github-recover.md`](runbooks/github-recover.md);
+  [`runbooks/github-recover.md`](runbooks/github-recover.md). The operator
+  runbook for the whole thing — what to prepare on a new VPS, what to
+  configure, how to run, verify and continue — is
+  [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md), and
+  `infrastructure/scripts/recovery-host-preflight` is the read-only proof,
+  run by the workflow before Prepare Host, that the replacement machine is a
+  supported and genuinely clean host (`--operator-guide` prints the compact
+  instruction);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;

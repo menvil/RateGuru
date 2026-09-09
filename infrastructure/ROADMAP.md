@@ -1483,9 +1483,20 @@ Slices, in order:
      run fails before approval is requested, before a secret is loaded and
      before anything is touched.
 
+   - **An operator surface that needs no source reading.** One canonical
+     runbook, [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md),
+     from the clean VPS to the verified site checked without DNS; a
+     read-only `recovery-host-preflight` the workflows run after the binding
+     and host-key proofs and before Prepare Host, refusing by name a machine
+     that is not Ubuntu 22.04 x86_64 or already carries RateGuru state, with
+     nothing changed; and one `RECOVERY ACTION REQUIRED` format — cause,
+     meaning, steps, what to re-run — printed by the server-side refusals,
+     the actions and the run summary, never with a secret in it.
+
    See [`runbooks/github-recover.md`](runbooks/github-recover.md), including
    the operator flow, the clean-host acceptance checklist and the
-   offsite-write hold.
+   offsite-write hold, and [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md)
+   for the operator runbook.
    *Acceptance:* a disposable host is recovered end to end from a workflow
    dispatch, from a clean Ubuntu machine with nothing but bootstrap SSH on it,
    without hand-run commands and without a single hand-copied file. CI proves

@@ -1322,6 +1322,36 @@ assert_no_offsite_write_hold() {
     fail "OFFSITE WRITES: HELD — ${operation} is refused on this host. It was rebuilt by a host recovery of ${held_target} from backup ${held_backup} (${held_by}, ${held_at}), and DEPLOY_HOST and DNS were deliberately left unchanged, so the machine this target is still bound to owns the real offsite backup namespace. A second uploader or pruner on that namespace would overwrite or delete the history a recovery depends on. Nothing was uploaded, pruned or changed. The hold is ${marker}; releasing it is part of deliberately adopting this machine, never a side effect of any operation"
 }
 
+# --- operator guidance ---------------------------------------------------------
+#
+# operator_action_required CAUSE MEANING THEN STEP... — the one operator-facing
+# refusal format every recovery surface prints, on stderr, right before the
+# refusal that follows it: what happened, what it means, what to do, and what
+# to run afterwards. Names only, never a secret, a digest or a private path an
+# operator would not already know. The clean-host scripts, which cannot source
+# this file, print the identical format from their own copy; the GitHub
+# summary renders the same block from the cause a job reports.
+operator_action_required() {
+    local cause="$1" meaning="$2" then="$3"
+    shift 3
+
+    {
+        printf '\nRECOVERY ACTION REQUIRED\n'
+        printf 'Cause: %s\n' "${cause}"
+        printf 'What this means: %s\n' "${meaning}"
+        printf 'Do:\n'
+
+        local n=1 step
+        for step in "$@"; do
+            printf '  %d. %s\n' "${n}" "${step}"
+            n=$(( n + 1 ))
+        done
+
+        printf 'Then: %s\n' "${then}"
+        printf 'Runbook: infrastructure/runbooks/clean-host-recovery.md\n'
+    } >&2
+}
+
 # --- restore alignment authorization -----------------------------------------
 #
 # The hold above has exactly one legitimate ending: a controlled deployment of

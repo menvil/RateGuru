@@ -1,0 +1,940 @@
+#!/usr/bin/env bash
+#
+# recovery-host-preflight — the read-only proof that a machine is a CLEAN
+# replacement host a clean-host recovery may be prepared on.
+#
+# A clean-host recovery rebuilds one lost target onto a brand-new machine:
+# Prepare Host installs the runtime, the identities, the layout, the services
+# and the material taken out of the backup, and recover-host then fills the
+# prepared target with the backup's data. Every one of those steps is written
+# for a machine that holds NO RateGuru state, and none of them is a repair: a
+# machine that already carries a RateGuru tree, a target database, a managed
+# Nginx site or a recovery guard is not a replacement host, it is a host in
+# some other stage of some other operation, and preparing it "over the top"
+# would silently turn a recovery into a partial repair of unknown state.
+#
+# So this runs BEFORE Prepare Host touches anything, and it changes nothing:
+# no package is installed, no file is written, no service is started, nothing
+# is removed and nothing is "cleaned up". It reads the host and answers one
+# question — is this a supported, genuinely clean machine for TARGET — and
+# refuses, fail closed and by name, when it is not. The Recover workflows run
+# it after the request, the lifecycle, the binding and the host-key proofs,
+# and before the preparation; an operator can run it by hand from the
+# transported bundle or from a checkout.
+#
+# WHAT IT NEEDS. Bash and coreutils only. A clean Ubuntu image has no jq, no
+# PostgreSQL, no Nginx and no Supervisor, and every one of those absences is a
+# PASS here: the checks read the filesystem and the account database, and ask
+# PostgreSQL only when a client is present. The target registry cannot be
+# read on such a machine (JSON needs jq), so the target's lifecycle is proven
+# by the caller — the workflow's validate job and the preflight action, from
+# the committed registry, before this script is ever uploaded — and this
+# script says so. From a checkout where the registry and jq exist, it proves
+# the lifecycle itself.
+#
+# WHAT IT NEVER DOES. It never installs, repairs, deletes or repoints
+# anything, never reads secret material, never connects anywhere, and never
+# decides what a target is: the registry does, on the runner.
+#
+# Operator runbook: infrastructure/runbooks/clean-host-recovery.md
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+RUNBOOK_PATH="infrastructure/runbooks/clean-host-recovery.md"
+
+# --- Supported host contract --------------------------------------------------
+#
+# Mirrors bootstrap-host-preflight and install-bootstrap-runtime exactly — an
+# architecture test pins the three together — so a machine this script accepts
+# is one the bootstrap installers accept, and no other.
+SUPPORTED_OS_ID="ubuntu"
+SUPPORTED_OS_VERSION_ID="22.04"
+SUPPORTED_ARCHITECTURES="x86_64 amd64"
+
+# The RateGuru host root every target lives under, and the identity prefixes
+# the host layout creates. Stated as patterns rather than read from the
+# registry, because the registry cannot be read on a clean host; the
+# target-specific names are checked too whenever the registry is readable.
+RATEGURU_ROOT="/home/www/rateguru"
+
+# --- Gated test overrides -----------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-}" == "true" ]]
+}
+
+# gated_default VAR DEFAULT — the override only when tests are explicitly
+# enabled; the production default otherwise.
+gated_default() {
+    local var="$1" default="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var:-}" ]]; then
+        printf '%s\n' "${!var}"
+    else
+        printf '%s\n' "${default}"
+    fi
+}
+
+EFFECTIVE_EUID="$(gated_default RATEGURU_RECOVERYPREFLIGHT_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_RECOVERYPREFLIGHT_FS_ROOT '')"
+OS_RELEASE_FILE="$(gated_default RATEGURU_RECOVERYPREFLIGHT_OS_RELEASE_FILE /etc/os-release)"
+ARCH_VALUE="$(gated_default RATEGURU_RECOVERYPREFLIGHT_ARCH "$(uname -m 2>/dev/null || printf 'unknown')")"
+GETENT_BIN="$(gated_default RATEGURU_RECOVERYPREFLIGHT_GETENT_BIN getent)"
+PSQL_BIN="$(gated_default RATEGURU_RECOVERYPREFLIGHT_PSQL_BIN /usr/bin/psql)"
+# Tests call a psql stub directly; production asks PostgreSQL as the postgres
+# account, which is what a root shell must do.
+PSQL_DIRECT="$(gated_default RATEGURU_RECOVERYPREFLIGHT_PSQL_DIRECT false)"
+SOURCE_REGISTRY="$(gated_default RATEGURU_RECOVERYPREFLIGHT_SOURCE_REGISTRY "${SCRIPT_DIR}/../config/deployment-targets.json")"
+TARGETS_CLI_BIN="$(gated_default RATEGURU_RECOVERYPREFLIGHT_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+
+# physical PATH — the real filesystem location of a host path. FS_ROOT is
+# empty in production, so this is the identity function there.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# --- Output -------------------------------------------------------------------
+
+log() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+# action_required CAUSE MEANING THEN DO... — the one operator-facing refusal
+# format every recovery surface prints: what happened, what it means, what to
+# do, and what to run afterwards. Names only, never a secret, a digest or a
+# private path an operator would not already know.
+action_required() {
+    local cause="$1" meaning="$2" then="$3"
+    shift 3
+
+    printf '\nRECOVERY ACTION REQUIRED\n'
+    printf 'Cause: %s\n' "${cause}"
+    printf 'What this means: %s\n' "${meaning}"
+    printf 'Do:\n'
+
+    local n=1 step
+    for step in "$@"; do
+        printf '  %d. %s\n' "${n}" "${step}"
+        n=$(( n + 1 ))
+    done
+
+    printf 'Then: %s\n' "${then}"
+    printf 'Runbook: %s\n' "${RUNBOOK_PATH}"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  recovery-host-preflight --check --target TARGET_ID
+      [--bootstrap-user USER] [--recovery-backup YYYYMMDD-HHMMSS]
+  recovery-host-preflight --operator-guide [--target TARGET_ID]
+  recovery-host-preflight --help
+
+Read-only. Proves that THIS machine is a supported, genuinely clean
+replacement host a clean-host recovery of TARGET_ID may be prepared on, and
+refuses — fail closed, by name — when it is not. Installs, repairs, removes
+and repoints nothing.
+
+  --check            Run every check and report RECOVERY PREFLIGHT: PASS or
+                     RECOVERY PREFLIGHT: REFUSED (exit 1), with the reasons and
+                     the operator action required. Requires root: the checks
+                     read files only root may read.
+  --target           Deployment target ID from the RateGuru target registry.
+  --bootstrap-user   The privileged account this recovery reaches the machine
+                     through. It is the one identity a clean replacement host
+                     must already carry, so exactly that account, its own group
+                     and a sudoers grant named for it are the only RateGuru-
+                     shaped identities this check accepts. Every other one is
+                     still refused, and an account that is the target's own
+                     runtime or deploy identity is refused outright.
+  --recovery-backup  The exact backup this start is for. Given, a machine an
+                     earlier start already prepared FOR THIS TARGET AND THIS
+                     BACKUP is recognised as a preparation to converge again
+                     rather than as a dirty host. Nothing is downloaded or read
+                     from the backup here.
+  --operator-guide   Print the compact instruction for preparing a new server
+                     and what must be configured before Recover is dispatched.
+  --help             This text.
+
+Checks: Ubuntu 22.04 exactly, a supported architecture (x86_64), and no
+RateGuru state of any kind — no /home/www/rateguru tree, release, guard or
+offsite-write hold; no RateGuru database or role where PostgreSQL exists; no
+RateGuru-managed Nginx site, PHP-FPM pool, Supervisor program, cron entry,
+systemd unit, sudo wrapper or sudoers grant; no RateGuru deploy or runtime
+account. PostgreSQL, Nginx and Supervisor being absent is what a clean
+machine looks like, and passes. The target's lifecycle is proven from the
+committed registry: here when the registry and jq are readable, otherwise by
+the workflow that uploaded this script.
+
+Operator runbook: infrastructure/runbooks/clean-host-recovery.md
+USAGE
+}
+
+# --- Arguments ----------------------------------------------------------------
+
+MODE=""
+TARGET_ID=""
+TARGET_SEEN=false
+BOOTSTRAP_USER=""
+ENVIRONMENT_CLASS=""
+BACKUP_ID=""
+
+# require_value FLAG COUNT VALUE — the closed shape every valued flag takes.
+require_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a non-empty value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+    case "${value}" in -*) fail "${flag} requires a value, not another option: ${value}" ;; esac
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--operator-guide)
+                [[ -z "${MODE}" ]] || fail "exactly one of --check or --operator-guide is required"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] && [[ -n "${2-}" ]] || fail "--target requires a non-empty value"
+                case "$2" in -*) fail "--target requires a value, not another option: $2" ;; esac
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            # The privileged account the recovery reaches this machine through.
+            # It is the ONE identity a clean replacement host must already have,
+            # and naming it is what lets this check tell it apart from RateGuru
+            # state that must not be here.
+            --bootstrap-user)
+                [[ -z "${BOOTSTRAP_USER}" ]] || fail "--bootstrap-user given more than once"
+                require_value --bootstrap-user "$#" "${2-}"
+                BOOTSTRAP_USER="$2"
+                shift 2
+                ;;
+            # The exact backup this start is for, compared with the one an
+            # earlier recovery preparation recorded on this machine. Nothing is
+            # downloaded, read or verified from it here.
+            --recovery-backup)
+                [[ -z "${BACKUP_ID}" ]] || fail "--recovery-backup given more than once"
+                require_value --recovery-backup "$#" "${2-}"
+                BACKUP_ID="$2"
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check or --operator-guide is required"; }
+
+    if [[ "${MODE}" == check ]]; then
+        [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+    fi
+
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        [[ "${TARGET_ID}" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] \
+            || fail "invalid target ID: ${TARGET_ID}"
+    fi
+
+    if [[ -n "${BOOTSTRAP_USER}" ]]; then
+        [[ "${BOOTSTRAP_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]] \
+            || fail "invalid bootstrap user: ${BOOTSTRAP_USER}"
+    fi
+
+    if [[ -n "${BACKUP_ID}" ]]; then
+        [[ "${BACKUP_ID}" =~ ^[0-9]{8}-[0-9]{6}$ ]] \
+            || fail "--recovery-backup requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP_ID})"
+    fi
+}
+
+# recovery_workflow_name — the operator-facing name of the workflow to re-run.
+# Read from the target's own registry entry where the registry can be read; on
+# a machine that has none it stays unnamed rather than assuming staging. The
+# recovery workflow that ran this check names itself in its own summary, and
+# there is deliberately no flag for it here: an environment selector beside
+# --target is the interface this repository removed.
+recovery_workflow_name() {
+    case "${ENVIRONMENT_CLASS}" in
+        staging)    printf 'Recover staging host\n' ;;
+        production) printf 'Recover production host\n' ;;
+        *)          printf "the recovery workflow for %s\n" "${TARGET_ID:-this target}" ;;
+    esac
+}
+
+# --- Registry (when readable) ---------------------------------------------------
+
+REGISTRY_READABLE=false
+TARGET_DATABASE=""
+TARGET_DATABASE_ROLE=""
+TARGET_RUNTIME_USER=""
+TARGET_DEPLOY_USER=""
+TARGET_CODE_GROUP=""
+TARGET_APPLICATION_ROOT=""
+
+# registry_available — the committed registry beside this script, the targets
+# CLI and jq: present on a checkout and on the runner, absent on a clean host
+# where only this script was uploaded.
+registry_available() {
+    [[ -r "${SOURCE_REGISTRY}" ]] && [[ -x "${TARGETS_CLI_BIN}" ]] && command -v jq >/dev/null 2>&1
+}
+
+# resolve_target — the lifecycle gate, wherever the registry can be read. A
+# registry that is readable but cannot be judged (no jq, invalid file) is a
+# refusal, never a shrug.
+resolve_target() {
+    if [[ -r "${SOURCE_REGISTRY}" ]] && ! command -v jq >/dev/null 2>&1; then
+        fail "the target registry ${SOURCE_REGISTRY} is beside this script but jq is not available to read it — run the preflight through the workflow, which proves the target lifecycle on the runner"
+    fi
+
+    if ! registry_available; then
+        return 0
+    fi
+
+    "${TARGETS_CLI_BIN}" validate --file "${SOURCE_REGISTRY}" >/dev/null \
+        || fail "target registry failed validation: ${SOURCE_REGISTRY}"
+
+    local target_json
+    target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}" 2>/dev/null)" \
+        || fail "unknown target: ${TARGET_ID}"
+
+    local lifecycle
+    lifecycle="$(jq -r '.lifecycle // empty' <<<"${target_json}")"
+
+    [[ "${lifecycle}" == "active" ]] || {
+        action_required \
+            "target ${TARGET_ID} has lifecycle=${lifecycle:-unknown}, not active" \
+            "a recovery rebuilds a target that is already live somewhere; a planned target has nothing to recover and must not be provisioned as a side effect" \
+            "activate the target deliberately, in its own registry change, before any recovery of it" \
+            "do not prepare, recover or provision anything for ${TARGET_ID} on this machine"
+        fail "target ${TARGET_ID} has lifecycle=${lifecycle:-unknown}, not active — a clean-host recovery is refused before any host mutation"
+    }
+
+    REGISTRY_READABLE=true
+
+    ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
+
+    TARGET_DATABASE="$(jq -r '.database.name // empty' <<<"${target_json}")"
+    TARGET_DATABASE_ROLE="$(jq -r '.database.application_role // empty' <<<"${target_json}")"
+    TARGET_RUNTIME_USER="$(jq -r '.runtime_user // empty' <<<"${target_json}")"
+    TARGET_DEPLOY_USER="$(jq -r '.deploy_user // empty' <<<"${target_json}")"
+    TARGET_CODE_GROUP="$(jq -r '.code_group // empty' <<<"${target_json}")"
+    TARGET_APPLICATION_ROOT="$(jq -r '.application_root // empty' <<<"${target_json}")"
+}
+
+# --- Checks -------------------------------------------------------------------
+#
+# Every check appends to one of three lists and prints one line. Nothing here
+# mutates the host; nothing here reads the content of any file except
+# /etc/os-release.
+
+PASSED=0
+REFUSALS=()
+CAUSE=""
+
+item() {
+    local verdict="$1" name="$2" detail="$3"
+
+    printf '  %-8s %s — %s\n' "${verdict}" "${name}" "${detail}"
+
+    case "${verdict}" in
+        PASS) PASSED=$(( PASSED + 1 )) ;;
+        REFUSED) REFUSALS+=("${name}: ${detail}") ;;
+    esac
+}
+
+set_cause() {
+    [[ -n "${CAUSE}" ]] || CAUSE="$1"
+}
+
+os_release_field() {
+    local key="$1"
+
+    [[ -r "${OS_RELEASE_FILE}" ]] || return 1
+
+    sed -n "s/^${key}=//p" "${OS_RELEASE_FILE}" | head -n 1 | tr -d '"'
+}
+
+check_os() {
+    printf '\nSUPPORTED HOST\n'
+
+    local os_id os_version
+    os_id="$(os_release_field ID || true)"
+    os_version="$(os_release_field VERSION_ID || true)"
+
+    if [[ -z "${os_id}" ]] || [[ -z "${os_version}" ]]; then
+        item REFUSED os-release "cannot read ${OS_RELEASE_FILE}; the supported baseline is ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}"
+        set_cause unsupported-os
+    elif [[ "${os_id}" != "${SUPPORTED_OS_ID}" ]] || [[ "${os_version}" != "${SUPPORTED_OS_VERSION_ID}" ]]; then
+        item REFUSED os-release "${os_id} ${os_version} is not supported; a clean-host recovery needs ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} exactly"
+        set_cause unsupported-os
+    else
+        item PASS os-release "${os_id} ${os_version}"
+    fi
+
+    local arch supported=false
+    for arch in ${SUPPORTED_ARCHITECTURES}; do
+        [[ "${ARCH_VALUE}" != "${arch}" ]] || supported=true
+    done
+
+    if [[ "${supported}" == true ]]; then
+        item PASS architecture "${ARCH_VALUE}"
+    else
+        item REFUSED architecture "${ARCH_VALUE} is not supported; a clean-host recovery needs one of: ${SUPPORTED_ARCHITECTURES}"
+        set_cause unsupported-architecture
+    fi
+}
+
+# names_under DIR PATTERN... — the top-level entries of DIR matching any glob
+# PATTERN, one per line; nothing when DIR is absent.
+names_under() {
+    local dir="$1"
+    shift
+
+    [[ -d "${dir}" ]] || return 0
+
+    # A dot pattern matches . and .. themselves on the Ubuntu bash (globskipdots
+    # is a later default), and neither is an entry.
+    local pattern entry name
+    for pattern in "$@"; do
+        for entry in "${dir}"/${pattern}; do
+            [[ -e "${entry}" ]] || [[ -L "${entry}" ]] || continue
+            name="$(basename -- "${entry}")"
+            case "${name}" in .|..) continue ;; esac
+            printf '%s\n' "${name}"
+        done
+    done | sort -u
+}
+
+# refuse_if_present NAME DETAIL_PREFIX ENTRIES — one REFUSED line naming what
+# was found, or one PASS line when nothing was.
+refuse_if_present() {
+    local name="$1" prefix="$2" entries="$3"
+
+    if [[ -n "${entries}" ]]; then
+        item REFUSED "${name}" "${prefix}: $(tr '\n' ' ' <<<"${entries}" | sed 's/ *$//')"
+        set_cause host-not-clean
+    else
+        item PASS "${name}" "none"
+    fi
+}
+
+# --- what may never be here, in EITHER state ------------------------------------
+#
+# A deployed release and a data-operation guard are refusals whether this
+# machine is untouched or is one an earlier start already prepared: code
+# serving from it, or another operation owning it, is not something a recovery
+# may begin underneath. Everything else about "clean" depends on which of the
+# two states the machine is in, and is judged below.
+check_release_and_guard_state() {
+    printf '\nDEPLOYED RELEASE AND DATA-OPERATION GUARDS\n'
+
+    local root
+    root="$(physical "${RATEGURU_ROOT}")"
+
+    local target_root found=""
+    for target_root in "${root}"/*; do
+        [[ -d "${target_root}" ]] || continue
+
+        local name
+        name="$(basename -- "${target_root}")"
+
+        # A prepared host HAS an empty releases/ directory; a release inside it
+        # is a deployment this recovery knows nothing about.
+        if [[ -e "${target_root}/current" ]] || [[ -L "${target_root}/current" ]]; then
+            found="${found} ${name}/current"
+        fi
+        if [[ -e "${target_root}/previous" ]] || [[ -L "${target_root}/previous" ]]; then
+            found="${found} ${name}/previous"
+        fi
+        if [[ -d "${target_root}/releases" ]] && [[ -n "$(names_under "${target_root}/releases" '*')" ]]; then
+            found="${found} ${name}/releases"
+        fi
+    done
+    refuse_if_present releases "a deployed or partially deployed target is present" "${found# }"
+
+    local marker guards=""
+    for marker in "${root}"/run/restores/*/restore-guard "${root}"/run/recoveries/*/recovery-guard; do
+        if [[ -e "${marker}" ]] || [[ -L "${marker}" ]]; then
+            guards="${guards} ${marker#"${root}"/}"
+        fi
+    done
+
+    if [[ -n "${guards}" ]]; then
+        item REFUSED guards "a data operation owns this target on this machine:${guards} — a recovery that is already held is continued with mode=continue-held and its operation ID, never started again"
+
+        # Assigned rather than proposed: whatever else is wrong with this
+        # machine, an operation already owning the target is the fact an
+        # operator has to act on first, and acting on any other would be worse
+        # than doing nothing.
+        CAUSE="operation-in-progress"
+    else
+        item PASS guards "none"
+    fi
+}
+
+# --- which of the two states this machine is in ---------------------------------
+#
+# A start may enter from exactly two states, and the difference between them is
+# not a matter of degree:
+#
+#   pristine                    nothing RateGuru-shaped exists here at all;
+#   recovery-preparation-retry  an earlier start of THIS recovery already ran
+#                               Prepare Host on this machine, and the recovery
+#                               itself never created an operation.
+#
+# The second is not a relaxation. Preparation is convergent and re-runnable by
+# design, and the state it leaves behind is the state the recovery needs; a
+# start that refused it would strand an operator with a correctly prepared host
+# and no way forward — no operation ID exists, so continue-held cannot be used
+# either.
+#
+# The proof is the offsite-write hold prepare-host writes: root-only, written
+# by nothing else, and naming the reason, the target and the exact backup it
+# was placed for. It authorises exactly one machine for exactly one recovery.
+# A hold for another target, another backup, another reason, or one that cannot
+# be read, proves nothing and leaves the machine judged as it would have been
+# without it.
+PREPARATION_STATE="pristine"
+PREPARATION_DETAIL=""
+
+classify_preparation_state() {
+    local marker hold reason target backup
+
+    marker="$(physical "${RATEGURU_ROOT}/run/offsite-write-hold")"
+
+    [[ -f "${marker}" ]] && [[ ! -L "${marker}" ]] || return 0
+
+    # jq is part of the runtime every prepared host has. Without it nothing can
+    # be proven from the document, and unproven is judged as dirty.
+    command -v jq >/dev/null 2>&1 || return 0
+
+    # WHAT the document is, before anything it says is believed. `.hold` is the
+    # document's own type, and prepare-host's verification demands exactly this
+    # value for exactly this reason: a file at this path carrying a target and
+    # a backup is not automatically the fence those fields describe. Something
+    # else — an operator's note, a half-written file, a document for a
+    # different kind of hold — may name a target and a backup and mean nothing
+    # about offsite writers at all, and this classification is what lets a
+    # start proceed onto a machine that already carries RateGuru state.
+    hold="$(jq -r '.hold // empty' "${marker}" 2>/dev/null || true)"
+    reason="$(jq -r '.reason // empty' "${marker}" 2>/dev/null || true)"
+    target="$(jq -r '.target // empty' "${marker}" 2>/dev/null || true)"
+    backup="$(jq -r '.backup // empty' "${marker}" 2>/dev/null || true)"
+
+    [[ "${hold}" == "offsite-writes" ]] || return 0
+    [[ "${reason}" == "host-recovery" ]] || return 0
+    [[ "${target}" == "${TARGET_ID}" ]] || return 0
+    [[ -n "${BACKUP_ID}" ]] && [[ "${backup}" == "${BACKUP_ID}" ]] || return 0
+
+    PREPARATION_STATE="recovery-preparation-retry"
+    PREPARATION_DETAIL="${marker#"${FS_ROOT}"}"
+}
+
+check_preparation_identity() {
+    printf '\nRECOVERY PREPARATION ALREADY ON THIS MACHINE\n'
+
+    item PASS preparation-identity "an earlier start of this recovery prepared this machine for ${TARGET_ID} from backup ${BACKUP_ID} (${PREPARATION_DETAIL}) — Prepare Host is convergent and this start converges it again"
+}
+
+check_rateguru_tree() {
+    printf '\nRATEGURU FILESYSTEM STATE\n'
+
+    local root
+    root="$(physical "${RATEGURU_ROOT}")"
+
+    if [[ -e "${root}" ]] || [[ -L "${root}" ]]; then
+        local entries
+        entries="$(names_under "${root}" '*' '.*')"
+        item REFUSED rateguru-root "${RATEGURU_ROOT} already exists (holds: $(tr '\n' ' ' <<<"${entries:-nothing}" | sed 's/ *$//')) — a replacement host carries no RateGuru tree at all, and this one carries no recovery preparation for ${TARGET_ID}${BACKUP_ID:+ from backup ${BACKUP_ID}} either"
+        set_cause host-not-clean
+    else
+        item PASS rateguru-root "${RATEGURU_ROOT} absent"
+    fi
+
+    if [[ -n "${TARGET_APPLICATION_ROOT}" ]] && [[ "${TARGET_APPLICATION_ROOT}" != "${RATEGURU_ROOT}"/* ]]; then
+        local application_root
+        application_root="$(physical "${TARGET_APPLICATION_ROOT}")"
+        if [[ -e "${application_root}" ]] || [[ -L "${application_root}" ]]; then
+            item REFUSED application-root "${TARGET_APPLICATION_ROOT} already exists"
+            set_cause host-not-clean
+        else
+            item PASS application-root "${TARGET_APPLICATION_ROOT} absent"
+        fi
+    fi
+
+    refuse_if_present deploy-homes "deploy account homes exist" "$(names_under "$(physical /home)" 'deploy-rateguru*')"
+}
+
+check_identities() {
+    printf '\nRATEGURU IDENTITIES\n'
+
+    local users groups
+    users="$("${GETENT_BIN}" passwd 2>/dev/null | cut -d: -f1 | grep -E '^(deploy-rateguru|rateguru-|www-rateguru)' || true)"
+    groups="$("${GETENT_BIN}" group 2>/dev/null | cut -d: -f1 | grep -E '^(rateguru|deploy-rateguru)' || true)"
+
+    # The bootstrap account is the one RateGuru-shaped identity a clean
+    # replacement host MUST already have: the recovery cannot reach the machine
+    # without it, and it is created out of band before any of this runs. Only
+    # that exact name is exempt — and its own user-private group, which comes
+    # into existence with it. Every other rateguru-* account is refused, and an
+    # account that is this target's runtime or deploy identity was refused
+    # before any of these checks ran.
+    if [[ -n "${BOOTSTRAP_USER}" ]]; then
+        users="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${users}" || true)"
+        groups="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${groups}" || true)"
+    fi
+
+    if [[ "${REGISTRY_READABLE}" == true ]]; then
+        local name
+        for name in "${TARGET_RUNTIME_USER}" "${TARGET_DEPLOY_USER}"; do
+            [[ -n "${name}" ]] || continue
+            if "${GETENT_BIN}" passwd "${name}" >/dev/null 2>&1; then
+                users="$(printf '%s\n%s\n' "${users}" "${name}")"
+            fi
+        done
+        if [[ -n "${TARGET_CODE_GROUP}" ]] && "${GETENT_BIN}" group "${TARGET_CODE_GROUP}" >/dev/null 2>&1; then
+            groups="$(printf '%s\n%s\n' "${groups}" "${TARGET_CODE_GROUP}")"
+        fi
+    fi
+
+    refuse_if_present users "RateGuru accounts exist" "$(sort -u <<<"${users}" | sed '/^$/d')"
+    refuse_if_present groups "RateGuru groups exist" "$(sort -u <<<"${groups}" | sed '/^$/d')"
+}
+
+check_services() {
+    printf '\nRATEGURU-MANAGED SERVICES AND CONFIGURATION\n'
+
+    local nginx
+    nginx="$(physical /etc/nginx)"
+    if [[ -d "${nginx}" ]]; then
+        refuse_if_present nginx "RateGuru-managed Nginx state exists" "$(
+            { names_under "${nginx}/sites-available" 'rateguru-*' 'mailpit-*' 'mailtrap-*'
+              names_under "${nginx}/sites-enabled" 'rateguru-*' 'mailpit-*' 'mailtrap-*'
+              names_under "${nginx}" 'rateguru-*.htpasswd'; } | sort -u
+        )"
+    else
+        item PASS nginx "not installed"
+    fi
+
+    local pools="" version_dir
+    for version_dir in "$(physical /etc/php)"/*/fpm/pool.d; do
+        [[ -d "${version_dir}" ]] || continue
+        pools="$(printf '%s\n%s\n' "${pools}" "$(names_under "${version_dir}" 'rateguru-*.conf')")"
+    done
+    if [[ -d "$(physical /etc/php)" ]]; then
+        refuse_if_present php-fpm "RateGuru PHP-FPM pools exist" "$(sed '/^$/d' <<<"${pools}" | sort -u)"
+    else
+        item PASS php-fpm "not installed"
+    fi
+
+    local supervisor
+    supervisor="$(physical /etc/supervisor/conf.d)"
+    if [[ -d "$(physical /etc/supervisor)" ]]; then
+        refuse_if_present supervisor "RateGuru Supervisor programs exist" "$(names_under "${supervisor}" 'rateguru-*')"
+    else
+        item PASS supervisor "not installed"
+    fi
+
+    refuse_if_present cron "RateGuru cron entries exist" "$(names_under "$(physical /etc/cron.d)" 'rateguru-*')"
+    refuse_if_present systemd "RateGuru-managed units exist" "$(names_under "$(physical /etc/systemd/system)" '*rateguru*' '*-mailpit.service' '*-mailtrap-local.service')"
+    refuse_if_present sudo-wrappers "RateGuru sudo wrappers exist" "$(names_under "$(physical /usr/local/sbin)" 'rateguru-*')"
+    # ... and the sudoers grant that makes it usable, named for that account and
+    # for no other. A grant named for anything else is still refused.
+    local sudoers
+    sudoers="$(names_under "$(physical /etc/sudoers.d)" 'rateguru-*')"
+
+    if [[ -n "${BOOTSTRAP_USER}" ]]; then
+        sudoers="$(grep -vxF -- "${BOOTSTRAP_USER}" <<<"${sudoers}" || true)"
+    fi
+
+    refuse_if_present sudoers "RateGuru sudoers grants exist" "${sudoers}"
+}
+
+# psql_query SQL — one read-only question to the local server, asked as the
+# postgres account the way a root shell must (tests call a stub directly).
+psql_query() {
+    if [[ "${PSQL_DIRECT}" == true ]]; then
+        "${PSQL_BIN}" -X -A -t -c "$1" 2>/dev/null
+    else
+        runuser -u postgres -- "${PSQL_BIN}" -X -A -t -c "$1" 2>/dev/null
+    fi
+}
+
+check_postgresql() {
+    printf '\nPOSTGRESQL\n'
+
+    if [[ ! -x "${PSQL_BIN}" ]]; then
+        item PASS postgresql "not installed"
+        return 0
+    fi
+
+    local databases roles status=0
+    databases="$(psql_query "SELECT datname FROM pg_database WHERE datname LIKE 'rateguru%' ORDER BY 1")" || status=$?
+
+    if (( status != 0 )); then
+        item REFUSED postgresql "a PostgreSQL client is installed but the server did not answer — this preflight cannot prove that no RateGuru database exists on this machine"
+        set_cause host-not-clean
+        return 0
+    fi
+
+    roles="$(psql_query "SELECT rolname FROM pg_roles WHERE rolname LIKE 'rateguru%' ORDER BY 1" || true)"
+
+    # The target's own names too, whatever they are called: the registry is
+    # the authority on what belongs to the target, the prefix is only a net.
+    if [[ "${REGISTRY_READABLE}" == true ]] && [[ -n "${TARGET_DATABASE}" ]]; then
+        if psql_query "SELECT 1 FROM pg_database WHERE datname = '${TARGET_DATABASE}'" | grep -q 1; then
+            databases="$(printf '%s\n%s\n' "${databases}" "${TARGET_DATABASE}")"
+        fi
+    fi
+    if [[ "${REGISTRY_READABLE}" == true ]] && [[ -n "${TARGET_DATABASE_ROLE}" ]]; then
+        if psql_query "SELECT 1 FROM pg_roles WHERE rolname = '${TARGET_DATABASE_ROLE}'" | grep -q 1; then
+            roles="$(printf '%s\n%s\n' "${roles}" "${TARGET_DATABASE_ROLE}")"
+        fi
+    fi
+
+    refuse_if_present databases "RateGuru databases exist" "$(sed '/^$/d' <<<"${databases}" | sort -u)"
+    refuse_if_present roles "RateGuru database roles exist" "$(sed '/^$/d' <<<"${roles}" | sort -u)"
+}
+
+# --- Verdict --------------------------------------------------------------------
+
+emit_result() {
+    local result="$1"
+
+    printf 'RATEGURU_RECOVERY_PREFLIGHT=%s\n' "$(printf '{"result":"%s","cause":"%s","state":"%s","target":"%s","refusals":%d}' "${result}" "${CAUSE}" "${PREPARATION_STATE}" "${TARGET_ID}" "${#REFUSALS[@]}")"
+}
+
+# assert_bootstrap_identity — the bootstrap account is exempt from the identity
+# checks below, so it must not BE one of the identities those checks exist to
+# find. Refused outright rather than collected: it is a fact about the request,
+# and no state of the machine could make it acceptable.
+assert_bootstrap_identity() {
+    [[ -n "${BOOTSTRAP_USER}" ]] || return 0
+    [[ "${REGISTRY_READABLE}" == true ]] || return 0
+
+    local name
+    for name in "${TARGET_RUNTIME_USER}" "${TARGET_DEPLOY_USER}"; do
+        [[ -n "${name}" ]] || continue
+        [[ "${BOOTSTRAP_USER}" == "${name}" ]] || continue
+
+        action_required \
+            "the recovery bootstrap user is ${BOOTSTRAP_USER}, which is ${TARGET_ID}'s own runtime or deploy identity" \
+            "the bootstrap account is the out-of-band access a replacement host is reached through, and it is the one identity this check accepts as already present; letting it be an identity the preparation itself creates would make the target's own accounts invisible to every check below" \
+            "set RECOVERY_BOOTSTRAP_USER to root, or to a dedicated bootstrap account, and re-run" \
+            "never reuse ${TARGET_ID}'s runtime or deploy account as the recovery bootstrap user"
+
+        fail "the recovery bootstrap user ${BOOTSTRAP_USER} is ${TARGET_ID}'s own runtime or deploy identity — refusing to examine a machine whose own target accounts this check would then be blind to"
+    done
+}
+
+run_check() {
+    printf 'RateGuru recovery host preflight (read-only)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+    [[ -z "${BACKUP_ID}" ]] || printf 'Backup: %s\n' "${BACKUP_ID}"
+    [[ -z "${BOOTSTRAP_USER}" ]] || printf 'Bootstrap user: %s (the out-of-band access this machine is reached through)\n' "${BOOTSTRAP_USER}"
+
+    [[ "${EFFECTIVE_EUID}" == "0" ]] \
+        || fail "recovery-host-preflight must run as root (the workflow runs it through the bootstrap user's passwordless sudo): the checks read files only root may read"
+
+    resolve_target
+    assert_bootstrap_identity
+
+    if [[ "${REGISTRY_READABLE}" == true ]]; then
+        printf 'Registry: %s — target %s is lifecycle=active\n' "${SOURCE_REGISTRY}" "${TARGET_ID}"
+    else
+        printf 'Registry: not readable beside this script — the target lifecycle was proven by the caller from the committed registry\n'
+    fi
+
+    check_os
+
+    classify_preparation_state
+    check_release_and_guard_state
+
+    if [[ "${PREPARATION_STATE}" == "recovery-preparation-retry" ]]; then
+        check_preparation_identity
+    else
+        check_rateguru_tree
+        check_identities
+        check_services
+        check_postgresql
+    fi
+
+    printf '\nSUMMARY\n'
+    printf 'PASS: %d\n' "${PASSED}"
+    printf 'REFUSED: %d\n' "${#REFUSALS[@]}"
+
+    if (( ${#REFUSALS[@]} == 0 )); then
+        if [[ "${PREPARATION_STATE}" == "recovery-preparation-retry" ]]; then
+            printf '\nRECOVERY PREFLIGHT: PASS — this machine is the one an earlier start of this recovery already prepared for %s from backup %s, with no release deployed and no operation held; nothing was changed\n' "${TARGET_ID}" "${BACKUP_ID}"
+        else
+            printf '\nRECOVERY PREFLIGHT: PASS — %s is a supported, clean replacement host for %s; nothing was changed\n' "${ARCH_VALUE}" "${TARGET_ID}"
+        fi
+
+        emit_result pass
+        exit 0
+    fi
+
+    printf '\nRECOVERY PREFLIGHT: REFUSED — this machine is neither a genuinely clean replacement host for %s nor a recovery preparation of it to converge; nothing was changed\n' "${TARGET_ID}"
+
+    case "${CAUSE}" in
+        operation-in-progress)
+            action_required \
+                "a data operation already owns ${TARGET_ID} on this machine (see the REFUSED lines above)" \
+                "a recovery that reached its own --apply holds the target with a guard and an operation ID, and a restore guard means a live restore owns its data; starting a second operation over either is never safe" \
+                "for a held recovery, re-run \"$(recovery_workflow_name)\" with mode=continue-held and the operation ID from that run's summary" \
+                "read what the machine is waiting for: recover-host --inspect --target ${TARGET_ID} --operation <id>" \
+                "never remove a guard or the offsite-write hold by hand to make a start pass"
+            ;;
+        unsupported-os)
+            action_required \
+                "the operating system is not ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}" \
+                "every bootstrap installer is written for exactly that release and refuses any other; nothing was installed" \
+                "re-run \"$(recovery_workflow_name)\" with mode=start against the new machine" \
+                "provision a new VPS from a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} image (${SUPPORTED_ARCHITECTURES// //})" \
+                "install only the bootstrap SSH public key for the recovery user, and nothing else by hand" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+            ;;
+        unsupported-architecture)
+            action_required \
+                "the architecture is ${ARCH_VALUE}, not one of: ${SUPPORTED_ARCHITECTURES}" \
+                "the pinned runtime binaries and packages exist for x86_64 only; nothing was installed" \
+                "re-run \"$(recovery_workflow_name)\" with mode=start against the new machine" \
+                "provision a new x86_64 VPS from a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} image" \
+                "install only the bootstrap SSH public key for the recovery user" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+            ;;
+        *)
+            action_required \
+                "RateGuru state already exists on this machine (see the REFUSED lines above)" \
+                "a clean-host recovery prepares a machine that holds no RateGuru tree, account, database, service or guard — or one an earlier start of THIS recovery prepared, which this machine is not: it carries no offsite-write hold naming ${TARGET_ID}${BACKUP_ID:+ and backup ${BACKUP_ID}}. Preparing over unknown state would turn the recovery into a partial repair of it, so it is refused and nothing was changed or removed" \
+                "re-run \"$(recovery_workflow_name)\" with mode=start against a genuinely clean machine" \
+                "do not clean this machine up by hand for a recovery: provision a NEW VPS from a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} image instead" \
+                "if this machine is the target's live host, or a previously recovered one, it is not a replacement host — use Repair Target or Restore Target Data for a live host" \
+                "install only the bootstrap SSH public key for the recovery user on the new machine, and record its ssh-ed25519 host key into RECOVERY_KNOWN_HOSTS"
+            ;;
+    esac
+
+    emit_result refused
+    exit 1
+}
+
+# --- Operator guide ---------------------------------------------------------------
+
+run_operator_guide() {
+    # Resolved from the registry, or not at all: a sentence explaining that a
+    # hostname is unknown must never be pasted into a command as if it were
+    # one. `curl --resolve the:443:<IP>` is worse than saying nothing.
+    local hostnames="" hostname="<public-hostname>" hostname_source="unknown here (registry: public_hostnames)"
+
+    if [[ "${TARGET_SEEN}" == true ]] && registry_available; then
+        local target_json
+        if target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}" 2>/dev/null)"; then
+            hostnames="$(jq -r '(.public_hostnames // []) | join(" ")' <<<"${target_json}")"
+            ENVIRONMENT_CLASS="$(jq -r '.environment_class // empty' <<<"${target_json}")"
+        fi
+    elif registry_available; then
+        hostnames="$(jq -r '[.targets[]? // empty | select(.lifecycle == "active") | .public_hostnames[]?] | join(" ")' "${SOURCE_REGISTRY}" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "${hostnames}" ]]; then
+        hostname="${hostnames%% *}"
+        hostname_source="${hostnames}"
+    fi
+
+    cat <<GUIDE
+CLEAN-HOST RECOVERY — OPERATOR GUIDE (compact; the full runbook is ${RUNBOOK_PATH})
+
+1. The new server
+   - A NEW VPS from a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} image, ${SUPPORTED_ARCHITECTURES// / or } — a genuinely clean
+     replacement host: no RateGuru tree, account, database, service or guard.
+   - Install ONLY the public half of RECOVERY_BOOTSTRAP_SSH_KEY for the
+     RECOVERY_BOOTSTRAP_USER account (root, or a user with passwordless sudo).
+   - Install nothing else by hand: no packages, no Nginx, no PostgreSQL, no
+     PHP, no .env, no TLS material, no rclone configuration. Prepare Host
+     installs the runtime and takes every piece of material out of the backup.
+
+2. Prove bootstrap access from your own machine
+   - ssh -i <recovery key> -o IdentitiesOnly=yes RECOVERY_BOOTSTRAP_USER@<IP> 'id -u'
+     must print 0 (root), or the user must be able to run: sudo -n true
+
+3. Record the host key OUT OF BAND
+   - From your machine: ssh-keyscan -t ed25519 -p 22 <IP>
+   - Compare the ssh-ed25519 key with the provider console / the machine's
+     own /etc/ssh/ssh_host_ed25519_key.pub over a channel you trust.
+   - That verified line, and only that line, is RECOVERY_KNOWN_HOSTS. The
+     workflow never scans, never guesses, never relaxes host-key checking.
+
+4. GitHub Environment values (${ENVIRONMENT_CLASS:-the target environment}) — the KIND matters; a value created under
+   the wrong heading is absent to the workflow, which then stops before it connects
+   anywhere and names the value and the heading.
+   Environment variables (Settings -> Environments -> ${ENVIRONMENT_CLASS:-<environment>} -> Environment variables):
+   - vars.RECOVERY_BOOTSTRAP_USER      the privileged user on the replacement host
+   - the existing vars.DEPLOY_HOST, DEPLOY_USER, DEPLOY_ROOT, DEPLOY_INCOMING and
+     DEPLOY_WRAPPER values, unchanged
+   Environment secrets (Settings -> Environments -> ${ENVIRONMENT_CLASS:-<environment>} -> Environment secrets):
+   - secrets.RECOVERY_BOOTSTRAP_SSH_KEY the complete private key for that user, recovery-only
+   - secrets.RECOVERY_KNOWN_HOSTS      the verified known_hosts line from step 3
+   - secrets.RECOVERY_RCLONE_CONFIG    the complete recovery rclone.conf (READ access to the
+                                      backup namespace) — a secret, never a variable
+   - the existing secrets.DEPLOY_SSH_KEY and DEPLOY_KNOWN_HOSTS values, unchanged
+   - NO PREPARE_* value is read by a recovery. Do NOT change DEPLOY_HOST. Do NOT change DNS.
+
+5. A usable backup
+   - schema 3 (written after the recovery material joined the format), named by
+     its exact timestamp YYYYMMDD-HHMMSS — there is no "latest";
+   - carries recovery-material.tar.gz and a release.json with a full 40-character source_sha;
+   - has passed the offsite restore test (offsite-restore-test certifies it).
+
+6. Dispatch
+   - Actions -> $(recovery_workflow_name)
+       mode=start   backup=YYYYMMDD-HHMMSS   replacement-host=<IP>   replacement-port=22
+   - The workflow proves the request, the lifecycle, that the machine is not
+     the current host (by host key), that it is a clean supported host (this
+     preflight), prepares it FROM the backup, recovers the data, builds the exact
+     source_sha, deploys it with migrations forbidden, resumes and verifies.
+
+7. Verify the recovered host, and the site WITHOUT changing DNS
+   - current -> the exact source_sha; previous absent; no guards; queue RUNNING;
+     scheduler PRESENT; /up healthy; offsite-write-hold present (OFFSITE WRITES: HELD).
+   - curl --resolve ${hostname}:443:<IP> https://${hostname}/up
+     (public hostnames of this target: ${hostname_source})
+
+8. Never
+   - change DEPLOY_HOST or DNS before the recovered machine is deliberately adopted;
+   - delete guards or the offsite-write hold by hand; run migrations;
+   - copy .env, TLS or Basic Auth material by hand; weaken StrictHostKeyChecking;
+   - run backup-cycle on the recovered rehearsal host while the offsite-write hold exists.
+
+Interrupted after the data was restored? Re-run with mode=continue-held and the
+operation ID from the summary. Full runbook: ${RUNBOOK_PATH}
+GUIDE
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        check) run_check ;;
+        operator-guide) run_operator_guide ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
