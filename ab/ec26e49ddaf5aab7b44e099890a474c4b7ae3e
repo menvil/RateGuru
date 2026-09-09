@@ -1,0 +1,23 @@
+.github/actions/prepare-rateguru-host/action.yml
+  s_9a6ca54786c126::t_3413d195aa5e1d 34-41
+  s_9a6ca54786c126::t_34899e605aa1cf 350-351,549-550,640-641,689-690,751-752
+.github/actions/recover-rateguru-host/action.yml
+  s_9a6ca54786c126::t_34899e605aa1cf 398-399,489-490,583-584,685-686
+  s_9a6ca54786c126::t_3413d195aa5e1d 57-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "abec26e49ddaf5aab7b44e099890a474c4b7ae3e",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
