@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <body>
-        <h1>New RateGuru contact message</h1>
+        <h1>{{ __('mail.contact.heading') }}</h1>
 
-        <p><strong>Name:</strong> {{ $senderName }}</p>
-        <p><strong>Email:</strong> {{ $senderEmail }}</p>
-        <p><strong>Subject:</strong> {{ $messageSubject }}</p>
+        <p><strong>{{ __('mail.contact.name') }}:</strong> {{ $senderName }}</p>
+        <p><strong>{{ __('mail.contact.email') }}:</strong> {{ $senderEmail }}</p>
+        <p><strong>{{ __('mail.contact.message_subject') }}:</strong> {{ $messageSubject }}</p>
 
         <p style="white-space: pre-wrap;">{{ $messageBody }}</p>
     </body>
