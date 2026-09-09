@@ -289,13 +289,20 @@ function bsvcWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
         'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
-        'verify-mail-capture',
+        'verify-mail-capture', 'nightwatch-installer',
     ] as $child) {
         bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
             me="$(basename "$0")"
             printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/children.log"
             case "$*" in
+                # The closed allowlist question, answered the way the real
+                # installer answers it: staging-main records a deployment
+                # marker, and no other target does.
+                *--supports-deployment-marker*)
+                    [[ "$*" == *"--target staging-main"* ]] && exit 0
+                    exit 1
+                    ;;
                 *--apply*)
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
                     touch "${STUB_TOGGLES}/${me}-compliant"
@@ -498,6 +505,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
             'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
+            'nightwatch-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
         }
@@ -527,6 +535,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
         'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
         'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
+        'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
@@ -762,6 +771,8 @@ it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, ch
             'perimeter-installer --apply',
             'public-storage-installer --verify --target staging-main',
             'public-storage-installer --apply --target staging-main',
+            'nightwatch-installer --verify-deployment-marker --target staging-main',
+            'nightwatch-installer --apply-deployment-marker --target staging-main',
             'verify-mail-capture',
             'mail-capture-installer --apply',
         ];
@@ -2423,3 +2434,116 @@ it('repairs a target on a host with no sshd_config.d at all', function () {
         bsvcCleanup($scratch);
     }
 });
+
+// =============================================================================
+// The deployment-marker authorization
+//
+// The first real clean-host recovery produced a correctly serving host whose
+// deployment marker then failed with "sudo: a password is required": the grant
+// that lets the target's deploy user run the marker wrapper only ever arrived
+// with a Nightwatch agent installation nobody performs on a new machine. Host
+// convergence installs it now — the marker's half, never the agent.
+// =============================================================================
+
+it('converges the deployment-marker authorization on a clean host, without installing the agent', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+
+        $children = bsvcLog($scratch, 'children.log');
+
+        // Its own verify first — the skip decision — then its apply, and only
+        // ever the deployment-marker modes: nothing here installs, starts or
+        // requires the Supervisor-managed agent.
+        expect($children)
+            ->toContain('nightwatch-installer --verify-deployment-marker --target staging-main')
+            ->toContain('nightwatch-installer --apply-deployment-marker --target staging-main');
+
+        foreach ([
+            'nightwatch-installer --apply --target',
+            'nightwatch-installer --verify --target',
+            'nightwatch-installer --remove',
+        ] as $agentMode) {
+            expect(str_contains($children, $agentMode))
+                ->toBeFalse("host convergence must never drive the agent itself: {$agentMode}");
+        }
+
+        expect($output)->toContain('child:install-nightwatch-agent --apply-deployment-marker --target staging-main');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('leaves an already authorized host alone, and re-installs the grant when it is gone', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+
+        // Already compliant: its own --verify-deployment-marker passes, so the
+        // apply is skipped and nothing is written twice.
+        touch($scratch.'/toggles/nightwatch-installer-compliant');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('child:install-nightwatch-agent --verify-deployment-marker --target staging-main already compliant — skipped');
+        expect(str_contains(bsvcLog($scratch, 'children.log'), 'nightwatch-installer --apply-deployment-marker'))
+            ->toBeFalse('a compliant host must not be written to again');
+
+        // And when it is not compliant, the same convergence puts it back with
+        // no operator intervention.
+        unlink($scratch.'/toggles/nightwatch-installer-compliant');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect(bsvcLog($scratch, 'children.log'))->toContain('nightwatch-installer --apply-deployment-marker --target staging-main');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('reports the deployment-marker authorization in check and verify, and fails when it is missing', function (string $mode) {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // A fully converged host with ONE thing missing: the deployment-marker
+        // authorization. Exactly the state the recovered machine was in, and
+        // exactly what Prepare Host --verify must refuse to pass.
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        unlink($scratch.'/toggles/nightwatch-installer-compliant');
+
+        [$exit, $output] = bsvcRun([$mode], $env);
+
+        expect($output)->toContain('deployment-marker:staging-main');
+        expect($output)->toContain('the deployment-marker sudo wrapper and the sudoers grant its deploy user invokes it through');
+
+        // A read-only mode: it asked the installer to verify, and never to
+        // apply anything.
+        expect(bsvcLog($scratch, 'children.log'))
+            ->toContain('nightwatch-installer --verify-deployment-marker --target staging-main');
+        expect(str_contains(bsvcLog($scratch, 'children.log'), '--apply'))
+            ->toBeFalse("{$mode} must change nothing");
+
+        if ($mode === '--verify') {
+            expect($exit)->not->toBe(0, 'a host whose deploy channel cannot record a marker is not verified');
+        }
+
+        // With the authorization in place, the same mode is satisfied by it.
+        touch($scratch.'/toggles/nightwatch-installer-compliant');
+
+        [$exit, $output] = bsvcRun([$mode], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('deployment-marker:staging-main');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->with(['--check', '--verify']);

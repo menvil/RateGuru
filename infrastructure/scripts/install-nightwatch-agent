@@ -202,6 +202,9 @@ Usage:
   install-nightwatch-agent --apply   --target TARGET
   install-nightwatch-agent --verify  --target TARGET
   install-nightwatch-agent --remove  --target TARGET
+  install-nightwatch-agent --apply-deployment-marker    --target TARGET
+  install-nightwatch-agent --verify-deployment-marker   --target TARGET
+  install-nightwatch-agent --supports-deployment-marker --target TARGET
   install-nightwatch-agent --help
 
   All modes require root.
@@ -214,13 +217,29 @@ Usage:
   --verify  Re-verify what is installed now. Read-only, makes no changes.
   --remove  Stop the agent and uninstall its Supervisor program. The Composer
             package, config/nightwatch.php and the target .env are untouched.
+
+  --apply-deployment-marker   Install ONLY the deployment-marker half: the
+            primitive, the sudo wrapper the GitHub deploy channel invokes and
+            that wrapper's sudoers grant. No Supervisor program, no artisan,
+            no Nightwatch token, and no requirement that the target has ever
+            been deployed. This is what host convergence installs, so a host
+            carries its deploy channel's authorization whether or not anyone
+            has opted into running the agent.
+  --verify-deployment-marker  Prove that half is installed and that the grant
+            authorizes exactly this target's deploy user for exactly that
+            wrapper. Read-only: it reads configuration, and never runs the
+            marker, the agent or anything that needs a Nightwatch token.
+  --supports-deployment-marker  Exit 0 when this target records a deployment
+            marker at all, 1 when it does not. The closed allowlist lives in
+            one place, and a caller deciding whether to converge the
+            authorization asks here instead of keeping a copy of it.
 USAGE
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify|--remove)
+            --check|--apply|--verify|--remove|--apply-deployment-marker|--verify-deployment-marker|--supports-deployment-marker)
                 if [[ "${MODE_SEEN}" == true ]]; then
                     usage >&2
                     fail "only one mode may be given (already have --${MODE})"
@@ -590,17 +609,27 @@ on_apply_error() {
     exit "${code}"
 }
 
-backup_existing_conf() {
-    local dst_phys backup_dir
-    dst_phys="$(physical "${DST_CONF}")"
+# prepare_marker_backup_dir — one transaction, one backup directory. Extracted
+# so a marker-only apply, which installs no Supervisor program and therefore
+# backs none up, still has somewhere to restore from.
+prepare_marker_backup_dir() {
+    local backup_dir
     backup_dir="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-${NIGHTWATCH_PROGRAM}"
 
     mkdir -p -- "${backup_dir}" || fail "cannot create the backup directory: ${backup_dir}"
     "${CHMOD_BIN}" '=0700' "${backup_dir}" || fail "cannot pin mode on the backup directory: ${backup_dir}"
 
-    # One transaction, one backup directory: the Supervisor program and the
-    # three deployment-marker files are applied together and restored together.
     TXN_MARKER_BACKUP_DIR="${backup_dir}"
+}
+
+backup_existing_conf() {
+    local dst_phys backup_dir
+    dst_phys="$(physical "${DST_CONF}")"
+
+    # The Supervisor program and the three deployment-marker files are applied
+    # together and restored together.
+    prepare_marker_backup_dir
+    backup_dir="${TXN_MARKER_BACKUP_DIR}"
 
     if [[ -f "${dst_phys}" ]]; then
         TXN_BACKUP_FILE="${backup_dir}/$(basename "${DST_CONF}")"
@@ -725,6 +754,49 @@ validate_marker_sources() {
 # Every content check runs against the DIRECTIVE lines only. The file's own
 # comments explain the design and legitimately name other paths and files;
 # matching those would make the checks meaningless in both directions.
+# marker_sudoers_directives PATH — the grant's executable content: comments and
+# blank lines dropped, and line continuations folded, so one rule is one line
+# however the committed file wraps it. Done in Bash rather than with sed: the
+# folding scripts that read well in GNU sed are not portable, and this file is
+# read by tests on other platforms as well as by the installer on the host.
+marker_sudoers_directives() {
+    local line buffer=""
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ ! "${line}" =~ ^[[:space:]]*(#|$) ]] || continue
+
+        if [[ "${line}" == *\\ ]]; then
+            buffer+="${line%\\} "
+
+            continue
+        fi
+
+        printf '%s\n' "${buffer}${line}"
+        buffer=""
+    done < "$1"
+
+    [[ -z "${buffer}" ]] || printf '%s\n' "${buffer}"
+}
+
+# assert_marker_sudoers_grant PATH LABEL — the authorization itself, asserted
+# the same way wherever it is read: the committed source before it is staged,
+# and the installed drop-in afterwards. It proves ONE rule exists — this
+# target's own deploy user, running as root without a password, allowed to run
+# the marker wrapper and nothing else — and never runs sudo, the wrapper or
+# anything else to find out.
+assert_marker_sudoers_grant() {
+    local path="$1" label="$2" deploy_user directives
+    deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    "${VISUDO_BIN}" -cf "${path}" >/dev/null \
+        || fail "${label} failed visudo -cf: ${path}"
+
+    directives="$(marker_sudoers_directives "${path}")"
+
+    grep -Eq "(^|[[:space:]])${deploy_user}[[:space:]]+ALL=\(root\)[[:space:]]+NOPASSWD:[[:space:]]+${DST_MARKER_WRAPPER}([[:space:]]|$)" <<<"${directives}" \
+        || fail "${label} does not authorize ${deploy_user} to run ${DST_MARKER_WRAPPER} as root without a password: ${path}"
+}
+
 validate_marker_sudoers_source() {
     local path="${SRC_MARKER_SUDOERS}" deploy_user directives
     deploy_user="$(target_deploy_user "${TARGET_ID}")"
@@ -733,6 +805,12 @@ validate_marker_sudoers_source() {
         || fail "committed sudoers grant failed visudo -cf: ${path}"
 
     directives="$(grep -vE '^[[:space:]]*(#|$)' "${path}")"
+
+    # First, because it is the shape that would hand the deploy user every
+    # command on the host and every later check would then be beside the point.
+    if grep -Eq 'NOPASSWD:[[:space:]]*ALL' <<<"${directives}"; then
+        fail "sudoers grant must never be a blanket NOPASSWD: ALL: ${path}"
+    fi
 
     grep -Fq "${DST_MARKER_WRAPPER}" <<<"${directives}" \
         || fail "sudoers grant does not name ${DST_MARKER_WRAPPER}: ${path}"
@@ -754,14 +832,6 @@ validate_marker_sudoers_source() {
         fi
     done < <(registry_target_ids)
 
-    # A blanket grant would hand the deploy user every command on the host
-    # under the guise of observability. `ALL=(root)` is the ordinary host/
-    # runas spec every sudoers rule carries; `NOPASSWD: ALL` is the dangerous
-    # form, and it is the one rejected here.
-    if grep -Eq 'NOPASSWD:[[:space:]]*ALL' <<<"${directives}"; then
-        fail "sudoers grant must never be a blanket NOPASSWD: ALL: ${path}"
-    fi
-
     # Exactly one command path, and it is the marker wrapper. An operational
     # wrapper appearing here would silently widen the deploy user's privileges.
     local named_commands
@@ -770,6 +840,10 @@ validate_marker_sudoers_source() {
 
     [[ "${named_commands}" == "${DST_MARKER_WRAPPER}" ]] \
         || fail "sudoers grant must name ${DST_MARKER_WRAPPER} and nothing else, found: ${named_commands} (${path})"
+
+    # Last, and the whole point of the file: one rule, and it is the one the
+    # deploy channel depends on.
+    assert_marker_sudoers_grant "${path}" "committed sudoers grant"
 }
 
 # registry_target_ids — every target ID the registry declares. Read through
@@ -1076,11 +1150,136 @@ run_apply() {
     verify_listener_loopback_only
     verify_agent_status
     verify_marker_files
+    verify_marker_authorization
 
     trap - ERR EXIT
     TXN_ARMED=false
 
     log "PASS: Nightwatch agent ${NIGHTWATCH_PROGRAM} installed and RUNNING for ${TARGET_ID}, deployment-marker primitive installed"
+}
+
+# verify_marker_authorization — the proof requirement (7) asks for, made about
+# the file that is actually on the host: the installed drop-in parses, and it
+# authorizes this target's own deploy user for exactly the marker wrapper.
+# Configuration only — nothing here runs sudo, the wrapper, artisan or the
+# agent, and nothing needs a Nightwatch token.
+verify_marker_authorization() {
+    local path
+    path="$(physical "${DST_MARKER_SUDOERS}")"
+
+    [[ -e "${path}" ]] \
+        || fail "the deployment-marker sudoers grant is not installed: ${DST_MARKER_SUDOERS} — the target's deploy user cannot invoke ${DST_MARKER_WRAPPER}, and the deployment marker will fail with 'sudo: a password is required'"
+    [[ ! -L "${path}" ]] || fail "${DST_MARKER_SUDOERS} is a symlink"
+    [[ -f "${path}" ]] || fail "${DST_MARKER_SUDOERS} is not a regular file"
+
+    assert_marker_sudoers_grant "${path}" "installed sudoers grant"
+
+    local wrapper_phys
+    wrapper_phys="$(physical "${DST_MARKER_WRAPPER}")"
+
+    [[ -f "${wrapper_phys}" ]] && [[ ! -L "${wrapper_phys}" ]] \
+        || fail "the deployment-marker sudo wrapper is not installed: ${DST_MARKER_WRAPPER} — the grant above authorizes a command that does not exist"
+
+    log "deployment-marker authorization verified: $(target_deploy_user "${TARGET_ID}") may run ${DST_MARKER_WRAPPER} as root without a password, and nothing else"
+}
+
+# --- The deployment marker, on its own ----------------------------------------
+#
+# The marker is not the agent, and the difference is why these modes exist.
+#
+# The GitHub deploy channel records a deployment marker after every deployment
+# of a target whose OWN environment configures Nightwatch — as that target's
+# ordinary deploy user, through `sudo -n`, against the wrapper below. The
+# authorization for that is therefore part of what a prepared host must carry,
+# and host convergence installs it. The agent — a Supervisor-managed sidecar
+# an operator opts into and can remove in one step — is untouched by these
+# modes and stays exactly as optional as it was.
+#
+# The first real clean-host recovery is what made the distinction concrete: a
+# canonically prepared machine served the recovered release correctly and then
+# failed to record its Nightwatch marker with "sudo: a password is required",
+# because the grant only ever arrived with an agent installation nobody had
+# performed on a brand-new host.
+#
+# Neither mode requires a deployed release, a Nightwatch token, a running
+# supervisord or a reachable ingest port: on a host being prepared, none of
+# those exists yet, and the authorization still has to be right.
+on_marker_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E propagates this trap into $(...) subshells; only the main process
+    # ever performs the real rollback.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${TXN_ARMED}" != true ]]; then
+        exit "${code}"
+    fi
+
+    log "deployment-marker apply failed (status ${code}) — restoring the previous files"
+
+    restore_marker_files
+
+    exit "${code}"
+}
+
+# run_supports_deployment_marker — does this target record a deployment marker
+# at all? Exit status only, so a caller that must decide whether to converge
+# the authorization asks the script that owns the closed allowlist rather than
+# keeping a second copy of it. Reads nothing but the registry, changes nothing,
+# and needs no root.
+run_supports_deployment_marker() {
+    local program
+
+    if ! program="$(target_nightwatch_program "${TARGET_ID}" 2>/dev/null)"; then
+        printf 'target %s records no deployment marker: it has no Nightwatch program in the closed allowlist\n' "${TARGET_ID}"
+
+        return 1
+    fi
+
+    printf 'target %s records a deployment marker (Nightwatch program %s)\n' "${TARGET_ID}" "${program}"
+}
+
+run_apply_deployment_marker() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_marker_sources
+
+    MAIN_BASHPID="${BASHPID}"
+
+    prepare_marker_backup_dir
+    backup_existing_marker_files
+
+    TXN_ARMED=true
+    trap on_marker_apply_error ERR EXIT
+
+    install_marker_files
+    verify_marker_files
+    verify_marker_authorization
+
+    trap - ERR EXIT
+    TXN_ARMED=false
+
+    log "PASS: deployment-marker primitive, sudo wrapper and sudoers grant installed for ${TARGET_ID}"
+}
+
+run_verify_deployment_marker() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_marker_sources
+
+    # The authorization first, because it is what this mode exists to prove and
+    # what an operator meets when it is missing: a deployment marker that fails
+    # with "sudo: a password is required" says nothing about which file is
+    # absent, and this says exactly that.
+    verify_marker_authorization
+    verify_marker_files
+
+    log "PASS: deployment-marker authorization verified for ${TARGET_ID}"
 }
 
 run_verify() {
@@ -1093,6 +1292,7 @@ run_verify() {
     validate_env_contract
     verify_installed_conf
     verify_marker_files
+    verify_marker_authorization
 
     agent_program_running \
         || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} is not RUNNING under supervisor"
@@ -1149,6 +1349,9 @@ main() {
         apply) run_apply ;;
         verify) run_verify ;;
         remove) run_remove ;;
+        apply-deployment-marker) run_apply_deployment_marker ;;
+        verify-deployment-marker) run_verify_deployment_marker ;;
+        supports-deployment-marker) run_supports_deployment_marker ;;
     esac
 }
 
