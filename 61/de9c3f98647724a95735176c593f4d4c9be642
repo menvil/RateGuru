@@ -1,0 +1,32 @@
+infrastructure/scripts/recover-host
+  s_e01a0d85f62894::t_7c61b789e061d7 2201
+tests/Feature/Architecture/DisasterRecoveryContractTest.php
+  s_e01a0d85f62894::t_3823740cab1ba8 301-310
+tests/Feature/Architecture/BootstrapHostOrchestratorTest.php
+  s_e01a0d85f62894::t_60eb4fc289717a 994-998,1001
+  s_e01a0d85f62894::t_e466d23028e782 1002-1006
+tests/Pest.php
+  s_e01a0d85f62894::t_08fda4e074d5c4 3029-3030,3032-3037
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_e01a0d85f62894::t_60eb4fc289717a 1642-1649
+  s_e01a0d85f62894::t_779ee9e0b027b1 1670-1673
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_e01a0d85f62894::t_779ee9e0b027b1 303-306,308-310
+  s_e01a0d85f62894::t_60eb4fc289717a 282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61de9c3f98647724a95735176c593f4d4c9be642",
+  "prompts": {},
+  "sessions": {
+    "s_e01a0d85f62894": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45e344df-cbce-4e0d-a3ec-dfe8183f587d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
