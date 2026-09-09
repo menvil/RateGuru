@@ -1,0 +1,80 @@
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_9a6ca54786c126::t_2c9a9f774f06eb 193-197,1439,1441-1445,1551-1573,1575-1584,1587-1597,1599-1601,1603-1613,1632,1654-1690
+  s_9a6ca54786c126::t_3de1be291bdedf 1574,1585-1586,1598,1602,1614-1631,1633-1653
+infrastructure/runbooks/prepare-host.md
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 162-166
+  s_9a6ca54786c126::t_631acd431a81f5 167-177
+tests/Feature/Architecture/VerifyBackupTest.php
+  s_9a6ca54786c126::t_998dcc4691560a 47-50,120-121,149-176,192-195,197-203
+infrastructure/runbooks/backups.md
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 53-67,171-177,183-196
+infrastructure/scripts/restore-test
+  s_9a6ca54786c126::t_c1751331b5ab92 239-244,305-316,329-330
+tests/Feature/Architecture/BackupTest.php
+  s_9a6ca54786c126::t_276990419c5e8a 294,454,457-460,974-980,1030-1033,1039-1088
+infrastructure/scripts/prepare-host
+  s_9a6ca54786c126::t_3de1be291bdedf 764-773,784,786,789,791
+  s_9a6ca54786c126::t_5cea9aebaf201a 250,260,267-272,421,774-783,785,787-788,790,883-886,892-897,922-926,1253-1254,1256-1259
+infrastructure/scripts/backup
+  s_9a6ca54786c126::t_35bce9e8c97245 42-44,238-242,244,348-355,357,386-392
+infrastructure/scripts/offsite-restore-test
+  s_9a6ca54786c126::t_fc402506e8e2b0 274-280,299-312
+infrastructure/runbooks/github-recover.md
+  s_9a6ca54786c126::t_631acd431a81f5 584-586
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 288-292,345,582-583
+infrastructure/ROADMAP.md
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 1370-1374,1377-1382,1406-1408
+infrastructure/scripts/common
+  s_9a6ca54786c126::t_1de176a88c1a44 367-415,418-660
+infrastructure/scripts/verify-backup
+  s_9a6ca54786c126::t_c1751331b5ab92 166-171
+  s_9a6ca54786c126::t_fc402506e8e2b0 173
+infrastructure/runbooks/recover-host.md
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 126-130
+tests/Feature/Architecture/RestoreTest.php
+  s_9a6ca54786c126::t_439d51719bd3e9 375-384,1147-1174
+tests/Feature/Architecture/OffsiteRestoreTest.php
+  s_9a6ca54786c126::t_127eabbfd821ea 395-396,398-403,423-432,501-504,995-1000,1024-1057
+tests/Feature/Architecture/RestoreTargetTest.php
+  s_9a6ca54786c126::t_0c0bd672216192 196-207,209,214
+infrastructure/scripts/restore-common
+  s_9a6ca54786c126::t_c1751331b5ab92 1459-1468,1470-1471
+  s_9a6ca54786c126::t_0894d7179b0621 1313,1319-1321,1339,1473,1475-1479,1481
+tests/Feature/Architecture/OffsiteBackupTest.php
+  s_9a6ca54786c126::t_8e81a22cf2204c 360-369,953,988-1016
+infrastructure/scripts/offsite-backup
+  s_9a6ca54786c126::t_fc402506e8e2b0 206-211,213
+tests/Feature/Architecture/InstallTargetPrerequisitesTest.php
+  s_9a6ca54786c126::t_6c30858c4db953 1241-1276,1284,1294,1296-1328
+  s_9a6ca54786c126::t_3de1be291bdedf 1277-1279,1283,1285-1288,1290-1293,1295
+  s_9a6ca54786c126::t_2b38b37dd599eb 1280-1282,1289
+.github/actions/prepare-rateguru-host/action.yml
+  s_9a6ca54786c126::t_34a496138004c5 656-664
+infrastructure/runbooks/restore-target.md
+  s_9a6ca54786c126::t_7a3f1f845d1ad0 178-186
+tests/Feature/Architecture/OffsiteWriteHoldTest.php
+  s_9a6ca54786c126::t_ffcbf42c4d7fe6 25
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_9a6ca54786c126::t_6c30858c4db953 519-528,530-533
+  s_9a6ca54786c126::t_3de1be291bdedf 529
+tests/Pest.php
+  s_9a6ca54786c126::t_3de1be291bdedf 1363,1370-1387
+  s_9a6ca54786c126::t_ffcbf42c4d7fe6 1266-1296
+  s_9a6ca54786c126::t_460091fb8369f0 1357-1362,1364-1369,1388-1400
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bdacf6cf6415c37c855a959145322e1955fc8260",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
