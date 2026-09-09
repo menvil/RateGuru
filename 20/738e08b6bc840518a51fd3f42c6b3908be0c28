@@ -1,0 +1,21 @@
+tests/Feature/Architecture/RecoveryHostPreflightTest.php
+  s_9a6ca54786c126::t_bd47f229a3f8ff 861-863,915-930,1034-1063
+infrastructure/scripts/recovery-host-preflight
+  s_9a6ca54786c126::t_3dfcaff45df5f2 517,519,521,527-540,546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "20738e08b6bc840518a51fd3f42c6b3908be0c28",
+  "prompts": {},
+  "sessions": {
+    "s_9a6ca54786c126": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e25192b-4720-4bcb-ba4f-1ffd15545f7e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
