@@ -268,6 +268,143 @@ it('refuses a backup directory missing one of the seven required files', functio
 });
 
 // =============================================================================
+// The closed file set is decided by the manifest schema
+// =============================================================================
+
+it('stages all eight files of a schema 3 backup, and refuses one missing its recovery material', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        buildBackupFixture($scratch.'/backups/parity', '20260115-120000', ['schema' => 3]);
+
+        $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000']);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('backup schema: schema3 (8 files)');
+
+        $staged = fetchBackupWorkspace($scratch, operationIdsIn($result['output'])[0]).'/selected-backup';
+
+        expect(is_file($staged.'/recovery-material.tar.gz'))->toBeTrue();
+        expect(count(array_diff(scandir($staged), ['.', '..'])))->toBe(8);
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    $scratch = restoreScratchDir();
+
+    try {
+        buildBackupFixture($scratch.'/backups/parity', '20260115-120000', ['schema' => 3, 'omit_recovery_material' => true]);
+
+        $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('backup is missing a required file: recovery-material.tar.gz');
+
+        // Refused before a single file was staged: whatever workspace exists
+        // holds an empty selected-backup, never a partial one.
+        foreach (glob($scratch.'/run/restores/parity-target/*/selected-backup') ?: [] as $staged) {
+            expect(array_values(array_diff(scandir($staged), ['.', '..'])))->toBe([]);
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('classifies the schema only from a manifest proven to be a regular file, and never reads a path out of it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $dir = buildBackupFixture($scratch.'/backups/parity', '20260115-120000');
+        unlink($dir.'/manifest.json');
+        symlink('/etc/hosts', $dir.'/manifest.json');
+
+        $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('backup manifest must not be a symlink');
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    $scratch = restoreScratchDir();
+
+    try {
+        // The schema value is JSON-type checked: a string "3" is not the
+        // number 3, and an unsupported number is refused before a single
+        // file is staged.
+        buildBackupFixture($scratch.'/backups/parity', '20260115-120000', [
+            'manifest' => backupManifestFixture(['manifest_schema_version' => '3']),
+        ]);
+
+        $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: "3"');
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    // The closed sets themselves are stated once, in common, and the schema
+    // classification is the shared one — fetch-backup carries no file list.
+    $source = File::get(fetchBackupScript());
+
+    expect($source)->toContain('restore_select_backup_file_set')
+        ->not->toContain("database.dump\n");
+});
+
+it('refuses a remote directory that carries anything beyond the schema\'s closed set, for both schemas', function () {
+    foreach ([2, 3] as $schema) {
+        $scratch = restoreScratchDir();
+
+        try {
+            offsiteRcloneStub($scratch);
+
+            $remote = $scratch.'/remote/rateguru-b2:rateguru-database-backups/rateguru/parity';
+            $dir = buildBackupFixture($remote, '20260115-120000', $schema === 3 ? ['schema' => 3] : []);
+            file_put_contents($dir.'/stray-object.bin', "not part of any backup\n");
+
+            $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'offsite', '--backup', '20260115-120000'], [
+                'RATEGURU_RCLONE_BIN' => $scratch.'/bin/rclone',
+                'RATEGURU_RCLONE_CONFIG' => writeExecutable($scratch.'/rclone.conf', "[rateguru-b2]\n"),
+                'RGTEST_RCLONE_LOG' => $scratch.'/rclone.log',
+                'RGTEST_REMOTE_ROOT' => $scratch.'/remote',
+            ]);
+
+            expect($result['exit'])->not->toBe(0, "a schema {$schema} backup with a stray object must be refused");
+            expect($result['output'])->toContain("holds an entry that is not part of a schema{$schema} backup: stray-object.bin");
+        } finally {
+            removeScratchDir($scratch);
+        }
+    }
+});
+
+it('stages a schema 3 backup from the offsite remote with its recovery material', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        offsiteRcloneStub($scratch);
+
+        buildBackupFixture($scratch.'/remote/rateguru-b2:rateguru-database-backups/rateguru/parity', '20260115-120000', ['schema' => 3]);
+
+        $result = fetchBackupRun($scratch, ['--target', 'parity-target', '--source', 'offsite', '--backup', '20260115-120000'], [
+            'RATEGURU_RCLONE_BIN' => $scratch.'/bin/rclone',
+            'RATEGURU_RCLONE_CONFIG' => writeExecutable($scratch.'/rclone.conf', "[rateguru-b2]\n"),
+            'RGTEST_RCLONE_LOG' => $scratch.'/rclone.log',
+            'RGTEST_REMOTE_ROOT' => $scratch.'/remote',
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('schema:     schema3');
+
+        $staged = fetchBackupWorkspace($scratch, operationIdsIn($result['output'])[0]).'/selected-backup';
+        expect(is_file($staged.'/recovery-material.tar.gz'))->toBeTrue();
+        expect(substr(sprintf('%o', fileperms($staged.'/recovery-material.tar.gz')), -4))->toBe('0600');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
 // Offsite staging
 // =============================================================================
 

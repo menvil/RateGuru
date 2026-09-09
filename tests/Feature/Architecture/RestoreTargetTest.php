@@ -189,6 +189,53 @@ it('restores database and storage, resumes the target, and reports an aligned re
     }
 });
 
+it('restores from a schema 3 backup exactly as from an older one, and never applies its recovery material', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // Recovery material written under a prerequisite table that has since
+        // changed — a name the installer no longer knows, a name it now
+        // requires missing. A live restore never applies it, so the database
+        // and the storage inside are as restorable as ever, and no
+        // prerequisite installer is consulted at all.
+        restoreTargetFixture($scratch, ['backup' => [
+            'schema' => 3,
+            'recovery_material' => [
+                'legacy-tls-bundle' => "material-legacy-tls-bundle-never-logged\n",
+                'basic-auth' => "material-basic-auth-never-logged\n",
+            ],
+        ]]);
+
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('backup schema: schema3')
+            ->toContain('recovery material: OK (2 top-level regular files, structurally safe; never applied by a live restore)')
+            ->toContain('RESTORE DATA COMPLETE: YES')
+            ->toContain('TARGET RESUMED: YES');
+
+        expect(is_file(restoreTargetStorage($scratch).'/app/restored-marker.txt'))->toBeTrue();
+
+        // Nothing of the recovery material reached the target or the host:
+        // the archive's own content ("material-<name>-never-logged") exists
+        // only inside backups and staged workspaces. (The scratch host tree
+        // the prerequisite installer judges against holds its own, differently
+        // prefixed fixture files and is excluded by name.)
+        exec('grep -rl "material-.*-never-logged" '.escapeshellarg($scratch).' --exclude-dir=backups --exclude-dir=run --exclude-dir=emergency-template --exclude-dir=prereq-host 2>&1', $leaks, $grepStatus);
+
+        // grep: 0 = matches (a leak), 1 = none, anything else = the scan
+        // itself failed and proved nothing.
+        expect(in_array($grepStatus, [0, 1], true))->toBeTrue('the leak scan failed to run: '.implode("\n", $leaks));
+        expect($leaks)->toBe([]);
+
+        expect(File::get($scratch.'/target/shared/.env'))->not->toContain('from-backup-never-applied');
+        expect(file_exists($scratch.'/etc'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('never rewrites shared/.env, the current link, the previous link or any server configuration', function () {
     $scratch = restoreScratchDir();
 

@@ -335,6 +335,12 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
+    // A schema 3 backup carries its recovery material, checksummed in the
+    // position backup writes it — unless a test omits it on purpose.
+    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
+        $files[] = 'recovery-material.tar.gz';
+    }
+
     if ($manifest !== null) {
         $files[] = 'manifest.json';
     }
@@ -348,6 +354,16 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
 
     if (! empty($options['corrupt_checksum'])) {
         file_put_contents($dir.'/database.dump', "TAMPERED-AFTER-CHECKSUM\n");
+    }
+
+    // Strangers a test plants on purpose: an extra file beside the closed
+    // set, or an extra SHA256SUMS line naming something outside it.
+    foreach ($options['extra_files'] ?? [] as $name => $content) {
+        file_put_contents($dir.'/'.$name, $content);
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        file_put_contents($dir.'/SHA256SUMS', $extra."\n", FILE_APPEND);
     }
 
     return $dir;
@@ -375,7 +391,7 @@ function offsiteBackupOpsRunFullOffsiteBackup(string $scratch, ?array $manifest,
     $timestamp = $options['timestamp'] ?? '20260115-120000';
     $localDir = offsiteBackupOpsBuildLocalBackup($localRoot, $timestamp, $manifest, $options);
 
-    $runRoot = $scratch.'/run-'.uniqid('', true);
+    $runRoot = $options['runRoot'] ?? $scratch.'/run-'.uniqid('', true);
     // Pre-created, matching a real, already-provisioned B2 bucket: rclone's
     // local backend (unlike B2 itself) errors on `lsf` against a directory
     // that does not exist at all, which a brand-new scratch path would be.
@@ -911,17 +927,92 @@ it('rejects an unsupported numeric manifest schema_version before rclone is ever
 
     try {
         $manifest = offsiteBackupOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
-        $manifest['manifest_schema_version'] = 3;
+        $manifest['manifest_schema_version'] = 4;
 
         $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: 4');
         expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
     } finally {
         offsiteBackupOpsCleanup($scratch);
     }
 });
+
+it('uploads a schema 3 backup with all eight of its files, and refuses one missing its recovery material', function () {
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $manifest = offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: ['schema' => 3]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('(schema3, exactly 8 files)');
+
+        $uploaded = array_values(array_diff(scandir($result['remoteDir']), ['.', '..']));
+        sort($uploaded);
+
+        expect($uploaded)->toBe([
+            'SHA256SUMS', 'database.dump', 'environment.env', 'manifest.json',
+            'recovery-material.tar.gz', 'release.json', 'server-configuration.tar.gz', 'storage-app.tar.gz',
+        ]);
+
+        $history = json_decode(trim(File::get($result['historyFile'])), true);
+        expect($history['files'])->toBe(8);
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $manifest = offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: [
+            'schema' => 3,
+            'omit_recovery_material' => true,
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('missing required backup file: recovery-material.tar.gz');
+        expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+});
+
+it('refuses to upload a backup carrying anything beyond its closed file set, before rclone is ever invoked', function (array $options, string $expected) {
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $manifest = offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+
+        // Nothing reached the remote: an upload copies the whole directory,
+        // and a stranger beside the backup would have landed in the namespace.
+        expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
+        expect(File::exists($result['historyFile']))->toBeFalse();
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+})->with([
+    'a stray file beside the set' => [
+        ['extra_files' => ['stray-object.bin' => "not part of any backup\n"]],
+        'backup directory holds an entry that is not part of a schema3 backup: stray-object.bin',
+    ],
+    'a SHA256SUMS entry pointing outside the set' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  /etc/shadow']],
+        'SHA256SUMS references a file that is not part of a RateGuru backup: /etc/shadow',
+    ],
+]);
 
 it('rejects a string manifest schema_version of "2" before rclone is ever invoked', function () {
     $scratch = offsiteBackupOpsScratchDir();
@@ -982,6 +1073,35 @@ it('uploads with the immutable, check-first and checksum flags — a differing r
 
         expect($exit)->not->toBe(0);
         expect(File::get($remoteDatabaseDump))->toBe($originalRemoteContent, 'an immutable remote object must never be overwritten with different content');
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The offsite-write hold
+// =============================================================================
+
+it('refuses to upload while offsite writes are held, before touching the remote or the history', function () {
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $runRoot = $scratch.'/run-held';
+        mkdir($runRoot, 0o700, true);
+        file_put_contents($runRoot.'/offsite-write-hold', json_encode(['hold' => 'offsite-writes', 'created_by' => 'prepare-host --recovery-backup']));
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup(
+            $scratch,
+            manifest: offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db'),
+            options: ['runRoot' => $runRoot],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('OFFSITE WRITES: HELD — an offsite backup upload is refused on this host');
+
+        expect(is_dir($result['remoteDir']))->toBeFalse('nothing may reach the remote');
+        expect(File::exists($result['historyFile']))->toBeFalse('nothing may be recorded');
+        expect(File::exists($runRoot.'/offsite-write-hold'))->toBeTrue();
     } finally {
         offsiteBackupOpsCleanup($scratch);
     }

@@ -608,7 +608,9 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
     }
 
     // Which credential each job uses, asserted per job rather than per file:
-    // the whole point is that they never mix.
+    // the whole point is that they never mix. The identity job reads the
+    // deploy credential to derive its public half and connects nowhere; it
+    // is asserted on its own below.
     $privileged = ['prepare', 'recover', 'resume', 'verify'];
     $restricted = ['deploy', 'observability'];
 
@@ -662,45 +664,127 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
     }
 })->with('recover workflows');
 
-it('supplies the target external material and a recovery-specific offsite credential', function (
+it('prepares the replacement host from the backup itself, seeding only the offsite credential and the deploy public key', function (
     string $file,
 ) {
-    [$workflow] = recoverWorkflow($file);
+    [$workflow, $source] = recoverWorkflow($file);
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
     $prepare = collect($steps)->first(static fn (array $step): bool => data_get($step, 'uses') === './.github/actions/prepare-rateguru-host');
 
     expect($prepare)->not->toBeNull("{$file} must prepare through the shared preparation action");
 
+    // The exact backup the operator named is what the host is prepared FROM:
+    // its environment file and every host-scope prerequisite come out of the
+    // backup on the server, through fetch-recovery-material.
+    expect(data_get($prepare, 'with.recovery-backup'))->toBe('${{ needs.validate.outputs.backup }}');
+
+    // Two seeds, and no more. The offsite credential a replacement machine
+    // gets is its own — the recovery one — never the credential that OWNS the
+    // namespace it reads; and the deploy public key is derived on the runner
+    // from the deployment credential, so no private key travels anywhere.
+    expect(data_get($prepare, 'with.rclone-config'))->toBe('${{ secrets.RECOVERY_RCLONE_CONFIG }}')
+        ->and(data_get($prepare, 'with.deploy-authorized-keys'))->toBe('${{ needs.deploy-identity.outputs.public_key }}');
+
+    // Nothing is supplied by hand: no environment file, no TLS material, no
+    // Basic Auth file. A recovery that accepted them would be a recovery
+    // taking material from somewhere other than the backup.
     foreach ([
-        'laravel-env' => 'PREPARE_LARAVEL_ENV',
-        'deploy-authorized-keys' => 'PREPARE_DEPLOY_AUTHORIZED_KEYS',
-        'basic-auth' => 'PREPARE_BASIC_AUTH',
-        'tls-certificate' => 'PREPARE_TLS_CERTIFICATE',
-        'tls-private-key' => 'PREPARE_TLS_PRIVATE_KEY',
-        'tls-dhparams' => 'PREPARE_TLS_DHPARAMS',
-        'nginx-tls-options' => 'PREPARE_NGINX_TLS_OPTIONS',
-        'mail-tls-certificate' => 'PREPARE_MAIL_TLS_CERTIFICATE',
-        'mail-tls-private-key' => 'PREPARE_MAIL_TLS_PRIVATE_KEY',
-    ] as $input => $secret) {
-        expect(data_get($prepare, "with.{$input}"))->toBe('${{ secrets.'.$secret.' }}');
+        'laravel-env', 'basic-auth', 'tls-certificate', 'tls-private-key', 'tls-dhparams',
+        'nginx-tls-options', 'mail-tls-certificate', 'mail-tls-private-key',
+    ] as $input) {
+        expect(data_get($prepare, "with.{$input}"))->toBeNull("{$file}: {$input} must come from the backup, never from GitHub");
     }
 
-    // The one deliberate exception. The offsite credential a replacement
-    // machine gets is its own, so a rehearsal can be given one that READS the
-    // real backup namespace and cannot write to, prune or otherwise alter it.
-    // A silent fallback to PREPARE_RCLONE_CONFIG would hand the disposable
-    // machine the credential that OWNS the namespace it is reading.
-    expect(data_get($prepare, 'with.rclone-config'))->toBe('${{ secrets.RECOVERY_RCLONE_CONFIG }}');
-
-    [, $source] = recoverWorkflow($file);
-
-    expect(executableSourceLines($source))->not->toContain('PREPARE_RCLONE_CONFIG');
+    // And no PREPARE_* value of any kind — not as a secret, not as a fallback.
+    // (The prose explaining that there is none is allowed to say so.)
+    expect(executableSourceLines($source))->not->toMatch('/PREPARE_[A-Z_]+/');
 
     // No bucket, namespace or path override of any kind reaches GitHub: where
     // a backup lives is the server's own configuration.
     foreach (['B2_ACCOUNT', 'B2_KEY', 'B2_APPLICATION', 'rclone.conf', 'backup-namespace', 'backup_namespace'] as $forbidden) {
         expect($source)->not->toContain($forbidden);
     }
+})->with('recover workflows');
+
+it('derives the deploy public key on the runner and never sends the private key to the replacement host', function (
+    string $file,
+    string $name,
+    string $target,
+    string $environment,
+) {
+    [$workflow] = recoverWorkflow($file);
+    $identity = data_get($workflow, 'jobs.deploy-identity');
+
+    expect($identity)->not->toBeNull("{$file} must derive the deploy identity in its own job");
+
+    expect(data_get($identity, 'environment'))->toBe($environment)
+        ->and(data_get($identity, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
+        ->and(data_get($identity, 'needs'))->toBe(['validate', 'binding'])
+        ->and(data_get($identity, 'outputs.public_key'))->toBe('${{ steps.identity.outputs.public_key }}');
+
+    // The job holds exactly one secret, the deployment credential, and
+    // connects to nothing: no host, no port, no known_hosts.
+    $encoded = json_encode($identity);
+
+    expect($encoded)->toContain('secrets.DEPLOY_SSH_KEY')
+        ->not->toContain('RECOVERY_BOOTSTRAP')
+        ->not->toContain('KNOWN_HOSTS')
+        ->not->toContain('replacement_host')
+        ->not->toContain('uses');
+
+    $run = (string) data_get($identity, 'steps.0.run');
+
+    // Private file, derived public half, temp file removed however the step
+    // ends — and the value is only ever written through a redirection.
+    expect($run)
+        ->toContain('umask 077')
+        ->toContain('install -m 0600 /dev/null')
+        ->toContain('ssh-keygen -y -f')
+        ->toContain("trap 'rm -f \"\${key_path}\"' EXIT")
+        ->not->toContain('echo "${DEPLOY_SSH_KEY}"')
+        ->not->toContain('DEPLOY_SSH_KEY }} |');
+
+    // Only the public half leaves the job.
+    expect($run)->toContain('public_key=');
+    expect(substr_count($run, 'GITHUB_OUTPUT'))->toBe(1);
+})->with('recover workflows');
+
+it('needs exactly the recovery values and the existing deployment ones, and no PREPARE_ value at all', function (
+    string $file,
+) {
+    [, $source] = recoverWorkflow($file);
+
+    preg_match_all('/\b(secrets|vars)\.([A-Z_]+)/', $source, $matches);
+
+    $referenced = array_values(array_unique(array_map(
+        static fn (string $scope, string $name): string => "{$scope}.{$name}",
+        $matches[1],
+        $matches[2],
+    )));
+    sort($referenced);
+
+    // The four values a clean-host recovery introduced, and the deployment
+    // and observability values every deploying workflow already reads.
+    // Nothing else: no material, no environment file, no host-specific
+    // secret of any kind.
+    expect($referenced)->toBe([
+        'secrets.DEPLOY_KNOWN_HOSTS',
+        'secrets.DEPLOY_SSH_KEY',
+        'secrets.RECOVERY_BOOTSTRAP_SSH_KEY',
+        'secrets.RECOVERY_KNOWN_HOSTS',
+        'secrets.RECOVERY_RCLONE_CONFIG',
+        'secrets.SENTRY_AUTH_TOKEN',
+        'vars.DEPLOY_HOST',
+        'vars.DEPLOY_INCOMING',
+        'vars.DEPLOY_ROOT',
+        'vars.DEPLOY_USER',
+        'vars.DEPLOY_WRAPPER',
+        'vars.RECOVERY_BOOTSTRAP_USER',
+        'vars.SENTRY_ORG',
+        'vars.SENTRY_PROJECT',
+    ]);
+
+    expect(executableSourceLines($source))->not->toMatch('/PREPARE_[A-Z_]+/');
 })->with('recover workflows');
 
 // =============================================================================
@@ -718,7 +802,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
 
     expect(data_get($prepare, 'environment'))->toBe($environment)
         ->and(data_get($prepare, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
-        ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding']);
+        ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding', 'deploy-identity']);
 
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
 
@@ -1201,7 +1285,7 @@ it('reports enough for an operator to continue, and no secret at all', function 
     // It waits for everything, so a run that stopped anywhere still describes
     // where it stopped.
     expect(data_get($report, 'needs'))->toBe([
-        'validate', 'binding', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability',
+        'validate', 'binding', 'deploy-identity', 'prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability',
     ]);
 
     $run = (string) data_get($report, 'steps.0.run');
@@ -1380,11 +1464,14 @@ it('ships the runbook and points the README and roadmap at it', function () {
         ->toContain('RECOVERY_RCLONE_CONFIG')
         ->toContain('Clean-host acceptance checklist');
 
-    // The rehearsal rule that protects the real backup namespace. Asserted
-    // against whitespace-flattened prose, because both sentences are long
-    // enough to wrap and a rewrap is not a change in what they say.
+    // The rehearsal rule that protects the real backup namespace: the
+    // server-side hold, and the rule against faking a clean namespace.
+    // Asserted against whitespace-flattened prose, because the sentences are
+    // long enough to wrap and a rewrap is not a change in what they say.
     expect(preg_replace('/\s+/', ' ', $runbook))
-        ->toContain('cannot write to, delete from, or apply retention to it')
+        ->toContain('offsite-write hold')
+        ->toContain('OFFSITE WRITES: HELD')
+        ->toContain('Nothing releases the hold')
         ->toContain('Do not delete or reuse the real staging backup namespace to make a rehearsal look clean.');
 
     expect(File::get(base_path('infrastructure/README.md')))
@@ -1397,13 +1484,14 @@ it('ships the runbook and points the README and roadmap at it', function () {
         ->toContain('runbooks/github-recover.md')
         ->toContain('7.7 GitHub Recover + clean-host rehearsal');
 
-    // Implemented, not accepted: CI proves the structure, only a real
-    // disposable machine proves the pipeline — and no RPO or RTO is claimed.
+    // Implementation-ready, not accepted: CI proves the structure, only a
+    // real disposable machine proves the pipeline — and no RPO or RTO is
+    // claimed.
     $flattened = preg_replace('/\s+/', ' ', $roadmap);
 
     expect($flattened)
-        ->toContain('implemented, awaiting the real disposable-host acceptance')
-        ->toContain('this slice is implemented, not accepted. No RPO or RTO is claimed by it');
+        ->toContain('implementation ready for the REAL clean-host acceptance')
+        ->toContain('this slice is implementation-ready for that acceptance, not accepted. No RPO or RTO is claimed by it');
 });
 
 it('creates no second implementation of anything it uses', function (

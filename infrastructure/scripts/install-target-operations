@@ -6,29 +6,42 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the twenty-one operational scripts
+#   --apply   Install the target registry, the twenty-two operational scripts
 #             (targets, common, restore-common, health-check, status,
 #             cleanup, deploy, rollback, backup, restore-test,
 #             offsite-backup, offsite-retention, offsite-restore-test,
 #             backup-cycle, fetch-backup, verify-backup, restore-database,
 #             restore-storage, restore-target, recover-host,
-#             verify-required-clis) and the host-global deployment.conf,
-#             verify a staged copy before touching anything, install
-#             transactionally, then verify the installed result against the
-#             real host before committing.
+#             install-target-prerequisites, verify-required-clis), the four
+#             committed Nginx vhost sources the prerequisite table is derived
+#             from, and the host-global deployment.conf, verify a staged copy
+#             before touching anything, install transactionally, then verify
+#             the installed result against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Twenty-three files: the registry, the twenty-one scripts — targets,
+#   * Twenty-eight files: the registry, the twenty-two scripts — targets,
 #     common and restore-common (sourced libraries), health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
 #     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
 #     The Restore Target Data restore primitives (fetch-backup, verify-backup,
-#     restore-database, restore-storage, restore-target), recover-host and
-#     verify-required-clis — and deployment.conf, the host-global
-#     (non-target-specific) configuration those scripts source.
+#     restore-database, restore-storage, restore-target), recover-host,
+#     install-target-prerequisites and verify-required-clis — the four
+#     committed Nginx vhost sources (config/nginx/*), and deployment.conf, the
+#     host-global (non-target-specific) configuration those scripts source.
+#   * install-target-prerequisites is installed for one specific reason: a
+#     schema 3 backup carries the target's host-scope external material,
+#     captured through that installer's own --capture mode so the backup is
+#     written in the exact vocabulary a clean-host recovery reads it in, and
+#     restore-test/verify-backup judge that material through its
+#     --validate-recovery-material mode. A nightly backup has no checkout to
+#     reach for, so the installer — and the committed vhost sources its
+#     prerequisite table is parsed from — live in the bundle, in the same
+#     relative layout the checkout has (`../config` from the script). Its
+#     --check/--apply/--verify still belong to Prepare Host, which runs it
+#     from the trusted checkout; nothing here invokes them.
 #   * recover-host is installed for one specific reason: `deploy` runs
 #     `recover-host --inspect` before a controlled recovery deployment, as its
 #     authoritative proof that the replacement host is STILL held — exactly as
@@ -61,8 +74,10 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these twenty-three files in these
-# twenty-three places with these exact permissions, nothing else.
+# this installer's whole job is to put these twenty-eight files in these
+# twenty-eight places with these exact permissions, nothing else. The one
+# directory it creates is config/nginx, which exists solely to hold four of
+# those files.
 #
 # --apply additionally takes the EXISTING per-namespace restore AND recovery
 # locks for every active target before it touches anything, so the bundle can
@@ -106,8 +121,18 @@ SRC_RESTORE_DATABASE="${REPO_ROOT}/infrastructure/scripts/restore-database"
 SRC_RESTORE_STORAGE="${REPO_ROOT}/infrastructure/scripts/restore-storage"
 SRC_RESTORE_TARGET="${REPO_ROOT}/infrastructure/scripts/restore-target"
 SRC_RECOVER_HOST="${REPO_ROOT}/infrastructure/scripts/recover-host"
+SRC_TARGET_PREREQUISITES="${REPO_ROOT}/infrastructure/scripts/install-target-prerequisites"
 SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+# The committed Nginx vhost sources install-target-prerequisites parses its
+# host-scope prerequisite table out of: every target's own site, plus the two
+# shared mail-capture vhosts. Listed rather than globbed, for exactly the
+# reason the prerequisite installer lists the mail vhosts: a glob would turn a
+# vhost nobody intended into a host requirement.
+SRC_NGINX_SOURCE_STAGING="${REPO_ROOT}/infrastructure/config/nginx/rateguru-staging"
+SRC_NGINX_SOURCE_PRODUCTION="${REPO_ROOT}/infrastructure/config/nginx/rateguru-production"
+SRC_NGINX_SOURCE_MAILPIT="${REPO_ROOT}/infrastructure/config/nginx/mailpit-staging"
+SRC_NGINX_SOURCE_MAILTRAP="${REPO_ROOT}/infrastructure/config/nginx/mailtrap-local-staging"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -133,8 +158,17 @@ DST_RESTORE_DATABASE="${DST_BIN_ROOT}/restore-database"
 DST_RESTORE_STORAGE="${DST_BIN_ROOT}/restore-storage"
 DST_RESTORE_TARGET="${DST_BIN_ROOT}/restore-target"
 DST_RECOVER_HOST="${DST_BIN_ROOT}/recover-host"
+DST_TARGET_PREREQUISITES="${DST_BIN_ROOT}/install-target-prerequisites"
 DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
+# The one directory this installer owns: it exists solely to hold the four
+# vhost sources below, in the position install-target-prerequisites resolves
+# from its own installed location.
+DST_NGINX_SOURCES_ROOT="${DST_CONFIG_ROOT}/nginx"
+DST_NGINX_SOURCE_STAGING="${DST_CONFIG_ROOT}/nginx/rateguru-staging"
+DST_NGINX_SOURCE_PRODUCTION="${DST_CONFIG_ROOT}/nginx/rateguru-production"
+DST_NGINX_SOURCE_MAILPIT="${DST_CONFIG_ROOT}/nginx/mailpit-staging"
+DST_NGINX_SOURCE_MAILTRAP="${DST_CONFIG_ROOT}/nginx/mailtrap-local-staging"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
 
@@ -157,9 +191,13 @@ CLI_MODE="0755"
 # non-secret configuration), kept as its own named constant since the two
 # describe unrelated files that happen to share a mode today.
 DEPLOYMENT_CONF_MODE="0640"
+# The vhost sources are the same public, non-secret configuration
+# install-bootstrap-services installs under /etc/nginx as 0644.
+NGINX_SOURCE_MODE="0644"
+NGINX_SOURCES_ROOT_MODE="0755"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the twenty-three files it installs. A named constant (not a literal
+# about: the twenty-eight files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -326,13 +364,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all twenty-three source files are present regular files"
+    log "all twenty-eight source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -346,7 +384,7 @@ validate_source_files() {
 # validate_source_files already requires them to be readable regular files.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
 
@@ -357,15 +395,15 @@ validate_source_executable_modes() {
         [[ ! -x "${path}" ]] || fail "sourced library must not be executable: ${path}"
     done
 
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host and verify-required-clis are all executable; common and restore-common are not"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites and verify-required-clis are all executable; common and restore-common are not"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all twenty-one source shell scripts"
+    log "bash -n passed for all twenty-two source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -448,10 +486,18 @@ verify_staged_candidates() {
     local staged_restore_storage="${stage_dir}/restore-storage"
     local staged_restore_target="${stage_dir}/restore-target"
     local staged_recover_host="${stage_dir}/recover-host"
+    local staged_target_prerequisites="${stage_dir}/install-target-prerequisites"
     local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
 
     log "verifying staged candidates before installation"
+
+    # The prerequisite installer never sources common and takes no --target
+    # probe here (every one of its modes needs root and a real filesystem);
+    # --help is the one thing a staged copy can prove about itself.
+    no_overrides_env "${staged_target_prerequisites}" --help >/dev/null \
+        || fail "staged install-target-prerequisites --help failed"
+    log "  staged install-target-prerequisites --help: OK"
 
     local -a override_env=(
         env
@@ -840,6 +886,14 @@ rollback_installed_files() {
         fi
     done
 
+    # The vhost sources directory is removed only when this run created it and
+    # the file rollback above left it empty: rmdir cannot delete anything a
+    # rollback did not already account for.
+    if [[ "${CREATED_NGINX_SOURCES_ROOT:-false}" == true ]] && [[ -d "${DST_NGINX_SOURCES_ROOT}" ]]; then
+        rmdir "${DST_NGINX_SOURCES_ROOT}" 2>/dev/null \
+            || { log "ERROR: could not remove ${DST_NGINX_SOURCES_ROOT} during rollback (not empty?)"; status=1; }
+    fi
+
     return "${status}"
 }
 
@@ -898,6 +952,16 @@ RATEGURU_OVERRIDE_VARS=(
     RATEGURU_RESTORE_QUEUE_RETRY_DELAY
     RATEGURU_RESTORE_SCHEDULER_WAIT_ATTEMPTS
     RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY
+    RATEGURU_PREREQUISITES_BIN
+    RATEGURU_TARGETPREREQ_REPO_ROOT
+    RATEGURU_TARGETPREREQ_EUID
+    RATEGURU_TARGETPREREQ_FS_ROOT
+    RATEGURU_TARGETPREREQ_INSTALL_BIN
+    RATEGURU_TARGETPREREQ_CHOWN_BIN
+    RATEGURU_TARGETPREREQ_CHMOD_BIN
+    RATEGURU_TARGETPREREQ_STAT_BIN
+    RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN
+    RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP
 )
 
 no_overrides_env() {
@@ -927,6 +991,50 @@ assert_status_sections_present() {
     done
 }
 
+# The one directory this installer owns. It is created on --apply (root:root
+# 0755, exactly as the layout installer creates config itself) because it
+# exists solely to hold the four vhost sources, and verified in every mode.
+ensure_nginx_sources_root() {
+    if [[ -e "${DST_NGINX_SOURCES_ROOT}" ]] || [[ -L "${DST_NGINX_SOURCES_ROOT}" ]]; then
+        [[ ! -L "${DST_NGINX_SOURCES_ROOT}" ]] \
+            || fail "vhost sources directory must not be a symlink: ${DST_NGINX_SOURCES_ROOT}"
+        [[ -d "${DST_NGINX_SOURCES_ROOT}" ]] \
+            || fail "vhost sources path exists but is not a directory: ${DST_NGINX_SOURCES_ROOT}"
+        return 0
+    fi
+
+    install -d -o "${INSTALL_OWNER}" -g "${INSTALL_GROUP}" -m "${NGINX_SOURCES_ROOT_MODE}" "${DST_NGINX_SOURCES_ROOT}" \
+        || fail "could not create the vhost sources directory: ${DST_NGINX_SOURCES_ROOT}"
+    CREATED_NGINX_SOURCES_ROOT=true
+    log "created ${DST_NGINX_SOURCES_ROOT} (${INSTALL_OWNER}:${INSTALL_GROUP} ${NGINX_SOURCES_ROOT_MODE})"
+}
+
+CREATED_NGINX_SOURCES_ROOT=false
+
+verify_nginx_sources_root() {
+    [[ -e "${DST_NGINX_SOURCES_ROOT}" ]] || fail "vhost sources directory is missing: ${DST_NGINX_SOURCES_ROOT}"
+    [[ ! -L "${DST_NGINX_SOURCES_ROOT}" ]] || fail "vhost sources directory must not be a symlink: ${DST_NGINX_SOURCES_ROOT}"
+    [[ -d "${DST_NGINX_SOURCES_ROOT}" ]] || fail "vhost sources path is not a directory: ${DST_NGINX_SOURCES_ROOT}"
+
+    local owner mode
+    owner="$(stat -c '%u:%g' "${DST_NGINX_SOURCES_ROOT}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "vhost sources directory has wrong ownership: ${DST_NGINX_SOURCES_ROOT} is ${owner}, expected ${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}"
+
+    mode="$(stat -c '%a' "${DST_NGINX_SOURCES_ROOT}")"
+    (( (8#${mode} & 8#022) == 0 )) \
+        || fail "vhost sources directory must not be group- or other-writable: ${DST_NGINX_SOURCES_ROOT} (mode ${mode})"
+}
+
+# The installed prerequisite installer answers --help; every other mode of it
+# needs root and a real filesystem, which is Prepare Host's business, so the
+# --help probe is the one thing an installer verification can honestly prove.
+verify_target_prerequisites_help() {
+    no_overrides_env "${DST_TARGET_PREREQUISITES}" --help >/dev/null \
+        || fail "installed install-target-prerequisites --help failed"
+    log "install-target-prerequisites --help: OK"
+}
+
 verify_installed_files() {
     log "verifying installed files"
 
@@ -951,9 +1059,15 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_RESTORE_STORAGE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_STORAGE}"
     verify_installed_regular_file "${DST_RESTORE_TARGET}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_TARGET}"
     verify_installed_regular_file "${DST_RECOVER_HOST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RECOVER_HOST}"
+    verify_installed_regular_file "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_TARGET_PREREQUISITES}"
     verify_installed_regular_file "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_REQUIRED_CLIS}"
     verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
-    log "  ownership, mode and content: OK for all twenty-three files"
+    verify_nginx_sources_root
+    verify_installed_regular_file "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_STAGING}"
+    verify_installed_regular_file "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_PRODUCTION}"
+    verify_installed_regular_file "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILPIT}"
+    verify_installed_regular_file "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILTRAP}"
+    log "  ownership, mode and content: OK for all twenty-eight files"
 
     # common and restore-common are sourced libraries, never CLIs —
     # verify_installed_regular_file already proved their mode is exactly
@@ -968,10 +1082,10 @@ verify_installed_files() {
     log "  common and restore-common are not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all twenty-one installed scripts"
+    log "  bash -n: OK for all twenty-two installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -1381,6 +1495,7 @@ verify_runtime_parity() {
     verify_backup_cycle_planned_target_rejected
     verify_restore_primitive_help
     verify_restore_primitive_planned_target_rejected
+    verify_target_prerequisites_help
     verify_required_clis_help
     log "runtime parity verification passed"
 }
@@ -1629,6 +1744,7 @@ perform_apply() {
     ROLLBACK_RESTORE=()
     ROLLBACK_REMOVE=()
     APPLY_COMMITTED=false
+    CREATED_NGINX_SOURCES_ROOT=false
 
     log "mode: apply"
 
@@ -1668,8 +1784,13 @@ perform_apply() {
     install -m 0700 "${SRC_RESTORE_STORAGE}" "${STAGE_DIR}/restore-storage"
     install -m 0700 "${SRC_RESTORE_TARGET}" "${STAGE_DIR}/restore-target"
     install -m 0700 "${SRC_RECOVER_HOST}" "${STAGE_DIR}/recover-host"
+    install -m 0700 "${SRC_TARGET_PREREQUISITES}" "${STAGE_DIR}/install-target-prerequisites"
     install -m 0700 "${SRC_VERIFY_REQUIRED_CLIS}" "${STAGE_DIR}/verify-required-clis"
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
+    install -m 0600 "${SRC_NGINX_SOURCE_STAGING}" "${STAGE_DIR}/nginx-rateguru-staging"
+    install -m 0600 "${SRC_NGINX_SOURCE_PRODUCTION}" "${STAGE_DIR}/nginx-rateguru-production"
+    install -m 0600 "${SRC_NGINX_SOURCE_MAILPIT}" "${STAGE_DIR}/nginx-mailpit-staging"
+    install -m 0600 "${SRC_NGINX_SOURCE_MAILTRAP}" "${STAGE_DIR}/nginx-mailtrap-local-staging"
 
     verify_staged_candidates "${STAGE_DIR}"
 
@@ -1709,6 +1830,14 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/restore-storage" "${DST_RESTORE_STORAGE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/restore-target" "${DST_RESTORE_TARGET}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/recover-host" "${DST_RECOVER_HOST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    # The vhost sources before the prerequisite installer that parses them,
+    # inside the one directory this installer creates for them.
+    ensure_nginx_sources_root
+    install_regular_file_transactional "${STAGE_DIR}/nginx-rateguru-staging" "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/nginx-rateguru-production" "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/nginx-mailpit-staging" "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/nginx-mailtrap-local-staging" "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/install-target-prerequisites" "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-required-clis" "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
 
@@ -1723,7 +1852,8 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_VERIFY_REQUIRED_CLIS}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_VERIFY_REQUIRED_CLIS}"
+    log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
@@ -1835,6 +1965,9 @@ perform_verify() {
 
     log "--- restore primitive planned-target rejection ---"
     verify_restore_primitive_planned_target_rejected
+
+    log "--- install-target-prerequisites help ---"
+    verify_target_prerequisites_help
 
     log "--- verify-required-clis help ---"
     verify_required_clis_help

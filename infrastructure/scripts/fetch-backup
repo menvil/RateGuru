@@ -246,8 +246,15 @@ stage_local_backup() {
 
     log "staging local backup ${BACKUP_ID} from ${source_dir}"
 
+    # The manifest decides which closed file set this backup must carry —
+    # seven files for schema 1 and 2, eight for schema 3 — and it is proven to
+    # be a plain regular file before it is read. Its content is only ever a
+    # schema number here, never a path or a name.
+    restore_select_backup_file_set "${source_dir}"
+    log "  backup schema: ${RESTORE_BACKUP_SCHEMA} (${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]} files)"
+
     local name
-    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+    for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
         restore_assert_backup_regular_file "${source_dir}" "${name}"
     done
 
@@ -256,7 +263,7 @@ stage_local_backup() {
     # retention pass), copy otherwise. Never a symlink: a symlinked stage
     # would break the moment the source disappears, which is precisely the
     # scenario this staging exists to survive.
-    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+    for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
         if ln "${source_dir}/${name}" "${SELECTED_BACKUP_DIR}/${name}" 2>/dev/null; then
             continue
         fi
@@ -305,8 +312,14 @@ stage_offsite_backup() {
         --stats 10s \
         || fail "could not download backup ${BACKUP_ID} from the offsite remote"
 
+    # Everything downloaded is untrusted until proven: the manifest is proven
+    # to be a plain regular file and classified first, which decides the
+    # closed set the rest of the download is held to.
+    restore_select_backup_file_set "${SELECTED_BACKUP_DIR}"
+    log "  backup schema: ${RESTORE_BACKUP_SCHEMA} (${#RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]} files)"
+
     local name
-    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+    for name in "${RESTORE_BACKUP_EXPECTED_REQUIRED_FILES[@]}"; do
         restore_assert_backup_regular_file "${SELECTED_BACKUP_DIR}" "${name}"
         chmod 0600 "${SELECTED_BACKUP_DIR}/${name}"
     done
@@ -375,21 +388,17 @@ perform_fetch() {
         offsite) stage_offsite_backup ;;
     esac
 
-    # Nothing but the seven backup files may exist in the staged directory: a
-    # remote (or a source directory) carrying an extra object must not have it
-    # silently staged alongside the backup and later mistaken for part of it.
-    local staged_count
-    staged_count="$(find "${SELECTED_BACKUP_DIR}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
-    staged_count="${staged_count//[[:space:]]/}"
-
-    [[ "${staged_count}" == "${#RESTORE_BACKUP_REQUIRED_FILES[@]}" ]] \
-        || fail "staged backup directory holds ${staged_count} entries, expected exactly ${#RESTORE_BACKUP_REQUIRED_FILES[@]}"
-
+    # Nothing but the backup's own closed file set may exist in the staged
+    # directory — seven files for a schema 1 or 2 backup, eight for schema 3.
+    # A remote (or a source directory) carrying an extra object must not have
+    # it silently staged alongside the backup and later mistaken for part of
+    # it; a backup missing one of its files is incomplete.
     restore_assert_backup_file_set "${SELECTED_BACKUP_DIR}"
 
     log ""
     log "${LABEL} backup staged"
     log "  source:     ${SOURCE_KIND}"
+    log "  schema:     ${RESTORE_BACKUP_SCHEMA}"
     log "  backup:     ${BACKUP_ID}"
     log "  namespace:  ${BACKUP_NAMESPACE}"
     log "  staged from: ${STAGED_FROM}"

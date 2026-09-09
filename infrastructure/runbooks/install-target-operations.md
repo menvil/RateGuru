@@ -16,12 +16,16 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly twenty-two files:
+Exactly twenty-eight files:
 
 | Source (this repo) | Destination |
 |---|---|
 | `infrastructure/config/deployment-targets.json` | `/home/www/rateguru/config/deployment-targets.json` |
 | `infrastructure/templates/deployment.conf.example` | `/home/www/rateguru/config/deployment.conf` |
+| `infrastructure/config/nginx/rateguru-staging` | `/home/www/rateguru/config/nginx/rateguru-staging` |
+| `infrastructure/config/nginx/rateguru-production` | `/home/www/rateguru/config/nginx/rateguru-production` |
+| `infrastructure/config/nginx/mailpit-staging` | `/home/www/rateguru/config/nginx/mailpit-staging` |
+| `infrastructure/config/nginx/mailtrap-local-staging` | `/home/www/rateguru/config/nginx/mailtrap-local-staging` |
 | `infrastructure/scripts/targets` | `/home/www/rateguru/bin/targets` |
 | `infrastructure/scripts/common` | `/home/www/rateguru/bin/common` |
 | `infrastructure/scripts/health-check` | `/home/www/rateguru/bin/health-check` |
@@ -41,14 +45,29 @@ Exactly twenty-two files:
 | `infrastructure/scripts/restore-database` | `/home/www/rateguru/bin/restore-database` |
 | `infrastructure/scripts/restore-storage` | `/home/www/rateguru/bin/restore-storage` |
 | `infrastructure/scripts/restore-target` | `/home/www/rateguru/bin/restore-target` |
+| `infrastructure/scripts/recover-host` | `/home/www/rateguru/bin/recover-host` |
+| `infrastructure/scripts/install-target-prerequisites` | `/home/www/rateguru/bin/install-target-prerequisites` |
 | `infrastructure/scripts/verify-required-clis` | `/home/www/rateguru/bin/verify-required-clis` |
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these twenty-two files in these
-twenty-two places with these exact permissions. Nothing else. It never sources or
+installer's entire job is putting these twenty-eight files in these
+twenty-eight places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
+
+The four committed Nginx vhost sources are installed as **data**
+(`root:root`, `0644`, under `/home/www/rateguru/config/nginx/`, a directory the
+installer creates root-owned `0755` when it is absent and removes again on
+rollback if it created it) beside the external-material installer,
+`install-target-prerequisites`, for one reason: the installer derives the
+target's host-scope prerequisite table from those vhosts, and on a live host
+`backup` captures the recovery material through `--capture`, while
+`restore-test` and `verify-backup` judge a backup's recovery material through
+`--validate-recovery-material` — all against the same committed sources the
+host was prepared from, never a copy of the list. The installed vhost sources
+are never applied to Nginx by this bundle; `install-bootstrap-services` owns
+`/etc/nginx`.
 
 **`verify-required-clis` is a deployment prerequisite, not a convenience.**
 `deploy` invokes `/home/www/rateguru/bin/verify-required-clis` by absolute
@@ -71,7 +90,7 @@ check.
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the twenty-two files inside them. `--apply` validates both directories before
+the twenty-eight files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -137,9 +156,10 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the twenty-two source files (exist, regular, not a symlink), runs
-`bash -n` on the twenty shell scripts (every source file except the
-registry and `deployment.conf`, neither of which is shell), confirms `jq`
+Validates the twenty-eight source files (exist, regular, not a symlink), runs
+`bash -n` on the twenty-two shell scripts (every source file except the
+registry, `deployment.conf` and the four Nginx vhost sources, none of which
+is shell), confirms `jq`
 can parse the registry, runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
 as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms
@@ -178,7 +198,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-5. The twenty-two source files are copied into a private, root-only temporary
+5. The twenty-eight source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -211,6 +231,9 @@ sudo infrastructure/scripts/install-target-operations --apply
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
    `offsite-restore-test`, `backup-cycle`, `restore-common`, `fetch-backup`,
    `verify-backup`, `restore-database`, `restore-storage`, `restore-target`,
+   `recover-host`, the four Nginx vhost sources (into `config/nginx/`, which
+   is created root-owned `0755` first when absent), then
+   `install-target-prerequisites` (which reads those sources), then
    `verify-required-clis`, then `deployment.conf` last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
@@ -284,10 +307,11 @@ line — `--verify` never claims success after a step it didn't actually pass.
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
 | `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
-| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
+| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `recover-host`, `install-target-prerequisites`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
+| `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — read by the installed `install-target-prerequisites`, never applied to Nginx |
 
-None of the twenty-two may be group- or world-writable, and none may be a
+None of the twenty-eight may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -351,7 +375,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the twenty-two destinations that need restoring. Confirm with:
+Repeat for each of the twenty-eight destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify

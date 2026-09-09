@@ -45,6 +45,35 @@
 #             absent. Everything already present is left byte-for-byte alone.
 #   --verify  Read-only: every prerequisite in scope is present as a regular
 #             file at its canonical destination.
+#   --list-material-names
+#             Read-only: the logical names in scope, one per line, and nothing
+#             else — the vocabulary a backup's recovery material is written in
+#             and checked against.
+#   --capture Read-only against the host: copy every host-scope prerequisite,
+#             as it is on this host and after the same safety checks --verify
+#             applies, into a root-only directory under its LOGICAL name. This
+#             is how `backup` gives a backup the material a clean-host
+#             recovery needs, without a second table ever describing it.
+#   --validate-recovery-material
+#             Read-only: judge a recovery-material archive before anything
+#             extracts it — exactly the host-scope logical names, as top-level
+#             regular files, and nothing else.
+#
+# THE SAME TABLE SERVES ALL SIX. The prerequisite table below is built once,
+# from the registry and the committed vhosts, and every mode reads it. That is
+# the whole point of putting capture and validation here rather than beside
+# `backup`: a backup can never be captured in a vocabulary the installer would
+# not recognise, and an archive can never be blessed against a list the
+# installer would not install from.
+#
+# THE INSTALLED COPY. Preparation runs this script from the trusted repository
+# checkout on a clean host; capture and validation run it from the installed
+# operational bundle on a live host, where a nightly backup and a restore test
+# have no checkout to reach for. install-target-operations installs it beside
+# the registry and the committed vhost sources under /home/www/rateguru, in the
+# same relative layout the checkout has — `../config` from this script's own
+# directory — so one script, resolving one configuration directory, serves
+# both places.
 #
 # THE SAFE-EXISTING-FILE CONTRACT. Prepare Host is a button an operator can
 # press by accident on a live host, so the rules are deliberately blunt:
@@ -102,6 +131,19 @@ gated_default() {
 }
 
 REPO_ROOT="$(gated_default RATEGURU_TARGETPREREQ_REPO_ROOT "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)")"
+
+# The configuration directory beside this script: infrastructure/config in a
+# repository checkout, /home/www/rateguru/config in the installed operational
+# bundle. Both sit at exactly `../config` from the script's own directory, so
+# no layout switch exists to get wrong. A test pointing RATEGURU_TARGETPREREQ_
+# REPO_ROOT at a scratch checkout gets that checkout's own config directory.
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGETPREREQ_REPO_ROOT:-}" ]]; then
+    CONFIG_DIR="${REPO_ROOT}/infrastructure/config"
+else
+    CONFIG_DIR="$(cd -- "${SCRIPT_DIR}/../config" >/dev/null 2>&1 && pwd -P)" \
+        || CONFIG_DIR="${SCRIPT_DIR}/../config"
+fi
+
 EFFECTIVE_EUID="$(gated_default RATEGURU_TARGETPREREQ_EUID "${EUID}")"
 FS_ROOT="$(gated_default RATEGURU_TARGETPREREQ_FS_ROOT '')"
 INSTALL_BIN="$(gated_default RATEGURU_TARGETPREREQ_INSTALL_BIN install)"
@@ -113,8 +155,11 @@ TARGETS_CLI_BIN="$(gated_default RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN "${SCRIPT
 # which is exclusively a scratch test tree. Production always leaves this true.
 ENFORCE_OWNERSHIP="$(gated_default RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP true)"
 
-SOURCE_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
-SRC_NGINX_DIR="${REPO_ROOT}/infrastructure/config/nginx"
+# The committed registry (infrastructure/config/deployment-targets.json in a
+# checkout) and the committed vhost sources, resolved through CONFIG_DIR so the
+# installed bundle's copies are found by the identical path.
+SOURCE_REGISTRY="${CONFIG_DIR}/deployment-targets.json"
+SRC_NGINX_DIR="${CONFIG_DIR}/nginx"
 
 # The same two shared mail-capture vhosts install-bootstrap-services validates
 # external prerequisites for. Listed rather than globbed, for exactly the
@@ -125,7 +170,7 @@ SRC_MAIL_NGINX_SOURCES=(
     "${SRC_NGINX_DIR}/mailtrap-local-staging"
 )
 
-REQUIRED_TOOLS=(jq awk cmp grep sed basename dirname mktemp mv rm)
+REQUIRED_TOOLS=(jq awk cmp grep sed basename dirname mktemp mv rm tar find sort)
 
 log() {
     printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -152,6 +197,10 @@ MATERIAL_DIR=""
 MATERIAL_DIR_SEEN=false
 SCOPE="all"
 SCOPE_SEEN=false
+OUTPUT_DIR=""
+OUTPUT_DIR_SEEN=false
+ARCHIVE=""
+ARCHIVE_SEEN=false
 
 usage() {
     cat <<'USAGE'
@@ -159,6 +208,9 @@ Usage:
   install-target-prerequisites --check  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
   install-target-prerequisites --apply  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
   install-target-prerequisites --verify --target TARGET_ID [--scope SCOPE]
+  install-target-prerequisites --list-material-names --target TARGET_ID [--scope SCOPE]
+  install-target-prerequisites --capture --target TARGET_ID --scope host --output-dir DIR
+  install-target-prerequisites --validate-recovery-material --target TARGET_ID --scope host --archive FILE
 
 All modes require root and a lifecycle=active target.
 
@@ -171,16 +223,22 @@ All modes require root and a lifecycle=active target.
   --material-dir  Root-owned 0700 directory holding operator-supplied material,
                   one file per logical prerequisite name. Read only; never
                   modified, and never left behind by this script.
+  --output-dir    --capture only: an existing, EMPTY, root-owned 0700 directory
+                  that receives one file per host-scope logical name.
+  --archive       --validate-recovery-material only: the recovery-material
+                  archive to judge. Read only; never extracted.
 
 Installs only what is absent. Never overwrites, rotates or deletes existing
-material, and never generates any.
+material, and never generates any. --list-material-names prints logical names
+only; --capture and --validate-recovery-material never print, log, hash or
+measure the content of any material.
 USAGE
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify)
+            --check|--apply|--verify|--list-material-names|--capture|--validate-recovery-material)
                 if [[ "${MODE_SEEN}" == true ]]; then
                     usage >&2
                     fail "mode given more than once"
@@ -189,6 +247,28 @@ parse_args() {
                 MODE="${1#--}"
                 MODE_SEEN=true
                 shift
+                ;;
+            --output-dir)
+                if [[ "${OUTPUT_DIR_SEEN}" == true ]]; then
+                    fail "--output-dir given more than once"
+                fi
+
+                require_value "--output-dir" "$#" "${2-}"
+
+                OUTPUT_DIR="$2"
+                OUTPUT_DIR_SEEN=true
+                shift 2
+                ;;
+            --archive)
+                if [[ "${ARCHIVE_SEEN}" == true ]]; then
+                    fail "--archive given more than once"
+                fi
+
+                require_value "--archive" "$#" "${2-}"
+
+                ARCHIVE="$2"
+                ARCHIVE_SEEN=true
+                shift 2
                 ;;
             --target)
                 if [[ "${TARGET_SEEN}" == true ]]; then
@@ -240,7 +320,7 @@ parse_args() {
 
     if [[ "${MODE_SEEN}" != true ]]; then
         usage >&2
-        fail "one of --check, --apply or --verify is required"
+        fail "one of --check, --apply, --verify, --list-material-names, --capture or --validate-recovery-material is required"
     fi
 
     if [[ "${TARGET_SEEN}" != true ]]; then
@@ -250,6 +330,37 @@ parse_args() {
 
     if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
         fail "--verify never consults supplied material; it inspects the canonical destinations only"
+    fi
+
+    case "${MODE}" in
+        list-material-names|capture|validate-recovery-material)
+            [[ "${MATERIAL_DIR_SEEN}" != true ]] \
+                || fail "--${MODE} never consults supplied material"
+            ;;
+    esac
+
+    # The two recovery-material modes are host-scope by construction. The
+    # environment file is a backup member of its own, and the deploy key and
+    # the rclone configuration are seed material a recovery supplies from
+    # GitHub; none of them is ever captured into, or expected from, a recovery
+    # archive, so a target or all scope here is a misunderstanding to refuse.
+    case "${MODE}" in
+        capture|validate-recovery-material)
+            [[ "${SCOPE}" == host ]] \
+                || fail "--${MODE} is host-scope only (--scope host): the recovery material a backup carries is the host-scope external material, never the environment file, the deploy key or the rclone configuration"
+            ;;
+    esac
+
+    if [[ "${MODE}" == capture ]]; then
+        [[ "${OUTPUT_DIR_SEEN}" == true ]] || fail "--capture requires --output-dir"
+    elif [[ "${OUTPUT_DIR_SEEN}" == true ]]; then
+        fail "--output-dir is only valid with --capture"
+    fi
+
+    if [[ "${MODE}" == validate-recovery-material ]]; then
+        [[ "${ARCHIVE_SEEN}" == true ]] || fail "--validate-recovery-material requires --archive"
+    elif [[ "${ARCHIVE_SEEN}" == true ]]; then
+        fail "--archive is only valid with --validate-recovery-material"
     fi
 }
 
@@ -991,6 +1102,302 @@ run_verify() {
     verify_rows
 }
 
+# --- Recovery material -------------------------------------------------------------
+#
+# The three modes below are what let a backup carry, and a clean-host recovery
+# consume, the host-scope external material a target needs — TLS, Basic Auth,
+# the shared Nginx TLS material — without any of it being typed into GitHub or
+# copied off a working host by hand. They read the same table every other
+# mode reads. Nothing in them writes to a canonical destination.
+#
+# The archive vocabulary is LOGICAL NAMES ONLY. A backup never decides where a
+# file will be written: the archive names `tls-private-key`, and whichever
+# trusted installer consumes it decides the destination, owner and mode from
+# its own table — exactly as it does for material GitHub supplies. That is
+# what keeps a captured backup from being able to plant a file anywhere.
+
+# material_names_in_scope — the logical names the current scope holds, in
+# table order, one per line.
+material_names_in_scope() {
+    local row
+    while IFS= read -r row; do
+        [[ -n "${row}" ]] || continue
+        row="${row#*|}"
+        printf '%s\n' "${row%%|*}"
+    done < <(rows_in_scope)
+}
+
+run_list_material_names() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+
+    # Names only, to stdout, nothing else: callers parse this output.
+    material_names_in_scope
+}
+
+# validate_output_dir — the capture directory: absolute, a real directory,
+# root-owned, exactly 0700, and EMPTY. Material sitting in a directory anyone
+# else could read would already have leaked by the time it was captured, and a
+# directory holding something else could not be distinguished from a capture.
+# The output directory is a REAL filesystem path named by the caller (backup's
+# working directory), not a logical host-layout path: FS_ROOT relocates the
+# prerequisites' destinations, never where their capture lands.
+validate_output_dir() {
+    [[ "${OUTPUT_DIR}" == /* ]] \
+        || fail "--output-dir must be an absolute path: ${OUTPUT_DIR}"
+
+    local dir="${OUTPUT_DIR}"
+
+    [[ ! -L "${dir}" ]] || fail "--output-dir must not be a symlink: ${OUTPUT_DIR}"
+    [[ -d "${dir}" ]] || fail "--output-dir is not a directory: ${OUTPUT_DIR}"
+
+    local mode
+    mode="$("${STAT_BIN}" -c '%a' "${dir}")"
+
+    (( 8#${mode} == 8#700 )) \
+        || fail "--output-dir must be mode 0700 (is ${mode}): ${OUTPUT_DIR}"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        local owner
+        owner="$("${STAT_BIN}" -c '%u' "${dir}")"
+        [[ "${owner}" == "0" ]] \
+            || fail "--output-dir must be owned by root (uid ${owner}): ${OUTPUT_DIR}"
+    fi
+
+    [[ -z "$(find "${dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]] \
+        || fail "--output-dir must be empty: ${OUTPUT_DIR}"
+}
+
+# run_capture — every host-scope prerequisite is proven present and safe with
+# the identical checks --verify applies (the certbot link rule included), then
+# its CONTENT is copied under its logical name. A link on the host becomes a
+# plain regular file in the capture: the archive carries material, never a
+# pointer. Content is never read by this script, never hashed, never measured
+# and never printed; the only thing logged is the logical name.
+#
+# Fails closed on anything that is not a clean capture — an absent
+# prerequisite, a conflict, a disallowed link, drifted ownership or mode —
+# because a backup that silently lacked one of these would be a backup no
+# clean-host recovery could use, reported as a success.
+run_capture() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_output_dir
+
+    local row scope name destination owner group mode secret description
+    local dst out count=0
+    local -a captured=()
+
+    # Everything is judged before anything is copied, so a refusal leaves the
+    # output directory exactly as empty as it was found.
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        classify_row "${name}" "${destination}"
+
+        case "${CLASSIFY_STATE}" in
+            PRESENT|CONVERGED)
+                ;;
+            MISSING)
+                fail "external prerequisite ${name} cannot be captured: ${CLASSIFY_REASON} — a backup without it could not seed a clean-host recovery, so no backup is written"
+                ;;
+            *)
+                fail "external prerequisite ${name} cannot be captured: ${CLASSIFY_REASON}"
+                ;;
+        esac
+
+        verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+    done < <(rows_in_scope)
+
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        dst="$(physical "${destination}")"
+        out="${OUTPUT_DIR}/${name}"
+
+        [[ ! -e "${out}" ]] && [[ ! -L "${out}" ]] \
+            || fail "refusing to overwrite ${OUTPUT_DIR}/${name}: it appeared after the output directory was checked"
+
+        # `install` opens the source and writes its bytes: a certbot link is
+        # dereferenced and the capture is a regular file, staged 0600 from the
+        # first byte.
+        "${INSTALL_BIN}" -m 0600 -- "${dst}" "${out}" \
+            || fail "could not capture ${name} into ${OUTPUT_DIR}"
+
+        if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+            "${CHOWN_BIN}" -- root:root "${out}" \
+                || fail "could not set ownership on the captured ${name}"
+        fi
+
+        "${CHMOD_BIN}" "=0600" "${out}" \
+            || fail "could not pin mode 0600 on the captured ${name}"
+
+        captured+=("${name}")
+        count=$((count + 1))
+
+        log "CAPTURED ${name} (from ${destination}; content never read, hashed or logged)"
+    done < <(rows_in_scope)
+
+    (( count > 0 )) \
+        || fail "no host-scope prerequisite was captured for ${TARGET_ID} — refusing to report an empty capture as recovery material"
+
+    log "captured ${count} host-scope prerequisites for ${TARGET_ID} into ${OUTPUT_DIR} (root-only, 0600 each): ${captured[*]}"
+}
+
+# --- Recovery material archive validation ---------------------------------------------
+#
+# `tar -tzf` alone proves an archive is readable; it proves nothing about what
+# extraction would create. This is the pre-extraction gate for
+# recovery-material.tar.gz, and it is stricter than the storage archive's,
+# because the vocabulary is closed: every entry must be a TOP-LEVEL REGULAR
+# FILE named exactly as one of this target's host-scope prerequisites, each
+# name must appear once, every name must appear, and nothing else may.
+#
+# Refused, each by its own diagnosis: an absolute path, a `..` or `.`
+# component, a nested path or a directory entry (any slash at all), a symlink,
+# a hard link, a device node, a FIFO, a socket, a duplicate, an unknown name,
+# a missing name, an empty archive, and an archive tar cannot read.
+#
+# Two independent passes, because they read different things:
+#   1. names, from `tar -tzf`   — where extraction would write
+#   2. types, from `tar -tvzf`  — what extraction would create
+#
+# Nothing is extracted, and nothing about any member's content is printed.
+run_validate_recovery_material() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+
+    [[ "${ARCHIVE}" == /* ]] \
+        || fail "--archive must be an absolute path: ${ARCHIVE}"
+
+    # A real filesystem path (a staged backup's member), never relocated
+    # under FS_ROOT: only the prerequisites' destinations live there.
+    local archive="${ARCHIVE}"
+
+    [[ -e "${archive}" ]] || fail "recovery material archive is missing: ${ARCHIVE}"
+    [[ ! -L "${archive}" ]] || fail "recovery material archive must not be a symlink: ${ARCHIVE}"
+    [[ -f "${archive}" ]] || fail "recovery material archive must be a regular file: ${ARCHIVE}"
+    [[ -r "${archive}" ]] || fail "recovery material archive is not readable: ${ARCHIVE}"
+
+    local -a expected=()
+    mapfile -t expected < <(material_names_in_scope)
+
+    (( ${#expected[@]} > 0 )) \
+        || fail "no host-scope prerequisite is defined for ${TARGET_ID} — refusing to judge an archive against an empty vocabulary"
+
+    local listing
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable (not a gzip tar, or truncated): ${ARCHIVE}"
+
+    [[ -n "${listing}" ]] || fail "recovery material archive is empty: ${ARCHIVE}"
+
+    local entry known found
+    local -a seen=()
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        # GNU tar escapes non-printable characters in a listing with
+        # backslashes; a logical name never contains one, so a backslash (or
+        # any control character surviving into the listing) is rejected rather
+        # than interpreted.
+        [[ "${entry}" != *\\* ]] \
+            || fail "recovery material archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "recovery material archive entry contains a control character"
+
+        [[ "${entry}" != /* ]] \
+            || fail "recovery material archive contains an absolute path: ${entry}"
+
+        [[ "${entry}" != "." ]] && [[ "${entry}" != ".." ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+
+        [[ "${entry}" != *..* ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+
+        # Logical names are single path components. A slash anywhere is a
+        # nested path or a directory entry, and neither has any business here.
+        [[ "${entry}" != */* ]] \
+            || fail "recovery material archive contains a nested path or a directory entry, where only top-level logical names are allowed: ${entry}"
+
+        found=false
+        for known in "${expected[@]}"; do
+            if [[ "${entry}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "recovery material archive contains a file that is not a host-scope prerequisite of ${TARGET_ID}: ${entry}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${entry}" ]] \
+                || fail "recovery material archive contains ${entry} more than once"
+        done
+
+        seen+=("${entry}")
+    done <<< "${listing}"
+
+    for known in "${expected[@]}"; do
+        found=false
+        for entry in "${seen[@]:-}"; do
+            if [[ "${entry}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "recovery material archive is missing the host-scope prerequisite ${known} of ${TARGET_ID} — a clean-host recovery could not be prepared from it"
+    done
+
+    local verbose line
+    verbose="$(tar -tvzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${ARCHIVE}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string: '-' regular, 'd' directory, 'l'
+        # symlink, 'h' hardlink, 'c'/'b' device, 'p' FIFO, 's' socket.
+        case "${line:0:1}" in
+            -)
+                ;;
+            d)
+                fail "recovery material archive contains a directory entry — only top-level regular files are allowed"
+                ;;
+            l)
+                fail "recovery material archive contains a symbolic link — refusing to extract as root"
+                ;;
+            h)
+                fail "recovery material archive contains a hard link — refusing to extract as root"
+                ;;
+            c|b)
+                fail "recovery material archive contains a device node — refusing to extract as root"
+                ;;
+            p)
+                fail "recovery material archive contains a FIFO — refusing to extract as root"
+                ;;
+            s)
+                fail "recovery material archive contains a socket — refusing to extract as root"
+                ;;
+            *)
+                fail "recovery material archive contains an entry of an unrecognized type: ${line}"
+                ;;
+        esac
+    done <<< "${verbose}"
+
+    # The last line is the machine-facing summary a caller may quote: names
+    # only, never content, digest or size.
+    log "recovery material archive is acceptable for ${TARGET_ID} (content never read)"
+    printf '%d host-scope files for %s: %s\n' "${#expected[@]}" "${TARGET_ID}" "${expected[*]}"
+}
+
 main() {
     parse_args "$@"
 
@@ -1001,9 +1408,12 @@ main() {
     local status=0
 
     case "${MODE}" in
-        check)  run_check || status=$? ;;
-        apply)  run_apply ;;
-        verify) run_verify ;;
+        check)                      run_check || status=$? ;;
+        apply)                      run_apply ;;
+        verify)                     run_verify ;;
+        list-material-names)        run_list_material_names ;;
+        capture)                    run_capture ;;
+        validate-recovery-material) run_validate_recovery_material ;;
     esac
 
     exit "${status}"

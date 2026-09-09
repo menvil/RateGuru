@@ -121,12 +121,20 @@ it('installs every new primitive through the existing target-operations installe
     // guard into a tax on every later addition — and the defect it exists to
     // catch is precisely "a file was added and the prose still says the old
     // number", which only a derived expectation can see.
-    $destinations = preg_match_all('/^DST_[A-Z_]+=/m', $installer, $ignored);
-    $installedFiles = $destinations - 2;   // DST_CONFIG_ROOT and DST_BIN_ROOT are roots
+    preg_match_all('/^(DST_[A-Z_]+)=/m', $installer, $destinations);
+
+    // The *_ROOT constants are directories the files compose under — the two
+    // fixed roots and the vhost-sources directory — not installed files.
+    $installedFiles = count(array_filter(
+        $destinations[1],
+        static fn (string $name): bool => ! str_ends_with($name, '_ROOT'),
+    ));
 
     $words = [
         20 => 'twenty', 21 => 'twenty-one', 22 => 'twenty-two',
         23 => 'twenty-three', 24 => 'twenty-four', 25 => 'twenty-five',
+        26 => 'twenty-six', 27 => 'twenty-seven', 28 => 'twenty-eight',
+        29 => 'twenty-nine', 30 => 'thirty',
     ];
 
     // toHaveKey's second argument is an expected VALUE, not a message.
@@ -137,9 +145,14 @@ it('installs every new primitive through the existing target-operations installe
         ->toContain($words[$installedFiles].' files')
         ->toContain('all '.$words[$installedFiles].' source files are present regular files');
 
-    // Two of those files are the sourced libraries, which are never `bash -n`'d
-    // as scripts alongside the registry and deployment.conf.
-    $scripts = $installedFiles - 2;
+    // The registry and deployment.conf are data, and so are the committed
+    // vhost sources; everything else — the two sourced libraries included —
+    // is `bash -n`'d as a shell script.
+    $nginxSources = count(array_filter(
+        $destinations[1],
+        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_'),
+    ));
+    $scripts = $installedFiles - 2 - $nginxSources;
 
     expect($installer)
         ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
@@ -284,18 +297,16 @@ it('adds no durable release-artifact archive and no artifact bucket', function (
     }
 });
 
-it('leaves the accepted backup subsystem and its manifest schema untouched', function () {
+it('leaves the host-global backup services untouched', function () {
     $changed = branchChangedCodeFiles();
 
+    // The cron entries and the Supervisor program are host-global services a
+    // restore holds aside and puts back; none of them is redefined.
+    //
     // toContain is variadic in Pest, so a second "message" argument is read as
     // another needle and the negation passes on any file — the diagnostic
     // belongs in a comment, not in the call.
     foreach ([
-        'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/offsite-restore-test',
-        'infrastructure/scripts/restore-test',
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
@@ -304,6 +315,47 @@ it('leaves the accepted backup subsystem and its manifest schema untouched', fun
     }
 })->skip(fn (): bool => branchBaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
+
+it('keeps the backup subsystem free of every restore concern', function () {
+    // The backup writers and testers read the shared format and the shared
+    // holds; none of them drives a restore primitive, reads a restore
+    // workspace or touches a guard. Asserted structurally, so it holds on
+    // every branch rather than only on the one that introduced them.
+    foreach ([
+        'infrastructure/scripts/backup-cycle',
+        'infrastructure/scripts/offsite-backup',
+        'infrastructure/scripts/offsite-retention',
+        'infrastructure/scripts/offsite-restore-test',
+        'infrastructure/scripts/restore-test',
+    ] as $script) {
+        $source = executableSourceLines(File::get(base_path($script)));
+
+        foreach ([
+            'restore-target',
+            'restore-database',
+            'restore-storage',
+            'fetch-backup',
+            'verify-backup',
+            'recover-host',
+            'restore-common',
+            'restore_guard_file',
+            'recovery_guard_file',
+            'write_restore_guard',
+            'clear_restore_guard',
+            'write_recovery_guard',
+            'clear_recovery_guard',
+            'selected-backup',
+            '/restores/',
+            '/recoveries/',
+        ] as $forbidden) {
+            // str_contains + toBeFalse: toContain is variadic, so a trailing
+            // diagnostic would become a second needle and the negation would
+            // pass on anything.
+            expect(str_contains($source, $forbidden))
+                ->toBeFalse(basename($script)." must not know {$forbidden}");
+        }
+    }
+});
 
 it('gives backup exactly one fail-closed guard, and no other data-operation awareness', function () {
     // The end state, asserted without a diff so it holds on every branch. A
@@ -340,35 +392,39 @@ it('gives backup exactly one fail-closed guard, and no other data-operation awar
     }
 });
 
-it('changes backup by nothing more than that guard', function () {
-    // The bounded-diff half, which only says anything when a branch actually
-    // touches the file. A later branch diffs clean here — and if one does touch
-    // backup, the guard line is the only code it may carry, whichever name that
-    // one gate currently has.
-    $diff = branchFileDiff('infrastructure/scripts/backup');
+it('lets backup know the restore side only through that guard', function () {
+    // The end state, asserted structurally so it holds on every branch:
+    // backup may call the combined operation-hold gate, and nothing of the
+    // restore library — no restore_ function, no RESTORE_ constant, no
+    // workspace path — may reach into it. What backup PRODUCES (the closed
+    // format, the recovery material) is stated in common and asserted by
+    // BackupTest; what it must never CONSUME is the restore side.
+    $backup = executableSourceLines(committedFile('infrastructure/scripts/backup'));
 
-    $guardCalls = [
-        'assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"',
-        'assert_no_operation_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"',
-    ];
+    expect(substr_count($backup, 'assert_no_operation_hold'))->toBe(1);
 
-    // Both halves are judged as code. The additions already were; the
-    // removals were not, which made this guard fire on a comment being
-    // reworded — a change that by definition cannot weaken backup.
-    expect(sourceCodeLines($diff['removed']))->toBeIn([[], [$guardCalls[0]]]);
-
-    $addedCode = sourceCodeLines($diff['added']);
-
-    expect($addedCode)->toBeIn([[], [$guardCalls[1]]]);
-})->skip(fn (): bool => branchBaseRevision() === null,
-    'requires the PR base SHA or an origin/develop reference');
+    expect($backup)
+        ->not->toMatch('/\brestore_[a-z_]+\b/')
+        ->not->toMatch('/\bRESTORE_[A-Z_]+\b/')
+        ->not->toContain('restore-common')
+        ->not->toContain('/restores/');
+});
 
 it('reads the existing backup format and defines no second one', function () {
     $library = File::get(base_path('infrastructure/scripts/restore-common'));
+    $common = File::get(base_path('infrastructure/scripts/common'));
 
-    // The exact seven files backup produces, named once, in the order backup
-    // itself writes them.
-    expect($library)->toContain("RESTORE_BACKUP_CHECKSUMMED_FILES=(\n    database.dump\n    storage-app.tar.gz\n    environment.env\n    release.json\n    server-configuration.tar.gz\n    manifest.json\n)");
+    // The closed file sets are stated once, in common, in the order backup
+    // itself writes them — and restore-common binds to those arrays rather
+    // than carrying a list of its own.
+    expect($common)
+        ->toContain("BACKUP_CHECKSUMMED_FILES_LEGACY=(\n    database.dump\n    storage-app.tar.gz\n    environment.env\n    release.json\n    server-configuration.tar.gz\n    manifest.json\n)")
+        ->toContain("BACKUP_CHECKSUMMED_FILES_SCHEMA3=(\n    database.dump\n    storage-app.tar.gz\n    environment.env\n    release.json\n    server-configuration.tar.gz\n    recovery-material.tar.gz\n    manifest.json\n)");
+
+    expect($library)
+        ->toContain('RESTORE_BACKUP_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}")')
+        ->toContain('RESTORE_BACKUP_SCHEMA3_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}")')
+        ->not->toMatch('/RESTORE_BACKUP(_SCHEMA3)?_CHECKSUMMED_FILES=\(\n/');
 
     // Manifest classification is the shared one from common, not a second
     // incompatible implementation.
@@ -426,7 +482,7 @@ it('never applies environment.env or server-configuration.tar.gz to a live targe
                 continue;
             }
 
-            foreach (['environment.env', 'server-configuration.tar.gz'] as $neverApplied) {
+            foreach (['environment.env', 'server-configuration.tar.gz', 'recovery-material.tar.gz'] as $neverApplied) {
                 if (! str_contains($trimmed, $neverApplied)) {
                     continue;
                 }
@@ -453,7 +509,7 @@ it('never applies environment.env or server-configuration.tar.gz to a live targe
     // storage archive — declared as a closed list.
     expect(File::get(base_path('infrastructure/scripts/restore-common')))
         ->toContain("RESTORE_APPLIED_FILES=(\n    database.dump\n    storage-app.tar.gz\n)")
-        ->toContain("RESTORE_NEVER_APPLIED_FILES=(\n    environment.env\n    server-configuration.tar.gz\n)");
+        ->toContain("RESTORE_NEVER_APPLIED_FILES=(\n    environment.env\n    server-configuration.tar.gz\n    recovery-material.tar.gz\n)");
 });
 
 it('never switches a release, and never touches the current or previous link', function () {
@@ -475,9 +531,11 @@ it('never switches a release, and never touches the current or previous link', f
 
 it('confines every restore concern in the shared library to its own sections', function () {
     // `common` is sourced by every operational script, so a change to it
-    // reaches deploy, rollback, cleanup and backup at once. Two phases have
-    // added to it — the guard, and the alignment authorization — and both
-    // additions must stay inside their own delimited sections rather than
+    // reaches deploy, rollback, cleanup and backup at once. Three concerns
+    // live in it behind delimiters — the backup format contract (the closed
+    // file sets, the manifest classifier and the shared manifest validator),
+    // the restore guard, and the alignment authorization — and a change to
+    // any of them must stay inside its own delimited section rather than
     // reaching into anything that was already there.
     $diff = branchFileDiff('infrastructure/scripts/common');
 
@@ -487,14 +545,20 @@ it('confines every restore concern in the shared library to its own sections', f
     // of dashes padded to a fixed width, so any edit to the words inside them
     // changes the full string — and a guard that silently stops finding its
     // own section does not fail, it just stops guarding.
+    $formatStart = mb_strpos($common, '# --- backup format contract (begin) ---');
+    $formatEnd = mb_strpos($common, '# --- backup format contract (end) ---');
     $guardStart = mb_strpos($common, '# --- restore guard');
     $alignmentStart = mb_strpos($common, '# --- restore alignment authorization');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
 
+    expect($formatStart)->not->toBeFalse('the backup format contract section is missing from common');
+    expect($formatEnd)->toBeGreaterThan($formatStart);
     expect($guardStart)->not->toBeFalse('the restore guard section is missing from common');
+    expect($guardStart)->toBeGreaterThan($formatEnd);
     expect($alignmentStart)->toBeGreaterThan($guardStart);
     expect($end)->toBeGreaterThan($alignmentStart);
 
+    $formatSection = mb_substr($common, $formatStart, $formatEnd - $formatStart);
     $restoreSections = mb_substr($common, $guardStart, $end - $guardStart);
 
     // Every line of CODE this branch added to common belongs to one of them.
@@ -502,13 +566,16 @@ it('confines every restore concern in the shared library to its own sections', f
     // and rewording a comment somewhere else in the file is not a restore
     // concern leaking out of its section.
     foreach (sourceCodeLines($diff['added']) as $line) {
-        expect($restoreSections)->toContain($line);
+        expect(str_contains($formatSection, $line) || str_contains($restoreSections, $line))
+            ->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
     }
 
     // And so does every line it removed — measured against the version it was
-    // removed from. A restore change may rewrite its OWN text (the alignment work had to: the
-    // hold refusal used to say controlled alignment did not exist yet), but it
-    // may never touch a line of anything that was already in common.
+    // removed from. A change may rewrite its OWN text (the alignment work had
+    // to: the hold refusal used to say controlled alignment did not exist yet;
+    // the backup format contract absorbed the classifier and the validator
+    // that preceded the registry block), but it may never touch a line of
+    // anything else that was already in common.
     $base = baseRevisionFile('infrastructure/scripts/common');
     $baseGuardStart = mb_strpos($base, '# --- restore guard');
     $baseEnd = mb_strpos($base, '# --- deployment target registry (end) ---');
@@ -521,8 +588,24 @@ it('confines every restore concern in the shared library to its own sections', f
     } elseif ($baseGuardStart !== false && $baseEnd !== false && $baseEnd > $baseGuardStart) {
         $baseSections = mb_substr($base, $baseGuardStart, $baseEnd - $baseGuardStart);
 
+        // The backup format contract's own base text: the delimited section
+        // where it exists, else the shared classifier and validator that
+        // preceded the registry block before the section did.
+        $baseFormatStart = mb_strpos($base, '# --- backup format contract (begin) ---');
+        $baseFormatEnd = mb_strpos($base, '# --- backup format contract (end) ---');
+
+        if ($baseFormatStart === false || $baseFormatEnd === false) {
+            $baseFormatStart = mb_strpos($base, "\nmanifest_schema_classify() {\n");
+            $baseFormatEnd = mb_strpos($base, '# --- deployment target registry (begin) ---');
+        }
+
+        $baseFormatSection = ($baseFormatStart !== false && $baseFormatEnd !== false && $baseFormatEnd > $baseFormatStart)
+            ? mb_substr($base, $baseFormatStart, $baseFormatEnd - $baseFormatStart)
+            : '';
+
         foreach (sourceCodeLines($diff['removed']) as $line) {
-            expect($baseSections)->toContain($line);
+            expect(str_contains($baseFormatSection, $line) || str_contains($baseSections, $line))
+                ->toBeTrue("a line of code was removed from common outside its delimited sections: {$line}");
         }
     } else {
         // A base predating the restore guard entirely: there is nothing of ours

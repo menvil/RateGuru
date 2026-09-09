@@ -347,6 +347,13 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
     // ([[ -f "${manifest_path}" ]] || fail ...), not just an empty one.
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
+    // A schema 3 backup carries its recovery material, checksummed in the
+    // position backup writes it — built from an explicit member map, raw
+    // bytes, or every host-scope name by default; omitted only on purpose.
+    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
+        $files[] = 'recovery-material.tar.gz';
+    }
+
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
         $files[] = 'manifest.json';
@@ -358,6 +365,16 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
         $lines[] = "{$hash}  {$file}";
     }
     file_put_contents($dir.'/SHA256SUMS', implode("\n", $lines)."\n");
+
+    // Strangers a test plants on purpose: an extra file beside the closed
+    // set, or an extra SHA256SUMS line naming something outside it.
+    foreach ($options['extra_files'] ?? [] as $name => $content) {
+        file_put_contents($dir.'/'.$name, $content);
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        file_put_contents($dir.'/SHA256SUMS', $extra."\n", FILE_APPEND);
+    }
 
     if (! empty($options['corrupt_checksum'])) {
         file_put_contents($dir.'/database.dump', "TAMPERED-AFTER-CHECKSUM\n");
@@ -454,7 +471,10 @@ function restoreTestOpsRunFullRestore(string $scratch, ?array $manifest, array $
 
     [$registryPath, $targetsPath] = restoreTestOpsParityRegistry($scratch, $namespace, $databaseName);
 
-    $env = restoreTestOpsBaseEnv($scratch, [
+    // The REAL external-material installer, pointed at a scratch checkout and
+    // a scratch host tree, so a schema 3 backup's recovery material is judged
+    // by the shipped prerequisite table and never by a stub's idea of it.
+    $env = restoreTestOpsBaseEnv($scratch, recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_BACKUP_BASE' => $backupBase,
         'RATEGURU_RUN_ROOT' => $runRoot,
         'RATEGURU_CREATEDB_BIN' => restoreTestOpsCreatedbStub($scratch),
@@ -1047,18 +1067,118 @@ it('accepts a manifest with a numeric manifest_schema_version of 2 as schema 2',
     }
 });
 
-it('rejects a numeric manifest_schema_version of 3 before creating the temporary database', function () {
+it('rejects a numeric manifest_schema_version beyond the current one before creating the temporary database', function (mixed $schemaVersion, string $expected) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = $schemaVersion;
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: '.$expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for an unsupported schema_version');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with([
+    'a future numeric schema' => [4, '4'],
+    'schema zero' => [0, '0'],
+    // The JSON string "3" is not the JSON number 3: type-first
+    // classification is what keeps a string from passing as a schema.
+    'a string that looks like 3' => ['3', '"3"'],
+]);
+
+it('accepts a schema 3 backup and proves its recovery material against the prerequisite table', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 3]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Recovery material: OK')
+            ->toContain('7 host-scope files for parity-target')
+            // Logical names are reported; the material's content never is.
+            ->not->toContain('material-tls-private-key-never-logged');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('refuses a schema 3 backup whose recovery material is missing, not checksummed, or structurally unsafe', function (array $options, string $expected) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for a backup that cannot seed a recovery');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with([
+    'the archive is missing' => [['omit_recovery_material' => true], 'backup is missing a required file: recovery-material.tar.gz'],
+    'the archive names a file outside the vocabulary' => [
+        ['recovery_material' => recoveryMaterialMembers() + ['laravel-env' => "APP_KEY=x\n"]],
+        'not a host-scope prerequisite',
+    ],
+    'the archive lacks a required name' => [
+        ['recovery_material' => array_diff_key(recoveryMaterialMembers(), ['tls-private-key' => true])],
+        'missing the host-scope prerequisite tls-private-key',
+    ],
+    'the archive is not a tar at all' => [['recovery_material_bytes' => "not a gzip archive\n"], 'unreadable'],
+]);
+
+it('refuses a backup that carries anything beyond its closed file set, before the temporary database exists', function (array $options, string $expected) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 3] + $options);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with([
+    'a stray file beside the set' => [
+        ['extra_files' => ['stray-object.bin' => "not part of any backup\n"]],
+        'backup directory holds an entry that is not part of a schema3 backup: stray-object.bin',
+    ],
+    'a SHA256SUMS entry pointing outside the set' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  ../../etc/shadow']],
+        'SHA256SUMS references a file that is not part of a RateGuru backup: ../../etc/shadow',
+    ],
+    'a SHA256SUMS entry naming a backup file twice' => [
+        ['extra_sha_lines' => [str_repeat('a', 64).'  database.dump']],
+        'SHA256SUMS references database.dump more than once',
+    ],
+]);
+
+it('refuses a schema 3 manifest that names no target', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
         $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
         $manifest['manifest_schema_version'] = 3;
 
-        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 3]);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
-        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for an unsupported schema_version');
+        expect($result['output'])->toContain('a schema 3 manifest always names its target');
     } finally {
         restoreTestOpsCleanup($scratch);
     }

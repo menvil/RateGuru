@@ -30,6 +30,19 @@ description: >-
 # checked out, and every caller checks out `develop`. Preparation tooling is
 # operational code that must not depend on — or be selectable by — an
 # application ref.
+#
+# RECOVERY PREPARATION. With `recovery-backup` set, this is the preparation a
+# clean-host recovery runs, and the material contract inverts: nothing
+# target-specific is supplied from GitHub. Only two SEED files may be given —
+# `rclone-config`, the recovery offsite credential the replacement machine
+# reads the backup through, and `deploy-authorized-keys`, the deploy PUBLIC
+# key the calling workflow derives on the runner — and every other material
+# input must be empty. The target's environment file and its host-scope
+# material (TLS, Basic Auth, the shared Nginx TLS material) are taken out of
+# the named schema 3 backup itself, on the host, by the server-side
+# prepare-host through fetch-recovery-material. Supplying them here is refused
+# rather than ignored: a recovery that could take its environment from a hand
+# is a recovery that could restore data under the wrong one.
 
 inputs:
   deployment-target:
@@ -138,6 +151,20 @@ inputs:
     default: ""
     description: TLS private key for the shared mail-capture vhosts
 
+  # --- Recovery preparation --------------------------------------------------
+
+  recovery-backup:
+    required: false
+    default: ""
+    description: >-
+      Exact offsite backup timestamp (YYYYMMDD-HHMMSS) a clean-host recovery
+      is preparing this machine for. When set, the environment file and every
+      host-scope prerequisite come from that backup on the server, the only
+      material inputs that may be given are rclone-config and
+      deploy-authorized-keys (both required), and the server places the
+      host-global offsite-write hold before the offsite credential is
+      installed. Empty for an ordinary preparation.
+
 outputs:
   prepared:
     description: "true when prepare-host --verify confirmed the target is prepared"
@@ -212,6 +239,60 @@ runs:
           echo "Host preparation deliberately refuses to fall back to the deployment key: that key is restricted to the deploy wrappers and cannot bootstrap a host." >&2
           exit 1
         fi
+
+    # A recovery preparation takes the target's material from the backup and
+    # accepts exactly two seed files. Judged on presence only — whether each
+    # material input is empty or not — so no secret value is ever read here.
+    - name: Validate the recovery preparation contract
+      shell: bash
+      env:
+        RECOVERY_BACKUP: ${{ inputs.recovery-backup }}
+        SEED_RCLONE_CONFIG_PRESENT: ${{ inputs.rclone-config != '' }}
+        SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT: ${{ inputs.deploy-authorized-keys != '' }}
+        LARAVEL_ENV_PRESENT: ${{ inputs.laravel-env != '' }}
+        BASIC_AUTH_PRESENT: ${{ inputs.basic-auth != '' }}
+        TLS_CERTIFICATE_PRESENT: ${{ inputs.tls-certificate != '' }}
+        TLS_PRIVATE_KEY_PRESENT: ${{ inputs.tls-private-key != '' }}
+        TLS_DHPARAMS_PRESENT: ${{ inputs.tls-dhparams != '' }}
+        NGINX_TLS_OPTIONS_PRESENT: ${{ inputs.nginx-tls-options != '' }}
+        MAIL_TLS_CERTIFICATE_PRESENT: ${{ inputs.mail-tls-certificate != '' }}
+        MAIL_TLS_PRIVATE_KEY_PRESENT: ${{ inputs.mail-tls-private-key != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RECOVERY_BACKUP}" ]]; then
+          echo "Ordinary preparation: material comes from the supplied inputs, and the offsite writers are left as they are."
+          exit 0
+        fi
+
+        # An exact backup, always. There is no "latest" anywhere in the
+        # recovery pipeline; the server proves the ID is a real timestamp and
+        # that the backup exists and is recovery-capable.
+        if [[ ! "${RECOVERY_BACKUP}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+          echo "recovery-backup must be an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${RECOVERY_BACKUP})" >&2
+          exit 1
+        fi
+
+        if [[ "${SEED_RCLONE_CONFIG_PRESENT}" != "true" ]] \
+          || [[ "${SEED_DEPLOY_AUTHORIZED_KEYS_PRESENT}" != "true" ]]
+        then
+          echo "A recovery preparation requires both seed inputs: rclone-config (the recovery offsite credential) and deploy-authorized-keys (the deploy public key derived on the runner)." >&2
+          exit 1
+        fi
+
+        # Each pair names the presence variable and the action input an
+        # operator would have to omit, so the refusal names the exact input.
+        for pair in LARAVEL_ENV:laravel-env BASIC_AUTH:basic-auth TLS_CERTIFICATE:tls-certificate TLS_PRIVATE_KEY:tls-private-key TLS_DHPARAMS:tls-dhparams NGINX_TLS_OPTIONS:nginx-tls-options MAIL_TLS_CERTIFICATE:mail-tls-certificate MAIL_TLS_PRIVATE_KEY:mail-tls-private-key; do
+          present="${pair%%:*}_PRESENT"
+          input="${pair#*:}"
+
+          if [[ "${!present}" == "true" ]]; then
+            echo "A recovery preparation takes the target's environment file and host-scope material out of backup ${RECOVERY_BACKUP} itself; ${input} must not be supplied. Nothing was staged." >&2
+            exit 1
+          fi
+        done
+
+        echo "Recovery preparation from offsite backup ${RECOVERY_BACKUP}: seed material only (rclone-config, deploy-authorized-keys); everything else comes from the backup on the host."
 
     - name: Configure bootstrap SSH
       shell: bash
@@ -516,6 +597,7 @@ runs:
         BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
         BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        RECOVERY_BACKUP: ${{ inputs.recovery-backup }}
       run: |
         set -Eeuo pipefail
 
@@ -529,6 +611,13 @@ runs:
           --target "${DEPLOYMENT_TARGET}"
           --material-dir "${RATEGURU_REMOTE_ROOT}/material"
         )
+
+        # Recovery preparation: the material directory is the seed, and the
+        # server fetches everything else from this exact backup. Validated
+        # above as an exact timestamp; the server decides whether it exists.
+        if [[ -n "${RECOVERY_BACKUP}" ]]; then
+          remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
+        fi
 
         ssh \
           -p "${BOOTSTRAP_PORT}" \
@@ -553,6 +642,7 @@ runs:
         BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
         ENVIRONMENT: ${{ inputs.environment }}
+        RECOVERY_BACKUP: ${{ inputs.recovery-backup }}
       run: |
         set -Eeuo pipefail
 
@@ -565,6 +655,15 @@ runs:
           --verify
           --target "${DEPLOYMENT_TARGET}"
         )
+
+        # A recovery preparation is verified AS one: the read-only verification
+        # then also requires the offsite-write hold the apply placed, naming
+        # this target and this backup, so this step can never report
+        # "prepared" about a replacement machine whose offsite writers are not
+        # fenced — whatever happened between the apply and now.
+        if [[ -n "${RECOVERY_BACKUP}" ]]; then
+          remote_command+=(--recovery-backup "${RECOVERY_BACKUP}")
+        fi
 
         verification_output="$(
           ssh \
@@ -591,6 +690,11 @@ runs:
           echo
           echo "- Target: \`${DEPLOYMENT_TARGET}\`"
           echo "- Environment: \`${ENVIRONMENT}\`"
+
+          if [[ -n "${RECOVERY_BACKUP}" ]]; then
+            echo "- Recovery preparation from offsite backup: \`${RECOVERY_BACKUP}\` (environment file and host-scope material taken from the backup; offsite writes held on the host)"
+          fi
+
           echo
           echo '```text'
           awk '/^SUMMARY$/ { collecting = 1 } collecting { print }' <<<"${verification_output}"

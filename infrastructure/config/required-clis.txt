@@ -5,6 +5,7 @@ bootstrap-host-preflight
 cleanup
 deploy
 fetch-backup
+fetch-recovery-material
 health-check
 install-bootstrap-host-layout
 install-bootstrap-runtime

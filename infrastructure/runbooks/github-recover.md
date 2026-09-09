@@ -240,40 +240,81 @@ the Nightwatch marker use `DEPLOY_SSH_KEY` and never the privileged one.
 
 | operation | credential | address | host key |
 |---|---|---|---|
-| Prepare Host | `RECOVERY_BOOTSTRAP_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
+| derive the deploy public key | `DEPLOY_SSH_KEY` | none — runner only | none |
+| Prepare Host, from the backup | `RECOVERY_BOOTSTRAP_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
 | `recover-host --apply` / `--inspect` / `--resume` / `--verify` | `RECOVERY_BOOTSTRAP_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
 | controlled recovery deployment | `DEPLOY_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
 | Nightwatch deployment marker | `DEPLOY_SSH_KEY` | `replacement-host` | `RECOVERY_KNOWN_HOSTS` |
 
-### Reused target material
+### The material comes from the backup, not from GitHub
 
-Preparation of the replacement machine uses the target's existing external
-material, unchanged, from the same secrets the ordinary Prepare workflows use:
+A recovery reads **no `PREPARE_*` value at all** — not as a secret, not as a
+fallback. The replacement machine is prepared *from the backup it is about to
+restore*: Prepare Host is told the exact backup, and `fetch-recovery-material`
+on the machine downloads the backup's bootstrap subset (`manifest.json`,
+`release.json`, `environment.env`, `recovery-material.tar.gz`, `SHA256SUMS`)
+from the fixed offsite location, verifies it, and composes the material the
+prerequisite installer is then fed:
 
-`PREPARE_LARAVEL_ENV`, `PREPARE_DEPLOY_AUTHORIZED_KEYS`, `PREPARE_BASIC_AUTH`,
-`PREPARE_TLS_CERTIFICATE`, `PREPARE_TLS_PRIVATE_KEY`, `PREPARE_TLS_DHPARAMS`,
-`PREPARE_NGINX_TLS_OPTIONS`, `PREPARE_MAIL_TLS_CERTIFICATE`,
-`PREPARE_MAIL_TLS_PRIVATE_KEY`.
+| material | comes from |
+|---|---|
+| `laravel-env` (`shared/.env`) | the backup's own `environment.env` |
+| `basic-auth`, `tls-certificate`, `tls-private-key`, `tls-dhparams`, `nginx-tls-options`, `mail-tls-certificate`, `mail-tls-private-key` | the backup's `recovery-material.tar.gz`, captured on the live host by the same prerequisite table |
+| `deploy-authorized-keys` | the public half of `DEPLOY_SSH_KEY`, derived on the runner with `ssh-keygen -y`; the private key never leaves the runner and never reaches the host |
+| `rclone-config` | `RECOVERY_RCLONE_CONFIG` |
 
-`PREPARE_LARAVEL_ENV` matters more here than anywhere else. Recovery compares
-the prepared `shared/.env` **byte-for-byte** against the environment file
-inside the backup and fails closed on a difference, before any activation — so
-the environment file configured in GitHub must be the one the backup was taken
-under. See [`recover-host.md`](recover-host.md) §4.
+Nothing is copied by hand — no `.env`, no TLS material, no Basic Auth file —
+and the action refuses hand-supplied material beside a recovery backup before
+it uploads anything. Because the environment file *is* the backup's, the
+byte-for-byte `.env` comparison `recover-host --apply` performs
+([`recover-host.md`](recover-host.md) §4) holds by construction; it is kept,
+and still fails closed, because it is the proof that the prepared host and the
+backup agree rather than an assumption that they do.
 
-### The one substitution: rclone
+### Which backups qualify
+
+Only a backup whose manifest is **schema 3** — the format that carries
+`recovery-material.tar.gz` — can recover a clean host. `recover-host --apply`
+and the recovery preparation both refuse anything older, by name:
+
+```text
+backup 20260115-023000 is not clean-host-recovery-capable: its manifest
+schema is 2, and a host recovery requires schema 3 …
+```
+
+There is no fallback to hand-supplied material. An older backup stays fully
+restorable onto a **live** target through Restore Target Data; for a
+clean-host recovery, take a new backup on a live host and recover from that.
+A backup is only written for a deployed target whose `release.json` names a
+full `source_sha`, and the nightly `restore-test` / `offsite-restore-test`
+certify a schema 3 backup's recovery material against the installed
+prerequisite table — so a backup that passed its nightly test is one a
+recovery can be prepared from. See [`backups.md`](backups.md).
+
+### The rclone credential
 
 `rclone-config` is deliberately **not** `PREPARE_RCLONE_CONFIG`. It is
-`RECOVERY_RCLONE_CONFIG`, and there is no silent fallback between them. See §9
-for why.
+`RECOVERY_RCLONE_CONFIG`, and there is no silent fallback between them. It is
+installed through the ordinary prerequisite mechanism, so the recovered
+machine can read its backup and, once deliberately adopted, own its own
+offsite pipeline — but every offsite **write** on it is held until then. See §9.
 
 ### Restricted deployment identity
 
 The controlled recovery deployment reuses the target's ordinary restricted
 deployment identity — `DEPLOY_USER`, `DEPLOY_INCOMING`, `DEPLOY_WRAPPER`,
 `DEPLOY_ROOT` and `DEPLOY_SSH_KEY` — which Prepare Host has just created on the
-replacement machine. Only the **address** and the **host key** are the
-replacement machine's.
+replacement machine, with the `authorized_keys` line derived from that very
+credential. Only the **address** and the **host key** are the replacement
+machine's.
+
+### The complete GitHub surface
+
+A recovery needs exactly these values and nothing else: `RECOVERY_BOOTSTRAP_USER`,
+`RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS`, `RECOVERY_RCLONE_CONFIG`,
+and the existing `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_ROOT`, `DEPLOY_INCOMING`,
+`DEPLOY_WRAPPER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` (plus the
+observability values every deploying workflow reads). A test pins the list.
 
 ### What the operator must arrange outside RateGuru
 
@@ -300,8 +341,9 @@ What runs, in order:
 ```text
 validate        request + target lifecycle          no environment, no secret
 binding         replacement-host != DEPLOY_HOST     no connection
-prepare         prepare-rateguru-host               --apply, then --verify
-recover         recover-host --apply                one exact offsite backup
+deploy-identity ssh-keygen -y on DEPLOY_SSH_KEY     runner only, public half out
+prepare         prepare-rateguru-host               --apply --recovery-backup, then --verify --recovery-backup (hold required)
+recover         recover-host --apply                the same exact offsite backup
 decide          read the server's own result        awaiting-code
 build           the EXACT commit the backup names   no environment, no secret
 deploy          deploy --recovery-operation         migrations forbidden, host stays held
@@ -316,6 +358,32 @@ data is back, `current` is absent, the queue is stopped, the scheduler entry is
 held aside, and a recovery guard is on disk. That is not a failure — it is the
 point. Code has not arrived yet, and Laravel must not run against recovered
 data before it does.
+
+### The operator flow, end to end
+
+1. Create a clean Ubuntu VPS. Install only the public half of
+   `RECOVERY_BOOTSTRAP_SSH_KEY` for `RECOVERY_BOOTSTRAP_USER` (root, or a
+   passwordless sudoer). Nothing else — no RateGuru setup by hand.
+2. Record the machine's host key, verified out of band, in
+   `RECOVERY_KNOWN_HOSTS`; make sure `RECOVERY_RCLONE_CONFIG` can read the
+   target's offsite namespace.
+3. Choose the exact backup: a **schema 3** backup, i.e. one written after the
+   recovery material joined the format (`backup --target staging-main` on the
+   live host, then the ordinary `backup-cycle` upload).
+4. Open Actions → **Recover staging host** and dispatch `mode=start`,
+   `backup=YYYYMMDD-HHMMSS`, `replacement-host`, `replacement-port` (22).
+5. Watch the chain: binding refusal, deploy identity, Prepare Host from the
+   backup (runtime → material fetch → host material → bootstrap → offsite-write
+   hold → target material → database), `recover-host --apply`, the historical
+   build of the backup's `source_sha`, the controlled deployment with
+   migrations forbidden, `--resume`, `--verify`.
+6. Read the summary: backup schema 3, offsite writes `held`, `DEPLOY_HOST`
+   unchanged, DNS unchanged, migrations none.
+7. Verify on the machine what §14 lists, and verify the long-lived host and
+   the real offsite namespace are untouched.
+8. If the run stopped anywhere after `--apply`, finish it with
+   `mode=continue-held` (§7). Destroy a rehearsal machine afterwards;
+   adopting a real replacement is a separate deliberate act (§13).
 
 ---
 
@@ -492,33 +560,45 @@ recovered host into a failed recovery.
 A clean-host rehearsal is performed against a genuinely disposable machine —
 never by destroying the long-lived staging host, and never by touching it.
 
-For a rehearsal, back `RECOVERY_RCLONE_CONFIG` with a B2 application key that
-**can list and read** the real staging backup namespace and **cannot write to,
-delete from, or apply retention to it**.
+The rehearsal host is a fully configured RateGuru host: it has a backup cron,
+an offsite uploader and a retention policy, and it believes it is
+`staging-main`. Left to itself it would eventually upload its own backups into
+the real staging namespace and prune the real staging history — which is
+exactly the data the rehearsal exists to prove we can recover from.
 
-That is the whole reason the credential is separate. The rehearsal host is a
-fully configured RateGuru host: it has a backup cron, an offsite uploader and a
-retention policy, and it believes it is `staging-main`. Given the namespace
-owner's credential it would eventually upload its own backups into the real
-staging namespace and prune the real staging history — which is exactly the
-data the rehearsal exists to prove we can recover from.
+So the server fences it, deterministically, before the offsite credential is
+ever installed. The recovery preparation places the **offsite-write hold** —
+`/home/www/rateguru/run/offsite-write-hold` — between host bootstrap and the
+target-material slice, and `recover-host --apply` places the same hold before
+it downloads a byte. While it exists:
 
-So:
+* `backup-cycle`, `offsite-backup` and `offsite-retention` refuse to run at
+  all, before their first child, lock or record, with
+  `OFFSITE WRITES: HELD — … is refused on this host`; the cron entry stays
+  installed and simply refuses every time it fires;
+* the local `backup` and `restore-test` keep working — a recovered machine
+  keeps taking local backups of its own data;
+* the recovered host still **reads** its backup normally;
+* the recovery preparation itself refuses to report the host prepared unless
+  the hold is still in place at the end of its apply, and its independent
+  `--verify --recovery-backup` requires the hold to exist as a genuine hold
+  document — so the Prepare step of a recovery can never say "prepared"
+  about an unfenced machine;
+* every recovery mode after `--apply` proves the hold: `--inspect` and
+  `--verify` refuse if it is gone (naming the remediation), `--resume`
+  re-establishes it before it restores the runtime; the guard, the state, the
+  history, the machine-readable result and the GitHub summary all carry
+  `offsite_writes=held` (`OFFSITE WRITES: HELD`).
 
-* the rehearsal host **may read** a real, verified staging offsite backup;
-* the rehearsal host **must never** write to, delete from, apply retention to,
-  or otherwise alter the real staging backup namespace.
-
-There is no recovery-specific backup path, no namespace override and no second
-backup format anywhere in this pipeline — the only thing that changes is the
-credential's permissions.
+Nothing releases the hold — not `--resume`, not `--verify`, not a later
+Prepare or Repair. Releasing it (`rm` of the marker, as root) is part of
+deliberately adopting the machine as the target's host, together with
+repointing `DEPLOY_HOST` and DNS, and is never automated. A rehearsal machine
+is destroyed with the hold still in place.
 
 **Do not delete or reuse the real staging backup namespace to make a rehearsal
-look clean.**
-
-For a real disaster, `RECOVERY_RCLONE_CONFIG` is configured with the
-credentials appropriate for the recovered target, and the recovered host
-resumes owning its namespace normally.
+look clean.** Backing `RECOVERY_RCLONE_CONFIG` with a read-only B2 key for a
+rehearsal remains good defence in depth, but the fence does not depend on it.
 
 ---
 
@@ -607,6 +687,15 @@ and the guard is what actually protects the host.
   credential.
 * **No target activation.** A `planned` target stays planned.
 * **No durable artifact archive.** See §8.
+* **No hand-supplied material.** No `PREPARE_*` secret is read; the
+  environment file and every host-scope prerequisite come out of the backup.
+  `server-configuration.tar.gz` stays a diagnostic snapshot and is never
+  unpacked over `/`.
+* **No offsite write.** The recovered machine's backup cron, uploader and
+  pruner are held until the machine is deliberately adopted (§9).
+* **No secret in a backup.** The rclone credential, the deploy private key,
+  the bootstrap credential and the database password (beyond what
+  `environment.env` already carries) are never in the backup.
 * **No RPO/RTO claim.** Measuring real recovery duration is separate work.
 
 ---
@@ -624,17 +713,21 @@ end to end, in order, and collect the evidence as you go:
 3. Record its host key, verified out of band.
 4. Configure `RECOVERY_BOOTSTRAP_USER`, `RECOVERY_BOOTSTRAP_SSH_KEY`,
    `RECOVERY_KNOWN_HOSTS` and `RECOVERY_RCLONE_CONFIG` in the `staging`
-   environment, with the read-only offsite credential of §9.
+   environment. No `PREPARE_*` secret is involved.
 5. Confirm the long-lived staging host is healthy, and note its current release
    and source SHA so a comparison is possible afterwards.
-6. Create or choose a fresh, exact staging offsite backup.
+6. Create a fresh, exact staging offsite backup on the live host — a **schema 3**
+   backup, which carries the recovery material — and let the ordinary
+   `backup-cycle` upload it.
 7. Ideally plant a database sentinel and a storage/media sentinel **before**
    that backup is taken, so §16–17 can prove the data is the backup's.
 8. Dispatch **Recover staging host** with `mode=start`, that backup, and the
    disposable machine as `replacement-host`.
-9. Prove Prepare Host runs from a genuinely clean machine and its verification
-   passes.
-10. Prove the recovery fetched the exact named offsite backup.
+9. Prove Prepare Host runs from a genuinely clean machine, took its material
+   from the backup (no `PREPARE_*` value, no hand-copied file), and its
+   verification passes.
+10. Prove the recovery fetched the exact named offsite backup, and that the
+    backup it prepared from and the backup it restored are the same one.
 11. Prove the build is of the backup's own `source_sha`, and of nothing else.
 12. Prove `run-migrations` was `false` throughout.
 13. Prove the controlled deployment left the runtime held: no queue, no
@@ -649,15 +742,20 @@ end to end, in order, and collect the evidence as you go:
     `source_sha`.
 21. Verify `previous` is ABSENT.
 22. Verify neither the restore guard nor the recovery guard remains.
-23. Verify the ordinary staging VPS is unchanged: same release, same source
+23. Verify the offsite-write hold is in place (`OFFSITE WRITES: HELD` in the
+    final verify and the summary; `/home/www/rateguru/run/offsite-write-hold`
+    on the machine) and that `backup-cycle --target staging-main` on the
+    recovered machine refuses.
+24. Verify `DEPLOY_HOST` and DNS are unchanged.
+25. Verify the ordinary staging VPS is unchanged: same release, same source
     SHA, same data, still healthy, and no connection was made to it.
-24. Verify the real staging B2 namespace was neither written to nor pruned by
+26. Verify the real staging B2 namespace was neither written to nor pruned by
     the rehearsal.
-25. If practical, run one continuation exercise: interrupt a run after
+27. If practical, run one continuation exercise: interrupt a run after
     `--apply` or after the controlled deployment, and finish it with
     `mode=continue-held`.
-26. Destroy the disposable VPS once the evidence is collected. Destruction is a
-    deliberate operator act; nothing automates it.
+28. Destroy the disposable VPS once the evidence is collected, hold still in
+    place. Destruction is a deliberate operator act; nothing automates it.
 
 Only after a real run of the above may Recover Host and this operator surface
 be recorded as accepted. A green CI run is not a clean-host recovery, and must

@@ -1009,7 +1009,7 @@ Slices, in order:
      five kinds of validation that must be identical in all of them (backup
      path/identity, operation workspace, storage-archive safety, restore
      state, and the derived PostgreSQL names). All six install through the
-     existing `install-target-operations`, which now owns twenty-two files.
+     existing `install-target-operations`, which grew to twenty-two files.
    - **One exact backup, never "latest".** The operator names the timestamp
      and the source (`local` or `offsite`); everything else — backup root,
      B2 remote, bucket, remote path, database name — resolves from the target
@@ -1337,13 +1337,15 @@ Slices, in order:
    CI proves the structure, the preconditions, the compensation and every
    refusal path; only a real clean replacement machine proves the pipeline, and
    that rehearsal belongs to 7.7 — so this slice is implemented, not accepted.
-7. **7.7 GitHub Recover + clean-host rehearsal — implemented, awaiting the
-   real disposable-host acceptance.** The 7.6 mechanisms became two named
-   operator buttons, and the whole chain became one dispatch:
+7. **7.7 GitHub Recover + clean-host rehearsal — implementation ready for the
+   REAL clean-host acceptance.** The 7.6 mechanisms became two named
+   operator buttons, and the whole chain became one dispatch that needs
+   nothing but a clean machine, one exact backup and the recovery bindings:
 
-       a replacement machine
-         -> Prepare Host
-         -> recover-host --apply
+       a clean replacement machine
+         -> derive the deploy public key on the runner
+         -> Prepare Host FROM THE BACKUP (material out of the backup, offsite writes held)
+         -> recover-host --apply, the same backup
          -> the SERVER names the commit
          -> historical build of THAT commit
          -> controlled recovery deployment, migrations forbidden
@@ -1352,6 +1354,67 @@ Slices, in order:
          -> deployment marker
 
    What landed:
+
+   - **Backup format schema 3: the recovery material travels with the
+     backup.** A backup is exactly eight files — the seven of before plus
+     `recovery-material.tar.gz`, the target's host-scope external
+     prerequisites (`basic-auth`, TLS, the shared Nginx TLS material, the
+     mail-capture TLS pair) captured under their logical names by
+     `install-target-prerequisites --capture`, from the same prerequisite
+     table Prepare Host installs from, never a second list. Top-level regular
+     files only, certbot links dereferenced at capture, owner and mode the
+     installer's decision; content never read, hashed or logged; a capture
+     that cannot be completed safely fails the backup. `SHA256SUMS` covers it;
+     `server-configuration.tar.gz` is not replaced and is still never applied.
+     The closed per-schema file sets and the current schema live once in
+     `common`, and every reader of a whole backup — the restore tests, the
+     uploader, the restore primitives — holds a backup to exactly that set
+     and `SHA256SUMS` to exactly its entries before following a path. A
+     backup is written only for a deployed target naming its full
+     `source_sha`. Schema 1 and 2 backups stay fully restorable onto a live
+     target, are refused by name as the source of a clean-host recovery, and
+     no reader applies `environment.env`, the server snapshot or the recovery
+     material to a live target. Two judgements of the material, on purpose:
+     a live restore judges it as data only, so an older backup stays
+     restorable whatever today's prerequisite table says; the restore tests
+     and the recovery preparation certify it against that table. Never in a
+     backup: the rclone credential, the deploy private key, the bootstrap
+     credential, any artifact.
+   - **No `PREPARE_*` secret, no hand-copied file.** `prepare-host --apply
+     --recovery-backup ID --material-dir SEED` prepares the replacement from
+     the backup itself: after the runtime slice, `fetch-recovery-material`
+     downloads only the bootstrap subset (`manifest.json`, `release.json`,
+     `environment.env`, `recovery-material.tar.gz`, `SHA256SUMS`) from the
+     fixed remote, proves the manifest is the target's own and schema 3,
+     verifies the subset's checksums, has the prerequisite installer judge
+     the archive before extracting a byte, and composes a root-only effective
+     material directory (`laravel-env` from `environment.env`, every
+     host-scope name from the archive, `deploy-authorized-keys` and
+     `rclone-config` from the seed) that the existing prerequisite slices are
+     fed and that is removed however the run ends. The seed is closed in both
+     directions. The deploy public key is derived on the runner from
+     `DEPLOY_SSH_KEY` with `ssh-keygen -y`, in its own job; the private key
+     never leaves the runner. The byte-for-byte `.env` comparison in
+     `recover-host --apply` is kept.
+   - **The offsite-write hold.** A recovered machine is a complete host with a
+     backup cron, an uploader and a pruner, believing it is `staging-main`. The
+     recovery preparation places `/home/www/rateguru/run/offsite-write-hold`
+     between host bootstrap and the offsite credential, `recover-host --apply`
+     places it before the first download, and `backup-cycle`, `offsite-backup`
+     and `offsite-retention` refuse on it before their first child, lock or
+     record (`OFFSITE WRITES: HELD`). The local `backup` and `restore-test`
+     are unaffected. The preparation refuses to report the host prepared
+     without it, and its verification requires it by name. Every later
+     recovery mode proves the hold; the guard,
+     state, history, result and GitHub summary carry `offsite_writes=held`;
+     nothing releases it — adopting the machine is a deliberate act, with
+     `DEPLOY_HOST` and DNS. The rehearsal no longer depends on a read-only
+     credential to keep the real namespace safe.
+   - **`install-target-operations` grew to twenty-eight files.**
+     `install-target-prerequisites` and the four committed vhost sources
+     (under `/home/www/rateguru/config/nginx/`) join the bundle so that
+     `backup`, `restore-test` and `verify-backup` on a live host capture and
+     judge recovery material against the committed prerequisite table.
 
    - **Two named workflows, no dropdown.** `recover-staging.yml` (fixed to
      `staging-main`, `rateguru-staging-deployment`) and
@@ -1379,13 +1442,15 @@ Slices, in order:
      holding different ones for one machine would otherwise read as two. Both
      gates fail closed. No job in a recovery connects to the machine the target is
      bound to, and nothing repoints the binding, the registry or DNS.
-   - **Recovery-specific host credentials.** `RECOVERY_BOOTSTRAP_USER`,
-     `RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS` and
-     `RECOVERY_RCLONE_CONFIG`, with no fallback to the lost host's
-     `BOOTSTRAP_*` credential and none to `DEPLOY_SSH_KEY`. Strict host key
-     checking throughout: no TOFU, no `ssh-keyscan`, no password fallback.
-     The controlled deployment and the Nightwatch marker keep using the
-     restricted deploy credential, on the replacement machine's address.
+   - **Recovery-specific host credentials, and nothing else.**
+     `RECOVERY_BOOTSTRAP_USER`, `RECOVERY_BOOTSTRAP_SSH_KEY`,
+     `RECOVERY_KNOWN_HOSTS` and `RECOVERY_RCLONE_CONFIG`, plus the existing
+     `DEPLOY_*` values — the complete GitHub surface, pinned by a test — with
+     no fallback to the lost host's `BOOTSTRAP_*` credential and none to
+     `DEPLOY_SSH_KEY`. Strict host key checking throughout: no TOFU, no
+     `ssh-keyscan`, no password fallback. The controlled deployment and the
+     Nightwatch marker keep using the restricted deploy credential, on the
+     replacement machine's address.
    - **Start and continue-held.** A continuation never prepares, never supplies
      a backup again and never starts a second recovery over a held one: it asks
      `recover-host --inspect` and branches on the server's own answer —
@@ -1419,12 +1484,14 @@ Slices, in order:
      before anything is touched.
 
    See [`runbooks/github-recover.md`](runbooks/github-recover.md), including
-   the clean-host acceptance checklist and the offsite-safety rule for a
-   rehearsal credential.
+   the operator flow, the clean-host acceptance checklist and the
+   offsite-write hold.
    *Acceptance:* a disposable host is recovered end to end from a workflow
-   dispatch, without hand-run commands. CI proves the structure, the trust
-   boundaries and every refusal path; only a real disposable machine proves the
-   pipeline, so this slice is implemented, not accepted. No RPO or RTO is
+   dispatch, from a clean Ubuntu machine with nothing but bootstrap SSH on it,
+   without hand-run commands and without a single hand-copied file. CI proves
+   the structure, the trust boundaries and every refusal path; the real
+   disposable-machine rehearsal is the gate that remains, so this slice is
+   implementation-ready for that acceptance, not accepted. No RPO or RTO is
    claimed by it.
 8. **7.8 Full DR acceptance, measured RPO and RTO.** Turn recovery
    technology into an operational procedure: rehearse full host loss with

@@ -23,7 +23,10 @@ name: Recover staging host
 # THE PIPELINE.
 #
 #   a replacement machine
-#     -> Prepare Host                  (infrastructure, no application)
+#     -> Prepare Host                  (infrastructure, no application; the
+#                                       target's environment file and host
+#                                       material come out of the chosen
+#                                       backup itself; offsite writes held)
 #     -> recover-host --apply          (one exact offsite backup; host held)
 #     -> the server names the commit   (read from the backup's release.json)
 #     -> historical build of THAT commit
@@ -31,6 +34,17 @@ name: Recover staging host
 #     -> recover-host --resume         (the only thing that ends a hold)
 #     -> recover-host --verify         (independent final contract)
 #     -> deployment marker
+#
+# NO HAND-SUPPLIED MATERIAL. A start recovery reads no PREPARE_* secret at all.
+# The replacement machine is prepared from the SAME schema 3 backup the
+# recovery restores: its environment file and its host-scope material (TLS,
+# Basic Auth, the shared Nginx TLS material) are fetched out of that backup on
+# the host, through the recovery offsite credential. The only things GitHub
+# seeds are that credential and the deploy PUBLIC key, derived here from the
+# deployment credential in a job that holds nothing else. Nothing is copied
+# off a working host by an operator, and a backup that carries no recovery
+# material (an older schema) is refused on the server before anything on the
+# machine is prepared.
 #
 # WHAT IS AN OPERATOR INPUT, AND WHY.
 #
@@ -440,16 +454,81 @@ jobs:
           echo "The replacement machine is not the machine staging-main is currently bound to: different name, and a different canonical ssh-ed25519 host key."
           echo "The current binding is left exactly as it is: recovery never edits DEPLOY_HOST, the target registry or DNS."
 
+  # START ONLY, and the one job that holds the deployment credential before a
+  # release exists. It derives the deploy PUBLIC key from DEPLOY_SSH_KEY —
+  # written to a 0600 file on the runner, proven with ssh-keygen, read back as
+  # a public key, removed — so the replacement machine's restricted deploy
+  # user gets exactly the identity ordinary deployments already use, without a
+  # PREPARE_DEPLOY_AUTHORIZED_KEYS secret existing and without the private
+  # half ever leaving this job. It opens no connection and prints no key.
+  deploy-identity:
+    name: Derive the deploy public key for the replacement host
+    needs:
+      - validate
+      - binding
+    if: ${{ needs.validate.outputs.mode == 'start' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+
+    outputs:
+      public_key: ${{ steps.identity.outputs.public_key }}
+
+    steps:
+      - name: Derive the deploy public key from the deployment credential
+        id: identity
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          if [[ -z "${DEPLOY_SSH_KEY}" ]]; then
+            echo "The staging environment has no DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity." >&2
+            exit 1
+          fi
+
+          # A private temp file, removed whatever happens next. The value is
+          # written through a redirection and never appears in argv or output.
+          key_path="${RUNNER_TEMP}/rateguru-deploy-identity"
+          trap 'rm -f "${key_path}"' EXIT
+
+          install -m 0600 /dev/null "${key_path}"
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > "${key_path}"
+
+          # ssh-keygen -y both proves the credential is a usable private key
+          # and prints its public half — the ONLY thing this job reports.
+          if ! public_key="$(ssh-keygen -y -f "${key_path}")"; then
+            echo "DEPLOY_SSH_KEY is not a usable SSH private key; nothing was derived." >&2
+            exit 1
+          fi
+
+          # One line, one key, in authorized_keys form, of a type OpenSSH
+          # publishes. Anything else means the derivation did not produce what
+          # the replacement host's authorized_keys must hold.
+          if [[ "$(grep -c . <<<"${public_key}")" != "1" ]] \
+            || [[ ! "${public_key}" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\ [A-Za-z0-9+/]+=*(\ .*)?$ ]]
+          then
+            echo "The derived deploy public key is not a single authorized_keys line of a supported type; refusing to seed it." >&2
+            exit 1
+          fi
+
+          echo "public_key=${public_key}" >> "${GITHUB_OUTPUT}"
+
+          echo "Derived the deploy public key (${public_key%% *}) for the replacement host's deploy user; the private key never left this job."
+
   # START ONLY. A recovery that is already held deliberately must not be
   # prepared again: preparation reconverges the target's Supervisor program and
   # its scheduler cron entry, which is exactly what a recovery holds aside, and
   # the server-side interlock refuses a Prepare against any guarded target.
   # Skipping the job is orchestration; the refusal on the host is the guarantee.
   prepare:
-    name: Prepare the replacement host
+    name: Prepare the replacement host from the backup
     needs:
       - validate
       - binding
+      - deploy-identity
     if: ${{ needs.validate.outputs.mode == 'start' }}
     runs-on: ubuntu-latest
     environment: staging
@@ -465,12 +544,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # The SAME preparation action the ordinary Prepare staging host workflow
-      # uses. The only difference is the machine it is pointed at: an ordinary
-      # preparation passes the target's registered DEPLOY_HOST, a recovery
-      # passes the replacement machine. The action does not decide that
-      # binding, and never has.
-      - name: Prepare staging-main on the replacement machine
+      # The SAME preparation action the ordinary Prepare staging host
+      # workflow uses, in its recovery mode. Two differences, and only two:
+      # the machine it is pointed at (the replacement, never DEPLOY_HOST), and
+      # where the material comes from — the chosen backup, on the host, through
+      # the recovery offsite credential. No PREPARE_* secret is read: the
+      # environment file, TLS, Basic Auth and the shared Nginx material are the
+      # backup's own, which is also why recover-host can later prove the
+      # prepared shared/.env is byte-identical to the backup's.
+      - name: Prepare staging-main on the replacement machine from backup ${{ needs.validate.outputs.backup }}
         uses: ./.github/actions/prepare-rateguru-host
         with:
           deployment-target: staging-main
@@ -488,27 +570,20 @@ jobs:
           bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
           bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
 
-          # The target's own external material, unchanged. The environment file
-          # in particular must be the one the backup was taken under: recovery
-          # compares the prepared shared/.env byte-for-byte against the
-          # backup's own copy and fails closed on a difference.
-          laravel-env: ${{ secrets.PREPARE_LARAVEL_ENV }}
-          deploy-authorized-keys: ${{ secrets.PREPARE_DEPLOY_AUTHORIZED_KEYS }}
-          basic-auth: ${{ secrets.PREPARE_BASIC_AUTH }}
-          tls-certificate: ${{ secrets.PREPARE_TLS_CERTIFICATE }}
-          tls-private-key: ${{ secrets.PREPARE_TLS_PRIVATE_KEY }}
-          tls-dhparams: ${{ secrets.PREPARE_TLS_DHPARAMS }}
-          nginx-tls-options: ${{ secrets.PREPARE_NGINX_TLS_OPTIONS }}
-          mail-tls-certificate: ${{ secrets.PREPARE_MAIL_TLS_CERTIFICATE }}
-          mail-tls-private-key: ${{ secrets.PREPARE_MAIL_TLS_PRIVATE_KEY }}
+          # The backup this recovery restores, and the backup this machine is
+          # prepared from — the same one, by construction.
+          recovery-backup: ${{ needs.validate.outputs.backup }}
 
-          # The one deliberate exception, and the reason it is its own secret:
-          # a replacement machine reads the offsite namespace it recovers from,
-          # and during a rehearsal it must not be able to write to, prune or
-          # otherwise alter the real backup namespace it is reading. There is
-          # no silent fallback to PREPARE_RCLONE_CONFIG — that credential
-          # belongs to the machine that OWNS the namespace.
+          # The two seed files, and nothing else. The offsite credential lets
+          # the replacement machine read the backup and later own its own
+          # offsite pipeline; the server holds every offsite WRITE on this
+          # machine before the credential is installed, so a rehearsal beside
+          # the long-lived host can never upload into or prune the real
+          # namespace — whatever permissions the credential carries. The deploy
+          # public key is the derived one from the job above: never the
+          # private key, and never a separate secret.
           rclone-config: ${{ secrets.RECOVERY_RCLONE_CONFIG }}
+          deploy-authorized-keys: ${{ needs.deploy-identity.outputs.public_key }}
 
   # The authoritative step. Everything after this branches on what the SERVER
   # reported, never on what the request asked for.
@@ -1034,6 +1109,7 @@ jobs:
       current_release: ${{ steps.verify.outputs['current-release'] }}
       source_sha: ${{ steps.verify.outputs['source-sha'] }}
       health: ${{ steps.verify.outputs.health }}
+      offsite_writes: ${{ steps.verify.outputs['offsite-writes'] }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -1069,6 +1145,7 @@ jobs:
         env:
           CURRENT_RELEASE: ${{ steps.verify.outputs['current-release'] }}
           SOURCE_SHA: ${{ steps.verify.outputs['source-sha'] }}
+          OFFSITE_WRITES: ${{ steps.verify.outputs['offsite-writes'] }}
           REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
         run: |
           set -Eeuo pipefail
@@ -1083,7 +1160,14 @@ jobs:
             exit 1
           fi
 
-          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}."
+          # The server refuses to verify a host whose offsite writers are not
+          # held; this only refuses to READ a result that says otherwise.
+          if [[ "${OFFSITE_WRITES}" != "held" ]]; then
+            echo "The verified host reports offsite_writes=${OFFSITE_WRITES:-<empty>}; a recovered host must hold its offsite writers until it is deliberately adopted" >&2
+            exit 1
+          fi
+
+          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}; offsite writes held."
 
   # Only once the host is provably recovered, and only for what it is provably
   # serving. Depending on `verify` with no `if` is the gate: a marker cannot be
@@ -1151,6 +1235,7 @@ jobs:
     needs:
       - validate
       - binding
+      - deploy-identity
       - prepare
       - recover
       - build
@@ -1180,9 +1265,11 @@ jobs:
           REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
           BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
           RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
+          OFFSITE_WRITES: ${{ needs.verify.outputs.offsite_writes }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           BINDING_RESULT: ${{ needs.binding.result }}
-          PREPARE_RESULT: ${{ needs.prepare.result }}
+          DEPLOY_IDENTITY_RESULT: ${{ needs.deploy-identity.result }}
+          PREPARATION_RESULT: ${{ needs.prepare.result }}
           RECOVER_RESULT: ${{ needs.recover.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
@@ -1209,12 +1296,17 @@ jobs:
             echo "| Required source SHA | \`${REQUIRED_SOURCE_SHA:-not reported}\` |"
             echo "| Historical build required | \`${BUILD_REQUIRED:-not decided}\` |"
             echo "| Recovered release | \`${RECOVERED_RELEASE:-none}\` |"
+            echo "| Offsite backup/retention writer | \`${OFFSITE_WRITES:-not verified}\` |"
+            echo "| DEPLOY_HOST | unchanged |"
+            echo "| DNS | unchanged |"
+            echo "| Migrations run | none |"
             echo
             echo "| Stage | Result |"
             echo "| --- | --- |"
             echo "| Validate request | \`${VALIDATE_RESULT}\` |"
             echo "| Replacement-host binding check | \`${BINDING_RESULT}\` |"
-            echo "| Prepare replacement host | \`${PREPARE_RESULT}\` |"
+            echo "| Derive deploy public key | \`${DEPLOY_IDENTITY_RESULT}\` |"
+            echo "| Prepare replacement host from the backup | \`${PREPARATION_RESULT}\` |"
             echo "| Recover data | \`${RECOVER_RESULT}\` |"
             echo "| Historical build | \`${BUILD_RESULT}\` |"
             echo "| Controlled recovery deployment | \`${DEPLOY_RESULT}\` |"
@@ -1226,10 +1318,15 @@ jobs:
 
           if [[ "${VERIFY_RESULT}" == "success" ]]; then
             {
-              echo "The replacement host is recovered and verified against the final contract."
+              echo "The replacement host is recovered and verified against the final contract:"
+              echo "the exact backup's data and environment, the exact commit its data belongs to,"
+              echo "no migration, queue RUNNING, scheduler PRESENT, no guard, health PASS."
               echo
               echo "The machine \`staging-main\` was bound to before this run is unchanged: nothing here"
-              echo "edited DEPLOY_HOST, the target registry or DNS, and no traffic moved."
+              echo "edited DEPLOY_HOST, the target registry or DNS, and no traffic moved. The"
+              echo "replacement host's offsite backup/retention writer stays HELD until the"
+              echo "machine is deliberately adopted — the real offsite namespace was neither"
+              echo "written to nor pruned by this recovery."
             } >> "${GITHUB_STEP_SUMMARY}"
 
             # The lost-runner case, stated plainly so nobody re-runs a recovery

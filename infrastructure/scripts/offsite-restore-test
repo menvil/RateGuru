@@ -253,21 +253,31 @@ print(max(names) if names else "")
         --stats-one-line \
         --stats 10s
 
-    REQUIRED_FILES=(
-        database.dump
-        storage-app.tar.gz
-        environment.env
-        release.json
-        server-configuration.tar.gz
-        manifest.json
-        SHA256SUMS
-    )
+    # The downloaded manifest decides which closed file set this backup must
+    # carry (seven files for schema 1 and 2, eight for schema 3), so it has to
+    # have arrived first, and it is proven to be a plain regular file before
+    # it is read.
+    [[ -e "${TEMP_DIRECTORY}/${BACKUP_MANIFEST_FILE}" ]] \
+        || fail "missing downloaded backup file: ${BACKUP_MANIFEST_FILE}"
+
+    BACKUP_SCHEMA="$(backup_schema_of_directory "${TEMP_DIRECTORY}")"
+
+    local -a required_files=()
+    mapfile -t required_files < <(backup_required_files_for_schema "${BACKUP_SCHEMA}")
 
     local required_file
-    for required_file in "${REQUIRED_FILES[@]}"; do
+    for required_file in "${required_files[@]}"; do
         [[ -f "${TEMP_DIRECTORY}/${required_file}" ]] \
             || fail "missing downloaded backup file: ${required_file}"
     done
+
+    # Exactly the closed set, and SHA256SUMS naming exactly it: the download
+    # copied the whole remote directory, so a stray object there would
+    # otherwise be tested as if it were part of the backup.
+    backup_assert_file_set "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+    backup_assert_sha256sums_entries "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+
+    log "Backup schema:  ${BACKUP_SCHEMA} (exactly ${#required_files[@]} files)"
 
     log ""
     log "Checking downloaded SHA-256 checksums"
@@ -285,6 +295,21 @@ print(max(names) if names else "")
         >/dev/null
 
     validate_backup_manifest "${TEMP_DIRECTORY}/manifest.json"
+
+    # A schema 3 backup is CERTIFIED here, the same way local restore-test
+    # certifies it: the recovery material must be exactly what a clean-host
+    # recovery could be prepared from today — safe as data, covered by
+    # SHA256SUMS exactly once, and holding exactly the target's host-scope
+    # prerequisite names as the installed table states them. A nightly PASS
+    # on a backup a recovery could not use would be the worst kind of pass.
+    if backup_schema_supports_clean_host_recovery "${BACKUP_SCHEMA}"; then
+        log ""
+        log "Checking recovery material against the prerequisite table"
+
+        backup_assert_recovery_material_certified "${TEMP_DIRECTORY}" "${TARGET_ID}"
+
+        log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
+    fi
 
     # PostgreSQL silently truncates identifiers longer than 63 bytes
     # (NAMEDATALEN - 1). "rateguru_offsite_restore_" (25) + "_" + a 14-digit

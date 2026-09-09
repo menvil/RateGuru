@@ -65,7 +65,25 @@
 # `server-configuration.tar.gz` is verified as part of backup completeness and
 # then never unpacked — the committed infrastructure in this repository is the
 # source of truth for a host's configuration, and that snapshot is a diagnostic
-# reference, not an executable one.
+# reference, not an executable one. `recovery-material.tar.gz` is likewise
+# verified and never unpacked HERE: Prepare Host consumed it, on this same
+# machine, before this operation was allowed to start, which is why the
+# prepared shared/.env can be byte-identical to the backup's own environment
+# file at all.
+#
+# A CLEAN-HOST RECOVERY REQUIRES A SCHEMA 3 BACKUP. Only that format carries
+# the target's recovery material inside the backup, and a recovery is refused
+# — by name, before any data is staged — for a backup that does not. There is
+# no fallback to hand-supplied material.
+#
+# OFFSITE WRITES ARE HELD. A recovered machine is a complete host with a
+# backup cron, an offsite uploader and an offsite pruner, and it believes it
+# is the target it was recovered as — while DEPLOY_HOST and DNS still point at
+# the machine that owns the real offsite namespace. So this operation makes
+# sure the host-global offsite-write hold is in place before it downloads a
+# byte, proves it is still there at every hold check and at the final
+# verification, and never removes it. Releasing it belongs to the deliberate
+# act of adopting the recovered machine, which nothing here performs.
 #
 # Cross-project safety: only this target's own resources are touched. No
 # global Nginx, PostgreSQL, Redis, Supervisor or cron service is ever stopped,
@@ -137,11 +155,14 @@ Usage:
              the controlled recovery deployment. Restores this target's
              scheduler, starts its queue, health-checks it and commits the
              retained pre-recovery database and storage tree.
-  --verify   Read-only. Prove a recovered target satisfies the final contract.
+  --verify   Read-only. Prove a recovered target satisfies the final contract,
+             including that the host-global offsite-write hold is in place.
 
 The backup timestamp is mandatory and exact: there is no "latest", no implicit
 selection and no local source. A recovery models the loss of the old machine,
-so the backup can only come from the offsite remote.
+so the backup can only come from the offsite remote — and it must be a schema
+3 backup, the format that carries the target's recovery material; an older
+backup is refused before any data is staged, with no fallback.
 
 Every terminal success also prints exactly one machine-readable line:
 
@@ -301,6 +322,7 @@ RECOVERED_MIGRATIONS=""
 SELECTED_BACKUP_DIR=""
 OPERATION_ID=""
 BACKUP_ID=""
+BACKUP_SCHEMA=""
 
 step() {
     CURRENT_STEP="$1"
@@ -397,6 +419,7 @@ write_recovery_guard() {
         --arg backup "${BACKUP_ID}" \
         --arg required_source_sha "${BACKUP_SOURCE_SHA}" \
         --arg status "${status}" \
+        --arg offsite_writes held \
         --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{
             operation: $operation,
@@ -404,6 +427,7 @@ write_recovery_guard() {
             backup: $backup,
             required_source_sha: $required_source_sha,
             status: $status,
+            offsite_writes: $offsite_writes,
             created_at: $created_at
         }' > "${marker}.tmp" 2>/dev/null
     then
@@ -442,6 +466,76 @@ clear_recovery_guard() {
     RECOVERY_GUARD_WRITTEN=false
 
     log "recovery guard cleared: ${marker}"
+}
+
+# --- offsite-write hold ----------------------------------------------------------
+#
+# The host-global marker common's assert_no_offsite_write_hold reads, and the
+# reason a recovered host's backup-cycle, offsite-backup and offsite-retention
+# refuse to run. Recovery preparation places it as soon as the run root exists;
+# this operation places it too if it finds it absent (a host prepared by hand,
+# with hand-supplied material, is still a host that must not write offsite),
+# and NEVER removes it. Written before the download, not before the
+# activation: a recovery that fails halfway still leaves a machine that
+# carries this host's identity and this host's cron.
+
+ensure_offsite_writes_held() {
+    local placed_by="${1:-recover-host --apply}"
+    local marker
+    marker="$(offsite_write_hold_file "${RUN_ROOT}")"
+
+    if offsite_writes_held "${RUN_ROOT}"; then
+        [[ -f "${marker}" ]] && [[ ! -L "${marker}" ]] \
+            || fail "the offsite-write hold ${marker} exists but is not a regular file — refusing to reason about a hold this operation cannot read"
+
+        log "offsite writes: HELD (already, by $(jq -r '.created_by // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')) — ${marker}"
+
+        return 0
+    fi
+
+    # Created 0600 before any content reaches it: the document is not secret,
+    # but a marker other operations read must never be writable by anyone else
+    # for even a moment.
+    install -m 0600 /dev/null "${marker}.tmp" 2>/dev/null \
+        || fail "could not create the offsite-write hold ${marker} — refusing to recover a host whose backup cron nothing would then stop from writing to the real offsite namespace"
+
+    if ! jq -n \
+        --arg hold offsite-writes \
+        --arg reason host-recovery \
+        --arg target "${TARGET_ID}" \
+        --arg backup "${BACKUP_ID}" \
+        --arg created_by "${placed_by}" \
+        --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            hold: $hold,
+            reason: $reason,
+            target: $target,
+            backup: $backup,
+            created_by: $created_by,
+            created_at: $created_at
+        }' > "${marker}.tmp" 2>/dev/null
+    then
+        rm -f "${marker}.tmp" 2>/dev/null || true
+        fail "could not write the offsite-write hold ${marker} — refusing to recover a host whose backup cron nothing would then stop from writing to the real offsite namespace"
+    fi
+
+    chmod 0600 "${marker}.tmp" 2>/dev/null || true
+
+    mv -f "${marker}.tmp" "${marker}" 2>/dev/null \
+        || { rm -f "${marker}.tmp" 2>/dev/null || true; fail "could not install the offsite-write hold ${marker}"; }
+
+    log "offsite writes: HELD by ${placed_by} — ${marker} (backup-cycle, offsite-backup and offsite-retention refuse on this host until it is deliberately adopted)"
+}
+
+# assert_offsite_writes_held — the OBSERVED half: every hold check and the
+# final verification demand the marker rather than remembering it. A recovered
+# host without it is a second writer on the real offsite namespace, and no
+# stage of a recovery is safe to continue into that.
+assert_offsite_writes_held() {
+    offsite_writes_held "${RUN_ROOT}" \
+        || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, so this mode refuses. To continue: a recovery still awaiting its code re-establishes the hold itself when recover-host --resume runs (after the controlled recovery deployment); for any other stage, re-place it by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD, where HOLD is the path above — and re-run this mode. Nothing releases the hold; removing it is part of deliberately adopting this machine"
+
+    RECOVER_OFFSITE_WRITES="held"
 }
 
 # --- preconditions ---------------------------------------------------------------
@@ -1017,6 +1111,8 @@ assert_runtime_still_held() {
         fail "${SCHEDULER_FILE} is present — a scheduled writer can fire against this host, so the hold this recovery depends on is gone and it is not safe to continue the recovery flow"
     fi
 
+    assert_offsite_writes_held
+
     RECOVER_QUEUE="stopped"
     RECOVER_SCHEDULER="held"
 }
@@ -1094,6 +1190,11 @@ assert_runtime_resumed() {
 
     queue_program_running \
         || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully RUNNING (${QUEUE_PROCESS_STATES[*]}) — a recovered target serves its own queue, and this recovery will not commit its retained pre-recovery copies while it does not"
+
+    # The target's own scheduler and queue are back; the host-global offsite
+    # writers must still be held, because nothing about resuming a target
+    # adopts the machine it runs on.
+    assert_offsite_writes_held
 
     RECOVER_QUEUE="running"
     RECOVER_SCHEDULER="present"
@@ -1349,6 +1450,8 @@ append_recovery_history() {
             --arg compensation_status "${COMPENSATION_STATUS}" \
             --arg retained_database "${RETAINED_DATABASE_STATE}" \
             --arg retained_storage "${RETAINED_STORAGE_STATE}" \
+            --arg backup_schema "${BACKUP_SCHEMA}" \
+            --arg offsite_writes "$(offsite_writes_held "${RUN_ROOT}" && printf held || printf 'not-held')" \
             --argjson data_restored "${DATA_RESTORED}" \
             --argjson failed_step "${failed_step_json}" \
             '{
@@ -1360,6 +1463,7 @@ append_recovery_history() {
                 environment: $environment,
                 backup_namespace: $backup_namespace,
                 backup: $backup,
+                backup_schema: $backup_schema,
                 backup_release: $backup_release,
                 required_source_sha: $required_source_sha,
                 current_release: $current_release,
@@ -1368,7 +1472,8 @@ append_recovery_history() {
                 failed_step: $failed_step,
                 compensation_status: $compensation_status,
                 retained_database: $retained_database,
-                retained_storage: $retained_storage
+                retained_storage: $retained_storage,
+                offsite_writes: $offsite_writes
             }'
     )" || return 1
 
@@ -1415,6 +1520,7 @@ emit_recover_result() {
             --arg health "${RECOVER_HEALTH}" \
             --arg queue "${RECOVER_QUEUE}" \
             --arg scheduler "${RECOVER_SCHEDULER}" \
+            --arg offsite_writes "${RECOVER_OFFSITE_WRITES}" \
             --argjson data_restored "${DATA_RESTORED}" \
             '{
                 status: $status,
@@ -1429,7 +1535,8 @@ emit_recover_result() {
                 data_restored: $data_restored,
                 health: $health,
                 queue: $queue,
-                scheduler: $scheduler
+                scheduler: $scheduler,
+                offsite_writes: $offsite_writes
             }'
     )" || fail "could not render the machine-readable recovery result"
 
@@ -1439,6 +1546,7 @@ emit_recover_result() {
 RECOVER_HEALTH="unknown"
 RECOVER_QUEUE="unknown"
 RECOVER_SCHEDULER="unknown"
+RECOVER_OFFSITE_WRITES="unknown"
 
 # --- failure handling ----------------------------------------------------------------
 #
@@ -1612,6 +1720,13 @@ perform_check() {
     fi
 
     printf 'RECOVERABLE: YES — %s is a prepared, empty replacement host\n' "${TARGET_ID}"
+
+    if offsite_writes_held "${RUN_ROOT}"; then
+        printf 'OFFSITE WRITES: HELD (%s)\n' "$(offsite_write_hold_file "${RUN_ROOT}")"
+    else
+        printf 'OFFSITE WRITES: not yet held — --apply places the hold before it downloads anything\n'
+    fi
+
     printf 'The named backup itself is downloaded and verified by --apply; nothing was\n'
     printf 'fetched, created or changed by this check.\n'
 }
@@ -1665,6 +1780,12 @@ perform_recovery() {
     write_recovery_guard in-progress \
         || fail "could not write the recovery guard — refusing to start a recovery that nothing would then stop an ordinary operation from converging underneath"
 
+    # Also before the download, and for the rest of this machine's life as this
+    # target: the guard goes away when the recovery completes, the hold does
+    # not.
+    step "hold offsite writes"
+    ensure_offsite_writes_held
+
     SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
 
     step "stage backup"
@@ -1685,6 +1806,17 @@ perform_recovery() {
     identity_file="$(restore_identity_file "${WORKSPACE}")"
     BACKUP_RELEASE="$(jq -r '.release // empty' "${identity_file}")"
     BACKUP_SOURCE_SHA="$(jq -r '.source_sha // empty' "${identity_file}")"
+    BACKUP_SCHEMA="$(jq -r '.backup_schema // empty' "${identity_file}")"
+
+    # Before the deployment lock, the storage baseline and any staging: a
+    # backup without recovery material is a backup this host could not have
+    # been prepared from, and a recovery that went on regardless would be
+    # rebuilding a host whose environment came from somewhere else. The refusal
+    # names the format and offers no fallback: the fix is a new backup on a
+    # live host, never a hand-supplied environment file.
+    step "require a clean-host-recovery-capable backup"
+    [[ "${BACKUP_SCHEMA}" == "3" ]] \
+        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
 
     [[ "${BACKUP_RELEASE}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] \
         || fail "the verified backup identity carries no canonical RateGuru release: ${BACKUP_RELEASE:-<unset>}"
@@ -1701,9 +1833,11 @@ perform_recovery() {
     restore_state_set "${STATE_FILE}" \
         backup_release "${BACKUP_RELEASE}" \
         backup_source_sha "${BACKUP_SOURCE_SHA}" \
+        backup_schema "${BACKUP_SCHEMA}" \
+        offsite_writes held \
         phase backup-verified
 
-    log "backup identity: release ${BACKUP_RELEASE}, source ${BACKUP_SOURCE_SHA}"
+    log "backup identity: release ${BACKUP_RELEASE}, source ${BACKUP_SOURCE_SHA}, manifest schema ${BACKUP_SCHEMA}"
 
     step "compare prepared environment material against the backup"
     assert_environment_matches_backup
@@ -1827,7 +1961,9 @@ print_awaiting_code_report() {
     printf 'BACKUP: %s (offsite)\n' "${BACKUP_ID}"
     printf 'BACKUP RELEASE: %s\n' "${BACKUP_RELEASE}"
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
+    printf 'BACKUP SCHEMA: %s\n' "${BACKUP_SCHEMA}"
     printf 'QUEUE: STOPPED   SCHEDULER: HELD   CURRENT: ABSENT   PREVIOUS: ABSENT\n'
+    printf 'OFFSITE WRITES: HELD\n'
     printf '========================================================\n'
     printf '\n'
     printf 'The DATA recovery succeeded. The target is intentionally NOT serving:\n'
@@ -1878,6 +2014,7 @@ load_recovery_operation() {
     BACKUP_ID="$(restore_state_get "${STATE_FILE}" backup)"
     BACKUP_RELEASE="$(restore_state_get "${STATE_FILE}" backup_release)"
     BACKUP_SOURCE_SHA="$(restore_state_get "${STATE_FILE}" backup_source_sha)"
+    BACKUP_SCHEMA="$(restore_state_get "${STATE_FILE}" backup_schema)"
     STAGED_MIGRATIONS="$(restore_state_get "${STATE_FILE}" staged_migrations)"
     SCHEDULER_HELD_BY_RECOVERY="$(restore_state_get "${STATE_FILE}" scheduler_held_by_recovery)"
     QUEUE_STOPPED_BY_RECOVERY="$(restore_state_get "${STATE_FILE}" queue_stopped_by_recovery)"
@@ -2018,10 +2155,12 @@ perform_inspect() {
     printf 'STATUS: %s\n' "${stage_line}"
     printf 'BACKUP: %s (offsite)\n' "${BACKUP_ID}"
     printf 'BACKUP RELEASE: %s\n' "${BACKUP_RELEASE}"
+    printf 'BACKUP SCHEMA: %s\n' "${BACKUP_SCHEMA}"
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
     printf 'CURRENT RELEASE: %s\n' "${CURRENT_RELEASE:-absent}"
     printf 'CURRENT SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA:-absent}"
     printf 'RUNTIME: queue STOPPED, scheduler HELD (observed)\n'
+    printf 'OFFSITE WRITES: HELD (observed)\n'
     printf 'NEXT: %s\n' "${next_step}"
     printf '========================================================\n'
 
@@ -2046,6 +2185,13 @@ perform_resume() {
 
     step "authorize resume"
     assert_awaiting_code
+
+    # The fence, re-established rather than merely demanded: --resume is the
+    # mutating stage that brings the runtime back, and a hold that vanished
+    # between the controlled deployment and now is put back before a single
+    # service is started. Kept as is when present; never rewritten.
+    step "hold offsite writes"
+    ensure_offsite_writes_held "recover-host --resume"
 
     # The same classifier --inspect reports and the deployment authorizes
     # against, so "resumable" cannot come to mean two different things.
@@ -2158,6 +2304,7 @@ perform_resume() {
     printf 'CURRENT RELEASE: %s\n' "${CURRENT_RELEASE}"
     printf 'SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA}"
     printf 'HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT\n'
+    printf 'OFFSITE WRITES: HELD (the backup cron stays fenced until this machine is deliberately adopted)\n'
     printf '========================================================\n'
 
     emit_recover_result completed
@@ -2184,6 +2331,10 @@ cleanup_completed_operation() {
 # had exactly one deployment, and the controlled recovery deployment leaves no
 # implicit rollback target on purpose — demanding a deployment history that
 # never existed would make a correct recovery unverifiable.
+#
+# The offsite-write hold being absent IS a failure: a recovered host without
+# it is a second writer on the real offsite namespace, and the final contract
+# says the hold is in place until the machine is deliberately adopted.
 perform_verify() {
     printf 'RateGuru recover host (verify mode, read-only)\n'
     printf 'Target: %s\n' "${TARGET_ID}"
@@ -2227,6 +2378,7 @@ perform_verify() {
     printf 'SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA}"
     printf 'PREVIOUS: %s\n' "$([[ -L "${PREVIOUS_LINK}" ]] && printf 'present' || printf 'absent (normal for a freshly recovered host)')"
     printf 'HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT\n'
+    printf 'OFFSITE WRITES: HELD\n'
     printf '========================================================\n'
 
     emit_recover_result verified

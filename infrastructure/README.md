@@ -38,7 +38,12 @@ infrastructure, and moves out once a second project exists.
   operator-supplied secrets and never generates or overwrites any) and the
   target database installer (`install-target-database`, which never drops,
   recreates, migrates or rotates anything). It deploys no application, and a
-  prepared target legitimately has no release — see
+  prepared target legitimately has no release. Given an exact offsite backup
+  (`--recovery-backup`), it prepares a clean replacement machine FROM that
+  backup instead: `fetch-recovery-material` takes the environment file and
+  every host-scope prerequisite out of the backup's own recovery material,
+  and the host-global offsite-write hold is placed before the offsite
+  credential exists — see
   [`runbooks/prepare-host.md`](runbooks/prepare-host.md);
 - deployment and rollback scripts;
 - backend observability: Sentry error/performance monitoring correlated to the
@@ -91,14 +96,19 @@ infrastructure, and moves out once a second project exists.
   [`runbooks/recover-host.md`](runbooks/recover-host.md);
 - operator-facing recovery from GitHub: the `Recover staging host` and
   `Recover production host` workflows. The operator names the REPLACEMENT
-  machine and one exact offsite backup; the workflow prepares that machine,
-  recovers the data onto it, builds the exact commit the SERVER read out of the
-  backup, deploys it through the ordinary `deploy` in its controlled-recovery
-  mode — which keeps the host held and runs no migration — then lets
-  `recover-host --resume` end the hold and `recover-host --verify` decide
-  whether it worked. The replacement machine is refused if it is the machine
-  the target is currently bound to, and nothing there is touched, repointed or
-  cut over — see [`runbooks/github-recover.md`](runbooks/github-recover.md);
+  machine and one exact offsite backup — a schema 3 backup, the format that
+  carries the target's recovery material — and nothing else: no `PREPARE_*`
+  secret is read and no file is copied by hand. The workflow derives the
+  deploy public key on the runner, prepares that machine from the backup,
+  recovers the data onto it, builds the exact commit the SERVER read out of
+  the backup, deploys it through the ordinary `deploy` in its
+  controlled-recovery mode — which keeps the host held and runs no migration
+  — then lets `recover-host --resume` end the hold and `recover-host --verify`
+  decide whether it worked. The replacement machine is refused if it is the
+  machine the target is currently bound to; its offsite writers (backup cron,
+  uploader, pruner) stay held until it is deliberately adopted; and nothing
+  on the current machine is touched, repointed or cut over — see
+  [`runbooks/github-recover.md`](runbooks/github-recover.md);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;

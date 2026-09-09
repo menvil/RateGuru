@@ -212,6 +212,15 @@ perform_backup_cycle() {
     LOCK_FILE="${RUN_ROOT}/backup-cycle-${BACKUP_NAMESPACE}.lock"
     HISTORY_FILE="${BACKUP_BASE}/backup-cycles.jsonl"
 
+    # The offsite-write hold, before the lock, the history and the first child.
+    # A host rebuilt by a recovery carries this cron entry point like any other
+    # host, and until the machine is deliberately adopted the real offsite
+    # namespace still belongs to the machine the target is bound to. Refused
+    # here rather than only inside the uploader and the pruner, so a held host
+    # never even takes a local backup on the strength of a cycle it cannot
+    # finish — and so the refusal is the one line the cron log shows.
+    assert_no_offsite_write_hold "${RUN_ROOT}" "a backup cycle"
+
     install -d \
         -o root \
         -g root \

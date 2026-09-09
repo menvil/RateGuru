@@ -864,6 +864,23 @@ function installOpsRestorePrimitiveNames(): array
  *
  * @return array<string, string>
  */
+/**
+ * The external-material installer is installed as a CLI and probed with
+ * --help only: that is the one thing a staged or installed copy can prove
+ * about itself without a target.
+ */
+function installOpsTargetPrerequisitesStub(): string
+{
+    return <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    --help|-h) printf 'install-target-prerequisites stub\n'; exit 0 ;;
+    *) printf 'stub refuses: %s\n' "$*" >&2; exit 1 ;;
+esac
+BASH;
+}
+
 function installOpsBaseVars(
     string $scratch,
     ?string $healthCheckStub = null,
@@ -890,6 +907,7 @@ function installOpsBaseVars(
     installOpsWriteExecutable($scratch.'/src/offsite-retention', $offsiteRetentionStub ?? installOpsOffsiteRetentionStub());
     installOpsWriteExecutable($scratch.'/src/offsite-restore-test', $offsiteRestoreTestStub ?? installOpsOffsiteRestoreTestStub());
     installOpsWriteExecutable($scratch.'/src/backup-cycle', $backupCycleStub ?? installOpsBackupCycleStub());
+    installOpsWriteExecutable($scratch.'/src/install-target-prerequisites', installOpsTargetPrerequisitesStub());
 
     foreach (installOpsRestorePrimitiveNames() as $primitive) {
         installOpsWriteExecutable(
@@ -947,8 +965,16 @@ function installOpsBaseVars(
         'SRC_RESTORE_STORAGE' => $scratch.'/src/restore-storage',
         'SRC_RESTORE_TARGET' => $scratch.'/src/restore-target',
         'SRC_RECOVER_HOST' => $scratch.'/src/recover-host',
+        'SRC_TARGET_PREREQUISITES' => $scratch.'/src/install-target-prerequisites',
         'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
+        // The committed vhost sources travel as-is: they are the prerequisite
+        // table the installed install-target-prerequisites derives its
+        // destinations from.
+        'SRC_NGINX_SOURCE_STAGING' => base_path('infrastructure/config/nginx/rateguru-staging'),
+        'SRC_NGINX_SOURCE_PRODUCTION' => base_path('infrastructure/config/nginx/rateguru-production'),
+        'SRC_NGINX_SOURCE_MAILPIT' => base_path('infrastructure/config/nginx/mailpit-staging'),
+        'SRC_NGINX_SOURCE_MAILTRAP' => base_path('infrastructure/config/nginx/mailtrap-local-staging'),
         'DST_CONFIG_ROOT' => $scratch.'/dst-config',
         'DST_BIN_ROOT' => $scratch.'/dst-bin',
         'DST_REGISTRY' => $scratch.'/dst-config/deployment-targets.json',
@@ -972,13 +998,21 @@ function installOpsBaseVars(
         'DST_RESTORE_STORAGE' => $scratch.'/dst-bin/restore-storage',
         'DST_RESTORE_TARGET' => $scratch.'/dst-bin/restore-target',
         'DST_RECOVER_HOST' => $scratch.'/dst-bin/recover-host',
+        'DST_TARGET_PREREQUISITES' => $scratch.'/dst-bin/install-target-prerequisites',
         'DST_VERIFY_REQUIRED_CLIS' => $scratch.'/dst-bin/verify-required-clis',
         'DST_DEPLOYMENT_CONF' => $scratch.'/dst-config/deployment.conf',
+        'DST_NGINX_SOURCES_ROOT' => $scratch.'/dst-config/nginx',
+        'DST_NGINX_SOURCE_STAGING' => $scratch.'/dst-config/nginx/rateguru-staging',
+        'DST_NGINX_SOURCE_PRODUCTION' => $scratch.'/dst-config/nginx/rateguru-production',
+        'DST_NGINX_SOURCE_MAILPIT' => $scratch.'/dst-config/nginx/mailpit-staging',
+        'DST_NGINX_SOURCE_MAILTRAP' => $scratch.'/dst-config/nginx/mailtrap-local-staging',
         'BACKUP_ROOT' => $scratch.'/backups',
         'REGISTRY_MODE' => '0640',
         'COMMON_MODE' => '0644',
         'CLI_MODE' => '0755',
         'DEPLOYMENT_CONF_MODE' => '0640',
+        'NGINX_SOURCE_MODE' => '0644',
+        'NGINX_SOURCES_ROOT_MODE' => '0755',
         'INSTALL_OWNER' => $ownerId,
         'INSTALL_GROUP' => $groupId,
         'INSTALL_OWNER_ID' => $ownerId,
@@ -1017,12 +1051,12 @@ it('passes bash -n syntax check on the installer', function () {
 it('keeps every destination a fixed, hardcoded constant — never env- or CLI-overridable', function () {
     $source = installOpsSource();
 
-    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the twenty-two destination
+    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the destination
     // paths compose from those two (e.g. "${DST_CONFIG_ROOT}/..."), which is
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
-    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET'] as $name) {
+    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST', 'DST_TARGET_PREREQUISITES', 'DST_VERIFY_REQUIRED_CLIS', 'DST_NGINX_SOURCES_ROOT', 'DST_NGINX_SOURCE_STAGING', 'DST_NGINX_SOURCE_PRODUCTION', 'DST_NGINX_SOURCE_MAILPIT', 'DST_NGINX_SOURCE_MAILTRAP'] as $name) {
         // preg_match alone only proves "at least one match" — it stops at
         // the first hit, so a second, later (and possibly unsafe)
         // assignment to the same name — the one bash would actually use at
@@ -1063,10 +1097,20 @@ it('never sources common or deployment.conf itself', function () {
     }
 });
 
-it('documents exactly the twenty-two files it owns, and what it does not touch, in the runbook', function () {
+it('documents exactly the twenty-eight files it owns, and what it does not touch, in the runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/install-target-operations.md'));
 
     expect($runbook)
+        ->toContain('infrastructure/scripts/install-target-prerequisites')
+        ->toContain('/home/www/rateguru/bin/install-target-prerequisites')
+        ->toContain('infrastructure/config/nginx/rateguru-staging')
+        ->toContain('/home/www/rateguru/config/nginx/rateguru-staging')
+        ->toContain('infrastructure/config/nginx/rateguru-production')
+        ->toContain('/home/www/rateguru/config/nginx/rateguru-production')
+        ->toContain('infrastructure/config/nginx/mailpit-staging')
+        ->toContain('/home/www/rateguru/config/nginx/mailpit-staging')
+        ->toContain('infrastructure/config/nginx/mailtrap-local-staging')
+        ->toContain('/home/www/rateguru/config/nginx/mailtrap-local-staging')
         ->toContain('infrastructure/config/deployment-targets.json')
         ->toContain('/home/www/rateguru/config/deployment-targets.json')
         ->toContain('infrastructure/scripts/targets')
@@ -1177,9 +1221,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all twenty-three source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host and verify-required-clis are all executable; common and restore-common are not')
-        ->toContain('bash -n passed for all twenty-one source shell scripts')
+        ->toContain('all twenty-eight source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites and verify-required-clis are all executable; common and restore-common are not')
+        ->toContain('bash -n passed for all twenty-two source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('required host tools present')
         ->toContain('check passed');
@@ -1200,7 +1244,7 @@ it('--check succeeds read-only against the real repository, with no root require
  */
 function installOpsExecutableModeVars(string $scratch): array
 {
-    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'recover-host', 'verify-required-clis'] as $name) {
+    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'recover-host', 'install-target-prerequisites', 'verify-required-clis'] as $name) {
         installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
     }
 
@@ -1232,10 +1276,16 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_RESTORE_STORAGE' => "{$scratch}/restore-storage",
         'SRC_RESTORE_TARGET' => "{$scratch}/restore-target",
         'SRC_RECOVER_HOST' => "{$scratch}/recover-host",
+        'SRC_TARGET_PREREQUISITES' => "{$scratch}/install-target-prerequisites",
         'SRC_VERIFY_REQUIRED_CLIS' => "{$scratch}/verify-required-clis",
         'SRC_COMMON' => $commonPath,
         'SRC_RESTORE_COMMON' => $restoreCommonPath,
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
+        // Data files, never executable: the committed vhost sources.
+        'SRC_NGINX_SOURCE_STAGING' => base_path('infrastructure/config/nginx/rateguru-staging'),
+        'SRC_NGINX_SOURCE_PRODUCTION' => base_path('infrastructure/config/nginx/rateguru-production'),
+        'SRC_NGINX_SOURCE_MAILPIT' => base_path('infrastructure/config/nginx/mailpit-staging'),
+        'SRC_NGINX_SOURCE_MAILTRAP' => base_path('infrastructure/config/nginx/mailtrap-local-staging'),
     ];
 }
 
@@ -1248,7 +1298,7 @@ it('validate_source_executable_modes passes when every managed CLI, including ve
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host and verify-required-clis are all executable; common and restore-common are not');
+        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites and verify-required-clis are all executable; common and restore-common are not');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1270,7 +1320,7 @@ it('validate_source_executable_modes requires common and restore-common to be no
 });
 
 it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
-    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_FETCH_BACKUP', 'SRC_VERIFY_BACKUP', 'SRC_RESTORE_DATABASE', 'SRC_RESTORE_STORAGE', 'SRC_RESTORE_TARGET', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_FETCH_BACKUP', 'SRC_VERIFY_BACKUP', 'SRC_RESTORE_DATABASE', 'SRC_RESTORE_STORAGE', 'SRC_RESTORE_TARGET', 'SRC_RECOVER_HOST', 'SRC_TARGET_PREREQUISITES', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
         $scratch = installOpsScratchDir();
 
         try {
@@ -2420,7 +2470,7 @@ it('verify_backup_cycle_planned_target_rejected fails when the rejection happens
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all twenty-three files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all twenty-eight files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2460,8 +2510,16 @@ it('a successful apply installs all twenty-three files with correct ownership, m
             ['DST_RESTORE_DATABASE', 'SRC_RESTORE_DATABASE', '0755'],
             ['DST_RESTORE_STORAGE', 'SRC_RESTORE_STORAGE', '0755'],
             ['DST_RESTORE_TARGET', 'SRC_RESTORE_TARGET', '0755'],
+            ['DST_RECOVER_HOST', 'SRC_RECOVER_HOST', '0755'],
+            ['DST_TARGET_PREREQUISITES', 'SRC_TARGET_PREREQUISITES', '0755'],
             ['DST_VERIFY_REQUIRED_CLIS', 'SRC_VERIFY_REQUIRED_CLIS', '0755'],
             ['DST_DEPLOYMENT_CONF', 'SRC_DEPLOYMENT_CONF', '0640'],
+            // The committed vhost sources: data the installed prerequisite
+            // installer reads, never executed.
+            ['DST_NGINX_SOURCE_STAGING', 'SRC_NGINX_SOURCE_STAGING', '0644'],
+            ['DST_NGINX_SOURCE_PRODUCTION', 'SRC_NGINX_SOURCE_PRODUCTION', '0644'],
+            ['DST_NGINX_SOURCE_MAILPIT', 'SRC_NGINX_SOURCE_MAILPIT', '0644'],
+            ['DST_NGINX_SOURCE_MAILTRAP', 'SRC_NGINX_SOURCE_MAILTRAP', '0644'],
         ] as [$dstKey, $srcKey, $mode]) {
             $dst = $vars[$dstKey];
             expect(file_exists($dst))->toBeTrue("{$dstKey} must exist");
@@ -2472,6 +2530,12 @@ it('a successful apply installs all twenty-three files with correct ownership, m
 
         expect(is_executable($vars['DST_COMMON']))->toBeFalse('installed common must not be executable');
         expect(is_executable($vars['DST_RESTORE_COMMON']))->toBeFalse('installed restore-common must not be executable');
+
+        // The vhost sources live in their own directory under the config
+        // root, which the installer creates root-owned 0755 when absent.
+        expect(is_dir($vars['DST_NGINX_SOURCES_ROOT']))->toBeTrue();
+        expect(is_link($vars['DST_NGINX_SOURCES_ROOT']))->toBeFalse();
+        expect(substr(sprintf('%o', fileperms($vars['DST_NGINX_SOURCES_ROOT'])), -4))->toBe('0755');
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');

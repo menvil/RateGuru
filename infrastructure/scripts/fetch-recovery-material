@@ -1,0 +1,766 @@
+#!/usr/bin/env bash
+#
+# fetch-recovery-material — turn ONE exact offsite backup plus a root-only seed
+# directory into the verified, root-only material directory Prepare Host
+# installs a clean replacement host from.
+#
+#   fetch-recovery-material --target T --backup YYYYMMDD-HHMMSS \
+#                           --seed-dir DIR --output-dir DIR
+#
+# THE ONE PROBLEM IT SOLVES. A clean-host recovery needs the target's external
+# material — its Laravel environment file, its TLS certificate and key, its
+# Basic Auth hashes, the shared Nginx TLS material — before the host can even
+# be bootstrapped, and all of it lives inside the backup the recovery is about
+# to restore. That backup lives in the offsite bucket, and reaching the bucket
+# needs a working rclone and a credential. This helper is the narrow bridge
+# across that gap: given rclone (installed by the runtime slice), a seed
+# credential and a backup ID, it downloads the SMALL bootstrap subset of that
+# backup, proves it is the right backup and a recovery-capable one, and lays
+# the material out under the logical names install-target-prerequisites
+# expects. Prepare Host then runs its ordinary pipeline against that directory
+# and never learns the material came from a backup.
+#
+# WHAT IT DOWNLOADS, AND WHAT IT DOES NOT. Exactly five objects, each by its
+# fixed name, from the fixed remote/bucket/prefix and the target's registry
+# backup namespace:
+#
+#   manifest.json               which backup, whose, which schema
+#   release.json                which commit the data belongs to
+#   environment.env             becomes the `laravel-env` material
+#   recovery-material.tar.gz    becomes the host-scope material
+#   SHA256SUMS                  proves the four above are the backup's own
+#
+# database.dump and storage-app.tar.gz are never fetched here: they are
+# recover-host's business, through the same fetch-backup every restore uses,
+# once the host is prepared. There is no --source, no --remote, no --bucket,
+# no --path, no "latest", and no operator-supplied source_sha — the only
+# inputs are a target, an exact backup ID and two root-only directories.
+#
+# THE SEED. The seed directory carries exactly two files, both supplied by the
+# recovery workflow and neither derivable from a backup: `rclone-config`, the
+# offsite credential the replacement host reads the backup through, and
+# `deploy-authorized-keys`, the deploy PUBLIC key derived on the runner from
+# the deployment credential. Anything else in the seed directory is refused —
+# a recovery takes the target's material from the backup, never from a hand.
+#
+# WHAT IT NEVER DOES. It restores no database, extracts no storage, deploys
+# nothing, touches no canonical destination, installs no file anywhere but the
+# output directory, changes no `current`, starts no queue, edits no DNS and
+# selects no backup for anyone. It reads the backup's environment file without
+# ever printing, hashing or measuring it, and it runs the archive it extracts
+# through the installer's own structural validation first.
+#
+# CLEAN-HOST RULE. This runs on a machine where nothing RateGuru is installed
+# yet, so it sources neither `common` nor `restore-common` (both abort without
+# an installed deployment.conf). The registry is read through the standalone
+# `targets` CLI from the trusted checkout, exactly as prepare-host reads it,
+# and the recovery-material vocabulary comes from the sibling
+# install-target-prerequisites — the same table Prepare Host installs from.
+#
+# Test overrides: every RATEGURU_RECOVERYMATERIAL_* override below, and the
+# shared RATEGURU_RCLONE_* ones, are honored only alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true, exactly like every other bootstrap
+# script.
+
+set -Eeuo pipefail
+umask 077
+
+# --- Locations ----------------------------------------------------------------
+
+if ! SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null)" \
+    || [[ -z "${SCRIPT_PATH}" ]]
+then
+    printf 'ERROR: cannot canonicalize the fetch-recovery-material script path: %s\n' "${BASH_SOURCE[0]}" >&2
+    exit 1
+fi
+
+if ! SCRIPT_DIR="$(cd -- "$(dirname -- "${SCRIPT_PATH}")" >/dev/null 2>&1 && pwd -P)" \
+    || [[ -z "${SCRIPT_DIR}" ]]
+then
+    printf 'ERROR: cannot resolve the fetch-recovery-material script directory: %s\n' "${SCRIPT_PATH}" >&2
+    exit 1
+fi
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_EUID="$(gated_default RATEGURU_RECOVERYMATERIAL_EUID "${EUID}")"
+
+TARGETS_CLI_BIN="$(gated_default RATEGURU_RECOVERYMATERIAL_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+PREREQUISITES_BIN="$(gated_default RATEGURU_RECOVERYMATERIAL_PREREQUISITES_BIN "${SCRIPT_DIR}/install-target-prerequisites")"
+SOURCE_REGISTRY="$(gated_default RATEGURU_RECOVERYMATERIAL_SOURCE_REGISTRY "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)/infrastructure/config/deployment-targets.json")"
+
+# The FIXED offsite architecture — the same remote, bucket and prefix every
+# offsite script and restore primitive composes, and never an input. The same
+# override names as those scripts, so one harness configures all of them.
+RCLONE_BIN="$(gated_default RATEGURU_RCLONE_BIN /usr/bin/rclone)"
+RCLONE_REMOTE="$(gated_default RATEGURU_RCLONE_REMOTE rateguru-b2)"
+RCLONE_BUCKET="$(gated_default RATEGURU_RCLONE_BUCKET rateguru-database-backups)"
+
+# Where the download scratch lives: root's own home, 0700, never /tmp.
+SCRATCH_PARENT="$(gated_default RATEGURU_RECOVERYMATERIAL_SCRATCH_PARENT /root)"
+
+# Ownership enforcement is disabled only where the caller is not really root
+# — exclusively a scratch test tree. Production always leaves this true.
+ENFORCE_OWNERSHIP="$(gated_default RATEGURU_RECOVERYMATERIAL_ENFORCE_OWNERSHIP true)"
+
+REQUIRED_TOOLS=(jq tar sha256sum find sort cmp mktemp install date)
+
+# The exact five objects downloaded, by fixed name. Deliberately a literal
+# list rather than "whatever the remote holds".
+MANIFEST_FILE=manifest.json
+BOOTSTRAP_SUBSET=("${MANIFEST_FILE}" release.json environment.env recovery-material.tar.gz SHA256SUMS)
+
+# The four of them SHA256SUMS covers (SHA256SUMS never covers itself).
+BOOTSTRAP_SUBSET_CHECKSUMMED=(manifest.json release.json environment.env recovery-material.tar.gz)
+
+# The complete checksummed set of a schema 3 backup, in SHA256SUMS order — the
+# closed list SHA256SUMS itself is held to before a single line of it is
+# trusted. Stated here because this script cannot source common; a test pins
+# it to common's own BACKUP_CHECKSUMMED_FILES_SCHEMA3.
+SCHEMA3_CHECKSUMMED_FILES=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    recovery-material.tar.gz
+    manifest.json
+)
+
+# The seed material a recovery supplies, and the only two files the seed
+# directory may hold.
+SEED_FILES=(rclone-config deploy-authorized-keys)
+
+# The logical name the backup's environment file is installed under.
+LARAVEL_ENV_NAME=laravel-env
+
+# The manifest schema a clean-host recovery requires, and the only one that
+# carries recovery material.
+REQUIRED_MANIFEST_SCHEMA=3
+
+RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
+BACKUP_ID_REGEX='^[0-9]{8}-[0-9]{6}$'
+
+# --- Output -------------------------------------------------------------------
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  fetch-recovery-material --target TARGET_ID --backup YYYYMMDD-HHMMSS \
+                          --seed-dir DIR --output-dir DIR
+
+Root only. Downloads the bootstrap subset (manifest.json, release.json,
+environment.env, recovery-material.tar.gz, SHA256SUMS) of ONE exact offsite
+backup through the seed rclone configuration, proves it is a schema 3 backup
+of this target, and lays the recovery material out under logical names in the
+output directory, alongside the two seed files.
+
+  --target      Deployment target ID from the RateGuru target registry.
+  --backup      The exact offsite backup timestamp. There is no "latest".
+  --seed-dir    Root-owned 0700 directory holding exactly rclone-config and
+                deploy-authorized-keys. Read only; never modified.
+  --output-dir  Existing, EMPTY, root-owned 0700 directory that receives the
+                effective material: laravel-env, every host-scope logical
+                name from the backup, deploy-authorized-keys and rclone-config.
+
+Never restores data, never deploys, never touches a canonical destination and
+never prints, hashes or measures the content of any material.
+USAGE
+}
+
+# --- Arguments ----------------------------------------------------------------
+
+TARGET_ID=""
+TARGET_SEEN=false
+BACKUP_ID=""
+BACKUP_SEEN=false
+SEED_DIR=""
+SEED_SEEN=false
+OUTPUT_DIR=""
+OUTPUT_SEEN=false
+
+require_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --backup)
+                [[ "${BACKUP_SEEN}" != true ]] || fail "--backup given more than once"
+                require_value "--backup" "$#" "${2-}"
+                BACKUP_ID="$2"
+                BACKUP_SEEN=true
+                shift 2
+                ;;
+            --seed-dir)
+                [[ "${SEED_SEEN}" != true ]] || fail "--seed-dir given more than once"
+                require_value "--seed-dir" "$#" "${2-}"
+                SEED_DIR="$2"
+                SEED_SEEN=true
+                shift 2
+                ;;
+            --output-dir)
+                [[ "${OUTPUT_SEEN}" != true ]] || fail "--output-dir given more than once"
+                require_value "--output-dir" "$#" "${2-}"
+                OUTPUT_DIR="$2"
+                OUTPUT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+    [[ "${BACKUP_SEEN}" == true ]] \
+        || fail "--backup is required — a recovery never selects a backup implicitly, and there is no 'latest'"
+    [[ "${SEED_SEEN}" == true ]] || fail "--seed-dir is required"
+    [[ "${OUTPUT_SEEN}" == true ]] || fail "--output-dir is required"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_EUID}" == "0" ]] || fail "fetch-recovery-material must run as root"
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    [[ -x "${RCLONE_BIN}" ]] || fail "rclone is not available at ${RCLONE_BIN} — the runtime slice installs it, and it must be in place before recovery material can be fetched"
+    [[ -x "${TARGETS_CLI_BIN}" ]] || fail "targets CLI is not executable: ${TARGETS_CLI_BIN} — run from a full repository checkout"
+    [[ -x "${PREREQUISITES_BIN}" ]] || fail "install-target-prerequisites is not executable: ${PREREQUISITES_BIN} — run from a full repository checkout"
+}
+
+# --- Target and backup identity ---------------------------------------------------
+
+ENVIRONMENT_CLASS=""
+BACKUP_NAMESPACE=""
+DATABASE_NAME=""
+
+resolve_target() {
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] \
+        || fail "invalid target ID: ${TARGET_ID}"
+
+    [[ -f "${SOURCE_REGISTRY}" ]] \
+        || fail "target registry is unavailable: ${SOURCE_REGISTRY}"
+
+    "${TARGETS_CLI_BIN}" validate --file "${SOURCE_REGISTRY}" >/dev/null \
+        || fail "target registry failed validation: ${SOURCE_REGISTRY}"
+
+    local target_json
+    target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}")" \
+        || fail "unknown target: ${TARGET_ID}"
+
+    local lifecycle
+    lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+
+    [[ "${lifecycle}" == active ]] \
+        || fail "target ${TARGET_ID} has lifecycle=${lifecycle:-unknown}, not active — recovery material is never fetched for a target that is not active"
+
+    ENVIRONMENT_CLASS="$(printf '%s' "${target_json}" | jq -r '.environment_class // empty')"
+    BACKUP_NAMESPACE="$(printf '%s' "${target_json}" | jq -r '.backup.namespace // empty')"
+    DATABASE_NAME="$(printf '%s' "${target_json}" | jq -r '.database.name // empty')"
+
+    [[ -n "${ENVIRONMENT_CLASS}" ]] || fail "target ${TARGET_ID} carries no environment_class"
+    [[ -n "${BACKUP_NAMESPACE}" ]] || fail "target ${TARGET_ID} carries no backup namespace"
+    [[ -n "${DATABASE_NAME}" ]] || fail "target ${TARGET_ID} carries no database name"
+}
+
+# validate_backup_id — the exact shape backup itself creates, AND a real UTC
+# calendar timestamp: a shape-matching but impossible ID (month 13, day 99)
+# must never resolve to an object somebody else created by hand. The same
+# round trip restore-common's validate_backup_id performs.
+validate_backup_id() {
+    [[ "${BACKUP_ID}" =~ ${BACKUP_ID_REGEX} ]] \
+        || fail "invalid backup ID (expected YYYYMMDD-HHMMSS): ${BACKUP_ID}"
+
+    local year="${BACKUP_ID:0:4}" month="${BACKUP_ID:4:2}" day="${BACKUP_ID:6:2}"
+    local hour="${BACKUP_ID:9:2}" minute="${BACKUP_ID:11:2}" second="${BACKUP_ID:13:2}"
+    local epoch canonical
+
+    epoch="$(date -u -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" +%s 2>/dev/null)" \
+        || fail "backup ID is not a real UTC timestamp: ${BACKUP_ID}"
+
+    canonical="$(date -u -d "@${epoch}" +%Y%m%d-%H%M%S)"
+
+    [[ "${canonical}" == "${BACKUP_ID}" ]] \
+        || fail "backup ID is not a real UTC timestamp: ${BACKUP_ID}"
+}
+
+# --- Directories ----------------------------------------------------------------
+
+# assert_root_only_directory PATH LABEL — absolute, a real directory, never a
+# symlink, mode exactly 0700, root-owned where ownership is enforced.
+assert_root_only_directory() {
+    local dir="$1" label="$2"
+
+    [[ "${dir}" == /* ]] || fail "${label} must be an absolute path: ${dir}"
+    [[ ! -L "${dir}" ]] || fail "${label} must not be a symlink: ${dir}"
+    [[ -d "${dir}" ]] || fail "${label} is not a directory: ${dir}"
+
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+
+    (( 8#${mode} == 8#700 )) \
+        || fail "${label} must be mode 0700 (is ${mode}): ${dir}"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        local owner
+        owner="$(stat -c '%u' "${dir}")"
+        [[ "${owner}" == "0" ]] \
+            || fail "${label} must be owned by root (uid ${owner}): ${dir}"
+    fi
+}
+
+# assert_seed_material_file PATH NAME — a seed file is a plain, non-empty
+# regular file. Its content is never read here.
+assert_seed_material_file() {
+    local path="$1" name="$2"
+
+    [[ -e "${path}" ]] || fail "seed material is missing: ${name} — the recovery workflow supplies it, and there is no fallback"
+    [[ ! -L "${path}" ]] || fail "seed material must not be a symlink: ${name}"
+    [[ -f "${path}" ]] || fail "seed material must be a regular file: ${name}"
+    [[ -s "${path}" ]] || fail "seed material is empty: ${name}"
+}
+
+validate_seed_dir() {
+    assert_root_only_directory "${SEED_DIR}" "--seed-dir"
+
+    local name entry found
+    for name in "${SEED_FILES[@]}"; do
+        assert_seed_material_file "${SEED_DIR}/${name}" "${name}"
+    done
+
+    # Closed in both directions: a seed directory carrying anything else — a
+    # hand-supplied environment file, a TLS key, a Basic Auth file — is a
+    # recovery trying to take material from somewhere other than the backup,
+    # and that is exactly what this design exists to make impossible.
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        found=false
+        for name in "${SEED_FILES[@]}"; do
+            [[ "${entry}" != "${name}" ]] || { found=true; break; }
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "seed directory holds a file that is not seed material: ${entry} — a recovery takes the target's environment and host material from the backup itself, never from a supplied file (only ${SEED_FILES[*]} may be seeded)"
+    done < <(find "${SEED_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')
+}
+
+validate_output_dir() {
+    assert_root_only_directory "${OUTPUT_DIR}" "--output-dir"
+
+    [[ -z "$(find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]] \
+        || fail "--output-dir must be empty: ${OUTPUT_DIR}"
+}
+
+# --- Scratch ----------------------------------------------------------------------
+
+SCRATCH=""
+
+discard_scratch() {
+    # Guarded by construction: only a directory this run created under the
+    # scratch parent, by the name mktemp gave it, is ever removed.
+    if [[ -n "${SCRATCH}" ]] && [[ "${SCRATCH}" == "${SCRATCH_PARENT%/}/rateguru-recovery-fetch."* ]]; then
+        rm -rf -- "${SCRATCH}"
+    fi
+}
+
+create_scratch() {
+    [[ -d "${SCRATCH_PARENT}" ]] || fail "scratch parent does not exist: ${SCRATCH_PARENT}"
+
+    SCRATCH="$(mktemp -d "${SCRATCH_PARENT%/}/rateguru-recovery-fetch.XXXXXX")" \
+        || fail "could not create a root-only scratch directory under ${SCRATCH_PARENT}"
+
+    chmod 0700 "${SCRATCH}"
+    trap discard_scratch EXIT
+
+    install -d -m 0700 "${SCRATCH}/subset" "${SCRATCH}/material"
+}
+
+# --- Download -----------------------------------------------------------------------
+
+REMOTE_DIRECTORY=""
+
+# download_object NAME — one `copyto` call for one fixed name. Never a
+# directory copy: a remote holding an extra object must not have it land in
+# the scratch and later be mistaken for part of the backup. The credential is
+# read from the seed file by rclone itself and is never echoed, logged or
+# placed on a command line.
+download_object() {
+    local name="$1"
+
+    "${RCLONE_BIN}" \
+        --config "${SEED_DIR}/rclone-config" \
+        copyto \
+        "${REMOTE_DIRECTORY}/${name}" \
+        "${SCRATCH}/subset/${name}" \
+        --stats 0 \
+        || fail "could not download ${name} of backup ${BACKUP_ID} from the offsite remote — the backup may not exist, may be incomplete, or the seed rclone configuration may not reach it"
+
+    [[ -e "${SCRATCH}/subset/${name}" ]] || fail "downloaded backup file is missing: ${name}"
+    [[ ! -L "${SCRATCH}/subset/${name}" ]] || fail "downloaded backup file must not be a symlink: ${name}"
+    [[ -f "${SCRATCH}/subset/${name}" ]] || fail "downloaded backup file must be a regular file: ${name}"
+    [[ -s "${SCRATCH}/subset/${name}" ]] || fail "downloaded backup file is empty: ${name}"
+
+    chmod 0600 "${SCRATCH}/subset/${name}"
+}
+
+# download_manifest — the manifest comes first, alone: it decides whether the
+# backup is recovery-capable at all, and an older backup has no recovery
+# material to download. Refusing on the manifest, by name, is the clear
+# diagnosis; a failed download of a file that was never there is not.
+download_manifest() {
+    REMOTE_DIRECTORY="${RCLONE_REMOTE}:${RCLONE_BUCKET}/rateguru/${BACKUP_NAMESPACE}/${BACKUP_ID}"
+
+    log "downloading the manifest of offsite backup ${BACKUP_ID} from ${REMOTE_DIRECTORY}"
+
+    download_object "${MANIFEST_FILE}"
+}
+
+# download_bootstrap_subset — the rest of the fixed subset, one object each,
+# once the manifest has proven the backup is this target's schema 3 backup.
+download_bootstrap_subset() {
+    log "downloading the bootstrap subset of offsite backup ${BACKUP_ID}"
+
+    local name
+    for name in "${BOOTSTRAP_SUBSET[@]}"; do
+        [[ "${name}" != "${MANIFEST_FILE}" ]] || continue
+        download_object "${name}"
+    done
+
+    log "  downloaded: ${BOOTSTRAP_SUBSET[*]}"
+}
+
+# --- Verification -------------------------------------------------------------------
+
+BACKUP_RELEASE=""
+BACKUP_SOURCE_SHA=""
+
+# verify_manifest — the backup is THIS target's, and it is a schema 3 backup.
+# The schema is classified by JSON type first, exactly as every manifest
+# reader in this repository does, so a JSON string "3" or a number 3 hidden
+# in an array can never pass as recovery-capable.
+verify_manifest() {
+    local manifest="${SCRATCH}/subset/manifest.json"
+
+    jq -e 'type == "object"' "${manifest}" >/dev/null 2>&1 \
+        || fail "backup manifest is not a JSON object"
+
+    local schema_type schema_value
+    schema_type="$(jq -r '.manifest_schema_version | type' "${manifest}")"
+
+    case "${schema_type}" in
+        number)
+            schema_value="$(jq -r '.manifest_schema_version' "${manifest}")"
+            ;;
+        null)
+            schema_value="1"
+            ;;
+        *)
+            schema_value="$(jq -c '.manifest_schema_version' "${manifest}")"
+            ;;
+    esac
+
+    [[ "${schema_type}" == number ]] && [[ "${schema_value}" == "${REQUIRED_MANIFEST_SCHEMA}" ]] \
+        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${schema_value}, and a clean-host recovery requires schema ${REQUIRED_MANIFEST_SCHEMA} — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. Take a new backup on a live host and recover from that; this backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
+
+    local project environment target namespace database
+    project="$(jq -r '.project // empty' "${manifest}")"
+    environment="$(jq -r '.environment // empty' "${manifest}")"
+    target="$(jq -r '.target // empty' "${manifest}")"
+    namespace="$(jq -r '.backup_namespace // empty' "${manifest}")"
+    database="$(jq -r '.database // empty' "${manifest}")"
+
+    [[ "${project}" == rateguru ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${project}'"
+    [[ "${environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${environment}'"
+    [[ "${target}" == "${TARGET_ID}" ]] \
+        || fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${target}'"
+    [[ "${namespace}" == "${BACKUP_NAMESPACE}" ]] \
+        || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${namespace}'"
+    [[ "${database}" == "${DATABASE_NAME}" ]] \
+        || fail "backup manifest database mismatch: expected ${DATABASE_NAME}, got '${database}'"
+
+    log "  manifest: schema ${REQUIRED_MANIFEST_SCHEMA}, project/environment/target/namespace/database identify ${TARGET_ID}"
+}
+
+# verify_release_identity — the commit the data belongs to is a full commit,
+# because a recovery will build it. Read for the log only; the recovery reads
+# it again, on the server, from the backup it restores.
+verify_release_identity() {
+    local release_json="${SCRATCH}/subset/release.json"
+    local manifest="${SCRATCH}/subset/manifest.json"
+
+    jq -e 'type == "object"' "${release_json}" >/dev/null 2>&1 \
+        || fail "backup release.json is not a JSON object — this backup cannot identify the code its data belongs to"
+
+    [[ "$(jq -r '.release | type' "${release_json}")" == string ]] \
+        || fail "backup release.json carries no release string — a recovery cannot proceed without the release identity the data belongs to"
+    [[ "$(jq -r '.source_sha | type' "${release_json}")" == string ]] \
+        || fail "backup release.json carries no source_sha string — a recovery cannot proceed without the commit its data belongs to"
+
+    BACKUP_RELEASE="$(jq -r '.release' "${release_json}")"
+    BACKUP_SOURCE_SHA="$(jq -r '.source_sha' "${release_json}")"
+
+    [[ "${BACKUP_RELEASE}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "backup release.json carries a malformed release: ${BACKUP_RELEASE}"
+    [[ "${BACKUP_SOURCE_SHA}" =~ ${SOURCE_SHA_REGEX} ]] \
+        || fail "backup release.json carries no full 40-character source_sha (${BACKUP_SOURCE_SHA}) — a recovery rebuilds an exact commit and will not guess one"
+
+    local manifest_release
+    manifest_release="$(jq -r '.release // empty' "${manifest}")"
+
+    if [[ -n "${manifest_release}" ]] && [[ "${manifest_release}" != unknown ]]; then
+        [[ "${manifest_release}" == "${BACKUP_RELEASE}" ]] \
+            || fail "backup manifest release (${manifest_release}) does not match release.json release (${BACKUP_RELEASE})"
+    fi
+
+    log "  release: ${BACKUP_RELEASE} (source ${BACKUP_SOURCE_SHA})"
+}
+
+# verify_checksums — SHA256SUMS is content from the backup, not a trusted
+# index. It is validated as a closed set first: every line "<64 hex>  <name>",
+# every name one of the schema 3 checksummed files, none repeated, none
+# missing, nothing else — so an entry naming an absolute path or a ../ escape
+# is refused before sha256sum follows a single one. Then exactly the four
+# downloaded members are checked, quietly: a digest of environment.env is a
+# fingerprint of secret material, and no digest is ever printed.
+verify_checksums() {
+    local sums="${SCRATCH}/subset/SHA256SUMS"
+    local line hash name known found
+    local -a seen=()
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
+            || fail "SHA256SUMS carries a malformed entry"
+
+        hash="${BASH_REMATCH[1]}"
+        name="${BASH_REMATCH[2]}"
+
+        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
+
+        found=false
+        for known in "${SCHEMA3_CHECKSUMMED_FILES[@]}"; do
+            [[ "${name}" != "${known}" ]] || { found=true; break; }
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS references a file that is not part of a schema 3 RateGuru backup: ${name}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${name}" ]] \
+                || fail "SHA256SUMS references ${name} more than once"
+        done
+
+        seen+=("${name}")
+    done < "${sums}"
+
+    for known in "${SCHEMA3_CHECKSUMMED_FILES[@]}"; do
+        found=false
+        for name in "${seen[@]:-}"; do
+            [[ "${name}" != "${known}" ]] || { found=true; break; }
+        done
+
+        [[ "${found}" == true ]] || fail "SHA256SUMS does not cover ${known}"
+    done
+
+    local filtered="${SCRATCH}/subset.sha256"
+    : > "${filtered}"
+    chmod 0600 "${filtered}"
+
+    for name in "${BOOTSTRAP_SUBSET_CHECKSUMMED[@]}"; do
+        grep -E "^[0-9a-f]{64}  ${name//./\\.}\$" "${sums}" >> "${filtered}"
+    done
+
+    [[ "$(grep -c . "${filtered}")" == "${#BOOTSTRAP_SUBSET_CHECKSUMMED[@]}" ]] \
+        || fail "internal: could not select the checksums of the downloaded subset"
+
+    (
+        cd "${SCRATCH}/subset"
+        sha256sum --check --quiet --strict "${filtered}" >/dev/null
+    ) || fail "the downloaded bootstrap subset of backup ${BACKUP_ID} failed SHA-256 verification — refusing to prepare a host from material that is not the backup's own"
+
+    rm -f -- "${filtered}"
+
+    log "  checksums: OK (${BOOTSTRAP_SUBSET_CHECKSUMMED[*]}; digests never printed)"
+}
+
+# --- Recovery material ----------------------------------------------------------------
+
+HOST_MATERIAL_NAMES=()
+
+# verify_and_extract_recovery_material — the archive is judged by the sibling
+# installer's own structural validation (the same table Prepare Host installs
+# from) before a byte is extracted, extracted into a fresh root-only 0700
+# directory, and then re-checked on disk: only regular files, exactly the
+# expected names, mode 0600 each. The archive never decides where anything
+# is written — that is the installer's table, later.
+verify_and_extract_recovery_material() {
+    local archive="${SCRATCH}/subset/recovery-material.tar.gz"
+    local output status=0
+
+    output="$("${PREREQUISITES_BIN}" --validate-recovery-material --target "${TARGET_ID}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "the recovery material archive of backup ${BACKUP_ID} is not acceptable for ${TARGET_ID} (see the installer's own diagnosis above) — nothing was extracted"
+    fi
+
+    mapfile -t HOST_MATERIAL_NAMES < <("${PREREQUISITES_BIN}" --list-material-names --target "${TARGET_ID}" --scope host)
+
+    (( ${#HOST_MATERIAL_NAMES[@]} > 0 )) \
+        || fail "no host-scope prerequisite is defined for ${TARGET_ID}"
+
+    tar -xzf "${archive}" -C "${SCRATCH}/material" \
+        || fail "could not extract the recovery material archive of backup ${BACKUP_ID}"
+
+    # Post-extraction backstop: the pre-extraction gate read tar's own listing;
+    # this reads the filesystem that actually resulted.
+    local offender
+    offender="$(find "${SCRATCH}/material" -mindepth 1 ! -type f -print -quit)"
+    [[ -z "${offender}" ]] \
+        || fail "the extracted recovery material holds a non-regular entry: $(basename -- "${offender}")"
+
+    local name entry found
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+        found=false
+        for name in "${HOST_MATERIAL_NAMES[@]}"; do
+            [[ "${entry}" != "${name}" ]] || { found=true; break; }
+        done
+        [[ "${found}" == true ]] \
+            || fail "the extracted recovery material holds a file that is not a host-scope prerequisite: ${entry}"
+    done < <(find "${SCRATCH}/material" -mindepth 1 -maxdepth 1 -printf '%f\n')
+
+    for name in "${HOST_MATERIAL_NAMES[@]}"; do
+        [[ -f "${SCRATCH}/material/${name}" ]] && [[ ! -L "${SCRATCH}/material/${name}" ]] \
+            || fail "the extracted recovery material is missing ${name}"
+        chmod 0600 "${SCRATCH}/material/${name}"
+    done
+
+    log "  recovery material: OK ($(tail -n 1 <<<"${output}"))"
+}
+
+# --- Effective material -----------------------------------------------------------------
+
+# place NAME SOURCE ORIGIN — one file of the effective material, staged 0600
+# under its logical name, root-owned where ownership is enforced. The content
+# is copied by install and never otherwise touched.
+place() {
+    local name="$1" source="$2" origin="$3"
+    local destination="${OUTPUT_DIR}/${name}"
+
+    [[ ! -e "${destination}" ]] && [[ ! -L "${destination}" ]] \
+        || fail "refusing to overwrite ${destination}: it appeared after the output directory was checked"
+
+    install -m 0600 -- "${source}" "${destination}" \
+        || fail "could not place ${name} into ${OUTPUT_DIR}"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        chown -- root:root "${destination}" \
+            || fail "could not set ownership on ${destination}"
+    fi
+
+    chmod "=0600" "${destination}" \
+        || fail "could not pin mode 0600 on ${destination}"
+
+    printf '  %-26s <- %s\n' "${name}" "${origin}"
+}
+
+compose_effective_material() {
+    printf '\n'
+    printf 'recovery material staged for %s from offsite backup %s\n' "${TARGET_ID}" "${BACKUP_ID}"
+    printf '  backup release %s, source %s\n' "${BACKUP_RELEASE}" "${BACKUP_SOURCE_SHA}"
+
+    place "${LARAVEL_ENV_NAME}" "${SCRATCH}/subset/environment.env" "backup environment.env"
+
+    local name
+    for name in "${HOST_MATERIAL_NAMES[@]}"; do
+        place "${name}" "${SCRATCH}/material/${name}" "backup recovery-material.tar.gz"
+    done
+
+    place deploy-authorized-keys "${SEED_DIR}/deploy-authorized-keys" "seed material (the deploy public key derived on the runner)"
+    place rclone-config "${SEED_DIR}/rclone-config" "seed material (the recovery offsite credential)"
+
+    local total=$(( 1 + ${#HOST_MATERIAL_NAMES[@]} + 2 ))
+    printf '  effective material: %d files, root-only, mode 0600 each, in %s\n' "${total}" "${OUTPUT_DIR}"
+    printf '  content never read, hashed, measured or printed\n'
+}
+
+# --- Entry point ------------------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+
+    require_root
+    check_required_tools
+    resolve_target
+    validate_backup_id
+    validate_seed_dir
+    validate_output_dir
+    create_scratch
+
+    download_manifest
+    verify_manifest
+    download_bootstrap_subset
+    verify_release_identity
+    verify_checksums
+    verify_and_extract_recovery_material
+    compose_effective_material
+
+    exit 0
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

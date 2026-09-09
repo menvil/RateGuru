@@ -120,13 +120,20 @@ resolve_restore_subject() {
 #
 # Runs before createdb, always — a manifest mismatch must never reach the
 # point of creating a temporary database. project/environment/database are
-# required on every backup this repository has ever produced, schema 1 or
-# schema 2 alike. backup_namespace is only demanded for schema 2, because
+# required on every backup this repository has ever produced, schema 1, 2 or
+# 3 alike. backup_namespace is only demanded for schema 2 and 3, because
 # schema 1 backups (everything produced before schema 2 was introduced)
 # never had that field. A schema 2 backup whose target is non-null must
 # match TARGET_ID; a null target (every backup produced before this cutover,
 # when the operational selector was not yet target-only) never triggers that
-# check — historical manifest content is immutable and stays restorable.
+# check — historical manifest content is immutable and stays restorable. A
+# schema 3 manifest is never written without a target, so there a null one
+# is a defect rather than history.
+#
+# Sets MANIFEST_SCHEMA to the classification, so the pipeline can demand
+# what a schema 3 backup additionally carries.
+MANIFEST_SCHEMA=""
+
 validate_backup_manifest() {
     local manifest_path="$1"
 
@@ -152,18 +159,20 @@ validate_backup_manifest() {
     # JSON number 2, and any non-scalar value into an indistinguishable bash
     # string, which previously let anything other than the literal string
     # "2" silently fall through as schema 1 (fail-open) — a schema_version of
-    # 3, 0, the JSON string "2" (not a number), "garbage", an array, an
-    # object or a boolean all compared unequal to "2" and were accepted as
+    # 0, 4, the JSON string "2" or "3" (not a number), "garbage", an array,
+    # an object or a boolean all compared unequal to "2" and were accepted as
     # legacy schema 1 without ever being rejected. `type` disambiguates this:
     # "null" covers both an absent key and an explicit JSON null (schema 1,
     # per contract); "number" is checked again, separately and strictly,
-    # against the literal value 2; every other type is rejected outright,
-    # before createdb, with the offending value's own JSON representation in
-    # the error.
+    # against the literal values 2 and 3; every other type is rejected
+    # outright, before createdb, with the offending value's own JSON
+    # representation in the error. This is the same contract common's
+    # manifest_schema_classify states, kept inline here on purpose and pinned
+    # to it by a test.
     local manifest_schema_type
     manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
 
-    local schema_is_v2=false
+    MANIFEST_SCHEMA=schema1
 
     case "${manifest_schema_type}" in
         null)
@@ -174,11 +183,11 @@ validate_backup_manifest() {
             local manifest_schema_version
             manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
 
-            if [[ "${manifest_schema_version}" == "2" ]]; then
-                schema_is_v2=true
-            else
-                fail "unsupported backup manifest schema_version: ${manifest_schema_version}"
-            fi
+            case "${manifest_schema_version}" in
+                2) MANIFEST_SCHEMA=schema2 ;;
+                3) MANIFEST_SCHEMA=schema3 ;;
+                *) fail "unsupported backup manifest schema_version: ${manifest_schema_version}" ;;
+            esac
             ;;
         *)
             local manifest_schema_value
@@ -187,7 +196,7 @@ validate_backup_manifest() {
             ;;
     esac
 
-    if [[ "${schema_is_v2}" == true ]]; then
+    if [[ "${MANIFEST_SCHEMA}" != schema1 ]]; then
         local manifest_backup_namespace
         manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -201,6 +210,9 @@ validate_backup_manifest() {
             null)
                 # Absent or explicit JSON null — a schema 2 manifest
                 # predating the target-only cutover; no target to compare.
+                # A schema 3 manifest is never written without one.
+                [[ "${MANIFEST_SCHEMA}" != schema3 ]] \
+                    || fail "backup manifest target is missing — a schema 3 manifest always names its target"
                 ;;
             string)
                 local manifest_target
@@ -220,6 +232,16 @@ validate_backup_manifest() {
         esac
     fi
 }
+
+# --- recovery material (schema 3) --------------------------------------------
+#
+# A schema 3 backup is what a clean-host recovery is seeded from, so a restore
+# test of one CERTIFIES the extra half too, through common's shared check:
+# recovery-material.tar.gz is present, checksummed exactly once, safe as data,
+# and holds exactly the target's host-scope external prerequisites as the
+# installed prerequisite table states them today — proven by
+# install-target-prerequisites itself, never re-derived here. Nothing is
+# extracted, and nothing about the material's content is printed.
 
 # --- restore-test pipeline -------------------------------------------------
 
@@ -280,6 +302,18 @@ perform_restore_test() {
     log "Testing backup:"
     log "${BACKUP_DIRECTORY}"
 
+    # The manifest decides the closed file set, and the set is proven exact —
+    # every file present as a plain regular file, nothing beyond it, and
+    # SHA256SUMS naming exactly the checksummed files — before a single
+    # checksum path is followed.
+    local backup_schema
+    backup_schema="$(backup_schema_of_directory "${BACKUP_DIRECTORY}")"
+
+    backup_assert_file_set "${BACKUP_DIRECTORY}" "${backup_schema}"
+    backup_assert_sha256sums_entries "${BACKUP_DIRECTORY}" "${backup_schema}"
+
+    log "Backup schema: ${backup_schema}"
+
     (
         cd "${BACKUP_DIRECTORY}"
         sha256sum --check SHA256SUMS
@@ -290,6 +324,11 @@ perform_restore_test() {
         >/dev/null
 
     validate_backup_manifest "${BACKUP_DIRECTORY}/manifest.json"
+
+    if [[ "${MANIFEST_SCHEMA}" == schema3 ]]; then
+        backup_assert_recovery_material_certified "${BACKUP_DIRECTORY}" "${TARGET_ID}"
+        log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
+    fi
 
     runuser -u postgres -- \
         "${CREATEDB_BIN}" \

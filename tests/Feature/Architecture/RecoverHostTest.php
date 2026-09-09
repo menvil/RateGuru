@@ -474,7 +474,7 @@ it('refuses a backup that belongs to another target, before any activation', fun
 
     try {
         recoveryFixture($scratch, ['backup_options' => [
-            'manifest' => backupManifestFixture(['target' => 'somebody-else']),
+            'manifest' => backupManifestFixture(['manifest_schema_version' => 3, 'target' => 'somebody-else']),
         ]]);
 
         $result = recoveryApply($scratch);
@@ -487,6 +487,307 @@ it('refuses a backup that belongs to another target, before any activation', fun
     } finally {
         removeScratchDir($scratch);
     }
+});
+
+// =============================================================================
+// Only a backup that carries its recovery material can recover a clean host
+// =============================================================================
+
+it('refuses a backup written before the recovery material existed, before staging any data', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // A perfectly valid schema 2 backup: restorable onto a live target,
+        // and useless for a clean host, because the material Prepare Host
+        // needs is not in it.
+        recoveryFixture($scratch, ['backup_options' => ['schema' => 2]]);
+
+        $result = recoveryApply($scratch);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('step: require a clean-host-recovery-capable backup')
+            ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a host recovery requires schema 3')
+            ->toContain('No data was staged or activated')
+            // No fallback to hand-supplied material is offered, anywhere.
+            ->not->toContain('PREPARE_')
+            ->not->toContain('--material-dir');
+
+        // The refusal came after the download and before any mutation.
+        $staged = mb_strpos($result['output'], 'step: stage backup');
+        $required = mb_strpos($result['output'], 'step: require a clean-host-recovery-capable backup');
+
+        expect($staged)->not->toBeFalse();
+        expect($required)->not->toBeFalse();
+        expect($staged)->toBeLessThan($required);
+        expect($result['output'])->not->toContain('step: restore database');
+
+        expect(recoveryGuard($scratch))->toBeNull();
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+        expect(trim(File::get($scratch.'/pg/tables/parity_db')))->toBe('0');
+        expect(File::exists($scratch.'/target/shared/storage/app'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('records the backup schema it accepted, in the state, the history and every report', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        expect($applied['output'])
+            ->toContain('manifest schema 3')
+            ->toContain('BACKUP SCHEMA: 3');
+
+        expect(recoveryOperationState($scratch, $operation)['backup_schema'])->toBe('3');
+
+        $inspected = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+        expect($inspected['output'])->toContain('BACKUP SCHEMA: 3');
+
+        $records = array_map(
+            static fn (string $line): array => json_decode($line, true),
+            array_filter(preg_split('/\R/', File::get($scratch.'/recoveries/recovery-history.jsonl'))),
+        );
+        expect(end($records))->toMatchArray(['backup_schema' => '3']);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
+// The offsite-write hold: a recovered machine never writes into the namespace
+// =============================================================================
+
+it('holds the offsite writers before it downloads anything, and reports the hold everywhere', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $checked = recoverHostRun($scratch, ['--check', '--target', 'parity-target', '--backup', '20260115-023000']);
+        expect($checked['exit'])->toBe(0, $checked['output']);
+        expect($checked['output'])->toContain('OFFSITE WRITES: not yet held');
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeFalse('--check places no hold');
+
+        $result = recoveryApply($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+        $operation = recoveryOperationIdIn($result['output']);
+
+        // Placed right after the guard, before the first byte is downloaded.
+        $guardStep = mb_strpos($result['output'], 'step: write recovery guard');
+        $holdStep = mb_strpos($result['output'], 'step: hold offsite writes');
+        $stageStep = mb_strpos($result['output'], 'step: stage backup');
+
+        expect($guardStep)->not->toBeFalse();
+        expect($holdStep)->not->toBeFalse();
+        expect($stageStep)->not->toBeFalse();
+        expect($guardStep)->toBeLessThan($holdStep);
+        expect($holdStep)->toBeLessThan($stageStep);
+
+        $hold = json_decode(File::get($scratch.'/run/offsite-write-hold'), true);
+        expect($hold)->toMatchArray([
+            'hold' => 'offsite-writes',
+            'reason' => 'host-recovery',
+            'target' => 'parity-target',
+            'backup' => '20260115-023000',
+            'created_by' => 'recover-host --apply',
+        ]);
+        expect(substr(sprintf('%o', fileperms($scratch.'/run/offsite-write-hold')), -4))->toBe('0600');
+
+        // Reported by the apply, carried by the guard, the state, the history
+        // and the machine-readable result.
+        expect($result['output'])->toContain('OFFSITE WRITES: HELD');
+        expect(recoveryGuard($scratch))->toMatchArray(['offsite_writes' => 'held']);
+        expect(recoveryOperationState($scratch, $operation))->toMatchArray(['offsite_writes' => 'held']);
+
+        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $result['output'], $matches);
+        expect(json_decode($matches[1], true))->toMatchArray(['offsite_writes' => 'held']);
+
+        $records = array_map(
+            static fn (string $line): array => json_decode($line, true),
+            array_filter(preg_split('/\R/', File::get($scratch.'/recoveries/recovery-history.jsonl'))),
+        );
+        expect(end($records))->toMatchArray(['offsite_writes' => 'held']);
+
+        // The target's own scheduler entry is held aside exactly as before:
+        // the fence changes nothing about what a recovery does to the runtime.
+        expect(File::exists($scratch.'/cron.d/parity-scheduler'))->toBeFalse('the target scheduler is held aside as before');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('keeps a hold the preparation already placed, and never rewrites it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        mkdir($scratch.'/run', 0o700, true);
+        $planted = json_encode([
+            'hold' => 'offsite-writes',
+            'reason' => 'host-recovery',
+            'target' => 'parity-target',
+            'backup' => '20260115-023000',
+            'created_by' => 'prepare-host --recovery-backup',
+            'created_at' => '2026-01-15T03:00:00Z',
+        ]);
+        file_put_contents($scratch.'/run/offsite-write-hold', $planted);
+
+        $result = recoveryApply($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('offsite writes: HELD (already, by prepare-host --recovery-backup)');
+        expect(File::get($scratch.'/run/offsite-write-hold'))->toBe($planted);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses to inspect, resume or verify a machine whose hold has gone', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        $marker = $scratch.'/run/offsite-write-hold';
+        $document = File::get($marker);
+        unlink($marker);
+
+        // Read-only, so it never writes one: it refuses, and names the way
+        // forward rather than leaving the operator without one.
+        $inspected = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+        expect($inspected['exit'])->not->toBe(0);
+        expect($inspected['output'])
+            ->toContain('the offsite-write hold is missing')
+            ->toContain('recover-host --resume runs')
+            ->toContain('re-place it by hand as root');
+
+        deployRecoveredRelease($scratch);
+
+        // The mutating stage re-establishes the fence before it starts a
+        // single service, then finishes — and the hold stays.
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+        expect($resumed['output'])
+            ->toContain('step: hold offsite writes')
+            ->toContain('offsite writes: HELD by recover-host --resume')
+            ->toContain('OFFSITE WRITES: HELD');
+        expect(File::exists($marker))->toBeTrue('a completed recovery never releases the hold');
+        expect(json_decode(File::get($marker), true))->toMatchArray([
+            'hold' => 'offsite-writes',
+            'target' => 'parity-target',
+            'backup' => '20260115-023000',
+            'created_by' => 'recover-host --resume',
+        ]);
+        expect(substr(sprintf('%o', fileperms($marker)), -4))->toBe('0600');
+
+        // And the original document is never rewritten when it is there: the
+        // apply's own hold survives a resume untouched.
+        expect($document)->not->toBe(File::get($marker));
+
+        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $resumed['output'], $matches);
+        expect(json_decode($matches[1], true))->toMatchArray(['status' => 'completed', 'offsite_writes' => 'held']);
+
+        $verified = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
+        expect($verified['exit'])->toBe(0, $verified['output']);
+        expect($verified['output'])->toContain('OFFSITE WRITES: HELD');
+
+        unlink($marker);
+
+        $verified = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
+        expect($verified['exit'])->not->toBe(0);
+        expect($verified['output'])
+            ->toContain('the offsite-write hold is missing')
+            ->toContain('re-place it by hand as root');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('keeps the hold the apply placed when a resume finds it in place', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        $marker = $scratch.'/run/offsite-write-hold';
+        $document = File::get($marker);
+
+        deployRecoveredRelease($scratch);
+
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+        expect($resumed['output'])->toContain('offsite writes: HELD (already, by recover-host --apply)');
+        expect(File::get($marker))->toBe($document);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('never releases the offsite-write hold in any code path', function () {
+    $source = executableSourceLines(File::get(recoverHostScript()));
+
+    // Judged function by function: within a function that assigns a hold
+    // path to a local, every later use of that local is a use of the hold —
+    // so a removal through `rm "${marker}"` is caught — while the same local
+    // name in another function (the guard's own marker) is judged by what it
+    // holds there.
+    preg_match_all('/^(\w+)\(\) \{\n(.*?)^\}/ms', $source, $functions, PREG_SET_ORDER);
+
+    expect($functions)->not->toBeEmpty();
+
+    $assigningFunctions = 0;
+
+    foreach ($functions as [, $name, $body]) {
+        preg_match_all('/(\w+)="?\$\(offsite_write_hold_file\b/', $body, $assigned);
+        $holdVariables = array_values(array_unique($assigned[1]));
+
+        if ($holdVariables !== []) {
+            $assigningFunctions++;
+        }
+
+        foreach (preg_split('/\R/', $body) as $line) {
+            $mentionsHold = str_contains($line, 'offsite_write_hold') || str_contains($line, 'offsite-write-hold');
+
+            foreach ($holdVariables as $variable) {
+                if (preg_match('/\$\{?'.preg_quote($variable, '/').'\b/', $line) === 1) {
+                    $mentionsHold = true;
+                }
+            }
+
+            if (! $mentionsHold) {
+                continue;
+            }
+
+            // The only file operations allowed on a hold are creating it and
+            // moving its own temporary file into place.
+            expect(preg_match('/\brm\b/', $line) === 1 && ! str_contains($line, '.tmp'))->toBeFalse("{$name} must never remove the hold: {$line}");
+            expect(preg_match('/\bmv\b/', $line) === 1 && ! str_contains($line, '.tmp'))->toBeFalse("{$name} must never move the hold away: {$line}");
+            expect(preg_match('/\bunlink\b/', $line))->toBe(0, "{$name} must never unlink the hold: {$line}");
+        }
+    }
+
+    expect($assigningFunctions)->toBeGreaterThan(0, 'no function assigns the hold path — the scan would be judging nothing');
+
+    // The hold is composed by common, the one place the path is stated.
+    expect($source)->toContain('offsite_write_hold_file "${RUN_ROOT}"')
+        ->not->toContain("'offsite-write-hold'")
+        ->not->toContain('"offsite-write-hold"');
 });
 
 // =============================================================================

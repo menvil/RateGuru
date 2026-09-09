@@ -27,12 +27,75 @@ mis-set window shrinks the *age* coverage, never the *count* below two. The
 registry validator refuses any target whose `minimum_retained_backups` is
 not a strict JSON integer of at least 2.
 
-A backup contains the database dump, storage, `.env`, release metadata and
-the server-configuration snapshot — **not** the built application artifact
-itself, and there is deliberately no durable artifact archive anywhere in
-RateGuru: no dedicated bucket, no artifact-specific credentials, no artifact
-retention policy and no backup-to-artifact mapping. GitHub Actions artifacts
-stay what they are, temporary CI/deployment transport.
+A backup contains the database dump, storage, `.env`, release metadata, the
+server-configuration snapshot and the target's recovery material — **not**
+the built application artifact itself, and
+there is deliberately no durable artifact archive anywhere in RateGuru: no
+dedicated bucket, no artifact-specific credentials, no artifact retention
+policy and no backup-to-artifact mapping. GitHub Actions artifacts stay what
+they are, temporary CI/deployment transport.
+
+### The backup format: exactly eight files
+
+```text
+database.dump                 pg_dump custom format
+storage-app.tar.gz            storage/app
+environment.env               shared/.env
+release.json                  release identity and source_sha
+server-configuration.tar.gz   diagnostic snapshot of the target's own host configuration
+recovery-material.tar.gz      the target's host-scope external prerequisites, by logical name
+manifest.json                 identity, manifest_schema_version 3
+SHA256SUMS                    the seven files above, in that order
+```
+
+The set is **closed**, and it is stated once, in `common` (the backup format
+contract every producer and consumer reads): a backup with a file missing from
+its schema's set, or with any file beyond it, is refused wherever it is read
+as a whole — `restore-test` and `offsite-restore-test` before the temporary
+database exists, `offsite-backup` before `rclone` is invoked (an upload copies
+the whole directory, so a stranger would otherwise land in the namespace),
+and the restore primitives before a single checksum path is followed.
+`SHA256SUMS` is held to the same rule: it names exactly the checksummed files
+of the schema, once each, as bare names, checked before `sha256sum --check`
+runs.
+
+A backup is written only for a **deployed** target: `current/release.json`
+must name a well-formed release and a full 40-character `source_sha`, or
+`backup` refuses before the first byte is dumped and writes nothing. A backup
+written today is the source of a clean-host recovery, which rebuilds exactly
+that commit; a schema 3 backup with an empty or abbreviated identity would be
+reported as a success and found unusable on the worst day.
+
+**`recovery-material.tar.gz`** is what makes a backup usable for a clean-host
+recovery without any external material being supplied by hand. `backup`
+captures it through `install-target-prerequisites --capture --target T --scope
+host` — the same prerequisite table Prepare Host installs from, parsed from
+the committed Nginx vhosts, so the list is never written down a second time.
+For `staging-main` that is `basic-auth`, `tls-certificate`,
+`tls-private-key`, `tls-dhparams`, `nginx-tls-options`,
+`mail-tls-certificate` and `mail-tls-private-key`. Each is copied under its
+**logical name**; a certbot link on the host becomes a plain regular file in
+the archive; the archive holds top-level regular files only — no directory,
+symlink, hard link, device, FIFO, socket, absolute or nested path, unknown or
+duplicate name — and a recovery validates exactly that before extracting a
+byte. The destination owner and mode are the installer's decision, never the
+archive's. Content is never read, hashed, measured or logged; only names are.
+A capture that cannot be completed safely — a prerequisite missing, drifted or
+unsafe on the host — **fails the backup**, and no backup directory is written:
+a backup missing this material would be reported as a success and found
+unusable on the worst day.
+
+Never in the recovery material, and never in a backup at all: the rclone
+configuration or any B2 credential, the deploy private key, the deploy
+`authorized_keys` (a recovery derives the public key from the deployment
+credential on the runner), any bootstrap credential, any database password
+beyond the ones inside `environment.env`, and any application artifact.
+
+`server-configuration.tar.gz` is **not** replaced by the recovery material and
+the two are not supersets of each other: the snapshot is a forensic record of
+how the host was configured, never applied anywhere and never unpacked over
+`/`; the recovery material is a closed, explicitly allowed set of
+reconstruction inputs for Prepare Host.
 
 That is not a gap waiting to be filled. Recovery rebuilds the application from
 `release.json.source_sha` — the exact commit every backup already carries —
@@ -88,31 +151,79 @@ beyond the minimum are kept while inside `local_retention_days`
 just-created backup is the newest entry and therefore always inside the
 protected minimum.
 
-### Manifest: schema 2, backward compatible with schema 1
+### Manifest: schema 3, backward compatible with schema 1 and 2
 
-Every backup carries a `manifest_schema_version: 2` manifest naming its
-`target`, `environment` and `backup_namespace`, alongside the pre-existing
-`project`, `database`, `release`, `postgres_version` and `php_version`
-fields, plus the leftover `selector` field described below. `restore-test`
-validates whichever schema it finds on the backup it selects:
+Every backup written today carries a `manifest_schema_version: 3` manifest
+naming its `target`, `environment` and `backup_namespace`, alongside the
+pre-existing `project`, `database`, `release`, `postgres_version` and
+`php_version` fields, plus the leftover `selector` field described below. The
+three schemas differ only in the file set: schema 1 (no
+`manifest_schema_version` field at all) and schema 2 carry exactly **seven**
+files, without `recovery-material.tar.gz`; schema 3 carries exactly **eight**.
+`restore-test` validates whichever schema it finds on the backup it selects:
 
 - always required: `project == rateguru`, `environment` matching the target's
   environment class, `database` matching the resolved database;
-- additionally required for schema 2 only: `backup_namespace` matching the
+- additionally required for schema 2 and 3: `backup_namespace` matching the
   resolved namespace, and a non-null manifest `target` matching the target ID
-  given;
-- a schema 1 backup (produced before schema 2 existed, with none of the newer
-  fields) remains fully restorable, as long as the schema-1-only fields above
-  still match.
+  given (a schema 3 manifest always names its target);
+- additionally for schema 3: `recovery-material.tar.gz` present, covered by
+  `SHA256SUMS` exactly once, and **certified** by
+  `install-target-prerequisites --validate-recovery-material` — safe as data
+  and holding exactly the target's host-scope names as the installed
+  prerequisite table states them today, top-level regular files, nothing
+  else. Names are reported; content never is. `offsite-restore-test`
+  certifies the remote backup the same way, so a nightly PASS can never be
+  reported for a backup a clean-host recovery could not be prepared from;
+- a schema 1 or 2 backup remains fully restorable onto a **live** target, as
+  long as the fields above still match. It is **not** clean-host-recovery-
+  capable: `recover-host --apply` and the recovery preparation refuse it by
+  name, and there is no fallback to hand-supplied material.
+
+Two levels of judgement for the recovery material, on purpose. A **live
+restore** (`restore-target`, through `verify-backup`) never applies the
+archive, so it judges it as **data only** — a readable archive of top-level
+regular files with plain names, through `common`'s shared rule — and
+deliberately not against today's prerequisite table: a schema 3 backup
+written under an older table (a changed TLS scheme, a retired mail-capture
+vhost) is still a perfectly good source of database and storage, and a live
+restore that refused it over material it never installs would be a refusal
+about nothing. The strict, vocabulary-aware judgement belongs where the
+material is **installed** (`fetch-recovery-material`, on the replacement
+machine) and where a backup is **certified** for a clean-host recovery
+(`restore-test`, `offsite-restore-test`). `install-target-prerequisites`
+applies the same archive-as-data rules on a clean host, where `common` cannot
+be sourced; a test pins the two together.
 
 `manifest_schema_version` is recognized strictly, by its JSON type: absent or
-JSON `null` is schema 1; a JSON *number* equal to `2` is schema 2. Any other
-value — `3`, `0`, the JSON *string* `"2"`, an array, an object, a boolean — is
-rejected outright, before the temporary database is created, with
-`unsupported backup manifest schema_version: ...` naming the offending value.
+JSON `null` is schema 1; a JSON *number* equal to `2` is schema 2; a JSON
+*number* equal to `3` is schema 3. Any other value — `4`, `0`, the JSON
+*string* `"2"` or `"3"`, an array, an object, a boolean — is rejected
+outright, before the temporary database is created, with `unsupported backup
+manifest schema_version: ...` naming the offending value. The manifest is
+proven to be a plain regular file before it is read.
+
+A live restore (`restore-target`, and `restore-test`) **never applies**
+`environment.env`, `server-configuration.tar.gz` or
+`recovery-material.tar.gz`: they are verified and then never read again.
 
 Manifest validation always completes — like checksum and storage-archive
 validation — before the temporary restore-test database is created.
+
+### The offsite-write hold
+
+`backup-cycle`, `offsite-backup` and `offsite-retention` refuse to run at all
+while `/home/www/rateguru/run/offsite-write-hold` exists, before their first
+child, lock or history record, with `OFFSITE WRITES: HELD — … is refused on
+this host`. The marker is placed by a clean-host recovery on the replacement
+machine (by the recovery preparation before the offsite credential is
+installed, and by `recover-host --apply` before it downloads a byte), so a
+recovered machine — a complete host with a backup cron, an uploader and a
+pruner, believing it is the target — can never upload into, or prune, the
+namespace the target's live host owns. The local `backup` and `restore-test`
+are unaffected, and reading the namespace is unaffected. Nothing releases the
+hold automatically; removing the marker is part of deliberately adopting the
+machine. See [`recover-host.md`](recover-host.md).
 
 ## Target-aware offsite backup path
 
@@ -174,13 +285,16 @@ from its own locked, authoritative recomputation.
 `offsite-backup` and `offsite-restore-test` validate the manifest of the
 backup they select using the identical strict, type-based
 `manifest_schema_version` classification as local `restore-test` (absent or
-JSON `null` → schema 1; JSON number `2` → schema 2; anything else, including
-the JSON string `"2"`, is rejected outright). Schema 2 additionally requires
-`backup_namespace` to match the resolved namespace, and a non-null manifest
-`target` to match the target ID given. `offsite-backup` validates the
-manifest of the local backup it is about to upload before any Backblaze B2
-access check; `offsite-restore-test` validates the manifest of the remote
-backup it downloads before creating the temporary restore database.
+JSON `null` → schema 1; JSON number `2` → schema 2; JSON number `3` → schema
+3; anything else, including the JSON string `"2"` or `"3"`, is rejected
+outright). Schema 2 and 3 additionally require `backup_namespace` to match
+the resolved namespace, and a non-null manifest `target` to match the target
+ID given. The schema decides the closed file set — seven files for schema 1
+and 2, eight for schema 3 — and both scripts require exactly that set.
+`offsite-backup` validates the manifest of the local backup it is about to
+upload before any Backblaze B2 access check; `offsite-restore-test` validates
+the manifest of the remote backup it downloads before creating the temporary
+restore database.
 
 ## Target-aware backup cycle
 

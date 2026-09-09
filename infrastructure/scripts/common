@@ -104,22 +104,108 @@ append_history() {
         >> "${application_root}/deployments/history.jsonl"
 }
 
-# Shared, strict backup-manifest schema classifier for offsite-backup and
-# offsite-restore-test. infrastructure/scripts/restore-test (local
-# restore-test) established this exact contract inline, independently, and
-# does not call this function — but the contract must stay identical, so it
-# is extracted here rather than re-derived with different semantics per
-# caller.
+# --- backup format contract (begin) ---
+#
+# The closed backup format, stated once. Every producer and consumer of a
+# RateGuru backup — backup, restore-test, offsite-backup, offsite-restore-test,
+# and the restore/recovery primitives through restore-common — reads these
+# constants rather than carrying its own list, so "which files make up a
+# backup" cannot come to mean two different things in two privileged scripts.
+#
+# Three manifest schemas exist, and the set of files is the only thing that
+# differs between them:
+#
+#   schema 1   the historical format: no manifest_schema_version field at all
+#   schema 2   adds the selector/target/backup_namespace manifest fields
+#   schema 3   adds recovery-material.tar.gz — the target's host-scope external
+#              prerequisites (TLS, Basic Auth, the shared Nginx TLS material),
+#              captured under their logical names — which is what makes a
+#              backup usable for a clean-host recovery without any external
+#              material being supplied by hand
+#
+# Schema 1 and 2 backups carry exactly seven top-level files; schema 3 carries
+# exactly eight. Every set is CLOSED: a backup with a file missing from its
+# schema's set, or with any file beyond it, is refused wherever it is read.
+#
+# recovery-material.tar.gz is deliberately NOT a superset of
+# server-configuration.tar.gz and does not replace it. The server snapshot is
+# a diagnostic, forensic record of how the host was configured and is never
+# applied anywhere; the recovery material is a closed, explicitly allowed set
+# of reconstruction inputs for Prepare Host, and nothing else may be in it.
+
+BACKUP_MANIFEST_FILE=manifest.json
+BACKUP_CHECKSUMS_FILE=SHA256SUMS
+BACKUP_RECOVERY_MATERIAL_FILE=recovery-material.tar.gz
+
+# The checksummed files of a schema 1 or schema 2 backup, in the exact order
+# backup wrote them into SHA256SUMS.
+BACKUP_CHECKSUMMED_FILES_LEGACY=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    manifest.json
+)
+
+# The checksummed files of a schema 3 backup, in the exact order backup
+# writes them into SHA256SUMS.
+BACKUP_CHECKSUMMED_FILES_SCHEMA3=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    recovery-material.tar.gz
+    manifest.json
+)
+
+# The manifest schema a backup written today carries.
+BACKUP_MANIFEST_SCHEMA_CURRENT=3
+
+# backup_checksummed_files_for_schema SCHEMA — the checksummed files of one
+# schema, one per line, in SHA256SUMS order. SCHEMA is a classifier verdict:
+# schema1, schema2 or schema3. Anything else is a hard failure, never an
+# empty list: an empty closed set would make every "exactly these files"
+# check pass on nothing.
+backup_checksummed_files_for_schema() {
+    case "${1-}" in
+        schema1|schema2) printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}" ;;
+        schema3)         printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" ;;
+        *)               fail "internal: no backup file set is defined for manifest schema '${1-}'" ;;
+    esac
+}
+
+# backup_required_files_for_schema SCHEMA — the complete top-level file set of
+# one schema: its checksummed files plus SHA256SUMS itself.
+backup_required_files_for_schema() {
+    backup_checksummed_files_for_schema "$1"
+    printf '%s\n' "${BACKUP_CHECKSUMS_FILE}"
+}
+
+# backup_schema_supports_clean_host_recovery SCHEMA — whether a backup of this
+# schema carries the recovery material a clean-host recovery needs. Only
+# schema 3 does: the older schemas stay fully restorable onto a LIVE target,
+# and are refused, by name, as the source of a clean-host recovery.
+backup_schema_supports_clean_host_recovery() {
+    [[ "${1-}" == schema3 ]]
+}
+
+# Shared, strict backup-manifest schema classifier. infrastructure/scripts/
+# restore-test established this exact contract inline, independently, and
+# still carries its own contractually identical copy (a test pins the two
+# together); every other reader calls this function.
 #
 # Never classify by `jq -r '.manifest_schema_version // empty'` alone: raw
-# output loses JSON type, so a schema_version of 3, 0, the JSON *string* "2"
-# (not a number), "garbage", an array, an object or a boolean would all
-# compare unequal to the literal string "2" and silently pass as legacy
-# schema 1 (fail-open). `type` disambiguates first.
+# output loses JSON type, so a schema_version of 0, 4, the JSON *string* "2"
+# or "3" (not a number), "garbage", an array, an object or a boolean would all
+# compare unequal to the literal and silently pass as legacy schema 1
+# (fail-open). `type` disambiguates first.
 #
 # Prints exactly one of:
 #   schema1        - the field is absent or JSON null
 #   schema2        - the field is a JSON number equal to 2
+#   schema3        - the field is a JSON number equal to 3
 #   invalid:<value> - anything else, with the offending value's own JSON
 #                     representation appended (quoted for a string, compact
 #                     for an array/object) — callers turn this into their own
@@ -141,16 +227,51 @@ manifest_schema_classify() {
             local manifest_schema_version
             manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
 
-            if [[ "${manifest_schema_version}" == "2" ]]; then
-                printf 'schema2\n'
-            else
-                printf 'invalid:%s\n' "${manifest_schema_version}"
-            fi
+            case "${manifest_schema_version}" in
+                2) printf 'schema2\n' ;;
+                3) printf 'schema3\n' ;;
+                *) printf 'invalid:%s\n' "${manifest_schema_version}" ;;
+            esac
             ;;
         *)
             local manifest_schema_value
             manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
             printf 'invalid:%s\n' "${manifest_schema_value}"
+            ;;
+    esac
+}
+
+# backup_schema_of_directory DIR — classify a backup DIRECTORY safely, before
+# anything in it is trusted: manifest.json must be a plain regular file that
+# is a direct child of DIR (never a symlink, never a directory, never a
+# special file), and its schema field must classify. Prints the schema verdict
+# or fails with the same diagnostic every manifest validator uses.
+#
+# Manifest content decides WHICH closed file set applies and nothing else — it
+# is never used as a path, a name or a command.
+backup_schema_of_directory() {
+    local dir="$1"
+    local manifest_path="${dir}/${BACKUP_MANIFEST_FILE}"
+
+    [[ -e "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+    [[ ! -L "${manifest_path}" ]] || fail "backup manifest must not be a symlink: ${manifest_path}"
+    [[ -f "${manifest_path}" ]] || fail "backup manifest must be a regular file: ${manifest_path}"
+
+    jq -e 'type == "object"' "${manifest_path}" >/dev/null 2>&1 \
+        || fail "backup manifest is not a JSON object: ${BACKUP_MANIFEST_FILE}"
+
+    local schema
+    schema="$(manifest_schema_classify "${manifest_path}")"
+
+    case "${schema}" in
+        schema1|schema2|schema3)
+            printf '%s\n' "${schema}"
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${schema#invalid:}"
+            ;;
+        *)
+            fail "internal: unrecognised manifest schema verdict: ${schema}"
             ;;
     esac
 }
@@ -202,7 +323,7 @@ validate_backup_manifest() {
     case "${manifest_schema_status}" in
         schema1)
             ;;
-        schema2)
+        schema2|schema3)
             local manifest_backup_namespace
             manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -216,6 +337,9 @@ validate_backup_manifest() {
                 null)
                     # Absent or explicit JSON null — a schema 2 manifest
                     # predating the target-only cutover; no target to compare.
+                    # A schema 3 manifest is never written without one.
+                    [[ "${manifest_schema_status}" != schema3 ]] \
+                        || fail "backup manifest target is missing — a schema 3 manifest always names its target"
                     ;;
                 string)
                     local manifest_target
@@ -239,6 +363,302 @@ validate_backup_manifest() {
             ;;
     esac
 }
+
+# --- the backup as a whole: closed sets, safety as data, release identity ---
+#
+# The checks below read a backup the way every consumer must, and are stated
+# here once so restore-test, offsite-backup, offsite-restore-test and — through
+# restore-common — the restore and recovery primitives cannot come to mean
+# different things by "a backup":
+#
+#   backup_assert_file_set                    exactly the schema's closed set
+#   backup_assert_sha256sums_entries          SHA256SUMS names exactly that set
+#   backup_assert_recovery_material_archive_safe
+#                                             the recovery material is a safe
+#                                             archive of plain files (as DATA)
+#   backup_assert_recovery_material_certified the material also matches the
+#                                             installed prerequisite table
+#   backup_assert_release_identity            release.json names the exact commit
+#
+# Two levels of judgement for the recovery material, on purpose. A live
+# restore never applies the archive: it only has to be safe to stage beside
+# the data, and a backup written under an older prerequisite table stays
+# restorable forever. Whether the names match TODAY's table is asked only
+# where the material is installed (fetch-recovery-material, on the replacement
+# machine) and where a backup is certified for a clean-host recovery
+# (restore-test and offsite-restore-test, which must fail on a backup a
+# recovery could not use).
+
+# backup_assert_file_set DIR SCHEMA — DIR holds exactly the closed file set of
+# SCHEMA: every required file present as a plain regular file that resolves
+# inside DIR, and not one entry more. Run wherever a backup is read as a
+# whole — before its checksums are followed, before it is uploaded, before a
+# temporary database is created — so a stranger never rides along.
+backup_assert_file_set() {
+    local dir="$1" schema="$2" name entry path resolved
+    local -a expected=()
+    mapfile -t expected < <(backup_required_files_for_schema "${schema}")
+
+    for name in "${expected[@]}"; do
+        path="${dir}/${name}"
+
+        [[ -e "${path}" ]] || fail "backup is missing a required file: ${name}"
+        [[ ! -L "${path}" ]] || fail "backup file must not be a symlink: ${name}"
+        [[ -f "${path}" ]] || fail "backup file must be a regular file: ${name}"
+
+        resolved="$(readlink -f "${path}")" \
+            || fail "could not resolve backup file: ${name}"
+
+        [[ "$(dirname "${resolved}")" == "$(readlink -f "${dir}")" ]] \
+            || fail "backup file resolves outside the backup directory: ${name}"
+    done
+
+    # Every stranger is named, so an operator reading the refusal knows what
+    # was there; the count below is belt and braces over the two loops.
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        for name in "${expected[@]}"; do
+            [[ "${entry}" != "${name}" ]] || continue 2
+        done
+
+        fail "backup directory holds an entry that is not part of a ${schema} backup: ${entry}"
+    done < <(find "${dir}" -mindepth 1 -maxdepth 1 -printf '%f\n')
+
+    local count
+    count="$(find "${dir}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
+    count="${count//[[:space:]]/}"
+
+    [[ "${count}" == "${#expected[@]}" ]] \
+        || fail "backup directory holds ${count} entries, expected exactly ${#expected[@]} for a ${schema} backup"
+}
+
+# backup_assert_sha256sums_entries DIR SCHEMA — SHA256SUMS names exactly the
+# checksummed files of SCHEMA, once each, as bare names. Checked BEFORE
+# `sha256sum --check` follows a single path, so an entry naming /etc/shadow
+# or ../../something never reaches it.
+backup_assert_sha256sums_entries() {
+    local dir="$1" schema="$2"
+    local sums="${dir}/${BACKUP_CHECKSUMS_FILE}"
+    local -a expected=() seen=()
+    local line hash name known found
+
+    mapfile -t expected < <(backup_checksummed_files_for_schema "${schema}")
+
+    [[ -f "${sums}" ]] && [[ ! -L "${sums}" ]] \
+        || fail "backup is missing a required file: ${BACKUP_CHECKSUMS_FILE}"
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
+            || fail "SHA256SUMS carries a malformed entry: ${line}"
+
+        hash="${BASH_REMATCH[1]}"
+        name="${BASH_REMATCH[2]}"
+
+        # Silences the "assigned but unused" reading of $hash while keeping
+        # the capture explicit about what each half of the line is.
+        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
+
+        found=false
+        for known in "${expected[@]}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS references a file that is not part of a RateGuru backup: ${name}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${name}" ]] \
+                || fail "SHA256SUMS references ${name} more than once"
+        done
+
+        seen+=("${name}")
+    done < "${sums}"
+
+    for known in "${expected[@]}"; do
+        found=false
+        for name in "${seen[@]:-}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS does not cover ${known}"
+    done
+}
+
+# backup_assert_recovery_material_archive_safe ARCHIVE — the recovery material
+# judged as DATA: a readable gzip tar whose members are top-level regular
+# files with plain names — no directory, symlink, hard link, device, FIFO or
+# socket, no absolute, nested or parent-relative path, no duplicate. Nothing
+# is extracted and nothing about any member's content is printed. Which
+# names it holds is not this function's question. Sets
+# BACKUP_RECOVERY_MATERIAL_COUNT to the number of members.
+#
+# install-target-prerequisites applies these same rules on a clean host,
+# where common cannot be sourced; a test pins the two together.
+backup_assert_recovery_material_archive_safe() {
+    local archive="$1"
+
+    [[ -e "${archive}" ]] || fail "recovery material archive is missing: ${archive}"
+    [[ ! -L "${archive}" ]] || fail "recovery material archive must not be a symlink: ${archive}"
+    [[ -f "${archive}" ]] || fail "recovery material archive must be a regular file: ${archive}"
+    [[ -r "${archive}" ]] || fail "recovery material archive is not readable: ${archive}"
+
+    local listing
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable (not a gzip tar, or truncated): ${archive}"
+
+    [[ -n "${listing}" ]] || fail "recovery material archive is empty: ${archive}"
+
+    local entry known
+    local -a seen=()
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        [[ "${entry}" != *\\* ]] \
+            || fail "recovery material archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "recovery material archive entry contains a control character"
+        [[ "${entry}" != /* ]] \
+            || fail "recovery material archive contains an absolute path: ${entry}"
+        [[ "${entry}" != "." ]] && [[ "${entry}" != ".." ]] && [[ "${entry}" != *..* ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+        [[ "${entry}" != */* ]] \
+            || fail "recovery material archive contains a nested path or a directory entry, where only top-level logical names are allowed: ${entry}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${entry}" ]] \
+                || fail "recovery material archive contains ${entry} more than once"
+        done
+
+        seen+=("${entry}")
+    done <<< "${listing}"
+
+    local verbose line
+    verbose="$(tar -tvzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${archive}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string.
+        case "${line:0:1}" in
+            -) ;;
+            d) fail "recovery material archive contains a directory entry — only top-level regular files are allowed" ;;
+            l) fail "recovery material archive contains a symbolic link — refusing to extract as root" ;;
+            h) fail "recovery material archive contains a hard link — refusing to extract as root" ;;
+            c|b) fail "recovery material archive contains a device node — refusing to extract as root" ;;
+            p) fail "recovery material archive contains a FIFO — refusing to extract as root" ;;
+            s) fail "recovery material archive contains a socket — refusing to extract as root" ;;
+            *) fail "recovery material archive contains an entry of an unrecognized type: ${line}" ;;
+        esac
+    done <<< "${verbose}"
+
+    BACKUP_RECOVERY_MATERIAL_COUNT="${#seen[@]}"
+}
+
+# backup_prerequisites_bin — the installed external-material installer, whose
+# prerequisite table is the one vocabulary a backup's recovery material is
+# captured from and certified against. Resolved at call time, so the gated
+# override is honoured wherever this runs.
+backup_prerequisites_bin() {
+    local bin="/home/www/rateguru/bin/install-target-prerequisites"
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
+        bin="${RATEGURU_PREREQUISITES_BIN}"
+    fi
+
+    printf '%s\n' "${bin}"
+}
+
+# backup_assert_recovery_material_certified DIR TARGET_ID — the STRICT
+# judgement: the archive is safe as data, SHA256SUMS covers it exactly once,
+# and it holds exactly the host-scope prerequisite names the installed table
+# states for TARGET_ID today — proven by the installer itself, which never
+# reads a member's content. This is what a backup verification must fail on,
+# because a backup that passes it and nothing else is one a clean-host
+# recovery could not be prepared from. Sets BACKUP_RECOVERY_MATERIAL_REPORT
+# to the installer's one-line summary (names only).
+backup_assert_recovery_material_certified() {
+    local dir="$1" target_id="$2"
+    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
+    local bin listed output status=0
+    local pattern="^[0-9a-f]{64}  ${BACKUP_RECOVERY_MATERIAL_FILE//./\\.}\$"
+
+    backup_assert_recovery_material_archive_safe "${archive}"
+
+    listed="$(grep -c -E "${pattern}" "${dir}/${BACKUP_CHECKSUMS_FILE}" || true)"
+
+    [[ "${listed}" == "1" ]] \
+        || fail "SHA256SUMS must cover ${BACKUP_RECOVERY_MATERIAL_FILE} exactly once (found ${listed} entries)"
+
+    bin="$(backup_prerequisites_bin)"
+
+    [[ -x "${bin}" ]] \
+        || fail "the external-material installer is not available at ${bin} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+
+    output="$("${bin}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
+    fi
+
+    BACKUP_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+}
+
+# A backup names the exact commit its data belongs to: the full 40-character
+# form, never an abbreviation a recovery would have to resolve.
+BACKUP_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
+
+# backup_assert_release_identity FILE REASON — FILE is a release.json naming
+# a well-formed release and a full source_sha. A backup written today is the
+# source of a clean-host recovery, which rebuilds exactly that commit, so a
+# target that cannot name it is not backed up at all: a schema 3 backup with
+# an empty or partial identity would be reported as a success and found
+# unusable on the worst day. REASON is appended to every refusal. Sets
+# BACKUP_RELEASE and BACKUP_SOURCE_SHA.
+backup_assert_release_identity() {
+    local file="$1" reason="$2"
+
+    [[ -e "${file}" ]] || fail "release.json is missing: ${file} — ${reason}"
+    [[ ! -L "${file}" ]] || fail "release.json must not be a symlink: ${file} — ${reason}"
+    [[ -f "${file}" ]] || fail "release.json must be a regular file: ${file} — ${reason}"
+
+    jq -e 'type == "object"' "${file}" >/dev/null 2>&1 \
+        || fail "release.json is not a JSON object: ${file} — ${reason}"
+
+    local release="" source_sha=""
+
+    if [[ "$(jq -r '.release | type' "${file}")" == "string" ]]; then
+        release="$(jq -r '.release' "${file}")"
+    fi
+
+    if [[ "$(jq -r '.source_sha | type' "${file}")" == "string" ]]; then
+        source_sha="$(jq -r '.source_sha' "${file}")"
+    fi
+
+    [[ "${release}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "release.json carries no well-formed release (${release:-<unset>}): ${file} — ${reason}"
+
+    [[ "${source_sha}" =~ ${BACKUP_SOURCE_SHA_REGEX} ]] \
+        || fail "release.json carries no full 40-character source_sha (${source_sha:-<unset>}): ${file} — ${reason}"
+
+    BACKUP_RELEASE="${release}"
+    BACKUP_SOURCE_SHA="${source_sha}"
+}
+
+# --- backup format contract (end) ---
 
 # --- deployment target registry (begin) ---
 #
@@ -825,6 +1245,81 @@ assert_no_operation_hold() {
     assert_no_conflicting_operation_holds "${1-}" "${2-}"
     assert_no_restore_hold "${1-}" "${2-}" "${3-an operation}"
     assert_no_recovery_hold "${1-}" "${2-}" "${3-an operation}"
+}
+
+# --- offsite-write hold ------------------------------------------------------
+#
+# A third marker beside the two guards, for a hazard neither of them covers.
+#
+# A host rebuilt by a recovery is a complete RateGuru host: it carries the
+# backup cron, the offsite uploader and the offsite retention pruner, and it
+# believes it is the target it was recovered as. Nothing about the recovery
+# repoints DEPLOY_HOST or DNS at it, so until an operator deliberately adopts
+# the machine, the long-lived host it was rehearsed beside — or the machine it
+# genuinely replaces — still owns the real offsite backup namespace. Two
+# writers and two pruners on one namespace is how a rehearsal deletes the very
+# history it exists to prove we can recover from.
+#
+# The guards do not help here: both are gone once a recovery completes, and a
+# completed recovery is exactly when the recovered host's cron starts firing.
+# So recovery preparation and recovery itself write this marker, nothing in
+# the recovery flow ever removes it, and every offsite WRITER refuses while it
+# exists:
+#
+#   backup-cycle        the cron entry point — refused before its first child
+#   offsite-backup      the uploader
+#   offsite-retention   the pruner
+#
+# Reads are deliberately not fenced: offsite-restore-test downloads and never
+# writes, and a recovered host reading the namespace it came from is the whole
+# point. Local backups are not fenced either — `backup` writes only to the
+# host's own disk.
+#
+# It is host-global, like the cron entry it holds, and it lives under the run
+# root with the other markers: root:root 0700 all the way up, so neither the
+# deploy credential nor the runtime user can unlink it. Releasing it is a
+# deliberate operator act as part of adopting the recovered machine (repointing
+# DEPLOY_HOST and DNS), which no script here performs.
+
+# offsite_write_hold_file RUN_ROOT
+offsite_write_hold_file() {
+    local run_root="${1-}"
+
+    [[ -n "${run_root}" ]] || fail "offsite_write_hold_file: run root is required"
+
+    printf '%s/offsite-write-hold\n' "${run_root%/}"
+}
+
+# offsite_writes_held RUN_ROOT — whether the marker exists. A marker that is
+# anything but a regular file is treated as HELD too: this fence fails closed,
+# and an odd marker is a reason to look, never a reason to write offsite.
+offsite_writes_held() {
+    local marker
+    marker="$(offsite_write_hold_file "${1-}")"
+
+    [[ -e "${marker}" ]] || [[ -L "${marker}" ]]
+}
+
+# assert_no_offsite_write_hold RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while the recovered host's offsite writers are held.
+#
+# Reads the marker rather than trusting its presence to be self-explanatory:
+# the operator needs to know which recovery placed it and which backup that
+# recovery came from, and both are in the file.
+assert_no_offsite_write_hold() {
+    local run_root="${1-}" operation="${2-an offsite write}"
+    local marker held_target held_backup held_by held_at
+
+    marker="$(offsite_write_hold_file "${run_root}")"
+
+    offsite_writes_held "${run_root}" || return 0
+
+    held_target="$(jq -r '.target // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_backup="$(jq -r '.backup // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_by="$(jq -r '.created_by // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_at="$(jq -r '.created_at // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    fail "OFFSITE WRITES: HELD — ${operation} is refused on this host. It was rebuilt by a host recovery of ${held_target} from backup ${held_backup} (${held_by}, ${held_at}), and DEPLOY_HOST and DNS were deliberately left unchanged, so the machine this target is still bound to owns the real offsite backup namespace. A second uploader or pruner on that namespace would overwrite or delete the history a recovery depends on. Nothing was uploaded, pruned or changed. The hold is ${marker}; releasing it is part of deliberately adopting this machine, never a side effect of any operation"
 }
 
 # --- restore alignment authorization -----------------------------------------
