@@ -1,0 +1,28 @@
+.github/workflows/recover-production.yml
+  s_e01a0d85f62894::t_14444623ff8178 1400-1422,1435
+.github/workflows/recover-staging.yml
+  s_e01a0d85f62894::t_14444623ff8178 1363-1385
+  s_e01a0d85f62894::t_60a5bf19d4c482 1398
+tests/Pest.php
+  s_e01a0d85f62894::t_daea0f5aa9c579 2740
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_e01a0d85f62894::t_7873583cc5fe2a 1302-1428,1432-1434,1436,1443,1445-1446,1454-1548
+  s_e01a0d85f62894::t_589c70ab03345b 130-144,1429-1431,1435,1437-1442,1444,1447-1453
+  s_e01a0d85f62894::t_badad77b7dfa63 1215,1223-1233,1240-1242,1262-1269,1274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6014c971514f1247027160269698278158a90cda",
+  "prompts": {},
+  "sessions": {
+    "s_e01a0d85f62894": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45e344df-cbce-4e0d-a3ec-dfe8183f587d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
