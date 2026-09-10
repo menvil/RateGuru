@@ -12,6 +12,19 @@ portable migrations and query behavior, and the Unit and Feature suites run on
 all three engines in CI. Browser tests run once against PostgreSQL because they
 exercise the same application behavior and are substantially more expensive.
 
+The **Architecture** suite is deliberately not one of the three. It is a
+separate PHPUnit test suite (`composer test:architecture`, and its own CI job)
+because it reads committed files and drives real shell subprocesses against a
+simulated host: no Architecture test issues a query, so running it against
+MariaDB and SQLite could not discover anything an engine might disagree about.
+It ran there only because it happened to live under `tests/Feature`, which cost
+both compatibility jobs the whole suite and made a shell-script regression
+report itself as a database failure.
+
+Every suite runs in parallel (`--parallel`). Parallel testing gives each worker
+its own database, `<database>_test_<token>`, created on first use — which is
+why the MariaDB CI job widens the test user's grant to that family of names.
+
 Operational support is intentionally different from application compatibility:
 each deployment still needs engine-appropriate backup, restore, monitoring, and
 upgrade procedures.
@@ -39,8 +52,13 @@ useful:
 composer test:sqlite
 ```
 
+Run the Architecture suite on its own with `composer test:architecture`; it
+needs a reachable database only because `tests/Pest.php` binds `RefreshDatabase`
+to everything under `tests/Feature`, never because a test queries one.
+
 Use `composer test:mariadb` when a compatible local MariaDB test database is
-available. The command expects the documented non-production development
+available. A parallel run creates `rateguru_test_test_<token>` databases, so the
+local test user needs rights to create them. The command expects the documented non-production development
 credentials; CI provides its own isolated service with those values.
 
 ## CI database matrix

@@ -62,17 +62,18 @@
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
-            "@php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
+            "@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature,Architecture"
         ],
         "test:postgres": "@test",
         "test:sqlite": [
             "DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi",
-            "DB_CONNECTION=sqlite DB_DATABASE=:memory: php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
+            "DB_CONNECTION=sqlite DB_DATABASE=:memory: php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature"
         ],
         "test:mariadb": [
             "DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi",
-            "DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
+            "DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature"
         ],
+        "test:architecture": "@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Architecture",
         "test:browser": "@php -d memory_limit=512M vendor/bin/pest --testsuite=Browser",
         "test:feature": "pest tests/Feature",
         "test:unit": "pest tests/Unit",
