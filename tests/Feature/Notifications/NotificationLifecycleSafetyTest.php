@@ -9,6 +9,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
+use App\Support\Notifications\NotificationMessage;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\File;
 
@@ -120,7 +121,11 @@ it('produces the same happy-path payload as before through the safe notifier', f
         ->and($notification->data['type'])->toBe('post_commented')
         ->and($notification->data['actor_id'])->toBe($commenter->id)
         ->and($notification->data['actor_username'])->toBe('fresh_commenter')
-        ->and($notification->data['message'])->toBe('@fresh_commenter commented on your post')
+        // The identity is carried as a parameter now, not baked into a
+        // sentence — but it must still be the FRESH one, which is the point of
+        // this test.
+        ->and($notification->data['message_params'])->toBe(['username' => 'fresh_commenter'])
+        ->and(NotificationMessage::for($notification))->toBe('@fresh_commenter commented on your post')
         ->and($notification->data['url'])->not->toBeEmpty();
 });
 
@@ -159,7 +164,8 @@ it('sends follower notifications with the fresh author identity on the happy pat
     expect($notification->notifiable_id)->toBe($follower->id)
         ->and($notification->data['author_id'])->toBe($author->id)
         ->and($notification->data['author_username'])->toBe('live_author')
-        ->and($notification->data['message'])->toBe('@live_author posted '.$post->title);
+        ->and($notification->data['message_params'])->toBe(['username' => 'live_author', 'title' => $post->title])
+        ->and(NotificationMessage::for($notification))->toBe('@live_author posted '.$post->title);
 });
 
 it('keeps identity-bearing notifications out of direct notify() call sites', function () {

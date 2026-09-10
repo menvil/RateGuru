@@ -4,6 +4,7 @@ namespace App\Actions\Auth;
 
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Models\User;
+use App\Support\Locale\LocaleManager;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -19,6 +20,7 @@ final class RegisterUserAction
 
     public function __construct(
         private readonly GenerateUniqueUsernameAction $generateUniqueUsername,
+        private readonly LocaleManager $locales,
     ) {}
 
     /** @param array{name: string, email: string, password: string} $validated */
@@ -41,6 +43,15 @@ final class RegisterUserAction
                     'name' => $validated['name'],
                     'username' => $username,
                     'email' => $validated['email'],
+                    // The language the person registered in, captured at the one
+                    // moment we are certain of it. SetLocale has already resolved
+                    // it for this request, so this is the site they were actually
+                    // looking at — not a guess, and not the fallback.
+                    //
+                    // Without this the column stays NULL, preferredLocale() has
+                    // nothing to prefer, and every later mail to this account
+                    // falls back to whichever browser happens to be asking.
+                    'locale' => $this->locales->normalize(app()->getLocale()),
                     'password' => $password,
                 ]));
 
