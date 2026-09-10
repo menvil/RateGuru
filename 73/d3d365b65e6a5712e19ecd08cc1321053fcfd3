@@ -1,0 +1,122 @@
+resources/views/components/auth/social-provider-icon.blade.php
+  s_65f2eb90734b6e::t_49458d0d701022 1-18
+tests/Feature/Auth/SocialAccountLinkingTest.php
+  s_65f2eb90734b6e::t_99dc0a97b90182 1-282
+app/Data/Auth/PendingSocialLink.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-96
+tests/Feature/Auth/SocialAccountPersistenceTest.php
+  s_65f2eb90734b6e::t_99dc0a97b90182 1-72
+tests/Feature/Architecture/HttpAndDatabaseBoundariesTest.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 8,16,30
+lang/ru.json
+  s_65f2eb90734b6e::t_cac0bf6877e50e 32-34
+database/migrations/2026_09_11_100000_make_users_password_nullable.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-33
+app/Actions/Auth/RegisterSocialUserAction.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-80
+database/factories/SocialAccountFactory.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-35
+tests/Feature/Auth/SocialRedirectTest.php
+  s_65f2eb90734b6e::t_fa9f0b46b510bb 72
+  s_65f2eb90734b6e::t_3b85ef2cc16762 1-71,73-104
+resources/views/auth/login.blade.php
+  s_65f2eb90734b6e::t_cac0bf6877e50e 56-57
+app/Http/Requests/Auth/SocialCallbackRequest.php
+  s_65f2eb90734b6e::t_49458d0d701022 1-22
+docs/deployment/production-environment-checklist.md
+  s_65f2eb90734b6e::t_dc17ecf4fdb2e0 41-44
+app/Exceptions/Auth/SocialAuthenticationException.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-84
+app/Actions/Auth/ResolveSocialLoginAction.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-118
+app/Http/Controllers/Auth/AuthenticatedSessionController.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 6,10,28-32,40-46
+app/Data/Auth/SocialLoginResult.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-35
+app/Actions/Auth/LinkSocialAccountAction.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-92
+resources/views/auth/register.blade.php
+  s_65f2eb90734b6e::t_cac0bf6877e50e 52-53
+app/Models/SocialAccount.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-41
+tests/Unit/Enums/SocialProviderTest.php
+  s_65f2eb90734b6e::t_99dc0a97b90182 1-27
+docs/architecture/user-lifecycle.md
+  s_65f2eb90734b6e::t_dc17ecf4fdb2e0 131-136,144,179-180,326-327
+app/Actions/Auth/StorePendingSocialLinkAction.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-23
+config/services.php
+  s_65f2eb90734b6e::t_cac0bf6877e50e 38-61
+lang/bg.json
+  s_65f2eb90734b6e::t_cac0bf6877e50e 32-34
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 12,102-106
+app/Exceptions/Auth/CannotGenerateUsernameException.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-25
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_32102d7d69c186 7-17
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_65f2eb90734b6e::t_fa9f0b46b510bb 43
+  s_65f2eb90734b6e::t_49458d0d701022 1-42,44-66
+app/Actions/Auth/CompletePendingSocialLinkAction.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-53
+lang/en/auth.php
+  s_65f2eb90734b6e::t_32102d7d69c186 7-17
+app/Actions/Auth/Concerns/CreatesUserWithUniqueUsername.php
+  s_65f2eb90734b6e::t_daafed147cd2a8 1-76
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_dc17ecf4fdb2e0 1-95
+app/Enums/SocialLoginOutcome.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-31
+tests/Feature/Auth/SocialLoginTest.php
+  s_65f2eb90734b6e::t_3b85ef2cc16762 1-2,4-11,13-61,63-321,333,335-337,339-344,348-349,351,353-361
+  s_65f2eb90734b6e::t_fa9f0b46b510bb 3,12,62,322-332,334,338,345-347,350,352
+app/Models/User.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 257-267
+tests/Feature/Architecture/AuthControllerBoundariesTest.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 8,20,34
+database/factories/UserFactory.php
+  s_65f2eb90734b6e::t_3e24fcb46ef50c 115-124
+.env.example
+  s_65f2eb90734b6e::t_cac0bf6877e50e 72-82
+app/Support/Auth/SocialIdentityNormalizer.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-84
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_32102d7d69c186 7-17
+app/Actions/Auth/RegisterUserAction.php
+  s_65f2eb90734b6e::t_9ffab38dbc4675 5,7,17,29-33,47-52
+resources/views/components/auth/social-buttons.blade.php
+  s_65f2eb90734b6e::t_49458d0d701022 1-33
+tests/Pest.php
+  s_65f2eb90734b6e::t_9ffab38dbc4675 24,3082-3116
+routes/auth.php
+  s_65f2eb90734b6e::t_7ff8b771d6ae31 3
+  s_65f2eb90734b6e::t_cac0bf6877e50e 12,40-52
+app/Support/Auth/SocialProviderGateway.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-90
+tests/Feature/Auth/SocialOnlyAccountPasswordTest.php
+  s_65f2eb90734b6e::t_fa9f0b46b510bb 29
+  s_65f2eb90734b6e::t_99dc0a97b90182 1-28,30-88
+app/Enums/SocialProvider.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-51
+database/migrations/2026_09_11_100100_create_social_accounts_table.php
+  s_65f2eb90734b6e::t_2488626a70f8de 1-40
+app/Data/Auth/SocialIdentity.php
+  s_65f2eb90734b6e::t_d49bd3a080d7c3 1-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "73d3d365b65e6a5712e19ecd08cc1321053fcfd3",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
