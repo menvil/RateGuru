@@ -362,8 +362,9 @@ All modes require root.
 
 Identity and filesystem scope only: packages belong to install-bootstrap-runtime; service
 configuration, runtime registry, perimeter, SSH keys, ACLs, databases and
-TLS belong to install-bootstrap-services. Only lifecycle=active targets are provisioned —
-planned targets cause zero mutation.
+TLS belong to install-bootstrap-services. Only lifecycle=active targets are provisioned by
+default; a lifecycle=planned target is provisioned only when --provisioning
+names it explicitly, and every other target causes zero mutation.
 USAGE
 }
 
@@ -502,7 +503,7 @@ user_metadata_drift() {
 # --- Source-registry contract -------------------------------------------------
 
 ACTIVE_TARGETS=()
-PLANNED_TARGETS=()
+INACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_DEPLOY_HOME
 declare -A TGT_LIFECYCLE TGT_ENVIRONMENT_CLASS
@@ -546,8 +547,15 @@ load_source_contract() {
         TGT_INCOMING[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].incoming_artifacts' "${SOURCE_REGISTRY}")"
         TGT_DEPLOY_HOME[${target_id}]="${HOME_ROOT}/${TGT_DEPLOY_USER[${target_id}]}"
 
+        # Everything this run is not responsible for. Planned and disabled
+        # targets are held in ONE list because the handling is identical —
+        # nothing is ever created for either — and the list is named for
+        # that fact rather than for one of the lifecycles in it, because a
+        # list called "planned" is how a disabled target ends up described
+        # as planned in a report an operator then acts on. Every message
+        # below reads the lifecycle each target actually has.
         if [[ "${lifecycle}" != active ]]; then
-            PLANNED_TARGETS+=("${target_id}")
+            INACTIVE_TARGETS+=("${target_id}")
             continue
         fi
 
@@ -580,8 +588,14 @@ narrow_to_target_scope() {
     done
 
     if [[ "${known}" != true ]]; then
-        for target_id in "${PLANNED_TARGETS[@]}"; do
+        local inactive_lifecycle
+        for target_id in "${INACTIVE_TARGETS[@]}"; do
             if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
+                inactive_lifecycle="${TGT_LIFECYCLE[${TARGET_SCOPE}]}"
+
+                [[ "${inactive_lifecycle}" == planned ]] \
+                    || fail "target ${TARGET_SCOPE} is lifecycle=${inactive_lifecycle} — this installer provisions an active target, and --provisioning authorizes a planned one. A ${inactive_lifecycle} target is a deliberate registry state, and the way out of it is a reviewed registry change rather than a flag"
+
                 fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never provisions a planned target, in host mode or target mode (a new production target is provisioned explicitly, with --target ${TARGET_SCOPE} --provisioning)"
             fi
         done
@@ -592,7 +606,7 @@ narrow_to_target_scope() {
     ACTIVE_TARGETS=("${TARGET_SCOPE}")
 
     # Nothing is reported about targets this run is not responsible for.
-    PLANNED_TARGETS=()
+    INACTIVE_TARGETS=()
 }
 
 # narrow_to_provisioning_scope — the ONE lifecycle this installer will act on
@@ -612,7 +626,7 @@ narrow_to_provisioning_scope() {
     done
 
     local known=false
-    for target_id in "${PLANNED_TARGETS[@]}"; do
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
         [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
     done
 
@@ -626,7 +640,7 @@ narrow_to_provisioning_scope() {
         || fail "--provisioning refuses target ${TARGET_SCOPE}: it is environment_class=${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a production target"
 
     ACTIVE_TARGETS=("${TARGET_SCOPE}")
-    PLANNED_TARGETS=()
+    INACTIVE_TARGETS=()
 
     # The whole registry was validated above; this is the same per-target
     # containment check the active targets already received, now that this run
@@ -680,8 +694,12 @@ report_targets() {
         fi
     done
 
-    for target_id in "${PLANNED_TARGETS[@]}"; do
-        item PASS "target:${target_id}" "lifecycle=planned — not provisioned by this slice (no users, groups or directories are ever created for it)"
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        if [[ "${TGT_LIFECYCLE[${target_id}]}" == planned ]]; then
+            item PASS "target:${target_id}" "lifecycle=planned — not provisioned by this slice (no users, groups or directories are ever created for it)"
+        else
+            item PASS "target:${target_id}" "lifecycle=${TGT_LIFECYCLE[${target_id}]} — not provisioned by this slice (no users, groups or directories are ever created for it)"
+        fi
     done
 }
 

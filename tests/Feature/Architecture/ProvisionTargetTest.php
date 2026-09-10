@@ -68,9 +68,18 @@ function provisionWriteStub(string $path, string $content): void
  */
 function provisionRun(array $arguments, array $env, ?string $script = null): array
 {
+    // The scratch bundle, not the repository's own copy. provision-target
+    // resolves its library, its registry and every installer relative to
+    // itself, so running the repository's copy against a fixture registry
+    // would test a bundle nobody ships: half this file, half that one. The
+    // fixture names its bundle, and this is a harness detail rather than
+    // something the script reads, so it never reaches the subprocess.
+    $script ??= $env['RATEGURU_PROVISION_BUNDLE_SCRIPT'] ?? provisionScript();
+    unset($env['RATEGURU_PROVISION_BUNDLE_SCRIPT']);
+
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
     $process = proc_open(
-        array_merge(['bash', $script ?? provisionScript()], $arguments),
+        array_merge(['bash', $script], $arguments),
         $descriptors,
         $pipes,
         null,
@@ -680,6 +689,15 @@ function provisionFixture(string $scratch, array $options = []): array
     provisionWriteStubs($scratch);
     provisionBuildStagingNeighbour($scratch);
 
+    // The host's installed runtime registry. A prepared host has the same
+    // revision the trusted bundle carries; the tests that matter here are the
+    // ones that make it differ.
+    @mkdir($fs.'/home/www/rateguru/etc', 0o755, true);
+    file_put_contents(
+        $fs.'/home/www/rateguru/etc/deployment-targets.json',
+        $options['installedRegistryJson'] ?? File::get($repo.'/infrastructure/config/deployment-targets.json'),
+    );
+
     // The demo pool's socket, as a running PHP-FPM would present it.
     touch($fs.'/run/php/rateguru-demo-shop.sock');
     chmod($fs.'/run/php/rateguru-demo-shop.sock', 0o660);
@@ -717,9 +735,19 @@ function provisionFixture(string $scratch, array $options = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
 
-        // The orchestrator, and the `common` it resolves the target through.
-        'RATEGURU_COMMON_FILE' => $repo.'/infrastructure/scripts/common',
+        // The orchestrator, run from the scratch bundle. There is deliberately
+        // no seam for the library or the registry it resolves: it reads the
+        // `common` and the `config/deployment-targets.json` beside itself, so
+        // the bundle under test is the one that decides what provisioning
+        // means.
+        'RATEGURU_PROVISION_BUNDLE_SCRIPT' => $repo.'/infrastructure/scripts/provision-target',
         'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
+
+        // The host's installed operational bundle, as a prerequisite rather
+        // than as an implementation: a verify gate that answers from its own
+        // compliance toggle, and the runtime registry it would have installed.
+        'RATEGURU_PROVISION_OPERATIONS_BIN' => $scratch.'/bin/operations-installer',
+        'RATEGURU_PROVISION_INSTALLED_REGISTRY' => $options['installedRegistry'] ?? $fs.'/home/www/rateguru/etc/deployment-targets.json',
         'RATEGURU_TARGET_REGISTRY_FILE' => $repo.'/infrastructure/config/deployment-targets.json',
         'RATEGURU_TARGETS_CLI' => $repo.'/infrastructure/scripts/targets',
         'RATEGURU_PROVISION_EUID' => $options['euid'] ?? '0',
@@ -822,10 +850,13 @@ it('reports a planned production target as unprovisioned, and names every mutati
             ->toContain('install-bootstrap-host-layout --apply --target demo-shop --provisioning')
             ->toContain('install-bootstrap-services --apply --target demo-shop --provisioning');
 
-        // The host it runs on is already a RateGuru host, and says so.
+        // The host it runs on is already a RateGuru host, and says so — the
+        // operational bundle it has installed is the one this bundle expects,
+        // down to the runtime registry every decision here was read from.
         expect($output)
             ->toContain('PASS     host:install-bootstrap-runtime')
-            ->toContain('PASS     host:operational-bundle')
+            ->toContain('PASS     host:install-target-operations')
+            ->toContain('PASS     host:runtime-registry')
             ->toContain('PASS     state:demo-shop — no deployment-owned state');
 
         // Everything a later phase owns is named rather than silently absent.
@@ -958,14 +989,23 @@ it('provisions the whole target from the registry alone, and proves every generi
         $supervisor = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
         expect($supervisor)
             ->toContain('[program:rateguru-demo-shop-queue]')
-            ->toContain('directory=/home/www/rateguru/production/demo-shop/current')
+            // The working directory is the application root, which exists the
+            // moment provisioning finishes; current/ is entered by the command
+            // once it is really there. See the PRE_DEPLOY-safety tests below.
+            ->toContain('directory=/home/www/rateguru/production/demo-shop'."\n")
+            ->toContain('cd /home/www/rateguru/production/demo-shop/current')
             ->toContain('--queue=rateguru-demo-shop ')
             ->toContain('user=rateguru-demo-shop')
             ->toContain('environment=APP_ENV="production"');
 
         $cron = (string) file_get_contents($fs.'/etc/cron.d/rateguru-demo-shop-scheduler');
         expect($cron)
-            ->toContain('rateguru-demo-shop cd /home/www/rateguru/production/demo-shop/current')
+            // Guarded on current/ existing, because a provisioned target has
+            // no release yet and cron mails root whatever a job writes: an
+            // unguarded cd would send a failure a minute from here until the
+            // first deployment.
+            ->toContain('rateguru-demo-shop [ -d /home/www/rateguru/production/demo-shop/current ] || exit 0;')
+            ->toContain('cd /home/www/rateguru/production/demo-shop/current')
             ->toContain('/usr/bin/php8.5 artisan schedule:run');
 
         // Nothing rendered mentions the target this repository happens to ship
@@ -1302,6 +1342,380 @@ it('refuses a host that is not already a RateGuru host, and says whose job that 
     ],
 ]);
 
+// =============================================================================
+// A queue program that is safe to load before the first deployment
+// =============================================================================
+//
+// Provisioning installs the queue program and deliberately does not add it to
+// the running supervisor. That is not enough on its own: the file sits in
+// supervisord's own configuration directory, and a supervisord restart or a
+// host reboot loads it whether anybody asked or not. A planned production
+// target can wait weeks for its first deployment, so the CONFIGURATION has to
+// be the thing that is safe, not the sequence of commands that installed it.
+//
+// The tests below run the program's real command line and then apply
+// supervisord's own documented decision rule to the result, so "no crash loop"
+// is a computed outcome rather than a comment.
+
+/**
+ * The command supervisord would spawn, ready to run here.
+ *
+ * Two substitutions, both the same fixture translation every probe in this
+ * file performs: the canonical RateGuru root becomes the fixture's, and the
+ * template PHP binary — an absolute path no test host has — becomes a stub
+ * that records how it was called. The guard's logic, its exit codes and its
+ * argv are the shipped ones.
+ */
+function provisionQueueCommand(string $config, string $fs, string $phpStub): string
+{
+    $pattern = '/^command=\/bin\/bash -c \'(.*)\'$/m';
+
+    expect($config)->toMatch($pattern);
+
+    preg_match($pattern, $config, $matches);
+
+    return str_replace(
+        ['/home/www/rateguru', '/usr/bin/php8.5'],
+        [$fs.'/home/www/rateguru', $phpStub],
+        $matches[1],
+    );
+}
+
+/**
+ * supervisord's decision after a program exits, from its documented rules:
+ *
+ *   - an exit before startsecs never made it out of STARTING, so supervisord
+ *     backs off and retries regardless of the exit code;
+ *   - otherwise autorestart=unexpected restarts only codes outside exitcodes,
+ *     autorestart=true restarts everything, autorestart=false restarts nothing.
+ *
+ * @param  list<int>  $exitcodes
+ */
+function supervisorOutcome(int $code, float $elapsed, float $startsecs, string $autorestart, array $exitcodes): string
+{
+    if ($elapsed < $startsecs) {
+        return 'BACKOFF';
+    }
+
+    return match ($autorestart) {
+        'unexpected' => in_array($code, $exitcodes, true) ? 'EXITED' : 'RESTART',
+        'true' => 'RESTART',
+        default => 'EXITED',
+    };
+}
+
+it('installs a queue program that a supervisord restart can load before the first deployment', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+        $fs = $scratch.'/fs';
+
+        [$exit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+        expect($exit)->toBe(0);
+
+        $config = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
+
+        // The policy supervisord reads.
+        expect($config)
+            ->toContain("autostart=true\n")
+            ->toContain("autorestart=unexpected\n")
+            ->toContain("exitcodes=99\n")
+            ->toContain("startsecs=3\n")
+            // directory= must be a path that exists on a target with no
+            // release: supervisord chdirs there before spawning, and a missing
+            // one is a spawn error no guard in the command could catch.
+            ->toContain("directory=/home/www/rateguru/production/demo-shop\n");
+
+        expect(is_dir($fs.'/home/www/rateguru/production/demo-shop'))->toBeTrue();
+        expect(file_exists($fs.'/home/www/rateguru/production/demo-shop/current'))->toBeFalse();
+
+        // Now actually run what supervisord would spawn, with no current.
+        $phpStub = $scratch.'/bin/php-queue-probe';
+        provisionWriteStub($phpStub, <<<'STUB'
+            #!/bin/bash
+            printf 'php %s\\n' "$*" >> "${STUB_LOG}/queue-worker.log"
+            exit 0
+            STUB);
+
+        $command = provisionQueueCommand($config, $fs, $phpStub);
+
+        $started = microtime(true);
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' bash -c '.escapeshellarg($command).' 2>&1', $output, $code);
+        $elapsed = microtime(true) - $started;
+
+        // Laravel was never invoked, and the program said "nothing to run"
+        // rather than failing.
+        expect(provisionLog($scratch, 'queue-worker.log'))->toBe('');
+        expect($code)->toBe(99, 'the guard must exit with the code declared expected: '.implode('
+', $output));
+
+        // It outlived startsecs, so supervisord saw a successful start.
+        expect($elapsed)->toBeGreaterThan(3.0);
+
+        // Therefore: EXITED. Not BACKOFF, and not a restart.
+        expect(supervisorOutcome($code, $elapsed, 3.0, 'unexpected', [99]))->toBe('EXITED');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('runs the real worker as soon as a release exists, and restarts it on its ordinary turnover', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+        $fs = $scratch.'/fs';
+        $root = $fs.'/home/www/rateguru/production/demo-shop';
+
+        [$exit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+        expect($exit)->toBe(0);
+
+        $config = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
+
+        // The first deployment: a release, and current pointing at it. The
+        // configuration is NOT rewritten — the same file now means something
+        // different because the host does.
+        @mkdir($root.'/releases/20260101120000', 0o755, true);
+        symlink($root.'/releases/20260101120000', $root.'/current');
+
+        $phpStub = $scratch.'/bin/php-queue-probe';
+        provisionWriteStub($phpStub, <<<'STUB'
+            #!/bin/bash
+            printf 'php %s\\n' "$*" >> "${STUB_LOG}/queue-worker.log"
+            printf 'cwd %s\\n' "$(pwd -P)" >> "${STUB_LOG}/queue-worker.log"
+            exit 0
+            STUB);
+
+        $command = provisionQueueCommand($config, $fs, $phpStub);
+
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' bash -c '.escapeshellarg($command).' 2>&1', $output, $code);
+
+        $worker = provisionLog($scratch, 'queue-worker.log');
+
+        expect($worker)
+            ->toContain('artisan queue:work redis --queue=rateguru-demo-shop')
+            ->toContain('--max-time=3600')
+            ->toContain('cwd '.realpath($root.'/releases/20260101120000'));
+
+        // The worker's own successful exit — what --max-time and --max-jobs
+        // produce every hour — must bring it back, or a deployed target
+        // silently stops processing its queue after the first turnover.
+        expect($code)->toBe(0);
+        expect(supervisorOutcome(0, 3600.0, 3.0, 'unexpected', [99]))->toBe('RESTART');
+
+        // And a genuinely crash-looping worker still reaches BACKOFF, so the
+        // startsecs/startretries backstop was not traded away for the guard.
+        expect(supervisorOutcome(1, 0.2, 3.0, 'unexpected', [99]))->toBe('BACKOFF');
+
+        // A host restart starts it again by itself.
+        expect($config)->toContain("autostart=true\n");
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// One authority: this bundle, and a host that agrees with it
+// =============================================================================
+//
+// provision-target reads the lifecycle, the application_root and the target's
+// identities out of THIS bundle's registry, and the installers it delegates to
+// read the same file. The host's own installed bundle is independently
+// versioned and legitimately older — a host prepared before this tooling
+// existed has an installed `common` with no lifecycle gate in it at all — so
+// it is treated as a prerequisite to prove, never as a second opinion to
+// consult. The tests below are about that boundary in both directions.
+
+it('proves the host operational bundle before it inspects any target state', function () {
+    // The ordering IS the contract: a target's lifecycle, root and identities
+    // read against a stale host are not facts worth collecting, so nothing
+    // about the target is looked at until the host is known to agree.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+
+        @unlink($scratch.'/toggles/operations-installer-compliant');
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('install-target-operations --verify does not pass')
+            ->toContain('the installed RateGuru operational bundle is stale')
+            ->toContain('refresh it through Prepare Host')
+            ->toContain('No target state was inspected. No mutation was performed');
+
+        // Target-scoped, and it says so: provisioning refuses rather than
+        // refreshing host-global tooling on its own initiative.
+        expect($output)->toContain('never updates host-global tooling itself');
+
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionLog($scratch, 'chown.log'))->toBe('');
+        expect(provisionLog($scratch, 'install.log'))->toBe('');
+
+        // The children were never asked anything about this target either.
+        expect(provisionLog($scratch, 'children.log'))
+            ->not->toContain('--target demo-shop');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('refuses a host whose runtime registry is not this bundle\'s', function (string $shape) {
+    // A host that disagrees about this target's lifecycle or root is a host
+    // whose operational bundle is behind. Provisioning does not pick a winner
+    // between two registry revisions — there is no correct winner, only a
+    // target created from one description and operated by another.
+    $scratch = provisionScratchDir();
+
+    try {
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $demo = provisionDemoTarget();
+
+        switch ($shape) {
+            case 'root':
+                $demo['application_root'] = '/home/www/rateguru/production/demo-shop-elsewhere';
+                $registry['targets']['demo-shop'] = $demo;
+                break;
+            case 'lifecycle':
+                $demo['lifecycle'] = 'active';
+                $registry['targets']['demo-shop'] = $demo;
+                break;
+            case 'absent':
+                // The host predates the target entirely — the ordinary state
+                // of a host prepared before this brand was declared.
+                break;
+        }
+
+        $env = provisionFixture($scratch, [
+            'installedRegistryJson' => json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
+        ]);
+
+        $fs = $scratch.'/fs';
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain("the host's runtime registry differs from this bundle's")
+            ->toContain("demo-shop's lifecycle and application_root disagree between them")
+            ->toContain('the installed RateGuru operational bundle is stale')
+            ->toContain('No target state was inspected. No mutation was performed');
+
+        // NEITHER root was created — not the one this bundle names, and not
+        // the one the host's registry names.
+        expect(is_dir($fs.'/home/www/rateguru/production/demo-shop'))
+            ->toBeFalse("the trusted registry's root must not be created");
+        expect(is_dir($fs.'/home/www/rateguru/production/demo-shop-elsewhere'))
+            ->toBeFalse("the installed registry's root must not be created");
+
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionLog($scratch, 'chown.log'))->toBe('');
+        expect(provisionLog($scratch, 'install.log'))->toBe('');
+    } finally {
+        provisionCleanup($scratch);
+    }
+})->with([
+    'a different application_root' => ['root'],
+    'a different lifecycle' => ['lifecycle'],
+    'a target the host has never heard of' => ['absent'],
+]);
+
+it('refuses a host with no runtime registry at all', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch, [
+            'installedRegistry' => $scratch.'/fs/home/www/rateguru/etc/does-not-exist.json',
+        ]);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('the host has no readable runtime target registry')
+            ->toContain('the installed RateGuru operational bundle is stale')
+            ->toContain('No target state was inspected. No mutation was performed');
+
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('reads the lifecycle and the root from this bundle, never from the host', function () {
+    // The positive half, and the one that makes the refusals meaningful: with
+    // an exactly current host, provisioning proceeds — and every path it
+    // creates is the one THIS bundle's registry names.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('TARGET INFRASTRUCTURE: PROVISIONED');
+
+        expect(is_dir($scratch.'/fs/home/www/rateguru/production/demo-shop/releases'))->toBeTrue();
+
+        // The report says which host it agreed with, in the modes that print
+        // one: --apply is a transcript of what it did, --verify is the report.
+        [$verifyExit, $verifyOutput] = provisionRun(['--verify', '--target', 'demo-shop'], $env);
+
+        expect($verifyExit)->toBe(0, $verifyOutput);
+        expect($verifyOutput)
+            ->toContain('PASS     host:install-target-operations')
+            ->toContain('PASS     host:runtime-registry');
+
+        // install-target-operations was asked to verify, and never to apply:
+        // updating the host's operational bundle is a host operation.
+        $children = provisionLog($scratch, 'children.log');
+
+        expect($children)->toContain('operations-installer --verify');
+        expect($children)->not->toContain('operations-installer --apply');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('says a bundle missing the lifecycle gate is a broken bundle, never a missing command', function () {
+    // The other direction: this file sources the `common` beside itself, so a
+    // library that cannot answer the lifecycle question means the BUNDLE is
+    // incomplete. It says that, rather than reaching the gate as a bare
+    // "command not found" partway through a run.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+        $common = $scratch.'/repo/infrastructure/scripts/common';
+
+        file_put_contents($common, preg_replace(
+            '/^require_provisionable_target\(\) \{.*?\n\}\n/ms',
+            '',
+            File::get($common),
+        ));
+
+        expect(File::get($common))->not->toContain('require_provisionable_target() {');
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('this infrastructure bundle is inconsistent')
+            ->toContain('has no require_provisionable_target')
+            ->toContain('nothing was changed')
+            ->not->toContain('command not found');
+
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionLog($scratch, 'chown.log'))->toBe('');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
 it('refuses a target that already carries deployment-owned state', function (
     string $shape,
     string $expected,
@@ -1337,9 +1751,18 @@ it('refuses a target that already carries deployment-owned state', function (
         expect($output)->toContain($expected);
         expect($output)->toContain('never deletes, moves or re-owns anything to make a target look new');
 
-        // Nothing was created, and above all nothing was removed.
+        // Nothing was created, and above all nothing was removed. Each shape
+        // is asked about the artifact it actually planted: the env case has no
+        // release directory, and letting it fall through to the release
+        // assertion would have proved nothing about the file it is named for.
         expect(provisionLog($scratch, 'identity.log'))->toBe('');
-        expect(is_dir($root.'/releases/20240101120000') || $shape === 'env')->toBeTrue();
+
+        if ($shape === 'env') {
+            expect(File::get($root.'/shared/.env'))
+                ->toBe("APP_KEY=base64:SOMEBODY-ELSE\n", 'the foreign environment file must be untouched');
+        } else {
+            expect(is_dir($root.'/releases/20240101120000'))->toBeTrue();
+        }
 
         // --check reports the same conflict rather than pretending it is drift.
         [$checkExit, $checkOutput] = provisionRun(['--check', '--target', 'demo-shop'], $env);
@@ -1477,7 +1900,6 @@ it('documents the operation, its boundary and its machine-readable result', func
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
         'HOME' => sys_get_temp_dir(),
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
-        'RATEGURU_COMMON_FILE' => base_path('infrastructure/scripts/common'),
         'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
         'RATEGURU_TARGET_REGISTRY_FILE' => base_path('infrastructure/config/deployment-targets.json'),
         'RATEGURU_TARGETS_CLI' => base_path('infrastructure/scripts/targets'),
@@ -1556,6 +1978,10 @@ it('leaves a provisioned target undeployable through the existing wrappers', fun
         [$wrapperExit, $wrapperOutput] = provisionRun([], array_merge($env, [
             'SUDO_USER' => 'deploy-rateguru-demo-shop',
             'RATEGURU_DEPLOY_BIN' => $stub,
+            // The wrapper's own seam for the library it sources. It is an
+            // installed-bundle caller, unlike provision-target, which reads
+            // the one beside itself.
+            'RATEGURU_COMMON_FILE' => base_path('infrastructure/scripts/common'),
         ]), $harness);
 
         expect($wrapperExit)->not->toBe(0);

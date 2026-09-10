@@ -2660,6 +2660,43 @@ it('keeps ordinary --target behaviour unchanged: a planned target is still refus
     }
 })->group('bsvc-provisioning');
 
+it('names the lifecycle a refused target actually has, rather than assuming planned', function () {
+    // A disabled target is not an active one, so it travels with the planned
+    // ones through this installer — every one of them is equally out of scope.
+    // Telling an operator their disabled target is "planned", and pointing
+    // them at --provisioning, would send them to a flag that refuses it too.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['tits-guru']['lifecycle'] = 'disabled';
+
+        file_put_contents($scratch.'/fs/disabled-registry.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+        $env = bsvcFixture($scratch);
+        $env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY'] = $scratch.'/fs/disabled-registry.json';
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=disabled')
+            ->toContain('a reviewed registry change rather than a flag')
+            ->not->toContain('tits-guru is lifecycle=planned');
+
+        // And the host report says the same thing about it.
+        [, $hostOutput] = bsvcRun(['--check'], $env);
+
+        expect($hostOutput)
+            ->toContain('target:tits-guru — lifecycle=disabled — zero service configuration')
+            ->not->toContain('target:tits-guru — lifecycle=planned');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
 // =============================================================================
 // The generic production renderer
 // =============================================================================
@@ -2677,7 +2714,14 @@ function bsvcRenderTarget(string $scratch, string $registryPath, string $targetI
 
     file_put_contents($harness, implode("\n", [
         'set -Eeuo pipefail',
-        'source '.escapeshellarg(bsvcScript()).' 2>/dev/null || true',
+        // No error suppression: sourcing the installer is silent and returns
+        // 0, so anything else is a real failure that must stop the harness
+        // here rather than surface as a missing function three lines down.
+        'source '.escapeshellarg(bsvcScript()),
+        // main() installs this trap; a sourced installer never runs main, so
+        // the harness installs it itself and a failure mid-render still takes
+        // the render root with it.
+        'trap cleanup_render_root EXIT',
         'SOURCE_REGISTRY='.escapeshellarg($registryPath),
         'TARGET_SCOPE='.escapeshellarg($targetId),
         'PROVISIONING=true',
@@ -2689,7 +2733,6 @@ function bsvcRenderTarget(string $scratch, string $registryPath, string $targetI
         '    cat "${rendered['.escapeshellarg($targetId).']}"',
         '    unset -n rendered',
         'done',
-        'cleanup_render_root',
         '',
     ]));
 
@@ -2746,6 +2789,56 @@ it('renders a production target deterministically, from the registry and nothing
         expect($third['FPM'])->toBe($first['FPM']);
         expect($third['SUPERVISOR'])->toBe($first['SUPERVISOR']);
         expect($third['CRON'])->toBe($first['CRON']);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('renders a queue program that is safe for supervisord to load before the first release', function () {
+    // The program file lands in supervisord's own configuration directory, so
+    // a supervisord restart or a host reboot loads it whether or not anybody
+    // activated it. A planned production target can sit in that state for
+    // weeks, which is why the safety lives in the configuration rather than in
+    // the order somebody ran commands in.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru');
+        $supervisor = $rendered['SUPERVISOR'];
+        $root = '/home/www/rateguru/production/tits-guru';
+
+        expect($supervisor)
+            // supervisord chdirs here BEFORE spawning, so it must be a
+            // directory that exists on a target with no release at all.
+            ->toContain("directory={$root}\n")
+            ->not->toContain("directory={$root}/current\n")
+            // current/ is entered by the command, and only once it is real.
+            ->toContain("[ ! -d {$root}/current ]")
+            ->toContain("cd {$root}/current")
+            // exec, so stopwaitsecs and the stop signal reach the worker
+            // rather than the guard shell that spawned it.
+            ->toContain('&& exec /usr/bin/php8.5 artisan queue:work');
+
+        // The policy that turns those exit codes into the right states: 99 is
+        // the only expected exit, so the guard settles into EXITED while the
+        // worker's own 0 — returned on every --max-time turnover — is
+        // unexpected and brings it back.
+        expect($supervisor)
+            ->toContain("autostart=true\n")
+            ->toContain("autorestart=unexpected\n")
+            ->toContain("exitcodes=99\n")
+            // Untouched, so a genuinely crash-looping deployed worker still
+            // reaches FATAL instead of restarting forever.
+            ->toContain("startsecs=3\n")
+            ->toContain("startretries=5\n");
+
+        // And the guard outlives startsecs: supervisord treats any exit before
+        // it as a failed start and backs off regardless of the exit code, so
+        // an immediate exit would be BACKOFF -> FATAL rather than a clean stop.
+        preg_match('/sleep (\\d+); exit 99/', $supervisor, $settle);
+
+        expect($settle)->not->toBeEmpty('the guard must settle before it exits');
+        expect((int) $settle[1])->toBeGreaterThan(3);
     } finally {
         bsvcCleanup($scratch);
     }

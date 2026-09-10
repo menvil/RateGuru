@@ -2224,6 +2224,43 @@ it('keeps ordinary --target behaviour unchanged: a planned target is still refus
     }
 });
 
+it('names the lifecycle a refused target actually has, rather than assuming planned', function () {
+    // A disabled target is not an active one, so it travels with the planned
+    // ones through this installer — every one of them is equally out of scope.
+    // Telling an operator their disabled target is "planned", and pointing
+    // them at --provisioning, would send them to a flag that refuses it too.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['tits-guru']['lifecycle'] = 'disabled';
+
+        $env = hostLayoutFixture($scratch, [
+            'profile' => 'compliant',
+            'registry' => json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
+        ]);
+
+        [$exit, $output] = hostLayoutRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=disabled')
+            ->toContain('a reviewed registry change rather than a flag')
+            ->not->toContain('tits-guru is lifecycle=planned');
+
+        // And the host report says the same thing about it.
+        [, $hostOutput] = hostLayoutRun(['--check'], $env);
+
+        expect($hostOutput)
+            ->toContain('target:tits-guru — lifecycle=disabled — not provisioned by this slice')
+            ->not->toContain('target:tits-guru — lifecycle=planned');
+
+        expect(file_exists($scratch.'/log/identity.log'))->toBeFalse();
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
 it('never provisions a planned target in host mode, with or without the authorization in the environment', function () {
     $scratch = hostLayoutScratchDir();
 

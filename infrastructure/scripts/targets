@@ -539,7 +539,9 @@ validate_target_service_names() {
         basename="${socket##*/}"
         basename="${basename%.sock}"
 
-        if [[ -n "${basename}" ]] && ! is_safe_service_name "${basename}"; then
+        # No -n guard: "/run/php/.sock" strips to an empty basename, which is
+        # exactly the value a closed format has to reject rather than skip.
+        if ! is_safe_service_name "${basename}"; then
             problem "${target_id}: php_fpm.socket file name must be a lowercase service name matching [a-z0-9][a-z0-9_-]{0,63}.sock: ${socket}"
         fi
     fi

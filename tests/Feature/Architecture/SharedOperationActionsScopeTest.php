@@ -343,10 +343,22 @@ it('implements no recovery rehearsal harness, and no host provisioner beside the
     // And the target provisioner that did land stays what it is: an
     // orchestrator that never creates a machine and never activates a target.
     expect(File::exists(base_path('infrastructure/scripts/provision-target')))->toBeTrue();
-    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/provision-target'))))
+
+    $provisioner = executableSourceLines(File::get(base_path('infrastructure/scripts/provision-target')));
+
+    expect($provisioner)
         ->not->toContain('apt-get')
         ->not->toContain('lifecycle = ')
-        ->not->toContain('deployment-targets.json');
+        // It never reads the registry itself: no selector, no parse. It names
+        // the file to establish ONE authority — pointing `common` at this
+        // bundle's own registry rather than the host's, and comparing the two
+        // byte for byte — and every value still comes back through `common`.
+        ->not->toContain('.targets[')
+        ->not->toContain('jq -r');
+
+    expect($provisioner)
+        ->toContain('TARGET_REGISTRY_FILE="${TRUSTED_REGISTRY}"')
+        ->toContain('cmp -s "${INSTALLED_REGISTRY}" "${TRUSTED_REGISTRY}"');
 
     // restore-test stays what it always was: a scratch-database integrity
     // check, never a live restore. Restore Target Data's live restore is a separate

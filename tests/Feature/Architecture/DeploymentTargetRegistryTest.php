@@ -1013,6 +1013,17 @@ it('rejects a pool socket whose file name is not a safe service name', function 
     expect($output)->toContain('php_fpm.socket file name must be a lowercase service name');
 });
 
+it('rejects a pool socket that is nothing but the suffix', function () {
+    // "/run/php/.sock" is an absolute normalized path below /run/php ending in
+    // .sock, so every path rule accepts it — and it strips to an empty
+    // basename. A closed format has to reject that rather than skip it,
+    // otherwise "no name at all" is the one name that never gets checked.
+    [$exit, $output] = validateMutatedRegistry('.targets["tits-guru"].php_fpm.socket = "/run/php/.sock"');
+
+    expect($exit)->not->toBe(0);
+    expect($output)->toContain('php_fpm.socket file name must be a lowercase service name');
+});
+
 it('accepts the service names a second and third production brand would use', function (string $brand) {
     // The registry has to keep working for brands nobody has thought of yet,
     // so the closed format is proved permissive enough to describe one.

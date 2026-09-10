@@ -121,11 +121,12 @@ it('never relaxes host key checking, and keeps long-running connections alive', 
 
     // Provisioning creates accounts, converges directories and validates
     // service configuration; an idle NAT dropping a silent connection
-    // mid-run would abandon it half-finished for no reason. scp is the one
-    // exception: it is never idle.
-    expect(substr_count($executable, '-o ServerAliveInterval=30'))
-        ->toBe(substr_count($executable, '-o ServerAliveCountMax=10'));
-    expect(substr_count($executable, '-o ServerAliveInterval=30'))->toBeGreaterThanOrEqual(5);
+    // mid-run would abandon it half-finished for no reason. Every remote
+    // invocation carries it, scp included — an upload that stalls forever is
+    // no better than a command that does.
+    expect(substr_count($executable, '-o ConnectTimeout=15'))->toBe($sshInvocations);
+    expect(substr_count($executable, '-o ServerAliveInterval=30'))->toBe($sshInvocations);
+    expect(substr_count($executable, '-o ServerAliveCountMax=10'))->toBe($sshInvocations);
 
     expect($executable)
         ->not->toContain('StrictHostKeyChecking=no')
@@ -199,15 +200,24 @@ it('never invokes any operation but provisioning on the host', function (string 
 it('removes the uploaded bundle and the local credential whatever happened', function () {
     $steps = collect(data_get(provisionAction(), 'runs.steps'));
 
-    foreach ([
+    $cleanup = [
         'Remove the remote provisioning bundle',
         'Remove temporary local files',
-    ] as $name) {
+    ];
+
+    foreach ($cleanup as $name) {
         $step = $steps->firstWhere('name', $name);
 
         expect($step)->not->toBeNull("missing cleanup step: {$name}");
         expect($step['if'])->toBe('${{ always() }}', "{$name} must run on failure too");
     }
+
+    // And they are the LAST two steps, in that order. always() makes a step
+    // run after a failure, not after everything: a step appended below these
+    // would still be skipped on failure, and would then be the one thing the
+    // run leaves behind on the host it just failed against.
+    expect($steps->slice(-2)->pluck('name')->all())
+        ->toBe($cleanup, 'the two cleanup steps must be the final two, remote before local');
 
     expect(provisionActionExecutable())
         ->toContain('RATEGURU_BOOTSTRAP_SSH_KEY_PATH')
@@ -217,15 +227,22 @@ it('removes the uploaded bundle and the local credential whatever happened', fun
 it('ships no operator-facing provisioning workflow in this slice', function () {
     // The action is reusable and the primitive is complete; a button that
     // already changes a production server is a separate, deliberate decision.
-    $workflows = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
+    // Both extensions: GitHub reads .yaml as readily as .yml, so a guard that
+    // only knew one of them would be silent about half the ways this could
+    // arrive.
+    $workflows = collect(glob(base_path('.github/workflows/*.{yml,yaml}'), GLOB_BRACE) ?: [])
         ->filter(fn (string $path): bool => str_contains(File::get($path), 'provision-rateguru-target'))
         ->values()
         ->all();
 
     expect($workflows)->toBe([], 'no workflow may call the provisioning action yet');
 
-    expect(File::exists(base_path('.github/workflows/provision-production.yml')))->toBeFalse();
-    expect(File::exists(base_path('.github/workflows/provision-staging.yml')))->toBeFalse();
+    foreach (['provision-production', 'provision-staging'] as $name) {
+        foreach (['yml', 'yaml'] as $extension) {
+            expect(File::exists(base_path(".github/workflows/{$name}.{$extension}")))
+                ->toBeFalse("no operator-facing {$name} workflow may exist yet");
+        }
+    }
 });
 
 it('is documented in the runbook it belongs to', function () {

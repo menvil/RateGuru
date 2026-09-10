@@ -51,20 +51,48 @@
 set -Eeuo pipefail
 umask 022
 
-# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
-# =true — see the identical comment in infrastructure/scripts/deploy. common has
-# not been sourced yet at this point, so this is a plain inline condition, not a
-# call to rateguru_test_overrides_allowed().
-COMMON_FILE=/home/www/rateguru/bin/common
+# --- One authority for the whole run ------------------------------------------
+#
+# THIS bundle is the provisioning implementation, all of it. The library below,
+# the registry every decision is read out of, and the installers that perform
+# every mutation are all resolved relative to this file, so a run can never
+# inspect target A out of one registry revision and mutate a path named by
+# another.
+#
+# That is not a theoretical ordering: the host's installed bundle is
+# independently versioned and legitimately older — a host prepared before this
+# tooling existed has an installed `common` with no lifecycle gate in it at
+# all. Reading the lifecycle and application_root through THAT while the child
+# installers configure the target from THIS one is precisely the mixed
+# authority this operation exists to remove.
+#
+# The installed bundle is not ignored, though: it is a host prerequisite, and
+# it is proved current below, before this run inspects or mutates any target
+# state. Provisioning never updates it — that is a host operation.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+BUNDLE_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
 
-if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
-    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
-then
-    COMMON_FILE="${RATEGURU_COMMON_FILE}"
-fi
+COMMON_FILE="${SCRIPT_DIR}/common"
+
+[[ -r "${COMMON_FILE}" ]] || {
+    printf 'ERROR: this infrastructure bundle is incomplete: %s is missing.\n' "${COMMON_FILE}" >&2
+    printf 'Run provision-target from a full trusted infrastructure bundle; nothing was changed.\n' >&2
+    exit 1
+}
 
 # shellcheck disable=SC1090
 source "${COMMON_FILE}"
+
+# An assertion about this bundle, not about the host: a trusted bundle whose
+# own library cannot answer the lifecycle question is not one to provision
+# from. The host's own bundle being older is a different condition entirely,
+# diagnosed as a host prerequisite further down.
+if ! declare -F require_provisionable_target >/dev/null 2>&1; then
+    printf 'ERROR: this infrastructure bundle is inconsistent: %s has no require_provisionable_target.\n' \
+        "${COMMON_FILE}" >&2
+    printf 'Run provision-target from a full trusted infrastructure bundle; nothing was changed.\n' >&2
+    exit 1
+fi
 
 # --- Gated test seams ---------------------------------------------------------
 
@@ -82,17 +110,35 @@ gated_default() {
     fi
 }
 
-# The owning installers are resolved relative to THIS file rather than to the
-# installed bin directory, so a provisioning run always delegates to the
-# installers from the same trusted bundle it was itself run from. Provisioning
-# a target with a mixture of two bundles' logic is exactly the class of
-# surprise this operation exists to remove.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
-
+# The owning installers, resolved relative to THIS file for the reason given
+# at the top of the file: one bundle's logic, never a mixture of two.
 RUNTIME_BIN="$(gated_default RATEGURU_PROVISION_RUNTIME_BIN "${SCRIPT_DIR}/install-bootstrap-runtime")"
 HOSTLAYOUT_BIN="$(gated_default RATEGURU_PROVISION_HOSTLAYOUT_BIN "${SCRIPT_DIR}/install-bootstrap-host-layout")"
 SERVICES_BIN="$(gated_default RATEGURU_PROVISION_SERVICES_BIN "${SCRIPT_DIR}/install-bootstrap-services")"
+OPERATIONS_BIN="$(gated_default RATEGURU_PROVISION_OPERATIONS_BIN "${SCRIPT_DIR}/install-target-operations")"
 EFFECTIVE_UID="$(gated_default RATEGURU_PROVISION_EUID "${EUID}")"
+
+# The two registries, and the difference between them is the whole point.
+#
+# TRUSTED_REGISTRY is this bundle's own source registry — the identical file
+# install-bootstrap-host-layout and install-bootstrap-services read as their
+# SOURCE_REGISTRY. Every decision this orchestrator makes is read out of it,
+# so the lifecycle it gates on, the application_root its safety probes look
+# at, and the identities the installers create are one revision by
+# construction rather than by luck.
+#
+# INSTALLED_REGISTRY is the host's runtime registry, captured before the
+# override below so it can be compared rather than used. A host whose runtime
+# registry disagrees with this bundle is a host whose operational bundle is
+# stale, and provisioning refuses it instead of choosing a winner.
+TRUSTED_REGISTRY="$(gated_default RATEGURU_PROVISION_TRUSTED_REGISTRY "${BUNDLE_ROOT}/config/deployment-targets.json")"
+INSTALLED_REGISTRY="$(gated_default RATEGURU_PROVISION_INSTALLED_REGISTRY "$(target_registry_file)")"
+
+# From here on, `common` resolves the registry to this bundle's own:
+# target_registry_file() reads this variable at call time, and passes it to the
+# validator as an explicit --file, so the child process agrees too.
+# shellcheck disable=SC2034  # read by common, not by this file
+TARGET_REGISTRY_FILE="${TRUSTED_REGISTRY}"
 
 # Fixture filesystem prefix: '' in production, exactly as every installer's
 # own FS_ROOT works. The only paths it applies to are the new-target safety
@@ -288,19 +334,60 @@ resolve_target() {
 #       -> install-bootstrap-services, reported as HOST-REQ in its own
 #          target-scoped report
 #   the installed operational bundle and its runtime registry
-#       -> structurally: this script sources the installed `common`, and
-#          resolve_target reads this target out of the installed registry
-#          through it. A host without the bundle, or with a registry that
-#          predates this target, cannot get past resolve_target at all.
+#       -> install-target-operations --verify, which byte-compares every
+#          installed file — the registry among them — against this bundle's
+#          sources. It is the existing authority on what "the host's bundle is
+#          current" means, and provisioning asks it rather than growing a
+#          second opinion.
+#
+# The operational-bundle gate is not bureaucracy. A host prepared before this
+# tooling existed has an installed registry that may not name this target at
+# all, or may name it with a different application_root or lifecycle. This run
+# reads none of that — it reads this bundle — and a disagreement therefore
+# means the host is behind, which is a host operation to fix and never
+# something provisioning quietly papers over by picking a side.
+
+INSTALLED_REGISTRY_REMEDY="the installed RateGuru operational bundle is stale: refresh it through Prepare Host (the canonical host-convergence operation), then re-run provisioning — provisioning is target-scoped and never updates host-global tooling itself"
 
 report_host_prerequisites() {
     section "HOST PREREQUISITES (answered by their authoritative owners)"
 
-    item PASS "host:operational-bundle" "the installed operational bundle resolved ${TARGET_ID} out of the host's own registry (${COMMON_FILE})"
+    report_child_gate "host:install-target-operations" \
+        "the installed operational bundle and its runtime registry match this trusted bundle" \
+        "${OPERATIONS_BIN}" --verify
+
+    report_installed_registry_identity
 
     report_child_gate "host:install-bootstrap-runtime" \
         "supported OS, repositories, packages, binaries, PHP modules and client versions" \
         "${RUNTIME_BIN}" --verify
+}
+
+# The one file whose disagreement provisioning cannot survive, named on its
+# own. install-target-operations --verify already covers it as one of the
+# twenty-eight files it compares, and this adds no second algorithm — it is
+# one `cmp` — but it turns "the bundle is stale" into the specific sentence an
+# operator needs: THIS target's lifecycle and root would have been read from a
+# registry the rest of the host does not have.
+report_installed_registry_identity() {
+    if [[ ! -r "${INSTALLED_REGISTRY}" ]]; then
+        item HOST-REQ "host:runtime-registry" \
+            "the host has no readable runtime target registry at ${INSTALLED_REGISTRY}" \
+            "${INSTALLED_REGISTRY_REMEDY}"
+
+        return 0
+    fi
+
+    if cmp -s "${INSTALLED_REGISTRY}" "${TRUSTED_REGISTRY}"; then
+        item PASS "host:runtime-registry" \
+            "the host's runtime registry is byte-identical to this bundle's (${INSTALLED_REGISTRY})"
+
+        return 0
+    fi
+
+    item HOST-REQ "host:runtime-registry" \
+        "the host's runtime registry differs from this bundle's — ${TARGET_ID}'s lifecycle and application_root would be read from a registry revision the rest of the host does not have" \
+        "${INSTALLED_REGISTRY_REMEDY}"
 }
 
 # report_child_gate NAME LABEL BIN ARGS... — a read-only host-level verify
@@ -334,6 +421,31 @@ report_child_gate() {
 # host_prerequisite_blocker — the apply-time counterpart, as a reason string or
 # a non-zero return.
 host_prerequisite_blocker() {
+    # Ordered the way an operator has to fix them: a stale operational bundle
+    # is the one that makes every reading below untrustworthy, so it is
+    # answered first and nothing about this target is inspected until it holds.
+    [[ -x "${OPERATIONS_BIN}" ]] \
+        || { printf 'install-target-operations is not executable: %s — run provision-target from a full trusted infrastructure bundle' "${OPERATIONS_BIN}"; return 0; }
+
+    if ! "${OPERATIONS_BIN}" --verify >/dev/null 2>&1; then
+        printf 'install-target-operations --verify does not pass: %s' "${INSTALLED_REGISTRY_REMEDY}"
+
+        return 0
+    fi
+
+    if [[ ! -r "${INSTALLED_REGISTRY}" ]]; then
+        printf 'the host has no readable runtime target registry at %s: %s' "${INSTALLED_REGISTRY}" "${INSTALLED_REGISTRY_REMEDY}"
+
+        return 0
+    fi
+
+    if ! cmp -s "${INSTALLED_REGISTRY}" "${TRUSTED_REGISTRY}"; then
+        printf 'the host'"'"'s runtime registry differs from this bundle'"'"'s, so %s'"'"'s lifecycle and application_root disagree between them: %s' \
+            "${TARGET_ID}" "${INSTALLED_REGISTRY_REMEDY}"
+
+        return 0
+    fi
+
     [[ -x "${RUNTIME_BIN}" ]] \
         || { printf 'install-bootstrap-runtime is not executable: %s — run provision-target from a full trusted infrastructure bundle' "${RUNTIME_BIN}"; return 0; }
 
@@ -735,8 +847,15 @@ apply_gate() {
 
     local blockers=() blocker_details=() blocker
 
+    # Stage one, on its own: the host. Nothing about this target is inspected
+    # until the host's operational bundle is proved to be the one this bundle
+    # expects — a target's lifecycle, root and identities read against a stale
+    # host are not facts worth collecting, and a refusal that mixed them in
+    # with target findings would invite an operator to fix the wrong thing.
     if blocker="$(host_prerequisite_blocker)"; then
-        blockers+=("${blocker}")
+        printf 'BLOCKED %s\n' "${blocker}" >&2
+
+        fail "refusing to provision ${TARGET_ID}: the host is not ready. No target state was inspected. No mutation was performed"
     fi
 
     if blocker="$(deployment_state_problem)"; then
