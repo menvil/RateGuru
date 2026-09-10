@@ -753,7 +753,7 @@ acme_link_is_managed() {
 }
 
 classify_row() {
-    local name="$1" destination="$2"
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
     local dst material
 
     dst="$(physical "${destination}")"
@@ -794,6 +794,23 @@ classify_row() {
     fi
 
     if [[ -f "${dst}" ]]; then
+        # Metadata before content. A prerequisite that exists with the wrong
+        # owner, group or mode is not ready whatever its bytes say, and every
+        # other mode has always refused it — but this classifier judged only
+        # existence and content, so --check called it PRESENT while --verify,
+        # minutes later in the same preparation, correctly failed the identical
+        # file. That is exactly how a root-owned staging shared/.env was
+        # reported satisfied and then rejected at the end of the run.
+        #
+        # Reported as an ordinary CONFLICT rather than raised, so the rest of
+        # the table is still classified and the operator sees every row that
+        # needs attention in one pass instead of the first one only.
+        if ! row_metadata_is_correct "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="${METADATA_DRIFT_REASON}"
+            return 0
+        fi
+
         if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
             if cmp -s "${material}" "${dst}"; then
                 CLASSIFY_STATE=CONVERGED
@@ -931,7 +948,7 @@ report_rows() {
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
 
-        classify_row "${name}" "${destination}"
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
 
         printf '%-11s %-6s %-24s %s\n' "${CLASSIFY_STATE}" "${scope}" "${name}" "${CLASSIFY_REASON}"
 
@@ -980,21 +997,24 @@ run_apply() {
     # supplied set can never leave the host half-converged with one new secret
     # installed beside a conflicting old one.
     #
-    # It also verifies the metadata of everything already present, for the same
+    # It also rejects the metadata of everything already present, for the same
     # reason: a host with one row absent and another row's ownership wrong must
     # not have the absent one installed before the wrong one is discovered. Any
     # fail-closed condition, of any kind, is found before the first mutation.
+    #
+    # The metadata contract arrives through the classifier rather than beside
+    # it: row_metadata_is_correct is what turns drift into a CONFLICT, so the
+    # refusal below covers it and this pass has exactly one notion of what
+    # "not ready" means. Checking it separately here is what let --check and
+    # --apply drift apart in the first place.
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
 
-        classify_row "${name}" "${destination}"
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
 
         case "${CLASSIFY_STATE}" in
             CONFLICT|MISSING)
                 fail "external prerequisite ${name}: ${CLASSIFY_REASON}"
-                ;;
-            PRESENT|CONVERGED)
-                verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
                 ;;
         esac
     done < <(rows_in_scope)
@@ -1002,7 +1022,7 @@ run_apply() {
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
 
-        classify_row "${name}" "${destination}"
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
 
         case "${CLASSIFY_STATE}" in
             INSTALLABLE)
@@ -1038,16 +1058,41 @@ run_apply() {
 # stat dereferences (-L) on purpose: for the ACME material that legitimately is
 # a link, the file behind it is what any reader will actually open, and
 # certbot's own archive modes are exactly what this table declares.
-verify_row_metadata() {
+# row_metadata_is_correct NAME DESTINATION OWNER GROUP MODE DESCRIPTION — the
+# single read-only authority on whether an existing prerequisite satisfies the
+# ownership and mode the table declares.
+#
+# It is the ONLY place that comparison is made. --check classifies with it,
+# --apply refuses with it before its first mutation, --verify fails with it,
+# and --capture refuses to back up material it would not accept back. Three
+# independent implementations of the same contract is how --check came to
+# disagree with --verify about the same file on the same host.
+#
+# Returns 0 when the metadata is correct. On drift it returns non-zero and
+# leaves METADATA_DRIFT_REASON describing it, phrased to read after the
+# prerequisite's name so one wording serves both a report row and a refusal.
+# The reason names the expected and actual metadata and the command that fixes
+# it — never content, never a length, never a digest.
+#
+# Reads only: it stats the destination and returns. Nothing here writes, and
+# --check depends on that.
+METADATA_DRIFT_REASON=""
+
+row_metadata_is_correct() {
     local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
     local dst actual_owner actual_group actual_mode
+
+    METADATA_DRIFT_REASON=""
 
     dst="$(physical "${destination}")"
 
     actual_mode="$("${STAT_BIN}" -L -c '%a' "${dst}")"
 
-    (( 8#${actual_mode} == 8#${mode} )) \
-        || fail "external prerequisite ${name} has mode ${actual_mode}, expected ${mode}: ${destination} (${description}) — run: chmod ${mode} ${destination}"
+    if (( 8#${actual_mode} != 8#${mode} )); then
+        METADATA_DRIFT_REASON="has mode ${actual_mode}, expected ${mode}: ${destination} (${description}) — run: chmod ${mode} ${destination}"
+
+        return 1
+    fi
 
     # Ownership is compared only where the accounts exist to compare against.
     # Production always does; a scratch tree used to exercise the rest of this
@@ -1058,8 +1103,20 @@ verify_row_metadata() {
     actual_owner="$("${STAT_BIN}" -L -c '%U' "${dst}")"
     actual_group="$("${STAT_BIN}" -L -c '%G' "${dst}")"
 
-    [[ "${actual_owner}:${actual_group}" == "${owner}:${group}" ]] \
-        || fail "external prerequisite ${name} is owned by ${actual_owner}:${actual_group}, expected ${owner}:${group}: ${destination} (${description}) — the declared owner is the account that has to read it; run: chown ${owner}:${group} ${destination}"
+    if [[ "${actual_owner}:${actual_group}" != "${owner}:${group}" ]]; then
+        METADATA_DRIFT_REASON="is owned by ${actual_owner}:${actual_group}, expected ${owner}:${group}: ${destination} (${description}) — the declared owner is the account that has to read it; run: chown ${owner}:${group} ${destination}"
+
+        return 1
+    fi
+
+    return 0
+}
+
+verify_row_metadata() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
+
+    row_metadata_is_correct "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}" \
+        || fail "external prerequisite ${name} ${METADATA_DRIFT_REASON}"
 }
 
 verify_rows() {
@@ -1195,7 +1252,7 @@ run_capture() {
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
 
-        classify_row "${name}" "${destination}"
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
 
         case "${CLASSIFY_STATE}" in
             PRESENT|CONVERGED)

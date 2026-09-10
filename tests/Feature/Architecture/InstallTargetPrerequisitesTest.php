@@ -339,6 +339,13 @@ it('preserves an existing file when no material is supplied for it', function ()
         mkdir($scratch.'/etc/nginx', 0o755, true);
         file_put_contents($scratch.'/etc/nginx/rateguru-staging.htpasswd', "live-hashes\n");
 
+        // At the declared mode, because that is what "an existing file" means
+        // here. Written at the process umask this fixture was a file --verify
+        // would have rejected, and --check called it PRESENT anyway — which is
+        // the exact defect the metadata authority now closes, so the fixture
+        // has to be a legitimate one for this test to be about preservation.
+        chmod($scratch.'/etc/nginx/rateguru-staging.htpasswd', 0o640);
+
         [, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'host']);
 
         expect($output)->toContain('already present; left untouched');
@@ -1331,6 +1338,173 @@ it('applies the same archive-as-data rules common applies, and only adds the voc
         expect($verdict['common_output'])->toContain('common accepted 2 members');
         expect($verdict['installer'])->toBeFalse();
         expect($verdict['installer_output'])->toContain('not a host-scope prerequisite of staging-main: legacy-tls-bundle');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+/**
+ * --check and --verify must agree about the same file on the same host.
+ *
+ * Real-host evidence, and the reason these exist: a staging shared/.env sat at
+ * root:rateguru-staging 0640 where the contract declares
+ * rateguru-staging:rateguru-staging 0640. `--check --scope target` reported the
+ * slice satisfied, Prepare Host carried on, and the independent `--verify` at
+ * the end of the same operation correctly failed. The classifier judged
+ * existence and content; the other two modes judged metadata as well.
+ *
+ * There is now one read-only authority — row_metadata_is_correct — and all
+ * three consult it, so a prerequisite --apply or --verify would reject can no
+ * longer be reported READY.
+ */
+it('never reports READY for a prerequisite --verify would reject on ownership', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        // Ownership comparison is off by default in a scratch tree that has no
+        // such accounts; this is the case that turns it on, and shared/.env is
+        // the first row reached — exactly the file the real host had wrong.
+        $ownership = ['RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'true'];
+
+        [$checkExit, $checkOutput] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target'], $ownership);
+        [$verifyExit, $verifyOutput] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target'], $ownership);
+
+        // The whole point: the two modes reach the same verdict.
+        expect($checkExit)->toBe(1)
+            ->and($verifyExit)->toBe(1)
+            ->and($checkOutput)->toContain('TARGET PREREQUISITES READY: NO')
+            ->and($checkOutput)->toContain('is owned by')
+            ->and($checkOutput)->toContain('chown')
+            ->and($verifyOutput)->toContain('is owned by');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('never reports READY for a prerequisite whose mode drifted', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        $env = $scratch.'/home/www/rateguru/staging/shared/.env';
+
+        // Correct owner and group, wrong mode — the half of the contract a
+        // presence check cannot see.
+        chmod($env, 0o600);
+
+        [$exit, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
+
+        expect($exit)->toBe(1)
+            ->and($output)->toContain('CONFLICT')
+            ->and($output)->toContain('has mode 600, expected 0640')
+            ->and($output)->toContain('chmod 0640 /home/www/rateguru/staging/shared/.env')
+            ->and($output)->toContain('TARGET PREREQUISITES READY: NO')
+            // Drift is a conflict, not an abort: the report still reaches the
+            // summary, so an operator fixes every row in one pass.
+            ->and($output)->toContain('SUMMARY')
+            ->and($output)->toContain('conflicts 1');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('still reports READY when the metadata is exactly what the table declares', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        // A guard that refuses everything is not a guard.
+        [$exit, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
+
+        expect($exit)->toBe(0)
+            ->and($output)->toContain('TARGET PREREQUISITES READY: YES')
+            ->and($output)->toContain('conflicts 0');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses to install a missing sibling while another row has drifted metadata', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        $env = $scratch.'/home/www/rateguru/staging/shared/.env';
+        $rclone = $scratch.'/root/.config/rclone/rclone.conf';
+
+        chmod($env, 0o600);
+
+        // A sibling now absent, so --apply has real work to do. It must find
+        // the drift first: installing a secret beside a prerequisite that the
+        // very next --verify will reject leaves the host half-converged.
+        expect(is_file($rclone))->toBeTrue();
+        unlink($rclone);
+
+        [$exit, $output] = itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        expect($exit)->toBe(1)
+            ->and($output)->toContain('has mode 600, expected 0640')
+            ->and($output)->not->toContain('INSTALLED')
+            ->and(is_file($rclone))->toBeFalse('nothing may be installed before the drift is reported');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('reports metadata drift without ever describing the content it protects', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL, 'a-secret-value-that-must-never-be-echoed');
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        chmod($scratch.'/home/www/rateguru/staging/shared/.env', 0o600);
+
+        [, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
+
+        // The reason names metadata and the fix. It must never name bytes,
+        // and a length or digest is a description of content too.
+        expect($output)->not->toContain('a-secret-value-that-must-never-be-echoed')
+            ->and($output)->not->toContain(md5('a-secret-value-that-must-never-be-echoed'))
+            ->and($output)->not->toContain(sha1('a-secret-value-that-must-never-be-echoed'))
+            ->and($output)->not->toMatch('/\b\d+ bytes\b/');
     } finally {
         itpCleanup($scratch);
     }
