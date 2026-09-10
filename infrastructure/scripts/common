@@ -980,6 +980,19 @@ target_nightwatch_program() {
     esac
 }
 
+# --- registry lifecycle gates (begin) ---
+#
+# The gates that decide whether an operation may act on a target at all, and
+# the only place in this file where lifecycle is turned into permission. They
+# are read-only by construction: each validates the target ID, validates the
+# whole registry, reads .lifecycle (and, for provisioning, .environment_class)
+# and either returns or calls fail. Nothing here writes the registry, and
+# nothing here touches the filesystem.
+#
+# A new gate belongs HERE rather than beside the caller that wants it: a
+# lifecycle rule that lives in one script is a lifecycle rule the next script
+# can contradict.
+
 # The single gate operational commands use before acting on a
 # target. target_lifecycle already validates the target ID, validates the
 # whole registry, and confirms the target exists (failing "unknown target: …"
@@ -1043,9 +1056,13 @@ require_provisionable_target() {
     target_registry_assert_usable
     target_registry_assert_valid
 
-    local lifecycle environment_class
+    # Named `environment` rather than `environment_class`: `common` legitimately
+    # READS an ENVIRONMENT_CLASS supplied by the script that sourced it, and a
+    # local differing from it only in case makes every reader — human and
+    # linter — pause over which one is meant.
+    local lifecycle environment
     lifecycle="$(target_lifecycle "${target_id}")"
-    environment_class="$(target_environment_class "${target_id}")"
+    environment="$(target_environment_class "${target_id}")"
 
     if [[ "${lifecycle}" == "active" ]]; then
         fail "target ${target_id} has lifecycle=active — it is already in the operational lifecycle, so provisioning refuses it; use the existing prepare/repair/deploy operations instead"
@@ -1055,10 +1072,12 @@ require_provisionable_target() {
         fail "target ${target_id} has lifecycle=${lifecycle}, not planned — provisioning is only ever authorized for a planned target"
     fi
 
-    if [[ "${environment_class}" != "production" ]]; then
-        fail "target ${target_id} has environment_class=${environment_class}, not production — provisioning is only ever authorized for a planned production target"
+    if [[ "${environment}" != "production" ]]; then
+        fail "target ${target_id} has environment_class=${environment}, not production — provisioning is only ever authorized for a planned production target"
     fi
 }
+
+# --- registry lifecycle gates (end) ---
 
 # Shared flag-value validator, used by every operational script's own
 # argument loop (including parse_target_args below) — offsite-backup,
