@@ -4,6 +4,8 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
+use App\Support\Notifications\NotificationMessage;
+use Illuminate\Notifications\DatabaseNotification;
 
 it('creates post commented notification payload', function () {
     $postOwner = User::factory()->create([
@@ -39,10 +41,16 @@ it('creates post commented notification payload', function () {
         'comment_id' => $comment->id,
         'actor_id' => $commenter->id,
         'actor_username' => 'commenter',
-        'message' => '@commenter commented on your post',
+        'message_key' => 'ui.notifications.messages.post_commented',
+        'message_params' => ['username' => 'commenter'],
     ]);
 
-    expect(strtolower($data['message']))->not->toContain('dish');
-    expect(strtolower($data['message']))->not->toContain('food');
+    $rendered = strtolower(NotificationMessage::for(
+        tap(new DatabaseNotification, fn ($n) => $n->forceFill(['data' => $data]))
+    ));
+
+    expect($rendered)->not->toContain('dish');
+    expect($rendered)->not->toContain('food');
+    expect($data)->not->toHaveKey('message');
     expect($data)->toHaveKey('url');
 });

@@ -156,6 +156,14 @@ return [
         'empty' => 'Пока нет уведомлений',
         'mark_as_read' => 'Отметить как прочитанное',
         'fallback_message' => 'Уведомление',
+
+        // Keyed by the notification's own `type`, so the renderer
+        // builds the key from the payload rather than knowing each one.
+        'messages' => [
+            'post_approved' => 'Ваш пост одобрен',
+            'post_commented' => '@:username прокомментировал ваш пост',
+            'followed_author_posted' => '@:username опубликовал :title',
+        ],
     ],
     'theme' => 'Тема',
     'settings' => [

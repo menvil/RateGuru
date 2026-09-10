@@ -27,7 +27,10 @@ final class ContactMessageMail extends Mailable implements ShouldQueue
             replyTo: [
                 new Address($this->senderEmail, $this->senderName),
             ],
-            subject: '[RateGuru Contact] '.$this->messageSubject,
+            // Localized like the body: the queue renders this in whatever
+            // locale the caller pinned with ->locale(), which is the
+            // administrator's own.
+            subject: __('mail.contact.subject', ['subject' => $this->messageSubject]),
         );
     }
 
