@@ -1801,6 +1801,160 @@ it('finishes the recovery once the exact commit is deployed', function () {
     }
 });
 
+it('tells an operator a recovery is already finished rather than that its workspace is missing', function (string $mode) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+
+        // A completed recovery removes its own workspace and clears its own
+        // guard, so the operation the finished run's summary names is exactly
+        // the one an operator is most likely to hand back to continue-held.
+        // Read as "workspace does not exist" that says the machine lost its
+        // recovery, and the response to THAT is to start a second recovery
+        // over a host already serving the right code on the right data.
+        $again = recoverHostRun($scratch, [$mode, '--target', 'parity-target', '--operation', $operation]);
+
+        expect($again['exit'])->not->toBe(0);
+        expect($again['output'])
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('has already completed on parity-target')
+            ->toContain("this host's own recovery journal records it")
+            ->toContain('recover-host --verify --target parity-target')
+            ->toContain('do not re-run the recovery workflow in either mode')
+            ->not->toContain('recovery operation workspace does not exist');
+
+        // It diagnoses; it never continues. Nothing on the host moved.
+        expect(recoveryGuard($scratch))->toBeNull()
+            ->and(File::exists($scratch.'/run/recoveries/parity-target/'.$operation))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['--inspect', '--resume']);
+
+it('reports a completion only for the operation its own journal records', function (string $mode) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
+            ->toBe(0);
+
+        // The host is now an ordinary serving target: no recovery guard, a
+        // current release, a previous absent. That is what EVERY healthy
+        // target looks like every day of its life — so it cannot be what
+        // decides that some operation completed here. A typo, an operation
+        // from another machine, or one that never existed would otherwise all
+        // be announced as finished recoveries on a host that is serving.
+        $stranger = '20260115-041233-9be21c';
+
+        expect($stranger)->not->toBe($operation);
+
+        $result = recoverHostRun($scratch, [$mode, '--target', 'parity-target', '--operation', $stranger]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('recovery operation workspace does not exist')
+            ->not->toContain('has already completed');
+
+        // And the journal is what the answer came from: the operation that
+        // really did complete is still reported as complete.
+        expect(recoverHostRun($scratch, [$mode, '--target', 'parity-target', '--operation', $operation])['output'])
+            ->toContain('has already completed on parity-target');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['--inspect', '--resume']);
+
+it('still names a missing workspace plainly when the host is not a finished recovery', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        // A prepared, never-recovered host: no guard, nothing serving, and an
+        // empty journal. An operation ID that was never here is exactly that
+        // and nothing more, and inventing a completed recovery for it would be
+        // worse than the plain refusal.
+        $unknown = recoverHostRun($scratch, [
+            '--inspect', '--target', 'parity-target', '--operation', '20260115-041233-9be21c',
+        ]);
+
+        expect($unknown['exit'])->not->toBe(0);
+        expect($unknown['output'])
+            ->toContain('recovery operation workspace does not exist')
+            ->not->toContain('has already completed');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('reads the journal as evidence, not as a place to find an encouraging word', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
+            ->toBe(0);
+
+        $journal = $scratch.'/recoveries/recovery-history.jsonl';
+        $records = array_values(array_filter(preg_split('/\R/', File::get($journal))));
+
+        // Every field of the match matters, and each is checked against a
+        // record that differs in exactly one of them: a completed record for
+        // another target, another operation, and a non-completed record for
+        // this one. None of the three is this operation finishing here.
+        $completed = json_decode((string) end($records), true);
+
+        expect($completed)->toMatchArray(['status' => 'completed', 'target' => 'parity-target', 'operation' => $operation]);
+
+        foreach ([
+            'another target' => ['status' => 'completed', 'target' => 'other-target', 'operation' => $operation],
+            'another operation' => ['status' => 'completed', 'target' => 'parity-target', 'operation' => '20260115-041233-9be21c'],
+            'an unfinished attempt' => ['status' => 'failed-held', 'target' => 'parity-target', 'operation' => '20260115-041233-9be21c'],
+        ] as $case => $overrides) {
+            File::put($journal, json_encode([...$completed, ...$overrides])."\n");
+
+            $result = recoverHostRun($scratch, [
+                '--inspect', '--target', 'parity-target', '--operation', '20260115-041233-9be21c',
+            ]);
+
+            expect($result['output'])
+                ->not->toContain('has already completed', "{$case} was read as this operation completing here");
+        }
+
+        // A journal that cannot be read answers "no", which is the direction
+        // that refuses rather than the direction that announces.
+        File::put($journal, "not json at all\n");
+
+        expect(recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation])['output'])
+            ->toContain('recovery operation workspace does not exist')
+            ->not->toContain('has already completed');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('refuses to resume when the deployed commit is not the one the data belongs to', function () {
     $scratch = restoreScratchDir();
 
@@ -2269,7 +2423,7 @@ it('refuses to report a successful apply whose guard was not re-labelled', funct
 // --verify
 // =============================================================================
 
-it('verifies a fully recovered host, and accepts an absent previous link', function () {
+it('verifies a fully recovered host, and reports its absent previous link as a fact', function () {
     $scratch = restoreScratchDir();
 
     try {
@@ -2287,7 +2441,7 @@ it('verifies a fully recovered host, and accepts an absent previous link', funct
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
             ->toContain('RECOVERED: YES')
-            ->toContain('PREVIOUS: absent (normal for a freshly recovered host)');
+            ->toContain('PREVIOUS: absent');
 
         preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $result['output'], $matches);
         expect(json_decode($matches[1], true))->toMatchArray([
@@ -2296,11 +2450,59 @@ it('verifies a fully recovered host, and accepts an absent previous link', funct
             'health' => 'pass',
             'queue' => 'running',
             'scheduler' => 'present',
+            // Stated, not left to a reader's optimism: everything downstream
+            // announces the final contract as fact, so the field it announces
+            // has to be in the result it announces it from.
+            'previous' => 'absent',
         ]);
     } finally {
         removeScratchDir($scratch);
     }
 });
+
+it('refuses to verify a recovered host that carries a previous release link', function (string $shape) {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+        deployRecoveredRelease($scratch);
+
+        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
+            ->toBe(0);
+
+        // A recovered host has had exactly one deployment and therefore no
+        // rollback target. A `previous` means something deployed here after
+        // the recovery, an adoption began, or this is not the host the
+        // verification thinks it is — and rolling "back" from a recovery to
+        // whatever that link names would serve code the recovered data does
+        // not belong to.
+        $previous = $scratch.'/target/previous';
+
+        match ($shape) {
+            // The ordinary case: a real link into the releases tree.
+            'a link to a real release' => symlink($scratch.'/target/releases/'.FIXTURE_RELEASE, $previous),
+            // The case `-e` alone would miss: it follows the link, finds
+            // nothing, and reports the host clean.
+            'a broken link' => symlink($scratch.'/target/releases/removed-by-hand', $previous),
+            'a directory' => mkdir($previous),
+        };
+
+        $result = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('carries a previous release link')
+            ->not->toContain('RECOVERED: YES');
+
+        // A refusal, not a repair: it says what it found and leaves it there.
+        expect(file_exists($previous) || is_link($previous))->toBeTrue('the verification removed what it refused');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['a link to a real release', 'a broken link', 'a directory']);
 
 it('refuses to verify a host that still carries a recovery guard', function () {
     $scratch = restoreScratchDir();

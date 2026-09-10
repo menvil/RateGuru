@@ -12,8 +12,8 @@ not reorganize unrelated infrastructure.
 | 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | ✅ completed |
 | 6 | Sentry observability activation | 🚧 current |
-| 7 | Disaster recovery and release rehearsal | ⏳ planned |
-| 8 | First production launch and target-provisioning proof | ⏳ planned |
+| 7 | Disaster recovery and release rehearsal | ✅ completed |
+| 8 | First production launch and target-provisioning proof | 🚧 current |
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
@@ -767,7 +767,7 @@ deployment. Slice 6.6 (alerts) is manual Sentry-UI work documented in
    justified. *Acceptance:* controlled staging failures verify the
    notification path end to end.
 
-## 7. Disaster recovery and release rehearsal — planned
+## 7. Disaster recovery and release rehearsal — completed
 
 Rehearse recovery end to end. The phase overall proves: **we can lose the
 whole server and recover correctly**. It explicitly distinguishes four
@@ -1337,8 +1337,8 @@ Slices, in order:
    CI proves the structure, the preconditions, the compensation and every
    refusal path; only a real clean replacement machine proves the pipeline, and
    that rehearsal belongs to 7.7 — so this slice is implemented, not accepted.
-7. **7.7 GitHub Recover + clean-host rehearsal — implementation ready for the
-   REAL clean-host acceptance.** The 7.6 mechanisms became two named
+7. **7.7 GitHub Recover + clean-host rehearsal — ACCEPTED on a real
+   replacement VPS.** The 7.6 mechanisms became two named
    operator buttons, and the whole chain became one dispatch that needs
    nothing but a clean machine, one exact backup and the recovery bindings:
 
@@ -1497,81 +1497,198 @@ Slices, in order:
    the operator flow, the clean-host acceptance checklist and the
    offsite-write hold, and [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md)
    for the operator runbook.
-   *Acceptance:* a disposable host is recovered end to end from a workflow
-   dispatch, from a clean Ubuntu machine with nothing but bootstrap SSH on it,
-   without hand-run commands and without a single hand-copied file. CI proves
-   the structure, the trust boundaries and every refusal path; the real
-   disposable-machine rehearsal is the gate that remains, so this slice is
-   implementation-ready for that acceptance, not accepted. No RPO or RTO is
-   claimed by it.
-8. **7.8 Full DR acceptance, measured RPO and RTO.** Turn recovery
-   technology into an operational procedure: rehearse full host loss with
-   backup selection, release selection, provisioning, restore, DNS/TLS
-   implications, verification and fallback; measure real recovery duration;
-   define RPO and RTO; produce the final disaster-recovery runbook. *Future
-   work only.*
+   **Accepted on a real replacement VPS (`PHASE 7 SLICE 7.7 ACCEPTED`).** Both
+   operator paths were run for real, on a freshly reinstalled Ubuntu 22.04
+   x86_64 machine that had never carried RateGuru state, from nothing but
+   bootstrap SSH access and one exact offsite backup. No command was run by
+   hand on the machine and not a single file was copied onto it.
+
+   1. **Uninterrupted clean-host recovery — PASS.** Backup `20260909-113248`,
+      required source `265c4d6b42ec6d08f3f41e0b689da9197385de01`, GitHub run
+      `34393409482`. Clean-host preflight, Prepare Host, `recover-host --apply`,
+      the historical build of that exact commit, the controlled recovery
+      deployment, `--resume` and the final `--verify` all passed in order.
+      Final state as the verification read it off the machine: that exact
+      backup, that exact `source_sha`, queue RUNNING, scheduler PRESENT,
+      health PASS, no guard, migrations none, `OFFSITE WRITES: HELD`,
+      `DEPLOY_HOST` unchanged, DNS unchanged. Sentry and Nightwatch both
+      recorded the recovered release.
+   2. **Interrupted recovery, continued — PASS.** The run was stopped after the
+      controlled recovery deployment and before the resume, which is the
+      interruption the state machine exists for. Operation
+      `20260909-211722-e132b3` was continued with `mode=continue-held` in
+      GitHub run `34406557162`. The server reported `ready-to-resume` with the
+      data restored, the exact required commit already deployed, queue
+      stopped, scheduler held and offsite writes held; the resume completed,
+      and the independent final verification passed with the same final
+      contract as above and the same `source_sha` preserved. The state machine
+      and the continue-held path are therefore accepted against a real
+      interruption, not only against CI.
+   3. **One defect found by that acceptance, and closed here.** After the
+      successful continue-held verification, the deployment marker was
+      reported `skipped`. The recovery itself was correct throughout: the
+      marker job named no condition, and a job with no `if` inherits GitHub's
+      default `success()` — "no job anywhere in my ancestry failed or was
+      skipped" — so the preparation, historical build and controlled
+      deployment that `continue-held` legitimately skips took the marker with
+      them, through three successful jobs in between. The gate is now the
+      final verification's own result and nothing else, on both paths, and the
+      job graph is executed on paper under GitHub's real gating rules for
+      every scenario (start, continue-held, and a verification that failed,
+      was cancelled or was skipped), including the mutation that reproduces
+      the defect. That fix and its coverage are automated only: it was NOT
+      re-run on a real VPS, and nothing here claims it was.
+
+   *Acceptance:* met. A disposable host was recovered end to end from a
+   workflow dispatch, from a clean Ubuntu machine with nothing but bootstrap
+   SSH on it, without hand-run commands and without a single hand-copied file,
+   on both the uninterrupted and the interrupted path. No RPO or RTO is
+   claimed by this slice; 7.8 records why.
+8. **7.8 Final DR acceptance — ACCEPTED.** Recovery technology became an
+   operational procedure. 7.7 proved the pipeline runs on a real replacement
+   machine on both operator paths; this slice proves the repository still
+   states, enforces and documents one contract, and that an operator can
+   execute it without reading the source.
+
+   What landed:
+
+   - **The contract is stated once and proved, across surfaces.**
+     `tests/Feature/Architecture/DisasterRecoveryContractTest.php` asserts the
+     promise clause by clause — a lost host needs nothing from the lost host;
+     the operator names the machine and one exact backup and never a commit;
+     no `PREPARE_*` value is read; the backup is a closed schema 3 file set
+     whose server snapshot is never applied; the code is the commit the data
+     belongs to and no migration runs; the environment file is byte-exact and
+     only MATCH/MISMATCH is ever printed; the state machine survives
+     interruption and refuses to start a second recovery over a finished one;
+     success is an independent reading of the final contract; the recovered
+     machine stays fenced out of the real offsite namespace; no traffic,
+     binding or DNS moves; the privileged bootstrap identity and the
+     restricted deploy identity stay apart; restore, repair, prepare and
+     recover keep four distinct preconditions; nothing else mutates a target a
+     recovery owns; a verified recovery is recorded on both paths and that
+     recording can never fail a recovery; and production refuses before an
+     approval, a secret, a connection or a mutation. Each clause reaches
+     across the surfaces no single mechanism test owns, which is where a
+     recovery breaks while every mechanism suite stays green.
+   - **The deployment marker no longer inherits a legitimate skip.** The
+     defect 7.7's interrupted acceptance surfaced, fixed on both workflows and
+     covered by executing the real job graph under GitHub's real gating rules.
+     See 7.7 for what was and was not re-run for real.
+   - **A recovery that is already finished says so.** An operator holding the
+     operation ID from a completed run is the likeliest person to type it into
+     `continue-held`; `recover-host` answered "workspace does not exist",
+     which reads as a machine that lost its state and invites a second
+     recovery over a healthy host. It now distinguishes the two read-only —
+     no guard and a serving `current` is what a finished recovery looks like —
+     and refuses as a completed recovery, naming `--verify` as the way to
+     confirm it.
+   - **One operator document, readable without the source.**
+     [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md)
+     opens with the whole operation in one screen — what to prepare, what to
+     dispatch, what to do if the run is interrupted, and what success is —
+     with the full explanation below it and the compact form printed by
+     `recovery-host-preflight --operator-guide`, which is held to the runbook
+     by test.
+
+   **No RPO or RTO is claimed.** Both are properties of a schedule and a
+   measured recovery duration, and the honest statement today is that the
+   recovery duration was not instrumented during the 7.7 rehearsals. Defining
+   them belongs with the production launch, where the backup schedule and the
+   business tolerance are both real; recording an unmeasured number here would
+   be worse than recording none.
+
+   *Acceptance:* met, and deliberately not by another live rehearsal. The
+   pipeline was accepted for real in 7.7 on both paths; what this slice owed
+   was the repository-level proof — a final audit of every DR surface, a
+   contract suite that fails when the pieces stop adding up, a canonical
+   operator runbook, and the acceptance evidence recorded above. No known DR
+   blocker remains.
 
 
-## 8. First production launch and target-provisioning proof — planned
+## 8. First production launch and target-provisioning proof — current
 
 First production target go-live on `tits.guru`, launched through a generic,
 rehearsed provisioning procedure rather than hand-built commands. The phase
 overall proves: **we can launch the first production site using a rehearsed
-procedure**. Slices, in order:
+procedure**.
 
-1. **8.1 Generic target provisioner.** A target described in
-   `deployment-targets.json` must be provisionable reproducibly rather than
-   through one-off manual commands. Build a generic target provisioning
-   mechanism that will eventually create/configure target identities,
-   filesystem, database and role, environment placement, PHP-FPM pool,
-   Nginx vhost, Supervisor worker, scheduler, backup namespace, perimeter
-   integration and health identity. Lifecycle gating remains mandatory: a
-   `planned` target existing in the registry must NOT become publicly
-   active just because provisioning tools exist. *Acceptance:* a temporary
-   test target can be provisioned without hand-writing target-specific
-   server commands.
-2. **8.2 Disposable multi-site rehearsal.** Before real production, prove
-   the architecture can create multiple independent new brand targets from
-   scratch — on a separate disposable rehearsal VPS, never by destroying
-   the long-lived staging host. Conceptual temporary targets (`tits-test`,
-   `food-test`, `animals-test`) on isolated rehearsal DNS names (e.g.
-   `tits.rehearsal.<technical-domain>`), each independently owning its
-   application root, `.env`, database/role, FPM pool/socket, queue,
-   scheduler, release history, storage, backup namespace and health
-   identity. Exercise deploy, rollback, backup, restore and target
-   isolation. After acceptance: destroy the rehearsal targets/VPS, then
-   recreate them again from committed infrastructure. Use a separate B2
-   rehearsal namespace — the real staging backup namespace is NEVER
-   deleted to make this test clean. *Proves:* we know how to create new
-   sites from scratch, not merely maintain staging.
-3. **8.3 Provision real tits-guru target.** Create the first real
-   production target using the generic mechanism already proven in
-   8.1/8.2 — `tits-guru` must not become a hand-built exception. Provision
-   production infrastructure while keeping public activation controlled.
-4. **8.4 Production secrets, database, TLS, mail and backups.** Supply the
-   production-only external material and services: production `.env`, DB
-   credentials, deploy key, TLS, production backup credentials/policy,
-   production mail delivery, inbound replies/bounces where applicable, and
-   SPF/DKIM/DMARC domain authentication. No production secrets in Git.
-   *Acceptance:* the target is internally functional, observable and backed
-   up before public traffic is enabled.
-5. **8.5 Production GitHub release/deploy flow.** Prove the real immutable
-   production deployment path: a production GitHub Environment, a
-   reviewed/tagged immutable artifact, and the same exact artifact carried
-   through deployment. Application code is never rebuilt on the server.
-   Test production rollback mechanics before public launch where safely
-   possible.
-6. **8.6 Exact production dress rehearsal.** Perform the production
-   procedure one final time without exposing the real public service, on
-   production-like configuration and isolated rehearsal DNS/traffic:
-   provision → secrets → deploy → TLS → health → Sentry → backup →
-   restore/recovery check → rollback. No infrastructure operation performed
-   during the eventual real launch should be happening for the first time.
-7. **8.7 tits.guru GO LIVE.** The actual first public production
-   activation. Only final state changes remain: lifecycle activation where
-   required, public DNS/routing, TLS/public health verification, monitoring
-   confirmation. Immediately verify health, smoke tests, backup,
-   queues/scheduler, Sentry, and mail where applicable.
+This phase became **current** when 8.1 landed. It runs alongside the
+observability activation, which is still open on acceptance criteria that only
+a real staging deployment can meet; two tracks are genuinely in flight, and
+pretending one of them is not would make the roadmap say something untrue.
+
+The earlier plan for this phase built three disposable brands
+(`tits-test`, `food-test`, `animals-test`) on a throwaway VPS before touching
+production. That is **removed**, deliberately: Phase 8 proves the FIRST real
+production target, and Phase 9 already proves repeatable onboarding with a
+second and third real brand. Duplicating Phase 9 inside Phase 8 would buy a
+rehearsal of something Phase 9 has to demonstrate for real anyway, and would
+delay the one thing Phase 8 exists for. Genericity is instead proved where it
+is cheap and repeatable — in the provisioner's own tests, against a synthetic
+brand that exists nowhere in this repository — and then exercised for real on
+`tits-guru`.
+
+Slices, in order:
+
+1. **8.1 Generic production target provisioner — IMPLEMENTED, awaiting real
+   acceptance in 8.2.** `infrastructure/scripts/provision-target` creates the
+   non-secret infrastructure of one `lifecycle=planned`,
+   `environment_class=production` target on a host that is already a RateGuru
+   host: identities and memberships, the filesystem contract, a PHP-FPM pool,
+   an INTERNAL-ONLY Nginx vhost, the Supervisor queue program (installed,
+   validated, deliberately not started), the scheduler cron and the
+   public-storage ACL. It is orchestration only — every mutation is delegated
+   to the installer that owns that contract, through a new argv-only
+   `--provisioning` authorization on `install-bootstrap-host-layout`,
+   `install-bootstrap-services` and `install-public-storage-access`. A
+   production target's service configuration is RENDERED generically from
+   `deployment-targets.json`, so no committed per-brand file and no list of
+   known brands exists anywhere. The target stays `planned`, the registry is
+   never written, and no environment file, database, deploy authorization,
+   TLS, DNS, mail or backup is created. Ships the reusable
+   `.github/actions/provision-rateguru-target` transport and no
+   operator-facing workflow. *Acceptance:* not claimed from CI. The mechanism
+   is proved end to end against a simulated host, including a synthetic
+   `demo-shop` brand, isolation from the live staging target, and the proof
+   that a provisioned planned target is accepted without drift once it is
+   activated — but a real host acceptance is 8.2's job. See
+   [`runbooks/provision-target.md`](runbooks/provision-target.md).
+2. **8.2 Provision the real tits-guru target.** Execute the 8.1 mechanism
+   against the real `tits-guru` target on the real host. The target stays
+   `lifecycle=planned` and nothing is publicly activated. *Acceptance:* this
+   run is the real-host acceptance of 8.1 — `provision-target --verify`
+   passes on a real machine, staging is provably untouched, and the target is
+   still planned, undeployed and unreachable from the public internet.
+3. **8.3 Production environment, database and GitHub operational access.**
+   The production `.env` and its application key, the PostgreSQL database and
+   application role, the deploy user's `authorized_keys`, the target-specific
+   deploy sudo perimeter, the production GitHub Environment and its
+   credentials, the B2 credentials, and Sentry configuration where
+   applicable. No production secret in Git. *Acceptance:* the target is
+   internally functional and observable, and the deploy channel is
+   authorized, before any public traffic exists.
+4. **8.4 Production mail gateway and backup policy.** A Postfix-based
+   production transport, outbound delivery, SPF/DKIM/DMARC, bounce and reply
+   handling, support/reply routing, and the production
+   backup/offsite/retention/restore-test policy. The existing staging
+   Mailpit/Mailtrap capture remains staging-only and is not changed by this.
+   *Acceptance:* production mail is delivered and its failure paths are
+   handled, and a production backup has been taken, uploaded and
+   restore-tested.
+5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
+   production public Nginx vhost, and `tits.guru` pointed directly at
+   production. No mandatory fake rehearsal domain: the domain already exists,
+   and rehearsing on a substitute would prove less than the real cutover with
+   a rollback path.
+6. **8.6 Production operations acceptance.** A real production deploy,
+   rollback, and deploy again; queue, scheduler and health; observability;
+   backup, offsite and restore-test; the mail delivery and bounce path; and
+   target isolation from staging. No infrastructure operation performed
+   during go-live should be happening for the first time.
+7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
+   production activation and its final verification: public health, backup,
+   monitoring and mail, confirmed on the live site. Closes Phase 8.
 
 ## 9. Repeatable production target onboarding — planned
 
@@ -1657,17 +1774,25 @@ rehearsal:
 - **Phase 7.7 + 7.8 — "Can we recover after complete server/data loss?"**
   Proves disaster recovery: the host and its data disappear, and the
   application is reconstructed from offsite backups plus a rebuild from the
-  exact `source_sha` those backups carry, within measured RPO/RTO.
-  **Still outstanding.** 5.6 exercised an offsite `restore-test` — proof
-  that a backup is restorable — which is a different question from
-  reconstructing a lost application, and closes nothing here. Slice 7.1
-  consolidated the build, deploy and rollback primitives that recovery will
-  be assembled from; it closes no rehearsal gate on its own.
-- **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
-  exact production launch procedure without first-time surprises?"** Proves
-  target onboarding and production readiness: multiple independent targets
-  from scratch, then a full production dress rehearsal so the real launch
-  contains no first-time operations.
+  exact `source_sha` those backups carry. **Passed** — see slices 7.7 and
+  7.8: a freshly reinstalled machine was recovered end to end from one
+  workflow dispatch, and the same recovery was interrupted after its
+  controlled deployment and continued to a verified finish. RPO and RTO are
+  the one part of this gate that is NOT closed: no recovery duration was
+  measured, and 7.8 says why and where they belong instead. 5.6 exercised an
+  offsite `restore-test` — proof that a backup is restorable — which is a
+  different question from reconstructing a lost application, and closed
+  nothing here.
+- **Phase 8.2 + 8.6 — "Can we create a new production target from committed
+  infrastructure, and operate it before it is public?"** Proves target
+  provisioning and production readiness: the generic provisioner run against
+  the first real production target, and then that target deployed, rolled
+  back, backed up, restore-tested and observed — all before any public traffic
+  reaches it, so the real launch contains no first-time operations.
+  **Repeatability is deliberately NOT this gate's question.** "Can we do it
+  again, routinely, for a second and third brand?" is Phase 9's, and it is
+  answered there with real brands rather than with disposable rehearsal ones
+  here.
 
 ## Disposable rehearsal policy
 

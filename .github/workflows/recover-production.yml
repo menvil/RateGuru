@@ -1337,6 +1337,7 @@ jobs:
       cause: ${{ steps.verify.outputs['failure-cause'] }}
       queue: ${{ steps.verify.outputs.queue }}
       scheduler: ${{ steps.verify.outputs.scheduler }}
+      previous: ${{ steps.verify.outputs.previous }}
 
     steps:
       - name: Checkout trusted recovery tooling
@@ -1373,6 +1374,7 @@ jobs:
           CURRENT_RELEASE: ${{ steps.verify.outputs['current-release'] }}
           SOURCE_SHA: ${{ steps.verify.outputs['source-sha'] }}
           OFFSITE_WRITES: ${{ steps.verify.outputs['offsite-writes'] }}
+          PREVIOUS: ${{ steps.verify.outputs.previous }}
           REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
         run: |
           set -Eeuo pipefail
@@ -1394,11 +1396,41 @@ jobs:
             exit 1
           fi
 
-          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}; offsite writes held."
+          # Same shape, same reason. A recovered host has had exactly one
+          # deployment and therefore no rollback target; an empty field is a
+          # verification that did not report it, and is refused rather than
+          # read as the answer the contract hopes for.
+          if [[ "${PREVIOUS}" != "absent" ]]; then
+            echo "The verified host reports previous=${PREVIOUS:-<empty>}; a recovered host carries no previous release link" >&2
+            exit 1
+          fi
+
+          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}; previous absent; offsite writes held."
 
   # Only once the host is provably recovered, and only for what it is provably
-  # serving. Depending on `verify` with no `if` is the gate: a marker cannot be
-  # recorded for a recovery whose final contract did not hold.
+  # serving. The final verification is the entire gate, and it is enough to be
+  # one: it is the stage that proves the target holds the recovered data, is
+  # serving the exact commit that data belongs to, is healthy, has its queue
+  # RUNNING and its scheduler PRESENT, carries no guard, and still holds its
+  # offsite writers.
+  #
+  # That gate is written out rather than left implicit, and the difference is
+  # the whole reason this job exists in this shape. A job with no `if` inherits
+  # GitHub's default `success()`, which does not mean "the jobs I need
+  # succeeded" — it means "no job anywhere in my ancestry failed or was
+  # skipped". On `continue-held` the preparation, the historical build and the
+  # controlled deployment are all legitimately skipped, because the first half
+  # of the operation already performed them; the implicit gate inherited those
+  # skips and withheld the marker from a recovery that had verified perfectly.
+  #
+  # Naming the condition stops that inheritance. Nothing but the verification's
+  # own result decides, so `start` and `continue-held` record the same marker
+  # for the same reason.
+  #
+  # `always()` here means "whatever the rest of the graph did", never "whatever
+  # the verification did": a verify that reports `failure`, `cancelled` or
+  # `skipped` fails the equality and records nothing. The verification is not
+  # loosened anywhere to make this possible.
   #
   # Same shared implementation the deploy, release, rollback and restore
   # workflows use, and fail-open throughout: an unreachable Sentry or a
@@ -1411,6 +1443,7 @@ jobs:
       - binding
       - recover
       - verify
+    if: ${{ always() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -1498,6 +1531,7 @@ jobs:
           RECOVERED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           RECOVERED_QUEUE: ${{ needs.verify.outputs.queue }}
           RECOVERED_SCHEDULER: ${{ needs.verify.outputs.scheduler }}
+          RECOVERED_PREVIOUS: ${{ needs.verify.outputs.previous }}
           RECOVERED_HEALTH: ${{ needs.verify.outputs.health }}
           VALUES_CAUSE: ${{ needs.values.outputs.cause }}
           PREFLIGHT_CAUSE: ${{ needs.preflight.outputs.cause }}
@@ -1570,6 +1604,7 @@ jobs:
             [[ -n "${RECOVERED_SOURCE_SHA}" ]]  || missing+=("source_sha")
             [[ -n "${RECOVERED_QUEUE}" ]]       || missing+=("queue")
             [[ -n "${RECOVERED_SCHEDULER}" ]]   || missing+=("scheduler")
+            [[ -n "${RECOVERED_PREVIOUS}" ]]    || missing+=("previous")
             [[ -n "${RECOVERED_HEALTH}" ]]      || missing+=("health")
             [[ -n "${OFFSITE_WRITES}" ]]        || missing+=("offsite_writes")
 
@@ -1589,6 +1624,28 @@ jobs:
               exit 1
             fi
 
+            # The one field whose VALUE is the contract rather than merely its
+            # presence. A recovered host has had exactly one deployment and so
+            # has no rollback target; the server, this action and the verify
+            # job all refuse anything else, and this refuses to head a summary
+            # "as verified on the host" over a host that contradicts it.
+            if [[ "${RECOVERED_PREVIOUS}" != "absent" ]]; then
+              {
+                echo "### Recovery NOT confirmed — the verified host carries a previous release link"
+                echo
+                echo "The final verification reports \`previous=${RECOVERED_PREVIOUS}\`. A recovered host has"
+                echo "had exactly one deployment — the controlled recovery deployment, which leaves no"
+                echo "rollback target on purpose — so this machine had something deployed to it after"
+                echo "the recovery, has already begun being adopted, or is not the host this run"
+                echo "describes. Nothing here changed it."
+                echo
+                echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              } >> "${GITHUB_STEP_SUMMARY}"
+
+              echo "The verified host reports previous=${RECOVERED_PREVIOUS}, and a recovered host carries no previous release link" >&2
+              exit 1
+            fi
+
             {
               echo "### Recovered — the final contract, as verified on the host"
               echo
@@ -1600,6 +1657,7 @@ jobs:
               echo "| Exact source_sha | \`${RECOVERED_SOURCE_SHA}\` |"
               echo "| Queue | \`${RECOVERED_QUEUE}\` |"
               echo "| Scheduler | \`${RECOVERED_SCHEDULER}\` |"
+              echo "| Previous | \`${RECOVERED_PREVIOUS}\` |"
               echo "| Health | \`${RECOVERED_HEALTH}\` |"
               echo "| Guards | none (recover-host --verify refuses a target that carries a restore or recovery guard) |"
               echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES}\`) |"

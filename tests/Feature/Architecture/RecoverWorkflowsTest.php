@@ -36,18 +36,10 @@ use Symfony\Component\Yaml\Yaml;
  *     success except recover-host --verify, and nothing records a marker until
  *     that verification passed.
  *
- * @return array{0: array, 1: string}
+ * The two documents themselves come from `recoverWorkflow()` in Pest.php: the
+ * disaster-recovery contract asks about the same pair from the other
+ * direction, and two readers of one file is exactly what that file is for.
  */
-function recoverWorkflow(string $file): array
-{
-    $path = base_path(".github/workflows/{$file}");
-
-    expect(File::exists($path))->toBeTrue("{$file} is missing");
-
-    $source = File::get($path);
-
-    return [Yaml::parse($source), $source];
-}
 
 /** @return array<string, array> */
 function recoverWorkflowStepsByName(array $workflow, string $job): array
@@ -110,10 +102,31 @@ function runRecoverWorkflowStep(string $file, string $job, string $stepName, arr
 
     $script = tempnam(sys_get_temp_dir(), 'rateguru-workflow-step-');
 
-    file_put_contents($script, "#!/usr/bin/env bash\n".data_get($step, 'run'));
+    // proc_open DROPS an environment entry whose value is the empty string,
+    // leaving the variable unset. These steps run under `set -u`, where unset
+    // and empty are different behaviours, and GitHub sets every key a step
+    // declares in `env:` whether or not it has a value — so a harness that
+    // cannot express "set but empty" cannot exercise the case a workflow
+    // actually meets when an upstream job reported nothing.
+    $exports = '';
+    $passed = [];
+
+    foreach ($env as $name => $value) {
+        expect($name)->toMatch('/^[A-Za-z_][A-Za-z0-9_]*$/', 'environment names are exported into a script');
+
+        if ($value === '') {
+            $exports .= sprintf("export %s=''\n", $name);
+
+            continue;
+        }
+
+        $passed[$name] = $value;
+    }
+
+    file_put_contents($script, "#!/usr/bin/env bash\n".$exports.data_get($step, 'run'));
 
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$env]);
+    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$passed]);
 
     expect($process)->not->toBeFalse('could not start the workflow step under test');
 
@@ -125,6 +138,21 @@ function runRecoverWorkflowStep(string $file, string $job, string $stepName, arr
     unlink($script);
 
     return $status;
+}
+
+/**
+ * The two recovery workflows, for the assertions that need nothing but the
+ * file — so they can be crossed with a second dataset without dragging five
+ * unused parameters through every signature.
+ *
+ * @return array<string, array{0: string}>
+ */
+function recoverWorkflowFiles(): array
+{
+    return [
+        'staging' => ['recover-staging.yml'],
+        'production' => ['recover-production.yml'],
+    ];
 }
 
 dataset('recover workflows', [
@@ -1197,7 +1225,7 @@ it('never succeeds around a failed stage', function (
     // Only the reporting job may run unconditionally. Every job that touches
     // the host, and the marker that describes it, is gated on real success.
     foreach ((array) data_get($workflow, 'jobs') as $jobName => $job) {
-        $condition = (string) data_get($job, 'if');
+        $condition = preg_replace('/\s+/', ' ', (string) data_get($job, 'if'));
 
         if ($jobName === 'report') {
             expect($condition)->toBe('${{ always() }}');
@@ -1205,16 +1233,26 @@ it('never succeeds around a failed stage', function (
             continue;
         }
 
-        expect(str_contains($condition, 'always()'))
-            ->toBeFalse("{$file}:{$jobName} may run after a failure");
+        if (! str_contains($condition, 'always()')) {
+            continue;
+        }
+
+        // Any OTHER always() has to name the stage whose success it is
+        // waiting for, and refuse everything else. The marker uses one
+        // because the graph around it is legitimately full of skipped stages
+        // on the continue-held path — not because it will run after a
+        // failure.
+        expect(preg_match("/needs\\.[a-z-]+\\.result == 'success'/", $condition))
+            ->toBe(1, "{$file}:{$jobName} runs unconditionally without naming a stage that had to succeed");
     }
 
     // And the jobs that must never tolerate a skipped or failed predecessor
     // carry no status-check escape hatch at all. `verify` is deliberately NOT
     // among them: it is the one job that must still adjudicate a resume whose
     // transport died over an already-recovered host, and its own condition is
-    // asserted where that behaviour is described.
-    foreach (['build', 'deploy', 'observability'] as $jobName) {
+    // asserted where that behaviour is described. Nor is `observability`,
+    // whose gate is the final verification's own result and nothing else.
+    foreach (['build', 'deploy'] as $jobName) {
         expect(str_contains((string) data_get($workflow, "jobs.{$jobName}.if"), 'cancelled()'))
             ->toBeFalse("{$file}:{$jobName} loosens its own gate");
     }
@@ -1234,13 +1272,19 @@ it('records a deployment marker only after the final verification passed', funct
     $observability = data_get($workflow, 'jobs.observability');
     $steps = recoverWorkflowStepsByName($workflow, 'observability');
 
-    // Depending on `verify` with no condition IS the gate: a marker cannot be
-    // recorded for a recovery whose final contract did not hold.
+    // The final verification's own result IS the gate, written out rather
+    // than inherited: a marker cannot be recorded for a recovery whose final
+    // contract did not hold, and it must be recorded for every recovery whose
+    // did. Leaving the condition implicit meant the second half of that
+    // sentence was false on the continue-held path, where the preparation,
+    // the build and the controlled deployment are all legitimately skipped
+    // and GitHub's default `success()` inherits their skips.
+    //
     // Deliberately NOT `needs: resume`. On the lost-runner path the resume job
     // fails over a host that is nonetheless complete, and a marker is still
     // owed for the release that host is provably serving.
     expect(data_get($observability, 'needs'))->toBe(['validate', 'binding', 'recover', 'verify'])
-        ->and(data_get($observability, 'if'))->toBeNull()
+        ->and(data_get($observability, 'if'))->toBe("\${{ always() && needs.verify.result == 'success' }}")
         ->and(data_get($observability, 'environment'))->toBe($environment);
 
     $record = $steps['Record deployment in Sentry and Nightwatch'];
@@ -1266,6 +1310,320 @@ it('records a deployment marker only after the final verification passed', funct
     expect(File::get(base_path('.github/actions/record-rateguru-deployment/action.yml')))
         ->toContain('FAIL-OPEN IS THE CONTRACT');
 })->with('recover workflows');
+
+// =============================================================================
+// What runs, on the two paths an operator actually has
+// =============================================================================
+
+/**
+ * The stage outputs a recovery reports on one of its two operator paths.
+ *
+ * `start` recovers the data onto an empty machine and leaves the operation
+ * `awaiting-code`: the historical build, the controlled deployment and the
+ * resume are all still owed. `continue-held` picks up an operation whose code
+ * is already installed and reports `ready-to-resume`: the preparation, the
+ * build and the deployment were performed by the first half of the operation
+ * and rebuilding them would be work with a risk and no purpose.
+ *
+ * @return array<string, array<string, string>>
+ */
+function recoverWorkflowStageOutputs(string $mode): array
+{
+    $sha = '265c4d6b42ec6d08f3f41e0b689da9197385de01';
+    $release = 'v0.4.1-20260909-211722-265c4d6';
+
+    $verify = [
+        'current_release' => $release,
+        'source_sha' => $sha,
+        'health' => 'pass',
+        'queue' => 'running',
+        'scheduler' => 'present',
+        'offsite_writes' => 'held',
+        'previous' => 'absent',
+    ];
+
+    if ($mode === 'start') {
+        return [
+            'validate' => [
+                'mode' => 'start',
+                'backup' => '20260909-113248',
+                'operation' => '',
+                'replacement_host' => '192.0.2.10',
+                'replacement_port' => '22',
+            ],
+            'recover' => [
+                'status' => 'awaiting-code',
+                'operation' => '20260909-211722-e132b3',
+                'required_source_sha' => $sha,
+                'build_required' => 'yes',
+                'deploy_required' => 'yes',
+                'resume_required' => 'yes',
+            ],
+            'verify' => $verify,
+        ];
+    }
+
+    return [
+        'validate' => [
+            'mode' => 'continue-held',
+            'backup' => '',
+            'operation' => '20260909-211722-e132b3',
+            'replacement_host' => '192.0.2.10',
+            'replacement_port' => '22',
+        ],
+        'recover' => [
+            'status' => 'ready-to-resume',
+            'operation' => '20260909-211722-e132b3',
+            'required_source_sha' => $sha,
+            'build_required' => 'no',
+            'deploy_required' => 'no',
+            'resume_required' => 'yes',
+        ],
+        'verify' => $verify,
+    ];
+}
+
+it('records the marker on a recovery that ran start to finish here', function (
+    string $file,
+) {
+    [$workflow] = recoverWorkflow($file);
+
+    $results = githubWorkflowJobResults($workflow, outputs: recoverWorkflowStageOutputs('start'));
+
+    // Nothing is skipped on this path: a lost host needs every stage.
+    foreach ([
+        'validate', 'values', 'binding', 'deploy-identity', 'preflight', 'prepare',
+        'recover', 'build', 'deploy', 'resume', 'verify', 'observability', 'report',
+    ] as $job) {
+        expect($results[$job])->toBe('success', "{$file}: {$job} did not run on the start path");
+    }
+})->with('recover workflows');
+
+it('records the marker on a recovery that was interrupted and continued', function (
+    string $file,
+) {
+    [$workflow] = recoverWorkflow($file);
+
+    $results = githubWorkflowJobResults($workflow, outputs: recoverWorkflowStageOutputs('continue-held'));
+
+    // Legitimately skipped, and this is the whole point of continue-held: the
+    // first half of the operation already prepared the machine, built the
+    // commit the recovered data belongs to and deployed it.
+    foreach (['deploy-identity', 'preflight', 'prepare', 'build', 'deploy'] as $job) {
+        expect($results[$job])->toBe('skipped', "{$file}: {$job} must not run again on continue-held");
+    }
+
+    // And this is what those skips took with them once. The marker is owed to
+    // a verified recovery whichever half of the operation finished it.
+    foreach (['recover', 'resume', 'verify', 'observability'] as $job) {
+        expect($results[$job])->toBe('success', "{$file}: {$job} inherited a legitimate skip");
+    }
+})->with('recover workflows');
+
+it('would withhold the marker again if the gate went back to being implicit', function (
+    string $file,
+) {
+    [$workflow] = recoverWorkflow($file);
+
+    // The same continue-held run, with the marker's condition removed — which
+    // is exactly the shape the workflow had when a real interrupted recovery
+    // completed, verified, and recorded nothing. If this ever stops failing to
+    // record, the assertions above have stopped proving anything, because the
+    // behaviour they guard against would no longer exist to guard against.
+    unset($workflow['jobs']['observability']['if']);
+
+    $results = githubWorkflowJobResults($workflow, outputs: recoverWorkflowStageOutputs('continue-held'));
+
+    expect($results['verify'])->toBe('success')
+        ->and($results['observability'])->toBe('skipped');
+})->with('recover workflows');
+
+it('records no marker for a recovery the final verification did not pass', function (
+    string $file,
+    string $case,
+    array $outcomes,
+    string $expected,
+) {
+    [$workflow] = recoverWorkflow($file);
+
+    $results = githubWorkflowJobResults($workflow, outcomes: $outcomes, outputs: recoverWorkflowStageOutputs('start'));
+
+    // A verification that FAILED found the host not to satisfy the contract; a
+    // verification that was CANCELLED never finished asking; a verification
+    // that was SKIPPED never adjudicated the host at all. In none of the three
+    // is there a recovered release this workflow may claim.
+    expect($results['verify'])->toBe($expected, "{$file}: {$case} did not leave the verification {$expected}")
+        ->and($results['observability'])->toBe('skipped', "{$file}: a marker was recorded for a {$expected} verification");
+
+    // And the run still reports, because the operator's next move depends on
+    // knowing where it stopped.
+    expect($results['report'])->toBe('success');
+})->with(recoverWorkflowFiles())->with([
+    'the verification failed' => ['the verification failed', ['verify' => 'failure'], 'failure'],
+    'the verification was cancelled' => ['the verification was cancelled', ['verify' => 'cancelled'], 'cancelled'],
+    // The one way a verification legitimately does not run at all: the
+    // recovery of the data itself failed, so there is nothing to adjudicate.
+    'the recovery never got that far' => ['the recovery never got that far', ['recover' => 'failure'], 'skipped'],
+]);
+
+it('lets a failed marker leave an already verified recovery successful', function (
+    string $file,
+) {
+    [$workflow] = recoverWorkflow($file);
+
+    // Fail-open is implemented once, in the shared marker action, and is
+    // asserted there. What this proves is the workflow half of it: a marker
+    // that nonetheless failed does not change the verdict the verification
+    // reached, and does not change the summary the operator reads either.
+    $results = githubWorkflowJobResults(
+        $workflow,
+        outcomes: ['observability' => 'failure'],
+        outputs: recoverWorkflowStageOutputs('start'),
+    );
+
+    expect($results['verify'])->toBe('success')
+        ->and($results['observability'])->toBe('failure')
+        ->and($results['report'])->toBe('success');
+
+    $report = data_get($workflow, 'jobs.report');
+    $summary = tempnam(sys_get_temp_dir(), 'rateguru-recovery-summary-');
+
+    $outputs = recoverWorkflowStageOutputs('start');
+
+    $env = array_fill_keys(array_keys((array) data_get($report, 'steps.0.env', [])), '');
+
+    $status = runRecoverWorkflowStep($file, 'report', 'Summarize the recovery', [
+        ...$env,
+        'GITHUB_STEP_SUMMARY' => $summary,
+        'MODE' => 'start',
+        'BACKUP' => $outputs['validate']['backup'],
+        'REPLACEMENT_HOST' => $outputs['validate']['replacement_host'],
+        'REPLACEMENT_PORT' => $outputs['validate']['replacement_port'],
+        'STATUS' => $outputs['recover']['status'],
+        'OPERATION' => $outputs['recover']['operation'],
+        'SERVER_BACKUP' => $outputs['validate']['backup'],
+        'REQUIRED_SOURCE_SHA' => $outputs['recover']['required_source_sha'],
+        'RECOVERED_RELEASE' => $outputs['verify']['current_release'],
+        'RECOVERED_SOURCE_SHA' => $outputs['verify']['source_sha'],
+        'RECOVERED_QUEUE' => $outputs['verify']['queue'],
+        'RECOVERED_SCHEDULER' => $outputs['verify']['scheduler'],
+        'RECOVERED_HEALTH' => $outputs['verify']['health'],
+        'RECOVERED_PREVIOUS' => $outputs['verify']['previous'],
+        'OFFSITE_WRITES' => $outputs['verify']['offsite_writes'],
+        'VALIDATE_RESULT' => 'success',
+        'VALUES_RESULT' => 'success',
+        'BINDING_RESULT' => 'success',
+        'PREFLIGHT_RESULT' => 'success',
+        'DEPLOY_IDENTITY_RESULT' => 'success',
+        'PREPARATION_RESULT' => 'success',
+        'RECOVER_RESULT' => 'success',
+        'BUILD_RESULT' => 'success',
+        'DEPLOY_RESULT' => 'success',
+        'RESUME_RESULT' => 'success',
+        'VERIFY_RESULT' => 'success',
+        'OBSERVABILITY_RESULT' => 'failure',
+    ]);
+
+    $rendered = (string) file_get_contents($summary);
+    unlink($summary);
+
+    expect($status)->toBe(0, "{$file}: a failed marker turned a verified recovery into a failed run")
+        ->and($rendered)->toContain('Recovered — the final contract, as verified on the host')
+        ->and($rendered)->toContain('| Deployment marker | `failure` |');
+})->with('recover workflows');
+
+it('will not head a summary "as verified on the host" over a host that carries a previous release', function (
+    string $file,
+    string $case,
+    string $previous,
+    string $expected,
+) {
+    // A recovered host has had exactly one deployment — the controlled
+    // recovery deployment, which leaves no rollback target on purpose. The
+    // server refuses to verify one that has a `previous`, and the action
+    // refuses to relay a result that says otherwise; this is the last of the
+    // three, and the one that would otherwise print the contract as fact.
+    //
+    // An EMPTY value is a verification that did not report the field, which is
+    // exactly as unusable as one reporting the wrong thing: the summary will
+    // not fill a gap with the value the contract hopes for.
+    [$workflow] = recoverWorkflow($file);
+    $report = data_get($workflow, 'jobs.report');
+    $summary = tempnam(sys_get_temp_dir(), 'rateguru-recovery-summary-');
+
+    $outputs = recoverWorkflowStageOutputs('start');
+    $env = array_fill_keys(array_keys((array) data_get($report, 'steps.0.env', [])), '');
+
+    $status = runRecoverWorkflowStep($file, 'report', 'Summarize the recovery', [
+        ...$env,
+        'GITHUB_STEP_SUMMARY' => $summary,
+        'MODE' => 'start',
+        'BACKUP' => $outputs['validate']['backup'],
+        'REPLACEMENT_HOST' => $outputs['validate']['replacement_host'],
+        'REPLACEMENT_PORT' => $outputs['validate']['replacement_port'],
+        'STATUS' => $outputs['recover']['status'],
+        'OPERATION' => $outputs['recover']['operation'],
+        'REQUIRED_SOURCE_SHA' => $outputs['recover']['required_source_sha'],
+        'RECOVERED_RELEASE' => $outputs['verify']['current_release'],
+        'RECOVERED_SOURCE_SHA' => $outputs['verify']['source_sha'],
+        'RECOVERED_QUEUE' => $outputs['verify']['queue'],
+        'RECOVERED_SCHEDULER' => $outputs['verify']['scheduler'],
+        'RECOVERED_HEALTH' => $outputs['verify']['health'],
+        'RECOVERED_PREVIOUS' => $previous,
+        'OFFSITE_WRITES' => $outputs['verify']['offsite_writes'],
+        'VALIDATE_RESULT' => 'success',
+        'VALUES_RESULT' => 'success',
+        'BINDING_RESULT' => 'success',
+        'PREFLIGHT_RESULT' => 'success',
+        'DEPLOY_IDENTITY_RESULT' => 'success',
+        'PREPARATION_RESULT' => 'success',
+        'RECOVER_RESULT' => 'success',
+        'BUILD_RESULT' => 'success',
+        'DEPLOY_RESULT' => 'success',
+        'RESUME_RESULT' => 'success',
+        'VERIFY_RESULT' => 'success',
+        'OBSERVABILITY_RESULT' => 'success',
+    ]);
+
+    $rendered = (string) file_get_contents($summary);
+    unlink($summary);
+
+    expect($status)->not->toBe(0, "{$file}: {$case} was announced as a completed recovery")
+        ->and($rendered)->toContain($expected)
+        ->and($rendered)->not->toContain('Recovered — the final contract, as verified on the host');
+})->with(recoverWorkflowFiles())->with([
+    'a previous release link' => ['a previous release link', 'present', 'the verified host carries a previous release link'],
+    'an unreported previous' => ['an unreported previous', '', 'the final verification reported an incomplete contract'],
+]);
+
+it('gives staging and production one marker contract', function () {
+    [$staging] = recoverWorkflow('recover-staging.yml');
+    [$production] = recoverWorkflow('recover-production.yml');
+
+    // Two named buttons over one implementation. The gate that decides whether
+    // a recovered host is recorded must not be able to drift between them, and
+    // neither may the graph that gate is read against.
+    expect(data_get($production, 'jobs.observability.if'))
+        ->toBe(data_get($staging, 'jobs.observability.if'))
+        ->and(data_get($production, 'jobs.observability.needs'))
+        ->toBe(data_get($staging, 'jobs.observability.needs'));
+
+    foreach (array_keys((array) data_get($staging, 'jobs')) as $job) {
+        expect(data_get($production, "jobs.{$job}.needs"))
+            ->toBe(data_get($staging, "jobs.{$job}.needs"), "the two recoveries disagree about what {$job} waits for");
+
+        expect(preg_replace('/\s+/', ' ', (string) data_get($production, "jobs.{$job}.if")))
+            ->toBe(preg_replace('/\s+/', ' ', (string) data_get($staging, "jobs.{$job}.if")), "the two recoveries disagree about when {$job} runs");
+    }
+
+    // And the same is true of what actually runs, on both operator paths.
+    foreach (['start', 'continue-held'] as $mode) {
+        $outputs = recoverWorkflowStageOutputs($mode);
+
+        expect(githubWorkflowJobResults($production, outputs: $outputs))
+            ->toBe(githubWorkflowJobResults($staging, outputs: $outputs), "the two recoveries run different stages on {$mode}");
+    }
+});
 
 // =============================================================================
 // What a failed run leaves behind
@@ -1490,14 +1848,23 @@ it('ships the runbook and points the README and roadmap at it', function () {
         ->toContain('runbooks/github-recover.md')
         ->toContain('7.7 GitHub Recover + clean-host rehearsal');
 
-    // Implementation-ready, not accepted: CI proves the structure, only a
-    // real disposable machine proves the pipeline — and no RPO or RTO is
-    // claimed.
+    // Accepted on a real replacement machine, on BOTH operator paths — and
+    // the roadmap has to keep saying which parts of that were real. The
+    // marker fix in particular was proved by executing the job graph, not by
+    // re-running a recovery on a VPS, and a roadmap that blurred those two
+    // would be claiming an acceptance nobody performed.
     $flattened = preg_replace('/\s+/', ' ', $roadmap);
 
     expect($flattened)
-        ->toContain('implementation ready for the REAL clean-host acceptance')
-        ->toContain('this slice is implementation-ready for that acceptance, not accepted. No RPO or RTO is claimed by it');
+        ->toContain('ACCEPTED on a real replacement VPS')
+        ->toContain('Uninterrupted clean-host recovery — PASS')
+        ->toContain('Interrupted recovery, continued — PASS')
+        ->toContain('it was NOT re-run on a real VPS, and nothing here claims it was');
+
+    // And no RPO or RTO is claimed anywhere, because none was measured.
+    expect($flattened)
+        ->toContain('No RPO or RTO is claimed')
+        ->toContain('the recovery duration was not instrumented during the 7.7 rehearsals');
 });
 
 it('creates no second implementation of anything it uses', function (

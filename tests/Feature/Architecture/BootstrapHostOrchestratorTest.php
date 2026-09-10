@@ -978,8 +978,13 @@ it('records every bootstrap slice completed after its own real acceptance', func
     // No stale "awaiting acceptance" wording survives anywhere.
     expect($roadmap)->not->toContain('5.5 Bootstrap orchestrator — implemented');
 
-    // the clean-host bootstrap closed and handed over; there is still exactly one current phase.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // the clean-host bootstrap closed and handed over. Two phases are current
+    // now, and that is the honest description rather than a slip: the
+    // observability activation is still open on acceptance criteria only a
+    // real staging deployment can meet, and the production launch opened when
+    // its first slice landed. What must never happen is a CLOSED phase still
+    // reading as current, which is what the assertions below cover.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
     expect($roadmap)
         ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m')
         ->toContain('## 5. Infrastructure installer and clean-VPS bootstrap — completed');
@@ -991,10 +996,19 @@ it('keeps the clean-host bootstrap and the disaster-recovery work rehearsal gate
     // after server/data loss, and must never be read as closing the disaster-recovery work.
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
+    // The disaster-recovery gate has since passed on its own evidence — a real
+    // replacement machine, both operator paths — and the roadmap still has to
+    // say that 5.6 is not what closed it. A gate that closed for the wrong
+    // reason is the failure this guards against, and it survives the gate
+    // closing for the right one.
     expect($roadmap)
         ->toContain('Three distinct rehearsal gates')
-        ->toContain('**Still outstanding.**')
-        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m');
+
+    // Flattened, because the sentence is long enough to wrap and a rewrap is
+    // not a change in what it says.
+    expect(preg_replace('/\s+/', ' ', $roadmap))
+        ->toContain('a different question from reconstructing a lost application, and closed nothing here');
 
     // The two defects clean-host bootstrap found, and the MRs that fixed them.
     expect($roadmap)

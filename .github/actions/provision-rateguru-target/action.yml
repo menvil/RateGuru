@@ -1,0 +1,688 @@
+name: Provision RateGuru target
+description: >-
+  Create the non-secret infrastructure of one PLANNED production target on an
+  already-bootstrapped host, by transporting trusted tooling there and running
+  the server-side provision-target primitive — without activating the target,
+  deploying anything, or supplying any secret material.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/provision-target owns every decision this operation
+# makes: which lifecycle may be provisioned, what counts as an already-prepared
+# host, which installer owns which contract, what it refuses to touch, and what
+# stays deferred. None of that is reimplemented, mirrored or second-guessed in
+# YAML. This action packages the trusted tooling, runs three commands and cleans
+# up after itself.
+#
+# WHAT IT IS NOT. It never deploys: there is deliberately no `ref`, `branch`,
+# `tag`, `source_sha`, `artifact` or `run-migrations` input, nothing is built or
+# downloaded, and no application source is ever involved. It never restores
+# data, never prepares or recovers a host, and never activates a target — a
+# provisioned target is still lifecycle=planned, and changing that is a
+# deliberate registry change with its own review.
+#
+# NO SECRETS, BY CONSTRUCTION. This action has no material inputs at all — not
+# an environment file, not an application key, not a database password, not
+# authorized_keys, not an rclone configuration, not a TLS certificate or key,
+# not a mail credential, not a DNS token. That absence IS the design: what
+# provisioning creates is exactly the infrastructure that carries no secret.
+# Everything that does belongs to later, separately reviewed operations, and
+# nothing here can carry it because nothing here accepts it.
+#
+# CREDENTIAL SEPARATION. This uses the privileged BOOTSTRAP credential, the same
+# one host preparation and repair use, and deliberately NOT the deploy
+# credential. The deploy key is restricted to the narrow rateguru-deploy /
+# rateguru-rollback sudo wrappers and cannot create infrastructure; provisioning
+# needs root, so it uses the credential that already has its own lifecycle for
+# exactly that. If the environment has no bootstrap credential this action fails
+# rather than falling back to a deployment key — a fallback would quietly widen
+# what that key is for.
+#
+# CALLER REQUIREMENT: a Bash 4.4+ runner. Every remote argv is quoted with
+# ${var@Q} / ${array[@]@Q} rather than assembled by string interpolation, which
+# is how the other operational actions in this repository quote theirs. That
+# expansion does not exist in Bash 3.2, so a caller must run this on
+# `runs-on: ubuntu-latest` (or another Bash 4.4+ image), never on a macOS
+# runner.
+#
+# TRUSTED TOOLING. The bundle is built from whatever the calling workflow
+# checked out, and a caller checks out `develop`. It is never taken from the
+# host's own deployed release: the target being provisioned has no release at
+# all, and the host's other targets have no business defining what
+# "provisioned" means.
+
+inputs:
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. Must be
+      lifecycle=planned and environment_class=production; verified on the runner
+      before anything is uploaded, and again on the host.
+
+  environment:
+    required: true
+    description: >-
+      Environment class this provisioning run belongs to. Only `production` is
+      accepted: provisioning exists for a new production brand, and a staging
+      target is served by the existing host bootstrap.
+
+  bootstrap-host:
+    required: true
+    description: >-
+      SSH hostname or IP of the prepared host the target will live on.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap user. Must be root, or hold passwordless
+      non-interactive sudo; verified before anything is uploaded.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from any deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the host. Strict host key checking is
+      non-negotiable here: there is no TOFU, no relaxed host-key policy and no
+      password fallback anywhere in this action.
+
+outputs:
+  provisioned:
+    description: "true when provision-target --verify confirmed the target's infrastructure is provisioned"
+    value: ${{ steps.verify.outputs.provisioned }}
+
+  lifecycle:
+    description: "The target's lifecycle after provisioning — always `planned`, because provisioning never activates a target"
+    value: ${{ steps.verify.outputs.lifecycle }}
+
+  application-state:
+    description: "Always `not-deployed`: provisioning creates infrastructure, never a release"
+    value: ${{ steps.verify.outputs['application-state'] }}
+
+  public-state:
+    description: "Always `not-activated`: provisioning configures no public hostname, TLS or routing"
+    value: ${{ steps.verify.outputs['public-state'] }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fixed caller inputs only. Everything checked here is a structural
+    # property of the calling workflow, so a violation is a bug in this
+    # repository rather than an environmental condition — it fails closed.
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters and
+        # a flag-shaped value (a leading "-") in one closed character class.
+        # The same expression every other operational action validates a
+        # target with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        if [[ "${ENVIRONMENT}" != "production" ]]; then
+          echo "Provisioning is only ever run for a production target (got: ${ENVIRONMENT})." >&2
+          echo "A staging target is created by the existing host bootstrap, not by this operation." >&2
+          exit 1
+        fi
+
+        # A syntactically numeric port is not enough: 0 and anything above
+        # 65535 would sail through and fail later inside every ssh call with a
+        # far less obvious diagnostic.
+        # 10# forces decimal. Bash reads a leading-zero operand inside (( ))
+        # as octal, so a port like 08 would raise "value too great for base",
+        # return non-zero, and be read by this || chain as "the condition did
+        # not hold" — quietly passing validation.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for the ${ENVIRONMENT} environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "The ${ENVIRONMENT} environment has no bootstrap SSH credential." >&2
+          echo "Provisioning deliberately refuses to fall back to a deployment key: that key is restricted to the deploy wrappers, cannot create infrastructure, and must not be widened into a bootstrap credential." >&2
+          exit 1
+        fi
+
+    # The server-side lifecycle gate stays authoritative, and it is what
+    # actually protects the host. This is the same question asked one step
+    # earlier, on the runner, so a run against a target that is not a planned
+    # production one is refused before any tooling is uploaded and before the
+    # privileged credential is used against the host at all.
+    #
+    # It asks the repository's own `targets` CLI, against the committed
+    # registry in the trusted checkout — no lifecycle rule is reimplemented here.
+    - name: Validate the target lifecycle before anything is uploaded
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        registry="${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+        targets_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/targets"
+
+        test -x "${targets_cli}"
+        test -f "${registry}"
+
+        if ! target_json="$("${targets_cli}" show --target "${DEPLOYMENT_TARGET}" --file "${registry}" 2>&1)"; then
+          echo "${target_json}" >&2
+          echo "Unknown or unusable deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        fi
+
+        lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+        environment_class="$(printf '%s' "${target_json}" | jq -r '.environment_class // empty')"
+
+        if [[ "${lifecycle}" != "planned" ]]; then
+          echo "Target ${DEPLOYMENT_TARGET} has lifecycle=${lifecycle:-unknown}, not planned." >&2
+          echo "Provisioning creates the infrastructure of a target that is not live yet. An active target already has Prepare Host, Repair Target and Deploy; a disabled one is a deliberate registry state." >&2
+          exit 1
+        fi
+
+        if [[ "${environment_class}" != "production" ]]; then
+          echo "Target ${DEPLOYMENT_TARGET} has environment_class=${environment_class:-unknown}, not production." >&2
+          exit 1
+        fi
+
+        echo "Target ${DEPLOYMENT_TARGET}: lifecycle=planned, environment_class=production — provisioning may proceed"
+        echo "It will stay lifecycle=planned afterwards: provisioning never writes the registry."
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_provision_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_provision_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    # Establishes the privileged path once, so every later step uses the same
+    # prefix and no step has to guess. Root gets an empty prefix; a sudoer gets
+    # `sudo -n`, which fails immediately rather than waiting on a password
+    # prompt that would hang a non-interactive run.
+    #
+    # Every remote invocation in this action — ssh and scp alike — carries the
+    # same connect timeout and keepalive settings
+    # (ServerAliveInterval=30, ServerAliveCountMax=10): a provisioning run
+    # creates accounts, converges directories and validates service
+    # configuration, and an idle NAT or firewall dropping a silent connection
+    # mid-run would abandon it half-finished for no reason.
+    - name: Verify privileged access on the host
+      id: access
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+          echo "Bootstrap user ${BOOTSTRAP_USER} is root."
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+          echo "Bootstrap user ${BOOTSTRAP_USER} holds passwordless non-interactive sudo."
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "Provisioning requires root; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # Only infrastructure/ — provision-target and the installers it delegates
+    # to resolve every file they need beneath that one directory, and nothing
+    # else in this repository has any business on the host. The application is
+    # emphatically not part of the bundle: this operation never touches code.
+    - name: Package trusted provisioning bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-provision-bundle.tar.gz"
+
+        test -d "${GITHUB_WORKSPACE}/infrastructure/scripts"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/provision-target"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-bootstrap-host-layout"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-bootstrap-services"
+        # The host-prerequisite gate: provisioning proves the host's installed
+        # operational bundle matches this one before it touches a target.
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-target-operations"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+
+        tar \
+          --create \
+          --gzip \
+          --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" \
+          infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+        echo "Bundle contents: $(tar -tzf "${bundle_path}" | wc -l) files from infrastructure/"
+
+    # The remote layout, and the one place a path is chosen:
+    #
+    #   ~/.rateguru-provision-<run>    0700, owned by the bootstrap user — scp
+    #                                  can only ever write as that user, so the
+    #                                  bundle lands here first;
+    #   /root/rateguru-provision-<run> 0700 root:root — where it is moved
+    #                                  before anything runs from it.
+    #
+    # The run ID and attempt make the name unique without any randomness, so a
+    # retry never collides with its own earlier attempt.
+    - name: Upload the trusted provisioning bundle
+      id: upload
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-provision-${run_tag}"
+        remote_root="/root/rateguru-provision-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging \
+          'umask 077 && rm -rf %q && mkdir -p %q' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s chown -R root:root %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+        echo "Trusted tooling installed under ${remote_root} (root-only)."
+
+    # The plan, before anything is created. Read-only on the host, and its exit
+    # status is deliberately not fatal here: "not provisioned yet" is exit 1 and
+    # is the normal reason an operator ran this at all. The apply below is the
+    # authoritative gate and rebuilds the whole plan itself.
+    - name: Inspect the target
+      id: inspect
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        # A fixed argv built as a Bash array and quoted element-wise, never an
+        # interpolated shell string. provision-target itself accepts only a
+        # closed flag set and no free-text command of any kind.
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/provision-target"
+          --check
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        set +e
+        inspection_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        inspection_status=$?
+        set -e
+
+        printf '%s\n' "${inspection_output}"
+
+        # Above 1 the inspection could not even establish the target's state,
+        # which is a tooling or connectivity failure rather than absence.
+        if (( inspection_status > 1 )); then
+          echo "The read-only inspection failed with exit ${inspection_status}; nothing was changed." >&2
+          exit "${inspection_status}"
+        fi
+
+        {
+          echo "## Provisioning plan"
+          echo
+          echo '```text'
+          awk '/^SUMMARY$/ { collecting = 1 } collecting { print }' <<<"${inspection_output}"
+          echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Provision the target
+      id: provision
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/provision-target"
+          --apply
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        # rateguru_provision_result OUTPUT — the one machine-readable line,
+        # validated.
+        #
+        # Every composite step is its own shell, so this is defined in each
+        # step that needs it rather than shared. It counts the matches instead
+        # of taking the first: the primitive's contract is EXACTLY one result
+        # line per terminal success, and a `grep -m1` would accept two without
+        # a word — which is the shape a bug in that contract would take.
+        rateguru_provision_result() {
+          local output="$1" lines count json
+
+          lines="$(grep '^RATEGURU_PROVISION_RESULT=' <<<"${output}" || true)"
+          count="$(grep -c '^RATEGURU_PROVISION_RESULT=' <<<"${output}" || true)"
+
+          if [[ "${count}" != "1" ]]; then
+            echo "Expected exactly one RATEGURU_PROVISION_RESULT line, got ${count}." >&2
+            exit 1
+          fi
+
+          json="${lines#RATEGURU_PROVISION_RESULT=}"
+
+          jq -e '
+            type == "object"
+            and .status == "infrastructure-provisioned"
+            and .lifecycle == "planned"
+            and .environment_class == "production"
+            and .application_state == "not-deployed"
+            and .public_state == "not-activated"
+          ' <<<"${json}" >/dev/null || {
+            echo "The machine-readable provisioning result is not a provisioned, still-planned, undeployed, unactivated result: ${json}" >&2
+            exit 1
+          }
+
+          printf '%s' "${json}"
+        }
+
+        provision_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}"
+        )"
+
+        printf '%s\n' "${provision_output}"
+
+        rateguru_provision_result "${provision_output}" >/dev/null
+
+    # A second, independent invocation rather than a claim inherited from the
+    # apply above: "provisioned" means the read-only verification passes on the
+    # host as it stands now.
+    #
+    # Every reported value comes from the one machine-readable line the
+    # primitive prints, never from prose in its report. Parsing a human report
+    # would make every wording change a silent behaviour change here.
+    - name: Verify the provisioned target
+      id: verify
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/provision-target"
+          --verify
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        # rateguru_provision_result OUTPUT — the one machine-readable line,
+        # validated. Defined per step for the reason given above.
+        rateguru_provision_result() {
+          local output="$1" lines count json
+
+          lines="$(grep '^RATEGURU_PROVISION_RESULT=' <<<"${output}" || true)"
+          count="$(grep -c '^RATEGURU_PROVISION_RESULT=' <<<"${output}" || true)"
+
+          if [[ "${count}" != "1" ]]; then
+            echo "Expected exactly one RATEGURU_PROVISION_RESULT line, got ${count}." >&2
+            exit 1
+          fi
+
+          json="${lines#RATEGURU_PROVISION_RESULT=}"
+
+          jq -e '
+            type == "object"
+            and .status == "infrastructure-provisioned"
+            and .lifecycle == "planned"
+            and .environment_class == "production"
+            and .application_state == "not-deployed"
+            and .public_state == "not-activated"
+          ' <<<"${json}" >/dev/null || {
+            echo "The machine-readable provisioning result is not a provisioned, still-planned, undeployed, unactivated result: ${json}" >&2
+            exit 1
+          }
+
+          printf '%s' "${json}"
+        }
+
+        verification_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}"
+        )"
+
+        printf '%s\n' "${verification_output}"
+
+        result_json="$(rateguru_provision_result "${verification_output}")"
+
+        lifecycle="$(jq -r '.lifecycle' <<<"${result_json}")"
+        application_state="$(jq -r '.application_state' <<<"${result_json}")"
+        public_state="$(jq -r '.public_state' <<<"${result_json}")"
+
+        {
+          echo "provisioned=true"
+          echo "lifecycle=${lifecycle}"
+          echo "application-state=${application_state}"
+          echo "public-state=${public_state}"
+        } >> "${GITHUB_OUTPUT}"
+
+        {
+          echo "## Target infrastructure provisioned"
+          echo
+          echo "- Target: \`${DEPLOYMENT_TARGET}\`"
+          echo "- Environment: \`${ENVIRONMENT}\`"
+          echo "- Lifecycle: \`${lifecycle}\` — unchanged, because provisioning never writes the registry"
+          echo "- Application: \`${application_state}\` · Public traffic: \`${public_state}\`"
+          echo
+          echo "This target now has its identities, filesystem, PHP-FPM pool, internal-only Nginx vhost, Supervisor queue program, scheduler cron and public-storage ACL."
+          echo
+          echo "It is deliberately NOT production ready. Still outstanding, each owned by its own operation: the environment file and application key, the database and its role, the deploy authorization, offsite credentials and backups, TLS and public routing, and mail. Until those land, this target has no secrets, no data and no public presence — which is exactly what a freshly provisioned target should be."
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    # Runs on failure too. Uploaded tooling must never outlive the run that
+    # uploaded it, whatever happened in between.
+    - name: Remove the remote provisioning bundle
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command \
+          '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        # Cleanup failure is reported loudly but never masks the real outcome
+        # of the run; the operator needs to see which failure came first.
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"

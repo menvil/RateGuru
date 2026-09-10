@@ -21,6 +21,7 @@ offsite-backup
 offsite-restore-test
 offsite-retention
 prepare-host
+provision-target
 record-nightwatch-deployment
 recover-host
 recovery-host-preflight

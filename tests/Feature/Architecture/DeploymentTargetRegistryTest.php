@@ -968,6 +968,79 @@ it('allows lifecycle active only for staging-main', function () {
     }
 });
 
+it('rejects a service name that could not be safely rendered into configuration', function (string $mutation) {
+    // These five values are written verbatim into an Nginx vhost, a PHP-FPM
+    // pool, a Supervisor program and a cron.d entry when a production target
+    // is provisioned. The renderer treats them as DATA — no eval, no
+    // envsubst, no substitution into a shell command — and this closed
+    // format is what makes that safe: a name matching it cannot carry a
+    // newline, a quote, a comment character, a directive separator or a path.
+    [$exit, $output] = validateMutatedRegistry($mutation);
+
+    expect($exit)->not->toBe(0, "should have rejected: {$mutation}");
+    expect($output)->toContain('rendered verbatim into service configuration');
+})->with([
+    'a pool name with whitespace' => '.targets["tits-guru"].php_fpm.pool = "rateguru tits guru"',
+    'a pool name closing its own section' => '.targets["tits-guru"].php_fpm.pool = "pool]\nuser = root"',
+    'an uppercase program name' => '.targets["tits-guru"].supervisor.program = "RateGuru-Queue"',
+    'a program name with a newline' => '.targets["tits-guru"].supervisor.program = "queue\ncommand=/bin/sh"',
+    'a queue name with a shell metacharacter' => '.targets["tits-guru"].supervisor.queue = "queue;reboot"',
+    'a queue name with a space' => '.targets["tits-guru"].supervisor.queue = "queue --tries=0"',
+    'a scheduler name carrying a path' => '.targets["tits-guru"].scheduler.name = "../../etc/cron.d/evil"',
+    'a scheduler name with a dot' => '.targets["tits-guru"].scheduler.name = "rateguru.scheduler"',
+    'a site name with a slash' => '.targets["tits-guru"].nginx.site_name = "sites/evil"',
+    'a site name with a semicolon' => '.targets["tits-guru"].nginx.site_name = "site;deny all"',
+]);
+
+it('rejects an empty service name through the required-string rule it already had', function () {
+    // An empty value never reaches the format check: the required-string rule
+    // rejects it first, and says so in its own words. Asserted separately so
+    // the format test above cannot pass on the strength of a different rule.
+    [$exit, $output] = validateMutatedRegistry('.targets["tits-guru"].php_fpm.pool = ""');
+
+    expect($exit)->not->toBe(0);
+    expect($output)->toContain('.php_fpm.pool must not be empty');
+});
+
+it('rejects a pool socket whose file name is not a safe service name', function () {
+    // php_fpm.socket is the one path derived from a service name rather than
+    // declared as one, so its basename gets the same closed format: otherwise
+    // a path could be smuggled through the socket while the pool name stayed
+    // innocent.
+    [$exit, $output] = validateMutatedRegistry('.targets["tits-guru"].php_fpm.socket = "/run/php/RateGuru Tits.sock"');
+
+    expect($exit)->not->toBe(0);
+    expect($output)->toContain('php_fpm.socket file name must be a lowercase service name');
+});
+
+it('rejects a pool socket that is nothing but the suffix', function () {
+    // "/run/php/.sock" is an absolute normalized path below /run/php ending in
+    // .sock, so every path rule accepts it — and it strips to an empty
+    // basename. A closed format has to reject that rather than skip it,
+    // otherwise "no name at all" is the one name that never gets checked.
+    [$exit, $output] = validateMutatedRegistry('.targets["tits-guru"].php_fpm.socket = "/run/php/.sock"');
+
+    expect($exit)->not->toBe(0);
+    expect($output)->toContain('php_fpm.socket file name must be a lowercase service name');
+});
+
+it('accepts the service names a second and third production brand would use', function (string $brand) {
+    // The registry has to keep working for brands nobody has thought of yet,
+    // so the closed format is proved permissive enough to describe one.
+    $mutation = implode(' | ', [
+        '.targets["tits-guru"].php_fpm.pool = "rateguru-'.$brand.'"',
+        '.targets["tits-guru"].php_fpm.socket = "/run/php/rateguru-'.$brand.'.sock"',
+        '.targets["tits-guru"].supervisor.program = "rateguru-'.$brand.'-queue"',
+        '.targets["tits-guru"].supervisor.queue = "rateguru-'.$brand.'"',
+        '.targets["tits-guru"].scheduler.name = "rateguru-'.$brand.'-scheduler"',
+        '.targets["tits-guru"].nginx.site_name = "rateguru-'.$brand.'"',
+    ]);
+
+    [$exit, $output] = validateMutatedRegistry($mutation);
+
+    expect($exit)->toBe(0, "a plausible new brand must stay describable:\n{$output}");
+})->with(['food-guru', 'animals-guru', 'demo-shop', 'brand2', 'a_brand']);
+
 it('rejects an id that does not match its object key', function () {
     [$exit] = validateMutatedRegistry('.targets["staging-main"].id = "something-else"');
     expect($exit)->not->toBe(0);
@@ -1335,9 +1408,11 @@ it('records the registry as a completed the target-aware migration slice inside 
         ->not->toContain('## 4. Multi-target production model — current')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    // the target-aware migration is closed, and the clean-host bootstrap has since closed behind it; the roadmap
-    // still names exactly one current phase.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // the target-aware migration is closed, and the clean-host bootstrap has
+    // since closed behind it. Two later phases are current at once —
+    // observability and the production launch — and both are genuinely in
+    // flight; what matters here is that neither closed phase reads as one.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
     expect($roadmap)
         ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m');
 });

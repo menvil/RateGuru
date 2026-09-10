@@ -860,6 +860,28 @@ run_operator_guide() {
     cat <<GUIDE
 CLEAN-HOST RECOVERY — OPERATOR GUIDE (compact; the full runbook is ${RUNBOOK_PATH})
 
+IN ONE SCREEN — the whole operation; the numbered sections below explain it.
+
+  BEFORE RUN   Ubuntu ${SUPPORTED_OS_VERSION_ID} ${SUPPORTED_ARCHITECTURES// / or }, freshly installed and otherwise untouched;
+               the RECOVERY_BOOTSTRAP_USER account as root or with passwordless sudo;
+               the public half of RECOVERY_BOOTSTRAP_SSH_KEY in its authorized_keys;
+               that machine's ssh-ed25519 host key verified OUT OF BAND and stored as
+               RECOVERY_KNOWN_HOSTS. Install nothing else by hand.
+
+  RUN          Actions -> $(recovery_workflow_name) -> Run workflow
+                 mode=start  backup=YYYYMMDD-HHMMSS  replacement-host=<IP>  replacement-port=22
+
+  INTERRUPTED  Only if the run summary already names an operation:
+                 mode=continue-held  operation=<the operation ID from the summary>
+                 replacement-host=<IP>  replacement-port=22   (and no backup — a
+               continuation never takes one again). A run that stopped BEFORE any
+               operation ID appeared is re-run with mode=start and the SAME backup.
+
+  SUCCESS      The final verify passes and the summary states all of: the exact
+               source_sha of that backup and previous absent; queue RUNNING; scheduler
+               PRESENT; health PASS; guards none; offsite writes HELD; no migration ran;
+               DEPLOY_HOST unchanged; DNS unchanged. Anything less is not success.
+
 1. The new server
    - A NEW VPS from a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} image, ${SUPPORTED_ARCHITECTURES// / or } — a genuinely clean
      replacement host: no RateGuru tree, account, database, service or guard.

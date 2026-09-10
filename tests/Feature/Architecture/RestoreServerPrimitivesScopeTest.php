@@ -547,27 +547,68 @@ it('confines every restore concern in the shared library to its own sections', f
     // own section does not fail, it just stops guarding.
     $formatStart = mb_strpos($common, '# --- backup format contract (begin) ---');
     $formatEnd = mb_strpos($common, '# --- backup format contract (end) ---');
+    $gatesStart = mb_strpos($common, '# --- registry lifecycle gates (begin) ---');
+    $gatesEnd = mb_strpos($common, '# --- registry lifecycle gates (end) ---');
     $guardStart = mb_strpos($common, '# --- restore guard');
     $alignmentStart = mb_strpos($common, '# --- restore alignment authorization');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
 
     expect($formatStart)->not->toBeFalse('the backup format contract section is missing from common');
     expect($formatEnd)->toBeGreaterThan($formatStart);
+    expect($gatesStart)->not->toBeFalse('the registry lifecycle gates section is missing from common');
+    expect($gatesEnd)->toBeGreaterThan($gatesStart);
+    expect($gatesStart)->toBeGreaterThan($formatEnd);
     expect($guardStart)->not->toBeFalse('the restore guard section is missing from common');
-    expect($guardStart)->toBeGreaterThan($formatEnd);
+    expect($guardStart)->toBeGreaterThan($gatesEnd);
     expect($alignmentStart)->toBeGreaterThan($guardStart);
     expect($end)->toBeGreaterThan($alignmentStart);
 
     $formatSection = mb_substr($common, $formatStart, $formatEnd - $formatStart);
     $restoreSections = mb_substr($common, $guardStart, $end - $guardStart);
 
+    // The fourth delimited section, and the reason it exists: `common` is
+    // where lifecycle becomes permission, so a new lifecycle gate has to be
+    // able to land somewhere. Before it was delimited, the only places this
+    // guard allowed were the three restore concerns — which meant the first
+    // slice to add a gate beside require_active_target tripped a guard about
+    // restore blast radius for a reason that had nothing to do with restore.
+    //
+    // Widening it costs nothing here, because the section is pinned to what a
+    // gate may be below: read the registry, decide, return or fail. Anything
+    // that mutates is still refused.
+    $gatesSection = mb_substr($common, $gatesStart, $gatesEnd - $gatesStart);
+
     // Every line of CODE this branch added to common belongs to one of them.
     // Comments are excluded deliberately: `common` carries prose all over it,
     // and rewording a comment somewhere else in the file is not a restore
     // concern leaking out of its section.
     foreach (sourceCodeLines($diff['added']) as $line) {
-        expect(str_contains($formatSection, $line) || str_contains($restoreSections, $line))
-            ->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
+        expect(
+            str_contains($formatSection, $line)
+            || str_contains($restoreSections, $line)
+            || str_contains($gatesSection, $line)
+        )->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
+    }
+
+    // A lifecycle gate reads and decides. It never writes the registry, never
+    // touches the filesystem, and never runs an operation of its own — so the
+    // section that holds them carries no mutation and no child invocation.
+    //
+    // Measured over executable lines only: these gates explain in prose what
+    // they run BEFORE ("before any URL is built, curl is called"), and a guard
+    // that searched the whole section would fail on the very sentence
+    // promising the property it is checking.
+    expect(executableSourceLines($gatesSection))
+        ->not->toMatch('/^\s*(rm|mv|install|touch|chmod|chown|setfacl|useradd|groupadd|usermod)\s/m')
+        ->not->toMatch('/>\s*"?\$\{?TARGET_REGISTRY/')
+        ->not->toContain('jq -')
+        ->not->toContain('curl')
+        ->not->toContain('setfacl');
+
+    // And what it IS: every gate in it resolves the target through the same
+    // accessors and refuses through the same fail().
+    foreach (['require_active_target()', 'require_provisionable_target()'] as $gate) {
+        expect($gatesSection)->toContain($gate);
     }
 
     // And so does every line it removed — measured against the version it was
@@ -639,7 +680,6 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
     // which are asserted in full by RestoreOperatorSurfaceScopeTest and by their own test
     // files. (See the note above on toContain's variadic signature.)
     foreach ([
-        'infrastructure/scripts/targets',
         'infrastructure/scripts/health-check',
         'infrastructure/scripts/status',
         'infrastructure/scripts/bootstrap-host',
@@ -649,10 +689,39 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
         // every operational script — requires to be removed. Two guards asked
         // for opposite things about the same line; freezing a label is not
         // what this one is for, and its remaining entries still hold.
-        'infrastructure/config/deployment-targets.json',
+        //
+        // `infrastructure/scripts/targets` left this list for the same reason,
+        // and the registry file with it. The registry validator is where every
+        // registry format rule lives, so a slice that adds a target field — or
+        // tightens the format of one it already had — has to change it, and a
+        // slice that declares a new target has to change the registry. Neither
+        // is a restore surface. Freezing them made this guard refuse ordinary
+        // registry work while proving nothing about restore, so what it
+        // actually cares about is asserted directly below instead.
         'infrastructure/templates/deployment.conf.example',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);
+    }
+
+    // What the registry validator and the registry itself must never grow: a
+    // restore surface of their own. This is the property the blanket freeze
+    // above was standing in for, said directly — so it keeps holding no matter
+    // which later slice edits either file, and for the right reason.
+    foreach ([
+        'infrastructure/scripts/targets',
+        'infrastructure/config/deployment-targets.json',
+    ] as $path) {
+        $source = File::get(base_path($path));
+
+        foreach ([
+            'restore', 'backup_id', 'fetch-backup', 'restore-database',
+            'restore-storage', 'recover-host', 'guard', 'pg_restore', 'rclone',
+        ] as $forbidden) {
+            expect(mb_strtolower($source))->not->toContain(
+                $forbidden,
+                "{$path} must never grow a restore, recovery or offsite surface: {$forbidden}",
+            );
+        }
     }
 
     // What deploy may never gain, in any phase: a backup selector, a restore

@@ -980,6 +980,19 @@ target_nightwatch_program() {
     esac
 }
 
+# --- registry lifecycle gates (begin) ---
+#
+# The gates that decide whether an operation may act on a target at all, and
+# the only place in this file where lifecycle is turned into permission. They
+# are read-only by construction: each validates the target ID, validates the
+# whole registry, reads .lifecycle (and, for provisioning, .environment_class)
+# and either returns or calls fail. Nothing here writes the registry, and
+# nothing here touches the filesystem.
+#
+# A new gate belongs HERE rather than beside the caller that wants it: a
+# lifecycle rule that lives in one script is a lifecycle rule the next script
+# can contradict.
+
 # The single gate operational commands use before acting on a
 # target. target_lifecycle already validates the target ID, validates the
 # whole registry, and confirms the target exists (failing "unknown target: …"
@@ -1014,6 +1027,57 @@ require_active_target() {
         fail "target ${target_id} has lifecycle=${lifecycle}, not active"
     fi
 }
+
+# The gate a provisioning operation uses in place of require_active_target.
+#
+# It is deliberately a SEPARATE function rather than a parameter on the one
+# above. require_active_target is what every operational command asks, and its
+# answer must stay "active, full stop" — a flag on it would put "or planned,
+# under some condition" inside the one gate that protects deploy, rollback,
+# backup, restore and health. A caller that wants the other answer has to name
+# a different function, and that name says what it is authorizing.
+#
+# Provisionable means exactly: lifecycle=planned AND
+# environment_class=production. Not active (that target is already in the
+# operational lifecycle and has its own operations), not disabled (a
+# deliberate registry state), not planned staging. The registry itself is
+# never written by anything that calls this: a provisioned target stays
+# planned, because lifecycle records permission to operate a target, not
+# whether its directories exist.
+#
+# The three checks before the lifecycle read are the same ones
+# require_active_target runs directly rather than through a command
+# substitution, and for the same reason: target_registry_assert_valid's cache
+# is a plain shell variable, so it has to be set in the caller's own shell.
+require_provisionable_target() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    # Named `environment` rather than `environment_class`: `common` legitimately
+    # READS an ENVIRONMENT_CLASS supplied by the script that sourced it, and a
+    # local differing from it only in case makes every reader — human and
+    # linter — pause over which one is meant.
+    local lifecycle environment
+    lifecycle="$(target_lifecycle "${target_id}")"
+    environment="$(target_environment_class "${target_id}")"
+
+    if [[ "${lifecycle}" == "active" ]]; then
+        fail "target ${target_id} has lifecycle=active — it is already in the operational lifecycle, so provisioning refuses it; use the existing prepare/repair/deploy operations instead"
+    fi
+
+    if [[ "${lifecycle}" != "planned" ]]; then
+        fail "target ${target_id} has lifecycle=${lifecycle}, not planned — provisioning is only ever authorized for a planned target"
+    fi
+
+    if [[ "${environment}" != "production" ]]; then
+        fail "target ${target_id} has environment_class=${environment}, not production — provisioning is only ever authorized for a planned production target"
+    fi
+}
+
+# --- registry lifecycle gates (end) ---
 
 # Shared flag-value validator, used by every operational script's own
 # argument loop (including parse_target_args below) — offsite-backup,

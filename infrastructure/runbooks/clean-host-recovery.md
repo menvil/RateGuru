@@ -21,6 +21,62 @@ The public hostname of `staging-main` is `rateguru.staging.myprojects.pp.ua`
 
 ---
 
+## In one screen
+
+The whole operation. Everything after this box explains it in full; nothing
+after it contradicts it, and the section references say where to read more.
+
+**BEFORE RUN** — on the replacement machine, and nothing else:
+
+* Ubuntu **22.04**, **x86_64**, freshly installed and otherwise untouched.
+* The `RECOVERY_BOOTSTRAP_USER` account: root, or able to run `sudo -n true`
+  without a password.
+* The public half of `RECOVERY_BOOTSTRAP_SSH_KEY` in that account's
+  `~/.ssh/authorized_keys`.
+* That machine's `ssh-ed25519` host key, verified out of band, stored as
+  `RECOVERY_KNOWN_HOSTS` (§C).
+* **Install nothing else** — no packages, no `.env`, no TLS material, no rclone
+  configuration (§A). Prepare Host installs the runtime and takes every piece
+  of host material out of the backup itself.
+
+**RUN** — Actions → **Recover staging host** → Run workflow:
+
+```text
+mode             = start
+backup           = YYYYMMDD-HHMMSS
+replacement-host = <IP>
+replacement-port = 22
+```
+
+**IF INTERRUPTED AND THE SUMMARY NAMES AN OPERATION** — re-run with:
+
+```text
+mode             = continue-held
+operation        = <the operation ID from the summary>
+replacement-host = <IP>
+replacement-port = 22
+```
+
+Leave `backup` empty: a continuation never takes one again. A run that stopped
+*before* any operation ID appeared is re-run with `mode=start` and the **same**
+exact backup instead (§K).
+
+**SUCCESS** — the final verify passes, and the run summary states all of:
+
+* the exact `source_sha` of that backup, and `previous` absent;
+* queue **RUNNING**, scheduler **PRESENT**, health **PASS**;
+* guards **none** — neither a restore guard nor a recovery guard;
+* offsite writes **HELD**;
+* no migration ran, `DEPLOY_HOST` unchanged, DNS unchanged.
+
+Anything less is not success (§J). The recovered machine serves nothing to the
+public until it is deliberately adopted, which is a separate operation.
+
+The same box is printed by
+`infrastructure/scripts/recovery-host-preflight --operator-guide --target staging-main`.
+
+---
+
 ## A. What to prepare on the new VPS
 
 The replacement machine is a **genuinely clean replacement host**. It is not

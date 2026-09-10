@@ -262,6 +262,7 @@ it('exposes typed outputs drawn only from that result', function () {
         'health',
         'offsite-writes',
         'operation',
+        'previous',
         'queue',
         'required-source-sha',
         'scheduler',
@@ -536,6 +537,7 @@ it('refuses to pass on a final verification that did not report the contract it 
             'queue' => 'running',
             'scheduler' => 'present',
             'offsite_writes' => 'held',
+            'previous' => 'absent',
         ]), true);
 
         unset($result[$missing]);
@@ -561,7 +563,7 @@ it('refuses to pass on a final verification that did not report the contract it 
     } finally {
         removeScratchDir($scratch);
     }
-})->with(['queue', 'scheduler', 'health', 'offsite_writes']);
+})->with(['queue', 'scheduler', 'health', 'offsite_writes', 'previous']);
 
 it('passes on a final verification that reports all of it', function () {
     $scratch = restoreScratchDir();
@@ -585,6 +587,7 @@ it('passes on a final verification that reports all of it', function () {
                 'queue' => 'running',
                 'scheduler' => 'present',
                 'offsite_writes' => 'held',
+                'previous' => 'absent',
             ]),
             'RGTEST_SSH_EXIT' => '0',
         ]));
@@ -595,8 +598,49 @@ it('passes on a final verification that reports all of it', function () {
             ->toContain('queue=running')
             ->toContain('scheduler=present')
             ->toContain('health=pass')
-            ->toContain('offsite-writes=held');
+            ->toContain('offsite-writes=held')
+            ->toContain('previous=absent');
     } finally {
         removeScratchDir($scratch);
     }
 });
+
+it('refuses to pass on a verification that says the host has a previous release link', function (string $reported) {
+    $scratch = restoreScratchDir();
+
+    try {
+        // The server refuses to verify such a host at all, so this result
+        // cannot come from a healthy chain — which is exactly why the action
+        // will not relay it. `previous` is the one verified field whose VALUE
+        // is the contract rather than merely its presence, and everything
+        // downstream announces that contract as fact.
+        $run = runActionStep('.github/actions/recover-rateguru-host/action.yml', 'Run the server-side recovery', recoverStepEnv($scratch, [
+            'MODE' => 'verify',
+            'BACKUP_ID' => '',
+            'OPERATION_ID' => '',
+            'RGTEST_SSH_STDOUT' => 'RATEGURU_RECOVER_RESULT='.json_encode([
+                'status' => 'verified',
+                'target' => 'staging-main',
+                'operation' => '20260909-120000-abc123',
+                'backup' => '20260909-113248',
+                'backup_release' => '20260909-104500-1a2b3c4',
+                'required_source_sha' => str_repeat('a', 40),
+                'data_restored' => true,
+                'current_release' => '20260909-104500-1a2b3c4',
+                'source_sha' => str_repeat('a', 40),
+                'health' => 'pass',
+                'queue' => 'running',
+                'scheduler' => 'present',
+                'offsite_writes' => 'held',
+                'previous' => $reported,
+            ]),
+            'RGTEST_SSH_EXIT' => '0',
+        ]));
+
+        expect($run['exit'])->not->toBe(0);
+        expect($run['output'])->toContain('a recovered host has no previous release link');
+        expect(File::get($scratch.'/github-output'))->not->toContain('status=verified');
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with(['present', 'unknown']);

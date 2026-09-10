@@ -89,6 +89,22 @@ infrastructure, and moves out once a second project exists.
   installer that owns the contract — and it carries no secret material at all,
   runs no migration and never touches the database or the code — see
   [`runbooks/repair-target.md`](runbooks/repair-target.md);
+- new-target provisioning: `infrastructure/scripts/provision-target`, the
+  `--provisioning` authorization both bootstrap installers and
+  `install-public-storage-access` gained, and the reusable
+  `.github/actions/provision-rateguru-target` transport. On a host that is
+  already a RateGuru host, it creates the non-secret infrastructure of ONE
+  `lifecycle=planned`, `environment_class=production` target — identities,
+  filesystem, PHP-FPM pool, an internal-only Nginx vhost, the Supervisor queue
+  program, the scheduler cron and the public-storage ACL — and stops there. A
+  production target's service configuration is RENDERED generically from
+  `deployment-targets.json`, so a second or tenth brand needs a registry entry
+  and no committed per-brand file. The target stays `planned`, no application
+  is deployed, no queue worker is started, and no environment file, database,
+  deploy authorization, TLS, DNS, mail or backup is created — each of those is
+  a later operation, and each is named as `DEFERRED` in the report rather than
+  silently absent — see
+  [`runbooks/provision-target.md`](runbooks/provision-target.md);
 - host recovery: `infrastructure/scripts/recover-host` rebuilds one lost target
   onto a prepared, empty replacement machine from one exact offsite backup, and
   leaves the machine deliberately not serving until the exact commit that
@@ -125,11 +141,14 @@ infrastructure, and moves out once a second project exists.
 - sudoers and SSH restrictions;
 - environment variable templates;
 - operational runbooks;
-- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) is
-  current; Phases 6–10 (Sentry observability, disaster recovery and release
-  rehearsal, first production launch, repeatable target onboarding, advanced
-  observability/analytics) are planned there as concrete slices, including
-  the three distinct rehearsal gates and the disposable-rehearsal policy.
+- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) and
+  Phase 7 (disaster recovery and release rehearsal) are completed, the latter
+  accepted on a real replacement machine on both the uninterrupted and the
+  interrupted recovery path; Phase 6 (Sentry observability) is current and
+  Phase 8 (first production launch) is next. The roadmap records every slice,
+  the three distinct rehearsal gates and the disposable-rehearsal policy —
+  including which parts of disaster recovery were accepted for real and which
+  are covered by automated tests only.
 
 ## Committed non-secret config exception
 

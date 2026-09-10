@@ -66,6 +66,11 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // deployment-recording implementation. Still one action per operation,
         // never a per-environment fork of any of them.
         'prepare-rateguru-host',
+        // One PROVISION implementation, for a planned production target on a
+        // host that already exists. Transport only: it carries no material,
+        // names no commit, and cannot build, deploy, restore, repair, prepare
+        // or activate anything.
+        'provision-rateguru-target',
         'record-rateguru-deployment',
         // One RECOVER implementation, covering all four of its modes. Transport
         // only: it carries no material, names no commit and cannot build,
@@ -279,7 +284,7 @@ it('records the disaster-recovery work as the consolidated plan, with the artifa
         '**7.5 Repair Target',
         '**7.6 Recover Host',
         '**7.7 GitHub Recover + clean-host rehearsal',
-        '**7.8 Full DR acceptance, measured RPO and RTO',
+        '**7.8 Final DR acceptance',
     ] as $heading) {
         expect($roadmap)->toContain($heading);
     }
@@ -300,12 +305,18 @@ it('records the disaster-recovery work as the consolidated plan, with the artifa
         ->toContain('**Recover Host** — full replacement-server recovery')
         ->toContain('rebuilds the application from the exact `source_sha`');
 
-    // the observability work is still the single current phase; 7.1 landing does not open 7.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
-    expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+    // The observability work is still current, and the disaster-recovery work
+    // closed without ever becoming it: these primitives landing did not open a
+    // phase, and the phase closing did not move the marker off observability.
+    // The production launch has since opened alongside it, which is why two
+    // phases are current rather than one.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
+    expect($roadmap)
+        ->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m')
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m');
 });
 
-it('implements no target provisioner and no recovery rehearsal harness', function () {
+it('implements no recovery rehearsal harness, and no host provisioner beside the target one', function () {
     // Prepare Host, the live restore, the GitHub restore surface with
     // controlled code alignment, target-scoped repair, host recovery and the
     // named recovery workflows all landed after this work, each with its own
@@ -313,18 +324,41 @@ it('implements no target provisioner and no recovery rehearsal harness', functio
     // RestoreServerPrimitivesScopeTest, RestoreOperatorSurfaceScopeTest,
     // RepairWorkflowsTest, RecoverHostScopeTest, RecoverWorkflowsTest).
     //
-    // What remains future work is everything BEHIND those buttons: a harness
-    // that automates a disposable rehearsal machine, and a generic provisioner
-    // that creates one. Neither may ship as a side effect of anything.
+    // The generic TARGET provisioner has since landed too, with its own scope
+    // guard (ProvisionTargetTest) — so this no longer forbids it, and says so
+    // rather than being quietly deleted. What remains future work is a harness
+    // that automates a disposable rehearsal machine, and a HOST provisioner
+    // that creates one: creating a machine is a different blast radius from
+    // creating a target on a machine that already exists, and neither may ship
+    // as a side effect of anything.
     foreach ([
         '.github/workflows/rehearse-recovery.yml',
         'infrastructure/scripts/rehearse-recovery',
-        'infrastructure/scripts/provision-target',
         'infrastructure/scripts/provision-host',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
             ->toBeFalse("{$futureWork} is later work and must not exist yet");
     }
+
+    // And the target provisioner that did land stays what it is: an
+    // orchestrator that never creates a machine and never activates a target.
+    expect(File::exists(base_path('infrastructure/scripts/provision-target')))->toBeTrue();
+
+    $provisioner = executableSourceLines(File::get(base_path('infrastructure/scripts/provision-target')));
+
+    expect($provisioner)
+        ->not->toContain('apt-get')
+        ->not->toContain('lifecycle = ')
+        // It never reads the registry itself: no selector, no parse. It names
+        // the file to establish ONE authority — pointing `common` at this
+        // bundle's own registry rather than the host's, and comparing the two
+        // byte for byte — and every value still comes back through `common`.
+        ->not->toContain('.targets[')
+        ->not->toContain('jq -r');
+
+    expect($provisioner)
+        ->toContain('TARGET_REGISTRY_FILE="${TRUSTED_REGISTRY}"')
+        ->toContain('cmp -s "${INSTALLED_REGISTRY}" "${TRUSTED_REGISTRY}"');
 
     // restore-test stays what it always was: a scratch-database integrity
     // check, never a live restore. Restore Target Data's live restore is a separate
