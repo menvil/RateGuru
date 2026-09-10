@@ -21,6 +21,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        'provision-tits-guru.yml',
         // Host recovery's own two operator workflows, added after this work
         // and guarded by RecoverWorkflowsTest. Named for their environment,
         // like every other operator-facing operation here.

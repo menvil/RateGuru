@@ -98,6 +98,7 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        'provision-tits-guru.yml',
         // One recovery workflow per environment, exactly like every other
         // operator-facing operation here.
         'recover-production.yml',
@@ -471,6 +472,15 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'recover-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:verify' => ['tits-guru', 'rateguru-production-release'],
         'recover-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
+        // Provisioning tits-guru is the one entry where the target's
+        // environment class and the concurrency domain deliberately disagree:
+        // it installs that target's service configuration and reloads services
+        // it SHARES with staging-main, because both logical targets currently
+        // sit on the same physical machine. Serializing it against the
+        // production release domain would serialize it against nothing that
+        // can touch the same host. This becomes a question about hosts rather
+        // than environments once a second host exists.
+        'provision-tits-guru.yml:provision' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

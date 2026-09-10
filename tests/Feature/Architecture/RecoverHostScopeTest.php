@@ -532,6 +532,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        'provision-tits-guru.yml',
         'recover-production.yml',
         'recover-staging.yml',
         'release.yml',
