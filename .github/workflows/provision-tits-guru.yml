@@ -66,14 +66,23 @@ jobs:
     # is what decides which registry contract, paths and identities the
     # server-side provisioner applies.
     #
-    #   GitHub Environment  = which machine, and which credential reaches it
+    #   GitHub Environment  = which credentials and approvals this run uses
     #   action `environment`= which environment class the TARGET belongs to
     #
-    # Conflating the two would either point a production target's provisioning
-    # at the wrong machine or apply staging's contract to it. This split is
-    # temporary: a production GitHub Environment is created when production
-    # gets its own host, and this line becomes `production` then — deliberately,
-    # not as a side effect of anything here.
+    # A GitHub Environment is a LOGICAL credential and permission boundary. It
+    # says nothing about how many machines exist, and it never has: one
+    # environment can bind a host that another environment also binds.
+    #
+    # Conflating the two would either reach the wrong machine with the wrong
+    # credential or apply staging's contract to a production target.
+    #
+    # This binding is temporary. The work that gives production its own GitHub
+    # Environment and its own credentials is separate and already planned, and
+    # it does NOT wait for production to get its own VPS — that environment may
+    # perfectly well point at this same machine on the day it is created.
+    # Moving production onto another host is an independent decision that
+    # nothing here depends on. When production has its own environment, this
+    # line becomes `production` deliberately, not as a side effect.
     environment: staging
 
     # Provisioning converges a target's filesystem, PHP-FPM pool, Supervisor
@@ -139,10 +148,16 @@ jobs:
             echo
             echo "The target's infrastructure exists. That is all this run did."
             echo
-            echo "It is still \`lifecycle=planned\`, it serves nothing, and it is"
-            echo "reachable from nowhere. No release was built or deployed, no"
-            echo "migration ran, no database or role was created, no TLS or DNS was"
-            echo "configured, and the target registry is unchanged."
+            echo "It is still \`lifecycle=planned\`, it has no public application"
+            echo "presence, and it is not reachable from the public internet."
+            echo
+            echo "Provisioning does install an internal-only vhost, so the target"
+            echo "answers on its internal hostname over loopback — that is the whole of"
+            echo "what responds, and it is how the host checks its own work. There is no"
+            echo "public hostname, no TLS certificate, no redirect and no DNS record."
+            echo
+            echo "No release was built or deployed, no migration ran, no database or"
+            echo "role was created, and the target registry is unchanged."
             echo
             echo "Activating the target, giving it a public hostname and deploying"
             echo "its first release are three separate deliberate operations, and"

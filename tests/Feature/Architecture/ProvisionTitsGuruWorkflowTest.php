@@ -14,13 +14,15 @@ use Symfony\Component\Yaml\Yaml;
  * The distinction those last two draw is the thing most likely to be broken by
  * a later edit, and it is the reason this file is mostly about identity:
  *
- *   GitHub Environment   = which machine, and which credential reaches it
+ *   GitHub Environment   = which credentials and approvals a run uses
  *   action `environment` = which environment class the TARGET belongs to
  *
- * tits-guru is a production target that currently lives on the staging host,
- * so those two legitimately disagree today. Making them agree by "fixing"
- * either one would point a production target's provisioning at the wrong
- * machine, or apply staging's contract to it.
+ * A GitHub Environment is a LOGICAL credential boundary; it implies nothing
+ * about how many machines exist. tits-guru is a production target whose
+ * bootstrap credential currently lives in the staging environment, so the two
+ * legitimately disagree today. Making them agree by "fixing" either one would
+ * reach the wrong machine with the wrong credential, or apply staging's
+ * contract to a production target.
  */
 
 /** @return array{0: array, 1: string} */
@@ -103,8 +105,20 @@ it('reads the machine from the environment that currently binds it', function ()
     // The comment is load-bearing: it is the only thing stopping a later edit
     // from "correcting" one of the two environments into the other.
     expect($source)
-        ->toContain('GitHub Environment  = which machine, and which credential reaches it')
-        ->toContain('action `environment`= which environment class the TARGET belongs to');
+        ->toContain('GitHub Environment  = which credentials and approvals this run uses')
+        ->toContain('action `environment`= which environment class the TARGET belongs to')
+        ->toContain('A GitHub Environment is a LOGICAL credential and permission boundary');
+
+    // ...and it must not explain the split as a consequence of hardware.
+    // Production gets its own environment and its own credentials whether or
+    // not it ever gets its own machine, and that environment may point at this
+    // same VPS on the day it is created. Tying the two together would leave
+    // whoever does that work believing a host has to move first.
+    expect($source)
+        ->toContain('does NOT wait for production to get its own VPS')
+        ->toContain('point at this same machine');
+
+    expect(mb_strtolower($source))->not->toContain('when production gets its own host');
 });
 
 it('provisions with the privileged credential and never the deploy key', function () {
@@ -198,4 +212,39 @@ it('leaves the target planned, undeployed and unreachable', function () {
 
     // The one phrase this summary must never contain.
     expect(mb_strtolower($source))->not->toContain('production ready');
+});
+
+it('states the public boundary exactly, because provisioning does serve something', function () {
+    [, $source] = provisionWorkflow();
+
+    // provision-target installs an internal-only vhost and says so itself:
+    // "the target answers only on its internal hostname over loopback". A
+    // summary claiming the target is reachable from nowhere is therefore
+    // wrong, and wrong in the direction that matters — it invites an operator
+    // to conclude nothing is listening and then be surprised by what is.
+    //
+    // The guarantee worth stating is the PUBLIC boundary, which is the one
+    // provisioning actually makes.
+    expect(File::get(base_path('infrastructure/scripts/provision-target')))
+        ->toContain('internal-only Nginx vhost')
+        ->toContain('answers only on its internal hostname over loopback');
+
+    expect($source)
+        ->toContain('it has no public application')
+        ->toContain('not reachable from the public internet')
+        // And it says what DOES answer, rather than omitting it.
+        ->toContain('internal-only vhost')
+        ->toContain('over loopback');
+
+    foreach (['reachable from nowhere', 'serves nothing', 'nothing is listening', 'listens on nothing'] as $overclaim) {
+        expect(str_contains(mb_strtolower($source), $overclaim))
+            ->toBeFalse("the summary must not overclaim: {$overclaim}");
+    }
+
+    // The contract itself is unweakened: the three states provisioning
+    // guarantees are still exactly what the summary reports.
+    expect($source)
+        ->toContain('lifecycle=planned')
+        ->toContain("steps.provision.outputs['application-state']")
+        ->toContain("steps.provision.outputs['public-state']");
 });
