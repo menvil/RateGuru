@@ -1,0 +1,24 @@
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_c7e782fafc9782::t_5c6b9dc4537ac8 550-551,558-560,562,569-580,586-595,602-604,607-611
+  s_c7e782fafc9782::t_489610b403da54 596-601,605-606
+  s_c7e782fafc9782::t_e90ecb4ab5f0a6 692-700,706-724
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_2525650876ae10 983-995,1080
+  s_c7e782fafc9782::t_cf4d8b6edc61ba 1059-1063,1065,1075-1076
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0191aa6bb6b0d38842be10df17382bbbd9fc4348",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}
