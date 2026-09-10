@@ -1,0 +1,32 @@
+composer.json
+  s_c7e782fafc9782::t_9092c68cde4a13 65,70,74,76
+tests/Feature/Architecture/DatabaseSupportContractTest.php
+  s_c7e782fafc9782::t_07657873e81a61 16-20,41-44,47,51,54-60,65-90,127-133,138-151
+  s_c7e782fafc9782::t_7fc9c954ca6492 61-64
+.github/workflows/coverage.yml
+  s_c7e782fafc9782::t_b8d6d712c9bf31 113-117
+docs/architecture/database-support.md
+  s_c7e782fafc9782::t_b8d6d712c9bf31 15-27,55-58,60-61
+phpunit.xml
+  s_c7e782fafc9782::t_56e917d97ec660 11-17,20-23
+.github/workflows/ci.yml
+  s_c7e782fafc9782::t_9c6a28b41b4770 319-434
+  s_c7e782fafc9782::t_93c4371484ba54 276
+  s_c7e782fafc9782::t_a448f95c6c7583 503-517,702,728-729
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fc14295047c73b90a9ebe204eb7213d89f83701a",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
