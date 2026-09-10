@@ -1,0 +1,21 @@
+composer.json
+  s_65f2eb90734b6e::t_5ff05cacec1420 16
+composer.lock
+  ai_agent 7,1484-1549,1685,1689,1693-1694,1699-1701,1703-1704,1712-1713,1715,1731-1733,1793,1809,1813,1817,1821-1822,1826-1827,1831,1877,1893,1897,1901,1905-1906,1910-1915,1918-1919,1925,1996,2012,2664-2735,3273-3348,4590-4709,5333-5375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b36d95a6bb0a2971c0aedb2250aac64e4d4a32b1",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
