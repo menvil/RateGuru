@@ -1,0 +1,30 @@
+tests/Feature/Architecture/ProvisionRateGuruTargetActionTest.php
+  s_621fa5f7d7c714::t_c35d3bafb38281 227-233,237,239,243,245-247,250
+tests/Feature/Architecture/ProvisionTitsGuruWorkflowTest.php
+  s_621fa5f7d7c714::t_3e56f88126654d 1-201
+.github/workflows/provision-tits-guru.yml
+  s_621fa5f7d7c714::t_acd90829865bb5 1-150
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_621fa5f7d7c714::t_c35d3bafb38281 24
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_621fa5f7d7c714::t_c35d3bafb38281 535
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_621fa5f7d7c714::t_c35d3bafb38281 101
+  s_621fa5f7d7c714::t_813b70bf32bae8 475-483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a680bf8119ee5256108e048980cbd1eca6448c0e",
+  "prompts": {},
+  "sessions": {
+    "s_621fa5f7d7c714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a56b58a2-7103-4707-9143-19af646987d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
