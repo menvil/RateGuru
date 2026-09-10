@@ -224,23 +224,30 @@ it('removes the uploaded bundle and the local credential whatever happened', fun
         ->toContain('RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH');
 });
 
-it('ships no operator-facing provisioning workflow in this slice', function () {
-    // The action is reusable and the primitive is complete; a button that
-    // already changes a production server is a separate, deliberate decision.
+it('is called by exactly one operator-facing workflow, for exactly one target', function () {
+    // This guard used to say "none yet": the action was reusable and complete,
+    // and a button that changes a real server was a separate, deliberate
+    // decision. That decision has been made for tits-guru, so the guard now
+    // pins WHICH button exists rather than forbidding all of them — a second
+    // one appearing unreviewed is the thing still worth catching.
+    //
     // Both extensions: GitHub reads .yaml as readily as .yml, so a guard that
     // only knew one of them would be silent about half the ways this could
     // arrive.
-    $workflows = collect(glob(base_path('.github/workflows/*.{yml,yaml}'), GLOB_BRACE) ?: [])
+    $callers = collect(glob(base_path('.github/workflows/*.{yml,yaml}'), GLOB_BRACE) ?: [])
         ->filter(fn (string $path): bool => str_contains(File::get($path), 'provision-rateguru-target'))
+        ->map(fn (string $path): string => basename($path))
         ->values()
         ->all();
 
-    expect($workflows)->toBe([], 'no workflow may call the provisioning action yet');
+    expect($callers)->toBe(['provision-tits-guru.yml']);
 
-    foreach (['provision-production', 'provision-staging'] as $name) {
+    // No per-environment fork of it, which is the shape this action exists to
+    // make unnecessary.
+    foreach (['provision-production', 'provision-staging', 'provision-target'] as $name) {
         foreach (['yml', 'yaml'] as $extension) {
             expect(File::exists(base_path(".github/workflows/{$name}.{$extension}")))
-                ->toBeFalse("no operator-facing {$name} workflow may exist yet");
+                ->toBeFalse("no generic {$name} workflow may exist: an operator picks the button that names the target");
         }
     }
 });

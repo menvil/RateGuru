@@ -1,0 +1,165 @@
+name: Provision tits.guru
+
+# Manual-only, and deliberately without a single operator input.
+#
+# There is nothing to choose. The target is tits-guru, its environment class is
+# production, and the tooling always comes from develop — all three are
+# structural properties of this file rather than things an operator selects. An
+# operator presses "Run workflow"; every decision the operation makes belongs to
+# infrastructure/scripts/provision-target on the host.
+#
+# WHAT THIS IS. One button for one decision: build the infrastructure a target
+# that is already declared `planned` in the registry needs, on the host that
+# already exists. Nothing more.
+#
+# WHAT IT IS NOT. It builds no artifact, deploys no release, runs no migration,
+# writes no .env and generates no APP_KEY. It creates no database and no role,
+# installs no authorized_keys, grants no sudo, configures no B2, no backups, no
+# TLS, no DNS, no public vhost, no mail and no production observability. It does
+# not edit deployment-targets.json and it does not change any lifecycle. There
+# is deliberately no `ref`, `tag`, `branch`, `version` or `run-migrations`
+# input, because none of those are questions this operation asks.
+#
+# The only valid end state is the one it started from, plus infrastructure:
+#
+#   target=tits-guru  lifecycle=planned  environment_class=production
+#   infrastructure=provisioned  application=not-deployed  public=not-activated
+#
+# A green run is NOT "production is ready". It is "the target's infrastructure
+# exists". Activation, public routing and the first release are each separate,
+# deliberate operations that this workflow cannot perform.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Provisioning installs this target's own service configuration and reloads
+# host services shared with staging-main, so it must not overlap a staging
+# deploy, a staging rollback, a Prepare Host run or any other mutation of the
+# same machine.
+#
+# The staging group is the right one BECAUSE both logical targets currently sit
+# on the same physical host. That is a fact about today's topology, not about
+# the targets: when a second host actually exists, the serialization model
+# becomes a question about hosts rather than about environments, and inventing a
+# second host-mutation lane now would only mean two lanes over one machine.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision the tits-guru infrastructure
+    runs-on: ubuntu-latest
+
+    # READ THIS BEFORE CHANGING IT.
+    #
+    # `staging` here is the GitHub Environment, and a GitHub Environment is
+    # where a PHYSICAL HOST is bound to its bootstrap credential. tits-guru
+    # currently lives on the same machine as staging-main, and that machine's
+    # address, port, bootstrap user and privileged key are configured in the
+    # `staging` environment — so that is where they are read from.
+    #
+    # It is NOT the target's environment class. tits-guru is a production
+    # target; `environment: production` is passed to the action below, and that
+    # is what decides which registry contract, paths and identities the
+    # server-side provisioner applies.
+    #
+    #   GitHub Environment  = which credentials and approvals this run uses
+    #   action `environment`= which environment class the TARGET belongs to
+    #
+    # A GitHub Environment is a LOGICAL credential and permission boundary. It
+    # says nothing about how many machines exist, and it never has: one
+    # environment can bind a host that another environment also binds.
+    #
+    # Conflating the two would either reach the wrong machine with the wrong
+    # credential or apply staging's contract to a production target.
+    #
+    # This binding is temporary. The work that gives production its own GitHub
+    # Environment and its own credentials is separate and already planned, and
+    # it does NOT wait for production to get its own VPS — that environment may
+    # perfectly well point at this same machine on the day it is created.
+    # Moving production onto another host is an independent decision that
+    # nothing here depends on. When production has its own environment, this
+    # line becomes `production` deliberately, not as a side effect.
+    environment: staging
+
+    # Provisioning converges a target's filesystem, PHP-FPM pool, Supervisor
+    # program, scheduler entry and internal vhost, then verifies all of it. On
+    # an already-provisioned target it finishes in a fraction of this.
+    timeout-minutes: 30
+
+    steps:
+      # Provisioning tooling is operational code and always comes from the
+      # trusted develop branch. There is no second checkout here, because there
+      # is no application source in this operation at all.
+      - name: Checkout trusted provisioning tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Provision tits-guru
+        id: provision
+        uses: ./.github/actions/provision-rateguru-target
+        with:
+          deployment-target: tits-guru
+
+          # The TARGET's environment class, not the GitHub Environment above.
+          environment: production
+
+          # The physical machine, from the environment that currently binds it.
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # Provisioning creates system identities and service configuration, so
+          # it needs root. The restricted deploy credential reaches only the
+          # narrow rateguru-deploy / rateguru-rollback wrappers and cannot do
+          # this; there is deliberately no fallback between them.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The action's own outputs, reported rather than re-derived — and phrased
+      # so a green run cannot be read as more than it is.
+      - name: Report what this run did and did not do
+        shell: bash
+        env:
+          PROVISIONED: ${{ steps.provision.outputs.provisioned }}
+          LIFECYCLE: ${{ steps.provision.outputs.lifecycle }}
+          APPLICATION_STATE: ${{ steps.provision.outputs['application-state'] }}
+          PUBLIC_STATE: ${{ steps.provision.outputs['public-state'] }}
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Provision tits.guru"
+            echo
+            echo "| Fact | Value |"
+            echo "| --- | --- |"
+            echo "| Target | \`tits-guru\` |"
+            echo "| Environment class | \`production\` |"
+            echo "| Infrastructure provisioned | \`${PROVISIONED:-unknown}\` |"
+            echo "| Lifecycle | \`${LIFECYCLE:-unknown}\` |"
+            echo "| Application | \`${APPLICATION_STATE:-unknown}\` |"
+            echo "| Public | \`${PUBLIC_STATE:-unknown}\` |"
+            echo
+            echo "The target's infrastructure exists. That is all this run did."
+            echo
+            echo "It is still \`lifecycle=planned\`, it has no public application"
+            echo "presence, and it is not reachable from the public internet."
+            echo
+            echo "Provisioning does install an internal-only vhost, so the target"
+            echo "answers on its internal hostname over loopback — that is the whole of"
+            echo "what responds, and it is how the host checks its own work. There is no"
+            echo "public hostname, no TLS certificate, no redirect and no DNS record."
+            echo
+            echo "No release was built or deployed, no migration ran, no database or"
+            echo "role was created, and the target registry is unchanged."
+            echo
+            echo "Activating the target, giving it a public hostname and deploying"
+            echo "its first release are three separate deliberate operations, and"
+            echo "none of them is this button."
+          } >> "${GITHUB_STEP_SUMMARY}"
