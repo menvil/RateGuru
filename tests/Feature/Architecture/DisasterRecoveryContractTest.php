@@ -395,9 +395,20 @@ it('declares success only from an independent reading of the final contract', fu
         ->toContain('still carries a recovery guard')
         ->toContain('carries a restore guard')
         ->toContain('has no current release symlink')
+        // A recovered host has had exactly one deployment — the controlled
+        // recovery deployment, which leaves no rollback target on purpose. A
+        // `previous` therefore means a later deployment, an adoption already
+        // under way, or a different machine, and rolling "back" from a
+        // recovery would serve code the recovered data does not belong to.
+        ->toContain('carries a previous release link')
         ->toContain('RECOVERED: YES')
+        ->toContain('PREVIOUS: absent')
         ->toContain('HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT')
         ->toContain('OFFSITE WRITES: HELD');
+
+    // Absent means absent under every spelling: a broken symlink resolves to
+    // nothing, so `-e` alone would follow it and report the host clean.
+    expect($recover)->toContain('[[ -e "${PREVIOUS_LINK}" ]] || [[ -L "${PREVIOUS_LINK}" ]]');
 
     foreach (disasterRecoveryWorkflows() as $file => [$target, $environment]) {
         [$workflow] = recoverWorkflow($file);
@@ -412,8 +423,18 @@ it('declares success only from an independent reading of the final contract', fu
 
         expect(data_get($steps['Prove the verified host serves the commit its data belongs to'], 'run'))
             ->toContain('if [[ "${SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then')
-            ->toContain('if [[ "${OFFSITE_WRITES}" != "held" ]]; then');
+            ->toContain('if [[ "${OFFSITE_WRITES}" != "held" ]]; then')
+            ->toContain('if [[ "${PREVIOUS}" != "absent" ]]; then');
     }
+
+    // Three independent layers say the same thing about `previous`, and each
+    // refuses rather than defaults: the server will not verify such a host,
+    // the shared action will not relay a result that claims one, and the run
+    // summary will not head itself "as verified on the host" over it. An
+    // EMPTY value is a verification that did not report the field, and is
+    // refused exactly as firmly — the contract is never an optimistic default.
+    expect(File::get(base_path('.github/actions/recover-rateguru-host/action.yml')))
+        ->toContain('a recovered host has no previous release link');
 });
 
 // =============================================================================

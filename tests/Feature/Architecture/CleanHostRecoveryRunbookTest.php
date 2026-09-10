@@ -232,6 +232,30 @@ it('states the final contract the run summary reports', function () {
         ->toContain('| DEPLOY_HOST | unchanged |')
         ->toContain('OFFSITE WRITES: HELD');
 
+    // An absent `previous` is a promise the runbook makes to an operator, so
+    // it has to be a promise something enforces rather than a hopeful
+    // description of the usual case. All three layers are asserted together
+    // here because the failure this catches is exactly the drift between
+    // them: prose that states a contract nothing refuses to break.
+    expect(File::get(base_path('infrastructure/scripts/recover-host')))
+        ->toContain('carries a previous release link')
+        ->toContain('PREVIOUS: absent');
+
+    expect(File::get(base_path('.github/actions/recover-rateguru-host/action.yml')))
+        ->toContain('.previous == "absent"');
+
+    expect($report)
+        ->toContain('| Previous | \\`${RECOVERED_PREVIOUS}\\` |')
+        ->toContain('the verified host carries a previous release link');
+
+    // And the recover-host runbook, which is where an operator reads what the
+    // verification actually judges, says the same thing rather than the older
+    // "not a failure".
+    expect(preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/runbooks/recover-host.md'))))
+        ->toContain('`previous` is **absent**')
+        ->toContain('being absent is required, not merely tolerated')
+        ->not->toContain('being absent is **not** a failure');
+
     // When a run stops half way, the runbook's advice is the workflow's own
     // START/CONTINUE recommendation, and it names both safe stages.
     expect($runbook)

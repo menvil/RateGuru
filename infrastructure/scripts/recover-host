@@ -1695,6 +1695,7 @@ emit_recover_result() {
             --arg queue "${RECOVER_QUEUE}" \
             --arg scheduler "${RECOVER_SCHEDULER}" \
             --arg offsite_writes "${RECOVER_OFFSITE_WRITES}" \
+            --arg previous "${RECOVER_PREVIOUS}" \
             --argjson data_restored "${DATA_RESTORED}" \
             '{
                 status: $status,
@@ -1710,7 +1711,8 @@ emit_recover_result() {
                 health: $health,
                 queue: $queue,
                 scheduler: $scheduler,
-                offsite_writes: $offsite_writes
+                offsite_writes: $offsite_writes,
+                previous: $previous
             }'
     )" || fail "could not render the machine-readable recovery result"
 
@@ -1721,6 +1723,9 @@ RECOVER_HEALTH="unknown"
 RECOVER_QUEUE="unknown"
 RECOVER_SCHEDULER="unknown"
 RECOVER_OFFSITE_WRITES="unknown"
+# Only --verify proves this, and only by refusing every other answer. Every
+# other mode reports what it has: "unknown", never an optimistic "absent".
+RECOVER_PREVIOUS="unknown"
 
 # --- failure handling ----------------------------------------------------------------
 #
@@ -2166,6 +2171,37 @@ print_awaiting_code_report() {
 
 # --- shared operation loading -----------------------------------------------------------
 
+# recovery_operation_completed_in_history TARGET OPERATION — did THIS operation
+# finish on this host?
+#
+# The durable journal is the only thing that can answer that, and it is written
+# to answer it: `--resume` appends its `completed` record BEFORE it clears the
+# guard and BEFORE it removes the workspace, so any operation whose workspace is
+# gone because it succeeded has a record, and one whose workspace is gone for
+# any other reason does not.
+#
+# Read-only, exact, and closed in both directions: the target, the operation and
+# the status must all match. A malformed or unreadable journal answers "no",
+# which is the safe direction — the caller then gives the ordinary refusal
+# rather than announcing a completion it cannot evidence.
+recovery_operation_completed_in_history() {
+    local target="$1" operation="$2" history
+    history="$(recovery_history_file)"
+
+    [[ -f "${history}" ]] && [[ ! -L "${history}" ]] || return 1
+
+    # One JSON object per line; jq -e exits 0 only if some line produced a
+    # truthy value, which here means a record matching all three fields.
+    jq -e \
+        --arg target "${target}" \
+        --arg operation "${operation}" \
+        'select(type == "object"
+                and .status == "completed"
+                and .target == $target
+                and .operation == $operation)' \
+        "${history}" >/dev/null 2>&1
+}
+
 # report_absent_recovery_operation — why an operation is not on this host.
 #
 # A recovery removes its own workspace and clears its own guard when it
@@ -2178,30 +2214,26 @@ print_awaiting_code_report() {
 #
 # Getting that wrong is not cosmetic. An operator who reads a finished
 # recovery as a lost one starts a second recovery over a host that is already
-# serving the right code on the right data, and a `--apply` on a serving host
-# is refused far too late in the story to be the place this is explained.
+# serving the right code on the right data.
 #
-# The distinction is a read-only question this host can answer for itself: a
-# completed recovery leaves no guard behind and leaves `current` serving.
+# So the completion is EVIDENCED, never inferred. "No guard and a serving
+# `current`" is what an ordinary healthy target looks like every day of its
+# life, and it would let this announce that any operation ID a person happened
+# to type — a typo, an operation from another machine, one that never existed —
+# had completed here. The journal names the operation, so only the operation the
+# journal names is reported as finished.
 report_absent_recovery_operation() {
-    local marker
-    marker="$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+    if recovery_operation_completed_in_history "${TARGET_ID}" "${OPERATION_ID}"; then
+        operator_action_required \
+            "recovery operation ${OPERATION_ID} has already completed on ${TARGET_ID}, and this host's own recovery journal records it" \
+            "a completed recovery removes its workspace and clears its guard as the last things it does, so there is nothing left to continue. Starting another recovery over this host would restore over data that is already canonical" \
+            "confirm the host instead of recovering it again" \
+            "run: recover-host --verify --target ${TARGET_ID}" \
+            "if that reports RECOVERED: YES, this recovery is complete — do not re-run the recovery workflow in either mode" \
+            "if it refuses, act on what it names; it reports the final contract as it stands on the machine now" \
+            "adopting this machine — repointing the target's deployment binding and its DNS, and releasing the offsite-write hold — is a separate, deliberate operation that no recovery performs"
 
-    if [[ ! -e "${marker}" ]]; then
-        read_current_identity
-
-        if [[ -n "${CURRENT_RELEASE}" ]] && [[ -n "${CURRENT_SOURCE_SHA}" ]]; then
-            operator_action_required \
-                "recovery operation ${OPERATION_ID} is not on this host, and ${TARGET_ID} carries no recovery guard while serving ${CURRENT_RELEASE} (${CURRENT_SOURCE_SHA})" \
-                "this is what a FINISHED recovery looks like: a completed operation removes its own workspace and clears its own guard, so there is nothing left to continue. Starting another recovery over a serving host would restore over data that is already canonical" \
-                "confirm the host instead of recovering it again" \
-                "run: recover-host --verify --target ${TARGET_ID}" \
-                "if that reports RECOVERED: YES, this recovery is complete — do not re-run the recovery workflow in either mode" \
-                "if it refuses, act on what it names; it reports the final contract as it stands on the machine now" \
-                "adopting this machine — repointing the target's deployment binding and its DNS, and releasing the offsite-write hold — is a separate, deliberate operation that no recovery performs"
-
-            fail "recovery operation ${OPERATION_ID} has already completed on ${TARGET_ID}: its workspace was removed when it finished and the host carries no recovery guard. There is nothing to continue, and nothing was read or changed"
-        fi
+        fail "recovery operation ${OPERATION_ID} has already completed on ${TARGET_ID}: the recovery journal records it, and its workspace was removed when it finished. There is nothing to continue, and nothing was read or changed"
     fi
 
     fail "recovery operation workspace does not exist: ${WORKSPACE}"
@@ -2554,10 +2586,19 @@ cleanup_completed_operation() {
 # target a healthy, fully recovered host right now?" against the host as it
 # stands, not against a claim inherited from a run that has already finished.
 #
-# `previous` being absent is NOT a failure here. A freshly recovered host has
-# had exactly one deployment, and the controlled recovery deployment leaves no
-# implicit rollback target on purpose — demanding a deployment history that
-# never existed would make a correct recovery unverifiable.
+# `previous` being ABSENT is part of the final contract, not a pleasant
+# accident of it. A recovered host has had exactly one deployment — the
+# controlled recovery deployment, which deliberately leaves no implicit
+# rollback target — so a `previous` on a host claiming to be freshly recovered
+# means one of the things a recovery must never be read as: a second
+# deployment landed on it, an adoption already began, or the machine is not
+# the one this verification thinks it is. Rolling "back" from a recovery to
+# whatever that link names would leave the target serving code the recovered
+# data does not belong to.
+#
+# So it is required absent, and absent means completely absent: a broken
+# symlink is still a `previous`, and `-e` alone would follow it and report
+# nothing there. Both tests are made.
 #
 # The offsite-write hold being absent IS a failure: a recovered host without
 # it is a second writer on the real offsite namespace, and the final contract
@@ -2584,6 +2625,15 @@ perform_verify() {
     [[ -n "${CURRENT_RELEASE}" ]] && [[ -n "${CURRENT_SOURCE_SHA}" ]] \
         || fail "${TARGET_ID}'s current release carries no usable release/source_sha in release.json"
 
+    # -e follows a symlink and is false for a broken one; -L is true for any
+    # symlink including a broken one. Together they mean "nothing is there
+    # under any name", which is what the contract asks for.
+    if [[ -e "${PREVIOUS_LINK}" ]] || [[ -L "${PREVIOUS_LINK}" ]]; then
+        fail "${TARGET_ID} carries a previous release link (${PREVIOUS_LINK}) — a recovered host has none. The controlled recovery deployment is the only deployment a recovered host has had, and it leaves no rollback target on purpose, so a 'previous' here means something deployed to this machine after the recovery, an adoption has already begun, or this is not the host this verification is describing. Nothing was changed; establish which of those it is before treating this target as a completed recovery"
+    fi
+
+    RECOVER_PREVIOUS="absent"
+
     verify_recovered_database
     verify_recovered_storage
 
@@ -2603,7 +2653,7 @@ perform_verify() {
     printf 'TARGET: %s\n' "${TARGET_ID}"
     printf 'CURRENT RELEASE: %s\n' "${CURRENT_RELEASE}"
     printf 'SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA}"
-    printf 'PREVIOUS: %s\n' "$([[ -L "${PREVIOUS_LINK}" ]] && printf 'present' || printf 'absent (normal for a freshly recovered host)')"
+    printf 'PREVIOUS: absent\n'
     printf 'HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT\n'
     printf 'OFFSITE WRITES: HELD\n'
     printf '========================================================\n'

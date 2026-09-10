@@ -102,10 +102,31 @@ function runRecoverWorkflowStep(string $file, string $job, string $stepName, arr
 
     $script = tempnam(sys_get_temp_dir(), 'rateguru-workflow-step-');
 
-    file_put_contents($script, "#!/usr/bin/env bash\n".data_get($step, 'run'));
+    // proc_open DROPS an environment entry whose value is the empty string,
+    // leaving the variable unset. These steps run under `set -u`, where unset
+    // and empty are different behaviours, and GitHub sets every key a step
+    // declares in `env:` whether or not it has a value — so a harness that
+    // cannot express "set but empty" cannot exercise the case a workflow
+    // actually meets when an upstream job reported nothing.
+    $exports = '';
+    $passed = [];
+
+    foreach ($env as $name => $value) {
+        expect($name)->toMatch('/^[A-Za-z_][A-Za-z0-9_]*$/', 'environment names are exported into a script');
+
+        if ($value === '') {
+            $exports .= sprintf("export %s=''\n", $name);
+
+            continue;
+        }
+
+        $passed[$name] = $value;
+    }
+
+    file_put_contents($script, "#!/usr/bin/env bash\n".$exports.data_get($step, 'run'));
 
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$env]);
+    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$passed]);
 
     expect($process)->not->toBeFalse('could not start the workflow step under test');
 
@@ -1318,6 +1339,7 @@ function recoverWorkflowStageOutputs(string $mode): array
         'queue' => 'running',
         'scheduler' => 'present',
         'offsite_writes' => 'held',
+        'previous' => 'absent',
     ];
 
     if ($mode === 'start') {
@@ -1486,6 +1508,7 @@ it('lets a failed marker leave an already verified recovery successful', functio
         'RECOVERED_QUEUE' => $outputs['verify']['queue'],
         'RECOVERED_SCHEDULER' => $outputs['verify']['scheduler'],
         'RECOVERED_HEALTH' => $outputs['verify']['health'],
+        'RECOVERED_PREVIOUS' => $outputs['verify']['previous'],
         'OFFSITE_WRITES' => $outputs['verify']['offsite_writes'],
         'VALIDATE_RESULT' => 'success',
         'VALUES_RESULT' => 'success',
@@ -1508,6 +1531,70 @@ it('lets a failed marker leave an already verified recovery successful', functio
         ->and($rendered)->toContain('Recovered — the final contract, as verified on the host')
         ->and($rendered)->toContain('| Deployment marker | `failure` |');
 })->with('recover workflows');
+
+it('will not head a summary "as verified on the host" over a host that carries a previous release', function (
+    string $file,
+    string $case,
+    string $previous,
+    string $expected,
+) {
+    // A recovered host has had exactly one deployment — the controlled
+    // recovery deployment, which leaves no rollback target on purpose. The
+    // server refuses to verify one that has a `previous`, and the action
+    // refuses to relay a result that says otherwise; this is the last of the
+    // three, and the one that would otherwise print the contract as fact.
+    //
+    // An EMPTY value is a verification that did not report the field, which is
+    // exactly as unusable as one reporting the wrong thing: the summary will
+    // not fill a gap with the value the contract hopes for.
+    [$workflow] = recoverWorkflow($file);
+    $report = data_get($workflow, 'jobs.report');
+    $summary = tempnam(sys_get_temp_dir(), 'rateguru-recovery-summary-');
+
+    $outputs = recoverWorkflowStageOutputs('start');
+    $env = array_fill_keys(array_keys((array) data_get($report, 'steps.0.env', [])), '');
+
+    $status = runRecoverWorkflowStep($file, 'report', 'Summarize the recovery', [
+        ...$env,
+        'GITHUB_STEP_SUMMARY' => $summary,
+        'MODE' => 'start',
+        'BACKUP' => $outputs['validate']['backup'],
+        'REPLACEMENT_HOST' => $outputs['validate']['replacement_host'],
+        'REPLACEMENT_PORT' => $outputs['validate']['replacement_port'],
+        'STATUS' => $outputs['recover']['status'],
+        'OPERATION' => $outputs['recover']['operation'],
+        'REQUIRED_SOURCE_SHA' => $outputs['recover']['required_source_sha'],
+        'RECOVERED_RELEASE' => $outputs['verify']['current_release'],
+        'RECOVERED_SOURCE_SHA' => $outputs['verify']['source_sha'],
+        'RECOVERED_QUEUE' => $outputs['verify']['queue'],
+        'RECOVERED_SCHEDULER' => $outputs['verify']['scheduler'],
+        'RECOVERED_HEALTH' => $outputs['verify']['health'],
+        'RECOVERED_PREVIOUS' => $previous,
+        'OFFSITE_WRITES' => $outputs['verify']['offsite_writes'],
+        'VALIDATE_RESULT' => 'success',
+        'VALUES_RESULT' => 'success',
+        'BINDING_RESULT' => 'success',
+        'PREFLIGHT_RESULT' => 'success',
+        'DEPLOY_IDENTITY_RESULT' => 'success',
+        'PREPARATION_RESULT' => 'success',
+        'RECOVER_RESULT' => 'success',
+        'BUILD_RESULT' => 'success',
+        'DEPLOY_RESULT' => 'success',
+        'RESUME_RESULT' => 'success',
+        'VERIFY_RESULT' => 'success',
+        'OBSERVABILITY_RESULT' => 'success',
+    ]);
+
+    $rendered = (string) file_get_contents($summary);
+    unlink($summary);
+
+    expect($status)->not->toBe(0, "{$file}: {$case} was announced as a completed recovery")
+        ->and($rendered)->toContain($expected)
+        ->and($rendered)->not->toContain('Recovered — the final contract, as verified on the host');
+})->with(recoverWorkflowFiles())->with([
+    'a previous release link' => ['a previous release link', 'present', 'the verified host carries a previous release link'],
+    'an unreported previous' => ['an unreported previous', '', 'the final verification reported an incomplete contract'],
+]);
 
 it('gives staging and production one marker contract', function () {
     [$staging] = recoverWorkflow('recover-staging.yml');
