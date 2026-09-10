@@ -1,0 +1,46 @@
+.github/workflows/recover-production.yml
+  s_e01a0d85f62894::t_be06d365163e67 1340,1377,1399-1408,1534
+  s_e01a0d85f62894::t_34c9129c76dfb5 1607,1627-1648,1660
+.github/actions/recover-rateguru-host/action.yml
+  s_e01a0d85f62894::t_2d7cd6cf285d99 193-198,201-202,717,723-732,748,765-768
+  s_e01a0d85f62894::t_f955f001ff9f8e 199-200
+tests/Feature/Architecture/RecoverHostTest.php
+  s_e01a0d85f62894::t_a713e4d0781faf 1830,1843-1882,1889-1892,1906-1950
+  s_e01a0d85f62894::t_b872c83af2777f 2426,2444,2453-2456,2463-2505
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_e01a0d85f62894::t_327ded90fd2983 265
+  s_e01a0d85f62894::t_eede48baf16327 540,566,590,601-602,607-646
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_e01a0d85f62894::t_8e61763b971cca 1342,1511,1535-1597
+  s_e01a0d85f62894::t_53255686553b89 105-126,129
+infrastructure/runbooks/recover-host.md
+  s_e01a0d85f62894::t_a8bd7491a156f5 798-812
+tests/Feature/Architecture/CleanHostRecoveryRunbookTest.php
+  s_e01a0d85f62894::t_517e8bf07165c1 242,245
+  s_e01a0d85f62894::t_4888b77a0e4621 248
+  s_e01a0d85f62894::t_d79e1160d59765 235-241,243-244,246-247,249-258
+tests/Feature/Architecture/DisasterRecoveryContractTest.php
+  s_e01a0d85f62894::t_076370875dbe03 398-403,405,409-412,426-427,429-437
+.github/workflows/recover-staging.yml
+  s_e01a0d85f62894::t_be06d365163e67 1303,1340,1362-1371,1497
+  s_e01a0d85f62894::t_34c9129c76dfb5 1570,1590-1611,1623
+infrastructure/scripts/recover-host
+  s_e01a0d85f62894::t_c3ea6edc68abbb 1698,1714-1715,1726-1728,2589-2601,2628-2636,2656
+  s_e01a0d85f62894::t_7be61c6c60eabe 2174-2204,2217-2224,2226-2236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "563cc315a9c9bc4037647ef1418e822e04f396e2",
+  "prompts": {},
+  "sessions": {
+    "s_e01a0d85f62894": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45e344df-cbce-4e0d-a3ec-dfe8183f587d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
