@@ -1005,7 +1005,7 @@ it('reports drift distinctly from missing/conflict and converges only the drifte
 
         [$exit, $output] = bsvcRun(['--check'], $env);
         expect($exit)->toBe(1, $output);
-        expect($output)->toContain('DRIFT    file:/etc/nginx/sites-available/rateguru-staging — content differs from the committed source');
+        expect($output)->toContain('DRIFT    file:/etc/nginx/sites-available/rateguru-staging — content differs from its source');
         expect($output)->toContain("DRIFT: 1\n");
 
         foreach (glob($scratch.'/log/*') ?: [] as $log) {
@@ -2547,3 +2547,353 @@ it('reports the deployment-marker authorization in check and verify, and fails w
         bsvcCleanup($scratch);
     }
 })->with(['--check', '--verify']);
+
+// =============================================================================
+// --provisioning: the argv-only authorization for a PLANNED production target.
+//
+// The end-to-end proof that it configures one lives in ProvisionTargetTest,
+// which drives this installer through the orchestrator that owns the
+// operation. What is proved here is the boundary and the renderer.
+// =============================================================================
+
+it('documents the provisioning authorization in its usage', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        [$exit, $output] = bsvcRun(['--help'], bsvcFixture($scratch));
+
+        expect($exit)->toBe(0);
+        expect($output)
+            ->toContain('install-bootstrap-services --apply  --target TARGET_ID --provisioning')
+            ->toContain('The target stays planned, the registry is never')
+            ->toContain('written, the queue worker is never started, and no public');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('refuses --provisioning without a target, before the registry is even read', function (string $mode) {
+    $scratch = bsvcScratchDir();
+
+    try {
+        [$exit, $output] = bsvcRun([$mode, '--provisioning'], bsvcFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('--provisioning requires --target')
+            ->toContain('never for the host');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(bsvcLog($scratch, 'install.log'))->toBe('');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->with(['--check', '--apply', '--verify'])->group('bsvc-provisioning');
+
+it('refuses to configure a target that is not a planned production one', function (
+    string $target,
+    array $registryOverrides,
+    string $expected,
+) {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $options = [];
+
+        if ($registryOverrides !== []) {
+            $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+
+            foreach ($registryOverrides as $key => $value) {
+                $registry['targets'][$target][$key] = $value;
+            }
+
+            file_put_contents($scratch.'/fs/provisioning-registry.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+            $options['registryPath'] = $scratch.'/fs/provisioning-registry.json';
+        }
+
+        $env = bsvcFixture($scratch);
+
+        if (isset($options['registryPath'])) {
+            $env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY'] = $options['registryPath'];
+        }
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', $target, '--provisioning'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain($expected);
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([], 'a refused authorization must touch no service');
+        expect(bsvcLog($scratch, 'install.log'))->toBe('', 'a refused authorization must install nothing');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->with([
+    'an active target' => [
+        'staging-main', [],
+        '--provisioning refuses target staging-main: it is lifecycle=active',
+    ],
+    'a disabled target' => [
+        'tits-guru', ['lifecycle' => 'disabled'],
+        '--provisioning refuses target tits-guru: it is lifecycle=disabled',
+    ],
+    'a planned staging target' => [
+        'tits-guru', ['environment_class' => 'staging'],
+        '--provisioning refuses target tits-guru: it is environment_class=staging',
+    ],
+])->group('bsvc-provisioning');
+
+it('keeps ordinary --target behaviour unchanged: a planned target is still refused without the flag', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'tits-guru'], bsvcFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=planned')
+            ->toContain('this installer never configures a planned target')
+            ->toContain('--target tits-guru --provisioning');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('names the lifecycle a refused target actually has, rather than assuming planned', function () {
+    // A disabled target is not an active one, so it travels with the planned
+    // ones through this installer — every one of them is equally out of scope.
+    // Telling an operator their disabled target is "planned", and pointing
+    // them at --provisioning, would send them to a flag that refuses it too.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['tits-guru']['lifecycle'] = 'disabled';
+
+        file_put_contents($scratch.'/fs/disabled-registry.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+        $env = bsvcFixture($scratch);
+        $env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY'] = $scratch.'/fs/disabled-registry.json';
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=disabled')
+            ->toContain('a reviewed registry change rather than a flag')
+            ->not->toContain('tits-guru is lifecycle=planned');
+
+        // And the host report says the same thing about it.
+        [, $hostOutput] = bsvcRun(['--check'], $env);
+
+        expect($hostOutput)
+            ->toContain('target:tits-guru — lifecycle=disabled — zero service configuration')
+            ->not->toContain('target:tits-guru — lifecycle=planned');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+// =============================================================================
+// The generic production renderer
+// =============================================================================
+
+/**
+ * Runs the real rendering path by sourcing the shipped installer and driving
+ * its own functions — no reimplementation, and no host required, because
+ * rendering reads the registry and nothing else.
+ *
+ * @return array<string, string> logical family => rendered bytes
+ */
+function bsvcRenderTarget(string $scratch, string $registryPath, string $targetId): array
+{
+    $harness = $scratch.'/render-harness-'.uniqid('', true).'.sh';
+
+    file_put_contents($harness, implode("\n", [
+        'set -Eeuo pipefail',
+        // No error suppression: sourcing the installer is silent and returns
+        // 0, so anything else is a real failure that must stop the harness
+        // here rather than surface as a missing function three lines down.
+        'source '.escapeshellarg(bsvcScript()),
+        // main() installs this trap; a sourced installer never runs main, so
+        // the harness installs it itself and a failure mid-render still takes
+        // the render root with it.
+        'trap cleanup_render_root EXIT',
+        'SOURCE_REGISTRY='.escapeshellarg($registryPath),
+        'TARGET_SCOPE='.escapeshellarg($targetId),
+        'PROVISIONING=true',
+        'MODE=check',
+        'load_source_contract',
+        'for family in NGINX FPM SUPERVISOR CRON; do',
+        '    declare -n rendered="TGT_RENDERED_${family}"',
+        '    printf "===%s===\n" "${family}"',
+        '    cat "${rendered['.escapeshellarg($targetId).']}"',
+        '    unset -n rendered',
+        'done',
+        '',
+    ]));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes, null, [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+    ]);
+
+    expect($process)->not->toBeFalse();
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $exit = proc_close($process);
+
+    expect($exit)->toBe(0, "rendering failed:\n{$output}");
+
+    $rendered = [];
+    $parts = preg_split('/^===([A-Z]+)===$/m', $output, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+
+    for ($i = 0; $i + 1 < count($parts); $i += 2) {
+        $rendered[$parts[$i]] = $parts[$i + 1];
+    }
+
+    expect(array_keys($rendered))->toBe(['NGINX', 'FPM', 'SUPERVISOR', 'CRON']);
+
+    return $rendered;
+}
+
+it('renders a production target deterministically, from the registry and nothing else', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $registry = base_path('infrastructure/config/deployment-targets.json');
+
+        $first = bsvcRenderTarget($scratch, $registry, 'tits-guru');
+        $second = bsvcRenderTarget($scratch, $registry, 'tits-guru');
+
+        expect($second)->toBe($first, 'the same registry must render the same bytes every time');
+
+        // A run whose only difference is one registry value differs only where
+        // that value belongs — which is what makes provisioning a target and
+        // later verifying it as an active one produce no drift.
+        $altered = json_decode(File::get($registry), true, 512, JSON_THROW_ON_ERROR);
+        $altered['targets']['tits-guru']['nginx']['internal_hostname'] = 'other-brand.internal';
+        $altered['targets']['tits-guru']['health']['host_header'] = 'other-brand.internal';
+        $alteredPath = $scratch.'/fs/altered-registry.json';
+        file_put_contents($alteredPath, json_encode($altered, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+        $third = bsvcRenderTarget($scratch, $alteredPath, 'tits-guru');
+
+        expect($third['NGINX'])->toContain('server_name other-brand.internal;');
+        expect($third['FPM'])->toBe($first['FPM']);
+        expect($third['SUPERVISOR'])->toBe($first['SUPERVISOR']);
+        expect($third['CRON'])->toBe($first['CRON']);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('renders a queue program that is safe for supervisord to load before the first release', function () {
+    // The program file lands in supervisord's own configuration directory, so
+    // a supervisord restart or a host reboot loads it whether or not anybody
+    // activated it. A planned production target can sit in that state for
+    // weeks, which is why the safety lives in the configuration rather than in
+    // the order somebody ran commands in.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru');
+        $supervisor = $rendered['SUPERVISOR'];
+        $root = '/home/www/rateguru/production/tits-guru';
+
+        expect($supervisor)
+            // supervisord chdirs here BEFORE spawning, so it must be a
+            // directory that exists on a target with no release at all.
+            ->toContain("directory={$root}\n")
+            ->not->toContain("directory={$root}/current\n")
+            // current/ is entered by the command, and only once it is real.
+            ->toContain("[ ! -d {$root}/current ]")
+            ->toContain("cd {$root}/current")
+            // exec, so stopwaitsecs and the stop signal reach the worker
+            // rather than the guard shell that spawned it.
+            ->toContain('&& exec /usr/bin/php8.5 artisan queue:work');
+
+        // The policy that turns those exit codes into the right states: 99 is
+        // the only expected exit, so the guard settles into EXITED while the
+        // worker's own 0 — returned on every --max-time turnover — is
+        // unexpected and brings it back.
+        expect($supervisor)
+            ->toContain("autostart=true\n")
+            ->toContain("autorestart=unexpected\n")
+            ->toContain("exitcodes=99\n")
+            // Untouched, so a genuinely crash-looping deployed worker still
+            // reaches FATAL instead of restarting forever.
+            ->toContain("startsecs=3\n")
+            ->toContain("startretries=5\n");
+
+        // And the guard outlives startsecs: supervisord treats any exit before
+        // it as a failed start and backs off regardless of the exit code, so
+        // an immediate exit would be BACKOFF -> FATAL rather than a clean stop.
+        preg_match('/sleep (\\d+); exit 99/', $supervisor, $settle);
+
+        expect($settle)->not->toBeEmpty('the guard must settle before it exits');
+        expect((int) $settle[1])->toBeGreaterThan(3);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('never renders a public hostname, a TLS listener or a certificate path', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru');
+
+        // The registry declares a public hostname for this target, and the
+        // renderer has no notion of one: that is what keeps provisioning from
+        // being able to put a target on the public internet.
+        $public = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR)['targets']['tits-guru']['public_hostnames'][0];
+
+        foreach ($rendered as $family => $bytes) {
+            expect($bytes)->not->toContain($public, "{$family} must not carry a public hostname");
+        }
+
+        expect($rendered['NGINX'])
+            ->toContain('server_name tits-guru.internal;')
+            ->toContain('allow 127.0.0.1;')
+            ->toContain('deny all;')
+            ->not->toContain('listen 443')
+            ->not->toContain('ssl_certificate')
+            ->not->toContain('ssl_dhparam')
+            ->not->toContain('letsencrypt')
+            ->not->toContain('auth_basic')
+            ->not->toContain('return 301');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('reads a staging target from its committed sources and never from a render', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'clean']);
+
+        [$exit, $output] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(1, 'a clean host has nothing installed yet');
+
+        // The staging target's sources are the committed files, named as such.
+        expect($output)
+            ->toContain('install from infrastructure/config/nginx/rateguru-staging')
+            ->toContain('install from infrastructure/config/php-fpm/rateguru-staging.conf')
+            ->toContain('install from infrastructure/config/supervisor/rateguru-staging-queue.conf')
+            ->toContain('install from infrastructure/config/cron/rateguru-staging-scheduler')
+            // and no rendering happened for it at all.
+            ->not->toContain('generic production rendering')
+            ->not->toContain('rendering:staging-main');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');

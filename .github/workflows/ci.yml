@@ -257,25 +257,6 @@ jobs:
             | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
           sudo npx playwright install-deps chromium
 
-      # The target-aware offsite backup Architecture tests exercise a real
-      # `rclone` binary (against a local-backend config, never real B2) to
-      # get genuine --immutable/check/purge semantics instead of a stub.
-      # Installed from the pinned, checksum-verified GitHub release .deb —
-      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
-      # trickling for hours (regional outages), while dpkg -i needs no network
-      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
-      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
-      - name: Install rclone
-        timeout-minutes: 5
-        env:
-          RCLONE_VERSION: v1.75.0
-          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
-        run: |
-          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
-            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
-          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
-          sudo dpkg -i /tmp/rclone.deb
-
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -292,7 +273,7 @@ jobs:
 
       - name: Run PostgreSQL tests
         id: pest
-        run: php artisan test --parallel --log-junit junit.xml
+        run: php artisan test --parallel --exclude-testsuite=Architecture --log-junit junit.xml
 
       - name: Collect test results
         id: test-results
@@ -334,6 +315,123 @@ jobs:
           name: laravel-logs
           path: storage/logs
           retention-days: 5
+
+  tests-architecture:
+    name: Architecture tests (Pest)
+    runs-on: ubuntu-latest
+    # Its own job, because the Architecture suite is its own kind of test: it
+    # reads committed files and drives real shell subprocesses against a
+    # simulated host, and not one of its 2360 tests touches the database. Run
+    # inside Feature it was re-executed by both compatibility jobs, where it
+    # could not discover anything a database engine might disagree about, and a
+    # failure there said "MariaDB" when it meant "a shell script changed".
+    #
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run.
+    timeout-minutes: 60
+    needs: frontend-build
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
+      # The commit this branch is measured against, for the architecture scope
+      # guards. Empty on a push event, where those guards correctly skip.
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    outputs:
+      tests: ${{ steps.architecture-results.outputs.tests }}
+    services:
+      # No Architecture test queries the database, but every test in
+      # tests/Feature is bound to RefreshDatabase by tests/Pest.php, so the
+      # connection has to be real for setUp to succeed.
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      # Depth 2, not the default 1. On a pull_request event the checkout is a
+      # merge commit whose first parent is the base branch tip, so two commits
+      # is exactly enough for the architecture scope guards to diff this branch
+      # against its base — and a scope guard that silently skips on every pull
+      # request protects nothing.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql, gd, exif
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
+      - name: Install rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Run Architecture tests
+        id: architecture
+        run: php artisan test --parallel --testsuite=Architecture --log-junit architecture-junit.xml
+
+      - name: Collect architecture results
+        id: architecture-results
+        if: always()
+        run: |
+          php -r '
+              $tests = "n/a";
+              if (is_file("architecture-junit.xml")) {
+                  $junit = simplexml_load_file("architecture-junit.xml");
+                  if ($junit !== false) {
+                      $total = 0;
+                      foreach ($junit->testsuite as $suite) {
+                          $total += (int) ($suite["tests"] ?? 0);
+                      }
+                      $tests = (string) $total;
+                  }
+              }
+              file_put_contents(getenv("GITHUB_OUTPUT"), sprintf("tests=%s\n", $tests), FILE_APPEND);
+          '
 
   migrations-mariadb:
     name: Compatibility (MariaDB)
@@ -397,29 +495,25 @@ jobs:
           name: public-build
           path: public/build
 
-      # The target-aware offsite backup Architecture tests exercise a real
-      # `rclone` binary (against a local-backend config, never real B2) to
-      # get genuine --immutable/check/purge semantics instead of a stub.
-      # Installed from the pinned, checksum-verified GitHub release .deb —
-      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
-      # trickling for hours (regional outages), while dpkg -i needs no network
-      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
-      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
-      - name: Install rclone
-        timeout-minutes: 5
-        env:
-          RCLONE_VERSION: v1.75.0
-          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
-        run: |
-          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
-            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
-          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
-          sudo dpkg -i /tmp/rclone.deb
-
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
+
+      # A parallel run gives every worker its own database: Laravel creates
+      # `rateguru_test_test_<token>` the first time a worker connects. The
+      # MariaDB image grants the test user rights on exactly one database, so
+      # the grant is widened to the family those workers use — and to nothing
+      # else. Run through the service container's own client, so the job does
+      # not depend on which MySQL/MariaDB client the runner image happens to
+      # ship.
+      - name: Allow per-worker test databases
+        run: |
+          set -Eeuo pipefail
+          container="$(docker ps --filter "ancestor=mariadb:11.4" --format '{{.ID}}' | head -1)"
+          test -n "${container}"
+          docker exec "${container}" mariadb -uroot -prateguru-root \
+            -e "GRANT ALL PRIVILEGES ON \`rateguru\\_test%\`.* TO 'rateguru'@'%'; FLUSH PRIVILEGES;"
 
       - name: Run MariaDB compatibility tests
         run: composer test:mariadb
@@ -480,25 +574,6 @@ jobs:
         with:
           name: public-build
           path: public/build
-
-      # The target-aware offsite backup Architecture tests exercise a real
-      # `rclone` binary (against a local-backend config, never real B2) to
-      # get genuine --immutable/check/purge semantics instead of a stub.
-      # Installed from the pinned, checksum-verified GitHub release .deb —
-      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
-      # trickling for hours (regional outages), while dpkg -i needs no network
-      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
-      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
-      - name: Install rclone
-        timeout-minutes: 5
-        env:
-          RCLONE_VERSION: v1.75.0
-          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
-        run: |
-          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
-            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
-          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
-          sudo dpkg -i /tmp/rclone.deb
 
       - name: Prepare application
         run: |
@@ -624,6 +699,7 @@ jobs:
       - static-analysis
       - frontend-build
       - tests
+      - tests-architecture
       - migrations-mariadb
       - tests-sqlite
       - dependency-audit
@@ -649,6 +725,8 @@ jobs:
           TEST_COUNT: ${{ needs.tests.outputs.tests }}
           ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
           POSTGRES_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
+          ARCHITECTURE_TESTS: ${{ needs['tests-architecture'].outputs.tests }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
           MARIADB_ROLLBACK: ${{ needs['migrations-mariadb'].outputs.rollback }}

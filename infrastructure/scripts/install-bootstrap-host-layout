@@ -34,6 +34,19 @@
 # zero user, group or filesystem mutation and are reported as deliberately
 # skipped.
 #
+# The one exception is explicit and has to be asked for in argv:
+# `--target TARGET_ID --provisioning` narrows the same contract to ONE
+# lifecycle=planned, environment_class=production target, so a new production
+# target's identities and directories can be created before it is ever
+# activated. Nothing about the contract changes — the same groups, users,
+# memberships and directory entries, with the same owners and modes — and
+# there is deliberately no second implementation of any of it. Every other
+# lifecycle, and a planned STAGING target, is refused: provisioning is for a
+# planned production target only, and an active target already has Prepare
+# Host and Repair Target. `--provisioning` without `--target` is refused too,
+# and there is no environment variable that can stand in for it: the
+# authorization has to be visible in the command line an operator ran.
+#
 # Identity model (why the ownership boundary looks the way it does):
 #   deploy user (deploy-rateguru-staging)  owns incoming artifacts and
 #       creates immutable releases (releases/locks/deployments are
@@ -220,8 +233,18 @@ MODE_SEEN=false
 # implementation of any check or convergence for target mode to use.
 TARGET_SCOPE=""
 
+# Explicit, argv-only authorization to run the target-scoped contract for a
+# planned production target. There is no environment variable for it on
+# purpose: an authorization that can be set by an exported variable is an
+# authorization nobody can see in the command that was run.
+PROVISIONING=false
+
 target_scoped() {
     [[ -n "${TARGET_SCOPE}" ]]
+}
+
+provisioning() {
+    [[ "${PROVISIONING}" == true ]]
 }
 
 COUNT_PASS=0
@@ -297,6 +320,10 @@ Usage:
   install-bootstrap-host-layout --apply  --target TARGET_ID
   install-bootstrap-host-layout --verify --target TARGET_ID
 
+  install-bootstrap-host-layout --check  --target TARGET_ID --provisioning
+  install-bootstrap-host-layout --apply  --target TARGET_ID --provisioning
+  install-bootstrap-host-layout --verify --target TARGET_ID --provisioning
+
   install-bootstrap-host-layout --help
 
 All modes require root.
@@ -306,6 +333,16 @@ All modes require root.
             host roots are inspected as prerequisites and never created or
             re-owned, and no other target is read or touched. Without it,
             this installer is exactly the host bootstrap it has always been.
+
+  --provisioning
+            Only valid with --target, and only for a lifecycle=planned,
+            environment_class=production target. It authorizes the same
+            target-scoped contract to run for a target that is not active
+            yet, so a new production target's identities and directories can
+            exist before it is activated. It never changes the contract, it
+            never touches the registry, and it never makes the target
+            deployable. Any other lifecycle — active, disabled, unknown — and
+            any planned staging target is refused.
 
   --check   Read-only install-bootstrap-host-layout contract validation plus the intended
             --apply action for every unsatisfied item. Validates the source
@@ -325,8 +362,9 @@ All modes require root.
 
 Identity and filesystem scope only: packages belong to install-bootstrap-runtime; service
 configuration, runtime registry, perimeter, SSH keys, ACLs, databases and
-TLS belong to install-bootstrap-services. Only lifecycle=active targets are provisioned —
-planned targets cause zero mutation.
+TLS belong to install-bootstrap-services. Only lifecycle=active targets are provisioned by
+default; a lifecycle=planned target is provisioned only when --provisioning
+names it explicitly, and every other target causes zero mutation.
 USAGE
 }
 
@@ -465,9 +503,10 @@ user_metadata_drift() {
 # --- Source-registry contract -------------------------------------------------
 
 ACTIVE_TARGETS=()
-PLANNED_TARGETS=()
+INACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_DEPLOY_HOME
+declare -A TGT_LIFECYCLE TGT_ENVIRONMENT_CLASS
 
 # load_source_contract — fail-closed source-of-truth loading. This installer
 # Runs strictly after install-bootstrap-runtime, so jq and the targets CLI are hard
@@ -493,13 +532,13 @@ load_source_contract() {
 
         lifecycle="$(jq -r --arg id "${target_id}" '.targets[$id].lifecycle' "${SOURCE_REGISTRY}")"
 
-        if [[ "${lifecycle}" != active ]]; then
-            PLANNED_TARGETS+=("${target_id}")
-            continue
-        fi
-
-        ACTIVE_TARGETS+=("${target_id}")
-
+        # Every target's fields are read, including the planned ones. That is
+        # not a widening of scope: which targets this run is RESPONSIBLE for is
+        # decided below, by lifecycle and by --provisioning, and a planned
+        # target whose fields were never read could not be reported as
+        # deliberately skipped either.
+        TGT_LIFECYCLE[${target_id}]="${lifecycle}"
+        TGT_ENVIRONMENT_CLASS[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].environment_class' "${SOURCE_REGISTRY}")"
         TGT_ROOT[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].application_root' "${SOURCE_REGISTRY}")"
         TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
         TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
@@ -507,6 +546,20 @@ load_source_contract() {
         TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
         TGT_INCOMING[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].incoming_artifacts' "${SOURCE_REGISTRY}")"
         TGT_DEPLOY_HOME[${target_id}]="${HOME_ROOT}/${TGT_DEPLOY_USER[${target_id}]}"
+
+        # Everything this run is not responsible for. Planned and disabled
+        # targets are held in ONE list because the handling is identical —
+        # nothing is ever created for either — and the list is named for
+        # that fact rather than for one of the lifecycles in it, because a
+        # list called "planned" is how a disabled target ends up described
+        # as planned in a report an operator then acts on. Every message
+        # below reads the lifecycle each target actually has.
+        if [[ "${lifecycle}" != active ]]; then
+            INACTIVE_TARGETS+=("${target_id}")
+            continue
+        fi
+
+        ACTIVE_TARGETS+=("${target_id}")
     done < <(jq -r '.targets | keys[]' "${SOURCE_REGISTRY}" | sort)
 
     validate_target_contract
@@ -523,15 +576,27 @@ load_source_contract() {
 narrow_to_target_scope() {
     target_scoped || return 0
 
+    if provisioning; then
+        narrow_to_provisioning_scope
+
+        return 0
+    fi
+
     local known=false target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
     done
 
     if [[ "${known}" != true ]]; then
-        for target_id in "${PLANNED_TARGETS[@]}"; do
+        local inactive_lifecycle
+        for target_id in "${INACTIVE_TARGETS[@]}"; do
             if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
-                fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never provisions a planned target, in host mode or target mode"
+                inactive_lifecycle="${TGT_LIFECYCLE[${TARGET_SCOPE}]}"
+
+                [[ "${inactive_lifecycle}" == planned ]] \
+                    || fail "target ${TARGET_SCOPE} is lifecycle=${inactive_lifecycle} — this installer provisions an active target, and --provisioning authorizes a planned one. A ${inactive_lifecycle} target is a deliberate registry state, and the way out of it is a reviewed registry change rather than a flag"
+
+                fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never provisions a planned target, in host mode or target mode (a new production target is provisioned explicitly, with --target ${TARGET_SCOPE} --provisioning)"
             fi
         done
 
@@ -541,7 +606,46 @@ narrow_to_target_scope() {
     ACTIVE_TARGETS=("${TARGET_SCOPE}")
 
     # Nothing is reported about targets this run is not responsible for.
-    PLANNED_TARGETS=()
+    INACTIVE_TARGETS=()
+}
+
+# narrow_to_provisioning_scope — the ONE lifecycle this installer will act on
+# besides active, and only when argv asked for it by name.
+#
+# The refusals are separate rather than one "not provisionable" message,
+# because the right next action differs for each: an active target already has
+# Repair Target, a disabled one is a deliberate registry state, a planned
+# staging target is not what this authorization is for, and an unknown one is
+# a typo or a stale registry.
+narrow_to_provisioning_scope() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
+            fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=active. An active target is already in the operational lifecycle — use install-bootstrap-host-layout --apply --target ${TARGET_SCOPE} (or Repair Target) instead"
+        fi
+    done
+
+    local known=false
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
+    done
+
+    [[ "${known}" == true ]] \
+        || fail "unknown target: ${TARGET_SCOPE} — not present in ${SOURCE_REGISTRY}"
+
+    [[ "${TGT_LIFECYCLE[${TARGET_SCOPE}]}" == planned ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=${TGT_LIFECYCLE[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a lifecycle=planned target"
+
+    [[ "${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}" == production ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is environment_class=${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a production target"
+
+    ACTIVE_TARGETS=("${TARGET_SCOPE}")
+    INACTIVE_TARGETS=()
+
+    # The whole registry was validated above; this is the same per-target
+    # containment check the active targets already received, now that this run
+    # knows which target it is responsible for.
+    validate_one_target_contract "${TARGET_SCOPE}"
 }
 
 # validate_target_contract — this installer's own defense in depth on top
@@ -552,11 +656,7 @@ narrow_to_target_scope() {
 validate_target_contract() {
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        [[ "${TGT_ROOT[${target_id}]}" == "${RATEGURU_ROOT}"/* ]] \
-            || fail "target ${target_id}: application_root ${TGT_ROOT[${target_id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to provision it"
-
-        [[ "${TGT_INCOMING[${target_id}]}" == "${TGT_DEPLOY_HOME[${target_id}]}/incoming" ]] \
-            || fail "target ${target_id}: incoming_artifacts ${TGT_INCOMING[${target_id}]} is inconsistent with the deploy user home ${TGT_DEPLOY_HOME[${target_id}]} — refusing to provision it"
+        validate_one_target_contract "${target_id}"
     done
 
     if [[ -n "${FS_ROOT}" ]] && [[ "${FS_ROOT}" != /* ]]; then
@@ -564,20 +664,42 @@ validate_target_contract() {
     fi
 }
 
+validate_one_target_contract() {
+    local target_id="$1"
+
+    [[ "${TGT_ROOT[${target_id}]}" == "${RATEGURU_ROOT}"/* ]] \
+        || fail "target ${target_id}: application_root ${TGT_ROOT[${target_id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to provision it"
+
+    [[ "${TGT_INCOMING[${target_id}]}" == "${TGT_DEPLOY_HOME[${target_id}]}/incoming" ]] \
+        || fail "target ${target_id}: incoming_artifacts ${TGT_INCOMING[${target_id}]} is inconsistent with the deploy user home ${TGT_DEPLOY_HOME[${target_id}]} — refusing to provision it"
+}
+
 # --- Report sections (shared by --check and --verify) -------------------------
 
 report_targets() {
     section "TARGETS"
 
-    item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    if provisioning; then
+        item PASS "registry:source" "valid (provisioning scope: ${ACTIVE_TARGETS[*]:-none})"
+    else
+        item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    fi
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        item PASS "target:${target_id}" "lifecycle=active — provisioned by this slice"
+        if provisioning; then
+            item PASS "target:${target_id}" "lifecycle=planned, environment_class=production — infrastructure provisioning explicitly authorized by --provisioning; the registry is never written and the target stays planned"
+        else
+            item PASS "target:${target_id}" "lifecycle=active — provisioned by this slice"
+        fi
     done
 
-    for target_id in "${PLANNED_TARGETS[@]}"; do
-        item PASS "target:${target_id}" "lifecycle=planned — not provisioned by this slice (no users, groups or directories are ever created for it)"
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        if [[ "${TGT_LIFECYCLE[${target_id}]}" == planned ]]; then
+            item PASS "target:${target_id}" "lifecycle=planned — not provisioned by this slice (no users, groups or directories are ever created for it)"
+        else
+            item PASS "target:${target_id}" "lifecycle=${TGT_LIFECYCLE[${target_id}]} — not provisioned by this slice (no users, groups or directories are ever created for it)"
+        fi
     done
 }
 
@@ -882,7 +1004,9 @@ report_filesystem() {
 report_summary() {
     section "SUMMARY"
 
-    if target_scoped; then
+    if provisioning; then
+        printf 'Bootstrap host layout installer (%s, provisioning target %s):\n' "${MODE}" "${TARGET_SCOPE}"
+    elif target_scoped; then
         printf 'Bootstrap host layout installer (%s, target %s):\n' "${MODE}" "${TARGET_SCOPE}"
     else
         printf 'Bootstrap host layout installer (%s):\n' "${MODE}"
@@ -925,7 +1049,9 @@ contract_satisfied() {
 run_contract_report() {
     printf 'RateGuru bootstrap host layout installer (%s mode)\n' "${MODE}"
 
-    if target_scoped; then
+    if provisioning; then
+        printf 'Scope: planned production target %s only — host roots are inspected as prerequisites and never converged, and this run never activates the target\n' "${TARGET_SCOPE}"
+    elif target_scoped; then
         printf 'Scope: target %s only — host roots are inspected as prerequisites and never converged\n' "${TARGET_SCOPE}"
     else
         printf 'Allowed namespace: %s (active targets only; planned targets are never provisioned)\n' "${RATEGURU_ROOT}"
@@ -1414,6 +1540,15 @@ parse_args() {
                 TARGET_SCOPE="$2"
                 shift 2
                 ;;
+            --provisioning)
+                if [[ "${PROVISIONING}" == true ]]; then
+                    usage >&2
+                    fail "--provisioning given more than once"
+                fi
+
+                PROVISIONING=true
+                shift
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -1429,6 +1564,14 @@ parse_args() {
         usage >&2
         fail "one of --check, --apply or --verify is required"
     fi
+
+    # --provisioning is an authorization for ONE named target, so it is
+    # meaningless — and would be dangerous to interpret generously — without
+    # one. Refused here, before the registry is even read.
+    if provisioning && ! target_scoped; then
+        usage >&2
+        fail "--provisioning requires --target: it authorizes provisioning for exactly one planned production target, never for the host"
+    fi
 }
 
 main() {
@@ -1442,7 +1585,9 @@ main() {
             run_contract_report || exit 1
             ;;
         apply)
-            if target_scoped; then
+            if provisioning; then
+        printf 'RateGuru bootstrap host layout installer (apply mode, provisioning target %s)\n' "${TARGET_SCOPE}"
+    elif target_scoped; then
         printf 'RateGuru bootstrap host layout installer (apply mode, target %s)\n' "${TARGET_SCOPE}"
     else
         printf 'RateGuru bootstrap host layout installer (apply mode)\n'

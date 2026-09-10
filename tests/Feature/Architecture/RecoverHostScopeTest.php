@@ -492,23 +492,30 @@ it('reads the required commit from the server, never from the caller', function 
 // What this deliberately does NOT begin
 // =============================================================================
 
-it('adds no rehearsal harness and no provisioner', function () {
+it('adds no rehearsal harness and no host provisioner', function () {
     // The two named operator workflows are the ONE operator surface this
     // primitive was always going to grow, and they landed with their own scope
-    // guard (RecoverWorkflowsTest). Everything else recovery could have grown
-    // into is still deliberately absent: a rehearsal harness that automates a
-    // disposable machine, and a generic provisioner that creates one.
+    // guard (RecoverWorkflowsTest). The generic TARGET provisioner has landed
+    // since, separately, with its own scope guard (ProvisionTargetTest) — and
+    // recovery gained nothing from it: it neither calls it nor is called by
+    // it. What is still deliberately absent is a rehearsal harness that
+    // automates a disposable machine and a HOST provisioner that creates one.
     foreach ([
         '.github/workflows/recover-staging-host.yml',
         '.github/workflows/recover-production-host.yml',
         '.github/workflows/rehearse-recovery.yml',
-        'infrastructure/scripts/provision-target',
         'infrastructure/scripts/provision-host',
         'infrastructure/scripts/rehearse-recovery',
     ] as $laterWork) {
         expect(File::exists(base_path($laterWork)))
             ->toBeFalse("{$laterWork} is later work and must not exist yet");
     }
+
+    // Recovery and target provisioning stay strangers to each other.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/recover-host'))))
+        ->not->toContain('provision-target');
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/provision-target'))))
+        ->not->toContain('recover-host');
 
     // One recovery workflow per environment, named for the environment, like
     // every other operator-facing operation here — and no third one.

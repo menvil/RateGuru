@@ -1441,3 +1441,151 @@ it('keeps the full HTTP-level verification on a DEPLOYED target — the pre-depl
         psaCleanup($scratch);
     }
 });
+
+// =============================================================================
+// --provisioning: the same two ACL entries, for a PLANNED production target
+// that is being built before it is activated.
+//
+// The ACL contract itself is unchanged, and every test above still describes
+// it. What is new is only WHICH targets may receive it, so that is all these
+// tests are about.
+// =============================================================================
+
+/**
+ * A synthetic registry whose one real target is a PLANNED PRODUCTION target
+ * rooted in the scratch tree — the shape provisioning exists for.
+ */
+function psaPlannedProductionRegistry(string $targetRoot, string $runtimeUser): string
+{
+    return json_encode([
+        'schema_version' => 1,
+        'targets' => [
+            'test-target' => [
+                'id' => 'test-target',
+                'lifecycle' => 'planned',
+                'environment_class' => 'production',
+                'application_root' => $targetRoot,
+                'runtime_user' => $runtimeUser,
+                'runtime_group' => $runtimeUser,
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'test-target.internal'],
+            ],
+            'tits-guru' => [
+                'id' => 'tits-guru',
+                'lifecycle' => 'planned',
+                'environment_class' => 'production',
+                'application_root' => '/home/www/rateguru/production/tits-guru',
+                'runtime_user' => 'rateguru-tits-guru',
+            ],
+        ],
+    ]);
+}
+
+it('refuses --provisioning without a target, before the registry is read', function (string $mode) {
+    $scratch = psaScratchDir();
+
+    try {
+        [$exit, $output] = psaRunScript([$mode, '--provisioning'], psaBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--provisioning requires --target');
+    } finally {
+        psaCleanup($scratch);
+    }
+})->with(['--check', '--apply', '--verify']);
+
+it('grants the ACL to a planned production target only when --provisioning is given', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // A target being provisioned has no release and no application
+        // storage descendants: the shape this installer already calls
+        // PRE_DEPLOY.
+        exec('rm -rf '.escapeshellarg($target['app']).' '.escapeshellarg($target['root'].'/current'));
+
+        file_put_contents(
+            $scratch.'/registry.json',
+            psaPlannedProductionRegistry($target['root'], $target['runtimeUser']),
+        );
+
+        // Without the authorization the planned target is refused, and the
+        // ACL code is never reached.
+        [$refusedExit, $refusedOutput] = psaRunHarness(
+            $scratch,
+            ['TARGET_ID' => 'test-target', 'PROVISIONING' => 'false'],
+            'derive_target_paths',
+            psaBaseEnv($scratch),
+        );
+
+        expect($refusedExit)->not->toBe(0, $refusedOutput);
+        expect($refusedOutput)->toContain('lifecycle=planned, not active');
+
+        // With it, the same target resolves and the ACL is applied — the
+        // contract itself completely unchanged, and every application-level
+        // proof deferred because a provisioned target is PRE_DEPLOY.
+        [$exit, $output] = psaRunHarness(
+            $scratch,
+            ['TARGET_ID' => 'test-target', 'PROVISIONING' => 'true'],
+            'perform_apply',
+            psaBaseEnv($scratch),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('ACL applied: u:www-data:--x')
+            ->toContain('target state: PRE_DEPLOY')
+            ->toContain('tits-guru: still correctly rejected');
+
+        expect(file_get_contents($target['shared'].'.simstate'))->toContain('www-data:--x');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('refuses --provisioning for a target that is already active', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // The ordinary registry: test-target is ACTIVE.
+        [$exit, $output] = psaRunHarness(
+            $scratch,
+            ['TARGET_ID' => 'test-target', 'PROVISIONING' => 'true'],
+            'derive_target_paths',
+            psaBaseEnv($scratch),
+        );
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('lifecycle=active — it is already in the operational lifecycle');
+        expect(file_exists($target['shared'].'.simstate'))->toBeFalse('an active target must never reach the provisioning ACL path');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('refuses --provisioning for a planned STAGING target', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        $registry = json_decode(psaPlannedProductionRegistry($target['root'], $target['runtimeUser']), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['test-target']['environment_class'] = 'staging';
+        file_put_contents($scratch.'/registry.json', json_encode($registry));
+
+        [$exit, $output] = psaRunHarness(
+            $scratch,
+            ['TARGET_ID' => 'test-target', 'PROVISIONING' => 'true'],
+            'derive_target_paths',
+            psaBaseEnv($scratch),
+        );
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('environment_class=staging, not production');
+        expect(file_exists($target['shared'].'.simstate'))->toBeFalse();
+    } finally {
+        psaCleanup($scratch);
+    }
+});

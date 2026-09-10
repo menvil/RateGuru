@@ -13,7 +13,7 @@ not reorganize unrelated infrastructure.
 | 5 | Infrastructure installer and clean-VPS bootstrap | ✅ completed |
 | 6 | Sentry observability activation | 🚧 current |
 | 7 | Disaster recovery and release rehearsal | ✅ completed |
-| 8 | First production launch and target-provisioning proof | 🚧 next |
+| 8 | First production launch and target-provisioning proof | 🚧 current |
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
@@ -1606,66 +1606,89 @@ Slices, in order:
    blocker remains.
 
 
-## 8. First production launch and target-provisioning proof — next
+## 8. First production launch and target-provisioning proof — current
 
 First production target go-live on `tits.guru`, launched through a generic,
 rehearsed provisioning procedure rather than hand-built commands. The phase
 overall proves: **we can launch the first production site using a rehearsed
-procedure**. Slices, in order:
+procedure**.
 
-1. **8.1 Generic target provisioner.** A target described in
-   `deployment-targets.json` must be provisionable reproducibly rather than
-   through one-off manual commands. Build a generic target provisioning
-   mechanism that will eventually create/configure target identities,
-   filesystem, database and role, environment placement, PHP-FPM pool,
-   Nginx vhost, Supervisor worker, scheduler, backup namespace, perimeter
-   integration and health identity. Lifecycle gating remains mandatory: a
-   `planned` target existing in the registry must NOT become publicly
-   active just because provisioning tools exist. *Acceptance:* a temporary
-   test target can be provisioned without hand-writing target-specific
-   server commands.
-2. **8.2 Disposable multi-site rehearsal.** Before real production, prove
-   the architecture can create multiple independent new brand targets from
-   scratch — on a separate disposable rehearsal VPS, never by destroying
-   the long-lived staging host. Conceptual temporary targets (`tits-test`,
-   `food-test`, `animals-test`) on isolated rehearsal DNS names (e.g.
-   `tits.rehearsal.<technical-domain>`), each independently owning its
-   application root, `.env`, database/role, FPM pool/socket, queue,
-   scheduler, release history, storage, backup namespace and health
-   identity. Exercise deploy, rollback, backup, restore and target
-   isolation. After acceptance: destroy the rehearsal targets/VPS, then
-   recreate them again from committed infrastructure. Use a separate B2
-   rehearsal namespace — the real staging backup namespace is NEVER
-   deleted to make this test clean. *Proves:* we know how to create new
-   sites from scratch, not merely maintain staging.
-3. **8.3 Provision real tits-guru target.** Create the first real
-   production target using the generic mechanism already proven in
-   8.1/8.2 — `tits-guru` must not become a hand-built exception. Provision
-   production infrastructure while keeping public activation controlled.
-4. **8.4 Production secrets, database, TLS, mail and backups.** Supply the
-   production-only external material and services: production `.env`, DB
-   credentials, deploy key, TLS, production backup credentials/policy,
-   production mail delivery, inbound replies/bounces where applicable, and
-   SPF/DKIM/DMARC domain authentication. No production secrets in Git.
-   *Acceptance:* the target is internally functional, observable and backed
-   up before public traffic is enabled.
-5. **8.5 Production GitHub release/deploy flow.** Prove the real immutable
-   production deployment path: a production GitHub Environment, a
-   reviewed/tagged immutable artifact, and the same exact artifact carried
-   through deployment. Application code is never rebuilt on the server.
-   Test production rollback mechanics before public launch where safely
-   possible.
-6. **8.6 Exact production dress rehearsal.** Perform the production
-   procedure one final time without exposing the real public service, on
-   production-like configuration and isolated rehearsal DNS/traffic:
-   provision → secrets → deploy → TLS → health → Sentry → backup →
-   restore/recovery check → rollback. No infrastructure operation performed
-   during the eventual real launch should be happening for the first time.
-7. **8.7 tits.guru GO LIVE.** The actual first public production
-   activation. Only final state changes remain: lifecycle activation where
-   required, public DNS/routing, TLS/public health verification, monitoring
-   confirmation. Immediately verify health, smoke tests, backup,
-   queues/scheduler, Sentry, and mail where applicable.
+This phase became **current** when 8.1 landed. It runs alongside the
+observability activation, which is still open on acceptance criteria that only
+a real staging deployment can meet; two tracks are genuinely in flight, and
+pretending one of them is not would make the roadmap say something untrue.
+
+The earlier plan for this phase built three disposable brands
+(`tits-test`, `food-test`, `animals-test`) on a throwaway VPS before touching
+production. That is **removed**, deliberately: Phase 8 proves the FIRST real
+production target, and Phase 9 already proves repeatable onboarding with a
+second and third real brand. Duplicating Phase 9 inside Phase 8 would buy a
+rehearsal of something Phase 9 has to demonstrate for real anyway, and would
+delay the one thing Phase 8 exists for. Genericity is instead proved where it
+is cheap and repeatable — in the provisioner's own tests, against a synthetic
+brand that exists nowhere in this repository — and then exercised for real on
+`tits-guru`.
+
+Slices, in order:
+
+1. **8.1 Generic production target provisioner — IMPLEMENTED, awaiting real
+   acceptance in 8.2.** `infrastructure/scripts/provision-target` creates the
+   non-secret infrastructure of one `lifecycle=planned`,
+   `environment_class=production` target on a host that is already a RateGuru
+   host: identities and memberships, the filesystem contract, a PHP-FPM pool,
+   an INTERNAL-ONLY Nginx vhost, the Supervisor queue program (installed,
+   validated, deliberately not started), the scheduler cron and the
+   public-storage ACL. It is orchestration only — every mutation is delegated
+   to the installer that owns that contract, through a new argv-only
+   `--provisioning` authorization on `install-bootstrap-host-layout`,
+   `install-bootstrap-services` and `install-public-storage-access`. A
+   production target's service configuration is RENDERED generically from
+   `deployment-targets.json`, so no committed per-brand file and no list of
+   known brands exists anywhere. The target stays `planned`, the registry is
+   never written, and no environment file, database, deploy authorization,
+   TLS, DNS, mail or backup is created. Ships the reusable
+   `.github/actions/provision-rateguru-target` transport and no
+   operator-facing workflow. *Acceptance:* not claimed from CI. The mechanism
+   is proved end to end against a simulated host, including a synthetic
+   `demo-shop` brand, isolation from the live staging target, and the proof
+   that a provisioned planned target is accepted without drift once it is
+   activated — but a real host acceptance is 8.2's job. See
+   [`runbooks/provision-target.md`](runbooks/provision-target.md).
+2. **8.2 Provision the real tits-guru target.** Execute the 8.1 mechanism
+   against the real `tits-guru` target on the real host. The target stays
+   `lifecycle=planned` and nothing is publicly activated. *Acceptance:* this
+   run is the real-host acceptance of 8.1 — `provision-target --verify`
+   passes on a real machine, staging is provably untouched, and the target is
+   still planned, undeployed and unreachable from the public internet.
+3. **8.3 Production environment, database and GitHub operational access.**
+   The production `.env` and its application key, the PostgreSQL database and
+   application role, the deploy user's `authorized_keys`, the target-specific
+   deploy sudo perimeter, the production GitHub Environment and its
+   credentials, the B2 credentials, and Sentry configuration where
+   applicable. No production secret in Git. *Acceptance:* the target is
+   internally functional and observable, and the deploy channel is
+   authorized, before any public traffic exists.
+4. **8.4 Production mail gateway and backup policy.** A Postfix-based
+   production transport, outbound delivery, SPF/DKIM/DMARC, bounce and reply
+   handling, support/reply routing, and the production
+   backup/offsite/retention/restore-test policy. The existing staging
+   Mailpit/Mailtrap capture remains staging-only and is not changed by this.
+   *Acceptance:* production mail is delivered and its failure paths are
+   handled, and a production backup has been taken, uploaded and
+   restore-tested.
+5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
+   production public Nginx vhost, and `tits.guru` pointed directly at
+   production. No mandatory fake rehearsal domain: the domain already exists,
+   and rehearsing on a substitute would prove less than the real cutover with
+   a rollback path.
+6. **8.6 Production operations acceptance.** A real production deploy,
+   rollback, and deploy again; queue, scheduler and health; observability;
+   backup, offsite and restore-test; the mail delivery and bounce path; and
+   target isolation from staging. No infrastructure operation performed
+   during go-live should be happening for the first time.
+7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
+   production activation and its final verification: public health, backup,
+   monitoring and mail, confirmed on the live site. Closes Phase 8.
 
 ## 9. Repeatable production target onboarding — planned
 
@@ -1760,11 +1783,16 @@ rehearsal:
   offsite `restore-test` — proof that a backup is restorable — which is a
   different question from reconstructing a lost application, and closed
   nothing here.
-- **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
-  exact production launch procedure without first-time surprises?"** Proves
-  target onboarding and production readiness: multiple independent targets
-  from scratch, then a full production dress rehearsal so the real launch
-  contains no first-time operations.
+- **Phase 8.2 + 8.6 — "Can we create a new production target from committed
+  infrastructure, and operate it before it is public?"** Proves target
+  provisioning and production readiness: the generic provisioner run against
+  the first real production target, and then that target deployed, rolled
+  back, backed up, restore-tested and observed — all before any public traffic
+  reaches it, so the real launch contains no first-time operations.
+  **Repeatability is deliberately NOT this gate's question.** "Can we do it
+  again, routinely, for a second and third brand?" is Phase 9's, and it is
+  answered there with real brands rather than with disposable rehearsal ones
+  here.
 
 ## Disposable rehearsal policy
 

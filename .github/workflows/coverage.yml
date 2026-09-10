@@ -110,6 +110,11 @@ jobs:
       # is exercised (and gated) by the CI "Tests" job; adding it here hangs on
       # PCOV coverage collection from a real Chromium and contributes just
       # +0.16% (9 of 5625 statements), nearly all already hit by Feature tests.
+      #
+      # The Architecture suite is absent for a different reason: it measures
+      # infrastructure/, not app/, so it contributes essentially nothing to the
+      # figure this job reports while costing the whole suite's runtime. It is
+      # gated by the CI "Architecture tests" job.
       - name: Run tests with coverage
         id: coverage
         shell: bash

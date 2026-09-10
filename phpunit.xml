@@ -8,8 +8,19 @@
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
         </testsuite>
+        <!-- Architecture is a sibling suite, not part of Feature.
+
+             Those tests read committed files and drive real shell subprocesses
+             against a simulated host; not one of them touches the database.
+             Keeping them inside Feature meant the compatibility jobs re-ran
+             the whole set on MariaDB and on SQLite, where they cannot discover
+             anything a database engine could disagree about. -->
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
+            <exclude>tests/Feature/Architecture</exclude>
+        </testsuite>
+        <testsuite name="Architecture">
+            <directory>tests/Feature/Architecture</directory>
         </testsuite>
         <testsuite name="Browser">
             <directory>tests/Browser</directory>

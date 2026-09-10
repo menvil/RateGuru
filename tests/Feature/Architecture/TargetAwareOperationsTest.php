@@ -1197,9 +1197,10 @@ it('records slices 1-9 completed, and the target-aware migration with them', fun
         ->not->toContain('## 4. Multi-target production model — current')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    // the target-aware migration is closed, and so is the clean-host bootstrap — the roadmap still names exactly
-    // one current phase, which has since moved on to the observability work.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // the target-aware migration is closed, and so is the clean-host bootstrap.
+    // Neither is current any more; the two phases that are — observability and
+    // the production launch — are both genuinely in flight.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
     expect($roadmap)
         ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m');
 });

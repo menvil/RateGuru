@@ -1635,16 +1635,20 @@ it('keeps the roadmap structure: the clean-host bootstrap completed, the observa
     expect($roadmap)->toContain('5.5 Bootstrap orchestrator — completed');
     expect($roadmap)->toContain('5.6 Clean-VPS acceptance — completed');
 
-    // the observability work took over as the single current phase.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // the observability work took over as a current phase, and the production
+    // launch opened alongside it when its first slice landed. Two are current
+    // because two are genuinely in flight: the observability acceptance
+    // criteria all require a real staging deployment, and none of them is met
+    // by the production work proceeding.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
     expect($roadmap)->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m');
 
-    // The disaster-recovery phase closed on a real replacement machine, the
-    // production launch is what follows it, and everything after that stays
-    // planned. Exactly one phase may be current, and it is still the
-    // observability work: "next" is not "current".
+    // The disaster-recovery phase closed on a real replacement machine, and
+    // the production launch that follows it is now under way rather than
+    // merely next: its first slice is implemented, so "next" would understate
+    // where the work is. Everything after it stays planned.
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m', 'phase 7 no longer reads as completed');
-    expect($roadmap)->toMatch('/^\|\s*8\s*\|[^|]+\|\s*🚧 next\s*\|$/m', 'phase 8 no longer reads as next');
+    expect($roadmap)->toMatch('/^\|\s*8\s*\|[^|]+\|\s*🚧 current\s*\|$/m', 'phase 8 no longer reads as current');
 
     foreach ([9, 10] as $phase) {
         expect($roadmap)->toMatch(
@@ -2094,6 +2098,187 @@ it('never calls a wrong filesystem type repairable, in either mode', function ()
 
         expect($applyExit)->not->toBe(0);
         expect(hostLayoutTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// --provisioning: the one authorization that lets a PLANNED production target
+// be built, asked for by name in argv and refused everywhere else.
+//
+// The end-to-end proof that it actually provisions a target lives in
+// ProvisionTargetTest, which runs this installer through the orchestrator that
+// owns the operation. What is proved here is the boundary: ordinary --target
+// behaviour is unchanged, and every lifecycle this authorization does not
+// cover is refused before a single mutation.
+// =============================================================================
+
+it('documents the provisioning authorization in its usage', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        [$exit, $output] = hostLayoutRun(['--help'], hostLayoutFixture($scratch));
+
+        expect($exit)->toBe(0);
+        expect($output)
+            ->toContain('install-bootstrap-host-layout --apply  --target TARGET_ID --provisioning')
+            ->toContain('Only valid with --target, and only for a lifecycle=planned,')
+            ->toContain('environment_class=production target');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('refuses --provisioning without a target, before the registry is even read', function (string $mode) {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        [$exit, $output] = hostLayoutRun([$mode, '--provisioning'], hostLayoutFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('--provisioning requires --target');
+        expect($output)->toContain('never for the host');
+
+        expect(file_exists($scratch.'/log/identity.log'))->toBeFalse();
+        expect(file_exists($scratch.'/log/install.log'))->toBeFalse();
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+})->with(['--check', '--apply', '--verify']);
+
+it('refuses to provision a target that is not a planned production one', function (
+    string $target,
+    array $registryOverrides,
+    string $expected,
+) {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $options = [];
+
+        if ($registryOverrides !== []) {
+            $options['registry'] = hostLayoutRegistryWithOn($target, $registryOverrides);
+        }
+
+        $env = hostLayoutFixture($scratch, $options);
+
+        [$exit, $output] = hostLayoutRun(['--apply', '--target', $target, '--provisioning'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain($expected);
+
+        expect(file_exists($scratch.'/log/identity.log'))->toBeFalse('a refused authorization must create no account');
+        expect(file_exists($scratch.'/log/install.log'))->toBeFalse('a refused authorization must create no directory');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+})->with([
+    'an active target' => [
+        'staging-main', [],
+        '--provisioning refuses target staging-main: it is lifecycle=active',
+    ],
+    'a disabled target' => [
+        'tits-guru', ['lifecycle' => 'disabled'],
+        '--provisioning refuses target tits-guru: it is lifecycle=disabled',
+    ],
+    'a planned staging target' => [
+        'tits-guru', ['environment_class' => 'staging'],
+        '--provisioning refuses target tits-guru: it is environment_class=staging',
+    ],
+]);
+
+it('refuses an unknown target under the provisioning authorization', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        [$exit, $output] = hostLayoutRun(
+            ['--apply', '--target', 'no-such-target', '--provisioning'],
+            hostLayoutFixture($scratch),
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('unknown target: no-such-target');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('keeps ordinary --target behaviour unchanged: a planned target is still refused without the flag', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        [$exit, $output] = hostLayoutRun(['--apply', '--target', 'tits-guru'], hostLayoutFixture($scratch));
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=planned')
+            ->toContain('this installer never provisions a planned target')
+            // and it says how a planned production target IS provisioned,
+            // rather than leaving an operator to guess.
+            ->toContain('--target tits-guru --provisioning');
+
+        expect(file_exists($scratch.'/log/identity.log'))->toBeFalse();
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('names the lifecycle a refused target actually has, rather than assuming planned', function () {
+    // A disabled target is not an active one, so it travels with the planned
+    // ones through this installer — every one of them is equally out of scope.
+    // Telling an operator their disabled target is "planned", and pointing
+    // them at --provisioning, would send them to a flag that refuses it too.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['tits-guru']['lifecycle'] = 'disabled';
+
+        $env = hostLayoutFixture($scratch, [
+            'profile' => 'compliant',
+            'registry' => json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
+        ]);
+
+        [$exit, $output] = hostLayoutRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('target tits-guru is lifecycle=disabled')
+            ->toContain('a reviewed registry change rather than a flag')
+            ->not->toContain('tits-guru is lifecycle=planned');
+
+        // And the host report says the same thing about it.
+        [, $hostOutput] = hostLayoutRun(['--check'], $env);
+
+        expect($hostOutput)
+            ->toContain('target:tits-guru — lifecycle=disabled — not provisioned by this slice')
+            ->not->toContain('target:tits-guru — lifecycle=planned');
+
+        expect(file_exists($scratch.'/log/identity.log'))->toBeFalse();
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('never provisions a planned target in host mode, with or without the authorization in the environment', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        // A host-mode run with the flag-shaped variable exported: there is no
+        // environment variable that can stand in for the argv authorization,
+        // so this is exactly an ordinary host run.
+        $env = hostLayoutFixture($scratch, ['profile' => 'compliant']);
+        $env['PROVISIONING'] = 'true';
+        $env['RATEGURU_HOSTLAYOUT_PROVISIONING'] = 'true';
+        $env['ALLOW_PLANNED'] = 'true';
+
+        [$exit, $output] = hostLayoutRun(['--check'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('target:tits-guru — lifecycle=planned — not provisioned by this slice')
+            ->not->toContain('path:/home/www/rateguru/production/tits-guru');
     } finally {
         hostLayoutCleanup($scratch);
     }

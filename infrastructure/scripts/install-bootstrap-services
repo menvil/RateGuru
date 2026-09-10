@@ -90,6 +90,31 @@
 # planned targets (tits-guru) receive zero service configuration — committed
 # production config sources are ignored while the target stays planned.
 #
+# The one exception has to be asked for in argv: `--target TARGET_ID
+# --provisioning` narrows the same contract to ONE lifecycle=planned,
+# environment_class=production target, so a new production target's service
+# configuration can exist before it is activated. It never activates the
+# target, never writes the registry, never starts the queue worker (the target
+# is PRE_DEPLOY by definition, so queue activation stays DEFERRED) and never
+# adds a public hostname or a TLS listener. Any other lifecycle, and a planned
+# staging target, is refused; so is `--provisioning` without `--target`.
+#
+# Where a production target's service configuration comes from: it is RENDERED
+# generically from the registry, never read from a committed per-brand file.
+# Nginx internal vhost, PHP-FPM pool, Supervisor queue program and scheduler
+# cron are produced by one canonical rendering path from
+# deployment-targets.json, so a second, third or tenth production brand needs
+# no new committed file and no list of known brands anywhere in this
+# installer. environment_class=staging keeps its existing committed sources
+# byte for byte: the staging service configuration is accepted on a real host
+# and is deliberately not migrated here.
+#
+# Registry values are DATA in that rendering, never shell. Nothing is eval'd,
+# nothing is sourced, no envsubst runs, and every value that reaches a
+# rendered file has already been proved to match a closed format — by `targets
+# validate` at the registry boundary, and again by this installer immediately
+# before it renders.
+#
 # Test overrides: every RATEGURU_BOOTSTRAPSVC_* override below is honored
 # only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate
 # every other installer uses — so a stray variable in a real shell can never
@@ -272,8 +297,18 @@ MODE_SEEN=false
 # second transaction mechanism and no second convergence path for target mode.
 TARGET_SCOPE=""
 
+# Explicit, argv-only authorization to converge the service configuration of a
+# planned production target. There is deliberately no environment variable for
+# it: an authorization that can arrive through an exported variable is one
+# nobody can see in the command that was run.
+PROVISIONING=false
+
 target_scoped() {
     [[ -n "${TARGET_SCOPE}" ]]
+}
+
+provisioning() {
+    [[ "${PROVISIONING}" == true ]]
 }
 
 COUNT_PASS=0
@@ -345,6 +380,10 @@ Usage:
   install-bootstrap-services --apply  --target TARGET_ID
   install-bootstrap-services --verify --target TARGET_ID
 
+  install-bootstrap-services --check  --target TARGET_ID --provisioning
+  install-bootstrap-services --apply  --target TARGET_ID --provisioning
+  install-bootstrap-services --verify --target TARGET_ID --provisioning
+
   install-bootstrap-services --help
 
 All modes require root.
@@ -359,6 +398,14 @@ All modes require root.
             reference — is out of scope entirely: not reported, not verified,
             not touched. Without it, this installer is exactly the host
             service bootstrap it has always been.
+
+  --provisioning
+            Only valid with --target, and only for a lifecycle=planned,
+            environment_class=production target. It authorizes the same
+            target-scoped service contract to run for a target that is not
+            active yet. The target stays planned, the registry is never
+            written, the queue worker is never started, and no public
+            hostname or TLS listener is ever configured.
 
   --check   Read-only install-bootstrap-services contract validation plus the intended
             --apply action for every unsatisfied item. Runs the runtime and
@@ -380,7 +427,9 @@ Service configuration scope only: packages belong to install-bootstrap-runtime;
 users/groups/filesystem roots belong to install-bootstrap-host-layout. Application .env,
 authorized_keys, rclone.conf, Basic Auth and TLS material are external
 prerequisites — never created here. Only lifecycle=active targets receive
-service configuration; planned targets stay physically inactive.
+service configuration, and --provisioning extends that to one named
+lifecycle=planned production target; every other target stays physically
+inactive.
 USAGE
 }
 
@@ -498,10 +547,11 @@ passwd_user_exists() {
 # --- Source-registry contract -------------------------------------------------
 
 ACTIVE_TARGETS=()
-PLANNED_TARGETS=()
+INACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER TGT_CODE_GROUP
 declare -A TGT_NGINX_SITE TGT_FPM_POOL TGT_FPM_SOCKET TGT_SUPERVISOR_PROGRAM
 declare -A TGT_SCHEDULER TGT_STATE
+declare -A TGT_LIFECYCLE TGT_ENVIRONMENT_CLASS TGT_QUEUE TGT_INTERNAL_HOSTNAME
 
 PHP_SERIES=""
 PHP_FPM_SERVICE=""
@@ -563,29 +613,42 @@ load_source_contract() {
 
         lifecycle="$(jq -r --arg id "${target_id}" '.targets[$id].lifecycle' "${SOURCE_REGISTRY}")"
 
-        if [[ "${lifecycle}" != active ]]; then
-            PLANNED_TARGETS+=("${target_id}")
-            continue
-        fi
-
-        ACTIVE_TARGETS+=("${target_id}")
-
+        # Every target's fields are read, planned ones included. Which targets
+        # this run is RESPONSIBLE for is decided below, by lifecycle and by
+        # --provisioning; reading a field is not configuring a target.
+        TGT_LIFECYCLE[${target_id}]="${lifecycle}"
+        TGT_ENVIRONMENT_CLASS[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].environment_class' "${SOURCE_REGISTRY}")"
         TGT_ROOT[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].application_root' "${SOURCE_REGISTRY}")"
         TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
         TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
         TGT_DEPLOY_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].deploy_user' "${SOURCE_REGISTRY}")"
         TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
         TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+        TGT_INTERNAL_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.internal_hostname' "${SOURCE_REGISTRY}")"
         TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
         TGT_FPM_SOCKET[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.socket' "${SOURCE_REGISTRY}")"
         TGT_SUPERVISOR_PROGRAM[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.program' "${SOURCE_REGISTRY}")"
+        TGT_QUEUE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.queue' "${SOURCE_REGISTRY}")"
         TGT_SCHEDULER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].scheduler.name' "${SOURCE_REGISTRY}")"
+
+        # Everything this run is not responsible for. Planned and disabled
+        # targets are held in ONE list because the handling is identical —
+        # nothing is ever configured for either — and the list is named for
+        # that fact rather than for one of the lifecycles in it, because a
+        # list called "planned" is how a disabled target ends up described
+        # as planned in a report an operator then acts on. Every message
+        # below reads the lifecycle each target actually has.
+        if [[ "${lifecycle}" != active ]]; then
+            INACTIVE_TARGETS+=("${target_id}")
+            continue
+        fi
+
+        ACTIVE_TARGETS+=("${target_id}")
     done < <(jq -r '.targets | keys[]' "${SOURCE_REGISTRY}" | sort)
 
     local id
     for id in "${ACTIVE_TARGETS[@]}"; do
-        [[ "${TGT_ROOT[${id}]}" == "${RATEGURU_ROOT}"/* ]] \
-            || fail "target ${id}: application_root ${TGT_ROOT[${id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to configure it"
+        assert_target_inside_namespace "${id}"
     done
 
     if [[ -n "${FS_ROOT}" ]] && [[ "${FS_ROOT}" != /* ]]; then
@@ -593,6 +656,14 @@ load_source_contract() {
     fi
 
     narrow_to_target_scope
+    render_service_sources
+}
+
+assert_target_inside_namespace() {
+    local id="$1"
+
+    [[ "${TGT_ROOT[${id}]}" == "${RATEGURU_ROOT}"/* ]] \
+        || fail "target ${id}: application_root ${TGT_ROOT[${id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to configure it"
 }
 
 # narrow_to_target_scope — in target mode, reduce the loaded contract to the one
@@ -605,15 +676,27 @@ load_source_contract() {
 narrow_to_target_scope() {
     target_scoped || return 0
 
+    if provisioning; then
+        narrow_to_provisioning_scope
+
+        return 0
+    fi
+
     local known=false target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
     done
 
     if [[ "${known}" != true ]]; then
-        for target_id in "${PLANNED_TARGETS[@]}"; do
+        local inactive_lifecycle
+        for target_id in "${INACTIVE_TARGETS[@]}"; do
             if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
-                fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never configures a planned target, in host mode or target mode"
+                inactive_lifecycle="${TGT_LIFECYCLE[${TARGET_SCOPE}]}"
+
+                [[ "${inactive_lifecycle}" == planned ]] \
+                    || fail "target ${TARGET_SCOPE} is lifecycle=${inactive_lifecycle} — this installer configures an active target, and --provisioning authorizes a planned one. A ${inactive_lifecycle} target is a deliberate registry state, and the way out of it is a reviewed registry change rather than a flag"
+
+                fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never configures a planned target, in host mode or target mode (a new production target is configured explicitly, with --target ${TARGET_SCOPE} --provisioning)"
             fi
         done
 
@@ -621,15 +704,445 @@ narrow_to_target_scope() {
     fi
 
     ACTIVE_TARGETS=("${TARGET_SCOPE}")
-    PLANNED_TARGETS=()
+    INACTIVE_TARGETS=()
+}
+
+# narrow_to_provisioning_scope — the only lifecycle besides active this
+# installer will configure, and only when argv named it.
+#
+# The refusals stay separate rather than collapsing into one "not
+# provisionable" message: the right next action differs for each.
+narrow_to_provisioning_scope() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
+            fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=active. An active target is already in the operational lifecycle — use install-bootstrap-services --apply --target ${TARGET_SCOPE} (or Repair Target) instead"
+        fi
+    done
+
+    local known=false
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
+    done
+
+    [[ "${known}" == true ]] \
+        || fail "unknown target: ${TARGET_SCOPE} — not present in ${SOURCE_REGISTRY}"
+
+    [[ "${TGT_LIFECYCLE[${TARGET_SCOPE}]}" == planned ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=${TGT_LIFECYCLE[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a lifecycle=planned target"
+
+    [[ "${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}" == production ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is environment_class=${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a production target"
+
+    ACTIVE_TARGETS=("${TARGET_SCOPE}")
+    INACTIVE_TARGETS=()
+
+    assert_target_inside_namespace "${TARGET_SCOPE}"
+}
+
+# --- Generic production service rendering -------------------------------------
+#
+# The architectural gap this closes: a production target's service
+# configuration used to have to exist as a committed per-brand file. That does
+# not scale past one brand, and the file that did exist
+# (config/nginx/rateguru-production) describes the OLD shared production-root
+# model — a single /home/www/rateguru/production tree — which the target
+# registry replaced. It is never the service authority for a production target
+# here: sources are resolved by the target's own registry names, and a
+# production target's four service files are rendered rather than read.
+#
+# It is not deleted in this slice because install-target-operations installs it
+# as part of the operational bundle and verifies it byte for byte, and
+# install-target-prerequisites parses the installed copy when it builds a
+# host's external-prerequisite table. Removing it would break the recovery
+# prerequisite machinery, which is a different operation with its own
+# acceptance. Its final public/TLS role is normalized when the real tits.guru
+# public vhost is defined.
+#
+# What is rendered, from deployment-targets.json and nothing else:
+#   Nginx internal vhost   loopback-only, server_name = nginx.internal_hostname
+#   PHP-FPM pool           php_fpm.pool on php_fpm.socket as runtime_user
+#   Supervisor program     supervisor.program consuming supervisor.queue
+#   scheduler cron         scheduler.name running as runtime_user
+#
+# What is deliberately NOT rendered: public_hostnames, any TLS listener, any
+# certificate path, any Certbot path, any redirect. Provisioning a target must
+# not be able to put it on the public internet, and the way to guarantee that
+# is for the renderer to have no notion of a public hostname at all.
+#
+# environment_class=staging keeps its committed sources untouched: they are
+# accepted on a real host and migrating them for symmetry would buy nothing
+# and cost a second staging acceptance.
+
+RENDER_ROOT=""
+declare -A TGT_RENDERED_NGINX TGT_RENDERED_FPM TGT_RENDERED_SUPERVISOR TGT_RENDERED_CRON
+
+target_renders_service_config() {
+    [[ "${TGT_ENVIRONMENT_CLASS[$1]:-}" == production ]]
+}
+
+ensure_render_root() {
+    [[ -z "${RENDER_ROOT}" ]] || return 0
+
+    RENDER_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-service-render-XXXXXX")" \
+        || fail "cannot create the temporary directory the generic production service configuration is rendered into"
+
+    chmod 0700 "${RENDER_ROOT}"
+}
+
+# cleanup_render_root — the rendered candidates never outlive the run that
+# produced them. Guarded on BASHPID because `set -E` and command substitution
+# put this shell's traps in reach of subshells, and a subshell deleting the
+# candidates the main process is still installing from would be a
+# spectacularly confusing failure.
+cleanup_render_root() {
+    if [[ -n "${RENDER_ROOT}" ]] \
+        && { [[ -z "${MAIN_BASHPID:-}" ]] || [[ "${BASHPID}" == "${MAIN_BASHPID}" ]]; }
+    then
+        rm -rf -- "${RENDER_ROOT}"
+        RENDER_ROOT=""
+    fi
+
+    return 0
+}
+
+# assert_renderable_registry_values — defense in depth, immediately before the
+# only place registry strings become configuration text.
+#
+# `targets validate` already proved every one of these formats at the registry
+# boundary, and this installer refuses a registry that fails it. This asserts
+# them again anyway, because "the value that gets written into an Nginx or
+# Supervisor file is closed-format" is the property the whole no-eval,
+# no-envsubst, data-not-code design rests on, and a property that load-bearing
+# should not be provable only somewhere else.
+assert_renderable_registry_values() {
+    local target_id="$1"
+
+    local field value
+    for field in php_fpm.pool supervisor.program supervisor.queue scheduler.name nginx.site_name; do
+        case "${field}" in
+            php_fpm.pool)        value="${TGT_FPM_POOL[${target_id}]}" ;;
+            supervisor.program)  value="${TGT_SUPERVISOR_PROGRAM[${target_id}]}" ;;
+            supervisor.queue)    value="${TGT_QUEUE[${target_id}]}" ;;
+            scheduler.name)      value="${TGT_SCHEDULER[${target_id}]}" ;;
+            nginx.site_name)     value="${TGT_NGINX_SITE[${target_id}]}" ;;
+        esac
+
+        [[ "${value}" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] \
+            || fail "target ${target_id}: ${field} '${value}' is not a renderable service name — refusing to render service configuration around it"
+    done
+
+    [[ "${TGT_INTERNAL_HOSTNAME[${target_id}]}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]] \
+        || fail "target ${target_id}: nginx.internal_hostname '${TGT_INTERNAL_HOSTNAME[${target_id}]}' is not a bare hostname — refusing to render an Nginx server_name around it"
+
+    [[ "${TGT_ROOT[${target_id}]}" =~ ^/home/www/rateguru(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || fail "target ${target_id}: application_root '${TGT_ROOT[${target_id}]}' is not a renderable path below ${RATEGURU_ROOT}"
+
+    [[ "${TGT_FPM_SOCKET[${target_id}]}" =~ ^/run/php/[a-z0-9][a-z0-9_-]{0,63}\.sock$ ]] \
+        || fail "target ${target_id}: php_fpm.socket '${TGT_FPM_SOCKET[${target_id}]}' is not a renderable pool socket path"
+
+    for value in "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}"; do
+        [[ "${value}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
+            || fail "target ${target_id}: '${value}' is not a renderable Linux account name"
+    done
+
+    [[ "${PHP_BIN_EXPECTED}" =~ ^(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || fail "the template PHP binary '${PHP_BIN_EXPECTED}' is not a renderable absolute path"
+}
+
+# render_service_sources — one canonical rendering path, run once per
+# invocation, for every production-class target this run is responsible for.
+# Called after the scope is narrowed, so a target-scoped run renders exactly
+# one target's configuration and reads nothing about any other.
+render_service_sources() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        target_renders_service_config "${target_id}" || continue
+
+        assert_renderable_registry_values "${target_id}"
+        ensure_render_root
+
+        local dir="${RENDER_ROOT}/${target_id}"
+        mkdir -p -- "${dir}"
+        chmod 0700 "${dir}"
+
+        TGT_RENDERED_NGINX[${target_id}]="${dir}/${TGT_NGINX_SITE[${target_id}]}"
+        TGT_RENDERED_FPM[${target_id}]="${dir}/${TGT_FPM_POOL[${target_id}]}.conf"
+        TGT_RENDERED_SUPERVISOR[${target_id}]="${dir}/${TGT_SUPERVISOR_PROGRAM[${target_id}]}.conf"
+        TGT_RENDERED_CRON[${target_id}]="${dir}/${TGT_SCHEDULER[${target_id}]}"
+
+        render_nginx_site "${target_id}" >"${TGT_RENDERED_NGINX[${target_id}]}"
+        render_fpm_pool "${target_id}" >"${TGT_RENDERED_FPM[${target_id}]}"
+        render_supervisor_program "${target_id}" >"${TGT_RENDERED_SUPERVISOR[${target_id}]}"
+        render_scheduler_cron "${target_id}" >"${TGT_RENDERED_CRON[${target_id}]}"
+
+        chmod 0600 \
+            "${TGT_RENDERED_NGINX[${target_id}]}" \
+            "${TGT_RENDERED_FPM[${target_id}]}" \
+            "${TGT_RENDERED_SUPERVISOR[${target_id}]}" \
+            "${TGT_RENDERED_CRON[${target_id}]}"
+    done
+}
+
+# Every renderer below is a single printf with positional arguments. No value
+# is ever concatenated into a command, and no rendered byte comes from
+# anywhere but the registry, the deployment.conf template and this file.
+#
+# Determinism matters as much as safety: the same registry must render the
+# same bytes on every host and in every mode, because provisioning a planned
+# target and later verifying the same target once it is active are two runs of
+# this same path — and a byte of difference between them would make a
+# correctly provisioned target report as drift the moment it was activated.
+
+render_nginx_site() {
+    local target_id="$1"
+
+    printf '%s\n' \
+        "# RateGuru target ${target_id} — internal endpoint." \
+        "#" \
+        "# Rendered from infrastructure/config/deployment-targets.json by" \
+        "# install-bootstrap-services. Do not edit on the host: the installer" \
+        "# compares this file against the render and replaces any difference." \
+        "#" \
+        "# Internal only, by construction. There is no public server_name, no TLS" \
+        "# listener and no certificate path here, because provisioning a target" \
+        "# must not be able to put it on the public internet. Public routing is a" \
+        "# separate, deliberate operation." \
+        "server {" \
+        "    listen 80;" \
+        "    listen [::]:80;" \
+        "" \
+        "    server_name ${TGT_INTERNAL_HOSTNAME[${target_id}]};" \
+        "" \
+        "    allow 127.0.0.1;" \
+        "    allow ::1;" \
+        "    deny all;" \
+        "" \
+        "    root ${TGT_ROOT[${target_id}]}/current/public;" \
+        "    index index.php;" \
+        "" \
+        "    access_log /var/log/nginx/${TGT_NGINX_SITE[${target_id}]}-internal-access.log;" \
+        "    error_log /var/log/nginx/${TGT_NGINX_SITE[${target_id}]}-internal-error.log;" \
+        "" \
+        "    client_max_body_size 64m;" \
+        "" \
+        "    location / {" \
+        "        try_files \$uri \$uri/ /index.php?\$query_string;" \
+        "    }" \
+        "" \
+        "    location ~ \.php\$ {" \
+        "        include snippets/fastcgi-php.conf;" \
+        "" \
+        "        fastcgi_pass unix:${TGT_FPM_SOCKET[${target_id}]};" \
+        "" \
+        "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;" \
+        "        fastcgi_param DOCUMENT_ROOT \$realpath_root;" \
+        "    }" \
+        "" \
+        "    location ~ /\.(?!well-known).* {" \
+        "        deny all;" \
+        "    }" \
+        "}"
+}
+
+render_fpm_pool() {
+    local target_id="$1"
+    local logs="${TGT_ROOT[${target_id}]}/${SERVICE_LOG_SUBPATH}"
+
+    printf '%s\n' \
+        "; RateGuru target ${target_id} — PHP-FPM pool." \
+        ";" \
+        "; Rendered from infrastructure/config/deployment-targets.json by" \
+        "; install-bootstrap-services. Do not edit on the host." \
+        "[${TGT_FPM_POOL[${target_id}]}]" \
+        "" \
+        "user = ${TGT_RUNTIME_USER[${target_id}]}" \
+        "group = ${TGT_RUNTIME_GROUP[${target_id}]}" \
+        "" \
+        "listen = ${TGT_FPM_SOCKET[${target_id}]}" \
+        "listen.owner = ${NGINX_WORKER_USER}" \
+        "listen.group = ${NGINX_WORKER_USER}" \
+        "listen.mode = 0660" \
+        "" \
+        "pm = ondemand" \
+        "pm.max_children = 6" \
+        "pm.process_idle_timeout = 30s" \
+        "pm.max_requests = 500" \
+        "" \
+        "request_terminate_timeout = 120s" \
+        "request_slowlog_timeout = 5s" \
+        "slowlog = ${logs}/php-fpm-slow.log" \
+        "" \
+        "catch_workers_output = yes" \
+        "decorate_workers_output = no" \
+        "clear_env = yes" \
+        "" \
+        "php_admin_flag[log_errors] = on" \
+        "php_admin_value[error_log] = ${logs}/php-fpm-error.log" \
+        "" \
+        "php_admin_value[memory_limit] = 256M" \
+        "php_admin_value[max_execution_time] = 120" \
+        "php_admin_value[max_input_time] = 120" \
+        "php_admin_value[upload_max_filesize] = 64M" \
+        "php_admin_value[post_max_size] = 64M"
+}
+
+# The exit code a rendered production queue program uses to say "there is no
+# release to work in yet". It is deliberately not 0: 0 is what the worker
+# returns on its normal --max-time turnover, and the two must stay
+# distinguishable for autorestart=unexpected to mean the right thing in both
+# states. 99 is outside every exit code Laravel's queue:work produces.
+QUEUE_NOTHING_TO_RUN_EXIT=99
+
+# Longer than startsecs, so the guard reaches RUNNING before exiting and
+# supervisord records a clean EXITED rather than a failed start.
+QUEUE_PRE_DEPLOY_SETTLE_SECONDS=5
+
+render_supervisor_program() {
+    local target_id="$1"
+    local logs="${TGT_ROOT[${target_id}]}/${SERVICE_LOG_SUBPATH}"
+
+    local root="${TGT_ROOT[${target_id}]}"
+
+    # PRE_DEPLOY safety, which is a property of the CONFIGURATION rather than
+    # of who happens to run supervisorctl.
+    #
+    # Provisioning installs this file for a target that has no release yet,
+    # and deliberately does not add the program to the running supervisor. But
+    # a supervisord restart or a host reboot before the first deployment reads
+    # it anyway, and an unguarded worker would then be started into a
+    # directory that does not exist and fail-loop until somebody deployed.
+    # A planned production target can sit in exactly that state for weeks, so
+    # the configuration itself has to survive being loaded:
+    #
+    #   directory      the application root, which provisioning creates and
+    #                  which always exists — never current/, which does not
+    #   command        a guard that runs the worker only when current/ is a
+    #                  real directory, and otherwise exits with a code that
+    #                  says "nothing to do" instead of crashing
+    #   exitcodes=99   makes that code the ONLY expected exit. Every other
+    #                  exit is unexpected, including the 0 the worker returns
+    #                  when --max-time or --max-jobs is reached, which is why
+    #                  autorestart=unexpected still restarts a deployed worker
+    #                  on its normal hourly turnover
+    #   the settle     supervisord treats any exit before startsecs as a
+    #                  failed start and backs off regardless of exit code, so
+    #                  the guard outlives startsecs and reaches a clean EXITED
+    #                  instead of BACKOFF -> FATAL
+    #
+    # One file, before and after the target is activated: nothing here is
+    # rewritten when planned becomes active, and a deployed target keeps the
+    # startsecs/startretries backstop that turns a genuinely crash-looping
+    # worker into FATAL rather than an endless restart.
+    #
+    # exec matters: it replaces the guard shell with PHP, so stopwaitsecs and
+    # the stop signal reach the worker itself.
+    #
+    # Every value interpolated into the command has already been proved to
+    # match a closed format by assert_renderable_registry_values — no quote,
+    # space or metacharacter can reach it — so the single-quoted guard cannot
+    # be broken out of. It is data inside a fixed program, never a rendered
+    # shell fragment.
+    local guarded_command
+    guarded_command="/bin/bash -c 'if [ ! -d ${root}/current ]; then sleep ${QUEUE_PRE_DEPLOY_SETTLE_SECONDS}; exit ${QUEUE_NOTHING_TO_RUN_EXIT}; fi; cd ${root}/current && exec ${PHP_BIN_EXPECTED} artisan queue:work redis --queue=${TGT_QUEUE[${target_id}]} --sleep=3 --tries=3 --timeout=120 --max-time=3600 --max-jobs=1000'"
+
+    printf '%s\n' \
+        "; RateGuru target ${target_id} — queue worker." \
+        ";" \
+        "; Rendered from infrastructure/config/deployment-targets.json by" \
+        "; install-bootstrap-services. Do not edit on the host." \
+        ";" \
+        "; Safe to load before the first deployment: with no current/ the" \
+        "; worker is never started, the program exits ${QUEUE_NOTHING_TO_RUN_EXIT} and stays EXITED." \
+        "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" \
+        "process_name=%(program_name)s_%(process_num)02d" \
+        "" \
+        "directory=${root}" \
+        "" \
+        "command=${guarded_command}" \
+        "" \
+        "user=${TGT_RUNTIME_USER[${target_id}]}" \
+        "numprocs=1" \
+        "" \
+        "autostart=true" \
+        "autorestart=unexpected" \
+        "exitcodes=${QUEUE_NOTHING_TO_RUN_EXIT}" \
+        "startsecs=3" \
+        "startretries=5" \
+        "" \
+        "stopasgroup=true" \
+        "killasgroup=true" \
+        "stopwaitsecs=130" \
+        "" \
+        "redirect_stderr=true" \
+        "stdout_logfile=${logs}/queue-worker.log" \
+        "stdout_logfile_maxbytes=10MB" \
+        "stdout_logfile_backups=5" \
+        "" \
+        "environment=APP_ENV=\"${TGT_ENVIRONMENT_CLASS[${target_id}]}\""
+}
+
+render_scheduler_cron() {
+    local target_id="$1"
+
+    printf '%s\n' \
+        "# RateGuru target ${target_id} — Laravel scheduler." \
+        "#" \
+        "# Rendered from infrastructure/config/deployment-targets.json by" \
+        "# install-bootstrap-services. Do not edit on the host." \
+        "#" \
+        "# Until the first release exists there is no current/ to run in, so the" \
+        "# leading guard exits before anything else runs. It is what makes a" \
+        "# provisioned-but-undeployed target silent: cron mails root whatever a" \
+        "# job writes, and a bare cd into a missing current/ would send a" \
+        "# failure every minute from provisioning until the first deployment." \
+        "# No release is ever fabricated to avoid that." \
+        "SHELL=/bin/bash" \
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        "" \
+        "* * * * * ${TGT_RUNTIME_USER[${target_id}]} [ -d ${TGT_ROOT[${target_id}]}/current ] || exit 0; cd ${TGT_ROOT[${target_id}]}/current && ${PHP_BIN_EXPECTED} artisan schedule:run >> /dev/null 2>&1"
 }
 
 # --- Source service configuration paths ---------------------------------------
+#
+# One resolution point for every consumer: a staging target reads its committed
+# file, a production target reads the render. Nothing below this line knows
+# which is which.
 
-src_nginx_site() { printf '%s/%s\n' "${SRC_NGINX_DIR}" "${TGT_NGINX_SITE[$1]}"; }
-src_fpm_pool() { printf '%s/%s.conf\n' "${SRC_PHP_FPM_DIR}" "${TGT_FPM_POOL[$1]}"; }
-src_supervisor() { printf '%s/%s.conf\n' "${SRC_SUPERVISOR_DIR}" "${TGT_SUPERVISOR_PROGRAM[$1]}"; }
-src_cron() { printf '%s/%s\n' "${SRC_CRON_DIR}" "${TGT_SCHEDULER[$1]}"; }
+src_nginx_site() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_NGINX[$1]}"; else printf '%s/%s\n' "${SRC_NGINX_DIR}" "${TGT_NGINX_SITE[$1]}"; fi
+}
+
+src_fpm_pool() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_FPM[$1]}"; else printf '%s/%s.conf\n' "${SRC_PHP_FPM_DIR}" "${TGT_FPM_POOL[$1]}"; fi
+}
+
+src_supervisor() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_SUPERVISOR[$1]}"; else printf '%s/%s.conf\n' "${SRC_SUPERVISOR_DIR}" "${TGT_SUPERVISOR_PROGRAM[$1]}"; fi
+}
+
+src_cron() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_CRON[$1]}"; else printf '%s/%s\n' "${SRC_CRON_DIR}" "${TGT_SCHEDULER[$1]}"; fi
+}
+
+# source_label SRC — the stable operator-facing name of a service source.
+#
+# A rendered candidate lives in a per-run temporary directory whose name is
+# random, and this installer's output is a deterministic, asserted contract:
+# printing that path would make every report differ from the last for no
+# reason. What matters to a reader is that the file came from the registry
+# rather than from the tree.
+source_label() {
+    local src="$1"
+
+    if [[ -n "${RENDER_ROOT}" ]] && [[ "${src}" == "${RENDER_ROOT}/"* ]]; then
+        printf 'the target registry (generic production rendering of %s)\n' "${src##*/}"
+
+        return 0
+    fi
+
+    printf '%s\n' "${src#"${REPO_ROOT}"/}"
+}
 
 dst_nginx_site() { printf '%s/%s\n' "${DST_NGINX_AVAILABLE_DIR}" "${TGT_NGINX_SITE[$1]}"; }
 dst_nginx_enabled() { printf '%s/%s\n' "${DST_NGINX_ENABLED_DIR}" "${TGT_NGINX_SITE[$1]}"; }
@@ -759,8 +1272,7 @@ validate_service_sources() {
 
         grep -Fxq "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" "${supervisor_src}" \
             || fail "committed Supervisor config ${supervisor_src} does not declare [program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}] — registry/config drift"
-        grep -Eq "^directory *= *${root}/current$" "${supervisor_src}" \
-            || fail "committed Supervisor config ${supervisor_src} does not run in ${root}/current — registry/config drift"
+        assert_supervisor_runs_in_current "${supervisor_src}" "${root}"
         grep -Eq "^user *= *${runtime_user}$" "${supervisor_src}" \
             || fail "committed Supervisor config ${supervisor_src} does not run as ${runtime_user} — registry/config drift"
         grep -Fq "${log_dir}/" "${supervisor_src}" \
@@ -773,6 +1285,43 @@ validate_service_sources() {
     for mail_src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
         validate_source_file "${mail_src}" "shared mail-capture Nginx vhost"
     done
+}
+
+# assert_supervisor_runs_in_current PATH ROOT — the worker runs inside
+# ROOT/current, by whichever of the two accepted mechanisms the file uses.
+#
+# The committed staging program says so with `directory=`, and supervisord
+# chdirs there before spawning. That shape cannot be loaded safely before a
+# release exists, which is fine for a target that has one and wrong for a
+# target that is waiting to be deployed.
+#
+# A rendered production program therefore says it in the command instead:
+# `directory=` is the application root, which always exists, and the command
+# enters current/ only once it is really there. That shape has to prove the
+# rest of its PRE_DEPLOY contract too — a guard without the exit-code
+# agreement would still crash-loop, which is the failure this whole shape
+# exists to prevent.
+assert_supervisor_runs_in_current() {
+    local path="$1" root="$2"
+
+    if grep -Eq "^directory *= *${root}/current$" "${path}"; then
+        return 0
+    fi
+
+    grep -Eq "^directory *= *${root}$" "${path}" \
+        || fail "committed Supervisor config ${path} does not run in ${root}/current, and does not use ${root} as a stable working directory either — registry/config drift"
+
+    grep -Fq "cd ${root}/current" "${path}" \
+        || fail "committed Supervisor config ${path} sets directory=${root} but its command never enters ${root}/current — registry/config drift"
+
+    grep -Fq "[ ! -d ${root}/current ]" "${path}" \
+        || fail "committed Supervisor config ${path} runs in ${root}/current without proving it exists first — a supervisord restart before the first deployment would crash-loop the worker"
+
+    grep -Eq "^autorestart *= *unexpected$" "${path}" \
+        || fail "committed Supervisor config ${path} guards a missing ${root}/current but keeps an unconditional autorestart — the guard would be restarted forever"
+
+    grep -Eq "^exitcodes *= *${QUEUE_NOTHING_TO_RUN_EXIT}$" "${path}" \
+        || fail "committed Supervisor config ${path} does not declare exitcodes=${QUEUE_NOTHING_TO_RUN_EXIT} — without it the worker's own successful exit would be read as expected and never restarted"
 }
 
 # validate_cron_source PATH TARGET_ID — structural cron.d validation: only
@@ -955,6 +1504,18 @@ report_secret_presence() {
 
 # --- Report sections (shared by --check and --verify) -------------------------
 
+# child_target_args — the flags a child installer needs to be asked about THIS
+# target in THIS run's authorization. Built in one place so no call site can
+# forget the provisioning half and quietly ask a child about an active target
+# that does not exist yet.
+child_target_args() {
+    printf '%s\n' --target "${TARGET_SCOPE}"
+
+    provisioning && printf '%s\n' --provisioning
+
+    return 0
+}
+
 report_prerequisite_slices() {
     section "PREREQUISITES (authoritative child verifies — never re-implemented here)"
 
@@ -972,8 +1533,11 @@ report_prerequisite_slices() {
         # it exists for. --apply still refuses outright: see
         # apply_gate_prerequisites, which is the gate that actually protects
         # this installer's own mutations.
+        local -a scope_args=()
+        mapfile -t scope_args < <(child_target_args)
+
         report_prerequisite_drift "prerequisite:install-bootstrap-host-layout" \
-            "${HOSTLAYOUT_INSTALLER_BIN}" --verify --target "${TARGET_SCOPE}"
+            "${HOSTLAYOUT_INSTALLER_BIN}" --verify "${scope_args[@]}"
     else
         report_child_gate "slice-5.3:install-bootstrap-host-layout" "${HOSTLAYOUT_INSTALLER_BIN}" --verify
     fi
@@ -1003,7 +1567,7 @@ report_prerequisite_drift() {
     fi
 
     item DRIFT "${name}" "verify failed (${bin} $*)" \
-        "${bin##*/} --apply --target ${TARGET_SCOPE} — this installer never converges the layout itself, and refuses to mutate until it is correct"
+        "${bin##*/} --apply $(child_target_args | tr '\n' ' ')— this installer never converges the layout itself, and refuses to mutate until it is correct"
 }
 
 report_child_gate() {
@@ -1027,15 +1591,31 @@ report_child_gate() {
 report_targets() {
     section "TARGETS"
 
-    item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    if provisioning; then
+        item PASS "registry:source" "valid (provisioning scope: ${ACTIVE_TARGETS[*]:-none})"
+    else
+        item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    fi
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        item PASS "target:${target_id}" "lifecycle=active — service configuration managed by this slice"
+        if provisioning; then
+            item PASS "target:${target_id}" "lifecycle=planned, environment_class=production — service configuration provisioned under the explicit --provisioning authorization; the target stays planned and the registry is never written"
+        else
+            item PASS "target:${target_id}" "lifecycle=active — service configuration managed by this slice"
+        fi
+
+        if target_renders_service_config "${target_id}"; then
+            item PASS "rendering:${target_id}" "Nginx internal vhost, PHP-FPM pool, Supervisor program and scheduler cron rendered generically from the registry — no committed per-brand source, no public hostname, no TLS listener"
+        fi
     done
 
-    for target_id in "${PLANNED_TARGETS[@]}"; do
-        item PASS "target:${target_id}" "lifecycle=planned — zero service configuration (committed production config sources are ignored while the target stays planned)"
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        if [[ "${TGT_LIFECYCLE[${target_id}]}" == planned ]]; then
+            item PASS "target:${target_id}" "lifecycle=planned — zero service configuration (committed production config sources are ignored while the target stays planned)"
+        else
+            item PASS "target:${target_id}" "lifecycle=${TGT_LIFECYCLE[${target_id}]} — zero service configuration (only an active target is configured here)"
+        fi
     done
 }
 
@@ -1099,7 +1679,7 @@ report_managed_file() {
     local probe
     if ! probe="$(stat_probe "${dst}")"; then
         item MISSING "file:${dst}" "absent (${name})" \
-            "install from ${src#"${REPO_ROOT}"/} (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE}), transactionally, validating before any reload"
+            "install from $(source_label "${src}") (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE}), transactionally, validating before any reload"
         return 0
     fi
 
@@ -1113,8 +1693,8 @@ report_managed_file() {
     fi
 
     if ! cmp -s "${src}" "$(physical "${dst}")"; then
-        item DRIFT "file:${dst}" "content differs from the committed source (${name})" \
-            "replace transactionally from ${src#"${REPO_ROOT}"/}, validating before any reload"
+        item DRIFT "file:${dst}" "content differs from its source (${name})" \
+            "replace transactionally from $(source_label "${src}"), validating before any reload"
         return 0
     fi
 
@@ -1130,7 +1710,7 @@ report_managed_file() {
         return 0
     fi
 
-    item PASS "file:${dst}" "byte-identical to committed source, ${actual_owner}:${actual_group}, mode ${actual_mode} (${name})"
+    item PASS "file:${dst}" "byte-identical to its source, ${actual_owner}:${actual_group}, mode ${actual_mode} (${name})"
 }
 
 # enabled_link_state TARGET_ID — prints ok|missing|wrong-target:<target>|conflict:<type>
@@ -1206,7 +1786,7 @@ report_service_sources() {
 
     validate_service_sources
 
-    item PASS "sources:service-config" "every committed service source is a readable regular file, structurally valid, and consistent with the registry (${#ACTIVE_TARGETS[@]} active target(s))"
+    item PASS "sources:service-config" "every service source is a readable regular file, structurally valid, and consistent with the registry (${#ACTIVE_TARGETS[@]} target(s) in scope)"
 }
 
 # --- Runtime configuration validation (read-only in check/verify) -------------
@@ -1359,9 +1939,12 @@ report_child_contracts() {
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local -a acl_args=(--target "${target_id}")
+        provisioning && acl_args+=(--provisioning)
+
         report_child_state "public-storage-acl:${target_id}" \
             "narrow www-data traversal ACL on shared and shared/storage" \
-            "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify --target "${target_id}"
+            "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify "${acl_args[@]}"
     done
 
     # The deploy channel's own authorization: read-only, and only for the
@@ -1497,7 +2080,7 @@ report_queue_program() {
     local program="${TGT_SUPERVISOR_PROGRAM[${target_id}]}"
 
     if [[ "${TGT_STATE[${target_id}]:-}" == PRE_DEPLOY ]]; then
-        item DEFERRED "queue:${program}" "target queue activation DEFERRED until the first release exists (PRE_DEPLOY — the committed program runs in current/, which does not exist yet; never force-started, never pointed at a fake directory)" \
+        item DEFERRED "queue:${program}" "target queue activation DEFERRED until the first release exists (PRE_DEPLOY — the program works in current/, which does not exist yet; never force-started, never pointed at a fake directory)" \
             "activated after the first real deployment (see the 5.5/5.6 first-deploy activation note in the runbook)"
         return 0
     fi
@@ -1628,7 +2211,9 @@ report_service_state() {
 report_summary() {
     section "SUMMARY"
 
-    if target_scoped; then
+    if provisioning; then
+        printf 'Bootstrap services installer (%s, provisioning target %s):\n' "${MODE}" "${TARGET_SCOPE}"
+    elif target_scoped; then
         printf 'Bootstrap services installer (%s, target %s):\n' "${MODE}" "${TARGET_SCOPE}"
     else
         printf 'Bootstrap services installer (%s):\n' "${MODE}"
@@ -1675,7 +2260,9 @@ run_contract_report() {
     printf 'RateGuru bootstrap services installer (%s mode)\n' "${MODE}"
     printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture; directly owns the active-target service files\n'
 
-    if target_scoped; then
+    if provisioning; then
+        printf 'Scope: planned production target %s only — host-wide families are out of scope entirely, base services are inspected and never started, and this run never activates the target\n' "${TARGET_SCOPE}"
+    elif target_scoped; then
         printf 'Scope: target %s only — host-wide families are out of scope entirely; base services are inspected and never started\n' "${TARGET_SCOPE}"
     fi
 
@@ -1869,6 +2456,8 @@ on_apply_error() {
         restore_runtime_after_rollback
     fi
 
+    cleanup_render_root
+
     exit "${code}"
 }
 
@@ -1910,7 +2499,7 @@ install_managed_file_if_needed() {
 
     txn_record_file "${logical}"
 
-    action "file:${logical} installing from ${src#"${REPO_ROOT}"/} (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE})"
+    action "file:${logical} installing from $(source_label "${src}") (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE})"
 
     local tmp
     tmp="$(mktemp "${phys}.XXXXXX")"
@@ -2301,13 +2890,18 @@ converge_supervisor() {
         || fail "supervisorctl reread reported a configuration error with the candidate installed — restoring the previous configuration (nothing was applied to the running supervisor)"
 
     if [[ "${TGT_STATE[${target_id}]}" == PRE_DEPLOY ]]; then
-        # Residual, documented window: the installed committed config keeps
-        # autostart=true (it is never rewritten to a fake shape), so a
-        # supervisord restart/host reboot BEFORE the first deployment would
-        # read it and fail-loop the program until a release exists. That
-        # window closes with the first-deploy activation path recorded as a
-        # required 5.5/5.6 integration fix (see runbooks/bootstrap-services.md).
-        action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} activation DEFERRED until the first release exists (PRE_DEPLOY — config installed and validated; the program is not added to the running supervisor, its directory=current does not exist yet)"
+        # The residual window, and which targets still have it: a rendered
+        # production program is safe for supervisord to load with no release
+        # (see render_supervisor_program — the guarded command, exitcodes and
+        # autorestart=unexpected exist for exactly this), so a restart before
+        # the first deployment leaves it cleanly EXITED. A committed staging
+        # program keeps the older directory=current shape and therefore keeps
+        # the documented window: a supervisord restart/host reboot BEFORE the
+        # first deployment would read it and fail-loop the program until a
+        # release exists. That target has a release, and its window closes
+        # with the first-deploy activation path (see
+        # runbooks/bootstrap-services.md).
+        action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} activation DEFERRED until the first release exists (PRE_DEPLOY — config installed and validated; the program is not added to the running supervisor, and there is no current/ for the worker to run in)"
         return 0
     fi
 
@@ -2401,14 +2995,17 @@ converge_target_perimeter() {
 converge_public_storage_access() {
     local target_id="$1"
 
-    if "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify --target "${target_id}" >/dev/null 2>&1; then
-        action "child:install-public-storage-access --target ${target_id} already compliant — skipped"
+    local -a acl_args=(--target "${target_id}")
+    provisioning && acl_args+=(--provisioning)
+
+    if "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify "${acl_args[@]}" >/dev/null 2>&1; then
+        action "child:install-public-storage-access ${acl_args[*]} already compliant — skipped"
         return 0
     fi
 
-    action "child:install-public-storage-access --apply --target ${target_id} (owns the narrow www-data ACL)"
-    "${PUBLIC_STORAGE_INSTALLER_BIN}" --apply --target "${target_id}" \
-        || fail "install-public-storage-access --apply --target ${target_id} failed — aborting before any later component"
+    action "child:install-public-storage-access --apply ${acl_args[*]} (owns the narrow www-data ACL)"
+    "${PUBLIC_STORAGE_INSTALLER_BIN}" --apply "${acl_args[@]}" \
+        || fail "install-public-storage-access --apply ${acl_args[*]} failed — aborting before any later component"
 }
 
 # converge_deployment_marker — the authorization the deploy channel needs, on
@@ -2515,9 +3112,12 @@ apply_gate_prerequisites() {
     # target fail because a different active target had drifted — which is
     # both wrong and the opposite of what target scoping is for.
     if target_scoped; then
-        action "prerequisite gate: install-bootstrap-host-layout --verify --target ${TARGET_SCOPE}"
-        "${HOSTLAYOUT_INSTALLER_BIN}" --verify --target "${TARGET_SCOPE}" >/dev/null 2>&1 \
-            || fail "install-bootstrap-host-layout --verify --target ${TARGET_SCOPE} failed — converge this target's layout first (no service/config mutation was performed)"
+        local -a scope_args=()
+        mapfile -t scope_args < <(child_target_args)
+
+        action "prerequisite gate: install-bootstrap-host-layout --verify ${scope_args[*]}"
+        "${HOSTLAYOUT_INSTALLER_BIN}" --verify "${scope_args[@]}" >/dev/null 2>&1 \
+            || fail "install-bootstrap-host-layout --verify ${scope_args[*]} failed — converge this target's layout first (no service/config mutation was performed)"
     else
         action "prerequisite gate: install-bootstrap-host-layout --verify"
         "${HOSTLAYOUT_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
@@ -2683,6 +3283,7 @@ perform_apply() {
 
     APPLY_COMMITTED=true
     trap - ERR EXIT
+    trap cleanup_render_root EXIT
 
     # 16-17. Authoritative closing verification.
     if target_scoped; then
@@ -2729,6 +3330,15 @@ parse_args() {
                 TARGET_SCOPE="$2"
                 shift 2
                 ;;
+            --provisioning)
+                if [[ "${PROVISIONING}" == true ]]; then
+                    usage >&2
+                    fail "--provisioning given more than once"
+                fi
+
+                PROVISIONING=true
+                shift
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -2744,12 +3354,26 @@ parse_args() {
         usage >&2
         fail "one of --check, --apply or --verify is required"
     fi
+
+    # --provisioning authorizes ONE named target. Without --target there is
+    # nothing it could authorize, and interpreting it generously would be the
+    # one reading that turns it into a host-wide flag.
+    if provisioning && ! target_scoped; then
+        usage >&2
+        fail "--provisioning requires --target: it authorizes provisioning for exactly one planned production target, never for the host"
+    fi
 }
 
 main() {
     parse_args "$@"
 
     require_root
+
+    # Recorded before anything can render, so the rendered candidates are only
+    # ever removed by the process that created them — see cleanup_render_root.
+    MAIN_BASHPID="${BASHPID}"
+    trap cleanup_render_root EXIT
+
     load_source_contract
 
     case "${MODE}" in
@@ -2758,7 +3382,14 @@ main() {
             run_contract_report || exit 1
             ;;
         apply)
-            printf 'RateGuru bootstrap services installer (apply mode)\n'
+            if provisioning; then
+                printf 'RateGuru bootstrap services installer (apply mode, provisioning target %s)\n' "${TARGET_SCOPE}"
+            elif target_scoped; then
+                printf 'RateGuru bootstrap services installer (apply mode, target %s)\n' "${TARGET_SCOPE}"
+            else
+                printf 'RateGuru bootstrap services installer (apply mode)\n'
+            fi
+
             perform_apply || exit 1
             ;;
     esac

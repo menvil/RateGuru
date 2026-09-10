@@ -45,6 +45,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'build-rateguru',
         'deploy-rateguru',
         'prepare-rateguru-host',
+        // The generic target provisioner's transport, added later and guarded
+        // by ProvisionRateGuruTargetActionTest. It ships with no operator
+        // workflow at all, which is why the workflow list above is unchanged.
+        'provision-rateguru-target',
         'record-rateguru-deployment',
         'recover-rateguru-host',
         'recovery-host-preflight',
