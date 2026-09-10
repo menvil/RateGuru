@@ -232,6 +232,30 @@ it('states the final contract the run summary reports', function () {
         ->toContain('| DEPLOY_HOST | unchanged |')
         ->toContain('OFFSITE WRITES: HELD');
 
+    // An absent `previous` is a promise the runbook makes to an operator, so
+    // it has to be a promise something enforces rather than a hopeful
+    // description of the usual case. All three layers are asserted together
+    // here because the failure this catches is exactly the drift between
+    // them: prose that states a contract nothing refuses to break.
+    expect(File::get(base_path('infrastructure/scripts/recover-host')))
+        ->toContain('carries a previous release link')
+        ->toContain('PREVIOUS: absent');
+
+    expect(File::get(base_path('.github/actions/recover-rateguru-host/action.yml')))
+        ->toContain('.previous == "absent"');
+
+    expect($report)
+        ->toContain('| Previous | \\`${RECOVERED_PREVIOUS}\\` |')
+        ->toContain('the verified host carries a previous release link');
+
+    // And the recover-host runbook, which is where an operator reads what the
+    // verification actually judges, says the same thing rather than the older
+    // "not a failure".
+    expect(preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/runbooks/recover-host.md'))))
+        ->toContain('`previous` is **absent**')
+        ->toContain('being absent is required, not merely tolerated')
+        ->not->toContain('being absent is **not** a failure');
+
     // When a run stops half way, the runbook's advice is the workflow's own
     // START/CONTINUE recommendation, and it names both safe stages.
     expect($runbook)
@@ -513,4 +537,58 @@ it('never derives a hostname from a sentence explaining that it has none', funct
         ->toContain('(public hostnames of this target: unknown here (registry: public_hostnames))');
 
     expect(str_contains($output, 'curl --resolve the:'))->toBeFalse('a sentence is not a hostname');
+});
+
+it('opens with the whole operation in one screen, and the compact guide opens with the same one', function () {
+    $runbook = cleanHostRunbook();
+    $guide = cleanHostOperatorGuide();
+
+    // An operator reaching for this document has usually lost a machine. The
+    // first thing they meet is the entire operation — what to have ready, what
+    // to dispatch, what to do if the run is interrupted, and what success is —
+    // with everything below it as the explanation rather than the instruction.
+    $summary = strpos($runbook, '## In one screen');
+    $firstSection = strpos($runbook, '## A. ');
+
+    expect($summary)->not->toBeFalse('the runbook has no one-screen summary')
+        ->and($firstSection)->toBeGreaterThan($summary, 'the summary is not the first thing an operator reads');
+
+    $box = substr($runbook, $summary, $firstSection - $summary);
+
+    foreach (['**BEFORE RUN**', '**RUN**', '**IF INTERRUPTED', '**SUCCESS**'] as $part) {
+        expect($box)->toContain($part);
+    }
+
+    // The dispatch is stated in full, in both modes, and the continuation is
+    // conditional on an operation existing — a continue-held with no held
+    // operation is the one re-run that cannot work.
+    expect($box)
+        ->toContain('mode             = start')
+        ->toContain('mode             = continue-held')
+        ->toContain('operation        = <the operation ID from the summary>')
+        ->toContain('Leave `backup` empty');
+
+    // And the compact guide the preflight prints leads with the same box, so
+    // an operator who runs the script and an operator who opens the runbook
+    // are told the same four things in the same order.
+    $guideBox = substr($guide, (int) strpos($guide, 'IN ONE SCREEN'), (int) strpos($guide, '1. The new server') - (int) strpos($guide, 'IN ONE SCREEN'));
+
+    foreach (['BEFORE RUN', 'RUN ', 'INTERRUPTED', 'SUCCESS'] as $part) {
+        expect($guideBox)->toContain($part);
+    }
+
+    // The final contract is the same list of facts in both, and it is the one
+    // the run summary reports.
+    $report = (string) data_get(Yaml::parseFile(base_path('.github/workflows/recover-staging.yml')), 'jobs.report.steps.0.run');
+
+    foreach (['queue', 'scheduler', 'health', 'offsite writes', 'DEPLOY_HOST', 'DNS'] as $fact) {
+        expect(strtolower($box))->toContain(strtolower($fact));
+        expect(strtolower($guideBox))->toContain(strtolower($fact));
+    }
+
+    expect($report)->toContain('OFFSITE WRITES: HELD');
+
+    // The runbook names the script that prints the compact form, so the two
+    // cannot drift apart without one of them saying where the other is.
+    expect($box)->toContain('recovery-host-preflight --operator-guide --target staging-main');
 });

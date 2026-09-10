@@ -795,12 +795,21 @@ Read-only, and independent of any operation:
 * the queue is **RUNNING**;
 * the health check **passes**;
 * the offsite-write hold is in place — `OFFSITE WRITES: HELD`, and
-  `offsite_writes: held` in the result.
+  `offsite_writes: held` in the result;
+* `previous` is **absent** — `PREVIOUS: absent`, and `previous: "absent"` in the
+  result.
 
-`previous` being absent is **not** a failure. A freshly recovered host has had
-exactly one deployment and the recovery deployment leaves no implicit rollback
-target on purpose — demanding a deployment history that never existed would make
-a correct recovery unverifiable.
+`previous` being absent is required, not merely tolerated. A recovered host has
+had exactly one deployment — the controlled recovery deployment, which leaves no
+implicit rollback target on purpose — so a `previous` here means something was
+deployed to the machine after the recovery, an adoption has already begun, or
+this is not the host the verification is describing. Rolling "back" from a
+recovery to whatever that link named would leave the target serving code the
+recovered data does not belong to, so the verification refuses instead.
+
+"Absent" means completely absent: a **broken** symlink is still a `previous`,
+and is refused the same way. Nothing is removed — the verification says what it
+found and leaves it for an operator to explain.
 
 Stated as the whole picture after a successful recovery: TARGET is still
 `staging-main`, HOST is the replacement machine, the data and the environment

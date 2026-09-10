@@ -1639,8 +1639,14 @@ it('keeps the roadmap structure: the clean-host bootstrap completed, the observa
     expect(substr_count($roadmap, '🚧 current'))->toBe(1);
     expect($roadmap)->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m');
 
-    // Phases 7-10 stay planned in the roadmap summary table.
-    foreach ([7, 8, 9, 10] as $phase) {
+    // The disaster-recovery phase closed on a real replacement machine, the
+    // production launch is what follows it, and everything after that stays
+    // planned. Exactly one phase may be current, and it is still the
+    // observability work: "next" is not "current".
+    expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m', 'phase 7 no longer reads as completed');
+    expect($roadmap)->toMatch('/^\|\s*8\s*\|[^|]+\|\s*🚧 next\s*\|$/m', 'phase 8 no longer reads as next');
+
+    foreach ([9, 10] as $phase) {
         expect($roadmap)->toMatch(
             '/^\|\s*'.$phase.'\s*\|[^|]+\|\s*⏳ planned[^|]*\|$/m',
             "phase {$phase} is no longer a planned row in the summary table",
@@ -1661,8 +1667,10 @@ it('keeps the roadmap structure: the clean-host bootstrap completed, the observa
     expect($roadmap)->toContain('Three distinct rehearsal gates');
     expect($roadmap)->toContain('Disposable rehearsal policy');
 
-    // Nothing future is marked completed.
-    foreach ([6, 7, 8, 9, 10] as $phase) {
+    // Nothing still ahead is marked completed. The disaster-recovery phase is
+    // no longer ahead: it closed on a real replacement machine, and its own
+    // acceptance evidence is asserted where that evidence lives.
+    foreach ([6, 8, 9, 10] as $phase) {
         expect($roadmap)->not->toMatch('/^##\s*'.$phase.'\.\s[^\n]*completed/m');
     }
 });

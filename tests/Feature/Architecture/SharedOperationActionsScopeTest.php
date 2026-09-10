@@ -279,7 +279,7 @@ it('records the disaster-recovery work as the consolidated plan, with the artifa
         '**7.5 Repair Target',
         '**7.6 Recover Host',
         '**7.7 GitHub Recover + clean-host rehearsal',
-        '**7.8 Full DR acceptance, measured RPO and RTO',
+        '**7.8 Final DR acceptance',
     ] as $heading) {
         expect($roadmap)->toContain($heading);
     }
@@ -300,9 +300,14 @@ it('records the disaster-recovery work as the consolidated plan, with the artifa
         ->toContain('**Recover Host** — full replacement-server recovery')
         ->toContain('rebuilds the application from the exact `source_sha`');
 
-    // the observability work is still the single current phase; 7.1 landing does not open 7.
+    // the observability work is still the single CURRENT phase, and the
+    // disaster-recovery work closed without ever becoming it: these primitives
+    // landing did not open a phase, and the phase closing did not move the
+    // marker off observability.
     expect(substr_count($roadmap, '🚧 current'))->toBe(1);
-    expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+    expect($roadmap)
+        ->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m')
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m');
 });
 
 it('implements no target provisioner and no recovery rehearsal harness', function () {

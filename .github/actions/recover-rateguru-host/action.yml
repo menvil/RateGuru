@@ -190,6 +190,16 @@ outputs:
     description: "Scheduler state the server-side primitive reported (active on a completed recovery)"
     value: ${{ steps.recover.outputs.scheduler }}
 
+  previous:
+    description: >-
+      Whether the target carries a previous release link. Only a verification
+      proves this, and it proves it by refusing every other answer: a recovered
+      host has had exactly one deployment — the controlled recovery deployment,
+      which leaves no rollback target — so `absent` is the only value a verified
+      recovery reports. `unknown` from every other mode, which has not asked —
+      never an empty string that a reader could mistake for "nothing there".
+    value: ${{ steps.recover.outputs.previous }}
+
   failure-cause:
     description: >-
       Why the mode refused or failed, as one closed word an operator can act
@@ -704,12 +714,22 @@ runs:
         # pass on as a success: an absent field would otherwise become an
         # optimistic default somewhere downstream.
         if [[ "${MODE}" == "verify" ]]; then
-          for field in queue scheduler health; do
+          for field in queue scheduler health previous; do
             jq -e --arg field "${field}" '.[$field] | type == "string" and length > 0' <<<"${result_json}" >/dev/null || {
               echo "The final verification did not report ${field}, which is part of the contract it exists to prove: ${result_json}" >&2
               exit 1
             }
           done
+
+          # A recovered host has had exactly one deployment and therefore no
+          # rollback target. The server refuses to verify one that has a
+          # `previous`; this refuses to PASS ON a result that says otherwise,
+          # for the same reason the offsite-write hold is re-read above — the
+          # calling workflow announces this as fact.
+          jq -e '.previous == "absent"' <<<"${result_json}" >/dev/null || {
+            echo "The final verification reports previous=$(jq -r '.previous' <<<"${result_json}"), and a recovered host has no previous release link: ${result_json}" >&2
+            exit 1
+          }
         fi
 
         {
@@ -725,6 +745,7 @@ runs:
           echo "offsite-writes=$(jq -r '.offsite_writes' <<<"${result_json}")"
           echo "queue=$(jq -r '.queue // empty' <<<"${result_json}")"
           echo "scheduler=$(jq -r '.scheduler // empty' <<<"${result_json}")"
+          echo "previous=$(jq -r '.previous // empty' <<<"${result_json}")"
         } >> "${GITHUB_OUTPUT}"
 
         {
@@ -741,6 +762,10 @@ runs:
           echo "- Current release: \`$(jq -r '.current_release' <<<"${result_json}")\` (source \`$(jq -r '.source_sha' <<<"${result_json}")\`)"
           echo "- Health: \`$(jq -r '.health' <<<"${result_json}")\` · Queue: \`$(jq -r '.queue' <<<"${result_json}")\` · Scheduler: \`$(jq -r '.scheduler' <<<"${result_json}")\`"
           echo "- Offsite writes (backup cron, uploader, pruner): \`$(jq -r '.offsite_writes' <<<"${result_json}")\`"
+
+          if [[ "${MODE}" == "verify" ]]; then
+            echo "- Previous release link: \`$(jq -r '.previous' <<<"${result_json}")\`"
+          fi
         } >> "${GITHUB_STEP_SUMMARY}"
 
     # Runs on failure too. Uploaded tooling must never outlive the run that

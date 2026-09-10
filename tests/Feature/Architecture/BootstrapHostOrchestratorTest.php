@@ -991,10 +991,19 @@ it('keeps the clean-host bootstrap and the disaster-recovery work rehearsal gate
     // after server/data loss, and must never be read as closing the disaster-recovery work.
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
+    // The disaster-recovery gate has since passed on its own evidence — a real
+    // replacement machine, both operator paths — and the roadmap still has to
+    // say that 5.6 is not what closed it. A gate that closed for the wrong
+    // reason is the failure this guards against, and it survives the gate
+    // closing for the right one.
     expect($roadmap)
         ->toContain('Three distinct rehearsal gates')
-        ->toContain('**Still outstanding.**')
-        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m');
+
+    // Flattened, because the sentence is long enough to wrap and a rewrap is
+    // not a change in what it says.
+    expect(preg_replace('/\s+/', ' ', $roadmap))
+        ->toContain('a different question from reconstructing a lost application, and closed nothing here');
 
     // The two defects clean-host bootstrap found, and the MRs that fixed them.
     expect($roadmap)

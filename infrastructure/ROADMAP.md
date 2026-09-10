@@ -12,8 +12,8 @@ not reorganize unrelated infrastructure.
 | 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | ✅ completed |
 | 6 | Sentry observability activation | 🚧 current |
-| 7 | Disaster recovery and release rehearsal | ⏳ planned |
-| 8 | First production launch and target-provisioning proof | ⏳ planned |
+| 7 | Disaster recovery and release rehearsal | ✅ completed |
+| 8 | First production launch and target-provisioning proof | 🚧 next |
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
@@ -767,7 +767,7 @@ deployment. Slice 6.6 (alerts) is manual Sentry-UI work documented in
    justified. *Acceptance:* controlled staging failures verify the
    notification path end to end.
 
-## 7. Disaster recovery and release rehearsal — planned
+## 7. Disaster recovery and release rehearsal — completed
 
 Rehearse recovery end to end. The phase overall proves: **we can lose the
 whole server and recover correctly**. It explicitly distinguishes four
@@ -1337,8 +1337,8 @@ Slices, in order:
    CI proves the structure, the preconditions, the compensation and every
    refusal path; only a real clean replacement machine proves the pipeline, and
    that rehearsal belongs to 7.7 — so this slice is implemented, not accepted.
-7. **7.7 GitHub Recover + clean-host rehearsal — implementation ready for the
-   REAL clean-host acceptance.** The 7.6 mechanisms became two named
+7. **7.7 GitHub Recover + clean-host rehearsal — ACCEPTED on a real
+   replacement VPS.** The 7.6 mechanisms became two named
    operator buttons, and the whole chain became one dispatch that needs
    nothing but a clean machine, one exact backup and the recovery bindings:
 
@@ -1497,22 +1497,116 @@ Slices, in order:
    the operator flow, the clean-host acceptance checklist and the
    offsite-write hold, and [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md)
    for the operator runbook.
-   *Acceptance:* a disposable host is recovered end to end from a workflow
-   dispatch, from a clean Ubuntu machine with nothing but bootstrap SSH on it,
-   without hand-run commands and without a single hand-copied file. CI proves
-   the structure, the trust boundaries and every refusal path; the real
-   disposable-machine rehearsal is the gate that remains, so this slice is
-   implementation-ready for that acceptance, not accepted. No RPO or RTO is
-   claimed by it.
-8. **7.8 Full DR acceptance, measured RPO and RTO.** Turn recovery
-   technology into an operational procedure: rehearse full host loss with
-   backup selection, release selection, provisioning, restore, DNS/TLS
-   implications, verification and fallback; measure real recovery duration;
-   define RPO and RTO; produce the final disaster-recovery runbook. *Future
-   work only.*
+   **Accepted on a real replacement VPS (`PHASE 7 SLICE 7.7 ACCEPTED`).** Both
+   operator paths were run for real, on a freshly reinstalled Ubuntu 22.04
+   x86_64 machine that had never carried RateGuru state, from nothing but
+   bootstrap SSH access and one exact offsite backup. No command was run by
+   hand on the machine and not a single file was copied onto it.
+
+   1. **Uninterrupted clean-host recovery — PASS.** Backup `20260909-113248`,
+      required source `265c4d6b42ec6d08f3f41e0b689da9197385de01`, GitHub run
+      `34393409482`. Clean-host preflight, Prepare Host, `recover-host --apply`,
+      the historical build of that exact commit, the controlled recovery
+      deployment, `--resume` and the final `--verify` all passed in order.
+      Final state as the verification read it off the machine: that exact
+      backup, that exact `source_sha`, queue RUNNING, scheduler PRESENT,
+      health PASS, no guard, migrations none, `OFFSITE WRITES: HELD`,
+      `DEPLOY_HOST` unchanged, DNS unchanged. Sentry and Nightwatch both
+      recorded the recovered release.
+   2. **Interrupted recovery, continued — PASS.** The run was stopped after the
+      controlled recovery deployment and before the resume, which is the
+      interruption the state machine exists for. Operation
+      `20260909-211722-e132b3` was continued with `mode=continue-held` in
+      GitHub run `34406557162`. The server reported `ready-to-resume` with the
+      data restored, the exact required commit already deployed, queue
+      stopped, scheduler held and offsite writes held; the resume completed,
+      and the independent final verification passed with the same final
+      contract as above and the same `source_sha` preserved. The state machine
+      and the continue-held path are therefore accepted against a real
+      interruption, not only against CI.
+   3. **One defect found by that acceptance, and closed here.** After the
+      successful continue-held verification, the deployment marker was
+      reported `skipped`. The recovery itself was correct throughout: the
+      marker job named no condition, and a job with no `if` inherits GitHub's
+      default `success()` — "no job anywhere in my ancestry failed or was
+      skipped" — so the preparation, historical build and controlled
+      deployment that `continue-held` legitimately skips took the marker with
+      them, through three successful jobs in between. The gate is now the
+      final verification's own result and nothing else, on both paths, and the
+      job graph is executed on paper under GitHub's real gating rules for
+      every scenario (start, continue-held, and a verification that failed,
+      was cancelled or was skipped), including the mutation that reproduces
+      the defect. That fix and its coverage are automated only: it was NOT
+      re-run on a real VPS, and nothing here claims it was.
+
+   *Acceptance:* met. A disposable host was recovered end to end from a
+   workflow dispatch, from a clean Ubuntu machine with nothing but bootstrap
+   SSH on it, without hand-run commands and without a single hand-copied file,
+   on both the uninterrupted and the interrupted path. No RPO or RTO is
+   claimed by this slice; 7.8 records why.
+8. **7.8 Final DR acceptance — ACCEPTED.** Recovery technology became an
+   operational procedure. 7.7 proved the pipeline runs on a real replacement
+   machine on both operator paths; this slice proves the repository still
+   states, enforces and documents one contract, and that an operator can
+   execute it without reading the source.
+
+   What landed:
+
+   - **The contract is stated once and proved, across surfaces.**
+     `tests/Feature/Architecture/DisasterRecoveryContractTest.php` asserts the
+     promise clause by clause — a lost host needs nothing from the lost host;
+     the operator names the machine and one exact backup and never a commit;
+     no `PREPARE_*` value is read; the backup is a closed schema 3 file set
+     whose server snapshot is never applied; the code is the commit the data
+     belongs to and no migration runs; the environment file is byte-exact and
+     only MATCH/MISMATCH is ever printed; the state machine survives
+     interruption and refuses to start a second recovery over a finished one;
+     success is an independent reading of the final contract; the recovered
+     machine stays fenced out of the real offsite namespace; no traffic,
+     binding or DNS moves; the privileged bootstrap identity and the
+     restricted deploy identity stay apart; restore, repair, prepare and
+     recover keep four distinct preconditions; nothing else mutates a target a
+     recovery owns; a verified recovery is recorded on both paths and that
+     recording can never fail a recovery; and production refuses before an
+     approval, a secret, a connection or a mutation. Each clause reaches
+     across the surfaces no single mechanism test owns, which is where a
+     recovery breaks while every mechanism suite stays green.
+   - **The deployment marker no longer inherits a legitimate skip.** The
+     defect 7.7's interrupted acceptance surfaced, fixed on both workflows and
+     covered by executing the real job graph under GitHub's real gating rules.
+     See 7.7 for what was and was not re-run for real.
+   - **A recovery that is already finished says so.** An operator holding the
+     operation ID from a completed run is the likeliest person to type it into
+     `continue-held`; `recover-host` answered "workspace does not exist",
+     which reads as a machine that lost its state and invites a second
+     recovery over a healthy host. It now distinguishes the two read-only —
+     no guard and a serving `current` is what a finished recovery looks like —
+     and refuses as a completed recovery, naming `--verify` as the way to
+     confirm it.
+   - **One operator document, readable without the source.**
+     [`runbooks/clean-host-recovery.md`](runbooks/clean-host-recovery.md)
+     opens with the whole operation in one screen — what to prepare, what to
+     dispatch, what to do if the run is interrupted, and what success is —
+     with the full explanation below it and the compact form printed by
+     `recovery-host-preflight --operator-guide`, which is held to the runbook
+     by test.
+
+   **No RPO or RTO is claimed.** Both are properties of a schedule and a
+   measured recovery duration, and the honest statement today is that the
+   recovery duration was not instrumented during the 7.7 rehearsals. Defining
+   them belongs with the production launch, where the backup schedule and the
+   business tolerance are both real; recording an unmeasured number here would
+   be worse than recording none.
+
+   *Acceptance:* met, and deliberately not by another live rehearsal. The
+   pipeline was accepted for real in 7.7 on both paths; what this slice owed
+   was the repository-level proof — a final audit of every DR surface, a
+   contract suite that fails when the pieces stop adding up, a canonical
+   operator runbook, and the acceptance evidence recorded above. No known DR
+   blocker remains.
 
 
-## 8. First production launch and target-provisioning proof — planned
+## 8. First production launch and target-provisioning proof — next
 
 First production target go-live on `tits.guru`, launched through a generic,
 rehearsed provisioning procedure rather than hand-built commands. The phase
@@ -1657,12 +1751,15 @@ rehearsal:
 - **Phase 7.7 + 7.8 — "Can we recover after complete server/data loss?"**
   Proves disaster recovery: the host and its data disappear, and the
   application is reconstructed from offsite backups plus a rebuild from the
-  exact `source_sha` those backups carry, within measured RPO/RTO.
-  **Still outstanding.** 5.6 exercised an offsite `restore-test` — proof
-  that a backup is restorable — which is a different question from
-  reconstructing a lost application, and closes nothing here. Slice 7.1
-  consolidated the build, deploy and rollback primitives that recovery will
-  be assembled from; it closes no rehearsal gate on its own.
+  exact `source_sha` those backups carry. **Passed** — see slices 7.7 and
+  7.8: a freshly reinstalled machine was recovered end to end from one
+  workflow dispatch, and the same recovery was interrupted after its
+  controlled deployment and continued to a verified finish. RPO and RTO are
+  the one part of this gate that is NOT closed: no recovery duration was
+  measured, and 7.8 says why and where they belong instead. 5.6 exercised an
+  offsite `restore-test` — proof that a backup is restorable — which is a
+  different question from reconstructing a lost application, and closed
+  nothing here.
 - **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
   exact production launch procedure without first-time surprises?"** Proves
   target onboarding and production readiness: multiple independent targets
