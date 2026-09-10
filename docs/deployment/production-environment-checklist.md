@@ -38,6 +38,10 @@
 - Do not keep demo admin credentials in production.
 - See [admin user creation docs](admin-user-creation.md).
 - Create a real admin with the admin creation command when available.
+- Social sign-in needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `FACEBOOK_CLIENT_ID` and `FACEBOOK_CLIENT_SECRET`, with the callbacks
+  registered at each provider for the production `APP_URL` — see
+  [social login docs](../dev/social-login.md).
 
 ## Queues
 

@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
+use Laravel\Socialite\Two\User as SocialiteUser;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -3077,4 +3078,40 @@ function recoverWorkflow(string $file): array
     $source = File::get($path);
 
     return [Yaml::parse($source), $source];
+}
+
+/**
+ * A Socialite user shaped like what the Google or Facebook provider returns,
+ * for Socialite::fake(). Every attribute a test does not name gets a stable
+ * default, and extra keys (Google's `email_verified` and `hd`) land in the
+ * raw provider payload exactly where Socialite puts them.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function fakeSocialiteUser(array $attributes = []): SocialiteUser
+{
+    return SocialiteUser::fake(array_merge([
+        'id' => 'provider-user-1',
+        'nickname' => null,
+        'name' => 'Ivan Moroz',
+        'email' => 'ivan@example.com',
+        'avatar' => null,
+    ], $attributes));
+}
+
+/**
+ * The callback URL a provider redirects back to, carrying the query a
+ * completed consent produces. Override or add parameters through $query —
+ * an OAuth `error`, or `code => null` for a callback without a code.
+ *
+ * @param  array<string, string|null>  $query
+ */
+function socialCallbackUrl(string $provider, array $query = []): string
+{
+    $query = array_filter(
+        array_merge(['code' => 'fake-authorization-code', 'state' => 'fake-state'], $query),
+        static fn (?string $value): bool => $value !== null,
+    );
+
+    return '/auth/'.$provider.'/callback?'.http_build_query($query);
 }

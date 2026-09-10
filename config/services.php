@@ -35,4 +35,28 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Social sign-in (Laravel Socialite)
+    |--------------------------------------------------------------------------
+    |
+    | The redirect is a path on purpose: Socialite resolves it against the
+    | application URL of whichever environment is running, so no environment
+    | ever carries another one's callback. Register exactly these callbacks
+    | with the provider — see docs/dev/social-login.md.
+    |
+    */
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => '/auth/google/callback',
+    ],
+
+    'facebook' => [
+        'client_id' => env('FACEBOOK_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect' => '/auth/facebook/callback',
+    ],
+
 ];

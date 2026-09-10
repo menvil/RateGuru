@@ -29,5 +29,7 @@
     "Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.": "След изтриването на акаунта всички данни ще бъдат изтрити безвъзвратно. Преди изтриването запазете необходимата информация.",
     "Are you sure you want to delete your account?": "Сигурни ли сте, че искате да изтриете акаунта си?",
     "Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.": "След изтриването на акаунта всички данни ще бъдат изтрити безвъзвратно. Въведете паролата си за потвърждение.",
-    "Cancel": "Откажи"
+    "Cancel": "Откажи",
+    "or": "или",
+    "Continue with :provider": "Продължи с :provider"
 }
