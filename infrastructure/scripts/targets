@@ -355,6 +355,20 @@ is_safe_account_name() {
     [[ "${name}" =~ ^[a-z_][a-z0-9_-]*$ ]]
 }
 
+# Values that are rendered verbatim into Nginx, PHP-FPM, Supervisor and cron
+# configuration for a generic production target. The renderer treats every
+# registry value as DATA — never as shell, never through eval or envsubst — and
+# this closed format is what makes that safe: a name matching it cannot carry a
+# newline, a quote, a comment character, a directive separator or a path.
+#
+# Deliberately excludes '.': a cron.d entry whose filename contains a dot is
+# silently ignored by cron, so a scheduler name with one would install a file
+# that never runs. One class for all five keeps the rendered families
+# consistent, and nothing in the registry has ever needed a dot.
+is_safe_service_name() {
+    [[ "$1" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]
+}
+
 is_plain_hostname() {
     local hostname="$1"
 
@@ -485,7 +499,50 @@ validate_target() {
     validate_target_enums "${target_id}"
     validate_target_paths "${target_id}"
     validate_target_accounts "${target_id}"
+    validate_target_service_names "${target_id}"
     validate_target_network "${target_id}"
+}
+
+# The five names a production target's service configuration is rendered
+# around. They are validated here, once, rather than in each renderer: the
+# registry is the only place a value can enter the system, so a closed format
+# proved at the boundary is the one that every consumer inherits.
+validate_target_service_names() {
+    local target_id="$1"
+
+    local entry field label value
+    for entry in \
+        '.php_fpm.pool|php_fpm.pool' \
+        '.supervisor.program|supervisor.program' \
+        '.supervisor.queue|supervisor.queue' \
+        '.scheduler.name|scheduler.name' \
+        '.nginx.site_name|nginx.site_name'
+    do
+        field="${entry%%|*}"
+        label="${entry#*|}"
+
+        value="$(target_property "${target_id}" "${field}" || printf '')"
+
+        if [[ -n "${value}" ]] && ! is_safe_service_name "${value}"; then
+            problem "${target_id}: ${label} must be a lowercase service name matching [a-z0-9][a-z0-9_-]{0,63} (it is rendered verbatim into service configuration): ${value}"
+        fi
+    done
+
+    # The pool socket's basename is the one path component derived from a
+    # service name rather than declared as one. A socket whose file name does
+    # not follow the same closed format would let a path be smuggled in
+    # through php_fpm.socket while php_fpm.pool stayed innocent.
+    local socket basename
+    socket="$(target_property "${target_id}" '.php_fpm.socket' || printf '')"
+
+    if [[ -n "${socket}" ]] && [[ "${socket}" == *.sock ]]; then
+        basename="${socket##*/}"
+        basename="${basename%.sock}"
+
+        if [[ -n "${basename}" ]] && ! is_safe_service_name "${basename}"; then
+            problem "${target_id}: php_fpm.socket file name must be a lowercase service name matching [a-z0-9][a-z0-9_-]{0,63}.sock: ${socket}"
+        fi
+    fi
 }
 
 validate_target_enums() {

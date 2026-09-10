@@ -1,0 +1,922 @@
+#!/usr/bin/env bash
+#
+# provision-target — create the non-secret infrastructure of ONE planned
+# production target on a host that is already a RateGuru host.
+#
+#   provision-target --check  --target TARGET_ID
+#   provision-target --apply  --target TARGET_ID
+#   provision-target --verify --target TARGET_ID
+#
+# The situation this exists for: the registry declares a new production brand,
+# the host it will live on is already bootstrapped and serving other targets,
+# and nothing of that new target exists on disk yet.
+#
+#   PLANNED PRODUCTION TARGET + ALREADY BOOTSTRAPPED HOST
+#     -> target-scoped, non-secret infrastructure created
+#     -> the target is STILL lifecycle=planned
+#     -> no application is deployed
+#     -> no public traffic is accepted
+#
+# What it is NOT, and the boundary is the whole point:
+#
+#   Prepare Host      a clean or new HOST's infrastructure
+#   Repair Target     an ACTIVE target whose own infrastructure drifted
+#   Deploy            the code should change
+#   Recover Host      the whole VPS is gone
+#
+# And what it deliberately does not do, because each belongs to a later,
+# separately reviewed operation: it creates no environment file and no
+# APP_KEY, no database and no database role, no authorized_keys content, no
+# rclone configuration and no offsite credentials, no backup schedule, no
+# deploy sudo grant, no TLS certificate, no public Nginx server_name, no DNS
+# record, no mail transport. It runs no deployment, no migration and no queue
+# worker. Everything on that list is DEFERRED in this operation's own report
+# rather than silently absent, so a reader can tell "not yet" from "forgotten".
+#
+# Lifecycle stays planned, on purpose. Lifecycle records permission to OPERATE
+# a target, not whether its directories exist — so a fully provisioned target
+# is still a planned one, and making it deployable stays a deliberate registry
+# change with its own review. Nothing here writes the registry.
+#
+# It is orchestration only. Every mutation is delegated to the installer that
+# already owns that contract, invoked under the explicit provisioning
+# authorization:
+#
+#   install-bootstrap-host-layout --apply --target TARGET_ID --provisioning
+#   install-bootstrap-services    --apply --target TARGET_ID --provisioning
+#
+# There is deliberately no second implementation of any identity, filesystem,
+# ACL or service check in this file, and no configuration text of any kind.
+
+set -Eeuo pipefail
+umask 022
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/deploy. common has
+# not been sourced yet at this point, so this is a plain inline condition, not a
+# call to rateguru_test_overrides_allowed().
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# --- Gated test seams ---------------------------------------------------------
+
+# gated_default VAR_NAME DEFAULT — the same helper every other installer
+# defines, with the same single gate: an override is honored only when
+# RATEGURU_ALLOW_TEST_OVERRIDES=true. Production sets neither, so every value
+# below resolves to its installed default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+# The owning installers are resolved relative to THIS file rather than to the
+# installed bin directory, so a provisioning run always delegates to the
+# installers from the same trusted bundle it was itself run from. Provisioning
+# a target with a mixture of two bundles' logic is exactly the class of
+# surprise this operation exists to remove.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+RUNTIME_BIN="$(gated_default RATEGURU_PROVISION_RUNTIME_BIN "${SCRIPT_DIR}/install-bootstrap-runtime")"
+HOSTLAYOUT_BIN="$(gated_default RATEGURU_PROVISION_HOSTLAYOUT_BIN "${SCRIPT_DIR}/install-bootstrap-host-layout")"
+SERVICES_BIN="$(gated_default RATEGURU_PROVISION_SERVICES_BIN "${SCRIPT_DIR}/install-bootstrap-services")"
+EFFECTIVE_UID="$(gated_default RATEGURU_PROVISION_EUID "${EUID}")"
+
+# Fixture filesystem prefix: '' in production, exactly as every installer's
+# own FS_ROOT works. The only paths it applies to are the new-target safety
+# probes below — the sole filesystem reads this orchestrator performs — so
+# tests can run the shipped implementation against a simulated host while the
+# contract keeps its canonical paths.
+FS_ROOT="$(gated_default RATEGURU_PROVISION_FS_ROOT '')"
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  provision-target --check  --target TARGET_ID
+  provision-target --apply  --target TARGET_ID
+  provision-target --verify --target TARGET_ID
+
+  --check   Strictly read-only. Reports the target's identity and lifecycle,
+            the host prerequisites, the state of this target's infrastructure,
+            the mutations an --apply would perform, and the later-phase items
+            that stay deferred. Creates nothing. Exit 0 only when this
+            target's infrastructure is already provisioned.
+  --apply   Builds the whole plan first and refuses before the first mutation
+            if anything is unsafe, then converges this target's layout and
+            service configuration through their authoritative installers.
+  --verify  Read-only. The authoritative gate: exit 0 only when this target's
+            infrastructure is provisioned, the target is still planned, no
+            application is deployed and no public traffic is activated.
+
+All modes require root. Every mode refuses a target that is not
+lifecycle=planned AND environment_class=production.
+
+A terminal success additionally prints one machine-readable line:
+
+  RATEGURU_PROVISION_RESULT={"status":"infrastructure-provisioned", ...}
+
+Provisioning creates no secret material, no database, no deploy authorization,
+no TLS and no public routing, and never activates the target.
+USAGE
+}
+
+# --- Report vocabulary --------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_DRIFT=0
+COUNT_CONFLICT=0
+COUNT_HOST_REQ=0
+COUNT_DEFERRED=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# item STATUS NAME DETAIL [ACTION]
+#
+# The same fixed-width shape as every other RateGuru installer report.
+#
+#   HOST-REQ  a host-level prerequisite. It blocks — a target cannot be built
+#             on a host that is not one — but it says plainly that the fix is
+#             a host operation and not this one.
+#   DEFERRED  something a later, separately reviewed operation owns. Never
+#             PASS, never a failure, and never used to hide a real conflict:
+#             it is how "not yet, and here is who owns it" is said out loud.
+item() {
+    local status="$1" name="$2" detail="$3" action="${4:-}"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        DRIFT)    COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        HOST-REQ) COUNT_HOST_REQ=$((COUNT_HOST_REQ + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ "${MODE}" == check ]] && [[ "${status}" != PASS ]] && [[ -n "${action}" ]]; then
+        printf '           -> apply: %s\n' "${action}"
+    fi
+}
+
+action() {
+    printf 'PROVISION %s\n' "$*"
+}
+
+provisioning_required() {
+    (( COUNT_MISSING > 0 )) || (( COUNT_DRIFT > 0 ))
+}
+
+provisioning_blocked() {
+    (( COUNT_CONFLICT > 0 )) || (( COUNT_HOST_REQ > 0 ))
+}
+
+# DEFERRED never blocks: every deferred item is a later phase's work by
+# design, and a contract that failed because the database does not exist yet
+# would be asserting the opposite of what this operation means.
+contract_satisfied() {
+    ! provisioning_required && ! provisioning_blocked
+}
+
+# --- Argument parsing ---------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ "${MODE_SEEN}" != true ]] || fail "only one of --check, --apply or --verify may be given"
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] || fail "--target requires a value"
+                [[ -n "${2-}" ]] || fail "--target requires a non-empty value"
+                case "${2-}" in
+                    -*) fail "--target requires a value, not another option: $2" ;;
+                esac
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || fail "one of --check, --apply or --verify is required"
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+}
+
+# --- Target resolution --------------------------------------------------------
+
+TARGET_ROOT=""
+ENVIRONMENT_CLASS=""
+LIFECYCLE=""
+CURRENT_LINK=""
+PREVIOUS_LINK=""
+RELEASES_ROOT=""
+SHARED_ENV=""
+
+resolve_target() {
+    # The single lifecycle gate. It validates the target ID, validates the
+    # whole registry, confirms the target exists, and then requires exactly
+    # lifecycle=planned AND environment_class=production — refusing an active
+    # target, a disabled one, an unknown one and a planned staging one, each
+    # by name. Nothing below runs until it has passed.
+    require_provisionable_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LIFECYCLE="$(target_lifecycle "${TARGET_ID}")"
+
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
+    SHARED_ENV="${TARGET_ROOT}/shared/.env"
+}
+
+# --- Host prerequisites -------------------------------------------------------
+#
+# Provisioning runs on a host that is ALREADY a RateGuru host. It is not a
+# bootstrap, and the difference matters in both directions: it must refuse a
+# host that is not ready rather than quietly building one, and it must never
+# install a runtime, rewrite host-global SSH policy, touch mail capture, or
+# start a base service that happens to be down.
+#
+# Every prerequisite below is answered by the mechanism that already owns it.
+# None of them is re-implemented here:
+#
+#   the supported runtime, its packages, binaries and client versions
+#       -> install-bootstrap-runtime --verify
+#   the RateGuru host roots, and the package-created accounts under them
+#       -> install-bootstrap-host-layout, reported as HOST-REQ in its own
+#          target-scoped report
+#   nginx / PHP-FPM / Supervisor / PostgreSQL / Redis enabled and running
+#       -> install-bootstrap-services, reported as HOST-REQ in its own
+#          target-scoped report
+#   the installed operational bundle and its runtime registry
+#       -> structurally: this script sources the installed `common`, and
+#          resolve_target reads this target out of the installed registry
+#          through it. A host without the bundle, or with a registry that
+#          predates this target, cannot get past resolve_target at all.
+
+report_host_prerequisites() {
+    section "HOST PREREQUISITES (answered by their authoritative owners)"
+
+    item PASS "host:operational-bundle" "the installed operational bundle resolved ${TARGET_ID} out of the host's own registry (${COMMON_FILE})"
+
+    report_child_gate "host:install-bootstrap-runtime" \
+        "supported OS, repositories, packages, binaries, PHP modules and client versions" \
+        "${RUNTIME_BIN}" --verify
+}
+
+# report_child_gate NAME LABEL BIN ARGS... — a read-only host-level verify
+# owned by somebody else.
+#
+# A failing one is HOST-REQ rather than MISSING, and the distinction is the
+# whole boundary: MISSING would tell an orchestrator "--apply converges this",
+# and --apply never converges a host prerequisite in any mode. It refuses, and
+# says the fix is Prepare Host or Repair Host.
+report_child_gate() {
+    local name="$1" label="$2" bin="$3"
+    shift 3
+
+    if [[ ! -x "${bin}" ]]; then
+        item CONFLICT "${name}" "installer not executable: ${bin} (${label})" \
+            "run provision-target from a full trusted infrastructure bundle"
+
+        return 0
+    fi
+
+    if "${bin}" "$@" >/dev/null 2>&1; then
+        item PASS "${name}" "verify passed (${label})"
+
+        return 0
+    fi
+
+    item HOST-REQ "${name}" "verify failed (${label})" \
+        "this is a host prerequisite, not this target's: repair or prepare the host first (${bin##*/} --check), then re-run"
+}
+
+# host_prerequisite_blocker — the apply-time counterpart, as a reason string or
+# a non-zero return.
+host_prerequisite_blocker() {
+    [[ -x "${RUNTIME_BIN}" ]] \
+        || { printf 'install-bootstrap-runtime is not executable: %s — run provision-target from a full trusted infrastructure bundle' "${RUNTIME_BIN}"; return 0; }
+
+    if "${RUNTIME_BIN}" --verify >/dev/null 2>&1; then
+        return 1
+    fi
+
+    printf 'install-bootstrap-runtime --verify does not pass: this is a host prerequisite, not this target'"'"'s. Repair or prepare the host first; provisioning never installs a runtime'
+}
+
+# --- New-target safety --------------------------------------------------------
+#
+# Before any mutation, prove this target does not already look like an
+# application target somebody is using.
+#
+# Two situations are legitimate and must both converge: the target is entirely
+# absent, and the target was partly created by an earlier provisioning attempt
+# that failed. The second is why nothing here demands emptiness — a rerun after
+# a failed attempt is the normal recovery path, and refusing it would make a
+# half-finished provisioning unresolvable.
+#
+# What is never acceptable is deployment-owned state: a `current` or `previous`
+# pointer, a release inside releases/, or an environment file. None of those is
+# ever created by infrastructure provisioning, so finding one means something
+# else owns this target and this operation cannot tell what. It fails closed.
+#
+# Nothing is ever deleted to make a target look clean. There is no rm -rf here,
+# no recursive re-ownership, and no "let me just move that aside".
+
+# deployment_state_problem — the reason this target already carries
+# deployment-owned state, or a non-zero return when it carries none.
+deployment_state_problem() {
+    local current previous shared_env releases
+    current="$(physical "${CURRENT_LINK}")"
+    previous="$(physical "${PREVIOUS_LINK}")"
+    shared_env="$(physical "${SHARED_ENV}")"
+    releases="$(physical "${RELEASES_ROOT}")"
+
+    if [[ -e "${current}" ]] || [[ -L "${current}" ]]; then
+        printf 'current already exists (%s): this target already has a deployed release, or something else created that path' "${CURRENT_LINK}"
+
+        return 0
+    fi
+
+    if [[ -e "${previous}" ]] || [[ -L "${previous}" ]]; then
+        printf 'previous already exists (%s): this target already carries a rollback pointer' "${PREVIOUS_LINK}"
+
+        return 0
+    fi
+
+    if [[ -e "${shared_env}" ]] || [[ -L "${shared_env}" ]]; then
+        printf 'shared/.env already exists (%s): the environment file is never created by infrastructure provisioning, so something else owns this target' "${SHARED_ENV}"
+
+        return 0
+    fi
+
+    if [[ -L "${releases}" ]]; then
+        printf 'releases is a symlink (%s), which is never a shape infrastructure provisioning creates' "${RELEASES_ROOT}"
+
+        return 0
+    fi
+
+    if [[ -d "${releases}" ]]; then
+        local -a entries=()
+        mapfile -t entries < <(find "${releases}" -mindepth 1 -maxdepth 1 2>/dev/null || true)
+
+        if (( ${#entries[@]} > 0 )); then
+            printf 'releases already contains %d entr(y/ies) (%s): this target already holds application releases' "${#entries[@]}" "${RELEASES_ROOT}"
+
+            return 0
+        fi
+    elif [[ -e "${releases}" ]]; then
+        printf 'releases exists but is not a directory (%s)' "${RELEASES_ROOT}"
+
+        return 0
+    fi
+
+    return 1
+}
+
+report_new_target_safety() {
+    section "NEW-TARGET SAFETY"
+
+    local problem
+    if problem="$(deployment_state_problem)"; then
+        item CONFLICT "state:${TARGET_ID}" "${problem}" \
+            "resolve it by hand — provisioning never deletes, moves or re-owns anything to make a target look new, and it never guesses which state is authoritative"
+
+        return 1
+    fi
+
+    item PASS "state:${TARGET_ID}" "no deployment-owned state: no current, no previous, no release in releases/, no environment file — a partly built target from an earlier attempt converges rather than blocking"
+
+    return 0
+}
+
+# --- Delegated target infrastructure ------------------------------------------
+#
+# The two owning installers report their own contracts, under the explicit
+# provisioning authorization. Their output is shown indented so an operator
+# sees exactly which item is unsatisfied, without this file re-implementing a
+# single one of their checks.
+
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+child_report() {
+    local bin="$1"
+
+    CHILD_OUTPUT=""
+    CHILD_STATUS=0
+
+    [[ -x "${bin}" ]] || { CHILD_STATUS=127; return 0; }
+
+    CHILD_OUTPUT="$("${bin}" --check --target "${TARGET_ID}" --provisioning 2>&1)" || CHILD_STATUS=$?
+}
+
+# child_blocker — the one thing provisioning may NOT converge, or a non-zero
+# return. Plain MISSING/DRIFT is precisely what this operation exists to
+# create, so it is never a blocker.
+child_blocker() {
+    local label="$1"
+
+    if (( CHILD_STATUS == 127 )); then
+        printf '%s: installer is not executable — run provision-target from a full trusted infrastructure bundle' "${label}"
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS > 1 )); then
+        printf '%s: contract report exited %d, so this target'"'"'s state could not even be established' "${label}" "${CHILD_STATUS}"
+
+        return 0
+    fi
+
+    # The installers abort through fail(), which prints ERROR: and exits 1 —
+    # the same exit code an ordinary "contract not satisfied" report uses.
+    # Told apart only by the exit code, an unreadable registry or a refused
+    # lifecycle would be read as convergeable absence, and the run would
+    # converge the layout before discovering it could never converge the rest.
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+        printf '%s: the installer aborted rather than reporting a contract, so what this target needs is not established' "${label}"
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+        printf '%s: host-level prerequisites are not satisfied. This is a host prerequisite, not this target'"'"'s — repair or prepare the host first; a provisioning run never creates or re-owns host infrastructure and never starts a base service' "${label}"
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  CONFLICT '; then
+        printf '%s: state that is never resolved automatically, because resolving it would mean deleting or replacing something to make room' "${label}"
+
+        return 0
+    fi
+
+    return 1
+}
+
+# child_blocker_detail — the child's own words about what is wrong, printed
+# under the one-line blocker.
+#
+# Without it, an operator running --apply is told that something is
+# unresolvable but not which path, account or host root it is, and has to run
+# --check again to find out. A refusal that does not say what to look at is
+# only half a refusal.
+child_blocker_detail() {
+    printf '%s\n' "${CHILD_OUTPUT}" \
+        | awk '
+            /^ERROR:/ { print; next }
+            /^  (CONFLICT|HOST-REQ) / { print; show = 1; next }
+            show && /^ +-> / { print; show = 0; next }
+            { show = 0 }
+        ' \
+        | sed 's/^/        /' >&2
+
+    return 0
+}
+
+# report_child NAME LABEL BIN — one delegated, read-only contract report.
+report_child() {
+    local name="$1" label="$2" bin="$3"
+
+    child_report "${bin}"
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "${name}" "target-scoped contract satisfied (${label})"
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS == 127 )); then
+        item CONFLICT "${name}" "not executable: ${bin} (${label})" \
+            "run provision-target from a full trusted infrastructure bundle"
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS > 1 )); then
+        item CONFLICT "${name}" "contract report exited ${CHILD_STATUS} (${label})" \
+            "resolve the installer failure shown below — this target's state could not even be established"
+        printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+        item CONFLICT "${name}" "the installer aborted rather than reporting a contract (${label})" \
+            "resolve the failure shown below"
+        printf '%s\n' "${CHILD_OUTPUT}" | grep 'ERROR:' | sed 's/^/           | /' || true
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+        item HOST-REQ "${name}" "host-level prerequisites are not satisfied (${label})" \
+            "this is a host prerequisite: repair or prepare the host first — provisioning never creates or re-owns host infrastructure"
+        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  HOST-REQ ' | sed 's/^/           | /' || true
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  CONFLICT '; then
+        item CONFLICT "${name}" "state that is never resolved automatically (${label})" \
+            "resolve the conflicting paths by hand — nothing is ever deleted or replaced to make room"
+        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  CONFLICT ' | sed 's/^/           | /' || true
+
+        return 0
+    fi
+
+    item MISSING "${name}" "infrastructure this target does not have yet (${label})" \
+        "${bin##*/} --apply --target ${TARGET_ID} --provisioning"
+
+    # `|| true` because this runs under `set -e` with `pipefail`, as the last
+    # command of the function: a child that exited 1 while printing neither a
+    # MISSING nor a DRIFT line would make grep exit 1 and kill the run
+    # mid-report, before the summary an operator needs.
+    printf '%s\n' "${CHILD_OUTPUT}" | grep -E '^  (MISSING|DRIFT) ' | sed 's/^/           | /' || true
+}
+
+report_target_infrastructure() {
+    section "TARGET INFRASTRUCTURE (authoritative owners — never re-implemented)"
+
+    report_child "layout:install-bootstrap-host-layout" \
+        "identities, code-group memberships, deploy home and .ssh, incoming artifacts, and this target's own directory entries" \
+        "${HOSTLAYOUT_BIN}"
+
+    report_child "services:install-bootstrap-services" \
+        "support log directory, internal-only Nginx vhost and enabled link, PHP-FPM pool, Supervisor queue program, scheduler cron, public-storage ACL" \
+        "${SERVICES_BIN}"
+}
+
+# --- Deferred later-phase items -----------------------------------------------
+#
+# Said out loud rather than left absent. A reader of this report has to be able
+# to tell "this target is missing its database because provisioning does not
+# create databases" from "this target is missing its database because
+# something went wrong", and only one of those two is true here.
+
+report_deferred() {
+    section "DEFERRED (owned by later, separately reviewed operations)"
+
+    item DEFERRED "deferred:environment" "the production environment file and its application key are never created, read or written here"
+    item DEFERRED "deferred:database" "the PostgreSQL database and application role are never created here, and no credential is ever read"
+    item DEFERRED "deferred:deploy-authorization" "the deploy user's authorized_keys content and its sudo grant are never installed here, so this target stays undeployable through the existing wrappers"
+    item DEFERRED "deferred:offsite" "offsite credentials, the backup schedule and the backup namespace are never created here — the namespace is logical and appears with the first upload"
+    item DEFERRED "deferred:application" "no artifact is deployed, no release is created, no migration runs, and current/previous are never fabricated"
+    item DEFERRED "deferred:queue-runtime" "the queue program's configuration is installed and validated, and the worker is deliberately not started: there is no release for it to run in yet"
+    item DEFERRED "deferred:public-routing" "no public hostname, TLS certificate, redirect or DNS record — the target answers only on its internal hostname over loopback"
+    item DEFERRED "deferred:mail" "no mail transport, gateway or domain authentication is configured or changed here"
+}
+
+# --- Report -------------------------------------------------------------------
+
+report_target() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "lifecycle=${LIFECYCLE}, environment_class=${ENVIRONMENT_CLASS}, root ${TARGET_ROOT}"
+    item PASS "target:lifecycle" "provisioning never writes the registry: ${TARGET_ID} is lifecycle=${LIFECYCLE} before this operation and stays lifecycle=${LIFECYCLE} after it"
+}
+
+report_summary() {
+    section "SUMMARY"
+
+    printf 'Provision target (%s, %s):\n' "${MODE}" "${TARGET_ID}"
+    printf 'PASS: %d\n' "${COUNT_PASS}"
+    printf 'MISSING: %d\n' "${COUNT_MISSING}"
+    printf 'DRIFT: %d\n' "${COUNT_DRIFT}"
+    printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf 'HOST-REQ: %d\n' "${COUNT_HOST_REQ}"
+    printf 'DEFERRED: %d\n' "${COUNT_DEFERRED}"
+    printf '\n'
+
+    if contract_satisfied; then
+        print_provisioned_state
+    elif provisioning_blocked; then
+        printf 'TARGET INFRASTRUCTURE: BLOCKED\n'
+    else
+        printf 'TARGET INFRASTRUCTURE: NOT PROVISIONED\n'
+    fi
+}
+
+# print_provisioned_state — what a success actually means, stated in full.
+#
+# Deliberately NOT called "production ready", because it is not: this target
+# has no environment file, no database, no deploy authorization, no backups and
+# no public routing. A success line that implied otherwise would be the single
+# most dangerous sentence this operation could print.
+print_provisioned_state() {
+    printf 'TARGET INFRASTRUCTURE: PROVISIONED\n'
+    printf 'LIFECYCLE: %s\n' "${LIFECYCLE}"
+    printf 'APPLICATION: NOT DEPLOYED\n'
+    printf 'PUBLIC TRAFFIC: NOT ACTIVATED\n'
+    printf 'SECRETS: DEFERRED\n'
+    printf 'DATABASE: DEFERRED\n'
+    printf 'QUEUE: DEFERRED\n'
+}
+
+run_report() {
+    printf 'RateGuru provision target (%s mode)\n' "${MODE}"
+    printf 'Scope: planned production target %s only — host infrastructure is inspected and never converged, and this operation never activates the target\n' "${TARGET_ID}"
+
+    report_target
+    report_host_prerequisites
+
+    if report_new_target_safety; then
+        report_target_infrastructure
+    fi
+
+    report_deferred
+    report_summary
+
+    contract_satisfied
+}
+
+# --- Machine-readable result --------------------------------------------------
+#
+# Exactly one line, on exactly one terminal SUCCESS, in a fixed shape. The
+# human report above stays as it is — an operator reading a terminal is the
+# primary audience. This exists because a workflow has to branch on the
+# outcome, and grepping prose for it would make every wording change a silent
+# behaviour change. Identity and state only: no secret, no credential, no hash
+# of either, and no path inside a private tree.
+
+PROVISION_RESULT_EMITTED=false
+
+emit_provision_result() {
+    local status="$1"
+
+    [[ "${PROVISION_RESULT_EMITTED}" == false ]] \
+        || fail "internal: the machine-readable provisioning result was already emitted"
+
+    PROVISION_RESULT_EMITTED=true
+
+    local result
+    result="$(
+        jq -cn \
+            --arg status "${status}" \
+            --arg target "${TARGET_ID}" \
+            --arg lifecycle "${LIFECYCLE}" \
+            --arg environment_class "${ENVIRONMENT_CLASS}" \
+            '{
+                status: $status,
+                target: $target,
+                lifecycle: $lifecycle,
+                environment_class: $environment_class,
+                application_state: "not-deployed",
+                public_state: "not-activated"
+            }'
+    )" || fail "could not render the machine-readable provisioning result"
+
+    printf 'RATEGURU_PROVISION_RESULT=%s\n' "${result}"
+}
+
+# --- Apply --------------------------------------------------------------------
+
+require_root_mode() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--${MODE} must run as root"
+}
+
+LAYOUT_PLANNED=false
+SERVICES_PLANNED=false
+CHANGED=false
+
+# apply_gate — the whole plan is judged before the first mutation.
+#
+# Provisioning five things and then stopping at the sixth leaves a target in a
+# state nobody designed: partly built, still unusable, and different from what
+# the operator inspected. So every blocker is collected first and the run
+# refuses as a whole.
+#
+# What is NOT a blocker, and must not become one: a child reporting that this
+# target's identities, directories or service files do not exist. That is the
+# entire point of the operation.
+apply_gate() {
+    action "building the provisioning plan before any mutation"
+
+    local blockers=() blocker_details=() blocker
+
+    if blocker="$(host_prerequisite_blocker)"; then
+        blockers+=("${blocker}")
+    fi
+
+    if blocker="$(deployment_state_problem)"; then
+        blockers+=("deployment-owned state: ${blocker}. Provisioning never deletes, moves or re-owns anything to make a target look new")
+    fi
+
+    local bin
+    for bin in "${HOSTLAYOUT_BIN}" "${SERVICES_BIN}"; do
+        child_report "${bin}"
+
+        if blocker="$(child_blocker "${bin##*/}")"; then
+            blockers+=("${blocker}")
+            blocker_details+=("${bin##*/}")
+
+            continue
+        fi
+
+        if (( CHILD_STATUS == 0 )); then
+            continue
+        fi
+
+        if [[ "${bin}" == "${HOSTLAYOUT_BIN}" ]]; then
+            LAYOUT_PLANNED=true
+        else
+            SERVICES_PLANNED=true
+        fi
+    done
+
+    if (( ${#blockers[@]} > 0 )); then
+        for blocker in "${blockers[@]}"; do
+            printf 'BLOCKED %s\n' "${blocker}" >&2
+        done
+
+        # CHILD_OUTPUT holds only the last child's report, so each blocking
+        # child is asked again — read-only — and its own words are printed
+        # under the refusal. A refusal that does not say what to look at is
+        # only half a refusal.
+        local detail_bin
+        for detail_bin in "${blocker_details[@]:-}"; do
+            [[ -n "${detail_bin}" ]] || continue
+
+            case "${detail_bin}" in
+                "${HOSTLAYOUT_BIN##*/}") child_report "${HOSTLAYOUT_BIN}" ;;
+                "${SERVICES_BIN##*/}")   child_report "${SERVICES_BIN}" ;;
+                *) continue ;;
+            esac
+
+            printf 'BLOCKED %s reported:\n' "${detail_bin}" >&2
+            child_blocker_detail
+        done
+
+        fail "refusing to provision ${TARGET_ID}: ${#blockers[@]} blocker(s). No mutation was performed"
+    fi
+}
+
+converge_child() {
+    local bin="$1" name="${1##*/}"
+
+    action "${name} --apply --target ${TARGET_ID} --provisioning"
+
+    "${bin}" --apply --target "${TARGET_ID}" --provisioning \
+        || fail "${name} --apply --target ${TARGET_ID} --provisioning failed — its own transaction restored what it had changed; no further provisioning step ran"
+
+    CHANGED=true
+}
+
+# reread_services_contract — after the layout converged, ask the services
+# installer again whether it still has anything to do.
+#
+# This is NOT a second gate. Every blocker was ruled out before the first
+# mutation; this only refines "does it still need applying", because
+# converging the layout satisfies part of what the services contract reports.
+# A blocker appearing now would mean the target changed underneath this run, so
+# it fails loudly rather than being provisioned past.
+reread_services_contract() {
+    local blocker
+
+    action "re-reading the services contract now that the layout is converged"
+    child_report "${SERVICES_BIN}"
+
+    if blocker="$(child_blocker "${SERVICES_BIN##*/}")"; then
+        fail "the services contract became unsatisfiable after the layout was converged: ${blocker}. The layout is converged and verified and is left that way; no service configuration was changed"
+    fi
+
+    if (( CHILD_STATUS == 0 )); then
+        SERVICES_PLANNED=false
+    else
+        SERVICES_PLANNED=true
+    fi
+}
+
+# verify_child BIN — the final authoritative verification, from the owner.
+verify_child() {
+    local bin="$1" name="${1##*/}"
+
+    action "${name} --verify --target ${TARGET_ID} --provisioning"
+
+    "${bin}" --verify --target "${TARGET_ID}" --provisioning >/dev/null 2>&1 \
+        || fail "${name} --verify --target ${TARGET_ID} --provisioning failed after the convergence — the target is NOT provisioned, and reporting it as provisioned would be false"
+}
+
+# assert_target_still_planned — the invariant this whole operation is built
+# around, proven at the end rather than assumed.
+#
+# Nothing here writes the registry, so this can only fail if something else
+# did — which is exactly the case worth catching, because a target that became
+# active during its own provisioning is deployable without anyone having
+# reviewed that decision.
+assert_target_still_planned() {
+    local lifecycle
+    lifecycle="$(target_lifecycle "${TARGET_ID}")"
+
+    [[ "${lifecycle}" == planned ]] \
+        || fail "${TARGET_ID} is lifecycle=${lifecycle} after provisioning, and provisioning never writes the registry — something else activated this target mid-run"
+
+    action "lifecycle unchanged: ${TARGET_ID} is still lifecycle=${lifecycle}"
+}
+
+perform_apply() {
+    printf 'RateGuru provision target (apply mode, %s)\n' "${TARGET_ID}"
+
+    apply_gate
+
+    if [[ "${LAYOUT_PLANNED}" == true ]]; then
+        converge_child "${HOSTLAYOUT_BIN}"
+        reread_services_contract
+    fi
+
+    if [[ "${SERVICES_PLANNED}" == true ]]; then
+        converge_child "${SERVICES_BIN}"
+    fi
+
+    [[ "${CHANGED}" == true ]] || action "nothing to converge — this target's infrastructure is already provisioned"
+
+    action "final authoritative verification"
+    verify_child "${HOSTLAYOUT_BIN}"
+    verify_child "${SERVICES_BIN}"
+
+    assert_target_still_planned
+
+    action "provisioning complete"
+
+    printf '\n'
+    printf '========================================================\n'
+    printf 'PROVISION TARGET: %s\n' "${TARGET_ID}"
+    printf 'CHANGED: %s\n' "$(printf '%s' "${CHANGED}" | tr '[:lower:]' '[:upper:]')"
+    print_provisioned_state
+    printf '========================================================\n'
+
+    emit_provision_result infrastructure-provisioned
+}
+
+# --- Dispatch -----------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+    require_root_mode
+    resolve_target
+
+    case "${MODE}" in
+        check)
+            run_report || exit 1
+            ;;
+        verify)
+            run_report || exit 1
+
+            # Only reached when the contract is satisfied, so every value in
+            # the result has just been reported as PASS rather than assumed.
+            emit_provision_result infrastructure-provisioned
+            ;;
+        apply)
+            perform_apply
+            ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: tests source this file and call functions directly without
+# main() auto-running — the same pattern every other operational script uses.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

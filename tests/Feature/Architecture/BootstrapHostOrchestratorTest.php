@@ -978,8 +978,13 @@ it('records every bootstrap slice completed after its own real acceptance', func
     // No stale "awaiting acceptance" wording survives anywhere.
     expect($roadmap)->not->toContain('5.5 Bootstrap orchestrator — implemented');
 
-    // the clean-host bootstrap closed and handed over; there is still exactly one current phase.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // the clean-host bootstrap closed and handed over. Two phases are current
+    // now, and that is the honest description rather than a slip: the
+    // observability activation is still open on acceptance criteria only a
+    // real staging deployment can meet, and the production launch opened when
+    // its first slice landed. What must never happen is a CLOSED phase still
+    // reading as current, which is what the assertions below cover.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
     expect($roadmap)
         ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m')
         ->toContain('## 5. Infrastructure installer and clean-VPS bootstrap — completed');

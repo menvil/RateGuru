@@ -39,6 +39,15 @@
 # unapproved environment variable. Only lifecycle=active targets may be
 # touched; tits-guru (lifecycle=planned) is rejected before any filesystem or
 # ACL access, the same way health-check and status already reject it.
+#
+# --provisioning is the one, explicitly named exception: with it, and only
+# with it, the same two ACL entries may be granted to a lifecycle=planned,
+# environment_class=production target that is being provisioned before it is
+# activated. The ACL contract itself is completely unchanged — the same two
+# execute-only entries on the same two directories — and a provisioned target
+# is PRE_DEPLOY by definition, so every application/HTTP-level proof stays
+# DEFERRED exactly as it already does on a clean host. The authorization lives
+# in argv, never in an environment variable, and never without --target.
 
 set -Eeuo pipefail
 umask 022
@@ -86,12 +95,25 @@ MODE_SEEN=false
 TARGET_ID=""
 TARGET_SEEN=false
 
+# Argv-only authorization; there is deliberately no environment variable that
+# can stand in for it.
+PROVISIONING=false
+
+provisioning() {
+    [[ "${PROVISIONING}" == true ]]
+}
+
 usage() {
     cat <<'USAGE'
 Usage:
   install-public-storage-access --check   --target TARGET
   install-public-storage-access --apply   --target TARGET
   install-public-storage-access --verify  --target TARGET
+
+  install-public-storage-access --check   --target TARGET --provisioning
+  install-public-storage-access --apply   --target TARGET --provisioning
+  install-public-storage-access --verify  --target TARGET --provisioning
+
   install-public-storage-access --help
 
   All three modes require root (--check and --verify use runuser to test
@@ -105,6 +127,12 @@ Usage:
             state first and rolls back automatically if verification fails.
   --verify  Re-verify the currently installed ACL state and public-storage
             reachability. Makes no changes.
+
+  --provisioning
+            Only valid with --target, and only for a lifecycle=planned,
+            environment_class=production target being provisioned before
+            activation. The ACL contract is unchanged; the target stays
+            planned.
 USAGE
 }
 
@@ -132,6 +160,15 @@ parse_args() {
                 TARGET_SEEN=true
                 shift 2
                 ;;
+            --provisioning)
+                if [[ "${PROVISIONING}" == true ]]; then
+                    usage >&2
+                    fail "--provisioning given more than once"
+                fi
+
+                PROVISIONING=true
+                shift
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -144,6 +181,15 @@ parse_args() {
     done
 
     [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply or --verify is required"; }
+
+    # Checked before the generic --target requirement, so the refusal names the
+    # thing that is actually wrong: --provisioning is an authorization for one
+    # named target, and without one there is nothing it could authorize.
+    if provisioning && [[ "${TARGET_SEEN}" != true ]]; then
+        usage >&2
+        fail "--provisioning requires --target"
+    fi
+
     [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
     [[ -n "${TARGET_ID}" ]] || { usage >&2; fail "--target requires a non-empty value"; }
 }
@@ -215,7 +261,15 @@ classify_target_deployment_state() {
 }
 
 derive_target_paths() {
-    require_active_target "${TARGET_ID}"
+    # Exactly one of the two gates runs, and which one is decided by argv
+    # alone. Both validate the target ID and the whole registry before any
+    # path below is assigned, so a target that fails either is rejected before
+    # a single filesystem or ACL call can reach it.
+    if provisioning; then
+        require_provisionable_target "${TARGET_ID}"
+    else
+        require_active_target "${TARGET_ID}"
+    fi
 
     TARGET_ROOT="$(target_root "${TARGET_ID}")"
     RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"

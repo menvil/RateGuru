@@ -1363,9 +1363,12 @@ it('marks the mail-capture phase completed, and the phase after it too', functio
         ->toContain('## 3. Staging mail capture — completed')
         ->toContain('## 4. Multi-target production model — completed');
 
-    // At most one phase is current at a time; right now none is, because
-    // the target-aware migration closed before the clean-host bootstrap implementation started.
-    expect(substr_count($roadmap, '🚧 current'))->toBeLessThanOrEqual(1);
+    // Neither of the two phases this file is about is current any more, which
+    // is the only claim it needs: how many phases are current elsewhere is
+    // asserted where those phases live.
+    expect($roadmap)
+        ->not->toMatch('/^\|\s*3\s*\|[^|]+\|\s*🚧 current\s*\|$/m')
+        ->not->toMatch('/^\|\s*4\s*\|[^|]+\|\s*🚧 current\s*\|$/m');
 
     // No stale "current"/"planned" wording left on either phase.
     expect($roadmap)
