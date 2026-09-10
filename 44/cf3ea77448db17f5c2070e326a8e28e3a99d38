@@ -1,0 +1,73 @@
+infrastructure/scripts/targets
+  s_c7e782fafc9782::t_10e353c9a63dc3 542-544
+infrastructure/scripts/install-bootstrap-host-layout
+  s_c7e782fafc9782::t_f6026e9afc52fe 365-367,591,594-598,698-702
+  s_c7e782fafc9782::t_c8c81bdcb67505 506,558,592,609,629,643,697
+  s_c7e782fafc9782::t_7f63d96cfa334e 550-556
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_c9727767643a21 1566,1575-1589,1603,1609-1612,1621-1623
+  s_c7e782fafc9782::t_1873ab9a51bb6f 1346-1360,1368,1370,1372,1376,1382-1420,1425-1427,1429-1436,1438-1440,1442-1449,1452-1484,1487-1489,1491-1511,1513-1518
+  s_c7e782fafc9782::t_2db58ff36e4970 71-79,82,738-743
+  s_c7e782fafc9782::t_223c58051fc8ec 1548,1605,1640
+  s_c7e782fafc9782::t_41a3f94ea0da73 1371,1373-1375
+  s_c7e782fafc9782::t_3a9f6c3a6b7a3b 1007-1008,1660,1663-1671,1981-1984
+  s_c7e782fafc9782::t_e64db4044af967 1421-1424,1428,1437,1485-1486,1512
+  s_c7e782fafc9782::t_f39c60f890a1f5 992-996
+  s_c7e782fafc9782::t_b84e9e1011b7a8 1689-1692,1694-1706,1711-1718
+  s_c7e782fafc9782::t_96d8260ae05e48 1361-1367,1369,1377-1381,1441,1490
+  s_c7e782fafc9782::t_4f80763e9327de 1450-1451
+  s_c7e782fafc9782::t_dd876bd1ee5d5a 853-855,858-859
+  s_c7e782fafc9782::t_0c9a4c9ca46453 1345,1519-1547,1549-1565,1567-1574,1590-1602,1604,1606-1608,1613-1620,1624-1639,1641-1659,1661-1662,1672-1688,1693,1707-1710
+  s_c7e782fafc9782::t_457c0b8ae48872 1003-1006
+  s_c7e782fafc9782::t_ff5c3a046d676d 692-700,745-750
+  s_c7e782fafc9782::t_8670e882be6e43 1754-1757,1759-1765
+infrastructure/scripts/install-bootstrap-services
+  s_c7e782fafc9782::t_09930bec914365 1275,1290-1324
+  s_c7e782fafc9782::t_c8c81bdcb67505 550,642,692,707,724,738,1613
+  s_c7e782fafc9782::t_f657145454920c 634-640
+  s_c7e782fafc9782::t_8b227eb8887a79 430-432,691,694-698,1614-1618
+  s_c7e782fafc9782::t_8fb9125e43cceb 1099
+  s_c7e782fafc9782::t_be56449c68a70a 990-1000,1005-1048,1054-1056,1060,1062,1068-1069,1095-1098,1103
+  s_c7e782fafc9782::t_09944a298f543e 2083,2893-2904
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_c7e782fafc9782::t_2f8f0a51f26a18 2227-2258
+.github/actions/provision-rateguru-target/action.yml
+  s_c7e782fafc9782::t_920c669e9d89e3 41-47,253-254,389-391
+  s_c7e782fafc9782::t_043bb69da86c40 315-318
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_0e8d68f1f3d084 54-81,86-89,91,93,113-114,118,121-136,141
+  s_c7e782fafc9782::t_c15262003ef39e 350
+  s_c7e782fafc9782::t_f1dcdedf0c2d4a 90,92,94-96
+  s_c7e782fafc9782::t_3a9f6c3a6b7a3b 858
+  s_c7e782fafc9782::t_0f2a4d69754604 337-348,355-359,366-392,424-448
+  s_c7e782fafc9782::t_dfc5f31301cef9 137-140,850-854,856-857
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_bfdf25bcad323b 46-47
+  s_c7e782fafc9782::t_e17fdbd5ee7be2 42-44,137,150-191,282-327
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_c7e782fafc9782::t_aca04bb2694c17 2797-2846
+  s_c7e782fafc9782::t_e0b72498917ebf 2663-2699
+  s_c7e782fafc9782::t_8670e882be6e43 2717-2724
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_c7e782fafc9782::t_7a169ead4c3e6b 1016-1026
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_c7e782fafc9782::t_c0872724109906 346-349,352-361
+tests/Feature/Architecture/ProvisionRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_b6851444da6ffc 124-129,203,206-208,215-221,230-233,240-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "44cf3ea77448db17f5c2070e326a8e28e3a99d38",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
