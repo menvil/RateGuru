@@ -1,0 +1,97 @@
+infrastructure/scripts/install-bootstrap-services
+  s_c7e782fafc9782::t_163bc73194f79d 552,614-618,625,629,631-637,642,650-657,670-675,684,695-725
+  s_c7e782fafc9782::t_f03a0eb2fa7631 785,1569,1583-1584,1600,2389
+  s_c7e782fafc9782::t_45c91c397b479b 1398-1409,1427-1429,1431,1461,1829-1831,1834,2880-2884,2888-2890,2997-3002
+  s_c7e782fafc9782::t_26783f219b154c 1485-1489,1493-1501,1676,2101-2103,2150-2152,3168,3215-3223,3239-3246,3253-3258,3267-3274
+  s_c7e782fafc9782::t_32e3d1177dd292 93-117,300-305,310-313,383-386,402-408
+  s_c7e782fafc9782::t_189e2690ca4051 2346
+  s_c7e782fafc9782::t_a6af87f49d92a8 728-784,786-1032,1034-1066,1068-1072
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_20220f6f85dafb 1018-1062
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_4486a4192b9bd7 1-96,108-339,343-368,376-380,382-386,388-392,394-398,402,405-407,409-497,518-735,737-751,753-770,789-922
+  s_c7e782fafc9782::t_20d8dff0fa2781 736,752,773-776,778
+  s_c7e782fafc9782::t_437e282aedfa53 340-342
+  s_c7e782fafc9782::t_414550cd26cd60 498-517,771-772,777,779-788
+  s_c7e782fafc9782::t_bfadd1f5334aba 97-107,369-375,381,387,393,399-401,403-404,408
+.github/actions/provision-rateguru-target/action.yml
+  s_c7e782fafc9782::t_6435db3227bc57 1-673
+tests/Feature/Architecture/BootstrapHostOrchestratorTest.php
+  s_c7e782fafc9782::t_210e1039ab949b 981-987
+infrastructure/ROADMAP.md
+  s_c7e782fafc9782::t_1121c433ce7d0f 16,1609,1614-1691,1786-1795
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_c7e782fafc9782::t_17cffaa316f611 48-51
+infrastructure/README.md
+  s_c7e782fafc9782::t_9b4fe85c99e083 92-107
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_ef085512671a1c 1020-1174,1179-1185
+  s_c7e782fafc9782::t_f2eb85fbb172fc 851-984,988-989,1000-1019
+  s_c7e782fafc9782::t_8a27d59f66e55f 1375-1380,1403-1406
+  s_c7e782fafc9782::t_be3797fad9def1 801-850
+  s_c7e782fafc9782::t_15ac3c02c0e070 1186-1374,1381-1402,1407-1467
+  s_c7e782fafc9782::t_e7d39fe40301b5 1-351,356-358,360-800
+  s_c7e782fafc9782::t_7385f08abc41e2 352-355,359
+  s_c7e782fafc9782::t_fad16275afb6d4 985-987,990-999
+  s_c7e782fafc9782::t_d955a9919d90bc 1468-1473,1485-1635
+  s_c7e782fafc9782::t_ded53db259ab05 1175-1178
+  s_c7e782fafc9782::t_beb3188f7fc7d7 1474-1484
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_c7e782fafc9782::t_61721116b5ee2d 2763
+  s_c7e782fafc9782::t_6b28f6ffd549a6 2550-2762,2764-2806
+  s_c7e782fafc9782::t_4a3fc9013f2a2f 1008
+infrastructure/scripts/install-bootstrap-host-layout
+  s_c7e782fafc9782::t_8ff5e5594628bc 668-672,676-680,989-991,1034-1036,1525-1533,1549-1556,1570-1572
+  s_c7e782fafc9782::t_d2f84f601f5c86 508,534-540,548-554
+  s_c7e782fafc9782::t_3b6c8e037bf5f7 571-576,585,598-636,645,653-660
+  s_c7e782fafc9782::t_199cebf87f3114 37-49,236-241,246-249,323-326,337-345
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_c7e782fafc9782::t_a6239a1cb01dc1 69-73
+  s_c7e782fafc9782::t_210e1039ab949b 308-313
+  s_c7e782fafc9782::t_bb810af467d208 319,327-333,343-349
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_7e404f5db55ee9 1-310
+infrastructure/scripts/install-public-storage-access
+  s_c7e782fafc9782::t_ee4933fc3bb8fa 42-50,98-105,112-116,130-135,163-171,184,188-191,264-272
+  s_c7e782fafc9782::t_96a9325d48a2cf 185-187,192
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_c7e782fafc9782::t_54823e6758e3a2 1638-1643,1646-1649,1651
+  s_c7e782fafc9782::t_7b0f05179c8913 2105-2248
+tests/Feature/Architecture/InstallPublicStorageAccessTest.php
+  s_c7e782fafc9782::t_843dd75f8b868e 1502-1505
+  s_c7e782fafc9782::t_fe98e7bde5f662 1506
+  s_c7e782fafc9782::t_b8b26fca1c6880 1444-1501,1507-1591
+tests/Feature/Architecture/ProvisionRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_30c931be1d127a 57
+  s_c7e782fafc9782::t_7acb9c039f1359 1-56,58-238
+tests/Feature/Architecture/MailCaptureInfrastructureTest.php
+  s_c7e782fafc9782::t_210e1039ab949b 1366-1371
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_c7e782fafc9782::t_54823e6758e3a2 1400-1404
+  s_c7e782fafc9782::t_e97acca34c85e4 971-993,1004-1032
+  s_c7e782fafc9782::t_60ff91acbb6197 994-1003
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_c7e782fafc9782::t_210e1039ab949b 1200-1203
+infrastructure/scripts/targets
+  s_c7e782fafc9782::t_14cf7dc3d00332 358-371,502,506-545
+infrastructure/config/required-clis.txt
+  s_c7e782fafc9782::t_fa8de715e1f912 24
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_c7e782fafc9782::t_bb810af467d208 495,498-502,514-518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "43b767b7c113c61a81a762763537276ff91db7ea",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
