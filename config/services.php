@@ -35,4 +35,33 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Social sign-in (Laravel Socialite)
+    |--------------------------------------------------------------------------
+    |
+    | The redirect is a path on purpose: Socialite resolves it against the
+    | application URL of whichever environment is running, so no environment
+    | ever carries another one's callback. Register exactly these callbacks
+    | with the provider — see docs/dev/social-login.md.
+    |
+    */
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => '/auth/google/callback',
+        // The token exchange and profile fetch happen inside a web request:
+        // a provider that hangs must not hold the worker for the whole
+        // PHP execution limit.
+        'guzzle' => ['connect_timeout' => 5, 'timeout' => 15],
+    ],
+
+    'facebook' => [
+        'client_id' => env('FACEBOOK_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect' => '/auth/facebook/callback',
+        'guzzle' => ['connect_timeout' => 5, 'timeout' => 15],
+    ],
+
 ];

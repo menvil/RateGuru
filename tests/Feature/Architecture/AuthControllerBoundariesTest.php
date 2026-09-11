@@ -5,6 +5,7 @@ use App\Actions\Auth\ConfirmPasswordAction;
 use App\Actions\Auth\LogoutUserAction;
 use App\Actions\Auth\RegisterUserAction;
 use App\Actions\Auth\ResetPasswordAction;
+use App\Actions\Auth\ResolveSocialLoginAction;
 use App\Actions\Auth\SendEmailVerificationNotificationAction;
 use App\Actions\Auth\SendPasswordResetLinkAction;
 use App\Actions\Auth\UpdatePasswordAction;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Requests\Auth\LoginRequest;
 
@@ -29,6 +31,7 @@ it('delegates every mutating auth endpoint to a dedicated action', function () {
         [PasswordController::class, 'update', UpdatePasswordAction::class],
         [PasswordResetLinkController::class, 'store', SendPasswordResetLinkAction::class],
         [RegisteredUserController::class, 'store', RegisterUserAction::class],
+        [SocialAuthController::class, 'callback', ResolveSocialLoginAction::class],
         [VerifyEmailController::class, '__invoke', VerifyEmailAction::class],
     ];
 

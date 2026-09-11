@@ -29,5 +29,7 @@
     "Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.": "После удаления аккаунта все данные будут безвозвратно удалены. Перед удалением сохраните необходимые данные.",
     "Are you sure you want to delete your account?": "Вы уверены, что хотите удалить свой аккаунт?",
     "Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.": "После удаления аккаунта все данные будут безвозвратно удалены. Введите пароль для подтверждения.",
-    "Cancel": "Отмена"
+    "Cancel": "Отмена",
+    "or": "или",
+    "Continue with :provider": "Продолжить через :provider"
 }

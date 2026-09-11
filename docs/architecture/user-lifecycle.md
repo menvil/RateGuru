@@ -128,6 +128,12 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
   centralized no-op for tombstones) nor stays referenced in other users'
   inboxes: notifications whose payload snapshots the pre-deletion
   name/username (`author_id`/`actor_id`) are deleted during anonymization.
+- Social sign-in identities (`social_accounts`: the Google/Facebook subject
+  ids) are deleted. An external provider id is a persistent identifier of
+  the person, and "Continue with Google" must never find the tombstone
+  again. `ResolveSocialLoginAction` additionally refuses a tombstone that
+  somehow still carries one (`canAuthenticate`), with the same generic
+  failure as a password login.
 
 #### Data policy on account deletion
 
@@ -135,6 +141,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | --- | --- |
 | User PII (name, email, username, bio, website, display name) | anonymize |
 | Credentials, sessions, reset tokens, remember token | delete / revoke |
+| Social sign-in identities (Google / Facebook) | delete |
 | Followers / following (both directions) | delete |
 | Avatar | detach + release via media lifecycle (grace-period purge) |
 | Posts | retain |
@@ -169,7 +176,8 @@ Notes:
   gated by it: a sanctioned living user can always secure or delete their
   account.
 - **canAuthenticate** is enforced at the auth boundary
-  (`AuthenticateUserAction`): living sanctions log in normally and never
+  (`AuthenticateUserAction` for passwords, `ResolveSocialLoginAction` for
+  Google/Facebook): living sanctions log in normally and never
   force logout or session revocation; a Deleted tombstone is refused with
   the generic failure message. The stale-session terminal-account
   middleware (`EnsureAccountIsNotTombstoned`) is unchanged. The sanctioned
@@ -315,7 +323,8 @@ Limited/Banned, and existing content remains publicly visible.
 
 Deleted is terminal for EVERY mutable User write, not just profile:
 password update/reset, email verification, locale/theme/notification
-preferences and saved-post edges all re-read the user under lock inside
+preferences, saved-post edges and social identity linking
+(`LinkSocialAccountAction`) all re-read the user under lock inside
 their transactions and require a living account (`canAuthenticate`) —
 a stale request that lost the race against anonymization mutates nothing
 and reveals nothing (password flows fail with their generic outcomes).
