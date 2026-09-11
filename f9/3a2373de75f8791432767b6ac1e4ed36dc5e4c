@@ -1,0 +1,31 @@
+app/Actions/Auth/Concerns/CreatesUserWithUniqueUsername.php
+  s_65f2eb90734b6e::t_1c428513bd9640 40-44
+tests/Feature/Auth/RegistrationTest.php
+  s_65f2eb90734b6e::t_1c428513bd9640 6,97-113
+routes/auth.php
+  s_65f2eb90734b6e::t_1c428513bd9640 52
+tests/Feature/Auth/SocialRedirectTest.php
+  s_65f2eb90734b6e::t_1c428513bd9640 5-6,69-77,92-98
+database/migrations/2026_09_11_100000_make_users_password_nullable.php
+  s_65f2eb90734b6e::t_12df5aff79032f 5-6,8,32-46
+tests/Feature/Auth/SocialOnlyAccountPasswordTest.php
+  s_65f2eb90734b6e::t_12df5aff79032f 5,8,86-115
+config/services.php
+  s_65f2eb90734b6e::t_1c428513bd9640 54-57,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f93a2373de75f8791432767b6ac1e4ed36dc5e4c",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
