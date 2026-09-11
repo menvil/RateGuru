@@ -2,8 +2,10 @@
 
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Schema;
 
 /*
  * An account created through a provider has no password at all. Every
@@ -79,6 +81,38 @@ it('lets a social-only account obtain a password through the reset flow', functi
 
     $this->post('/login', ['email' => $user->email, 'password' => 'chosen-password']);
     $this->assertAuthenticatedAs($user);
+});
+
+it('rolls the nullable password column back without leaving NULLs or usable credentials behind', function () {
+    $migration = require database_path('migrations/2026_09_11_100000_make_users_password_nullable.php');
+    $first = User::factory()->withoutPassword()->create();
+    $second = User::factory()->withoutPassword()->create();
+    $withPassword = User::factory()->create();
+    $hashBefore = $withPassword->password;
+
+    $passwordColumn = fn (): array => collect(Schema::getColumns('users'))->firstWhere('name', 'password');
+    $storedPassword = fn (User $user): ?string => DB::table('users')->where('id', $user->id)->value('password');
+
+    try {
+        $migration->down();
+
+        expect($passwordColumn()['nullable'])->toBeFalse()
+            ->and($storedPassword($withPassword))->toBe($hashBefore)
+            ->and($storedPassword($first))->not->toBeNull()
+            ->and($storedPassword($second))->not->toBeNull()
+            // Each backfilled row gets its own hash, and none of them is a
+            // credential anybody could know.
+            ->and($storedPassword($first))->not->toBe($storedPassword($second))
+            ->and(Hash::check('password', (string) $storedPassword($first)))->toBeFalse();
+    } finally {
+        $migration->up();
+
+        // MariaDB commits implicitly on ALTER TABLE, which ends the test
+        // transaction that would otherwise discard these rows.
+        DB::table('users')->whereIn('id', [$first->id, $second->id, $withPassword->id])->delete();
+    }
+
+    expect($passwordColumn()['nullable'])->toBeTrue();
 });
 
 it('keeps the profile page working for a social-only account', function () {

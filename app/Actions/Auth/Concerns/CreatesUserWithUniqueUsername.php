@@ -37,6 +37,11 @@ trait CreatesUserWithUniqueUsername
         for ($attempt = 1; $attempt <= self::MAX_CREATE_ATTEMPTS; $attempt++) {
             try {
                 $username = $generateUniqueUsername->handle($name);
+            } catch (QueryException $exception) {
+                // The generator queries the users table; a database failure
+                // there is an infrastructure error, not "no username could be
+                // settled", and must propagate like every other one.
+                throw $exception;
             } catch (RuntimeException $exception) {
                 throw CannotGenerateUsernameException::becauseGeneratorFailed($exception);
             }

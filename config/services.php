@@ -51,12 +51,17 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => '/auth/google/callback',
+        // The token exchange and profile fetch happen inside a web request:
+        // a provider that hangs must not hold the worker for the whole
+        // PHP execution limit.
+        'guzzle' => ['connect_timeout' => 5, 'timeout' => 15],
     ],
 
     'facebook' => [
         'client_id' => env('FACEBOOK_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
         'redirect' => '/auth/facebook/callback',
+        'guzzle' => ['connect_timeout' => 5, 'timeout' => 15],
     ],
 
 ];

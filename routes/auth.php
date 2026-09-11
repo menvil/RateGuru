@@ -49,6 +49,7 @@ Route::get('auth/{provider}', [SocialAuthController::class, 'redirect'])
 
 Route::get('auth/{provider}/callback', [SocialAuthController::class, 'callback'])
     ->whereIn('provider', SocialProvider::values())
+    ->middleware('throttle:20,1')
     ->name('auth.social.callback');
 
 Route::middleware('auth')->group(function () {

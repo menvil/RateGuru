@@ -2,6 +2,8 @@
 
 use App\Enums\SocialProvider;
 use App\Models\User;
+use GuzzleHttp\Client;
+use Laravel\Socialite\Facades\Socialite;
 
 /*
  * The redirect half of the OAuth round trip, against the real Socialite
@@ -64,6 +66,15 @@ it('binds the OAuth state to the session instead of going stateless', function (
         ->and(strlen($query['state']))->toBeGreaterThanOrEqual(32);
 })->with(['google', 'facebook']);
 
+it('bounds the time spent talking to a provider', function (string $provider) {
+    $driver = Socialite::driver($provider);
+    $client = (new ReflectionMethod($driver, 'getHttpClient'))->invoke($driver);
+
+    expect($client)->toBeInstanceOf(Client::class)
+        ->and($client->getConfig('connect_timeout'))->toBe(5)
+        ->and($client->getConfig('timeout'))->toBe(15);
+})->with(['google', 'facebook']);
+
 it('never opts out of state verification anywhere in the integration', function () {
     foreach ([
         app_path('Support/Auth/SocialProviderGateway.php'),
@@ -77,6 +88,14 @@ it('rejects every provider that is not Google or Facebook', function (string $pr
     $this->get('/auth/'.$provider)->assertNotFound();
     $this->get('/auth/'.$provider.'/callback?code=x&state=y')->assertNotFound();
 })->with(['github', 'twitter', 'apple', 'microsoft', 'GOOGLE', 'Facebook']);
+
+it('rate limits the callback endpoint', function () {
+    foreach (range(1, 20) as $attempt) {
+        $this->get('/auth/google/callback?error=access_denied')->assertRedirect(route('login'));
+    }
+
+    $this->get('/auth/google/callback?error=access_denied')->assertTooManyRequests();
+});
 
 it('supports exactly Google and Facebook', function () {
     expect(SocialProvider::values())->toBe(['google', 'facebook']);
