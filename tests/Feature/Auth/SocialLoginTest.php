@@ -168,8 +168,9 @@ it('normalizes the provider email like a typed registration', function () {
 
     $this->get(socialCallbackUrl('google'));
 
-    $this->assertDatabaseHas('users', ['email' => 'ivan.moroz@example.com']);
-    expect(User::query()->where('email', 'Ivan.Moroz@Example.COM')->exists())->toBeFalse();
+    // Compare the stored bytes rather than probing with a mixed-case lookup:
+    // MariaDB's default collation would match either spelling and prove nothing.
+    expect(User::query()->sole()->email)->toBe('ivan.moroz@example.com');
 });
 
 it('creates neither a user nor a social account when the provider shares no email', function (string $provider, ?string $email) {
