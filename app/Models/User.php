@@ -254,6 +254,17 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
         return $this->belongsTo(MediaAsset::class, 'avatar_asset_id');
     }
 
+    /**
+     * The external sign-in identities (Google, Facebook) attached to this
+     * account: at most one per provider, deleted by anonymization.
+     *
+     * @return HasMany<SocialAccount, $this>
+     */
+    public function socialAccounts(): HasMany
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
+
     public function getResolvedDisplayNameAttribute(): string
     {
         if ($this->isTombstoned()) {

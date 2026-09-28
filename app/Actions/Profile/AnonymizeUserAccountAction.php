@@ -9,6 +9,7 @@ use App\Models\Follow;
 use App\Models\PasswordResetToken;
 use App\Models\PostSave;
 use App\Models\Session;
+use App\Models\SocialAccount;
 use App\Models\User;
 use App\Services\Media\MediaLifecycleService;
 use App\Support\Observability\DomainLogger;
@@ -97,6 +98,12 @@ final class AnonymizeUserAccountAction
                 ->delete();
 
             PostSave::query()->where('user_id', $locked->id)->delete();
+
+            // A Google/Facebook subject id is a persistent identifier of the
+            // person at the provider: once the account is a tombstone nothing
+            // may recognise them by it, and "Continue with Google" must not
+            // find the row again.
+            SocialAccount::query()->where('user_id', $locked->id)->delete();
 
             $locked->notifications()->delete();
 

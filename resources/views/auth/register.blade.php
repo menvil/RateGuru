@@ -49,4 +49,6 @@
             </x-primary-button>
         </div>
     </form>
+
+    <x-auth.social-buttons class="mt-6" />
 </x-guest-layout>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\SocialProvider;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +36,21 @@ Route::middleware('guest')->group(function () {
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
 });
+
+// Social sign-in is deliberately outside the `guest` group: a signed-in person
+// may run the very same round trip to connect a provider to their own account,
+// and the guest middleware would bounce them to the dashboard before the
+// callback could do so. The closed provider list is enforced twice — here, so
+// an unknown provider never reaches a controller, and again by the enum
+// binding in the controller signature.
+Route::get('auth/{provider}', [SocialAuthController::class, 'redirect'])
+    ->whereIn('provider', SocialProvider::values())
+    ->name('auth.social.redirect');
+
+Route::get('auth/{provider}/callback', [SocialAuthController::class, 'callback'])
+    ->whereIn('provider', SocialProvider::values())
+    ->middleware('throttle:20,1')
+    ->name('auth.social.callback');
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)

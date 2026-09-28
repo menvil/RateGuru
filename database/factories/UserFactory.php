@@ -112,6 +112,17 @@ class UserFactory extends Factory
     }
 
     /**
+     * A social-only account: no password at all, exactly as
+     * RegisterSocialUserAction creates one — never a placeholder hash.
+     */
+    public function withoutPassword(): static
+    {
+        return $this->state(fn () => [
+            'password' => null,
+        ]);
+    }
+
+    /**
      * Attaches a real MediaAsset (kind: avatar) as this user's avatar.
      * Pass path/disk to control the exact identity assertions in a test rely
      * on. The asset is only created in afterCreating() — a state closure runs
