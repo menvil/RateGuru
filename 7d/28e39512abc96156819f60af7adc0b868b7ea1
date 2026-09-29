@@ -1,0 +1,63 @@
+.github/workflows/label-review-bot-prs.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 14
+.github/workflows/rollback-staging.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 38
+.github/workflows/provision-tits-guru.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 54
+.github/workflows/deploy-staging.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 34,93,148,202
+.github/workflows/rollback-production.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 50
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 87,257
+tests/Feature/Architecture/RollbackProductionWorkflowTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 28
+tests/Feature/Architecture/WorkflowRunnerImageTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 1-64
+tests/Pest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 1955
+.github/workflows/ci.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 20,49,116,151,245,321,438,540,615,696
+tests/Feature/Architecture/DeployTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 38,636
+.github/workflows/prepare-production-host.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 34
+.github/workflows/release.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 21,96,152,247
+.github/workflows/repair-staging.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 59
+.github/workflows/recover-staging.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 125,324,455,599,670,714,791,1011,1081,1182,1290,1410,1472
+.github/workflows/repair-production.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 49,74
+tests/Feature/Architecture/RollbackStagingWorkflowTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 41
+.github/workflows/coverage.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 28,196
+.github/workflows/restore-production.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 107,208,401,469,541,590
+.github/workflows/prepare-staging-host.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 35
+.github/workflows/recover-production.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 149,361,492,636,707,751,828,1048,1118,1219,1327,1447,1509
+.github/workflows/restore-staging.yml
+  s_65f2eb90734b6e::t_05941273a4b66a 88,176,369,437,509,558
+tests/Feature/Architecture/ProvisionTitsGuruWorkflowTest.php
+  s_65f2eb90734b6e::t_05941273a4b66a 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7d28e39512abc96156819f60af7adc0b868b7ea1",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
