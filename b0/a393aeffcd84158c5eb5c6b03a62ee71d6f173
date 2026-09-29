@@ -1,0 +1,21 @@
+tests/Feature/Profile/AccountWithoutPasswordTest.php
+  s_65f2eb90734b6e::t_06f8fbad6cd10f 115-139
+app/Http/Controllers/Auth/NewPasswordController.php
+  s_65f2eb90734b6e::t_06f8fbad6cd10f 8,11,34-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0a393aeffcd84158c5eb5c6b03a62ee71d6f173",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
