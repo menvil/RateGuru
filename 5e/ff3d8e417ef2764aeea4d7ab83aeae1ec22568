@@ -1,0 +1,25 @@
+tests/Browser/AuthModalBrowserTest.php
+  s_65f2eb90734b6e::t_2f27fbd9ecd819 22-24,108,110-120,128,130-138,147,153,156-162,166,168-172,304-306,334-336
+tests/Pest.php
+  ai_agent 3173-3197
+resources/js/auth-modal.js
+  s_65f2eb90734b6e::t_2f27fbd9ecd819 48-50,52-69
+tests/Browser/ImageViewerLayoutBrowserTest.php
+  s_65f2eb90734b6e::t_2f27fbd9ecd819 25-38,213,219-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5eff3d8e417ef2764aeea4d7ab83aeae1ec22568",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
