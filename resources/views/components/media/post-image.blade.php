@@ -18,7 +18,10 @@
     $altText = $alt ?? (filled($post?->title) ? $post->title : __('ui.post.image_alt_fallback'));
 
     $maxHeightClass = match ($context) {
-        'fullscreen' => 'max-h-[80vh]',
+        // The viewer's dialog measures the room between the app header and the
+        // bottom of the screen (--rg-modal-height) and its own chrome — title
+        // row, padding, border. Until it has, the old 80vh cap applies alone.
+        'fullscreen' => 'max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]',
         'drawer' => 'max-h-[70vh]',
         'standalone' => 'max-h-[75vh]',
         default => 'max-h-[75vh]',

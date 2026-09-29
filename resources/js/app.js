@@ -1,5 +1,7 @@
 // Alpine is provided by Livewire 3 — do not import it separately.
 import './share.js';
+import './auth-modal.js';
+import './modal.js';
 
 window.rgSetTheme = function (pref) {
     var applied = pref === 'system'

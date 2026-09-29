@@ -14,6 +14,7 @@ use App\Http\Requests\Auth\RegisterUserRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Http\Requests\Auth\SendPasswordResetLinkRequest;
 use App\Http\Requests\Auth\SocialCallbackRequest;
+use App\Http\Requests\Auth\SocialRedirectRequest;
 use App\Http\Requests\Auth\UpdatePasswordRequest;
 use App\Http\Requests\ChangeLocaleRequest;
 use App\Http\Requests\DeleteUserRequest;
@@ -28,6 +29,7 @@ it('uses dedicated form requests for controller validation', function () {
         [RegisteredUserController::class, 'store', RegisterUserRequest::class],
         [ConfirmablePasswordController::class, 'store', ConfirmPasswordRequest::class],
         [SocialAuthController::class, 'callback', SocialCallbackRequest::class],
+        [SocialAuthController::class, 'redirect', SocialRedirectRequest::class],
         [PasswordController::class, 'update', UpdatePasswordRequest::class],
         [ProfileController::class, 'destroy', DeleteUserRequest::class],
         [SubmitContactMessageController::class, '__invoke', SubmitContactMessageRequest::class],

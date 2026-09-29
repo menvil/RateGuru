@@ -3115,3 +3115,35 @@ function socialCallbackUrl(string $provider, array $query = []): string
 
     return '/auth/'.$provider.'/callback?'.http_build_query($query);
 }
+
+/**
+ * The marker fields the authentication modal adds to a login or registration
+ * post — and to a provider link — so a test can act "from the modal, opened
+ * on this page".
+ *
+ * @return array{_auth_surface: string, _auth_mode: string, _auth_return_to: string}
+ */
+function authModalFields(string $mode, string $returnTo = '/'): array
+{
+    return [
+        '_auth_surface' => 'modal',
+        '_auth_mode' => $mode,
+        '_auth_return_to' => $returnTo,
+    ];
+}
+
+/**
+ * The authentication modal as the page rendered it, for assertions that must
+ * not be satisfied by markup elsewhere on the page.
+ */
+function authModalElement(string $html): DOMElement
+{
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NOERROR | LIBXML_NOWARNING);
+
+    $node = (new DOMXPath($document))->query('//*[@data-testid="auth-modal-root"]')->item(0);
+
+    expect($node)->toBeInstanceOf(DOMElement::class, 'the page rendered no authentication modal');
+
+    return $node;
+}

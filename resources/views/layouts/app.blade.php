@@ -27,7 +27,7 @@
             {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
-            <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
+            <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
                     <button
                         type="button"
@@ -192,7 +192,7 @@
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                                 <x-ui.button
                                     data-testid="guest-upload-button"
-                                    x-on:click="$dispatch('toast', { message: {{ \Illuminate\Support\Js::from(__('ui.upload.sign_up_required')) }} })"
+                                    x-on:click="rgOpenAuthModal($event, 'register', {{ \Illuminate\Support\Js::from(route('register')) }})"
                                     elevated
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 >
@@ -202,9 +202,13 @@
                             @endif
 
                             @if (Route::has('register'))
+                                {{-- Real links on purpose: without JavaScript, in a new tab, or on a page
+                                     that has no dialog, they lead to the standalone pages. A plain click
+                                     opens the dialog instead. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
+                                    x-on:click="rgOpenAuthModal($event, 'register')"
                                     class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
                                     {{ __('ui.nav.sign_up') }}
@@ -214,6 +218,7 @@
                             <a
                                 href="{{ route('login') }}"
                                 data-testid="header-login-link"
+                                x-on:click="rgOpenAuthModal($event, 'login')"
                                 class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                             >
                                 {{ __('ui.nav.log_in') }}
@@ -250,6 +255,14 @@
                         class="flex items-center gap-2"
                     />
                 </div>
+
+                @guest
+                    {{-- Rendered once, and inside the header like the upload modal: the
+                         header's z-[60] stacking context is what puts a dialog above the
+                         page, the post-detail overlay and the header itself. Outside the
+                         action row on purpose, so it is not one more item in its layout. --}}
+                    <x-auth.modal />
+                @endguest
             </header>
 
             {{-- Mobile navigation drawer --}}

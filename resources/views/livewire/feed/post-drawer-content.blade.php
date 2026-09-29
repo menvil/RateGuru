@@ -184,7 +184,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"

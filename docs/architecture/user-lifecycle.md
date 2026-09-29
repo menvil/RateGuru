@@ -130,7 +130,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
   name/username (`author_id`/`actor_id`) are deleted during anonymization.
 - Social sign-in identities (`social_accounts`: the Google/Facebook subject
   ids) are deleted. An external provider id is a persistent identifier of
-  the person, and "Continue with Google" must never find the tombstone
+  the person, and "Log in with Google" must never find the tombstone
   again. `ResolveSocialLoginAction` additionally refuses a tombstone that
   somehow still carries one (`canAuthenticate`), with the same generic
   failure as a password login.
