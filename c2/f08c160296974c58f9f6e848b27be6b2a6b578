@@ -1,0 +1,21 @@
+resources/views/components/ui/modal.blade.php
+  s_65f2eb90734b6e::t_cc679b23d36e74 6-10,37,51,53,55,64,71,76
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_65f2eb90734b6e::t_54cd09cde08d33 55-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c2f08c160296974c58f9f6e848b27be6b2a6b578",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
