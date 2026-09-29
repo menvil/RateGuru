@@ -1,0 +1,109 @@
+tests/Feature/Auth/SocialAccountSecurityEmailTest.php
+  s_65f2eb90734b6e::t_46eeebec903d3c 1-145
+docs/architecture/user-lifecycle.md
+  s_65f2eb90734b6e::t_a2f627984dbc02 326-327
+  s_65f2eb90734b6e::t_749af7a6c52d79 132
+lang/ru/profile.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 44-60
+tests/Browser/ConnectedAccountsBrowserTest.php
+  s_65f2eb90734b6e::t_9c6653a29d7eea 1-66
+app/Actions/Auth/RegisterSocialUserAction.php
+  s_65f2eb90734b6e::t_73aaedd960450a 70
+app/Notifications/SocialAccountConnectedNotification.php
+  s_65f2eb90734b6e::t_7243f67eaca461 1-5,7-34,44-46,48-53
+  s_65f2eb90734b6e::t_896242524cfe72 6,35-43,47
+lang/bg/profile.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 44-60
+app/Exceptions/Auth/CannotDisconnectSocialAccountException.php
+  s_65f2eb90734b6e::t_7243f67eaca461 1-42
+app/Notifications/SocialAccountDisconnectedNotification.php
+  s_65f2eb90734b6e::t_896242524cfe72 6,30-38,42
+  s_65f2eb90734b6e::t_7243f67eaca461 1-5,7-29,39-41,43-48
+app/Providers/MailLocalizationServiceProvider.php
+  s_65f2eb90734b6e::t_896242524cfe72 5,37,45
+app/Http/Controllers/ProfileController.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 10,21,23-26,28-29
+tests/Feature/Profile/ConnectedAccountsTest.php
+  s_65f2eb90734b6e::t_4ffa52c13c1c44 139
+  s_65f2eb90734b6e::t_2e303acf508742 1-138,140-247
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 16,52,56-57,62-70
+  s_65f2eb90734b6e::t_941a72f6860e76 38-39,53-55
+app/Actions/Auth/LinkSocialAccountAction.php
+  s_65f2eb90734b6e::t_73aaedd960450a 10,23-30,35-37,48,63-64,80-88,94,103-108
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 20
+app/Queries/UserConnectedAccountsQuery.php
+  s_65f2eb90734b6e::t_d8aeb8f248ad31 1-4,6-10,12,14-17,20-21
+  s_65f2eb90734b6e::t_ffe8851e5fe730 5,11,13,18-19
+lang/en/auth.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 20
+app/Support/Profile/ConnectedAccountsResponse.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 1-34
+app/Notifications/SocialAccountSecurityMail.php
+  s_65f2eb90734b6e::t_896242524cfe72 6,11-12,16,23,26-27,32
+  s_65f2eb90734b6e::t_7243f67eaca461 1-5,7-10,13-15,17-22,24-25,28-31,33-35
+database/migrations/2026_09_30_100000_add_provider_email_to_social_accounts_table.php
+  s_65f2eb90734b6e::t_7243f67eaca461 1-34
+app/Actions/Auth/UnlinkSocialAccountAction.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 11,56
+  s_65f2eb90734b6e::t_7243f67eaca461 1-10,12-55,57-64,66-73
+  s_65f2eb90734b6e::t_c47b2b842c0b06 65
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 20
+lang/en/mail.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 31-45
+app/Http/Controllers/Profile/ConnectedAccountController.php
+  s_65f2eb90734b6e::t_7243f67eaca461 1-10,12-18,22,24-39,41-42,46-47
+  s_65f2eb90734b6e::t_ffe8851e5fe730 11,19-21,23,40,43-45
+app/Actions/Auth/ResolveSocialLoginAction.php
+  s_65f2eb90734b6e::t_73aaedd960450a 72-73
+app/Models/SocialAccount.php
+  s_65f2eb90734b6e::t_73aaedd960450a 15-20,23,25,39-46
+routes/web.php
+  s_65f2eb90734b6e::t_55ab1e07ed6961 3,5
+  s_65f2eb90734b6e::t_ffe8851e5fe730 72-80
+app/Support/Auth/SignInMethods.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 1-17
+lang/en/profile.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 44-60
+app/Data/Auth/ConnectedAccounts.php
+  s_65f2eb90734b6e::t_ffe8851e5fe730 1-29
+tests/Feature/Auth/SocialAccountLinkingTest.php
+  s_65f2eb90734b6e::t_a94c6b17410424 220
+  s_65f2eb90734b6e::t_7327dedd05fef2 125-126,152-153,173-175,181,185,187,189-191,194-198,201,205-207,209-211,214-219,221-231,238
+tests/Feature/Auth/SocialAccountPersistenceTest.php
+  s_65f2eb90734b6e::t_7327dedd05fef2 14,17-20,25,29
+resources/views/profile/edit.blade.php
+  s_65f2eb90734b6e::t_dbabf466f964cf 30-33
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_749af7a6c52d79 34-36,58-60,74,101-133,150-155,160-161
+app/Exceptions/Auth/SocialAuthenticationException.php
+  s_65f2eb90734b6e::t_73aaedd960450a 61-65,67
+lang/ru/mail.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 31-45
+lang/bg/mail.php
+  s_65f2eb90734b6e::t_40ebe6df817fe9 31-45
+resources/views/profile/partials/connected-accounts.blade.php
+  s_65f2eb90734b6e::t_929c9f23af6c77 1-124
+tests/Pest.php
+  s_65f2eb90734b6e::t_a94c6b17410424 3104-3109
+app/Support/Notifications/MailAddressee.php
+  s_65f2eb90734b6e::t_896242524cfe72 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9c440af4d030a67bded6037d0ce7545e9c13a622",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
