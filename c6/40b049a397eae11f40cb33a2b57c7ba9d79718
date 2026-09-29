@@ -1,0 +1,58 @@
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_9c4929a357899b 82-88
+lang/bg/profile.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 31-43
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 22
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 22
+lang/en/auth.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 22
+lang/ru/profile.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 31-43
+app/Http/Controllers/Auth/NewPasswordController.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 32-37
+lang/en/profile.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 31-43
+resources/views/layouts/app.blade.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 108
+resources/views/profile/partials/update-password-form.blade.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 1-30,67-70,83
+app/Models/User.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 153-162
+app/Http/Requests/DeleteUserRequest.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 5-6,8,10-14,21-37
+tests/Feature/Profile/AccountWithoutPasswordTest.php
+  s_65f2eb90734b6e::t_f99edbe9459cbb 1-188
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_65f2eb90734b6e::t_f99edbe9459cbb 126-132
+app/Http/Controllers/Auth/PasswordSetLinkController.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 1-38
+resources/views/components/ui/modal.blade.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 12,66
+routes/auth.php
+  s_65f2eb90734b6e::t_99cf44dd02da0e 11,33,35-39,41-42,78-80
+resources/views/profile/partials/delete-user-form.blade.php
+  s_65f2eb90734b6e::t_49a2c9babfbbd0 1-7,18-20,22-32,36-78,80-90
+tests/Feature/Architecture/AuthControllerBoundariesTest.php
+  s_65f2eb90734b6e::t_f99edbe9459cbb 19,34
+tests/Browser/AccountSettingsBrowserTest.php
+  s_65f2eb90734b6e::t_1076bc63ba9c39 1-2,4,6-15,20-74,82-92,95-98
+  s_65f2eb90734b6e::t_4fdff6a8c3c27b 3,5,16-19,75-81,93-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c640b049a397eae11f40cb33a2b57c7ba9d79718",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
