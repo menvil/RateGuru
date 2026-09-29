@@ -206,7 +206,21 @@ it('trusts Google for a Workspace address with an email_verified claim and a dom
     expect(User::query()->where('email', 'me@corp.example')->sole()->email_verified_at)->not->toBeNull();
 });
 
-it('does not trust Google for a third-party address without an authoritative domain', function (array $claims) {
+it('trusts Google for any address it reports as confirmed', function (array $claims) {
+    Notification::fake();
+    Socialite::fake('google', fakeSocialiteUser(array_merge(['email' => 'me@outlook.example'], $claims)));
+
+    $this->get(socialCallbackUrl('google'));
+
+    $user = User::query()->where('email', 'me@outlook.example')->sole();
+    expect($user->email_verified_at)->not->toBeNull();
+    Notification::assertNotSentTo($user, VerifyEmail::class);
+})->with([
+    'confirmed, no Workspace domain' => [['email_verified' => true]],
+    'confirmed on a Workspace domain' => [['email_verified' => true, 'hd' => 'outlook.example']],
+]);
+
+it('does not trust Google for an address it has not confirmed', function (array $claims) {
     Notification::fake();
     Socialite::fake('google', fakeSocialiteUser(array_merge(['email' => 'me@outlook.example'], $claims)));
 
@@ -217,21 +231,20 @@ it('does not trust Google for a third-party address without an authoritative dom
     Notification::assertSentTo($user, VerifyEmail::class);
 })->with([
     'no claims at all' => [[]],
-    'verified without a domain' => [['email_verified' => true]],
-    'domain without verified' => [['hd' => 'outlook.example']],
-    'verified with a blank domain' => [['email_verified' => true, 'hd' => '   ']],
-    'verified as a string' => [['email_verified' => 'true', 'hd' => 'outlook.example']],
+    'explicitly unconfirmed' => [['email_verified' => false]],
+    'a domain without a confirmation' => [['hd' => 'outlook.example']],
+    'confirmed as a string' => [['email_verified' => 'true', 'hd' => 'outlook.example']],
 ]);
 
-it('never trusts Facebook with email verification, even for a gmail.com address', function () {
+it('trusts the address Facebook reports, because Facebook confirms it before reporting it', function () {
     Notification::fake();
-    Socialite::fake('facebook', fakeSocialiteUser(['email' => 'someone@gmail.com', 'email_verified' => true]));
+    Socialite::fake('facebook', fakeSocialiteUser(['email' => 'someone@outlook.example']));
 
     $this->get(socialCallbackUrl('facebook'));
 
-    $user = User::query()->where('email', 'someone@gmail.com')->sole();
-    expect($user->email_verified_at)->toBeNull();
-    Notification::assertSentTo($user, VerifyEmail::class);
+    $user = User::query()->where('email', 'someone@outlook.example')->sole();
+    expect($user->email_verified_at)->not->toBeNull();
+    Notification::assertNotSentTo($user, VerifyEmail::class);
 });
 
 it('regenerates the session id on social login', function () {

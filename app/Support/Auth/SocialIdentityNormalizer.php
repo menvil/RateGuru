@@ -54,18 +54,14 @@ final class SocialIdentityNormalizer
     private function providerVouchesForEmail(SocialProvider $provider, string $email, array $raw): bool
     {
         return match ($provider) {
-            // Google hosts the mailbox for gmail.com itself, and for a
-            // Workspace domain it reports the domain (`hd`) next to an explicit
-            // email_verified claim. A Google account registered on any other
-            // third-party address is NOT the authority for that mailbox, so it
-            // goes through RateGuru's own verification like everyone else —
-            // and so does anything whose claims are missing or malformed.
+            // Google hosts gmail.com itself, and says so explicitly for any
+            // other address it has confirmed with a code. A missing or
+            // malformed claim is not a confirmation.
             SocialProvider::Google => str_ends_with($email, '@gmail.com')
-                || (($raw['email_verified'] ?? null) === true
-                    && is_string($raw['hd'] ?? null)
-                    && trim($raw['hd']) !== ''),
-            // Facebook never hosts the mailbox: always RateGuru verification.
-            SocialProvider::Facebook => false,
+                || ($raw['email_verified'] ?? null) === true,
+            // Facebook only completes a registration, and only reports an
+            // address, after the address has been confirmed.
+            SocialProvider::Facebook => true,
         };
     }
 

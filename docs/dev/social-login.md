@@ -54,30 +54,39 @@ and never contact a provider. Real credentials are never committed; the
 The external identity is `provider + provider_user_id`, stored in
 `social_accounts` (one row per identity, at most one identity per provider
 per user — both enforced by unique indexes). The provider email is only used
-once, to decide where a brand-new identity belongs:
+to decide where a brand-new identity belongs.
+
+A provider **vouches** for an email when it has confirmed it: Google for any
+`@gmail.com` address and for any address it reports with
+`email_verified: true`; Facebook for every address it reports, because it
+only completes a registration after the address is confirmed.
 
 | callback | result |
 |---|---|
 | identity already linked | that account signs in (lifecycle-gated by `canAuthenticate`, exactly like a password login) |
-| unknown identity, email unused | a new account: no password, username from `GenerateUniqueUsernameAction`, `Registered` fired |
-| unknown identity, email belongs to an existing account, nobody signed in | a **pending link** in the session; the person is sent to `/login` to prove they own that account |
+| unknown identity, email unused | a new account: no password, username from `GenerateUniqueUsernameAction`, `Registered` fired; the email starts confirmed when the provider vouches for it |
+| unknown identity, provider vouches, the account's email is **confirmed** | signs straight in and links the provider; the password and everything else stay |
+| unknown identity, provider vouches, the account's email is **unconfirmed** | signs straight in and links the provider, and the account is taken over from whoever created it: email confirmed, password removed, every other session and "remember me" ended, reset links voided, and the owner is told to set a new password |
+| unknown identity, provider does **not** vouch, email belongs to an account | a **pending link** in the session; the person signs in to that account once (password or another provider) and the identity is linked |
 | unknown identity, a user is signed in and the emails match | the identity is attached to the signed-in account |
 | provider shares no email | refused; nothing is created |
 
-A pending link lives in the server-side session for ten minutes and is
-consumed once, by the next successful sign-in of any kind — password, or a
-provider that is already linked. It only completes when the signed-in
-account's email is the email the identity carried; it never moves an
-identity between accounts and never replaces an existing one. This is what
-lets someone who registered with a password press "Log in with Google"
-once, log in with their password once, and use Google directly from then
-on — and lets a Google-only account claim a Facebook identity by signing in
-with Google.
+The takeover case exists because an unconfirmed account may have been
+registered by someone other than the mailbox owner, waiting for the owner
+to arrive. `ClaimAccountWithVerifiedEmailAction` does it in one transaction,
+after every linking rule has passed. Other sessions end through the
+account's **session generation** (`users.session_generation`): every sign-in
+records it in the session, the claim starts a new one, and
+`EnsureSessionGenerationIsCurrent` signs any older session out on its next
+request — whatever the session driver.
 
-Email verification stays RateGuru's own: a new Facebook account is
-unverified, and a new Google account is verified only for a `@gmail.com`
-address or a Google Workspace domain (`email_verified` claim plus a
-non-empty `hd`). Everything else goes through the usual verification email.
+A pending link lives in the server-side session for ten minutes and is
+consumed once, by the next successful sign-in of any kind. It only completes
+when the signed-in account's email is the email the identity carried; it
+never moves an identity between accounts and never replaces an existing one.
+
+Email verification stays RateGuru's own where the provider does not vouch
+for the address: such a new account receives the usual verification email.
 
 An account created through a provider has no password. The profile page
 offers it **Set a password** instead of the change-password form: it emails
