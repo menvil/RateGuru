@@ -16,6 +16,7 @@ use App\Services\Media\ImageIngestor;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
+use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
@@ -26,7 +27,9 @@ use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -54,6 +57,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Stamps every signed-in session with its account's session
+        // generation; EnsureSessionGenerationIsCurrent ends older ones.
+        Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
+
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);

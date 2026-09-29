@@ -128,7 +128,7 @@ it('keeps the standalone page flow for a provider sign-in that did not start in 
     $response->assertSessionMissing('auth_modal');
 });
 
-it('reopens the modal in login mode with the pending-link message when the email already has an account', function (string $provider, string $startedIn) {
+it('reopens the modal in login mode with the pending-link message when an unconfirmed email already has an account', function (string $provider, string $startedIn) {
     $post = Post::factory()->published()->create();
     $page = route('posts.show', $post, absolute: false);
     User::factory()->create(['email' => 'ivan@example.com']);
@@ -152,7 +152,7 @@ it('reopens the modal in login mode with the pending-link message when the email
         ->and($modal->getAttribute('data-auth-modal-mode'))->toBe('login')
         ->and($xpath->evaluate('string(.//*[@data-testid="auth-modal-login-panel"]//*[@data-testid="auth-notice"])', $modal))->toContain($message)
         ->and($xpath->evaluate('string(.//*[@data-testid="auth-modal-register-panel"])', $modal))->not->toContain($message);
-})->with(['google', 'facebook'])->with(['login', 'register']);
+})->with(['google'])->with(['login', 'register']);
 
 it('links the pending identity after a password login in the modal and lands on the original page', function (string $provider) {
     $user = User::factory()->create(['email' => 'ivan@example.com']);
@@ -169,20 +169,15 @@ it('links the pending identity after a password login in the modal and lands on 
         ->and($account->provider)->toBe(SocialProvider::from($provider))
         ->and($account->provider_user_id)->toBe('subject-42')
         ->and(session()->has('auth.pending_social_link'))->toBeFalse();
-})->with(['google', 'facebook']);
+})->with(['google']);
 
-it('lets a Google-only account confirm a pending Facebook link through Google, all from the modal', function () {
+it('signs a Google-only account straight in through Facebook from the modal and lands on the page', function () {
     $user = User::factory()->withoutPassword()->create(['email' => 'ivan@example.com']);
     SocialAccount::factory()->for($user)->google()->create(['provider_user_id' => 'g-1']);
 
     startSocialFromModal('facebook', 'login', '/posts/5');
     Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan@example.com']));
     $this->get(socialCallbackUrl('facebook'))->assertRedirect('/posts/5');
-    $this->assertGuest();
-
-    startSocialFromModal('google', 'login', '/posts/5');
-    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
-    $this->get(socialCallbackUrl('google'))->assertRedirect('/posts/5');
 
     $this->assertAuthenticatedAs($user);
     expect($user->fresh()->password)->toBeNull()

@@ -8,9 +8,12 @@ use Laravel\Socialite\Facades\Socialite;
 
 /*
  * What happens when a provider identity meets an email that already belongs
- * to an account: never a silent link, never a second user. Ownership is
- * proven by signing in to that account, and only then is the identity
- * attached — with every conflict failing closed.
+ * to an account, and the provider has NOT confirmed that address — Google
+ * without an email_verified claim on a non-Gmail address. Never a silent
+ * link, never a second user: ownership is proven by signing in to that
+ * account, and only then is the identity attached — with every conflict
+ * failing closed. (An address the provider did confirm signs straight in:
+ * see SocialAccountClaimTest.)
  */
 
 /** @return array{provider: string, provider_user_id: string, email: string, created_at: int} */
@@ -24,23 +27,23 @@ function pendingLinkPayload(array $overrides = []): array
     ], $overrides);
 }
 
-it('parks a pending link instead of linking or duplicating when the email belongs to an existing account', function (string $provider) {
+it('parks a pending link instead of linking or duplicating when the provider did not confirm the email', function () {
     User::factory()->create(['email' => 'ivan@example.com']);
-    Socialite::fake($provider, fakeSocialiteUser(['id' => 'subject-42', 'email' => 'Ivan@Example.com']));
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'subject-42', 'email' => 'Ivan@Example.com']));
 
-    $response = $this->get(socialCallbackUrl($provider));
+    $response = $this->get(socialCallbackUrl('google'));
 
     $response->assertRedirect(route('login'));
-    $response->assertSessionHas('status', trans('auth.social.pending_link', ['provider' => SocialProvider::from($provider)->label()]));
+    $response->assertSessionHas('status', trans('auth.social.pending_link', ['provider' => 'Google']));
     $this->assertGuest();
     expect(User::count())->toBe(1)
         ->and(SocialAccount::count())->toBe(0)
         ->and(session(PendingSocialLink::SESSION_KEY))->toMatchArray([
-            'provider' => $provider,
+            'provider' => 'google',
             'provider_user_id' => 'subject-42',
             'email' => 'ivan@example.com',
         ]);
-})->with(['google', 'facebook']);
+});
 
 it('shows the person why they are back on the login page', function () {
     User::factory()->create(['email' => 'ivan@example.com']);
@@ -51,7 +54,8 @@ it('shows the person why they are back on the login page', function () {
     $this->get('/login')->assertOk()->assertSee(trans('auth.social.pending_link', ['provider' => 'Google']));
 });
 
-it('links the pending identity once the account signs in with its password, and signs in directly afterwards', function (string $provider) {
+it('links the pending identity once the account signs in with its password, and signs in directly afterwards', function () {
+    $provider = 'google';
     $existing = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake($provider, fakeSocialiteUser(['id' => 'subject-42', 'email' => 'ivan@example.com']));
     $this->get(socialCallbackUrl($provider));
@@ -76,19 +80,20 @@ it('links the pending identity once the account signs in with its password, and 
 
     $this->assertAuthenticatedAs($existing);
     expect(User::count())->toBe(1)->and(SocialAccount::count())->toBe(1);
-})->with(['google', 'facebook']);
+});
 
-it('completes a pending Facebook link through an existing Google sign-in of a social-only account', function () {
+it('completes a pending Google link through an existing Facebook sign-in of a social-only account', function () {
     $user = User::factory()->withoutPassword()->create(['email' => 'ivan@example.com']);
-    SocialAccount::factory()->for($user)->google()->create(['provider_user_id' => 'g-1']);
+    SocialAccount::factory()->for($user)->facebook()->create(['provider_user_id' => 'fb-1']);
 
-    Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan@example.com']));
-    $this->get(socialCallbackUrl('facebook'))->assertRedirect(route('login'));
+    // Google without a confirmation of this non-Gmail address: pending.
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('login'));
     $this->assertGuest();
     expect(SocialAccount::count())->toBe(1);
 
-    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
-    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+    Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan@example.com']));
+    $this->get(socialCallbackUrl('facebook'))->assertRedirect(route('dashboard', absolute: false));
 
     $this->assertAuthenticatedAs($user);
     expect(User::count())->toBe(1)
@@ -98,15 +103,15 @@ it('completes a pending Facebook link through an existing Google sign-in of a so
         ->and(session()->has(PendingSocialLink::SESSION_KEY))->toBeFalse();
 });
 
-it('keeps only the newest pending link when a second provider collides before the first is claimed', function () {
+it('keeps only the newest pending link when a second identity collides before the first is claimed', function () {
     User::factory()->create(['email' => 'ivan@example.com']);
 
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
     $this->get(socialCallbackUrl('google'));
-    Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan@example.com']));
-    $this->get(socialCallbackUrl('facebook'));
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-2', 'email' => 'ivan@example.com']));
+    $this->get(socialCallbackUrl('google'));
 
-    expect(session(PendingSocialLink::SESSION_KEY))->toMatchArray(['provider' => 'facebook', 'provider_user_id' => 'fb-1']);
+    expect(session(PendingSocialLink::SESSION_KEY))->toMatchArray(['provider' => 'google', 'provider_user_id' => 'g-2']);
 });
 
 it('never reassigns an identity that already belongs to another account', function () {

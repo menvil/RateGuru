@@ -31,9 +31,10 @@ use Illuminate\Support\Carbon;
  * @property int|null $trust_level
  * @property ProfileActivityVisibility|null $rating_activity_visibility
  * @property Carbon|null $anonymized_at
+ * @property string|null $session_generation
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'session_generation'])]
 class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */

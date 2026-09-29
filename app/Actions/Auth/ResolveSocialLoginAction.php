@@ -32,6 +32,7 @@ final class ResolveSocialLoginAction
         private readonly RegisterSocialUserAction $registerSocialUser,
         private readonly LinkSocialAccountAction $linkSocialAccount,
         private readonly StorePendingSocialLinkAction $storePendingSocialLink,
+        private readonly ClaimAccountWithVerifiedEmailAction $claimAccount,
     ) {}
 
     /**
@@ -86,8 +87,20 @@ final class ResolveSocialLoginAction
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 
-            // The email is a claim, not a proof: the person must sign in to the
-            // account that owns it before the identity is attached.
+            // The provider confirmed this address: it is the owner signing in
+            // another way, and the account is theirs — see the claim action
+            // for what happens when the account's own email was unconfirmed.
+            if ($identity->emailVerifiedByProvider) {
+                $claim = $this->claimAccount->execute($existing, $identity);
+
+                Auth::login($claim->user);
+
+                return SocialLoginResult::claimed($claim->user, $claim->passwordRemoved);
+            }
+
+            // An address the provider does not vouch for is a claim, not a
+            // proof: the person must sign in to the account that owns it
+            // before the identity is attached.
             $this->storePendingSocialLink->execute($identity, $session);
 
             return SocialLoginResult::pendingLink();

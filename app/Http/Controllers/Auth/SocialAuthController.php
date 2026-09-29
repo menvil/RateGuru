@@ -70,6 +70,15 @@ class SocialAuthController extends Controller
             $completePendingSocialLink->execute($result->user, $request->session());
         }
 
-        return $surface->redirectAfterLogin(route('dashboard', absolute: false));
+        $response = $surface->redirectAfterLogin(route('dashboard', absolute: false));
+
+        if ($result->passwordRemoved) {
+            $response->with('toast', [
+                'message' => __('auth.social.password_removed', ['provider' => $provider->label()]),
+                'duration' => 12000,
+            ]);
+        }
+
+        return $response;
     }
 }

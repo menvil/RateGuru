@@ -4,6 +4,7 @@ return [
     'failed' => 'These credentials do not match our records.',
     'password' => 'The provided password is incorrect.',
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
+    'session_ended' => 'Your session has ended because this account\'s sign-in details changed. Please sign in again.',
 
     'prompts' => [
         'no_account' => "Don't have an account?",
@@ -20,5 +21,6 @@ return [
         'already_linked' => 'This :provider account is already connected to a different account.',
         'provider_already_linked' => 'Your account is already connected to a different :provider account.',
         'pending_link' => 'This email address already has an account. Sign in the way you did before — with your password or with another social account — and your :provider account will be connected automatically.',
+        'password_removed' => 'Your email is confirmed through :provider. A password that had been set for this email address was removed — you can set a new one in your profile.',
     ],
 ];

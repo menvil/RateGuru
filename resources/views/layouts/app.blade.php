@@ -420,8 +420,12 @@
             x-on:toast.window="
                 const toast = { id: Date.now() + Math.random(), message: $event.detail.message };
                 toasts.push(toast);
-                setTimeout(() => toasts = toasts.filter(t => t.id !== toast.id), 5000);
+                setTimeout(() => toasts = toasts.filter(t => t.id !== toast.id), $event.detail.duration ?? 5000);
             "
+            @if (is_array(session('toast')) && filled(session('toast.message')))
+                {{-- A message the previous request left for this page. --}}
+                x-init="$nextTick(() => $dispatch('toast', {{ \Illuminate\Support\Js::from(session('toast')) }}))"
+            @endif
             class="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-2 px-4"
             data-testid="toast-container"
             aria-live="polite"

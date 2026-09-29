@@ -11,6 +11,12 @@ enum SocialLoginOutcome
     /** An account already linked to this identity was signed in. */
     case LoggedIn;
 
+    /**
+     * The identity's email, confirmed by the provider, belongs to an
+     * existing account: the identity was linked to it and signed in.
+     */
+    case Claimed;
+
     /** A new account was created for this identity and signed in. */
     case Registered;
 
@@ -26,6 +32,6 @@ enum SocialLoginOutcome
     /** Whether this callback authenticated a session that was not authenticated before. */
     public function authenticatedSession(): bool
     {
-        return $this === self::LoggedIn || $this === self::Registered;
+        return $this === self::LoggedIn || $this === self::Claimed || $this === self::Registered;
     }
 }
