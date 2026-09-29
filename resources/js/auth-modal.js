@@ -48,6 +48,11 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
         // How long the trap and the panel take depends on the machine, so the
         // field is asked again until it really has the focus, for up to a
         // second, instead of once after a guessed delay.
+        //
+        // It only ever moves the focus INTO the form, never around inside it:
+        // once the person is in any field of the visible form — they clicked
+        // one, or a password manager filled one — the focus is theirs. Taking
+        // it back would send what they type next into the first field.
         focusFirstField() {
             const mode = this.mode;
 
@@ -57,7 +62,13 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
                     return;
                 }
 
-                const field = this.$root.querySelector(`[data-auth-panel="${mode}"] [data-auth-initial-focus]`);
+                const panel = this.$root.querySelector(`[data-auth-panel="${mode}"]`);
+
+                if (! panel || panel.contains(document.activeElement)) {
+                    return;
+                }
+
+                const field = panel.querySelector('[data-auth-initial-focus]');
 
                 field?.focus();
 

@@ -136,6 +136,41 @@ it('puts the focus in the first field and keeps it predictable when the mode cha
     waitForScript($page, 'document.activeElement.id', 'modal-login-email');
 });
 
+it('never takes the focus back from a field the person is already in', function () {
+    $page = visit(route('feed'));
+
+    // The person reaches the second field before the dialog's own initial
+    // focus has run: exactly what a fast click or a password manager does.
+    $focused = $page->script(<<<'JS'
+        new Promise((resolve) => {
+            window.dispatchEvent(new CustomEvent('open-auth-modal', { detail: { mode: 'register' } }));
+
+            window.Alpine.nextTick(() => {
+                document.getElementById('modal-register-email').focus();
+                resolve(document.activeElement.id);
+            });
+        })
+    JS);
+
+    expect($focused)->toBe('modal-register-email');
+
+    // Longer than the whole initial-focus window: the focus must stay put.
+    $page->wait(1.5)
+        ->assertScript('document.activeElement.id', 'modal-register-email');
+});
+
+it('keeps what is typed in the field it was typed into, however fast', function () {
+    $page = visit(route('feed'))->click('[data-testid="header-register-link"]');
+
+    // No pause at all between opening and typing.
+    $page->type('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
+        ->type('[data-testid="auth-modal-register-password"]', 'password')
+        ->wait(1.5)
+        ->assertValue('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
+        ->assertValue('[data-testid="auth-modal-register-password"]', 'password')
+        ->assertValue('[data-testid="auth-modal-register-name"]', '');
+});
+
 it('closes with the close button, with Escape and with the backdrop', function () {
     $page = visit(route('feed'));
 
