@@ -51,7 +51,7 @@ concurrency:
 jobs:
   provision:
     name: Provision the tits-guru infrastructure
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # READ THIS BEFORE CHANGING IT.
     #

@@ -31,7 +31,7 @@ jobs:
   # .github/actions/build-rateguru action.
   resolve:
     name: Resolve staging source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     outputs:
       checkout_ref: ${{ steps.source.outputs.checkout_ref }}
@@ -90,7 +90,7 @@ jobs:
   build:
     name: Build immutable Laravel artifact
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     outputs:
@@ -145,7 +145,7 @@ jobs:
 
   deploy:
     name: Deploy Laravel application to staging
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - resolve
       - build
@@ -199,7 +199,7 @@ jobs:
   # influences whether the deployment itself is considered successful.
   observability:
     name: Record deployment in Sentry and Nightwatch
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - build
       - deploy

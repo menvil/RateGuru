@@ -46,7 +46,7 @@ jobs:
   # request never becomes an approval request for a human to rubber-stamp.
   validate:
     name: Validate repair request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
@@ -71,7 +71,7 @@ jobs:
   repair:
     name: Repair tits-guru
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 30
 

@@ -94,7 +94,7 @@ it('reads the machine from the environment that currently binds it', function ()
     // staging is the PHYSICAL HOST binding, not the target's class. The two
     // are allowed to disagree, and here they do.
     expect(data_get($workflow, 'jobs.provision.environment'))->toBe('staging')
-        ->and(data_get($workflow, 'jobs.provision.runs-on'))->toBe('ubuntu-latest');
+        ->and(data_get($workflow, 'jobs.provision.runs-on'))->toBe('ubuntu-24.04');
 
     $step = collect(data_get($workflow, 'jobs.provision.steps'))
         ->first(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/provision-rateguru-target');

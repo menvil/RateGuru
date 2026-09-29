@@ -122,7 +122,7 @@ jobs:
   # and never reaches a credential.
   validate:
     name: Validate recovery request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     permissions:
@@ -321,7 +321,7 @@ jobs:
   values:
     name: Refuse to start without the recovery values the environment must hold
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 5
 
@@ -452,7 +452,7 @@ jobs:
     needs:
       - validate
       - values
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 5
 
@@ -596,7 +596,7 @@ jobs:
       - validate
       - binding
     if: ${{ needs.validate.outputs.mode == 'start' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 5
 
@@ -667,7 +667,7 @@ jobs:
       - validate
       - binding
     if: ${{ needs.validate.outputs.mode == 'start' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 10
 
@@ -711,7 +711,7 @@ jobs:
       - preflight
       - deploy-identity
     if: ${{ needs.validate.outputs.mode == 'start' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # A genuinely clean VPS installs the full base runtime before it does
     # anything else, which is by far the slowest step here.
@@ -788,7 +788,7 @@ jobs:
           && needs.binding.result == 'success'
           && (needs.prepare.result == 'success'
               || (needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue-held')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # A real recovery downloads, fully verifies and stages a whole backup and
     # then activates a database and a storage tree. All of that scales with
@@ -1008,7 +1008,7 @@ jobs:
       - binding
       - recover
     if: ${{ needs.recover.outputs.build_required == 'yes' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     permissions:
@@ -1078,7 +1078,7 @@ jobs:
       - recover
       - build
     if: ${{ needs.recover.outputs.deploy_required == 'yes' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 20
 
@@ -1179,7 +1179,7 @@ jobs:
           && needs.recover.outputs.resume_required == 'yes'
           && (needs.build.result == 'success' || needs.build.result == 'skipped')
           && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 30
 
@@ -1287,7 +1287,7 @@ jobs:
       ${{ !cancelled()
           && needs.recover.result == 'success'
           && (needs.resume.result == 'success' || needs.resume.result == 'failure') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 20
 
@@ -1407,7 +1407,7 @@ jobs:
       - recover
       - verify
     if: ${{ always() && needs.verify.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 10
 
@@ -1469,7 +1469,7 @@ jobs:
       - verify
       - observability
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     permissions:

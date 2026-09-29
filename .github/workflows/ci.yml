@@ -17,7 +17,7 @@ concurrency:
 jobs:
   code-style:
     name: Code style (Pint)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,7 +46,7 @@ jobs:
 
   static-analysis:
     name: Architecture & static analysis (PHPStan)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       architecture-suppressions: ${{ steps.baseline-report.outputs.architecture-suppressions }}
       baseline-delta: ${{ steps.baseline-report.outputs.baseline-delta }}
@@ -113,7 +113,7 @@ jobs:
 
   frontend-build:
     name: Frontend build (Vite)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       files: ${{ steps.build-metrics.outputs.files }}
       size: ${{ steps.build-metrics.outputs.size }}
@@ -148,7 +148,7 @@ jobs:
 
   tests:
     name: Tests (Pest + PostgreSQL)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
     # the 6-hour default — it is not meant to bound a healthy run. The last
     # green runs measured ~12 minutes here, and the suite grows as the product
@@ -242,7 +242,7 @@ jobs:
           npx playwright install chromium
 
       # Split out of the browser install and made best-effort on purpose:
-      # on the current ubuntu-latest image every hard Chromium library is
+      # on the ubuntu-24.04 image every job is pinned to, every hard Chromium library is
       # already present, and `install-deps` only adds optional international
       # font packages — via apt, whose Azure mirror proved capable of
       # trickling for hours. A down mirror must not block the DOM-based
@@ -318,7 +318,7 @@ jobs:
 
   tests-architecture:
     name: Architecture tests (Pest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Its own job, because the Architecture suite is its own kind of test: it
     # reads committed files and drives real shell subprocesses against a
     # simulated host, and not one of its 2360 tests touches the database. Run
@@ -435,7 +435,7 @@ jobs:
 
   migrations-mariadb:
     name: Compatibility (MariaDB)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
     # the 6-hour default — it is not meant to bound a healthy run. The last
     # green runs measured ~24 minutes here, and the suite grows as the product
@@ -537,7 +537,7 @@ jobs:
 
   tests-sqlite:
     name: Compatibility (SQLite)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
     # the 6-hour default — it is not meant to bound a healthy run. The last
     # green runs measured ~28 minutes here, and the suite grows as the product
@@ -612,7 +612,7 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       composer-advisories: ${{ steps.dependency-metrics.outputs.composer-advisories }}
       composer-packages: ${{ steps.dependency-metrics.outputs.composer-packages }}
@@ -693,7 +693,7 @@ jobs:
   ci-summary:
     name: Summary
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - code-style
       - static-analysis

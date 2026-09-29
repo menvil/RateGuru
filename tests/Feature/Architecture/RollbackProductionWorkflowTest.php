@@ -25,7 +25,7 @@ it('rolls back production manually, through the same shared implementation', fun
         ->and(array_keys($this->workflow['on']))->toBe(['workflow_dispatch'])
         ->and($this->workflow['permissions'])->toBe(['contents' => 'read'])
         ->and(array_keys($this->workflow['jobs']))->toBe(['rollback'])
-        ->and(data_get($this->workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-latest');
+        ->and(data_get($this->workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-24.04');
 
     $rollback = $this->stepsByName->get('Roll back tits-guru');
 
