@@ -1,0 +1,115 @@
+app/Http/Requests/Auth/LoginRequest.php
+  s_65f2eb90734b6e::t_67dc390e185146 5-6,12-13,33,36-39
+resources/views/components/auth/modal.blade.php
+  s_65f2eb90734b6e::t_84a3acdc58319c 32-33
+  s_65f2eb90734b6e::t_dc792c1d35da34 16-19,31,65
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-15,20-30,34-64
+resources/views/auth/register.blade.php
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 2
+docs/dev/auth-modal.md
+  s_65f2eb90734b6e::t_3e613caac7f3cb 1-95
+tests/Feature/Auth/AuthModalLoginTest.php
+  s_65f2eb90734b6e::t_84a3acdc58319c 1-44,47-60,76-100,104-119,135-186
+  s_65f2eb90734b6e::t_4b58698c451901 45-46,61-75,101-103,120-134
+app/Http/Requests/Auth/Concerns/CarriesAuthSurface.php
+  s_65f2eb90734b6e::t_f26e17dbcea049 1-44
+tests/Feature/Auth/AuthModalSocialTest.php
+  s_65f2eb90734b6e::t_54cd09cde08d33 1-79,81-91,103-142,144-203
+  s_65f2eb90734b6e::t_4b58698c451901 80,92-102,143
+resources/views/components/auth/register-form.blade.php
+  s_65f2eb90734b6e::t_dc792c1d35da34 7,19
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-6,8-18,20-94
+app/Http/Controllers/Auth/AuthenticatedSessionController.php
+  s_65f2eb90734b6e::t_67dc390e185146 8,12,37,39,51
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_65f2eb90734b6e::t_67dc390e185146 12,14,22-23,25-31,37-38,49,55,59,73
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_5b6d6eb1b20344 66
+  s_65f2eb90734b6e::t_3e613caac7f3cb 92-94
+app/Support/Auth/AuthSurfaceContext.php
+  s_65f2eb90734b6e::t_f26e17dbcea049 1-193
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_65f2eb90734b6e::t_5b6d6eb1b20344 104
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_cc679b23d36e74 8-12,14
+tests/Unit/Support/Auth/AuthReturnUrlTest.php
+  s_65f2eb90734b6e::t_84a3acdc58319c 1-51
+resources/views/components/auth/divider.blade.php
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-5
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_cc679b23d36e74 8-12,14
+resources/views/components/auth/social-buttons.blade.php
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 2-5,7-15,17-27,31,33,36,39
+app/Http/Controllers/Auth/RegisteredUserController.php
+  s_65f2eb90734b6e::t_67dc390e185146 6,9,32,34-38,40
+tests/Feature/Auth/AuthModalRegistrationTest.php
+  s_65f2eb90734b6e::t_54cd09cde08d33 3,76,78
+  s_65f2eb90734b6e::t_84a3acdc58319c 1-2,4-40,43-45,47-58,73-75,77,79-131
+  s_65f2eb90734b6e::t_4b58698c451901 41-42,46,59-72
+resources/views/components/auth/login-form.blade.php
+  s_65f2eb90734b6e::t_dc792c1d35da34 9,21
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-8,10-20,22-89
+app/Enums/AuthModalMode.php
+  s_65f2eb90734b6e::t_f26e17dbcea049 1-19
+tests/Feature/Auth/SocialRedirectTest.php
+  s_65f2eb90734b6e::t_9b0e4f229ad140 113,117-118,120
+tests/Pest.php
+  s_65f2eb90734b6e::t_84a3acdc58319c 3118-3149
+app/Http/Requests/Auth/RegisterUserRequest.php
+  s_65f2eb90734b6e::t_67dc390e185146 5-6,13-14,21,24-27
+resources/views/auth/login.blade.php
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 5
+tests/Feature/Architecture/HttpAndDatabaseBoundariesTest.php
+  s_65f2eb90734b6e::t_f49b0edcaa6676 17,32
+lang/en/auth.php
+  s_65f2eb90734b6e::t_cc679b23d36e74 8-12,14
+app/Support/Auth/AuthModalState.php
+  s_65f2eb90734b6e::t_f26e17dbcea049 1-52
+docs/architecture/user-lifecycle.md
+  s_65f2eb90734b6e::t_5b6d6eb1b20344 133
+resources/js/app.js
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 3
+tests/Feature/Mobile/MobileNavigationPolishTest.php
+  s_65f2eb90734b6e::t_9b0e4f229ad140 71-72,75-79
+resources/views/layouts/app.blade.php
+  s_65f2eb90734b6e::t_37d5971881eec1 258-265
+  s_65f2eb90734b6e::t_dc792c1d35da34 205-207,211,221
+  s_65f2eb90734b6e::t_9b0e4f229ad140 195
+lang/ru.json
+  s_65f2eb90734b6e::t_cc679b23d36e74 33
+tests/Feature/Auth/AuthModalRenderingTest.php
+  s_65f2eb90734b6e::t_4b58698c451901 204,209-211
+  s_65f2eb90734b6e::t_54cd09cde08d33 1-203,205-208,212-242
+app/Support/Auth/AuthReturnUrl.php
+  s_65f2eb90734b6e::t_f26e17dbcea049 1-67
+resources/js/auth-modal.js
+  s_65f2eb90734b6e::t_dc792c1d35da34 59-81
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-58
+tests/Browser/AuthModalBrowserTest.php
+  s_65f2eb90734b6e::t_09a3af3354c7d7 1-4,7-253,260-267,269-344
+  s_65f2eb90734b6e::t_43e90919ed362f 5-6,254-258
+  s_65f2eb90734b6e::t_1aa7bfa5cb6303 259,268
+app/Http/Requests/Auth/SocialRedirectRequest.php
+  s_65f2eb90734b6e::t_67dc390e185146 1-24
+resources/views/components/auth/panel.blade.php
+  s_65f2eb90734b6e::t_ab6e60350d8d5c 1-11,13-26,28-71
+  s_65f2eb90734b6e::t_dc792c1d35da34 12,27
+lang/bg.json
+  s_65f2eb90734b6e::t_cc679b23d36e74 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ba9d997087639d7c6235b4ea2f714a6d90e4f261",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
