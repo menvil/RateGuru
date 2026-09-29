@@ -111,7 +111,8 @@ it('renders the standalone fullscreen image with contain behavior', function () 
 
     expect($html)
         ->toContain('data-testid="post-fullscreen-image"')
-        ->toContain('max-h-[80vh]')
+        // Capped at 80vh, and at the room the viewer measured below the app header.
+        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]')
         ->toContain('object-contain');
 });
 

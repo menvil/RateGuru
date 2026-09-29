@@ -27,7 +27,7 @@
             {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
-            <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
+            <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
                     <button
                         type="button"

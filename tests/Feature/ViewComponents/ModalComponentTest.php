@@ -57,6 +57,9 @@ it('keeps the opt-in dialog behaviours off unless a modal asks for them', functi
     $html = Blade::render('<x-ui.modal title="Report issue">Report content</x-ui.modal>');
 
     expect($html)
+        ->toContain('class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-6"')
+        ->not->toContain('data-modal-below-header')
+        ->not->toContain('rgPlaceModalBelowHeader')
         ->not->toContain('x-trap')
         ->not->toContain('keydown.escape')
         ->not->toContain('max-h-[calc(100dvh-3rem)]')
@@ -98,3 +101,25 @@ it('accepts a title slot for a heading that changes with the dialog state', func
 
     expect($html)->toContain('<span x-show="mode === \'login\'">Log in</span>');
 });
+
+it('lays a dialog out below the app header when asked to', function () {
+    $html = Blade::render('<x-ui.modal title="Photo" state="imageOpen" size="fullscreen" below-header>Image</x-ui.modal>');
+
+    expect($html)
+        ->toContain('data-modal-below-header')
+        ->toContain('top-[var(--rg-modal-top,0px)]')
+        ->toContain('x-effect="if (imageOpen) { $nextTick(() => rgPlaceModalBelowHeader($el)) }"')
+        ->toContain('x-on:resize.window="if (imageOpen) { rgPlaceModalBelowHeader($el) }"')
+        ->toContain('data-modal-panel')
+        ->toContain('data-modal-body')
+        ->not->toContain('class="fixed inset-0 z-50');
+});
+
+it('opts every image viewer into the below-header layout', function (string $view) {
+    expect(file_get_contents(resource_path('views/'.$view)))
+        ->toContain('<x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>');
+})->with([
+    'components/feed/post-card.blade.php',
+    'livewire/posts/post-show.blade.php',
+    'livewire/feed/post-drawer-content.blade.php',
+]);
