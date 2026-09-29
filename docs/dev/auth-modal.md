@@ -82,13 +82,14 @@ they never appear in another form.
 
 ## The shared modal
 
-`<x-ui.modal>` gained three opt-in props, all off by default:
+`<x-ui.modal>` gained opt-in props, all off by default:
 
 | prop | effect |
 |---|---|
 | `trap-focus` | focus stays inside, returns to the trigger on close, page scroll is locked while open |
 | `close-on-escape` | Escape closes the dialog |
 | `fit-viewport` | the dialog never exceeds the viewport: the header stays put, the body scrolls |
+| `below-header` | a page-level dialog is laid out between the app header and the bottom of the screen, with equal gaps; used by the image viewers, not by the authentication modal (which lives inside the header and covers it) |
 
 Tests: `tests/Feature/Auth/AuthModal*Test.php`,
 `tests/Unit/Support/Auth/AuthReturnUrlTest.php`,
