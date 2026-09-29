@@ -22,6 +22,22 @@ const REGISTER_PANEL = '[data-testid="auth-modal-register-panel"]';
 /** Whether the dialog is on screen, as one expression a test can wait for. */
 const AUTH_MODAL_SHOWN = 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"';
 
+/**
+ * Submits a modal form and waits until the server's answer has replaced the
+ * page. A failed submission comes back to the very same URL with the dialog
+ * open again, so the URL and the dialog cannot tell the two pages apart: a
+ * marker on window can, because only the old document carries it.
+ */
+function submitAndWaitForNewPage(mixed $page, string $submit): mixed
+{
+    $page->script('window.__rgPageBeforeSubmit = true');
+    $page->click($submit);
+
+    waitForScript($page, 'window.__rgPageBeforeSubmit !== true && document.readyState === "complete"');
+
+    return $page;
+}
+
 /** The vertical position of an element inside one of the modal's panels. */
 function topOf(string $panel, string $testId): string
 {
@@ -186,12 +202,13 @@ it('opens in registration mode when a guest presses upload, without the old toas
 it('signs in from the modal and stays on the page, query string included', function () {
     User::factory()->create(['email' => 'modal-login@rateguru.test']);
 
-    visit(route('feed', ['sort' => 'top']))
+    $page = visit(route('feed', ['sort' => 'top']))
         ->click('[data-testid="header-login-link"]')
         ->assertVisible(AUTH_MODAL)
         ->type('[data-testid="auth-modal-login-email"]', 'modal-login@rateguru.test')
-        ->type('[data-testid="auth-modal-login-password"]', 'password')
-        ->click('[data-testid="auth-modal-login-submit"]')
+        ->type('[data-testid="auth-modal-login-password"]', 'password');
+
+    submitAndWaitForNewPage($page, '[data-testid="auth-modal-login-submit"]')
         ->assertPresent('[data-testid="header-auth-actions"]')
         ->assertPathIs('/')
         ->assertQueryStringHas('sort', 'top')
@@ -204,11 +221,12 @@ it('returns to the post the person was reading after signing in', function () {
     $post = Post::factory()->published()->create(['title' => 'Return Here Post']);
     User::factory()->create(['email' => 'modal-post@rateguru.test']);
 
-    visit(route('posts.show', $post))
+    $page = visit(route('posts.show', $post))
         ->click('[data-testid="header-login-link"]')
         ->type('[data-testid="auth-modal-login-email"]', 'modal-post@rateguru.test')
-        ->type('[data-testid="auth-modal-login-password"]', 'password')
-        ->click('[data-testid="auth-modal-login-submit"]')
+        ->type('[data-testid="auth-modal-login-password"]', 'password');
+
+    submitAndWaitForNewPage($page, '[data-testid="auth-modal-login-submit"]')
         ->assertPresent('[data-testid="header-auth-actions"]')
         ->assertPathIs(route('posts.show', $post, absolute: false))
         ->assertSee('Return Here Post');
@@ -220,11 +238,12 @@ it('reopens in login mode on the same page after invalid credentials', function 
     $post = Post::factory()->published()->create(['title' => 'Stay On This Post']);
     User::factory()->create(['email' => 'modal-wrong@rateguru.test']);
 
-    visit(route('posts.show', $post))
+    $page = visit(route('posts.show', $post))
         ->click('[data-testid="header-login-link"]')
         ->type('[data-testid="auth-modal-login-email"]', 'modal-wrong@rateguru.test')
-        ->type('[data-testid="auth-modal-login-password"]', 'not-the-password')
-        ->click('[data-testid="auth-modal-login-submit"]')
+        ->type('[data-testid="auth-modal-login-password"]', 'not-the-password');
+
+    submitAndWaitForNewPage($page, '[data-testid="auth-modal-login-submit"]')
         ->assertPathIs(route('posts.show', $post, absolute: false))
         ->assertSee('Stay On This Post')
         ->assertVisible(AUTH_MODAL)
@@ -240,13 +259,14 @@ it('reopens in login mode on the same page after invalid credentials', function 
 it('reopens in registration mode on the same page after a validation error', function () {
     User::factory()->create(['email' => 'taken@rateguru.test']);
 
-    visit(route('feed', ['sort' => 'top']))
+    $page = visit(route('feed', ['sort' => 'top']))
         ->click('[data-testid="header-register-link"]')
         ->type('[data-testid="auth-modal-register-name"]', 'Modal Person')
         ->type('[data-testid="auth-modal-register-email"]', 'taken@rateguru.test')
         ->type('[data-testid="auth-modal-register-password"]', 'password')
-        ->type('[data-testid="auth-modal-register-password-confirmation"]', 'password')
-        ->click('[data-testid="auth-modal-register-submit"]')
+        ->type('[data-testid="auth-modal-register-password-confirmation"]', 'password');
+
+    submitAndWaitForNewPage($page, '[data-testid="auth-modal-register-submit"]')
         ->assertPathIs('/')
         ->assertQueryStringHas('sort', 'top')
         ->assertVisible(AUTH_MODAL)
@@ -266,13 +286,14 @@ it('registers from the modal and stays on the page', function () {
     // the column defaults (status) a real request reads back from the database.
     Event::listen(Registered::class, fn (Registered $event) => $event->user->refresh());
 
-    visit(route('feed', ['sort' => 'hot']))
+    $page = visit(route('feed', ['sort' => 'hot']))
         ->click('[data-testid="header-register-link"]')
         ->type('[data-testid="auth-modal-register-name"]', 'Modal Newcomer')
         ->type('[data-testid="auth-modal-register-email"]', 'newcomer@rateguru.test')
         ->type('[data-testid="auth-modal-register-password"]', 'password')
-        ->type('[data-testid="auth-modal-register-password-confirmation"]', 'password')
-        ->click('[data-testid="auth-modal-register-submit"]')
+        ->type('[data-testid="auth-modal-register-password-confirmation"]', 'password');
+
+    submitAndWaitForNewPage($page, '[data-testid="auth-modal-register-submit"]')
         ->assertPresent('[data-testid="header-auth-actions"]')
         ->assertPathIs('/')
         ->assertQueryStringHas('sort', 'hot');
