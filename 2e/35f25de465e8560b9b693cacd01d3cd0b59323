@@ -1,0 +1,9 @@
+docs/dev/auth-modal.md
+  ai_agent 85,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2e35f25de465e8560b9b693cacd01d3cd0b59323",
+  "prompts": {}
+}
