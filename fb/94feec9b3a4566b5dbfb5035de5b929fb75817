@@ -1,0 +1,48 @@
+resources/js/modal.js
+  s_65f2eb90734b6e::t_682b5c604e55d0 1-32,34-42
+  s_65f2eb90734b6e::t_fa2abb19cf53fa 33
+resources/views/components/ui/modal.blade.php
+  s_65f2eb90734b6e::t_fa2abb19cf53fa 83
+  s_65f2eb90734b6e::t_682b5c604e55d0 11,39-47,49,62
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 60-62,104-125
+tests/Feature/Routes/PostShowRouteTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 114-115
+resources/views/components/media/post-image.blade.php
+  s_65f2eb90734b6e::t_682b5c604e55d0 21-24
+resources/views/components/feed/post-card.blade.php
+  s_65f2eb90734b6e::t_682b5c604e55d0 220
+tests/Feature/Livewire/PostDrawerTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 392-393
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_65f2eb90734b6e::t_682b5c604e55d0 187
+resources/views/livewire/posts/post-show.blade.php
+  s_65f2eb90734b6e::t_682b5c604e55d0 248
+tests/Feature/ViewComponents/PostCardComponentTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 441-442
+resources/js/app.js
+  s_65f2eb90734b6e::t_682b5c604e55d0 4
+resources/views/layouts/app.blade.php
+  s_65f2eb90734b6e::t_682b5c604e55d0 30
+tests/Feature/ViewComponents/PostImageComponentTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 84-85
+tests/Browser/ImageViewerLayoutBrowserTest.php
+  s_65f2eb90734b6e::t_9f9d29f6c73b92 1-22,24-62,64-208
+  s_65f2eb90734b6e::t_df8ad40087ef9b 23,63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fb94feec9b3a4566b5dbfb5035de5b929fb75817",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
