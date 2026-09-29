@@ -79,6 +79,13 @@ unverified, and a new Google account is verified only for a `@gmail.com`
 address or a Google Workspace domain (`email_verified` claim plus a
 non-empty `hd`). Everything else goes through the usual verification email.
 
+An account created through a provider has no password. The profile page
+offers it **Set a password** instead of the change-password form: it emails
+the ordinary password-reset link to the account's own address, and the reset
+page works while signed in, so only whoever reads that mailbox can set the
+password. Deleting such an account is confirmed with its email address
+instead of a password.
+
 Account deletion (`AnonymizeUserAccountAction`) deletes every social
 identity along with the rest of the private account state — see
 [user lifecycle](../architecture/user-lifecycle.md).

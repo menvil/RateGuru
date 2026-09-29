@@ -29,6 +29,12 @@ class NewPasswordController extends Controller
 
         $status = $resetPassword->execute($validated);
 
+        // Reached from the emailed link while signed in — how an account
+        // created through Google or Facebook sets its first password.
+        if ($request->user() !== null) {
+            return redirect()->route('profile.edit')->with('status', 'password-set');
+        }
+
         return redirect()->route('login')->with('status', __($status));
     }
 }
