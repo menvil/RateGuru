@@ -39,6 +39,7 @@ Route::get('reset-password/{token}', [NewPasswordController::class, 'create'])
     ->name('password.reset');
 
 Route::post('reset-password', [NewPasswordController::class, 'store'])
+    ->middleware('throttle:6,1')
     ->name('password.store');
 
 // Social sign-in is deliberately outside the `guest` group: a signed-in person

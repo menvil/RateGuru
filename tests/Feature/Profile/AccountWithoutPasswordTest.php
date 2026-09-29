@@ -96,6 +96,22 @@ it('sets the first password from the emailed link while signed in', function () 
         ->assertDontSee('data-testid="set-password-section"', false);
 });
 
+it('rate limits the password reset submission', function () {
+    $user = User::factory()->create();
+    $attempt = fn () => $this->post(route('password.store'), [
+        'token' => 'not-a-real-token',
+        'email' => $user->email,
+        'password' => 'new-password',
+        'password_confirmation' => 'new-password',
+    ]);
+
+    foreach (range(1, 6) as $ignored) {
+        $attempt()->assertRedirect();
+    }
+
+    $attempt()->assertTooManyRequests();
+});
+
 it('still sends a signed-out reset back to the login page', function () {
     Notification::fake();
     $user = User::factory()->create();
