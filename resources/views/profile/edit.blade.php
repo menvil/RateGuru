@@ -27,6 +27,12 @@
 
             <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
                 <div class="max-w-xl">
+                    @include('profile.partials.connected-accounts')
+                </div>
+            </div>
+
+            <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
+                <div class="max-w-xl">
                     <livewire:settings.user-locale-settings />
                 </div>
             </div>

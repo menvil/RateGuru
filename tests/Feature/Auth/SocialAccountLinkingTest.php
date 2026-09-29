@@ -122,8 +122,8 @@ it('never reassigns an identity that already belongs to another account', functi
 
     $response = $this->actingAs($other)->get(socialCallbackUrl('google'));
 
-    $response->assertRedirect(route('login'));
-    $response->assertSessionHasErrors(['social' => trans('auth.social.already_linked', ['provider' => 'Google'])]);
+    $response->assertRedirect(connectedAccountsUrl());
+    $response->assertSessionHasErrors(['social' => trans('auth.social.already_linked', ['provider' => 'Google'])], null, 'connectedAccounts');
     expect(SocialAccount::query()->where('provider_user_id', 'g-1')->sole()->user_id)->toBe($owner->id)
         ->and(SocialAccount::count())->toBe(1);
 });
@@ -149,8 +149,8 @@ it('never silently replaces an existing Google identity with another one', funct
 
     $response = $this->actingAs($user)->get(socialCallbackUrl('google'));
 
-    $response->assertRedirect(route('login'));
-    $response->assertSessionHasErrors(['social' => trans('auth.social.provider_already_linked', ['provider' => 'Google'])]);
+    $response->assertRedirect(connectedAccountsUrl());
+    $response->assertSessionHasErrors(['social' => trans('auth.social.provider_already_linked', ['provider' => 'Google'])], null, 'connectedAccounts');
     expect(SocialAccount::query()->where('user_id', $user->id)->sole()->provider_user_id)->toBe('g-1');
 });
 
@@ -170,37 +170,64 @@ it('connects a provider directly to the signed-in account when the emails match'
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake($provider, fakeSocialiteUser(['id' => 'subject-42', 'email' => ' Ivan@Example.com ']));
 
-    $this->actingAs($user)->get(socialCallbackUrl($provider))->assertRedirect(route('dashboard', absolute: false));
+    $this->actingAs($user)->get(socialCallbackUrl($provider))
+        ->assertRedirect(connectedAccountsUrl())
+        ->assertSessionHasNoErrors();
 
     $this->assertAuthenticatedAs($user);
     $account = SocialAccount::query()->where('user_id', $user->id)->sole();
     expect($account->provider)->toBe(SocialProvider::from($provider))
         ->and($account->provider_user_id)->toBe('subject-42')
+        ->and($account->provider_email)->toBe('ivan@example.com')
         ->and(User::count())->toBe(1);
 })->with(['google', 'facebook']);
 
-it('refuses to connect a provider whose email differs from the signed-in account', function () {
+it('connects a provider account that uses another email address of the signed-in person', function () {
     $user = User::factory()->create(['email' => 'ivan@example.com']);
-    Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'someone-else@example.com']));
+    Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan.personal@example.com']));
 
-    $response = $this->actingAs($user)->get(socialCallbackUrl('facebook'));
+    $this->actingAs($user)->get(socialCallbackUrl('facebook'))
+        ->assertRedirect(connectedAccountsUrl())
+        ->assertSessionHasNoErrors();
 
-    $response->assertRedirect(route('login'));
-    $response->assertSessionHasErrors(['social' => trans('auth.social.email_mismatch', ['provider' => 'Facebook'])]);
     $this->assertAuthenticatedAs($user);
-    expect(SocialAccount::count())->toBe(0)->and(User::count())->toBe(1);
+    expect(SocialAccount::query()->where('user_id', $user->id)->sole())
+        ->provider_user_id->toBe('fb-1')
+        ->provider_email->toBe('ivan.personal@example.com')
+        ->and($user->fresh()->email)->toBe('ivan@example.com')
+        ->and(User::count())->toBe(1);
 });
 
-it('refuses to connect a provider that shares no email to the signed-in account', function () {
+it('connects a provider account that shares no email to the signed-in account', function () {
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => null]));
 
-    $response = $this->actingAs($user)->get(socialCallbackUrl('facebook'));
+    $this->actingAs($user)->get(socialCallbackUrl('facebook'))
+        ->assertRedirect(connectedAccountsUrl())
+        ->assertSessionHasNoErrors();
 
-    $response->assertRedirect(route('login'));
-    $response->assertSessionHasErrors(['social' => trans('auth.social.email_mismatch', ['provider' => 'Facebook'])]);
-    expect(SocialAccount::count())->toBe(0);
+    expect(SocialAccount::query()->where('user_id', $user->id)->sole())
+        ->provider_user_id->toBe('fb-1')
+        ->provider_email->toBeNull();
 });
+
+it('refuses to connect a provider account whose email belongs to another account', function (bool $confirmedByProvider) {
+    $user = User::factory()->create(['email' => 'ivan@example.com']);
+    $other = User::factory()->create(['email' => 'maria@example.com']);
+    Socialite::fake('google', fakeSocialiteUser([
+        'id' => 'g-1',
+        'email' => 'Maria@Example.com',
+        'email_verified' => $confirmedByProvider,
+    ]));
+
+    $response = $this->actingAs($user)->get(socialCallbackUrl('google'));
+
+    $response->assertRedirect(connectedAccountsUrl());
+    $response->assertSessionHasErrors(['social' => trans('auth.social.email_taken', ['provider' => 'Google'])], null, 'connectedAccounts');
+    $this->assertAuthenticatedAs($user);
+    expect(SocialAccount::count())->toBe(0)
+        ->and($other->fresh()->socialAccounts()->count())->toBe(0);
+})->with(['confirmed by the provider' => true, 'not confirmed' => false]);
 
 it('treats a repeat connection of an identity the account already holds as a no-op', function () {
     $user = User::factory()->create(['email' => 'ivan@example.com']);
@@ -208,7 +235,7 @@ it('treats a repeat connection of an identity the account already holds as a no-
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
 
     $this->actingAs($user)->get(socialCallbackUrl('google'))
-        ->assertRedirect(route('dashboard', absolute: false))
+        ->assertRedirect(connectedAccountsUrl())
         ->assertSessionHasNoErrors();
 
     expect(SocialAccount::count())->toBe(1);

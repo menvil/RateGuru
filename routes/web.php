@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\SocialProvider;
 use App\Http\Controllers\Locale\ChangeLocaleController;
+use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
@@ -66,6 +68,15 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::post('/profile/connected-accounts/{provider}', [ConnectedAccountController::class, 'store'])
+        ->whereIn('provider', SocialProvider::values())
+        ->middleware('throttle:10,1')
+        ->name('profile.connected-accounts.store');
+    Route::delete('/profile/connected-accounts/{provider}', [ConnectedAccountController::class, 'destroy'])
+        ->whereIn('provider', SocialProvider::values())
+        ->middleware('throttle:10,1')
+        ->name('profile.connected-accounts.destroy');
 
     Route::get('/saved', SavedPostsPage::class)->name('saved-posts.index');
 

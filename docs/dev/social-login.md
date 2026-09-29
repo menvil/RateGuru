@@ -31,7 +31,9 @@ restores them with the rest of the environment file.
 
 Nothing else is requested. Google is asked for `openid profile email`,
 Facebook for the `email` permission with the `name` and `email` fields only.
-No token, avatar, name or provider email is stored after the callback.
+No token, avatar or name is stored after the callback. The provider's email
+is kept on the identity only to show which account is connected — see
+[Connected accounts](#connected-accounts).
 
 ### Local development
 
@@ -53,8 +55,9 @@ and never contact a provider. Real credentials are never committed; the
 
 The external identity is `provider + provider_user_id`, stored in
 `social_accounts` (one row per identity, at most one identity per provider
-per user — both enforced by unique indexes). The provider email is only used
-to decide where a brand-new identity belongs.
+per user — both enforced by unique indexes). The provider email decides
+where a brand-new identity belongs; it never finds an account for an identity
+that is already linked.
 
 A provider **vouches** for an email when it has confirmed it: Google for any
 `@gmail.com` address and for any address it reports with
@@ -68,7 +71,7 @@ only completes a registration after the address is confirmed.
 | unknown identity, provider vouches, the account's email is **confirmed** | signs straight in and links the provider; the password and everything else stay |
 | unknown identity, provider vouches, the account's email is **unconfirmed** | signs straight in and links the provider, and the account is taken over from whoever created it: email confirmed, password removed, every other session and "remember me" ended, reset links voided, and the owner is told to set a new password |
 | unknown identity, provider does **not** vouch, email belongs to an account | a **pending link** in the session; the person signs in to that account once (password or another provider) and the identity is linked |
-| unknown identity, a user is signed in and the emails match | the identity is attached to the signed-in account |
+| unknown identity, a user is signed in | the identity is attached to the signed-in account, whatever its email — unless that email is **another account's** address, which is refused |
 | provider shares no email | refused; nothing is created |
 
 The takeover case exists because an unconfirmed account may have been
@@ -95,6 +98,39 @@ page works while signed in, so only whoever reads that mailbox can set the
 password. Deleting such an account is confirmed with its email address
 instead of a password.
 
+## Connected accounts
+
+The profile's **Connected accounts** card lists Google and Facebook with the
+connected account's email and the date it was connected.
+
+- **Connect** posts to `profile.connected-accounts.store`, which starts the
+  ordinary provider round trip. The callback sees a signed-in session and
+  attaches the identity instead of signing anyone in; every outcome of a
+  signed-in callback — success or refusal — lands back on the card
+  (`ConnectedAccountsResponse`), with refusals in their own
+  `connectedAccounts` error bag.
+- The connected account may use a **different email** than the RateGuru
+  account: signing in to the provider while signed in here is the proof of
+  ownership. It is refused when its email is another RateGuru account's
+  address — that address belongs with the other account — and, as always,
+  when the identity is already linked elsewhere or the account already has
+  another identity of that provider.
+- **Disconnect** asks for confirmation and deletes the identity. The last way
+  into an account is never removed: an account without a password keeps at
+  least one provider (`SignInMethods`), decided on the locked account row so
+  two disconnects cannot race past it. The card explains why the button is
+  missing instead of offering it.
+- The **provider email** (`social_accounts.provider_email`) is refreshed on
+  every sign-in through the identity, so the card shows the address the
+  provider currently reports, or says that none was shared. It is never used
+  to find an account and is deleted with the row.
+- A **security email** goes to the account's own address whenever a provider
+  is attached to an existing account — from the card, by signing in with a
+  confirmed email, or by completing a pending link — and whenever one is
+  disconnected. Both are queued and dispatched only after the change commits,
+  in the recipient's language. A brand-new account and a repeat of a
+  connection already made send nothing.
+
 Account deletion (`AnonymizeUserAccountAction`) deletes every social
 identity along with the rest of the private account state — see
 [user lifecycle](../architecture/user-lifecycle.md).
@@ -111,8 +147,15 @@ identity along with the rest of the private account state — see
   above; `RegisterSocialUserAction`, `LinkSocialAccountAction`,
   `StorePendingSocialLinkAction` and `CompletePendingSocialLinkAction` are
   the individual writes.
+- `App\Http\Controllers\Profile\ConnectedAccountController`,
+  `App\Actions\Auth\UnlinkSocialAccountAction`,
+  `App\Queries\UserConnectedAccountsQuery` and
+  `resources/views/profile/partials/connected-accounts.blade.php` — the
+  Connected accounts card; `SocialAccountConnectedNotification` and
+  `SocialAccountDisconnectedNotification` — the security emails.
 - `resources/views/components/auth/social-buttons.blade.php` — the two
   provider buttons, shown below the email/password form on `/login`,
   `/register` and in both states of the [authentication modal](auth-modal.md).
 
-Tests: `tests/Feature/Auth/Social*Test.php`.
+Tests: `tests/Feature/Auth/Social*Test.php`,
+`tests/Feature/Profile/ConnectedAccountsTest.php`.

@@ -28,4 +28,19 @@ return [
         'message_subject' => 'Subject',
         'body' => 'Message',
     ],
+
+    'social' => [
+        'account' => ':provider account: :email',
+        'action' => 'Review connected accounts',
+        'connected' => [
+            'subject' => ':provider was connected to your account',
+            'line' => 'A :provider account was connected to your RateGuru account. It can now be used to sign in.',
+            'not_you' => 'If this was not you, open your profile and disconnect it right away.',
+        ],
+        'disconnected' => [
+            'subject' => ':provider was disconnected from your account',
+            'line' => 'A :provider account was disconnected from your RateGuru account. It can no longer be used to sign in.',
+            'not_you' => 'If this was not you, sign in and check your connected accounts and your password.',
+        ],
+    ],
 ];

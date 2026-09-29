@@ -13,6 +13,7 @@ use App\Http\Requests\Auth\SocialRedirectRequest;
 use App\Models\User;
 use App\Support\Auth\AuthSurfaceContext;
 use App\Support\Auth\SocialProviderGateway;
+use App\Support\Profile\ConnectedAccountsResponse;
 use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse as ProviderRedirect;
 
@@ -34,8 +35,8 @@ class SocialAuthController extends Controller
 
     /**
      * Finish the round trip: turn the provider's answer into a signed-in
-     * account, a pending link, or a generic message on the surface the
-     * attempt started from.
+     * account, a pending link, a provider connected to the signed-in
+     * account, or a generic message on the surface the attempt started from.
      */
     public function callback(
         SocialCallbackRequest $request,
@@ -48,11 +49,25 @@ class SocialAuthController extends Controller
         $validated = $request->validated();
         $surface = AuthSurfaceContext::pull($request->session());
 
+        // Someone already signed in is connecting a provider to their own
+        // account from the profile's Connected accounts card, and every
+        // outcome of that lands back on the card, whatever surface an
+        // abandoned attempt may have left in the session.
+        $connecting = $request->user() !== null;
+
         try {
             $identity = $gateway->identityFromCallback($provider, $validated);
             $result = $resolveSocialLogin->execute($identity, $request->user(), $request->session());
         } catch (SocialAuthenticationException $exception) {
-            return $surface->redirectAfterSocialFailure($exception->userMessage());
+            return $connecting
+                ? ConnectedAccountsResponse::failure($exception->userMessage())
+                : $surface->redirectAfterSocialFailure($exception->userMessage());
+        }
+
+        if ($result->outcome === SocialLoginOutcome::Linked) {
+            return ConnectedAccountsResponse::success(
+                __('profile.connected.connected', ['provider' => $provider->label()]),
+            );
         }
 
         if ($result->outcome === SocialLoginOutcome::PendingLink) {

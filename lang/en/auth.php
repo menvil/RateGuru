@@ -17,7 +17,7 @@ return [
         'failed' => 'We could not sign you in with :provider. Please try again.',
         'expired' => 'Your :provider sign-in expired before it finished. Please start again.',
         'email_missing' => 'Your :provider account did not share an email address, so it cannot be used to sign in.',
-        'email_mismatch' => 'This :provider account uses a different email address than your account.',
+        'email_taken' => 'The email address of this :provider account belongs to another RateGuru account. Sign in to that account to connect :provider there.',
         'already_linked' => 'This :provider account is already connected to a different account.',
         'provider_already_linked' => 'Your account is already connected to a different :provider account.',
         'pending_link' => 'This email address already has an account. Sign in the way you did before — with your password or with another social account — and your :provider account will be connected automatically.',

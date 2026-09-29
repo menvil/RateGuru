@@ -129,7 +129,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
   inboxes: notifications whose payload snapshots the pre-deletion
   name/username (`author_id`/`actor_id`) are deleted during anonymization.
 - Social sign-in identities (`social_accounts`: the Google/Facebook subject
-  ids) are deleted. An external provider id is a persistent identifier of
+  ids and the provider emails shown on the profile) are deleted. An external provider id is a persistent identifier of
   the person, and "Log in with Google" must never find the tombstone
   again. `ResolveSocialLoginAction` additionally refuses a tombstone that
   somehow still carries one (`canAuthenticate`), with the same generic
@@ -323,8 +323,8 @@ Limited/Banned, and existing content remains publicly visible.
 
 Deleted is terminal for EVERY mutable User write, not just profile:
 password update/reset, email verification, locale/theme/notification
-preferences, saved-post edges and social identity linking
-(`LinkSocialAccountAction`) all re-read the user under lock inside
+preferences, saved-post edges and social identity linking and unlinking
+(`LinkSocialAccountAction`, `UnlinkSocialAccountAction`) all re-read the user under lock inside
 their transactions and require a living account (`canAuthenticate`) —
 a stale request that lost the race against anonymization mutates nothing
 and reveals nothing (password flows fail with their generic outcomes).

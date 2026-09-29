@@ -58,10 +58,13 @@ class SocialAuthenticationException extends RuntimeException
         return new self("The account behind the {$provider->label()} identity cannot authenticate.", 'auth.failed', $provider);
     }
 
-    /** The identity's email is not the email of the account it would be linked to. */
-    public static function emailMismatch(SocialProvider $provider): self
+    /**
+     * The identity's email is the address of a different account: connecting
+     * it here would leave that address signing in to two accounts.
+     */
+    public static function emailBelongsToAnotherAccount(SocialProvider $provider): self
     {
-        return new self("The {$provider->label()} account email does not match the account email.", 'auth.social.email_mismatch', $provider);
+        return new self("The {$provider->label()} account email belongs to another account.", 'auth.social.email_taken', $provider);
     }
 
     /** The identity already belongs to a different account and is never reassigned. */

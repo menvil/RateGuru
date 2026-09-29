@@ -3101,6 +3101,12 @@ function fakeSocialiteUser(array $attributes = []): SocialiteUser
     ], $attributes));
 }
 
+/** Where every connect and disconnect lands: the profile's Connected accounts card. */
+function connectedAccountsUrl(): string
+{
+    return route('profile.edit').'#connected-accounts';
+}
+
 /**
  * The callback URL a provider redirects back to, carrying the query a
  * completed consent produces. Override or add parameters through $query —
