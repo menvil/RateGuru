@@ -1,0 +1,65 @@
+app/Enums/SocialLoginOutcome.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 14-19,35
+bootstrap/app.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 6,28
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 7,24
+tests/Feature/Auth/SocialLoginTest.php
+  s_65f2eb90734b6e::t_94474098e1b96d 209-223,234-236,239,241,245-247
+tests/Feature/Auth/SocialAccountClaimTest.php
+  s_65f2eb90734b6e::t_3891a9fb7d214a 1-200,202-221,231-265
+  s_65f2eb90734b6e::t_b21a50908ba996 201
+  s_65f2eb90734b6e::t_19b41050fd3544 222-230
+app/Data/Auth/AccountClaim.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-16
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 7,24
+app/Providers/AppServiceProvider.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 19,30,32,60-63
+tests/Feature/Auth/AuthModalSocialTest.php
+  s_65f2eb90734b6e::t_94474098e1b96d 131,155,172,174
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 73-82
+app/Models/User.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 34,37
+app/Data/Auth/SocialLoginResult.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 14-15,23-25
+app/Support/Auth/SessionGeneration.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-42
+app/Support/Auth/SocialIdentityNormalizer.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 57-59,61-64
+app/Actions/Auth/ResolveSocialLoginAction.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 35,90-103
+app/Actions/Auth/ClaimAccountWithVerifiedEmailAction.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-100
+app/Http/Middleware/EnsureSessionGenerationIsCurrent.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-35
+lang/en/auth.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 7,24
+resources/views/layouts/app.blade.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 423,425-428
+database/migrations/2026_09_29_100000_add_session_generation_to_users_table.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-33
+tests/Feature/Auth/SocialAccountLinkingTest.php
+  s_65f2eb90734b6e::t_94474098e1b96d 11-16,30,32,34,37,42,46,57-58,83,85,87,89-91,95-96,106,111-112,114
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_b21a50908ba996 57-62,67-70,74-82,84-89
+app/Support/Auth/RememberSessionGenerationOnLogin.php
+  s_65f2eb90734b6e::t_1264d8afe0bccd 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f1a6a8970601d7e05be53b9027b7929d73e1c3f4",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
