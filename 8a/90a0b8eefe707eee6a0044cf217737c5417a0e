@@ -1,0 +1,25 @@
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_8d64131f28c5e3 26-31
+tests/Feature/Architecture/InfrastructureBaselineTest.php
+  s_65f2eb90734b6e::t_8d64131f28c5e3 292-306
+infrastructure/templates/environment/staging.env.example
+  s_65f2eb90734b6e::t_8d64131f28c5e3 19-20,22-23
+infrastructure/templates/environment/production.env.example
+  s_65f2eb90734b6e::t_8d64131f28c5e3 16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8a90a0b8eefe707eee6a0044cf217737c5417a0e",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
