@@ -9,6 +9,7 @@
     'closeOnEscape' => false, // Escape closes the dialog
     'fitViewport' => false,   // never taller than the viewport: header stays put, body scrolls
     'belowHeader' => false,   // laid out between the app header and the bottom of the screen, with equal gaps
+    'autofocus' => false,     // with trap-focus: on open, focus the [autofocus] field inside, else the first control
 ])
 
 @php
@@ -62,7 +63,7 @@
             data-modal-panel
             class="relative w-full {{ $maxWidthClass }} {{ $allowOverflow ? 'overflow-visible' : 'overflow-hidden' }} rounded-rgCard border border-rg-border2 bg-rg-card text-rg-text shadow-rgPopover{{ $fitViewport ? ' flex max-h-[calc(100dvh-3rem)] flex-col' : '' }}"
             x-on:click.stop
-            @if ($trapFocus) x-trap.noscroll.noautofocus="{{ $state }}" @endif
+            @if ($trapFocus && $autofocus) x-trap.noscroll="{{ $state }}" @elseif ($trapFocus) x-trap.noscroll.noautofocus="{{ $state }}" @endif
         >
             <div class="flex items-start justify-between gap-4 border-b border-rg-border px-5 py-4{{ $fitViewport ? ' shrink-0' : '' }}">
                 <h2 id="{{ $titleId }}" class="text-base font-semibold text-rg-text">

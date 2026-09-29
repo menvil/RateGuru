@@ -150,6 +150,16 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
         return $this->status?->canAuthenticate() ?? false;
     }
 
+    /**
+     * Whether the account has a password at all. An account created through
+     * Google or Facebook has none until its owner sets one through the
+     * emailed password link; the password flows ask for one only then.
+     */
+    public function hasPassword(): bool
+    {
+        return filled($this->getAuthPassword());
+    }
+
     public function canAccessPrivilegedPanel(): bool
     {
         return $this->status?->canAccessPrivilegedPanel() ?? false;

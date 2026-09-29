@@ -105,7 +105,7 @@
                                     aria-haspopup="true"
                                     :aria-expanded="userMenuOpen"
                                     @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
-                                    class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                    class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
                                     <x-ui.avatar
                                         :src="auth()->user()->resolved_avatar_url"

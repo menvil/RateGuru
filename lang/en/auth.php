@@ -19,6 +19,6 @@ return [
         'email_mismatch' => 'This :provider account uses a different email address than your account.',
         'already_linked' => 'This :provider account is already connected to a different account.',
         'provider_already_linked' => 'Your account is already connected to a different :provider account.',
-        'pending_link' => 'An account with this email address already exists. Log in to connect your :provider account to it.',
+        'pending_link' => 'This email address already has an account. Sign in the way you did before — with your password or with another social account — and your :provider account will be connected automatically.',
     ],
 ];

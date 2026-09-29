@@ -123,3 +123,10 @@ it('opts every image viewer into the below-header layout', function (string $vie
     'livewire/posts/post-show.blade.php',
     'livewire/feed/post-drawer-content.blade.php',
 ]);
+
+it('focuses the field marked autofocus when asked to', function () {
+    $html = Blade::render('<x-ui.modal title="Delete" state="deleteOpen" trap-focus autofocus><input autofocus></x-ui.modal>');
+
+    expect($html)->toContain('x-trap.noscroll="deleteOpen"')
+        ->not->toContain('noautofocus');
+});
