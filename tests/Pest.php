@@ -3170,3 +3170,28 @@ function expectLivewireModelNotFound(string $component, array $parameters): void
         expect($exception)->toBeInstanceOf(ModelNotFoundException::class);
     }
 }
+
+/**
+ * Waits for the page to reach a state instead of guessing how long that takes.
+ *
+ * A fixed pause is a bet on the speed of the machine: fine on a laptop, lost
+ * on a CI runner that is busy with the rest of the suite. This polls the
+ * expression until it evaluates to the expected value, and fails with the
+ * last value it saw when the time runs out.
+ */
+function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    do {
+        $actual = $page->script($expression);
+
+        if ($actual === $expected) {
+            break;
+        }
+
+        $page->wait(0.1);
+    } while (microtime(true) < $deadline);
+
+    expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+}

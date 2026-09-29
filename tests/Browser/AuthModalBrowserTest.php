@@ -19,6 +19,9 @@ const AUTH_MODAL = '[data-testid="auth-modal"]';
 const LOGIN_PANEL = '[data-testid="auth-modal-login-panel"]';
 const REGISTER_PANEL = '[data-testid="auth-modal-register-panel"]';
 
+/** Whether the dialog is on screen, as one expression a test can wait for. */
+const AUTH_MODAL_SHOWN = 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"';
+
 /** The vertical position of an element inside one of the modal's panels. */
 function topOf(string $panel, string $testId): string
 {
@@ -102,14 +105,19 @@ it('has no tabs', function () {
 });
 
 it('puts the focus in the first field and keeps it predictable when the mode changes', function () {
-    visit(route('feed'))
+    $page = visit(route('feed'))
         ->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->wait(0.3)
-        ->assertScript('document.activeElement.id', 'modal-login-email')
-        ->click(LOGIN_PANEL.' [data-testid="auth-switch-to-register"]')
-        ->wait(0.3)
-        ->assertScript('document.activeElement.id', 'modal-register-name');
+        ->assertVisible(AUTH_MODAL);
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+
+    $page->click(LOGIN_PANEL.' [data-testid="auth-switch-to-register"]');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-register-name');
+
+    $page->click(REGISTER_PANEL.' [data-testid="auth-switch-to-login"]');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
 });
 
 it('closes with the close button, with Escape and with the backdrop', function () {
@@ -117,16 +125,17 @@ it('closes with the close button, with Escape and with the backdrop', function (
 
     $page->click('[data-testid="header-login-link"]')
         ->assertVisible(AUTH_MODAL)
-        ->click(AUTH_MODAL.' [data-testid="modal-close"]')
-        ->wait(0.4)
-        ->assertMissing(AUTH_MODAL);
+        ->click(AUTH_MODAL.' [data-testid="modal-close"]');
 
-    $page->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->wait(0.3)
-        ->keys('#modal-login-email', 'Escape')
-        ->wait(0.4)
-        ->assertMissing(AUTH_MODAL);
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+
+    $page->click('[data-testid="header-login-link"]')->assertVisible(AUTH_MODAL);
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+
+    $page->keys('#modal-login-email', 'Escape');
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
 
     $page->click('[data-testid="header-register-link"]')
         ->assertVisible(AUTH_MODAL)
@@ -135,31 +144,32 @@ it('closes with the close button, with Escape and with the backdrop', function (
 
     $page->script('document.elementFromPoint(4, 300).click()');
 
-    $page->wait(0.4)->assertMissing(AUTH_MODAL);
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
 });
 
 it('locks the page scroll while it is open and gives it back afterwards', function () {
     Post::factory()->published()->count(12)->create();
 
-    visit(route('feed'))
+    $page = visit(route('feed'))
         ->assertScript('document.documentElement.style.overflow', '')
         ->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->wait(0.2)
-        ->assertScript('document.documentElement.style.overflow', 'hidden')
-        ->click(AUTH_MODAL.' [data-testid="modal-close"]')
-        ->wait(0.4)
-        ->assertScript('document.documentElement.style.overflow', '');
+        ->assertVisible(AUTH_MODAL);
+
+    waitForScript($page, 'document.documentElement.style.overflow', 'hidden');
+
+    $page->click(AUTH_MODAL.' [data-testid="modal-close"]');
+
+    waitForScript($page, 'document.documentElement.style.overflow', '');
 });
 
 it('sits above the header and the page', function () {
-    visit(route('feed'))
+    $page = visit(route('feed'))
         ->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->wait(0.3)
-        // Where the header's brand link is, the dialog's backdrop is on top.
-        ->assertScript('document.elementFromPoint(4, 30).dataset.testid', 'modal-backdrop')
-        ->assertScript('document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2).closest(\'[data-testid="auth-modal"]\') !== null');
+        ->assertVisible(AUTH_MODAL);
+
+    // Where the header's brand link is, the dialog's backdrop is on top.
+    waitForScript($page, 'document.elementFromPoint(4, 30).dataset.testid', 'modal-backdrop');
+    waitForScript($page, 'document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2).closest(\'[data-testid="auth-modal"]\') !== null');
 });
 
 it('opens in registration mode when a guest presses upload, without the old toast', function () {
@@ -289,8 +299,10 @@ it('fits a phone screen in both modes, with every control reachable', function (
         ->wait(0.3)
         ->click('[data-testid="'.$trigger.'"]')
         ->assertVisible(AUTH_MODAL)
-        ->wait(0.3)
         ->assertVisible(AUTH_MODAL.' [data-testid="modal-close"]');
+
+    // Settled: the first field has the focus, so nothing will scroll any more.
+    waitForScript($page, 'document.activeElement.hasAttribute("data-auth-initial-focus")');
 
     expect($page->script('document.documentElement.scrollWidth - window.innerWidth'))->toBeLessThanOrEqual(1);
 
@@ -319,9 +331,9 @@ it('fits a phone screen in both modes, with every control reachable', function (
 
     expect($reach)->toBe([true, true, true, true]);
 
-    $page->click(AUTH_MODAL.' [data-testid="modal-close"]')
-        ->wait(0.4)
-        ->assertMissing(AUTH_MODAL);
+    $page->click(AUTH_MODAL.' [data-testid="modal-close"]');
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
 })->with([
     'login' => ['header-login-link', LOGIN_PANEL, 'auth-switch-to-register'],
     'register' => ['header-register-link', REGISTER_PANEL, 'auth-switch-to-login'],
