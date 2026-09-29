@@ -13,6 +13,7 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
+use Livewire\Livewire;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -3146,4 +3148,25 @@ function authModalElement(string $html): DOMElement
     expect($node)->toBeInstanceOf(DOMElement::class, 'the page rendered no authentication modal');
 
     return $node;
+}
+
+/**
+ * Asserts that a Livewire component refuses to mount because the model it
+ * was asked for does not exist for this visitor.
+ *
+ * What a refusal looks like depends on Livewire's test harness, not on the
+ * component: it reports a missing model as a 404 response, where releases
+ * before 4.4.7 let the ModelNotFoundException itself through. Both are the
+ * same refusal, and a visitor sees a 404 page either way.
+ *
+ * @param  class-string  $component
+ * @param  array<string, mixed>  $parameters
+ */
+function expectLivewireModelNotFound(string $component, array $parameters): void
+{
+    try {
+        Livewire::test($component, $parameters)->assertNotFound();
+    } catch (ModelNotFoundException $exception) {
+        expect($exception)->toBeInstanceOf(ModelNotFoundException::class);
+    }
 }

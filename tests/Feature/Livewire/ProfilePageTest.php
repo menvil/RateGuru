@@ -6,7 +6,6 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\User;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -20,8 +19,7 @@ it('can render profile page component', function () {
 });
 
 it('fails profile page component for missing username', function () {
-    expect(fn () => Livewire::test(ProfilePage::class, ['username' => 'missing_user']))
-        ->toThrow(ModelNotFoundException::class);
+    expectLivewireModelNotFound(ProfilePage::class, ['username' => 'missing_user']);
 });
 
 it('renders selected user in profile page component', function () {

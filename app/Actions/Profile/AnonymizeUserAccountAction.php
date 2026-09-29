@@ -140,7 +140,7 @@ final class AnonymizeUserAccountAction
             // for media:purge's grace period as usual. Post images are
             // deliberately NOT collected — posts survive their author.
             if ($avatarAssetId !== null) {
-                $this->lifecycleService->releaseUnreferenced(collect([$avatarAssetId]));
+                $this->releaseAvatar($avatarAssetId);
             }
 
             $user->setRawAttributes($locked->getAttributes(), true);
@@ -154,6 +154,20 @@ final class AnonymizeUserAccountAction
                 'user_id' => $user->getKey(),
             ]);
         }
+    }
+
+    /**
+     * A plain `int` parameter, for the reason MediaDiagnosticsPage has one:
+     * Collection's generics are invariant, so the narrower type inferred for
+     * the asset's key (int<0, max>, from its unsignedBigInteger column) does
+     * not satisfy releaseUnreferenced()'s exact `Collection<int, int>` even
+     * though every real value trivially is one. Crossing a real function
+     * boundary with a declared parameter type resets that, without a cast
+     * or a suppressed error.
+     */
+    private function releaseAvatar(int $assetId): void
+    {
+        $this->lifecycleService->releaseUnreferenced(collect([$assetId]));
     }
 
     private function tombstoneUsername(int $userId): string

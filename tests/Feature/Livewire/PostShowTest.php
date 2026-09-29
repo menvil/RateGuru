@@ -8,7 +8,6 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\User;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
 
 it('can render post show component for published post', function () {
@@ -49,8 +48,7 @@ it('renders generic post show copy', function () {
 it('does not resolve an unpublished post', function () {
     $post = Post::factory()->hidden()->create();
 
-    expect(fn () => Livewire::test(PostShow::class, ['post' => $post]))
-        ->toThrow(ModelNotFoundException::class);
+    expectLivewireModelNotFound(PostShow::class, ['post' => $post]);
 });
 
 it('renders post show page without share side panel', function () {
