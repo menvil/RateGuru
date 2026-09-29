@@ -35,7 +35,7 @@ use Illuminate\Support\Facades\File;
  * group on the host — group *existence* alone is not sufficient, since
  * `install -g www-data` as a non-root process requires membership, not just
  * presence (e.g. absent entirely on macOS dev machines; present but this
- * account not a member of it on GitHub Actions' ubuntu-latest runner).
+ * account not a member of it on GitHub Actions' ubuntu-24.04 runner).
  */
 function deployOpsScript(): string
 {
@@ -633,7 +633,7 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
  * Group *existence* alone is not enough: deploy's Laravel-prep step runs
  * `install -g www-data` as this test process, and a non-root process can
  * only chgrp to a group it is itself a member of. The www-data system group
- * exists on GitHub Actions' ubuntu-latest runner, but the `runner` account
+ * exists on GitHub Actions' ubuntu-24.04 runner, but the `runner` account
  * is not a member of it, which `getent group www-data` alone can't see —
  * confirmed via a real CI failure ("Operation not permitted") that only a
  * membership check catches.

@@ -84,7 +84,7 @@ function recoverWorkflowInputsUsed(array $workflow, string $name): array
  */
 function runRecoverWorkflowStep(string $file, string $job, string $stepName, array $env): int
 {
-    // The step is written for ubuntu-latest, and uses Bash 4+ parameter
+    // The step is written for the ubuntu-24.04 runner, and uses Bash 4+ parameter
     // expansion. macOS ships Bash 3.2 as /bin/bash, which cannot execute it
     // faithfully — skipping is honest there; CI runs it for real.
     exec('bash -c \'echo "${BASH_VERSINFO[0]}"\' 2>/dev/null', $probe, $probeStatus);
@@ -254,7 +254,7 @@ it('offers exactly the two recovery modes and nothing that could name a backup v
 
     // No implicit selection of any kind: no "latest" backup, no source
     // selector, no local copy. The rejected shapes are named exactly, because
-    // a bare `latest` would collide with `runs-on: ubuntu-latest`.
+    // a bare `latest` would also match unrelated text in the workflow.
     expect(executableSourceLines($source))
         ->not->toContain('latest backup')
         ->not->toContain("'latest'")

@@ -18,7 +18,7 @@ jobs:
   # .github/actions/build-rateguru action.
   validate:
     name: Validate production tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     outputs:
@@ -93,7 +93,7 @@ jobs:
   build:
     name: Build immutable production artifact
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     outputs:
@@ -149,7 +149,7 @@ jobs:
     needs:
       - validate
       - build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 10
 
@@ -244,7 +244,7 @@ jobs:
       - validate
       - build
       - deploy-staging
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 10
 

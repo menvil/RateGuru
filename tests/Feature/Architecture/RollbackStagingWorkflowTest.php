@@ -38,7 +38,7 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
     expect($workflow['permissions'])->toBe(['contents' => 'read'])
         ->and(array_keys($workflow['jobs']))->toBe(['rollback'])
         ->and(data_get($workflow, 'jobs.rollback.environment'))->toBe('staging')
-        ->and(data_get($workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-latest');
+        ->and(data_get($workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-24.04');
 
     // Identical concurrency domain as the staging deploy workflow: a rollback
     // queues behind (and is never cancelled by) a staging deploy.

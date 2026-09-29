@@ -32,7 +32,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare the staging-main host
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # Host preparation on a genuinely clean VPS installs the full base runtime
     # before it does anything else, which is by far the slowest step; an

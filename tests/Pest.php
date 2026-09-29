@@ -1952,7 +1952,7 @@ function recoveryValuesRead(string $workflow): array
  */
 function runActionStep(string $actionPath, string $stepName, array $env): array
 {
-    // The steps are written for ubuntu-latest and use Bash 4+ parameter
+    // The steps are written for the ubuntu-24.04 runner and use Bash 4+ parameter
     // expansion (${array[@]@Q}). macOS ships Bash 3.2 as /bin/bash, which
     // cannot execute them faithfully — skipping is honest there; CI runs it.
     exec('bash -c \'echo "${BASH_VERSINFO[0]}"\' 2>/dev/null', $probe, $probeStatus);

@@ -56,7 +56,7 @@ concurrency:
 jobs:
   repair:
     name: Repair staging-main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 30
 

@@ -85,7 +85,7 @@ jobs:
   # request never becomes an approval request.
   validate:
     name: Validate restore request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     outputs:
@@ -173,7 +173,7 @@ jobs:
   restore:
     name: Restore staging-main data
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # A real restore downloads, fully verifies and stages a whole backup, takes
     # an emergency backup of the current state and restore-tests it, then swaps
@@ -366,7 +366,7 @@ jobs:
       - validate
       - restore
     if: ${{ needs.restore.outputs.build_required == 'yes' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     permissions:
@@ -434,7 +434,7 @@ jobs:
       - restore
       - build
     if: ${{ needs.restore.outputs.build_required == 'yes' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 20
 
@@ -506,7 +506,7 @@ jobs:
           && needs.restore.outputs.resume_required == 'yes'
           && (needs.build.result == 'success' || needs.build.result == 'skipped')
           && (needs.align.result == 'success' || needs.align.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 30
 
@@ -555,7 +555,7 @@ jobs:
           && needs.restore.outputs.build_required == 'yes'
           && needs.align.result == 'success'
           && needs.resume.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     timeout-minutes: 10
 
