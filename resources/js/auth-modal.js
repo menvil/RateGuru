@@ -45,14 +45,28 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
 
         // After the focus trap has claimed the dialog, so the first field of
         // the visible form — not the close button — is where typing starts.
+        // How long the trap and the panel take depends on the machine, so the
+        // field is asked again until it really has the focus, for up to a
+        // second, instead of once after a guessed delay.
         focusFirstField() {
-            this.$nextTick(() => {
-                window.setTimeout(() => {
-                    this.$root
-                        .querySelector(`[data-auth-panel="${this.mode}"] [data-auth-initial-focus]`)
-                        ?.focus();
-                }, 50);
-            });
+            const mode = this.mode;
+
+            const focus = (attemptsLeft) => {
+                // The person moved on: closed the dialog or switched its state.
+                if (! this.open || this.mode !== mode) {
+                    return;
+                }
+
+                const field = this.$root.querySelector(`[data-auth-panel="${mode}"] [data-auth-initial-focus]`);
+
+                field?.focus();
+
+                if (field && document.activeElement !== field && attemptsLeft > 0) {
+                    window.setTimeout(() => focus(attemptsLeft - 1), 50);
+                }
+            };
+
+            this.$nextTick(() => window.setTimeout(() => focus(20), 50));
         },
     };
 };

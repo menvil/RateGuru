@@ -13,6 +13,7 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
+use Livewire\Livewire;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -3146,4 +3148,50 @@ function authModalElement(string $html): DOMElement
     expect($node)->toBeInstanceOf(DOMElement::class, 'the page rendered no authentication modal');
 
     return $node;
+}
+
+/**
+ * Asserts that a Livewire component refuses to mount because the model it
+ * was asked for does not exist for this visitor.
+ *
+ * What a refusal looks like depends on Livewire's test harness, not on the
+ * component: it reports a missing model as a 404 response, where releases
+ * before 4.4.7 let the ModelNotFoundException itself through. Both are the
+ * same refusal, and a visitor sees a 404 page either way.
+ *
+ * @param  class-string  $component
+ * @param  array<string, mixed>  $parameters
+ */
+function expectLivewireModelNotFound(string $component, array $parameters): void
+{
+    try {
+        Livewire::test($component, $parameters)->assertNotFound();
+    } catch (ModelNotFoundException $exception) {
+        expect($exception)->toBeInstanceOf(ModelNotFoundException::class);
+    }
+}
+
+/**
+ * Waits for the page to reach a state instead of guessing how long that takes.
+ *
+ * A fixed pause is a bet on the speed of the machine: fine on a laptop, lost
+ * on a CI runner that is busy with the rest of the suite. This polls the
+ * expression until it evaluates to the expected value, and fails with the
+ * last value it saw when the time runs out.
+ */
+function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    do {
+        $actual = $page->script($expression);
+
+        if ($actual === $expected) {
+            break;
+        }
+
+        $page->wait(0.1);
+    } while (microtime(true) < $deadline);
+
+    expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
 }

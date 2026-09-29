@@ -22,6 +22,20 @@ afterEach(function () {
  */
 function imageViewerGeometry(mixed $page): array
 {
+    // Open, measured and showing its image — however long that takes here.
+    waitForScript($page, <<<'JS'
+        (() => {
+            const viewer = [...document.querySelectorAll('[data-modal-below-header]')]
+                .find((el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0);
+            const image = viewer?.querySelector('img');
+
+            return Boolean(viewer)
+                && viewer.style.getPropertyValue('--rg-modal-height') !== ''
+                && Boolean(image) && image.complete && image.naturalHeight > 0
+                && getComputedStyle(viewer).opacity === '1';
+        })()
+    JS);
+
     return $page->script(<<<'JS'
         (() => {
             const viewer = [...document.querySelectorAll('[data-modal-below-header]')]
@@ -196,13 +210,13 @@ it('still closes with its close button', function () {
         'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
     ]);
 
-    visit(route('feed'))
+    $page = visit(route('feed'))
         ->resize(1440, 790)
         ->wait(0.3)
         ->click('[data-testid="post-card-image-open"]')
         ->wait(0.7)
         ->assertVisible('[data-testid="post-card-fullscreen-image"]')
-        ->click('[data-modal-below-header] [data-testid="modal-close"]')
-        ->wait(0.4)
-        ->assertMissing('[data-testid="post-card-fullscreen-image"]');
+        ->click('[data-modal-below-header] [data-testid="modal-close"]');
+
+    waitForScript($page, 'document.querySelector(\'[data-testid="post-card-fullscreen-image"]\').getBoundingClientRect().height', 0);
 });
