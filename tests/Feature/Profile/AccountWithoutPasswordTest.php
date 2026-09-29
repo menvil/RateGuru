@@ -112,6 +112,31 @@ it('rate limits the password reset submission', function () {
     $attempt()->assertTooManyRequests();
 });
 
+it('takes the ordinary route when the signed-in account resets some other address', function () {
+    Notification::fake();
+    $signedIn = User::factory()->withoutPassword()->create(['email' => 'ivan@example.com']);
+    $other = User::factory()->create(['email' => 'other@example.com']);
+
+    $this->post('/forgot-password', ['email' => $other->email]);
+
+    Notification::assertSentTo($other, ResetPassword::class, function (ResetPassword $notification) use ($signedIn, $other): bool {
+        $this->actingAs($signedIn)->post(route('password.store'), [
+            'token' => $notification->token,
+            'email' => $other->email,
+            'password' => 'chosen-password',
+            'password_confirmation' => 'chosen-password',
+        ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('login'))
+            ->assertSessionMissing('status', 'password-set');
+
+        return true;
+    });
+
+    expect(Hash::check('chosen-password', (string) $other->fresh()->password))->toBeTrue()
+        ->and($signedIn->fresh()->password)->toBeNull();
+});
+
 it('still sends a signed-out reset back to the login page', function () {
     Notification::fake();
     $user = User::factory()->create();
