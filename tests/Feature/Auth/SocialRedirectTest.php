@@ -110,14 +110,14 @@ it('lets a signed-in person start the round trip to connect a provider', functio
     expect((string) $response->headers->get('Location'))->toStartWith('https://accounts.google.com/');
 });
 
-it('shows the same Continue-with buttons on the login and registration pages', function (string $path) {
+it('shows the same provider buttons on the login and registration pages', function (string $path) {
     $response = $this->get($path);
 
     $response->assertOk()
-        ->assertSee('Continue with Google')
-        ->assertSee('Continue with Facebook')
+        ->assertSee('Log in with Google')
+        ->assertSee('Log in with Facebook')
         ->assertDontSee('Register with Google')
-        ->assertDontSee('Login with Google')
+        ->assertDontSee('Sign up with Google')
         ->assertSee(route('auth.social.redirect', ['provider' => 'google']))
         ->assertSee(route('auth.social.redirect', ['provider' => 'facebook']));
 })->with(['/login', '/register']);

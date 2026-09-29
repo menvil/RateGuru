@@ -5,7 +5,13 @@ return [
     'password' => 'The provided password is incorrect.',
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
 
+    'prompts' => [
+        'no_account' => "Don't have an account?",
+        'have_account' => 'Already have an account?',
+    ],
+
     'social' => [
+        'log_in_with' => 'Log in with :provider',
         'cancelled' => 'Sign-in with :provider was cancelled. Please try again.',
         'failed' => 'We could not sign you in with :provider. Please try again.',
         'expired' => 'Your :provider sign-in expired before it finished. Please start again.',

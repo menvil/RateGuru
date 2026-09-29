@@ -101,7 +101,7 @@ final class AnonymizeUserAccountAction
 
             // A Google/Facebook subject id is a persistent identifier of the
             // person at the provider: once the account is a tombstone nothing
-            // may recognise them by it, and "Continue with Google" must not
+            // may recognise them by it, and "Log in with Google" must not
             // find the row again.
             SocialAccount::query()->where('user_id', $locked->id)->delete();
 

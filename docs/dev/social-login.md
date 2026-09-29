@@ -63,7 +63,7 @@ consumed once, by the next successful sign-in of any kind — password, or a
 provider that is already linked. It only completes when the signed-in
 account's email is the email the identity carried; it never moves an
 identity between accounts and never replaces an existing one. This is what
-lets someone who registered with a password press "Continue with Google"
+lets someone who registered with a password press "Log in with Google"
 once, log in with their password once, and use Google directly from then
 on — and lets a Google-only account claim a Facebook identity by signing in
 with Google.
@@ -89,7 +89,8 @@ identity along with the rest of the private account state — see
   above; `RegisterSocialUserAction`, `LinkSocialAccountAction`,
   `StorePendingSocialLinkAction` and `CompletePendingSocialLinkAction` are
   the individual writes.
-- `resources/views/components/auth/social-buttons.blade.php` — the buttons
-  shown on `/login` and `/register`, reusable by any future auth surface.
+- `resources/views/components/auth/social-buttons.blade.php` — the two
+  provider buttons, shown below the email/password form on `/login`,
+  `/register` and in both states of the [authentication modal](auth-modal.md).
 
 Tests: `tests/Feature/Auth/Social*Test.php`.

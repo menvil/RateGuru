@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Auth;
 use App\Actions\Auth\AuthenticateUserAction;
 use App\Actions\Auth\CompletePendingSocialLinkAction;
 use App\Actions\Auth\LogoutUserAction;
+use App\Enums\AuthModalMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Models\User;
+use App\Support\Auth\AuthSurfaceContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -32,8 +34,9 @@ class AuthenticatedSessionController extends Controller
     ): RedirectResponse {
         /** @var array{email: string, password: string, remember?: bool|string} $validated */
         $validated = $request->validated();
+        $surface = AuthSurfaceContext::fromInput($validated, AuthModalMode::Login);
 
-        $authenticate->execute($validated, $request);
+        $surface->guard(fn () => $authenticate->execute($validated, $request));
 
         $request->session()->regenerate();
 
@@ -45,7 +48,7 @@ class AuthenticatedSessionController extends Controller
 
         $completePendingSocialLink->execute($user, $request->session());
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        return $surface->redirectAfterLogin(route('dashboard', absolute: false));
     }
 
     /**

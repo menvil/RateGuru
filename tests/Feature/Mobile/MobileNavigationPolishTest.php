@@ -68,11 +68,15 @@ it('does not render search clear controls without an active query', function () 
         ->assertDontSee('data-testid="desktop-search-clear"', false);
 });
 
-it('shows guests a create post action that explains authentication is required', function () {
-    $this->get(route('feed'))
+it('shows guests a create post action that opens the sign-up dialog', function () {
+    $html = $this->get(route('feed'))
         ->assertOk()
         ->assertSee('data-testid="guest-upload-button"', false)
-        ->assertSee(__('ui.upload.sign_up_required'));
+        ->getContent();
+
+    expect($html)
+        ->toContain("rgOpenAuthModal(\$event, 'register'")
+        ->not->toContain("\$dispatch('toast'");
 });
 
 it('keeps the authenticated upload action unchanged', function () {
