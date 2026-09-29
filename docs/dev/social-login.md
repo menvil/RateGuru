@@ -23,6 +23,12 @@ ever carries another one's callback):
 /auth/facebook/callback
 ```
 
+The four keys are listed, blank, in `.env.example` and in both server
+environment templates (`infrastructure/templates/environment/`). Each
+environment gets its own OAuth apps and its own values, set in that target's
+`shared/.env`; the nightly backup carries them from there, so a host recovery
+restores them with the rest of the environment file.
+
 Nothing else is requested. Google is asked for `openid profile email`,
 Facebook for the `email` permission with the `name` and `email` fields only.
 No token, avatar, name or provider email is stored after the callback.

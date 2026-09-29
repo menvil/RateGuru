@@ -289,6 +289,21 @@ it('provides required production environment settings', function () {
         ->toContain('SESSION_SECURE_COOKIE=true');
 });
 
+it('lists the social sign-in credentials, blank, in every environment template', function (string $template) {
+    // The keys config/services.php reads for Google and Facebook. Listed so a
+    // target's .env is not composed without them; blank because the values
+    // are per environment — each has its own OAuth apps — and a real
+    // credential never belongs in the repository.
+    $source = infrastructureSource($template);
+
+    foreach (['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'FACEBOOK_CLIENT_ID', 'FACEBOOK_CLIENT_SECRET'] as $key) {
+        expect($source)->toMatch('/^'.$key.'=$/m');
+    }
+})->with([
+    'templates/environment/staging.env.example',
+    'templates/environment/production.env.example',
+]);
+
 it('uses safe defaults in the staging environment template', function () {
     expect(infrastructureSource('templates/environment/staging.env.example'))
         ->toContain('APP_ENV=staging')
