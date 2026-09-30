@@ -1,19 +1,42 @@
 # Multilingual UI — RateGuru
 
-## Supported locales
+## Supported (installed) locales
 
-The following supported locales are defined in `config/locales.php`:
+The supported locales — every language the application is installed with — are defined in `config/locales.php`, each with its English label, native name and display flag:
 
-- `en` — English (fallback)
+- `en` — English (system fallback)
 - `ru` — Russian / Русский
 - `bg` — Bulgarian / Български
 
+The flag is chosen per language rather than derived from the code: a language is not a country.
+
+## Enabled locales, project default, system fallback
+
+| term | source | meaning |
+|---|---|---|
+| Supported / installed | `config/locales.php` + `lang/{code}/` | present in config and in the translation catalogs |
+| Enabled | `project_settings.enabled_locales` | offered by this project to public users; `NULL` means every installed language |
+| Project default | `project_settings.default_locale` | the normal locale for a visitor with no preference and no browser match; always enabled |
+| System fallback | `config('locales.fallback')` | technical emergency locale; always installed, not necessarily enabled |
+
+A disabled locale remains installed and its DB/content translations may still be edited in admin: every translation editor (project settings, static pages, categories, tags, rating groups and options) lists all installed languages, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones.
+
+`enabled_locales` and `default_locale` are written together by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which stores installed codes only, in config order, never an empty set, and a default inside the set. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
+
 ## Locale resolution order
+
+For public requests the first **enabled** locale among:
 
 1. Authenticated user locale preference (`users.locale`)
 2. Session locale (`locale` key)
-3. Cookie locale (`locale` key)
-4. Config fallback (`locales.fallback`, default `en`)
+3. Cookie locale (`locale` cookie)
+4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`)
+5. Project default (`project_settings.default_locale`)
+6. System fallback (`locales.fallback`) — only when the project settings resolve to nothing usable
+
+A stored preference for a disabled locale is ignored, not deleted, and applies again if the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.
+
+The admin panel is always English (`SetAdminLocale`) and is not part of this order.
 
 No locale URL prefix (`/en/`, `/ru/`) is used in Phase 46. That is reserved for a future SEO/hreflang phase.
 
@@ -21,24 +44,25 @@ No locale URL prefix (`/en/`, `/ru/`) is used in Phase 46. That is reserved for 
 
 `App\Support\Locale\LocaleManager` provides:
 
-- `supported(): array` — map of code → label/native
-- `isSupported(string $locale): bool`
-- `fallback(): string`
-- `normalize(?string $locale): string` — normalizes unsupported to fallback
-- `label(string $locale): string`
-- `nativeLabel(string $locale): string`
+- `supported(): array` / `isSupported(string $locale): bool` — installed languages
+- `enabled(): array` / `enabledCodes(): array` / `isEnabled(string $locale): bool` — languages this project offers, in config order
+- `projectDefault(): string` — the enabled default, else the fallback when enabled, else the first enabled locale
+- `fallback(): string` — the system fallback
+- `enabledOrDefault(?string $locale): string` — a read value when enabled, otherwise the project default (never used for writes)
+- `fromAcceptLanguage(?string $header): ?string` — the enabled locale a browser asks for, or `null`
+- `label()`, `nativeLabel()`, `flag()`
 
 ## SetLocale middleware
 
-`App\Http\Middleware\SetLocale` is registered in the web stack. It resolves the locale on every request and calls `app()->setLocale()`.
+`App\Http\Middleware\SetLocale` is registered in the web stack. It resolves the locale on every request, in the order above, and calls `app()->setLocale()`.
 
 ## Language switcher
 
-`<x-locale-switcher />` is a Blade component included in the header for both guests and authenticated users. It posts to `POST /locale` (`locale.change` route).
+`<x-locale-switcher />` is a Blade component included in the header for both guests and authenticated users. It lists the enabled locales with their flag and native name and posts to `POST /locale` (`locale.change` route), which accepts only an enabled locale and stores it in the session, in a year-long encrypted `locale` cookie (path `/`, SameSite Lax, HTTP-only) and, for a signed-in user, on the account.
 
 ## User locale preference
 
-Authenticated users can set their preferred locale on the Profile page via `livewire:settings.user-locale-settings`. The preference is stored in `users.locale`.
+Authenticated users can set their preferred locale on the Profile page via `livewire:settings.user-locale-settings`, which offers only enabled locales. The preference is stored in `users.locale`.
 
 ## Translation files
 
@@ -102,6 +126,7 @@ Auto-translation requires external API integration, a UX for original/translated
 
 ## Adding a new locale
 
-1. Add the locale to `config/locales.php` under `supported`.
+1. Add the locale to `config/locales.php` under `supported`, with its `label`, `native` name and `flag`.
 2. Create `lang/{code}/` with a translation of every file in `lang/en/` except `admin.php`.
 3. `TranslationParityTest` will fail, listing what is missing, until the catalogs match.
+4. It is offered at once by projects that never narrowed their enabled languages (`enabled_locales` is `NULL`); a project with an explicit list offers it only once it is enabled there.

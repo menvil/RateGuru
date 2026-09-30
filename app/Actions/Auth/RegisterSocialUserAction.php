@@ -51,7 +51,7 @@ final class RegisterSocialUserAction
                     'email' => $identity->email,
                     // The language the person signed up in — the same rule,
                     // for the same reason, as RegisterUserAction.
-                    'locale' => $this->locales->normalize(app()->getLocale()),
+                    'locale' => $this->locales->enabledOrDefault(app()->getLocale()),
                     // A social-only account has no password at all. Never a
                     // random placeholder: a credential nobody knows is still a
                     // credential, and password reset exists for the day the

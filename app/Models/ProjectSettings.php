@@ -26,6 +26,7 @@ class ProjectSettings extends Model
         'feed_title_translations',
         'static_pages',
         'default_locale',
+        'enabled_locales',
         'default_theme',
         'default_sort',
         'active_preset_key',
@@ -45,6 +46,7 @@ class ProjectSettings extends Model
         'upload_cta_label_translations' => 'array',
         'feed_title_translations' => 'array',
         'static_pages' => 'array',
+        'enabled_locales' => 'array',
         'preset_applied_at' => 'datetime',
     ];
 }

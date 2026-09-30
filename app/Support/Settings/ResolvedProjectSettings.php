@@ -104,9 +104,32 @@ class ResolvedProjectSettings
         ];
     }
 
+    /**
+     * The project default as stored. Not guaranteed to be offered: read
+     * LocaleManager::projectDefault() for the one to use.
+     */
     public function defaultLocale(): string
     {
         return $this->data['default_locale'];
+    }
+
+    /**
+     * The codes stored as offered, unvalidated: null when the project never
+     * narrowed them (every installed language), and an empty list for a value
+     * that is not a list at all. LocaleManager::enabled() decides what they
+     * mean.
+     *
+     * @return array<mixed>|null
+     */
+    public function enabledLocales(): ?array
+    {
+        $stored = $this->data['enabled_locales'] ?? null;
+
+        if ($stored === null) {
+            return null;
+        }
+
+        return is_array($stored) ? $stored : [];
     }
 
     public function defaultTheme(): string

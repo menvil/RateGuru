@@ -92,8 +92,10 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
      * asking — which is the whole point for a password reset, where the person
      * is not logged in and the request locale is not theirs.
      *
-     * A stored locale that is no longer supported (removed from the config) is
-     * treated the same way as none at all.
+     * A stored locale the project does not offer — uninstalled, or installed
+     * but not enabled — is treated the same way as none at all. The column is
+     * left as it is, so the preference comes back if the language is offered
+     * again.
      */
     public function preferredLocale(): ?string
     {
@@ -103,7 +105,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
             return null;
         }
 
-        return app(LocaleManager::class)->isSupported($locale) ? $locale : null;
+        return app(LocaleManager::class)->isEnabled($locale) ? $locale : null;
     }
 
     public function canCreateContent(): bool

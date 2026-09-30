@@ -42,7 +42,7 @@ final class RegisterUserAction
                     // Without this the column stays NULL, preferredLocale() has
                     // nothing to prefer, and every later mail to this account
                     // falls back to whichever browser happens to be asking.
-                    'locale' => $this->locales->normalize(app()->getLocale()),
+                    'locale' => $this->locales->enabledOrDefault(app()->getLocale()),
                     'password' => $password,
                 ]),
             );
