@@ -13,6 +13,9 @@ return [
 
     'social' => [
         'log_in_with' => 'Log in with :provider',
+        'unavailable' => 'Sign-in with :provider is currently unavailable.',
+        'unavailable_notice' => 'Sign-in with :provider is turned off. If you used to sign in with :provider, set a password for your account — we will email you a link.',
+        'unavailable_set_password' => 'Set a password',
         'cancelled' => 'Sign-in with :provider was cancelled. Please try again.',
         'failed' => 'We could not sign you in with :provider. Please try again.',
         'expired' => 'Your :provider sign-in expired before it finished. Please start again.',

@@ -57,6 +57,7 @@ class ProjectSettingsManager
                     self::DEFAULTS['feature_flags'],
                     $row->feature_flags ?? []
                 ),
+                'sign_in_providers' => $row->sign_in_providers ?? [],
                 'static_pages' => $this->mergeStaticPages(
                     $defaults['static_pages'],
                     $row->static_pages ?? [],

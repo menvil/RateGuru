@@ -27,7 +27,10 @@ The four keys are listed, blank, in `.env.example` and in both server
 environment templates (`infrastructure/templates/environment/`). Each
 environment gets its own OAuth apps and its own values, set in that target's
 `shared/.env`; the nightly backup carries them from there, so a host recovery
-restores them with the rest of the environment file.
+restores them with the rest of the environment file. A provider whose keys
+are missing is treated as switched off — its buttons are hidden rather than
+leading to the provider's error page (see
+[Switching a provider off](#switching-a-provider-off)).
 
 Nothing else is requested. Google is asked for `openid profile email`,
 Facebook for the `email` permission with the `name` and `email` fields only.
@@ -47,9 +50,43 @@ is kept on the identity only to show which account is connected — see
   Facebook integration is therefore verified on staging with that app
   configuration, not locally.
 
-Automated tests need no credentials at all: they use `Socialite::fake()`
-and never contact a provider. Real credentials are never committed; the
-`.env.example` values stay empty.
+Automated tests need no real credentials: `phpunit.xml` sets placeholder
+keys (so both providers count as available), the flows use
+`Socialite::fake()`, and no test contacts a provider. Real credentials are
+never committed; the `.env.example` values stay empty.
+
+## Switching a provider off
+
+Each provider has a switch in **Project settings → Sign-in methods**
+(`project_settings.sign_in_providers`, see
+[project settings](../admin/project-settings.md#sign-in-methods)). A provider
+is **available** only while its switch is on *and* both of its keys are set;
+a provider without keys would only show its own error page, so it counts as
+off. `SocialProviderAvailability` is the one place that decides, and every
+entry point asks it:
+
+- the buttons on `/login`, `/register` and in the authentication modal list
+  only available providers — with none, the "or" divider goes too;
+- `SocialProviderGateway` refuses to redirect to an unavailable provider and
+  refuses its callback (`auth.social.unavailable`), so a round trip started
+  just before the switch was flipped does not finish after it — no sign-in,
+  no registration, no connection;
+- the Connected accounts card offers only available providers, keeps
+  listing a connected one that was switched off (marked as such, so the
+  person can still remove it), and a pending link parked for it is not
+  completed;
+- the last-sign-in-method rule counts only available providers: an account
+  without a password cannot disconnect its last *working* way in.
+
+**Nobody is locked out silently.** People already signed in stay signed in.
+While an unavailable provider still has accounts linked to it, the login
+side of every authentication screen names it and says how to get back in:
+set a password through the ordinary "Forgot your password?" email, which
+works for an account that never had one. After that they sign in with
+email and password, and can connect another provider on their profile.
+
+Existing identities are never deleted by switching a provider off: switched
+back on, it works again for everyone who had it.
 
 ## How an identity maps to an account
 
@@ -175,6 +212,9 @@ identity along with the rest of the private account state — see
   above; `RegisterSocialUserAction`, `LinkSocialAccountAction`,
   `StorePendingSocialLinkAction` and `CompletePendingSocialLinkAction` are
   the individual writes.
+- `App\Support\Auth\SocialProviderAvailability` — whether a provider can
+  be used right now (admin switch and keys); `App\Queries\SocialProvidersInUseQuery`
+  — which switched-off providers still have accounts, for the login notice.
 - `App\Support\Auth\SocialLinkContext` — the server-side connection
   intent the callback checks before it attaches anything.
 - `App\Http\Controllers\Profile\ConnectedAccountController`,
@@ -188,4 +228,5 @@ identity along with the rest of the private account state — see
   `/register` and in both states of the [authentication modal](auth-modal.md).
 
 Tests: `tests/Feature/Auth/Social*Test.php`,
+`tests/Feature/Auth/SignInProviderSwitchesTest.php`,
 `tests/Feature/Profile/ConnectedAccountsTest.php`.

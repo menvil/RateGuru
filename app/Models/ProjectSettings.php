@@ -31,10 +31,12 @@ class ProjectSettings extends Model
         'active_preset_key',
         'preset_applied_at',
         'feature_flags',
+        'sign_in_providers',
     ];
 
     protected $casts = [
         'feature_flags' => 'array',
+        'sign_in_providers' => 'array',
         'site_name_translations' => 'array',
         'site_tagline_translations' => 'array',
         'site_description_translations' => 'array',

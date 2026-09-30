@@ -24,6 +24,16 @@ class SocialAuthenticationException extends RuntimeException
         parent::__construct($message);
     }
 
+    /**
+     * Sign-in with this provider is switched off in Project settings, or its
+     * keys are not configured: nothing is sent to the provider and nothing
+     * it sends back is accepted.
+     */
+    public static function providerUnavailable(SocialProvider $provider): self
+    {
+        return new self("Sign-in with {$provider->label()} is unavailable.", 'auth.social.unavailable', $provider);
+    }
+
     /** The person declined at the provider's consent screen. */
     public static function cancelled(SocialProvider $provider): self
     {

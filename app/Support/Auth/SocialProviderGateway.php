@@ -30,20 +30,30 @@ final class SocialProviderGateway
     public function __construct(
         private readonly SocialiteFactory $socialite,
         private readonly SocialIdentityNormalizer $normalizer,
+        private readonly SocialProviderAvailability $availability,
     ) {}
 
+    /**
+     * @throws SocialAuthenticationException when the provider is unavailable
+     */
     public function redirect(SocialProvider $provider): RedirectResponse
     {
+        $this->ensureAvailable($provider);
+
         return $this->driver($provider)->redirect();
     }
 
     /**
      * @param  array{code?: string|null, error?: string|null}  $callback  the validated callback query
      *
-     * @throws SocialAuthenticationException for a cancelled, refused, replayed or expired round trip
+     * @throws SocialAuthenticationException for an unavailable provider, or a cancelled, refused, replayed or expired round trip
      */
     public function identityFromCallback(SocialProvider $provider, array $callback): SocialIdentity
     {
+        // Also checked on the way back: a round trip started before the
+        // provider was switched off must not finish after it.
+        $this->ensureAvailable($provider);
+
         $error = $callback['error'] ?? null;
 
         if (is_string($error) && $error !== '') {
@@ -78,6 +88,13 @@ final class SocialProviderGateway
     public function abandon(Session $session): void
     {
         $session->forget(['state', 'code_verifier']);
+    }
+
+    private function ensureAvailable(SocialProvider $provider): void
+    {
+        if (! $this->availability->isAvailable($provider)) {
+            throw SocialAuthenticationException::providerUnavailable($provider);
+        }
     }
 
     private function driver(SocialProvider $provider): Provider

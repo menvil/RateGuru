@@ -4,8 +4,14 @@
         email/password form  →  primary button  →  "or"  →  Google  →  Facebook  →  switch
 
     The email/password form stays the primary path; the providers come after
-    it. The standalone pages and both modes of the modal are this component,
-    so the two surfaces cannot drift apart.
+    it, and only those available right now — with none, the "or" goes too.
+    A provider switched off while accounts still sign in with it is named
+    in a notice on the login side, pointing those people to setting a
+    password. The standalone pages and both modes of the modal are this
+    component, so the two surfaces cannot drift apart.
+
+    $socialProviders and $unavailableSocialProviders come from the view
+    composer in AppServiceProvider.
 --}}
 @use('App\Enums\AuthModalMode')
 @use('App\Support\Auth\AuthSurfaceContext')
@@ -43,11 +49,39 @@
         <x-auth.register-form :surface="$surface" :return-to="$returnTo" :active="$active" />
     @endif
 
-    <x-auth.divider class="mt-6" />
+    @if ($socialProviders !== [])
+        <x-auth.divider class="mt-6" />
+    @endif
 
     <x-input-error :messages="$socialErrors" class="mt-4" data-testid="social-error" />
 
-    <x-auth.social-buttons class="mt-4" :surface="$surface" :mode="$mode->value" :return-to="$returnTo" />
+    @if ($socialProviders !== [])
+        <x-auth.social-buttons
+            class="mt-4"
+            :providers="$socialProviders"
+            :surface="$surface"
+            :mode="$mode->value"
+            :return-to="$returnTo"
+        />
+    @endif
+
+    @if ($mode === AuthModalMode::Login && $unavailableSocialProviders !== [])
+        <div
+            class="mt-4 space-y-2 rounded-rgControl border border-rg-border bg-rg-card2 px-3 py-2.5 text-xs leading-relaxed text-rg-text2"
+            data-testid="social-unavailable-notice"
+        >
+            @foreach ($unavailableSocialProviders as $provider)
+                <p>
+                    {{ __('auth.social.unavailable_notice', ['provider' => $provider->label()]) }}
+                    <a
+                        class="rounded-sm font-semibold text-rg-accent2 underline hover:text-rg-text focus:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        href="{{ route('password.request') }}"
+                        data-testid="social-unavailable-set-password"
+                    >{{ __('auth.social.unavailable_set_password') }}</a>
+                </p>
+            @endforeach
+        </div>
+    @endif
 
     <p class="mt-6 text-center text-sm text-rg-muted">
         {{ $prompt }}

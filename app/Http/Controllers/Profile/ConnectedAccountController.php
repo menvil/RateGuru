@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Profile;
 use App\Actions\Auth\UnlinkSocialAccountAction;
 use App\Enums\SocialProvider;
 use App\Exceptions\Auth\CannotDisconnectSocialAccountException;
+use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Support\Auth\SocialLinkContext;
@@ -28,9 +29,15 @@ class ConnectedAccountController extends Controller
 
         assert($user instanceof User);
 
+        try {
+            $response = $gateway->redirect($provider);
+        } catch (SocialAuthenticationException $exception) {
+            return ConnectedAccountsResponse::failure($exception->userMessage());
+        }
+
         SocialLinkContext::start($user, $provider, now())->remember($request->session());
 
-        return $gateway->redirect($provider);
+        return $response;
     }
 
     /**

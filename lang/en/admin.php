@@ -15,6 +15,10 @@ return [
         'preset_status_label' => 'Status',
         'preset_not_applied' => 'No installation preset has been applied.',
         'preset_applied' => ':preset · applied :date',
+        'sign_in_title' => 'Sign-in methods',
+        'sign_in_description' => 'Email and password sign-in is always on. Switching a provider off hides its buttons and refuses its sign-ins at once; people who signed in only with it are shown on the login page how to set a password.',
+        'sign_in_accounts' => 'Accounts that sign in with it: :count.',
+        'sign_in_not_configured' => 'Its keys (:keys) are not set in the server\'s .env, so its buttons stay hidden even while this is on.',
         'save' => 'Save settings',
     ],
     'rating_groups' => [
@@ -22,6 +26,7 @@ return [
         'options_relation' => 'Options',
     ],
     'fields' => [
+        'sign_in_provider' => 'Sign in with :provider',
         'site_name' => 'Site name',
         'tagline' => 'Tagline',
         'description' => 'Description',

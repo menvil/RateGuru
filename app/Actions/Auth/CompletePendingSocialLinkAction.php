@@ -7,6 +7,7 @@ use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\SocialAccount;
 use App\Models\User;
 use App\Support\Auth\SocialIdentityNormalizer;
+use App\Support\Auth\SocialProviderAvailability;
 use Illuminate\Contracts\Session\Session;
 
 /**
@@ -25,6 +26,7 @@ final class CompletePendingSocialLinkAction
     public function __construct(
         private readonly LinkSocialAccountAction $linkSocialAccount,
         private readonly SocialIdentityNormalizer $normalizer,
+        private readonly SocialProviderAvailability $availability,
     ) {}
 
     /** The linked account, or null when nothing was (or could be) linked. */
@@ -37,6 +39,12 @@ final class CompletePendingSocialLinkAction
         }
 
         if ($this->normalizer->normalizeEmail($user->email) !== $pending->email) {
+            return null;
+        }
+
+        // Parked while the provider was on; switched off since, it adds no
+        // way to sign in.
+        if (! $this->availability->isAvailable($pending->provider)) {
             return null;
         }
 

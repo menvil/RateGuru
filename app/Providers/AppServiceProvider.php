@@ -2,12 +2,14 @@
 
 namespace App\Providers;
 
+use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
 use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
+use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
@@ -17,6 +19,7 @@ use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
+use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
@@ -89,6 +92,21 @@ class AppServiceProvider extends ServiceProvider
             $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
                 'projectSettings' => $settings,
             ]));
+        });
+
+        View::composer('components.auth.panel', function ($view): void {
+            $availability = app(SocialProviderAvailability::class);
+            $mode = AuthModalMode::fromInput($view->getData()['mode'] ?? null);
+
+            $view->with([
+                'socialProviders' => $availability->available(),
+                // Only the login side names switched-off providers, and only
+                // those somebody actually signs in with: a provider this site
+                // never offered is not news to anyone.
+                'unavailableSocialProviders' => $mode === AuthModalMode::Login
+                    ? app(SocialProvidersInUseQuery::class)->among($availability->unavailable())
+                    : [],
+            ]);
         });
 
         View::composer('layouts.guest', function ($view): void {
