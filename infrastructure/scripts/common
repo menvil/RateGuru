@@ -1079,6 +1079,73 @@ require_provisionable_target() {
 
 # --- registry lifecycle gates (end) ---
 
+# --- host infrastructure lock (begin) ---
+#
+# One physical machine can carry several logical targets, and several
+# operations can mutate the infrastructure they SHARE: the host roots, the
+# shared namespace they sit in, the base services, the operational bundle.
+#
+# Every lock this repository had before was keyed by backup namespace or by
+# application root, which is exactly the wrong key for that. "Prepare
+# staging-main" and "Provision tits-guru" hold different namespace locks and
+# then both converge host-global state on the same machine, in parallel,
+# neither aware of the other. GitHub concurrency groups do not close it either:
+# two different GitHub Environments can address the same host, and the
+# authoritative answer has to live where the mutation happens.
+#
+# So this lock is keyed by NOTHING. One file per machine, held for the whole
+# run by the operation that owns it.
+#
+# ONE OWNER PER LOCK. Only the top-level operations take it — prepare-host,
+# provision-target, configure-target and repair-target — and only in a mutating
+# mode. The installers they invoke never take it, because flock treats
+# independently opened descriptors independently even inside one process tree,
+# so a child re-acquiring what its parent holds would deadlock against its own
+# orchestrator. A read-only mode takes nothing, which is what lets
+# configure-target ask provision-target --verify a question while holding it.
+#
+# prepare-host cannot source this file (it runs before the operational bundle
+# is installed), so it opens the same path itself. The shared thing is the
+# FILE NAME, not the function.
+HOST_INFRASTRUCTURE_LOCK_NAME="host-infrastructure.lock"
+
+HOST_INFRASTRUCTURE_LOCK_FD=""
+
+# host_infrastructure_lock_path — the one lock file for this machine.
+host_infrastructure_lock_path() {
+    local run_root="/home/www/rateguru/run"
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_HOST_LOCK_ROOT:-}" ]]; then
+        run_root="${RATEGURU_HOST_LOCK_ROOT}"
+    fi
+
+    printf '%s/%s\n' "${run_root}" "${HOST_INFRASTRUCTURE_LOCK_NAME}"
+}
+
+# acquire_host_infrastructure_lock OPERATION — claim this machine's shared
+# infrastructure for the whole run, or refuse naming what already holds it.
+#
+# Never waits. An operator who sees "another operation is already mutating this
+# host" can look at what is running and decide; a run that blocked silently
+# would look like a hang and get cancelled halfway through a mutation.
+acquire_host_infrastructure_lock() {
+    local operation="${1-}" lock_path
+    lock_path="$(host_infrastructure_lock_path)"
+
+    local lock_dir
+    lock_dir="$(dirname -- "${lock_path}")"
+
+    [[ -d "${lock_dir}" ]] \
+        || fail "the operational lock directory does not exist: ${lock_dir} — this host has not been bootstrapped, and ${operation} never creates it"
+
+    exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${lock_path}" \
+        || fail "could not open ${lock_path} to claim this host's shared infrastructure for ${operation}"
+
+    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
+        || fail "another operation is already mutating this host's shared infrastructure (${lock_path}); ${operation} changed nothing. Targets share one machine, so host-level operations run one at a time"
+}
+# --- host infrastructure lock (end) ---
+
 # Shared flag-value validator, used by every operational script's own
 # argument loop (including parse_target_args below) — offsite-backup,
 # offsite-retention and offsite-restore-test originally had this exact,

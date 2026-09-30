@@ -601,6 +601,12 @@ require_root_mode() {
 CHANGED=false
 
 apply_gate() {
+    # Claimed for the whole run. The structural check below asks
+    # provision-target --verify, which is read-only and therefore takes no lock
+    # of its own — a child re-acquiring what its parent holds would deadlock
+    # against its own orchestrator.
+    acquire_host_infrastructure_lock "configure-target --apply --target ${TARGET_ID}"
+
     action "building the configuration plan before any mutation"
 
     local blockers=() blocker

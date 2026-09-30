@@ -614,6 +614,7 @@ guard_operation_label() {
 # this orchestrator creates no directories to lock inside — that is the layout
 # installer's job.
 PREPARATION_LOCK_FD=""
+HOST_INFRASTRUCTURE_LOCK_FD=""
 
 gate_data_operation_locks() {
     [[ "${MODE}" == apply ]] || return 0
@@ -627,8 +628,30 @@ gate_data_operation_locks() {
 
     [[ -n "${namespace}" ]] || return 0
 
-    # Ours first, and held: from here on, a restore or a recovery that starts
-    # will find it busy and refuse.
+    # The machine first. This orchestrator converges HOST-global
+    # infrastructure — the host roots, the shared namespace every target sits
+    # in, the base services, the operational bundle — and the namespace lock
+    # below does not protect any of it: "Prepare staging-main" and "Provision
+    # tits-guru" hold different namespace locks and would converge the same
+    # machine in parallel.
+    #
+    # The file name is the contract, shared with provision-target,
+    # configure-target and repair-target, which take it through
+    # acquire_host_infrastructure_lock in `common`. This script deliberately
+    # cannot source `common` — it runs before the operational bundle is
+    # installed — so it opens the same path itself rather than growing a copy
+    # of the bundle it is about to install.
+    local host_lock="${OPERATIONAL_RUN_ROOT}/host-infrastructure.lock"
+
+    exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${host_lock}" \
+        || fail "could not open ${host_lock} to claim this host's shared infrastructure"
+
+    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
+        || fail "another operation is already mutating this host's shared infrastructure (${host_lock}); nothing was changed. Targets share one machine, so host-level operations run one at a time"
+
+    # Then this namespace's preparation, held for the same reason it always
+    # was: from here on, a restore or a recovery that starts will find it busy
+    # and refuse.
     local preparation_lock="${OPERATIONAL_RUN_ROOT}/prepare-host-${namespace}.lock"
 
     exec {PREPARATION_LOCK_FD}>>"${preparation_lock}" \

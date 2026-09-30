@@ -855,6 +855,12 @@ CHANGED=false
 # target's identities, directories or service files do not exist. That is the
 # entire point of the operation.
 apply_gate() {
+    # This machine's shared infrastructure, claimed for the whole run before
+    # anything is inspected. Targets share a host, and the base services, host
+    # roots and shared namespace this run reads and converges are the same ones
+    # another operation could be converging right now.
+    acquire_host_infrastructure_lock "provision-target --apply --target ${TARGET_ID}"
+
     action "building the provisioning plan before any mutation"
 
     local blockers=() blocker_details=() blocker

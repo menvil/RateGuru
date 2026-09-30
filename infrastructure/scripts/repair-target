@@ -1136,6 +1136,17 @@ perform_apply() {
     lock_directory_usable \
         || fail "refusing to repair ${TARGET_ID}: ${TARGET_ROOT}/locks is not a real directory, so this target's deployment lock cannot be taken. Converge the layout directly first with install-bootstrap-host-layout --apply --target ${TARGET_ID} — a repair that cannot lock the target cannot safely converge it. No mutation was performed"
 
+    # Two locks, and the order is deliberate: the machine first, then this
+    # target. A repair converges service configuration and reloads host
+    # services that every target on this machine shares, so the target
+    # deployment lock alone would let two repairs of two different targets
+    # reload the same nginx from two runs at once.
+    #
+    # Machine before target, always, so two operations can never take them in
+    # opposite orders and wedge.
+    action "acquiring this host's shared infrastructure lock"
+    acquire_host_infrastructure_lock "repair-target --apply --target ${TARGET_ID}"
+
     action "acquiring the target deployment lock"
     acquire_deployment_lock "${TARGET_ROOT}"
 
