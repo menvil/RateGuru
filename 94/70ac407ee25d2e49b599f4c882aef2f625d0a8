@@ -1,0 +1,57 @@
+tests/Feature/Architecture/BootstrapHostPreflightTest.php
+  s_c7e782fafc9782::t_1559695bef188b 146-149
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_c7e782fafc9782::t_49bce4587cd5e1 625-667
+infrastructure/scripts/repair-target
+  s_c7e782fafc9782::t_37bfad6d745d45 41-49
+infrastructure/scripts/bootstrap-host-preflight
+  s_c7e782fafc9782::t_88718da8ab0a70 1265-1293,1305-1319
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_03aaa71f5ec2e1 666-670,672-678
+  s_c7e782fafc9782::t_cd66688b5266b9 1562-1563
+  s_c7e782fafc9782::t_0dcc2351370e7f 1527-1561,1564-1636
+infrastructure/scripts/install-bootstrap-services
+  s_c7e782fafc9782::t_88aacbf9f78710 754-762
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_c7e782fafc9782::t_99f5993d3d454e 946-950
+  s_c7e782fafc9782::t_17b4711dcc49ec 1037-1039,1045-1046
+  s_c7e782fafc9782::t_924d432f348396 958,988-993,1016
+  s_c7e782fafc9782::t_842334e141e06f 959-979,983,994-1005,1018-1019
+  s_c7e782fafc9782::t_c61c324a9d0a3b 1020-1036,1040-1044,1047-1083
+  s_c7e782fafc9782::t_298ea48af7efcb 980-982,984-987,1006-1015,1017
+  s_c7e782fafc9782::t_9a312ab24867b5 162-165,664-666,668-669,713-715,718-719,943-945,951
+infrastructure/runbooks/install-target-operations.md
+  s_c7e782fafc9782::t_b007e2b1b25ed7 312
+infrastructure/scripts/prepare-host
+  s_c7e782fafc9782::t_684e154453831a 39-55
+infrastructure/runbooks/bootstrap-host.md
+  s_c7e782fafc9782::t_e060e862a1c7d8 738-758,762
+tests/Feature/Architecture/ProvisionRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_0fe2963df605a0 200-223,226-250
+  s_c7e782fafc9782::t_8b16d4d6c4b23a 224-225
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_37bfad6d745d45 330-331,334-344
+infrastructure/scripts/install-bootstrap-host-layout
+  s_c7e782fafc9782::t_678cff71e669c1 1270-1281,1530-1541
+  s_c7e782fafc9782::t_f736d94e907c11 967-1007,1021-1031,1198
+.github/actions/provision-rateguru-target/action.yml
+  s_c7e782fafc9782::t_41acd9f162fa0e 522-527,540,542-543,547-555,614-619,632,634-635,639-646
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_88aacbf9f78710 264-273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9470ac407ee25d2e49b599f4c882aef2f625d0a8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
