@@ -78,27 +78,17 @@ function referenceFiles(): array
     return array_values(array_diff(catalogsIn('en'), englishOnlyCatalogs()));
 }
 
-/** The :placeholders a line declares, which must survive translation. */
-function placeholdersIn(string $line): array
+/**
+ * What is wrong with the set of catalog files each of these languages ships.
+ *
+ * @param  list<string>  $locales
+ * @return list<string>
+ */
+function catalogDrift(array $locales): array
 {
-    preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', $line, $matches);
-
-    return collect($matches[1])->unique()->sort()->values()->all();
-}
-
-it('has English as a complete reference', function () {
-    expect(referenceFiles())->not->toBeEmpty()
-        ->and(supportedLocales())->toContain('en');
-
-    foreach (englishOnlyCatalogs() as $file) {
-        expect(is_file(lang_path("en/{$file}.php")))->toBeTrue("en/{$file}.php is declared English-only but does not exist");
-    }
-});
-
-it('ships exactly the reference files for every supported language', function () {
     $problems = [];
 
-    foreach (translatedLocales() as $locale) {
+    foreach ($locales as $locale) {
         $expected = referenceFiles();
         $actual = catalogsIn($locale);
 
@@ -121,7 +111,39 @@ it('ships exactly the reference files for every supported language', function ()
         }
     }
 
+    return $problems;
+}
+
+/** The :placeholders a line declares, which must survive translation. */
+function placeholdersIn(string $line): array
+{
+    preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', $line, $matches);
+
+    return collect($matches[1])->unique()->sort()->values()->all();
+}
+
+it('has English as a complete reference', function () {
+    expect(referenceFiles())->not->toBeEmpty()
+        ->and(supportedLocales())->toContain('en');
+
+    foreach (englishOnlyCatalogs() as $file) {
+        expect(is_file(lang_path("en/{$file}.php")))->toBeTrue("en/{$file}.php is declared English-only but does not exist");
+    }
+});
+
+it('ships exactly the reference files for every supported language', function () {
+    $problems = catalogDrift(translatedLocales());
+
     expect($problems)->toBe([], "translation catalog drift:\n".implode("\n", $problems));
+});
+
+it('turns red for a language declared without its catalogs', function () {
+    // What happens the day a language is added to config/locales.php before it
+    // is translated: every catalog it owes is named, not just a count.
+    $declared = unsupportedLocale();
+
+    expect(catalogDrift([$declared]))
+        ->toBe(array_map(fn (string $file): string => "{$declared}/{$file}.php is missing", referenceFiles()));
 });
 
 it('ships no JSON catalogs', function () {
@@ -158,6 +180,29 @@ it('translates every key, with nothing extra', function () {
     }
 
     expect($problems)->toBe([], "translation key drift:\n".implode("\n", $problems));
+});
+
+it('never ships an English catalog under another language', function () {
+    // A file copied from English and never translated passes every check
+    // above — same keys, same placeholders, nothing blank — while every reader
+    // of that language gets English. Individual lines may match English (a
+    // brand name, "Email"); a whole catalog that matches line for line is a
+    // copy.
+    $problems = [];
+
+    foreach (referenceFiles() as $file) {
+        $reference = translationsFor('en', $file);
+
+        foreach (translatedLocales() as $locale) {
+            $translated = translationsFor($locale, $file);
+
+            if ($translated !== [] && $translated == $reference) {
+                $problems[] = "{$locale}/{$file}.php is English, line for line";
+            }
+        }
+    }
+
+    expect($problems)->toBe([], "untranslated copies:\n".implode("\n", $problems));
 });
 
 it('never ships a blank or non-text line', function () {

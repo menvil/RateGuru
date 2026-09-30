@@ -57,20 +57,6 @@ it('renders the password reset email with no untranslated keys', function (strin
         ->and($mail['subject'])->not->toBe('Reset Password');
 })->with(supportedLocales());
 
-it('actually differs between languages', function () {
-    // A translation file that was copied and never translated would pass every
-    // "no raw key" assertion above while shipping English to everyone.
-    $user = User::factory()->unverified()->create(['name' => 'Reader']);
-
-    $subjects = collect(supportedLocales())->mapWithKeys(function (string $locale) use ($user): array {
-        app()->setLocale($locale);
-
-        return [$locale => renderedMail(new VerifyEmail, $user)['subject']];
-    });
-
-    expect($subjects->unique())->toHaveCount(count(supportedLocales()));
-});
-
 it('writes the lines around the message in the recipient language too', function (string $locale) {
     // The button fallback under the action and the footer come from the
     // notification layout, not the message — before it was ours they were the

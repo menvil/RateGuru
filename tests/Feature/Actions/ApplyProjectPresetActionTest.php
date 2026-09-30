@@ -147,7 +147,7 @@ it('rolls back every preset change when one part fails', function () {
     $legacyGroup = RatingGroup::factory()->create(['key' => 'legacy']);
 
     $brokenPreset = config('project_presets.nature');
-    $brokenPreset['tags'] = [['en' => null, 'ru' => null, 'bg' => null]];
+    $brokenPreset['tags'] = [array_fill_keys(supportedLocales(), null)];
     config(['project_presets.broken' => $brokenPreset]);
 
     expect(fn () => app(ApplyProjectPresetAction::class)->handle('broken'))

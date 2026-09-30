@@ -4,6 +4,7 @@ use App\Actions\Auth\RegisterUserAction;
 use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Password;
 
 /**
@@ -42,19 +43,12 @@ final class LocaleRecordingNotification extends Notification
 }
 
 beforeEach(function () {
-    config()->set('locales.supported', [
-        'en' => ['label' => 'English', 'native' => 'English'],
-        'ru' => ['label' => 'Russian', 'native' => 'Русский'],
-        'bg' => ['label' => 'Bulgarian', 'native' => 'Български'],
-    ]);
-    config()->set('locales.fallback', 'en');
-
     LocaleRecordingNotification::$renderedIn = null;
 });
 
-it('prefers the language the account chose', function () {
-    expect(User::factory()->create(['locale' => 'ru'])->preferredLocale())->toBe('ru');
-});
+it('prefers the language the account chose', function (string $locale) {
+    expect(User::factory()->create(['locale' => $locale])->preferredLocale())->toBe($locale);
+})->with(supportedLocales());
 
 it('has no preference when the account never chose one', function () {
     // NULL is not "English". It means "no preference", so Laravel renders in
@@ -63,54 +57,55 @@ it('has no preference when the account never chose one', function () {
     expect(User::factory()->create(['locale' => null])->preferredLocale())->toBeNull();
 });
 
-it('has no preference when the stored language is no longer supported', function () {
-    $user = User::factory()->create(['locale' => 'ru']);
+it('has no preference when the stored language is no longer supported', function (string $locale) {
+    $user = User::factory()->create(['locale' => $locale]);
 
-    config()->set('locales.supported', ['en' => ['label' => 'English', 'native' => 'English']]);
+    // Withdraw this one language from whatever is configured; the rest stay.
+    config()->set('locales.supported', Arr::except(config('locales.supported'), $locale));
 
     expect($user->preferredLocale())->toBeNull();
-});
+})->with(translatedLocales());
 
-it('renders mail in the account language, whatever the request locale is', function () {
-    $user = User::factory()->create(['locale' => 'ru']);
+it('renders mail in the account language, whatever the request locale is', function (string $locale) {
+    $user = User::factory()->create(['locale' => $locale]);
 
     app()->setLocale('en');
     $user->notify(new LocaleRecordingNotification);
 
-    expect(LocaleRecordingNotification::$renderedIn)->toBe('ru');
-});
+    expect(LocaleRecordingNotification::$renderedIn)->toBe($locale);
+})->with(translatedLocales());
 
-it('renders mail in the site language when the account has no preference', function () {
+it('renders mail in the site language when the account has no preference', function (string $locale) {
     $user = User::factory()->create(['locale' => null]);
 
-    app()->setLocale('bg');
+    app()->setLocale($locale);
     $user->notify(new LocaleRecordingNotification);
 
-    expect(LocaleRecordingNotification::$renderedIn)->toBe('bg');
-});
+    expect(LocaleRecordingNotification::$renderedIn)->toBe($locale);
+})->with(translatedLocales());
 
-it('restores the request locale after rendering', function () {
-    // withLocale() is scoped; a mail to a Russian reader must not leave the
-    // rest of the request rendering in Russian for everyone else.
-    $user = User::factory()->create(['locale' => 'ru']);
+it('restores the request locale after rendering', function (string $locale) {
+    // withLocale() is scoped; a mail to a reader of another language must not
+    // leave the rest of the request rendering in that language for everyone.
+    $user = User::factory()->create(['locale' => $locale]);
 
     app()->setLocale('en');
     $user->notify(new LocaleRecordingNotification);
 
     expect(app()->getLocale())->toBe('en');
-});
+})->with(translatedLocales());
 
-it('reaches a password reset through that same preference', function () {
+it('reaches a password reset through that same preference', function (string $locale) {
     // The case this change exists for: the person is NOT logged in, so the
     // request locale is whatever their browser is set to — but we know exactly
     // who they are, because we just looked them up by email.
-    $user = User::factory()->create(['email' => 'reader@example.test', 'locale' => 'ru']);
+    $user = User::factory()->create(['email' => "reader-{$locale}@example.test", 'locale' => $locale]);
 
     app()->setLocale('en');
 
     expect(fn () => Password::sendResetLink(['email' => $user->email]))->not->toThrow(Exception::class)
-        ->and($user->fresh()->preferredLocale())->toBe('ru');
-});
+        ->and($user->fresh()->preferredLocale())->toBe($locale);
+})->with(translatedLocales());
 
 it('stores the site language on the account at registration', function (string $locale) {
     // Without this the column stays NULL for every new account, preferredLocale()
@@ -137,5 +132,5 @@ it('stores a supported language even when the request locale is not one', functi
         'password' => 'password-that-is-long-enough',
     ]);
 
-    expect($user->locale)->toBe('en');
+    expect($user->locale)->toBe(config('locales.fallback'));
 });

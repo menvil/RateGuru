@@ -10,7 +10,10 @@ use Livewire\Livewire;
  * and working in it never changes that language.
  *
  * Each case runs for every translated language, so a newly declared one is
- * held to the same boundary without anyone adding it here.
+ * held to the same boundary without anyone adding it here. That is also why
+ * nothing here asks what Filament would have shown in that language: Filament
+ * ships its own translations for some languages and not others, and the
+ * contract is the locale the panel renders in, which is English either way.
  */
 function panelAdmin(string $locale): User
 {
@@ -62,8 +65,9 @@ it('renders the admin panel in English for any account or site language', functi
         ->get(TagResource::getUrl('create'))
         ->assertOk()
         ->assertSee('lang="en"', false)
-        ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'))
-        ->assertDontSee(__('filament-panels::layout.actions.logout.label', [], $locale));
+        ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'));
+
+    expect(app()->getLocale())->toBe('en');
 })->with(translatedLocales());
 
 it('keeps English for actions taken inside the panel', function (string $locale) {
@@ -85,11 +89,13 @@ it('keeps English for actions taken inside the panel', function (string $locale)
         ])
         ->assertOk();
 
-    $rendered = $response->json('components.0.effects.html');
+    // The locale Livewire rendered the update in travels back in the snapshot.
+    $snapshot = json_decode($response->json('components.0.snapshot'), true);
 
-    expect($rendered)->toBeString()
-        ->toContain(__('filament-panels::resources/pages/create-record.form.actions.create.label', [], 'en'))
-        ->not->toContain(__('filament-panels::resources/pages/create-record.form.actions.create.label', [], $locale));
+    expect($snapshot['memo']['locale'])->toBe('en')
+        ->and(app()->getLocale())->toBe('en')
+        ->and($response->json('components.0.effects.html'))->toBeString()
+        ->toContain(__('filament-panels::resources/pages/create-record.form.actions.create.label', [], 'en'));
 })->with(translatedLocales());
 
 it('renders the admin sign-in page in English for a visitor browsing in another language', function (string $locale) {
@@ -98,7 +104,11 @@ it('renders the admin sign-in page in English for a visitor browsing in another 
     $this->withSession(['locale' => $locale])
         ->get(route('filament.admin.auth.login'))
         ->assertOk()
-        ->assertSee('lang="en"', false);
+        ->assertSee('lang="en"', false)
+        ->assertSee(__('filament-panels::auth/pages/login.heading', [], 'en'));
+
+    expect(app()->getLocale())->toBe('en')
+        ->and(session('locale'))->toBe($locale);
 })->with(translatedLocales());
 
 it('leaves the public language untouched after working in the panel', function (string $locale) {

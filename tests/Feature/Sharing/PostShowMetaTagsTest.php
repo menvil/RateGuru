@@ -34,6 +34,17 @@ it('renders complete opengraph and twitter metadata on post show', function () {
         ->assertDontSee('<meta property="og:title" content="OG Test Post · RateGuru">', false);
 });
 
+it('announces the reader language to link previews', function (string $locale) {
+    // og:locale is mapped per language in PostOpenGraph, with en_US for
+    // anything it does not know — so a newly declared language would be
+    // announced as English without this turning red.
+    $post = Post::factory()->published()->create();
+
+    $response = $this->withSession(['locale' => $locale])->get(route('posts.show', $post))->assertOk();
+
+    expect($response->getContent())->toMatch('/<meta property="og:locale" content="'.$locale.'_[A-Z]{2}">/');
+})->with(supportedLocales());
+
 it('renders canonical link tag on post show', function () {
     config(['app.url' => 'https://rateguru.test']);
 
