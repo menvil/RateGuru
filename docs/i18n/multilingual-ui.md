@@ -21,7 +21,7 @@ The flag is chosen per language rather than derived from the code: a language is
 
 A disabled locale remains installed and its DB/content translations may still be edited in admin: every translation editor (project settings, static pages, categories, tags, rating groups and options) lists all installed languages, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones.
 
-`enabled_locales` and `default_locale` are written together by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which stores installed codes only, in config order, never an empty set, and a default inside the set. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
+`enabled_locales` is written only by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which changes `enabled_locales` and `default_locale` atomically: installed codes only, in config order, never an empty set, and a default inside the set. The ordinary Project Settings form (`SaveProjectSettingsAction`) may change `default_locale` on its own, but only to a currently enabled locale, and it refuses a payload that carries `enabled_locales`. Presets and the default settings seeder never change the languages or the default of an existing project. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
 
 ## Locale resolution order
 

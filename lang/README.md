@@ -26,9 +26,12 @@ language; everything a visitor can pick or be served uses the enabled ones.
 
 `App\Support\Locale\LocaleManager` is the one place these are read:
 `supported()`, `enabled()`, `isEnabled()`, `projectDefault()`, `fallback()`.
-Which languages are enabled, and the project default, are written together by
-`UpdateProjectLocaleSettingsAction`, which refuses an empty set, an uninstalled
-code and a default outside the set.
+Which languages are enabled is written only by
+`UpdateProjectLocaleSettingsAction`, which changes them and the project default
+atomically and refuses an empty set, an uninstalled code and a default outside
+the set. The Project Settings form may change the default on its own, but only
+to a language that is currently enabled; presets and the default settings
+seeder never change the languages or the default of an existing project.
 
 ## Which language a visitor gets
 
