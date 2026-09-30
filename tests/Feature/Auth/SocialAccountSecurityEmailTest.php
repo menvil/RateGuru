@@ -23,7 +23,7 @@ it('emails the account when a provider is connected from the profile', function 
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan.personal@example.com']));
 
-    $this->actingAs($user)->get(socialCallbackUrl('facebook'));
+    startConnectingProvider($user, 'facebook')->get(socialCallbackUrl('facebook'));
 
     Notification::assertSentTo(
         $user,
@@ -84,7 +84,7 @@ it('sends nothing when the connection is refused', function () {
     User::factory()->create(['email' => 'maria@example.com']);
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'maria@example.com']));
 
-    $this->actingAs($user)->get(socialCallbackUrl('google'));
+    startConnectingProvider($user, 'google')->get(socialCallbackUrl('google'));
 
     Notification::assertNothingSent();
 });

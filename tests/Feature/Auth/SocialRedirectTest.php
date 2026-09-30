@@ -2,6 +2,7 @@
 
 use App\Enums\SocialProvider;
 use App\Models\User;
+use App\Support\Auth\SocialLinkContext;
 use GuzzleHttp\Client;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -101,13 +102,15 @@ it('supports exactly Google and Facebook', function () {
     expect(SocialProvider::values())->toBe(['google', 'facebook']);
 });
 
-it('lets a signed-in person start the round trip to connect a provider', function () {
+it('always starts a sign-in, never a connection, and voids a connection abandoned earlier', function () {
     $user = User::factory()->create();
 
-    $response = $this->actingAs($user)->get('/auth/google');
+    $this->actingAs($user)
+        ->withSession([SocialLinkContext::SESSION_KEY => ['user_id' => $user->id, 'provider' => 'google', 'created_at' => now()->getTimestamp()]])
+        ->get('/auth/google')
+        ->assertRedirect();
 
-    $response->assertRedirect();
-    expect((string) $response->headers->get('Location'))->toStartWith('https://accounts.google.com/');
+    expect(session()->has(SocialLinkContext::SESSION_KEY))->toBeFalse();
 });
 
 it('shows the same provider buttons on the login and registration pages', function (string $path) {

@@ -17,8 +17,10 @@ use Illuminate\Support\Facades\Auth;
  * The external identity (provider + provider_user_id) is the key, never the
  * email: a known identity signs its account in, an unknown identity either
  * becomes a new account or — when its email already belongs to someone — is
- * parked as a pending link until that someone signs in. An already
- * authenticated person is connecting a provider to their own account instead.
+ * parked as a pending link until that someone signs in. With an actor, the
+ * callback finishes a connection that actor started from the Connected
+ * accounts card — the controller only passes one when SocialLinkContext
+ * binds this callback to that account and provider.
  *
  * Two callbacks for the same identity or email can race; the unique indexes
  * settle who wins, and the loser re-reads once so it signs in to the row the
@@ -36,7 +38,7 @@ final class ResolveSocialLoginAction
     ) {}
 
     /**
-     * @param  User|null  $actor  the account already signed in, if any
+     * @param  User|null  $actor  the account that started connecting this provider, if any
      *
      * @throws SocialAuthenticationException for every controlled refusal
      */

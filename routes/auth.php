@@ -42,12 +42,15 @@ Route::post('reset-password', [NewPasswordController::class, 'store'])
     ->middleware('throttle:6,1')
     ->name('password.store');
 
-// Social sign-in is deliberately outside the `guest` group: a signed-in person
-// may run the very same round trip to connect a provider to their own account,
-// and the guest middleware would bounce them to the dashboard before the
-// callback could do so. The closed provider list is enforced twice — here, so
-// an unknown provider never reaches a controller, and again by the enum
-// binding in the controller signature.
+// Social sign-in is deliberately outside the `guest` group: connecting a
+// provider from the profile (profile.connected-accounts.store) comes back
+// through the very same callback while signed in, and the guest middleware
+// would bounce it to the dashboard. What a callback may do is decided by the
+// server-side SocialLinkContext that connection recorded, never by the
+// session being signed in: a round trip started here is always a sign-in.
+// The closed provider list is enforced twice — here, so an unknown provider
+// never reaches a controller, and again by the enum binding in the
+// controller signature.
 Route::get('auth/{provider}', [SocialAuthController::class, 'redirect'])
     ->whereIn('provider', SocialProvider::values())
     ->name('auth.social.redirect');

@@ -71,7 +71,8 @@ only completes a registration after the address is confirmed.
 | unknown identity, provider vouches, the account's email is **confirmed** | signs straight in and links the provider; the password and everything else stay |
 | unknown identity, provider vouches, the account's email is **unconfirmed** | signs straight in and links the provider, and the account is taken over from whoever created it: email confirmed, password removed, every other session and "remember me" ended, reset links voided, and the owner is told to set a new password |
 | unknown identity, provider does **not** vouch, email belongs to an account | a **pending link** in the session; the person signs in to that account once (password or another provider) and the identity is linked |
-| unknown identity, a user is signed in | the identity is attached to the signed-in account, whatever its email — unless that email is **another account's** address, which is refused |
+| a connection started from the Connected accounts card, finished by the same signed-in account | the identity is attached to that account, whatever its email — unless that email is **another account's** address, which is refused |
+| a sign-in round trip whose callback finds the session signed in | refused: nothing is connected and the session never switches accounts |
 | provider shares no email | refused; nothing is created |
 
 The takeover case exists because an unconfirmed account may have been
@@ -103,15 +104,42 @@ instead of a password.
 The profile's **Connected accounts** card lists Google and Facebook with the
 connected account's email and the date it was connected.
 
-- **Connect** posts to `profile.connected-accounts.store`, which starts the
-  ordinary provider round trip. The callback sees a signed-in session and
-  attaches the identity instead of signing anyone in; every outcome of a
-  signed-in callback — success or refusal — lands back on the card
-  (`ConnectedAccountsResponse`), with refusals in their own
-  `connectedAccounts` error bag.
+### Sign-in and connecting are different intents
+
+Signing in with a provider and connecting one to an account share the same
+redirect and callback, so the server records which of the two a round trip
+is before it leaves for the provider:
+
+- **OAuth state** (Socialite, bound to the session, never stateless) proves
+  that a callback belongs to the round trip this session started. It says
+  nothing about *why* the round trip was started, or for which account.
+- **`SocialLinkContext`** is that second half. Pressing **Connect** posts to
+  `profile.connected-accounts.store`, which writes the context — the
+  signed-in user's id, the provider and the time, nothing else — into the
+  server-side session right before the provider redirect. It lives ten
+  minutes and is consumed by the first callback, whatever the outcome.
+  `GET /auth/{provider}` never writes one and voids any abandoned one: that
+  round trip is always a sign-in.
+- The callback **never decides it is connecting because the session is
+  signed in**. It connects only when the context exists, is fresh, names the
+  callback's provider, and the session is signed in to the account that
+  started it. A context that fails any of that — expired, another provider,
+  another account, signed out — refuses the callback (`link_expired`): no
+  sign-in, no registration, no link to anyone. Without a context, a
+  callback that finds the session signed in is refused too
+  (`already_signed_in`). Both refusals discard the OAuth state without
+  asking the provider anything, so the same callback cannot be replayed
+  into a sign-in later.
+
+### Connecting and disconnecting
+
+- Every outcome of a connection — success or refusal — lands back on the
+  card (`ConnectedAccountsResponse`), with refusals in their own
+  `connectedAccounts` error bag; a refused connection whose account has
+  signed out lands on the login page instead.
 - The connected account may use a **different email** than the RateGuru
-  account: signing in to the provider while signed in here is the proof of
-  ownership. It is refused when its email is another RateGuru account's
+  account: signing in to the provider during a connection this account
+  started is the proof of ownership. It is refused when its email is another RateGuru account's
   address — that address belongs with the other account — and, as always,
   when the identity is already linked elsewhere or the account already has
   another identity of that provider.
@@ -147,6 +175,8 @@ identity along with the rest of the private account state — see
   above; `RegisterSocialUserAction`, `LinkSocialAccountAction`,
   `StorePendingSocialLinkAction` and `CompletePendingSocialLinkAction` are
   the individual writes.
+- `App\Support\Auth\SocialLinkContext` — the server-side connection
+  intent the callback checks before it attaches anything.
 - `App\Http\Controllers\Profile\ConnectedAccountController`,
   `App\Actions\Auth\UnlinkSocialAccountAction`,
   `App\Queries\UserConnectedAccountsQuery` and

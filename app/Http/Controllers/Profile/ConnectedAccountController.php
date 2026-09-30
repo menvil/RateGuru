@@ -7,6 +7,7 @@ use App\Enums\SocialProvider;
 use App\Exceptions\Auth\CannotDisconnectSocialAccountException;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\Auth\SocialLinkContext;
 use App\Support\Auth\SocialProviderGateway;
 use App\Support\Profile\ConnectedAccountsResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,12 +17,19 @@ use Symfony\Component\HttpFoundation\RedirectResponse as ProviderRedirect;
 class ConnectedAccountController extends Controller
 {
     /**
-     * Start connecting a provider to the signed-in account: the ordinary
-     * provider round trip, whose callback sees the signed-in session and
-     * attaches the identity instead of signing anyone in.
+     * Start connecting a provider to the signed-in account. The server
+     * records the intent — this account, this provider — before the
+     * provider round trip, and only a callback that matches it attaches
+     * the identity.
      */
-    public function store(SocialProvider $provider, SocialProviderGateway $gateway): ProviderRedirect
+    public function store(Request $request, SocialProvider $provider, SocialProviderGateway $gateway): ProviderRedirect
     {
+        $user = $request->user();
+
+        assert($user instanceof User);
+
+        SocialLinkContext::start($user, $provider, now())->remember($request->session());
+
         return $gateway->redirect($provider);
     }
 

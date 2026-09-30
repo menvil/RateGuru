@@ -120,7 +120,7 @@ it('never reassigns an identity that already belongs to another account', functi
     $other = User::factory()->create(['email' => 'other@example.com']);
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'other@example.com']));
 
-    $response = $this->actingAs($other)->get(socialCallbackUrl('google'));
+    $response = startConnectingProvider($other, 'google')->get(socialCallbackUrl('google'));
 
     $response->assertRedirect(connectedAccountsUrl());
     $response->assertSessionHasErrors(['social' => trans('auth.social.already_linked', ['provider' => 'Google'])], null, 'connectedAccounts');
@@ -147,7 +147,7 @@ it('never silently replaces an existing Google identity with another one', funct
     SocialAccount::factory()->for($user)->google()->create(['provider_user_id' => 'g-1']);
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-2', 'email' => 'ivan@example.com']));
 
-    $response = $this->actingAs($user)->get(socialCallbackUrl('google'));
+    $response = startConnectingProvider($user, 'google')->get(socialCallbackUrl('google'));
 
     $response->assertRedirect(connectedAccountsUrl());
     $response->assertSessionHasErrors(['social' => trans('auth.social.provider_already_linked', ['provider' => 'Google'])], null, 'connectedAccounts');
@@ -170,7 +170,7 @@ it('connects a provider directly to the signed-in account when the emails match'
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake($provider, fakeSocialiteUser(['id' => 'subject-42', 'email' => ' Ivan@Example.com ']));
 
-    $this->actingAs($user)->get(socialCallbackUrl($provider))
+    startConnectingProvider($user, $provider)->get(socialCallbackUrl($provider))
         ->assertRedirect(connectedAccountsUrl())
         ->assertSessionHasNoErrors();
 
@@ -186,7 +186,7 @@ it('connects a provider account that uses another email address of the signed-in
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => 'ivan.personal@example.com']));
 
-    $this->actingAs($user)->get(socialCallbackUrl('facebook'))
+    startConnectingProvider($user, 'facebook')->get(socialCallbackUrl('facebook'))
         ->assertRedirect(connectedAccountsUrl())
         ->assertSessionHasNoErrors();
 
@@ -202,7 +202,7 @@ it('connects a provider account that shares no email to the signed-in account', 
     $user = User::factory()->create(['email' => 'ivan@example.com']);
     Socialite::fake('facebook', fakeSocialiteUser(['id' => 'fb-1', 'email' => null]));
 
-    $this->actingAs($user)->get(socialCallbackUrl('facebook'))
+    startConnectingProvider($user, 'facebook')->get(socialCallbackUrl('facebook'))
         ->assertRedirect(connectedAccountsUrl())
         ->assertSessionHasNoErrors();
 
@@ -220,7 +220,7 @@ it('refuses to connect a provider account whose email belongs to another account
         'email_verified' => $confirmedByProvider,
     ]));
 
-    $response = $this->actingAs($user)->get(socialCallbackUrl('google'));
+    $response = startConnectingProvider($user, 'google')->get(socialCallbackUrl('google'));
 
     $response->assertRedirect(connectedAccountsUrl());
     $response->assertSessionHasErrors(['social' => trans('auth.social.email_taken', ['provider' => 'Google'])], null, 'connectedAccounts');
@@ -234,7 +234,7 @@ it('treats a repeat connection of an identity the account already holds as a no-
     SocialAccount::factory()->for($user)->google()->create(['provider_user_id' => 'g-1']);
     Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@example.com']));
 
-    $this->actingAs($user)->get(socialCallbackUrl('google'))
+    startConnectingProvider($user, 'google')->get(socialCallbackUrl('google'))
         ->assertRedirect(connectedAccountsUrl())
         ->assertSessionHasNoErrors();
 
