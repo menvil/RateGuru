@@ -7,7 +7,7 @@ use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\SocialAccount;
 use App\Models\User;
-use App\Support\Auth\SocialIdentityNormalizer;
+use App\Notifications\SocialAccountConnectedNotification;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -20,28 +20,32 @@ use Illuminate\Support\Facades\DB;
  *  - only a living account (canAuthenticate) may gain an identity;
  *  - one identity per provider per account — an existing Google identity is
  *    never silently replaced by another;
- *  - the identity's email must equal the account's email — an identity is
- *    never attached to an account with a different address;
- *  - an identity already owned by someone else is never reassigned.
+ *  - an identity already owned by someone else is never reassigned;
+ *  - an identity whose email is another account's address is never attached
+ *    here — that address belongs with the other account.
+ *
+ * The identity's email need not be the account's own: a person signed in
+ * to their account may connect a Google or Facebook account that uses
+ * another address of theirs. Proof of ownership is the provider sign-in
+ * performed while signed in, not the email.
  *
  * The two unique indexes on social_accounts are the last line of defence
  * against callbacks racing each other; a violation surfaces as the same
  * controlled conflict the checks above would have reported.
+ *
+ * A newly attached identity sends the account a security email once the
+ * surrounding transaction commits, whichever path attached it.
  */
 final class LinkSocialAccountAction
 {
     use LocksActorForWrite;
-
-    public function __construct(
-        private readonly SocialIdentityNormalizer $normalizer,
-    ) {}
 
     /**
      * @throws SocialAuthenticationException when the link would break one of the invariants above
      */
     public function execute(User $user, SocialIdentity $identity): SocialAccount
     {
-        return DB::transaction(function () use ($user, $identity): SocialAccount {
+        $account = DB::transaction(function () use ($user, $identity): SocialAccount {
             $locked = $this->lockActor($user);
 
             if ($locked === null || ! $locked->canAuthenticate()) {
@@ -56,14 +60,12 @@ final class LinkSocialAccountAction
             if ($current !== null) {
                 if ($current->provider_user_id === $identity->providerUserId) {
                     // Already connected: a repeat is a no-op, not a conflict.
+                    $current->refreshProviderEmail($identity->email);
+
                     return $current;
                 }
 
                 throw SocialAuthenticationException::providerAlreadyLinked($identity->provider);
-            }
-
-            if ($identity->email === null || $this->normalizer->normalizeEmail($locked->email) !== $identity->email) {
-                throw SocialAuthenticationException::emailMismatch($identity->provider);
             }
 
             $ownedElsewhere = SocialAccount::query()
@@ -75,11 +77,21 @@ final class LinkSocialAccountAction
                 throw SocialAuthenticationException::identityAlreadyLinked($identity->provider);
             }
 
+            $emailOwnedElsewhere = $identity->email !== null && User::query()
+                ->where('email', $identity->email)
+                ->whereKeyNot($locked->id)
+                ->exists();
+
+            if ($emailOwnedElsewhere) {
+                throw SocialAuthenticationException::emailBelongsToAnotherAccount($identity->provider);
+            }
+
             try {
                 return SocialAccount::create([
                     'user_id' => $locked->id,
                     'provider' => $identity->provider,
                     'provider_user_id' => $identity->providerUserId,
+                    'provider_email' => $identity->email,
                 ]);
             } catch (UniqueConstraintViolationException) {
                 // The account row is locked, so its (user_id, provider) slot
@@ -88,5 +100,11 @@ final class LinkSocialAccountAction
                 throw SocialAuthenticationException::identityAlreadyLinked($identity->provider);
             }
         });
+
+        if ($account->wasRecentlyCreated) {
+            $user->notify(new SocialAccountConnectedNotification($identity->provider, $identity->email));
+        }
+
+        return $account;
     }
 }

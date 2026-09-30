@@ -11,18 +11,22 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * that anonymization takes every identity with it.
  */
 
-it('stores only the identity and casts the provider to the enum', function () {
+it('stores only the identity and the provider email, and casts the provider to the enum', function () {
     $user = User::factory()->create();
 
-    $account = SocialAccount::factory()->for($user)->facebook()->create(['provider_user_id' => 'fb-1']);
+    $account = SocialAccount::factory()->for($user)->facebook()->create([
+        'provider_user_id' => 'fb-1',
+        'provider_email' => 'ivan@example.com',
+    ]);
     $fresh = $account->fresh();
 
     expect($fresh->provider)->toBe(SocialProvider::Facebook)
         ->and($fresh->provider_user_id)->toBe('fb-1')
+        ->and($fresh->provider_email)->toBe('ivan@example.com')
         ->and($fresh->user->is($user))->toBeTrue()
         ->and($user->socialAccounts()->count())->toBe(1)
         ->and(array_keys($fresh->getAttributes()))
-        ->toBe(['id', 'user_id', 'provider', 'provider_user_id', 'created_at', 'updated_at']);
+        ->toEqualCanonicalizing(['id', 'user_id', 'provider', 'provider_user_id', 'provider_email', 'created_at', 'updated_at']);
 });
 
 it('enforces one account per provider identity', function () {

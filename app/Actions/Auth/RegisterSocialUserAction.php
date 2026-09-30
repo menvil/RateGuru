@@ -67,6 +67,7 @@ final class RegisterSocialUserAction
                     'user_id' => $user->id,
                     'provider' => $identity->provider,
                     'provider_user_id' => $identity->providerUserId,
+                    'provider_email' => $identity->email,
                 ]);
 
                 return $user;

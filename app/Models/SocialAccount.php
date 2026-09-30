@@ -12,14 +12,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One external identity (a Google or Facebook subject) attached to one user.
  *
- * Deliberately nothing but the identity itself: no token, no provider email,
- * no name, no avatar. `provider + provider_user_id` is the key the person is
- * recognised by on every later sign-in; the email is only ever used once, to
- * decide which account a brand-new identity belongs with.
+ * Deliberately almost nothing but the identity itself: no token, no name, no
+ * avatar. `provider + provider_user_id` is the key the person is recognised
+ * by on every later sign-in. The provider's email is kept only so the
+ * profile can show which Google or Facebook account is connected: it is
+ * refreshed on every sign-in through the identity, never used to find an
+ * account, and goes with the row.
  *
  * @property SocialProvider $provider
+ * @property string|null $provider_email
  */
-#[Fillable(['user_id', 'provider', 'provider_user_id'])]
+#[Fillable(['user_id', 'provider', 'provider_user_id', 'provider_email'])]
 class SocialAccount extends Model
 {
     /** @use HasFactory<SocialAccountFactory> */
@@ -31,6 +34,16 @@ class SocialAccount extends Model
         return [
             'provider' => SocialProvider::class,
         ];
+    }
+
+    /** Keeps the shown address current; the provider may have changed it. */
+    public function refreshProviderEmail(?string $email): void
+    {
+        $this->provider_email = $email;
+
+        if ($this->isDirty('provider_email')) {
+            $this->save();
+        }
     }
 
     /** @return BelongsTo<User, $this> */

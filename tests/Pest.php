@@ -6,6 +6,7 @@ use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\User;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Import\Dns\HostResolver;
@@ -3099,6 +3100,25 @@ function fakeSocialiteUser(array $attributes = []): SocialiteUser
         'email' => 'ivan@example.com',
         'avatar' => null,
     ], $attributes));
+}
+
+/** Where every connect and disconnect lands: the profile's Connected accounts card. */
+function connectedAccountsUrl(): string
+{
+    return route('profile.edit').'#connected-accounts';
+}
+
+/**
+ * Signs in as $user and presses Connect for $provider on the Connected
+ * accounts card — the only start that lets a later callback attach an
+ * identity to a signed-in account. Returns the test case for the callback.
+ */
+function startConnectingProvider(User $user, string $provider): TestCase
+{
+    $test = test()->actingAs($user);
+    $test->post(route('profile.connected-accounts.store', ['provider' => $provider]))->assertRedirect();
+
+    return $test;
 }
 
 /**

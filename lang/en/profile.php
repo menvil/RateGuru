@@ -41,4 +41,21 @@ return [
         'confirm_with_email' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Your account has no password, so type your email address (:email) to confirm.',
         'email_mismatch' => 'This is not the email address of your account.',
     ],
+
+    'connected' => [
+        'title' => 'Connected accounts',
+        'description' => 'Connect Google or Facebook to sign in with them. A connected account may use a different email address than your RateGuru account.',
+        'connect' => 'Connect',
+        'disconnect' => 'Disconnect',
+        'not_connected' => 'Not connected',
+        'no_email' => 'No email address shared',
+        'since' => 'Connected :date',
+        'last_method' => 'This is the only way to sign in to your account. Set a password or connect another account to disconnect it.',
+        'connected' => ':provider is connected. You can now sign in with it.',
+        'disconnected' => ':provider is disconnected.',
+        'confirm_title' => 'Disconnect :provider?',
+        'confirm_body' => 'You will no longer be able to sign in with this :provider account. You can connect it again at any time.',
+        'not_connected_error' => ':provider is not connected to your account.',
+        'last_method_error' => ':provider is the only way to sign in to your account. Set a password or connect another account first.',
+    ],
 ];

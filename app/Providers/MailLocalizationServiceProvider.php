@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\User;
+use App\Support\Notifications\MailAddressee;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -34,7 +34,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
     {
         VerifyEmail::toMailUsing(fn (object $notifiable, string $url): MailMessage => (new MailMessage)
             ->subject(__('mail.verify.subject'))
-            ->greeting(__('mail.greeting', ['name' => self::addressee($notifiable)]))
+            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
             ->line(__('mail.verify.line'))
             ->action(__('mail.verify.action'), $url)
             ->line(__('mail.verify.ignore'))
@@ -42,7 +42,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
 
         ResetPassword::toMailUsing(fn (object $notifiable, string $token): MailMessage => (new MailMessage)
             ->subject(__('mail.reset.subject'))
-            ->greeting(__('mail.greeting', ['name' => self::addressee($notifiable)]))
+            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
             ->line(__('mail.reset.line'))
             ->action(__('mail.reset.action'), self::resetUrl($token, $notifiable))
             ->line(__('mail.reset.expire', [
@@ -50,26 +50,6 @@ final class MailLocalizationServiceProvider extends ServiceProvider
             ]))
             ->line(__('mail.reset.ignore'))
             ->salutation(__('mail.salutation', ['app' => config('app.name')])));
-    }
-
-    /**
-     * What to call the recipient. display_name is what they chose to be called
-     * and name is what they registered as; either can be blank, and a greeting
-     * reading "Hello, !" is worse than a generic one.
-     */
-    private static function addressee(object $notifiable): string
-    {
-        if (! $notifiable instanceof User) {
-            return (string) config('app.name');
-        }
-
-        foreach ([$notifiable->display_name, $notifiable->name] as $candidate) {
-            if (is_string($candidate) && trim($candidate) !== '') {
-                return $candidate;
-            }
-        }
-
-        return (string) config('app.name');
     }
 
     /**

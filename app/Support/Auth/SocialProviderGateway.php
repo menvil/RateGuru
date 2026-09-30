@@ -5,6 +5,7 @@ namespace App\Support\Auth;
 use App\Data\Auth\SocialIdentity;
 use App\Enums\SocialProvider;
 use App\Exceptions\Auth\SocialAuthenticationException;
+use Illuminate\Contracts\Session\Session;
 use Laravel\Socialite\Contracts\Factory as SocialiteFactory;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Two\AbstractProvider;
@@ -66,6 +67,17 @@ final class SocialProviderGateway
         }
 
         return $this->normalizer->normalize($provider, $user);
+    }
+
+    /**
+     * Ends a round trip without asking the provider anything, for a callback
+     * that is refused before it is read: Socialite's state (and PKCE
+     * verifier) for this session is discarded, so the same callback can
+     * never be replayed later into a sign-in.
+     */
+    public function abandon(Session $session): void
+    {
+        $session->forget(['state', 'code_verifier']);
     }
 
     private function driver(SocialProvider $provider): Provider
