@@ -1,0 +1,51 @@
+.github/workflows/recover-production.yml
+  s_c7e782fafc9782::t_062039e4707ece 768
+  s_c7e782fafc9782::t_77ac28e1375d5d 1
+  s_c7e782fafc9782::t_2e6cc2b7b59c6b 384,386,1561,1724,1727,1759,2032
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_c7e782fafc9782::t_7aa0555a64fb01 165
+infrastructure/runbooks/github-restore.md
+  s_c7e782fafc9782::t_062039e4707ece 13
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_c7e782fafc9782::t_7aa0555a64fb01 74
+.github/workflows/prepare-production-host.yml
+  s_c7e782fafc9782::t_77ac28e1375d5d 1
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_062039e4707ece 507,516,562
+tests/Feature/Architecture/RollbackProductionWorkflowTest.php
+  s_c7e782fafc9782::t_7aa0555a64fb01 24
+.github/workflows/repair-production.yml
+  s_c7e782fafc9782::t_77ac28e1375d5d 1
+  s_c7e782fafc9782::t_062039e4707ece 20
+infrastructure/README.md
+  s_c7e782fafc9782::t_92a416829bd0ce 84,115
+.github/workflows/restore-staging.yml
+  s_c7e782fafc9782::t_062039e4707ece 7
+infrastructure/runbooks/repair-target.md
+  s_c7e782fafc9782::t_062039e4707ece 13,63,431,439
+infrastructure/runbooks/github-recover.md
+  s_c7e782fafc9782::t_92a416829bd0ce 18,662
+.github/workflows/restore-production.yml
+  s_c7e782fafc9782::t_77ac28e1375d5d 1
+  s_c7e782fafc9782::t_062039e4707ece 11
+.github/workflows/rollback-production.yml
+  s_c7e782fafc9782::t_77ac28e1375d5d 1
+infrastructure/runbooks/prepare-host.md
+  s_c7e782fafc9782::t_062039e4707ece 47,443,468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "73bf0199ee4f43966122ed5c079c96e9e26795be",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
