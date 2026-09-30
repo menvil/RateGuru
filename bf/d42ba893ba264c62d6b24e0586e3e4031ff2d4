@@ -1,0 +1,23 @@
+infrastructure/scripts/configure-target
+  s_c7e782fafc9782::t_ca79bdceb5414b 387-396
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_c7e782fafc9782::t_6c81b9139ca7a7 1-417
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_d37ac2f34577d4 1-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bfd42ba893ba264c62d6b24e0586e3e4031ff2d4",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
