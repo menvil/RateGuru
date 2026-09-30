@@ -434,7 +434,12 @@ it('check fails when the sudoers candidate grants a production deploy user acces
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('must not grant a production deploy user any access');
+
+        // The refusal is stronger than it was. It used to name that one
+        // account; now ANY deviation from what the registry renders is
+        // refused, so an account the registry has never heard of is caught
+        // without having to be listed anywhere.
+        expect($output)->toContain('is not what this registry renders');
     } finally {
         installPerimeterCleanup($scratch);
     }

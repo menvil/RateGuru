@@ -58,8 +58,8 @@ it('has no input that could carry the material it causes to be used', function (
     // The absence IS the model. An environment file that arrives from GitHub
     // is a second copy of something the host already holds canonically, and
     // two copies of a credential is how they diverge.
-    expect(array_keys(configureAction()['inputs']))
-        ->not->toContain($forbidden, "configuring must not be able to accept: {$forbidden}");
+    expect(in_array($forbidden, array_keys(configureAction()['inputs']), true))
+        ->toBeFalse("configuring must not be able to accept: {$forbidden}");
 })->with([
     'laravel-env', 'env', 'env-file', 'environment-file', 'app-key', 'application-key',
     'deploy-authorized-keys', 'authorized-keys', 'deploy-ssh-key',
@@ -159,8 +159,8 @@ it('demands exactly one machine-readable result, and every claim in it', functio
 });
 
 it('runs no operation on the host but configuring', function (string $forbidden) {
-    expect(configureActionExecutable())
-        ->not->toContain($forbidden, "the configuration transport must not invoke: {$forbidden}");
+    expect(str_contains(configureActionExecutable(), $forbidden))
+        ->toBeFalse("the configuration transport must not invoke: {$forbidden}");
 })->with([
     'scripts/deploy', 'scripts/rollback', 'scripts/restore-target', 'scripts/recover-host',
     'scripts/prepare-host', 'scripts/repair-target', 'scripts/backup',

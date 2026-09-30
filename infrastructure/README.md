@@ -105,6 +105,7 @@ infrastructure, and moves out once a second project exists.
   a later operation, and each is named as `DEFERRED` in the report rather than
   silently absent — see
   [`runbooks/provision-target.md`](runbooks/provision-target.md);
+  [`runbooks/configure-target.md`](runbooks/configure-target.md);
 - host recovery: `infrastructure/scripts/recover-host` rebuilds one lost target
   onto a prepared, empty replacement machine from one exact offsite backup, and
   leaves the machine deliberately not serving until the exact commit that

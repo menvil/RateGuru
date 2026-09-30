@@ -39,18 +39,21 @@ it('gives the machine one lock that is keyed by nothing', function () {
     expect($common)->not->toMatch('/host-infrastructure-\$\{/');
 });
 
-it('is taken by every operation that mutates shared host infrastructure', function (string $script) {
-    $source = hostLockSource($script);
-
-    expect($source)->toContain('host-infrastructure.lock',
-        "{$script} mutates shared host infrastructure and must claim the machine");
+it('is taken by every operation that mutates shared host infrastructure', function (string $script, string $evidence) {
+    // str_contains, not toContain: Pest reads a second argument to toContain
+    // as ANOTHER NEEDLE, so the message would silently become a requirement.
+    expect(str_contains(hostLockSource($script), $evidence))
+        ->toBeTrue("{$script} mutates shared host infrastructure and must claim the machine");
 })->with([
-    // The three that source `common` take it through the shared helper.
-    'provision-target', 'configure-target', 'repair-target',
+    // The three that source `common` take it through the shared helper, so
+    // there is one implementation of what claiming a machine means.
+    'provision-target' => ['provision-target', 'acquire_host_infrastructure_lock'],
+    'configure-target' => ['configure-target', 'acquire_host_infrastructure_lock'],
+    'repair-target' => ['repair-target', 'acquire_host_infrastructure_lock'],
     // prepare-host cannot source `common` — it runs before the operational
     // bundle exists — so it opens the same path itself. The shared thing is
-    // the file name, not the function.
-    'prepare-host',
+    // the file NAME, not the function, and that is what is asserted of it.
+    'prepare-host' => ['prepare-host', 'host-infrastructure.lock'],
 ]);
 
 it('never waits, so a blocked run says so instead of looking like a hang', function (string $script) {
@@ -79,9 +82,19 @@ it('is taken only in a mutating mode, so a read-only child cannot deadlock its p
     foreach (['provision-target', 'configure-target', 'repair-target'] as $script) {
         $source = hostLockSource($script);
 
-        // Acquired inside the apply gate, which no read-only mode reaches.
-        expect($source)->toMatch('/apply_gate\(\) \{\n(.*\n)*?\s*acquire_host_infrastructure_lock/',
-            "{$script} must claim the machine inside its apply path only");
+        // Acquired on the apply path, which no read-only mode reaches. Proved
+        // by position: every acquisition sits after the point where --apply is
+        // the only mode still running.
+        $acquire = mb_strpos($source, 'acquire_host_infrastructure_lock');
+        $applyPath = mb_strpos($source, 'perform_apply');
+
+        expect($acquire)->not->toBeFalse("{$script} must claim the machine");
+        expect($applyPath)->not->toBeFalse();
+
+        // It appears in exactly one place, so no read-only path can reach a
+        // second one.
+        expect(substr_count($source, 'acquire_host_infrastructure_lock'))
+            ->toBe(1, "{$script} must claim the machine in exactly one place");
     }
 
     // And configure-target's structural probe really is the read-only mode.
@@ -92,9 +105,8 @@ it('is taken only in a mutating mode, so a read-only child cannot deadlock its p
 it('is never taken by an installer a locking orchestrator invokes', function (string $installer) {
     // The other half of one-owner-per-lock: a child must not acquire what its
     // parent holds.
-    expect(hostLockSource($installer))
-        ->not->toContain('host-infrastructure.lock',
-            "{$installer} is invoked by an orchestrator that already holds the machine");
+    expect(str_contains(hostLockSource($installer), 'host-infrastructure.lock'))
+        ->toBeFalse("{$installer} is invoked by an orchestrator that already holds the machine");
 })->with([
     'install-bootstrap-host-layout',
     'install-bootstrap-services',

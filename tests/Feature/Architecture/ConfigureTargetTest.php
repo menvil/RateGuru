@@ -27,6 +27,9 @@ function configureScratchDir(): string
     @mkdir($dir.'/bin', 0o755, true);
     @mkdir($dir.'/log', 0o755, true);
     @mkdir($dir.'/toggles', 0o755, true);
+    // The machine's lock directory. A real host has it because the bootstrap
+    // created it; this operation never creates one, which is asserted below.
+    @mkdir($dir.'/run', 0o755, true);
 
     return $dir;
 }
@@ -105,6 +108,7 @@ function configureFixture(string $scratch, array $options = []): array
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
         'RATEGURU_CONFIGURE_EUID' => $options['euid'] ?? '0',
+        'RATEGURU_HOST_LOCK_ROOT' => $options['lockRoot'] ?? $scratch.'/run',
         'RATEGURU_CONFIGURE_PROVISION_BIN' => $scratch.'/bin/provision-target',
         'RATEGURU_CONFIGURE_PREREQUISITES_BIN' => $scratch.'/bin/install-target-prerequisites',
         'RATEGURU_CONFIGURE_DATABASE_BIN' => $scratch.'/bin/install-target-database',
@@ -384,8 +388,8 @@ it('requires root in every working mode', function (string $mode) {
 it('implements no material, permission or database mechanism of its own', function (string $forbidden) {
     // It orchestrates owners. A second implementation of any of these is how
     // the two drift until one of them is quietly wrong.
-    expect(executableSourceLines(File::get(configureScript())))
-        ->not->toContain($forbidden, "configure-target must not implement: {$forbidden}");
+    expect(str_contains(executableSourceLines(File::get(configureScript())), $forbidden))
+        ->toBeFalse("configure-target must not implement: {$forbidden}");
 })->with([
     // identities and permissions
     'useradd', 'usermod', 'groupadd', 'chown', 'chmod', 'setfacl', 'visudo', 'sudoers',
@@ -406,6 +410,66 @@ it('never reads, prints or measures the credentials it causes to be installed', 
 
     foreach (['APP_KEY', 'DB_PASSWORD', 'DB_USERNAME', 'wc -c', 'sha256sum', 'md5sum', 'cat "${SHARED_ENV'] as $forbidden) {
         expect($source)->not->toContain($forbidden);
+    }
+});
+
+it('claims the machine before it judges anything, and never creates the lock directory', function () {
+    // Targets share a host. Configuring creates a database and installs into
+    // root-owned trees, so it holds the machine for the whole run — and a host
+    // that has never been bootstrapped has no lock directory, which is a
+    // refusal rather than something to create.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch, ['lockRoot' => $scratch.'/nonexistent']);
+
+        [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('the operational lock directory does not exist')
+            ->toContain('never creates it');
+
+        expect(is_dir($scratch.'/nonexistent'))->toBeFalse();
+        expect(configureLog($scratch))->toBe('');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('refuses while another operation holds the machine, and changes nothing', function () {
+    // Never waits: a run that blocked silently would look like a hang and get
+    // cancelled halfway through somebody else's mutation.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch);
+        $lock = $scratch.'/run/host-infrastructure.lock';
+
+        touch($lock);
+
+        // Hold it from another process, the way a concurrent operation would.
+        $holder = proc_open(
+            ['bash', '-c', 'exec 9>>"$1"; flock -n 9 || exit 1; sleep 30', '_', $lock],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        usleep(300_000);
+
+        [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
+
+        proc_terminate($holder);
+        proc_close($holder);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain("another operation is already mutating this host's shared infrastructure")
+            ->toContain('changed nothing');
+
+        expect(configureLog($scratch))->toBe('');
+    } finally {
+        configureCleanup($scratch);
     }
 });
 
