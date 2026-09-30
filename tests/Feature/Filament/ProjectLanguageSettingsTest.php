@@ -132,3 +132,19 @@ it('refuses a default outside the offered languages at the action as well', func
     expect(fn () => app(SaveProjectSettingsAction::class)->handle(['default_locale' => $withheld]))
         ->toThrow(InvalidArgumentException::class, $withheld);
 });
+
+it('refuses to take the offered languages together with the other settings', function () {
+    // One payload could otherwise replace the set and pass its own default
+    // check against the set it is about to replace.
+    [$offered, $withheld] = withheldProject();
+    $before = ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales', 'default_locale']);
+
+    expect(fn () => app(SaveProjectSettingsAction::class)->handle([
+        'site_name' => 'Changed',
+        'enabled_locales' => [$withheld],
+        'default_locale' => $withheld,
+    ]))->toThrow(InvalidArgumentException::class, 'UpdateProjectLocaleSettingsAction');
+
+    expect(ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales', 'default_locale']))->toBe($before)
+        ->and(app(LocaleManager::class)->projectDefault())->toBe($offered);
+});

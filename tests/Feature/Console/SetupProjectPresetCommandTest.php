@@ -74,3 +74,30 @@ it('rejects an unknown preset key', function () {
         ->expectsOutput('Unknown project preset: [unknown].')
         ->assertExitCode(1);
 });
+
+it('keeps the languages the project offers when setup is forced again', function () {
+    [, $only] = twoTranslatedLocales();
+    ProjectSettings::factory()->create(['active_preset_key' => 'generic', 'preset_applied_at' => now()->subDay()]);
+    offerLocales([$only], $only);
+
+    $this->artisan('rateguru:setup', ['preset' => 'nature', '--force' => true])
+        ->expectsOutput('Preset [nature] applied successfully.')
+        ->assertExitCode(0);
+
+    expect(ProjectSettings::firstOrFail())
+        ->active_preset_key->toBe('nature')
+        ->enabled_locales->toBe([$only])
+        ->default_locale->toBe($only);
+});
+
+it('reports a preset whose default language is not installed instead of applying it', function () {
+    $preset = config('project_presets.nature');
+    $preset['settings']['default_locale'] = unsupportedLocale();
+    config(['project_presets.unknown_locale' => $preset]);
+
+    $this->artisan('rateguru:setup', ['preset' => 'unknown_locale', '--force' => true])
+        ->expectsOutput('Project preset [unknown_locale] sets the default locale ['.unsupportedLocale().'], which is not installed.')
+        ->assertExitCode(1);
+
+    expect(ProjectSettings::count())->toBe(0);
+});

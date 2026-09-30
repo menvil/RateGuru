@@ -41,8 +41,13 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ProjectSettingsManager::class);
-        $this->app->singleton(ThemeManager::class);
+        // Scoped, not singleton: the settings are cached for one request or
+        // one queued job, never for the life of a queue worker, which would
+        // otherwise keep serving the languages and defaults it started with.
+        // ThemeManager holds the settings manager, so it has to be scoped too —
+        // a singleton would capture the first scope's instance for good.
+        $this->app->scoped(ProjectSettingsManager::class);
+        $this->app->scoped(ThemeManager::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
