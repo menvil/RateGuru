@@ -28,12 +28,9 @@ it('does not use common raw color classes in active public ui views', function (
         ->files()
         ->in(resource_path('views'))
         ->name('*.blade.php')
-        ->notPath('layouts/navigation.blade.php')
         ->notPath('components/secondary-button.blade.php')
         ->notPath('components/dropdown.blade.php')
-        ->notPath('components/danger-button.blade.php')
-        ->notPath('dashboard.blade.php')
-        ->notPath('welcome.blade.php');
+        ->notPath('components/danger-button.blade.php');
 
     $violations = [];
 

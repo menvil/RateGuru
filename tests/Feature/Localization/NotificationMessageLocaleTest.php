@@ -34,7 +34,7 @@ it('renders a stored key in the reader language', function (string $locale, stri
 })->with([
     ['en', '@kate commented on your post'],
     ['ru', '@kate прокомментировал ваш пост'],
-    ['bg', '@kate коментира вашата публикация'],
+    ['bg', '@kate коментира вашия пост'],
 ]);
 
 it('substitutes every parameter a message declares', function () {

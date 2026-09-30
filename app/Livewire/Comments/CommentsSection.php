@@ -105,7 +105,7 @@ final class CommentsSection extends Component
             $this->addError(
                 'replyBody',
                 $e->isGuest()
-                    ? 'You must be signed in to reply.'
+                    ? __('ui.comments.sign_in_to_reply')
                     : $e->getMessage(),
             );
 

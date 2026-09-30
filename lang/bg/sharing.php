@@ -16,5 +16,5 @@ return [
     'share_via' => 'Сподели чрез',
     'share_unavailable' => 'Споделянето не е достъпно',
     'copy_failed' => 'Не може да се копира автоматично. Изберете и копирайте ръчно.',
-    'post_fallback_description' => 'Вижте и оценете тази публикация в :siteName.',
+    'post_fallback_description' => 'Вижте и оценете този пост в :siteName.',
 ];

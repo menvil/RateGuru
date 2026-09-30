@@ -48,7 +48,7 @@ final class PostVoting extends Component
         $post = $this->post;
 
         if ($post === null) {
-            $this->error = 'This post is no longer available.';
+            $this->error = __('ui.post.unavailable');
 
             return;
         }

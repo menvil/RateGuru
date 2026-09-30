@@ -1,10 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Lang;
 
 it('exposes recently-deleted keys in every locale', function (string $locale) {
-    App::setLocale($locale);
-
     foreach ([
         'ui.recently_deleted.title',
         'ui.recently_deleted.description',
@@ -16,9 +15,9 @@ it('exposes recently-deleted keys in every locale', function (string $locale) {
         'ui.recently_deleted.restored',
         'ui.recently_deleted.unavailable',
     ] as $key) {
-        expect(__($key))->not->toBe($key);
+        expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-})->with(['en', 'ru', 'bg']);
+})->with(supportedLocales());
 
 it('pluralizes russian days-left correctly across teen and composite counts', function () {
     App::setLocale('ru');

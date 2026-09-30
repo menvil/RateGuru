@@ -73,7 +73,7 @@ it('renders static page content in the selected locale', function (string $local
         ->assertOk()
         ->assertSee($page['title'])
         ->assertSee($page['content']);
-})->with(['ru', 'bg']);
+})->with(translatedLocales());
 
 it('renders admin-edited static page content for the current locale', function () {
     ProjectSettings::factory()->create([

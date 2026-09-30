@@ -56,7 +56,7 @@ it('project presets have required shape', function () {
                     'name',
                     'sort_order',
                 ]);
-                expect($category['name'])->toHaveKeys(['en', 'ru', 'bg']);
+                expect($category['name'])->toHaveKeys(supportedLocales());
             }
         }
 
@@ -78,7 +78,7 @@ it('project presets have required shape', function () {
 
         if ($preset['tags'] !== null) {
             foreach ($preset['tags'] as $tag) {
-                expect($tag)->toHaveKeys(['en', 'ru', 'bg']);
+                expect($tag)->toHaveKeys(supportedLocales());
             }
         }
     }

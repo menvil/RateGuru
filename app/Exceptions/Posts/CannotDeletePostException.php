@@ -8,16 +8,16 @@ final class CannotDeletePostException extends DomainException
 {
     public static function becauseUserIsNotAllowed(): self
     {
-        return new self('You cannot delete this post.');
+        return new self(__('ui.post.delete_errors.not_allowed'));
     }
 
     public static function becausePostIsUnderModeration(): self
     {
-        return new self('This post is under moderation and cannot be deleted.');
+        return new self(__('ui.post.delete_errors.under_moderation'));
     }
 
     public static function becausePostStateIsInvalid(): self
     {
-        return new self('This post cannot be deleted.');
+        return new self(__('ui.post.delete_errors.invalid_state'));
     }
 }

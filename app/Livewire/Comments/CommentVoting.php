@@ -28,7 +28,7 @@ final class CommentVoting extends Component
         $comment = $commentVotingService->comment($this->commentId);
 
         if ($comment === null) {
-            $this->error = 'This comment is no longer available.';
+            $this->error = __('ui.comments.unavailable');
 
             return;
         }

@@ -112,7 +112,7 @@
 
                         <x-slot:footer>
                             <x-ui.button variant="secondary" x-on:click="disconnectOpen = false" data-testid="disconnect-{{ $provider->value }}-cancel">
-                                {{ __('Cancel') }}
+                                {{ __('ui.actions.cancel') }}
                             </x-ui.button>
 
                             <x-ui.button type="submit" variant="danger" form="disconnect-{{ $provider->value }}-form" data-testid="disconnect-{{ $provider->value }}-confirm">

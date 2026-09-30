@@ -7,20 +7,20 @@
 <section class="space-y-6" x-data="{ deleteOpen: @js($errors->userDeletion->isNotEmpty()) }">
     <header>
         <h2 class="text-lg font-semibold text-rg-text">
-            {{ __('Delete Account') }}
+            {{ __('profile.delete.title') }}
         </h2>
 
         <p class="mt-1 text-sm text-rg-muted">
-            {{ __('Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.') }}
+            {{ __('profile.delete.description') }}
         </p>
     </header>
 
     <x-danger-button type="button" data-testid="delete-account-open" x-on:click="deleteOpen = true">
-        {{ __('Delete Account') }}
+        {{ __('profile.delete.action') }}
     </x-danger-button>
 
     <x-ui.modal
-        :title="__('Are you sure you want to delete your account?')"
+        :title="__('profile.delete.confirm_title')"
         state="deleteOpen"
         size="md"
         trap-focus
@@ -35,11 +35,11 @@
 
             @if ($confirmsWithPassword)
                 <p class="text-sm text-rg-muted">
-                    {{ __('Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.') }}
+                    {{ __('profile.delete.confirm_with_password') }}
                 </p>
 
                 <div class="mt-4">
-                    <x-input-label for="delete_account_password" value="{{ __('Password') }}" class="sr-only" />
+                    <x-input-label for="delete_account_password" value="{{ __('auth.fields.password') }}" class="sr-only" />
 
                     <x-ui.input
                         id="delete_account_password"
@@ -47,7 +47,7 @@
                         type="password"
                         autocomplete="current-password"
                         autofocus
-                        placeholder="{{ __('Password') }}"
+                        placeholder="{{ __('auth.fields.password') }}"
                         data-testid="delete-account-password"
                         :error="$errors->userDeletion->has('password')"
                     />
@@ -60,7 +60,7 @@
                 </p>
 
                 <div class="mt-4">
-                    <x-input-label for="delete_account_email" value="{{ __('Email') }}" class="sr-only" />
+                    <x-input-label for="delete_account_email" value="{{ __('auth.fields.email') }}" class="sr-only" />
 
                     <x-ui.input
                         id="delete_account_email"
@@ -80,11 +80,11 @@
 
         <x-slot:footer>
             <x-secondary-button x-on:click="deleteOpen = false" data-testid="delete-account-cancel">
-                {{ __('Cancel') }}
+                {{ __('ui.actions.cancel') }}
             </x-secondary-button>
 
             <x-danger-button form="delete-account-form" data-testid="delete-account-confirm">
-                {{ __('Delete Account') }}
+                {{ __('profile.delete.action') }}
             </x-danger-button>
         </x-slot:footer>
     </x-ui.modal>

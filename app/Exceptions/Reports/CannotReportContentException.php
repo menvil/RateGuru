@@ -8,27 +8,27 @@ final class CannotReportContentException extends DomainException
 {
     public static function becauseUnsupportedContent(): self
     {
-        return new self('This content cannot be reported.');
+        return new self(__('ui.report.errors.unsupported'));
     }
 
     public static function becauseGuest(): self
     {
-        return new self('Guests cannot report content.');
+        return new self(__('ui.report.errors.guest'));
     }
 
     public static function becauseUserIsNotAllowed(): self
     {
-        return new self('User is not allowed to report content.');
+        return new self(__('ui.report.errors.not_allowed'));
     }
 
     public static function becauseDuplicateReport(): self
     {
-        return new self('You have already reported this content.');
+        return new self(__('ui.report.errors.duplicate'));
     }
 
     public static function becauseContentIsNotReportable(): self
     {
-        return new self('This content can no longer be reported.');
+        return new self(__('ui.report.errors.not_reportable'));
     }
 
     public static function becauseRateLimited(string $message): self

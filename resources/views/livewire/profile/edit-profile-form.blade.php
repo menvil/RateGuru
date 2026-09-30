@@ -82,10 +82,10 @@
         @endif
 
         <div class="flex items-center gap-4">
-            <x-ui.button type="submit">{{ __('Save') }}</x-ui.button>
+            <x-ui.button type="submit">{{ __('ui.actions.save') }}</x-ui.button>
 
             @if(session('status') === 'profile-updated')
-                <p class="text-sm text-rg-muted">{{ __('Saved.') }}</p>
+                <p class="text-sm text-rg-muted">{{ __('ui.actions.saved') }}</p>
             @endif
         </div>
     </form>

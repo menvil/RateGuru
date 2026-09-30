@@ -34,7 +34,7 @@
         : [];
 
     $prompt = $mode === AuthModalMode::Login ? __('auth.prompts.no_account') : __('auth.prompts.have_account');
-    $switchLabel = $mode === AuthModalMode::Login ? __('Sign up') : __('Log in');
+    $switchLabel = $mode === AuthModalMode::Login ? __('auth.register.action') : __('auth.login.action');
     $switchClasses = 'cursor-pointer rounded-md font-semibold text-rg-accent2 hover:text-rg-text focus:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent';
 @endphp
 

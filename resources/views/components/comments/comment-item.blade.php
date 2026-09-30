@@ -83,7 +83,7 @@
                             <button
                                 type="button"
                                 wire:click="hideComment({{ $comment->id }})"
-                                wire:confirm="{{ __('ui.comments.hide') }}?"
+                                wire:confirm="{{ __('ui.comments.hide_confirm') }}"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
@@ -95,7 +95,7 @@
                             <button
                                 type="button"
                                 wire:click="deleteComment({{ $comment->id }})"
-                                wire:confirm="{{ __('ui.comments.delete') }}?"
+                                wire:confirm="{{ __('ui.comments.delete_confirm') }}"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >

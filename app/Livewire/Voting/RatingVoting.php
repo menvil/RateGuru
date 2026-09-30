@@ -64,7 +64,7 @@ class RatingVoting extends Component
         }
 
         if ($this->post === null) {
-            $this->error = 'This post is no longer available.';
+            $this->error = __('ui.post.unavailable');
 
             return;
         }
@@ -77,7 +77,7 @@ class RatingVoting extends Component
         $option = $group?->options->firstWhere('id', $optionId);
 
         if ($option === null) {
-            $this->error = 'Rating option is not available for this group.';
+            $this->error = __('ui.voting.option_unavailable');
 
             return;
         }

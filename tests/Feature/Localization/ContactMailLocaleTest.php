@@ -40,21 +40,22 @@ function admin(string $locale, string $email): User
 beforeEach(fn () => Mail::fake());
 
 it('writes to each administrator in their own language', function () {
-    admin('ru', 'ru-admin@example.test');
-    admin('bg', 'bg-admin@example.test');
+    foreach (translatedLocales() as $locale) {
+        admin($locale, "{$locale}-admin@example.test");
+    }
 
     sendContactMessage();
 
     // One message per administrator, each pinned to that administrator's
     // language — a single message to a list could only be rendered once.
-    foreach (['ru-admin@example.test' => 'ru', 'bg-admin@example.test' => 'bg'] as $email => $locale) {
+    foreach (translatedLocales() as $locale) {
         Mail::assertQueued(
             ContactMessageMail::class,
-            fn (ContactMessageMail $mail): bool => $mail->hasTo($email) && $mail->locale === $locale,
+            fn (ContactMessageMail $mail): bool => $mail->hasTo("{$locale}-admin@example.test") && $mail->locale === $locale,
         );
     }
 
-    Mail::assertQueuedCount(2);
+    Mail::assertQueuedCount(count(translatedLocales()));
 });
 
 it('falls back for an administrator who never chose a language', function () {
@@ -114,4 +115,4 @@ it('renders subject and body with no untranslated keys, in every language', func
         ->and($rendered)->toContain('lang="'.$locale.'"')
         // The message itself must survive translation untouched.
         ->and($rendered)->toContain('Body of the question.');
-})->with(['en', 'ru', 'bg']);
+})->with(supportedLocales());

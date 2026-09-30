@@ -4,11 +4,54 @@ return [
     'failed' => 'These credentials do not match our records.',
     'password' => 'The provided password is incorrect.',
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
+    'username_unavailable' => 'Unable to create a unique username. Please try a different name.',
     'session_ended' => 'Your session has ended because this account\'s sign-in details changed. Please sign in again.',
 
     'prompts' => [
         'no_account' => "Don't have an account?",
         'have_account' => 'Already have an account?',
+    ],
+
+    'fields' => [
+        'name' => 'Name',
+        'username' => 'Username',
+        'email' => 'Email',
+        'password' => 'Password',
+        'password_confirmation' => 'Confirm Password',
+    ],
+
+    'login' => [
+        'title' => 'Log in',
+        'action' => 'Log in',
+        'remember' => 'Remember me',
+        'forgot_password' => 'Forgot your password?',
+    ],
+
+    'register' => [
+        'title' => 'Sign up',
+        'action' => 'Sign up',
+    ],
+
+    'divider' => 'or',
+
+    'forgot_password' => [
+        'intro' => 'Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.',
+        'action' => 'Email Password Reset Link',
+    ],
+
+    'reset_password' => [
+        'action' => 'Reset Password',
+    ],
+
+    'confirm_password' => [
+        'intro' => 'This is a secure area of the application. Please confirm your password before continuing.',
+        'action' => 'Confirm',
+    ],
+
+    'verify_email' => [
+        'intro' => "Thanks for signing up! Before getting started, could you verify your email address by clicking on the link we just emailed to you? If you didn't receive the email, we will gladly send you another.",
+        'link_sent' => 'A new verification link has been sent to the email address you provided during registration.',
+        'resend' => 'Resend Verification Email',
     ],
 
     'social' => [

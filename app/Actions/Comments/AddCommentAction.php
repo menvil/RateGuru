@@ -51,7 +51,7 @@ final class AddCommentAction
                 key: RateLimitKey::userAction('comment', $user),
                 maxAttempts: (int) config('rate_limits.comment.max_attempts'),
                 decaySeconds: (int) config('rate_limits.comment.decay_seconds'),
-                message: 'You are commenting too quickly. Please try again later.',
+                message: __('ui.rate_limit.commenting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotCommentException::becauseRateLimited($e->getMessage());
@@ -60,20 +60,20 @@ final class AddCommentAction
         $body = trim($body);
 
         if ($body === '') {
-            throw CannotCommentException::becauseBodyIsInvalid('Comment body is required.');
+            throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_required'));
         }
 
         if (mb_strlen($body) > self::MAX_BODY_LENGTH) {
-            throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
+            throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_too_long'));
         }
 
         if ($parent !== null) {
             if (! $parent->exists) {
-                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
             }
 
             if ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null) {
-                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
             }
         }
 
@@ -114,7 +114,7 @@ final class AddCommentAction
                     ->first();
 
                 if ($lockedParent === null) {
-                    throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                    throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
                 }
             }
 

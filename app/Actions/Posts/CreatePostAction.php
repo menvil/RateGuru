@@ -50,7 +50,7 @@ final class CreatePostAction
             key: RateLimitKey::userAction('upload', $user),
             maxAttempts: (int) config('rate_limits.upload.max_attempts'),
             decaySeconds: (int) config('rate_limits.upload.decay_seconds'),
-            message: 'You are uploading too quickly. Please try again later.',
+            message: __('ui.rate_limit.uploading'),
         );
 
         $ratingGroups = $this->ratingConfiguration->activeGroups();

@@ -126,10 +126,10 @@ it('stores the site language on the account at registration', function (string $
 
     expect($user->locale)->toBe($locale)
         ->and($user->preferredLocale())->toBe($locale);
-})->with(['en', 'ru', 'bg']);
+})->with(supportedLocales());
 
 it('stores a supported language even when the request locale is not one', function () {
-    app()->setLocale('de');
+    app()->setLocale(unsupportedLocale());
 
     $user = app(RegisterUserAction::class)->execute([
         'name' => 'Reader',

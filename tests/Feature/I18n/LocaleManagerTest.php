@@ -5,19 +5,20 @@ use App\Support\Locale\LocaleManager;
 it('checks whether locale is supported', function () {
     $manager = app(LocaleManager::class);
 
-    expect($manager->isSupported('en'))->toBeTrue();
-    expect($manager->isSupported('ru'))->toBeTrue();
-    expect($manager->isSupported('bg'))->toBeTrue();
-    expect($manager->isSupported('de'))->toBeFalse();
+    foreach (supportedLocales() as $locale) {
+        expect($manager->isSupported($locale))->toBeTrue();
+    }
+
+    expect($manager->isSupported(unsupportedLocale()))->toBeFalse();
 });
 
 it('returns fallback locale for unsupported locale', function () {
-    expect(app(LocaleManager::class)->normalize('de'))->toBe('en');
+    expect(app(LocaleManager::class)->normalize(unsupportedLocale()))->toBe('en');
 });
 
-it('returns same locale when it is supported', function () {
-    expect(app(LocaleManager::class)->normalize('ru'))->toBe('ru');
-});
+it('returns same locale when it is supported', function (string $locale) {
+    expect(app(LocaleManager::class)->normalize($locale))->toBe($locale);
+})->with(supportedLocales());
 
 it('returns fallback locale', function () {
     expect(app(LocaleManager::class)->fallback())->toBe('en');
@@ -26,7 +27,7 @@ it('returns fallback locale', function () {
 it('returns supported locales array', function () {
     $supported = app(LocaleManager::class)->supported();
 
-    expect($supported)->toHaveKeys(['en', 'ru', 'bg']);
+    expect($supported)->toBe(config('locales.supported'));
 });
 
 it('returns locale label', function () {

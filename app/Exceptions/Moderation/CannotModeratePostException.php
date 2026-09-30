@@ -8,11 +8,11 @@ final class CannotModeratePostException extends DomainException
 {
     public static function becauseUserIsNotAllowed(): self
     {
-        return new self('User is not allowed to moderate posts.');
+        return new self(__('ui.moderation.errors.not_allowed'));
     }
 
     public static function becausePostStatusIsInvalid(): self
     {
-        return new self('Post status is invalid for this moderation action.');
+        return new self(__('ui.moderation.errors.invalid_status'));
     }
 }

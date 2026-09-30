@@ -42,14 +42,19 @@ Authenticated users can set their preferred locale on the Profile page via `live
 
 ## Translation files
 
-Located at `lang/{en,ru,bg}/`:
+Located at `lang/{locale}/`, one namespaced catalog per area — `ui.php`,
+`auth.php`, `profile.php`, `mail.php`, `validation.php`, `passwords.php` and the
+feature catalogs (`follows.php`, `import.php`, `saved_posts.php`, `sharing.php`).
+Every line is read through a stable key such as `__('auth.login.remember')`;
+there are no JSON catalogs and no English-sentence keys.
 
-- `ui.php` — public interface labels (feed, voting, comments, share, etc.)
-- `admin.php` — admin panel custom labels
-- `auth.php` — authentication messages
-- `validation.php` — validation error messages
+`admin.php` exists in English only: the Filament panel always renders in English
+(`SetAdminLocale`), whatever language the visitor chose for the public site.
 
-All translation files must have **identical keys** across locales. The `TranslationKeyGuardTest` enforces this.
+Every public catalog must have **identical keys and placeholders** across
+locales; `TranslationParityTest` enforces this, and `TranslationKeyGuardTest`
+checks that the code only reads keys the catalogs define. `lang/README.md` has
+the full rules.
 
 ## ProjectSettings translatable fields
 
@@ -98,5 +103,5 @@ Auto-translation requires external API integration, a UX for original/translated
 ## Adding a new locale
 
 1. Add the locale to `config/locales.php` under `supported`.
-2. Create `lang/{code}/ui.php`, `admin.php`, `auth.php`, `validation.php` with identical keys.
-3. The `TranslationKeyGuardTest` will fail until all files match.
+2. Create `lang/{code}/` with a translation of every file in `lang/en/` except `admin.php`.
+3. `TranslationParityTest` will fail, listing what is missing, until the catalogs match.

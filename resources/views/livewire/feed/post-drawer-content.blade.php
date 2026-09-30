@@ -34,14 +34,14 @@
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                     </a>
                 @else
-                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->name ?? 'User'" size="lg" />
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
                 @endif
 
                 <div class="min-w-0">
                     @if($post->user?->public_username)
                         <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                     @else
-                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                     @endif
 
                     <div class="truncate text-xs text-rg-muted">
@@ -91,7 +91,7 @@
                         loading="lazy"
                     />
                 @else
-                    <x-ui.image-placeholder label="Image preview" ratio="detail" />
+                    <x-ui.image-placeholder :label="__('ui.post.image_preview')" ratio="detail" />
                 @endif
             </div>
 
@@ -245,13 +245,13 @@
         @endif
     @elseif($postId)
         <x-ui.error-message
-            title="Post not found"
-            message="This post is unavailable or no longer public."
+            :title="__('ui.post.not_found_title')"
+            :message="__('ui.post.not_found_description')"
         />
     @else
         <x-ui.empty-state
-            title="Select a post"
-            description="Post details will appear here."
+            :title="__('ui.post.select_title')"
+            :description="__('ui.post.select_description')"
         />
     @endif
     </div>

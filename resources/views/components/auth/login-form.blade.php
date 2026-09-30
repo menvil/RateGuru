@@ -31,7 +31,7 @@
     @endif
 
     <div>
-        <x-input-label :for="$idPrefix.'-email'" :value="__('Email')" />
+        <x-input-label :for="$idPrefix.'-email'" :value="__('auth.fields.email')" />
         <x-text-input
             :id="$idPrefix.'-email'"
             data-testid="{{ $testId }}-email"
@@ -48,7 +48,7 @@
     </div>
 
     <div class="mt-4">
-        <x-input-label :for="$idPrefix.'-password'" :value="__('Password')" />
+        <x-input-label :for="$idPrefix.'-password'" :value="__('auth.fields.password')" />
         <x-text-input
             :id="$idPrefix.'-password'"
             data-testid="{{ $testId }}-password"
@@ -69,7 +69,7 @@
                 name="remember"
                 class="rounded border-rg-border2 bg-rg-card2 text-rg-accent shadow-sm focus:ring-rg-accent"
             >
-            <span class="ms-2 text-sm text-rg-text2">{{ __('Remember me') }}</span>
+            <span class="ms-2 text-sm text-rg-text2">{{ __('auth.login.remember') }}</span>
         </label>
 
         @if (Route::has('password.request'))
@@ -78,12 +78,12 @@
                 href="{{ route('password.request') }}"
                 data-testid="{{ $testId }}-forgot-password"
             >
-                {{ __('Forgot your password?') }}
+                {{ __('auth.login.forgot_password') }}
             </a>
         @endif
     </div>
 
     <x-primary-button class="mt-6 w-full" data-testid="{{ $testId }}-submit">
-        {{ __('Log in') }}
+        {{ __('auth.login.action') }}
     </x-primary-button>
 </form>

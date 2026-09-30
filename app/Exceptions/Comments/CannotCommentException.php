@@ -15,7 +15,7 @@ final class CannotCommentException extends DomainException
 
     public static function becauseGuest(): self
     {
-        return new self('Guests cannot comment.', self::REASON_GUEST);
+        return new self(__('ui.comments.errors.guest'), self::REASON_GUEST);
     }
 
     public function isGuest(): bool
@@ -25,17 +25,17 @@ final class CannotCommentException extends DomainException
 
     public static function becauseUserIsNotAllowed(): self
     {
-        return new self('User is not allowed to comment.');
+        return new self(__('ui.comments.errors.not_allowed'));
     }
 
     public static function becausePostIsNotPublic(): self
     {
-        return new self('Post cannot receive comments.');
+        return new self(__('ui.comments.errors.post_not_public'));
     }
 
-    public static function becauseBodyIsInvalid(string $message = 'Comment body is invalid.'): self
+    public static function becauseBodyIsInvalid(?string $message = null): self
     {
-        return new self($message);
+        return new self($message ?? __('ui.comments.errors.body_invalid'));
     }
 
     public static function becauseRateLimited(string $message): self
