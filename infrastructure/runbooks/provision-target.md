@@ -261,12 +261,16 @@ brand — which the target registry replaced. It is never the service authority
 for a production target: sources are resolved by the target's own registry
 names, and a production target's files are rendered rather than read.
 
-It is still committed because `install-target-operations` installs it as part
-of the operational bundle and verifies it byte for byte, and
-`install-target-prerequisites` parses the installed copy when it builds a
-host's external-prerequisite table. Removing it would break the recovery
-prerequisite machinery, which is a different operation with its own acceptance.
-Its final public/TLS role is normalized when the real public vhost is defined.
+It is still committed for one reason: `install-target-operations` installs it
+as part of the operational bundle and verifies it byte for byte, so deleting
+the source would fail that installer's own contract.
+
+It is worth being precise about what does *not* read it.
+`install-target-prerequisites` resolves a target's vhost by the registry's own
+`nginx.site_name`, plus the two committed mail vhosts — and no registered
+target is named `rateguru-production`, so nothing parses this file on behalf of
+any target that exists. Its final public/TLS role is settled when a real public
+vhost is defined.
 
 Regression coverage keeps it from silently becoming a fallback: neither
 `provision-target` nor `install-bootstrap-services` may reference it.

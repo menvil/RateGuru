@@ -735,12 +735,31 @@ run before any filesystem mutation.
 ### The filesystem contract
 
 Host roots: `/home/www/rateguru`, `config`, `bin` (`root:root 0755` —
-contents belong to slice 5.4), `backups`, `run` (`root:root 0700`),
-`/var/log/rateguru` (`root:root 0750`). Per active target:
+contents belong to the services slice), `backups`, `run` (`root:root 0700`),
+`/var/log/rateguru` (`root:root 0750`).
+
+**Shared target namespaces** are host roots too: every directory between
+`/home/www/rateguru` and a registered target's `application_root` —
+`/home/www/rateguru/production` today — is `root:root 0755`. It is derived from
+the registry, so a second or tenth production brand becomes a sibling under the
+same namespace without naming anything here, and it is read from *every*
+registered target, planned ones included: the namespace has to exist before a
+planned target can be provisioned into it, and its existence says nothing about
+any target inside it.
+
+It is host-owned for a concrete reason. A target's runtime user has to
+*traverse* that directory to reach its own storage, so a namespace owned the
+old way — as one production application's root, `deploy-rateguru:rateguru-production-code 2750` —
+makes every target below it unreachable however correct that target's own
+directories are. Convergence replaces the ownership and mode of that one
+directory entry and never recurses: whatever already lives under it keeps its
+bytes, its owner and its mode.
+
+Per active target:
 
 | Path | Owner | Mode |
 |---|---|---|
-| `<root>` (e.g. `/home/www/rateguru/staging`) | `root:root` | `0755` |
+| `<root>` (`/home/www/rateguru/staging`, or `/home/www/rateguru/production/<brand>`) | `root:root` | `0755` |
 | `<root>/releases` | `deploy_user:code_group` | `2750` |
 | `<root>/shared` | `runtime_user:runtime_group` | `2770` |
 | `<root>/shared/storage` | `runtime_user:runtime_group` | `2770` |

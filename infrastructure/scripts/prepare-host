@@ -36,6 +36,23 @@
 #   * bootstrap-host then runs its whole 5.2 -> 5.3 -> 5.4 -> preflight
 #     pipeline, unchanged and undecomposed.
 #
+#     Everything host-global is converged there, for every target the registry
+#     declares and not only the one named on this command line. That includes
+#     the shared namespaces targets live in — /home/www/rateguru/production —
+#     which are root-owned directories that belong to the machine rather than
+#     to any brand in them.
+#
+#     Which produces a result worth stating plainly, because it surprises
+#     people: on the shared VPS an operator converges a directory named
+#     "production" by running PREPARE STAGING HOST. That is not a mix-up. The
+#     target argument selects whose TARGET-specific slices run, and
+#     staging-main is currently what binds the bootstrap credential on this
+#     machine — so it is the authorized way in to the host-global pipeline.
+#     Every slice below that is target-specific stays the named target's:
+#     preparing the staging host creates no production environment file, no
+#     production database, no production deploy authorization, and activates
+#     nothing. A planned target is refused outright before any child runs.
+#
 #   * Target-scope material follows, because shared/.env and the deploy user's
 #     Authorized_keys live inside directories and accounts install-bootstrap-host-layout creates.
 #     Installing them earlier would mean creating those directories with the

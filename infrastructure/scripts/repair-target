@@ -38,6 +38,15 @@
 # target-scoped mode:
 #
 #   install-bootstrap-host-layout --apply --target TARGET_ID
+#
+# Host roots are prerequisites to that child, never its work in target mode —
+# and that includes the shared namespace a target sits in
+# (/home/www/rateguru/production for a production brand). An active target
+# below a namespace the host owns the wrong way is a HOST problem wearing a
+# target's clothes: repairing it here would mean re-owning infrastructure
+# shared with every other target on the machine. It is reported as HOST-REQ
+# and left to Prepare Host, which is why there is no second check for it in
+# this file — the contract has one owner.
 #   install-bootstrap-services    --apply --target TARGET_ID
 #
 # There is deliberately no second implementation of any layout or service check
