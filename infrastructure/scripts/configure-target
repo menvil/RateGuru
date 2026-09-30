@@ -43,6 +43,25 @@
 # change. Every one of them is DEFERRED in this operation's own report rather
 # than silently absent.
 #
+# WHERE THE ENVIRONMENT FILE LIVES, and who owns it. The target's
+# shared/.env is CANONICAL on the host. An operator creates it once, as
+# runtime_user:runtime_group mode 0640, and from that moment it is the sole
+# runtime source of truth: backups carry it as environment.env, and a recovery
+# restores it from the selected backup. GitHub is not a copy of it and is never
+# asked to resend it.
+#
+# So this operation ACCEPTS and validates an environment file that is already
+# there — it never demands one be supplied, and it never overwrites one. The
+# only case where supplied material is installed is an absent file being seeded
+# for the first time, and even then a file that already exists and differs is a
+# refusal, not an update: rotating a credential is a separate deliberate
+# operation with its own review.
+#
+# The database step then reads that canonical file for its credentials, which
+# is why it is ordered after the material step and why nothing here ever parses
+# it: install-target-database owns that reading, and this file never sees a
+# credential at all.
+#
 # It is orchestration only. Every mutation is delegated to the installer that
 # already owns that contract, invoked under the explicit provisioning
 # authorization:
@@ -132,8 +151,12 @@ Usage:
             and no deploy authorization exists.
 
   --target        The target to configure. Required.
-  --material-dir  Directory holding the material to install, by name. Read by
-                  install-target-prerequisites; never read by this file.
+  --material-dir  Optional. Directory holding material to SEED an absent file,
+                  by name. Read by install-target-prerequisites; never read by
+                  this file. An existing file is accepted as it stands and is
+                  never overwritten — the target's shared/.env is canonical on
+                  the host, created once by an operator, and carried to a
+                  replacement machine by its backups rather than resent.
 
 All modes require root, and every mode refuses a target that is not
 lifecycle=planned AND environment_class=production.
@@ -400,14 +423,16 @@ report_material() {
 
     if (( CHILD_STATUS == 0 )); then
         item PASS "material:install-target-prerequisites" \
-            "this target's own material is installed (environment file, deploy authorized_keys)"
+            "this target's own material is in place (environment file, deploy authorized_keys) — accepted as it stands on the host and never overwritten"
 
         return 0
     fi
 
     item MISSING "material:install-target-prerequisites" \
         "material this target does not have yet (its environment file, its deploy user's authorized_keys)" \
-        "install-target-prerequisites --apply --scope target --provisioning --target ${TARGET_ID}"
+        "create ${TARGET_ROOT}/shared/.env on the host as the target's runtime user, mode 0640 — it is canonical there and is never sent from anywhere; supply the deploy public key with --material-dir. Then re-run"
+
+    printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
 }
 
 report_database() {
@@ -452,6 +477,8 @@ report_deferred() {
         "no public hostname, TLS certificate, redirect or DNS record — the target answers only on its internal hostname over loopback"
     item DEFERRED "deferred:mail" \
         "no mail transport, gateway or domain authentication is configured or changed here"
+    item DEFERRED "deferred:environment-rotation" \
+        "the environment file is canonical on the host and is never overwritten here — changing a credential in it is a separate deliberate operation, and a backup is what carries it to a recovered machine"
     item DEFERRED "deferred:backups" \
         "no backup schedule and no offsite namespace — the host-global offsite credential is an existing prerequisite, never rotated here"
     item DEFERRED "deferred:queue-runtime" \

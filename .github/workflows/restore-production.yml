@@ -206,7 +206,7 @@ jobs:
     name: Restore tits-guru data
     needs: validate
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     # A real restore downloads, fully verifies and stages a whole backup, takes
     # an emergency backup of the current state and restore-tests it, then swaps
     # database and storage. All of that scales with data size.
@@ -467,7 +467,7 @@ jobs:
       - build
     if: ${{ needs.restore.outputs.build_required == 'yes' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 20
 
     steps:
@@ -539,7 +539,7 @@ jobs:
           && (needs.build.result == 'success' || needs.build.result == 'skipped')
           && (needs.align.result == 'success' || needs.align.result == 'skipped') }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 30
 
     steps:
@@ -588,7 +588,7 @@ jobs:
           && needs.align.result == 'success'
           && needs.resume.result == 'success' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     permissions:

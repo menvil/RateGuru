@@ -245,7 +245,7 @@ jobs:
       - build
       - deploy-staging
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     steps:
@@ -306,9 +306,14 @@ jobs:
             echo "- Artifact was verified on staging before promotion."
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      # The environment stays `production` for every production target. Which
-      # brand was deployed is carried by the deployment_target tag on the
-      # events themselves, not by inventing production-<brand> environments.
+      # The SENTRY environment stays `production` for every production target,
+      # and this is deliberately not the same thing as the GitHub Environment
+      # the job above runs in. That one is per target — a box of credentials
+      # and reviewers, and tits-guru has its own. This one is the application's
+      # environment CLASS, which is what an error is grouped and alerted by.
+      # Which brand produced the event is carried by the deployment_target tag
+      # on the event itself, not by inventing production-<brand> Sentry
+      # environments that would split one product's errors across projects.
       - name: Record production deployment in Sentry and Nightwatch
         uses: ./.github/actions/record-rateguru-deployment
         with:

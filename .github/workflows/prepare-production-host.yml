@@ -14,7 +14,7 @@ name: Prepare production host
 # production-shaped procedure invented under pressure on launch day.
 #
 # Nothing here weakens that gate, nothing here edits the registry, and the
-# production GitHub Environment's own protection rules stay authoritative on top
+# production-tits-guru GitHub Environment's own protection rules stay authoritative
 # of it.
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
   prepare:
     name: Prepare the tits-guru host
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 45
 
     steps:

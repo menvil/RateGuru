@@ -48,7 +48,7 @@ jobs:
   rollback:
     name: Roll back tits-guru
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     steps:

@@ -16,7 +16,7 @@ name: Recover production host
 # under pressure on the worst day of the year.
 #
 # Nothing here weakens that gate, nothing here edits the registry, and the
-# production GitHub Environment's own protection rules stay authoritative on
+# production-tits-guru GitHub Environment's own protection rules stay authoritative on
 # top of the confirmation below.
 #
 # Manual-only: rebuilding a target onto a replacement machine is an operator
@@ -178,7 +178,7 @@ jobs:
           # First, and in a job that holds no GitHub Environment: an
           # unconfirmed production recovery ends here, before the environment's
           # approval is even requested and long before any connection is made.
-          # This is deliberately IN ADDITION to the production environment's own
+          # This is deliberately IN ADDITION to the production-tits-guru environment's own
           # protection rules, not instead of them — one gate proves a human
           # meant this specific target, the other proves the right humans
           # approved it.
@@ -359,7 +359,7 @@ jobs:
     name: Refuse to start without the recovery values the environment must hold
     needs: validate
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 5
 
     outputs:
@@ -422,9 +422,9 @@ jobs:
 
           if [[ "${RECOVERY_BOOTSTRAP_USER_PRESENT}" != "true" ]]; then
             action_required bootstrap-user-variable-missing \
-              "the production GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+              "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
               "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
-              "Settings -> Environments -> production -> Environment variables" \
+              "Settings -> Environments -> production-tits-guru -> Environment variables" \
               "create RECOVERY_BOOTSTRAP_USER" \
               "set it to the privileged user on the replacement host (root, or a user with passwordless sudo)" \
               "it is an Environment variable, not a secret"
@@ -432,9 +432,9 @@ jobs:
 
           if [[ "${RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT}" != "true" ]]; then
             action_required bootstrap-ssh-key-secret-missing \
-              "the production GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+              "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
               "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
-              "Settings -> Environments -> production -> Environment secrets" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
               "create RECOVERY_BOOTSTRAP_SSH_KEY" \
               "paste the complete OpenSSH private key whose public half is installed for RECOVERY_BOOTSTRAP_USER on the replacement host" \
               "do not create it as an Environment variable"
@@ -442,9 +442,9 @@ jobs:
 
           if [[ "${RECOVERY_KNOWN_HOSTS_PRESENT}" != "true" ]]; then
             action_required known-hosts-secret-missing \
-              "the production GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+              "the production-tits-guru GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
               "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
-              "Settings -> Environments -> production -> Environment secrets" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
               "create RECOVERY_KNOWN_HOSTS" \
               "paste the one verified known_hosts line for the replacement host (runbook section C)" \
               "do not create it as an Environment variable"
@@ -452,9 +452,9 @@ jobs:
 
           if [[ "${MODE}" == "start" ]] && [[ "${RECOVERY_RCLONE_CONFIG_PRESENT}" != "true" ]]; then
             action_required rclone-config-secret-missing \
-              "the production GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+              "the production-tits-guru GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
               "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
-              "Settings -> Environments -> production -> Environment secrets" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
               "create RECOVERY_RCLONE_CONFIG" \
               "paste the complete contents of the recovery rclone configuration file" \
               "do not create it as an Environment variable"
@@ -462,14 +462,14 @@ jobs:
 
           if [[ "${DEPLOY_SSH_KEY_PRESENT}" != "true" ]]; then
             action_required deploy-ssh-key-secret-missing \
-              "the production GitHub Environment has no DEPLOY_SSH_KEY secret" \
+              "the production-tits-guru GitHub Environment has no DEPLOY_SSH_KEY secret" \
               "the deploy public key installed on the replacement host is derived from it on the runner, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
-              "Settings -> Environments -> production -> Environment secrets" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
               "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key (the ordinary deploy identity, not a recovery-only value)" \
               "do not create it as an Environment variable"
           fi
 
-          echo "Every recovery value the production environment must hold is configured (presence only; no value was read)."
+          echo "Every recovery value the production-tits-guru environment must hold is configured (presence only; no value was read)."
 
   # The one place vars.DEPLOY_HOST is read, and it is read only to REFUSE.
   #
@@ -490,7 +490,7 @@ jobs:
       - validate
       - values
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 5
 
     steps:
@@ -507,7 +507,7 @@ jobs:
           set -Eeuo pipefail
 
           if [[ -z "${CURRENT_HOST}" ]]; then
-            echo "The production environment has no DEPLOY_HOST, so this run cannot prove the replacement machine is a different one." >&2
+            echo "The production-tits-guru environment has no DEPLOY_HOST, so this run cannot prove the replacement machine is a different one." >&2
             echo "Recovery is refused: the proof that a recovery is not pointed at a live host must never be skipped because the binding is missing." >&2
             exit 1
           fi
@@ -634,7 +634,7 @@ jobs:
       - binding
     if: ${{ needs.validate.outputs.mode == 'start' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 5
 
     outputs:
@@ -651,7 +651,7 @@ jobs:
           umask 077
 
           if [[ -z "${DEPLOY_SSH_KEY}" ]]; then
-            echo "The production environment has no DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity." >&2
+            echo "The production-tits-guru environment has no DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity." >&2
             exit 1
           fi
 
@@ -705,7 +705,7 @@ jobs:
       - binding
     if: ${{ needs.validate.outputs.mode == 'start' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     outputs:
@@ -749,7 +749,7 @@ jobs:
       - deploy-identity
     if: ${{ needs.validate.outputs.mode == 'start' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     # A genuinely clean VPS installs the full base runtime before it does
     # anything else, which is by far the slowest step here.
     timeout-minutes: 45
@@ -826,7 +826,7 @@ jobs:
           && (needs.prepare.result == 'success'
               || (needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue-held')) }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     # A real recovery downloads, fully verifies and stages a whole backup and
     # then activates a database and a storage tree. All of that scales with
     # data size.
@@ -1116,7 +1116,7 @@ jobs:
       - build
     if: ${{ needs.recover.outputs.deploy_required == 'yes' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 20
 
     steps:
@@ -1217,7 +1217,7 @@ jobs:
           && (needs.build.result == 'success' || needs.build.result == 'skipped')
           && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 30
 
     outputs:
@@ -1325,7 +1325,7 @@ jobs:
           && needs.recover.result == 'success'
           && (needs.resume.result == 'success' || needs.resume.result == 'failure') }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 20
 
     outputs:
@@ -1445,7 +1445,7 @@ jobs:
       - verify
     if: ${{ always() && needs.verify.result == 'success' }}
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     permissions:
@@ -1765,14 +1765,14 @@ jobs:
           # missing GitHub value would be a guess, so it is not given.
           if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then
             if [[ "${VALUES_RESULT}" == "cancelled" ]]; then
-              action_required "the run was cancelled before the production environment's recovery values were judged" \
+              action_required "the run was cancelled before the production-tits-guru environment's recovery values were judged" \
                 "nothing was connected to and nothing was changed" \
                 "re-run the workflow when you are ready; a cancelled run holds nothing on any machine"
             else
               action_required "the values job did not complete (its result is \`${VALUES_RESULT}\`, and it reported no cause)" \
-                "the production environment's approval was rejected or timed out, or the job failed before it could judge anything; nothing was connected to and nothing was changed" \
+                "the production-tits-guru environment's approval was rejected or timed out, or the job failed before it could judge anything; nothing was connected to and nothing was changed" \
                 "read the values job's own log and its environment approval" \
-                "approve the production environment deployment, or fix what the log names, and re-run"
+                "approve the production-tits-guru environment deployment, or fix what the log names, and re-run"
             fi
 
             exit 0
@@ -1780,43 +1780,43 @@ jobs:
 
           case "${stage}:${VALUES_CAUSE}" in
             values:rclone-config-secret-missing)
-              action_required "the production GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
                 "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
-                "Settings -> Environments -> production -> Environment secrets" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
                 "create RECOVERY_RCLONE_CONFIG" \
                 "paste the complete contents of the recovery rclone configuration file" \
                 "do not create it as an Environment variable"
               ;;
             values:bootstrap-user-variable-missing)
-              action_required "the production GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
                 "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
-                "Settings -> Environments -> production -> Environment variables" \
+                "Settings -> Environments -> production-tits-guru -> Environment variables" \
                 "create RECOVERY_BOOTSTRAP_USER and set it to the privileged user on the replacement host" \
                 "it is an Environment variable, not a secret"
               ;;
             values:bootstrap-ssh-key-secret-missing)
-              action_required "the production GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
                 "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
-                "Settings -> Environments -> production -> Environment secrets" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
                 "create RECOVERY_BOOTSTRAP_SSH_KEY and paste the complete OpenSSH private key" \
                 "do not create it as an Environment variable"
               ;;
             values:known-hosts-secret-missing)
-              action_required "the production GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
                 "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
-                "Settings -> Environments -> production -> Environment secrets" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
                 "create RECOVERY_KNOWN_HOSTS and paste the one verified known_hosts line (runbook section C)" \
                 "do not create it as an Environment variable"
               ;;
             values:deploy-ssh-key-secret-missing)
-              action_required "the production GitHub Environment has no DEPLOY_SSH_KEY secret" \
+              action_required "the production-tits-guru GitHub Environment has no DEPLOY_SSH_KEY secret" \
                 "the deploy public key installed on the replacement host is derived from it, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
-                "Settings -> Environments -> production -> Environment secrets" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
                 "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key" \
                 "do not create it as an Environment variable"
               ;;
             values:*)
-              action_required "a recovery value the production GitHub Environment must hold is missing (see the values job log)" \
+              action_required "a recovery value the production-tits-guru GitHub Environment must hold is missing (see the values job log)" \
                 "nothing was connected to and nothing was changed" \
                 "create the value it names, under the heading it names (Environment variables or Environment secrets)"
               ;;
@@ -1898,8 +1898,8 @@ jobs:
               ;;
             deploy-identity:*)
               action_required "the deploy public key could not be derived from DEPLOY_SSH_KEY" \
-                "the production environment has no usable DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity; nothing on the host was changed" \
-                "configure DEPLOY_SSH_KEY in the production GitHub Environment as the deployment private key (a usable OpenSSH private key)"
+                "the production-tits-guru environment has no usable DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity; nothing on the host was changed" \
+                "configure DEPLOY_SSH_KEY in the production-tits-guru GitHub Environment as the deployment private key (a usable OpenSSH private key)"
               ;;
             prepare:*:backup-not-recovery-capable:*)
               action_required "backup ${backup} is a schema 1 or 2 backup, written before the recovery material joined the format" \
@@ -1922,7 +1922,7 @@ jobs:
             prepare:*:rclone-config-unavailable:*)
               action_required "the recovery offsite credential is missing or cannot reach the backup namespace" \
                 "RECOVERY_RCLONE_CONFIG is the only way the replacement host reads the backup; nothing was installed" \
-                "configure RECOVERY_RCLONE_CONFIG in the production GitHub Environment with an rclone configuration whose key can READ the backup bucket" \
+                "configure RECOVERY_RCLONE_CONFIG in the production-tits-guru GitHub Environment with an rclone configuration whose key can READ the backup bucket" \
                 "never copy an rclone configuration onto the host by hand"
               ;;
             prepare:*:offsite-hold-missing:*)
@@ -1956,7 +1956,7 @@ jobs:
             recover:*:*:rclone-config-unavailable:*)
               action_required "the replacement host has no usable rclone configuration" \
                 "Prepare Host installs it from RECOVERY_RCLONE_CONFIG; a prepared host without it cannot download the backup" \
-                "configure RECOVERY_RCLONE_CONFIG in the production GitHub Environment and re-prepare the machine"
+                "configure RECOVERY_RCLONE_CONFIG in the production-tits-guru GitHub Environment and re-prepare the machine"
               ;;
             recover:*:*:offsite-hold-missing:*|resume:*:*:*:offsite-hold-missing:*|verify:*:*:*:*:offsite-hold-missing)
               action_required "the offsite-write hold is missing on the replacement host" \

@@ -41,7 +41,8 @@ it('orders release jobs through staging and production environments', function (
         ->and(data_get($this->releaseWorkflow, 'jobs.deploy-staging.needs'))->toBe(['validate', 'build'])
         ->and(data_get($this->releaseWorkflow, 'jobs.deploy-staging.environment'))->toBe('staging')
         ->and(data_get($this->releaseWorkflow, 'jobs.deploy-production.needs'))->toBe(['validate', 'build', 'deploy-staging'])
-        ->and(data_get($this->releaseWorkflow, 'jobs.deploy-production.environment'))->toBe('production');
+        // Per-target GitHub Environment, not the environment class.
+        ->and(data_get($this->releaseWorkflow, 'jobs.deploy-production.environment'))->toBe('production-tits-guru');
 });
 
 it('wires release steps to reuse one immutable artifact', function () {

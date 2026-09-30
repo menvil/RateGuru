@@ -13,7 +13,7 @@ name: Repair production target
 # procedure invented under pressure during an incident.
 #
 # Nothing here weakens that gate, nothing here edits the registry, this workflow
-# activates nothing, and the production GitHub Environment's own protection
+# activates nothing, and the production-tits-guru GitHub Environment's own protection
 # rules stay authoritative on top of the confirmation below.
 #
 # There is deliberately no target dropdown anywhere in this repository:
@@ -57,7 +57,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Deliberately IN ADDITION to the production environment's own
+          # Deliberately IN ADDITION to the production-tits-guru environment's own
           # protection rules, not instead of them — one gate proves a human
           # meant this specific target, the other proves the right humans
           # approved it.
@@ -72,7 +72,7 @@ jobs:
     name: Repair tits-guru
     needs: validate
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 30
 
     steps:

@@ -1,0 +1,129 @@
+name: Configure tits.guru
+
+# One button, one target, nothing to choose.
+#
+# Provisioning built tits-guru's identities, directories and service
+# configuration and deliberately left it empty. This is the operation that
+# gives it the two things it still lacks to be able to RUN — its database, and
+# the proof that its environment file and deploy key are in place — and
+# nothing else.
+#
+# It does NOT activate the target. tits-guru stays lifecycle=planned
+# afterwards, because lifecycle is permission to OPERATE a target, not a
+# description of how much of it exists. It grants no deploy sudo authorization,
+# deploys no application, configures no TLS, DNS or mail, and never writes the
+# registry. A green run is NOT "production is ready".
+#
+# IT CARRIES NO MATERIAL. There is deliberately no environment file and no
+# authorized_keys input. The target's shared/.env is CANONICAL on the host: an
+# operator creates it there once as rateguru-tits-guru:rateguru-tits-guru mode
+# 0640, backups carry it as environment.env, and a recovery restores it from
+# the selected backup. GitHub is not a copy of it and is never asked to resend
+# it. The same is true of the deploy user's authorized_keys. This is exactly
+# how staging already works.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Configuring creates a PostgreSQL role and database on the machine staging
+# also lives on, so it must not overlap a staging deploy, a rollback, a Prepare
+# Host run or any other mutation of the same host.
+#
+# The staging group is the right one BECAUSE both logical targets currently sit
+# on the same physical host. That is a fact about today's topology, not about
+# the targets.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Configure the tits-guru target
+    runs-on: ubuntu-24.04
+
+    # READ THIS BEFORE CHANGING IT.
+    #
+    # This is the GitHub Environment — a box of credentials and protection
+    # rules. It is NOT the target's environment class. tits-guru is a
+    # production target, and `environment: production` is passed to the action
+    # below: that is what says so.
+    #
+    # The box is this target's own, which is the point: one GitHub Environment
+    # per target, so the credentials, reviewers and protection rules that reach
+    # tits-guru are not the ones that reach staging-main.
+    #
+    # What it must hold is small and exact, because this operation carries no
+    # material of its own: DEPLOY_HOST, DEPLOY_PORT and BOOTSTRAP_USER as
+    # variables, BOOTSTRAP_SSH_KEY and BOOTSTRAP_KNOWN_HOSTS as secrets. Today
+    # those name the machine staging also lives on — tits-guru has no separate
+    # server yet, and it does not need one to be configured. When it gets one,
+    # only these values change; nothing in this workflow does.
+    #
+    # A box that is not populated yet fails this run at its first step, with
+    # the action naming the missing value. That is a safe failure: nothing is
+    # uploaded and nothing on the host is touched.
+    environment: production-tits-guru
+
+    # Creating a role and a database, and verifying the target's material, on
+    # an already-provisioned host.
+    timeout-minutes: 20
+
+    steps:
+      # Operational tooling always comes from the trusted develop branch. There
+      # is no second checkout, because there is no application source in this
+      # operation at all.
+      - name: Checkout trusted configuration tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure tits-guru
+        id: configure
+        uses: ./.github/actions/configure-rateguru-target
+        with:
+          deployment-target: tits-guru
+
+          # The TARGET's environment class, not the GitHub Environment above.
+          environment: production
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # Creating a database and reading root-owned material needs root. The
+          # restricted deploy credential reaches only the narrow wrappers and
+          # cannot do this; there is deliberately no fallback between them.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # Phrased so a green run cannot be read as more than it is.
+      - name: Report what this run did and did not do
+        shell: bash
+        env:
+          CONFIGURED: ${{ steps.configure.outputs.configured }}
+          LIFECYCLE: ${{ steps.configure.outputs.lifecycle }}
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru configured"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Target | \`tits-guru\` |"
+            echo "| Lifecycle | \`${LIFECYCLE}\` — unchanged, because configuring never writes the registry |"
+            echo "| Environment file | present on the host, accepted as it stands and never overwritten |"
+            echo "| Database | ready |"
+            echo "| Deploy SSH key | present on the host |"
+            echo "| Deploy operational sudo access | **NOT enabled** |"
+            echo "| Application | **NOT deployed** |"
+            echo "| Public traffic | **NOT activated** |"
+            echo
+            echo "The next step is **not** \"deploy\". Mail, backups, TLS and public routing"
+            echo "are still owned by later phases, and activating the target is a separate"
+            echo "reviewed registry change."
+          } >> "${GITHUB_STEP_SUMMARY}"

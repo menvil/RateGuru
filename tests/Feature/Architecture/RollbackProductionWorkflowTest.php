@@ -64,7 +64,9 @@ it('is structurally pinned to tits-guru and the production environment', functio
 
     expect(data_get($rollback, 'with.deployment-target'))->toBe('tits-guru')
         ->and(data_get($rollback, 'with.environment'))->toBe('production')
-        ->and(data_get($this->workflow, 'jobs.rollback.environment'))->toBe('production');
+        // The GitHub Environment is this target's own box of credentials;
+        // `with.environment` above is the application's environment CLASS.
+        ->and(data_get($this->workflow, 'jobs.rollback.environment'))->toBe('production-tits-guru');
 
     // The operator may choose what to roll back to, never where.
     expect(array_keys((array) data_get($this->workflow, 'on.workflow_dispatch.inputs')))

@@ -155,9 +155,14 @@ function recoverWorkflowFiles(): array
     ];
 }
 
+// file, display name, target, environment CLASS, concurrency group, GitHub
+// Environment. The last two are separate on purpose: the class is what the
+// application is told it is, the GitHub Environment is the per-target box of
+// credentials and reviewers, and for tits-guru they are deliberately not the
+// same word.
 dataset('recover workflows', [
-    'staging' => ['recover-staging.yml', 'Recover staging host', 'staging-main', 'staging', 'rateguru-staging-deployment'],
-    'production' => ['recover-production.yml', 'Recover production host', 'tits-guru', 'production', 'rateguru-production-release'],
+    'staging' => ['recover-staging.yml', 'Recover staging host', 'staging-main', 'staging', 'rateguru-staging-deployment', 'staging'],
+    'production' => ['recover-production.yml', 'Recover production host', 'tits-guru', 'production', 'rateguru-production-release', 'production-tits-guru'],
 ]);
 
 // =============================================================================
@@ -170,6 +175,7 @@ it('is manual-only, fixes its own target, and offers no target selector', functi
     string $target,
     string $environment,
     string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
 
@@ -376,6 +382,7 @@ it('holds one concurrency group for the entire recovery chain', function (
     string $target,
     string $environment,
     string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
 
@@ -417,6 +424,8 @@ it('reads the current host binding only to refuse it, and never to connect to it
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = recoverWorkflow($file);
 
@@ -438,7 +447,7 @@ it('reads the current host binding only to refuse it, and never to connect to it
 
     $binding = data_get($workflow, 'jobs.binding');
 
-    expect(data_get($binding, 'environment'))->toBe($environment)
+    expect(data_get($binding, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($binding, 'needs'))->toBe(['validate', 'values'])
         ->and(collect(data_get($binding, 'steps'))->pluck('uses')->filter()->all())->toBe([]);
 
@@ -739,13 +748,15 @@ it('derives the deploy public key on the runner and never sends the private key 
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $identity = data_get($workflow, 'jobs.deploy-identity');
 
     expect($identity)->not->toBeNull("{$file} must derive the deploy identity in its own job");
 
-    expect(data_get($identity, 'environment'))->toBe($environment)
+    expect(data_get($identity, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($identity, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
         ->and(data_get($identity, 'needs'))->toBe(['validate', 'binding'])
         ->and(data_get($identity, 'outputs.public_key'))->toBe('${{ steps.identity.outputs.public_key }}');
@@ -824,11 +835,13 @@ it('prepares only a new recovery, and never one the server is already holding', 
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $prepare = data_get($workflow, 'jobs.prepare');
 
-    expect(data_get($prepare, 'environment'))->toBe($environment)
+    expect(data_get($prepare, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($prepare, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
         ->and(data_get($prepare, 'needs'))->toBe(['validate', 'binding', 'preflight', 'deploy-identity']);
 
@@ -853,11 +866,13 @@ it('recovers through the shared action and decides the rest from its result alon
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = recoverWorkflow($file);
     $steps = recoverWorkflowStepsByName($workflow, 'recover');
 
-    expect(data_get($workflow, 'jobs.recover.environment'))->toBe($environment);
+    expect(data_get($workflow, 'jobs.recover.environment'))->toBe($githubEnvironment);
     expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
 
     $apply = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'apply');
@@ -1050,12 +1065,14 @@ it('deploys through the one deploy action, to the replacement machine, without m
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $deploy = data_get($workflow, 'jobs.deploy');
     $steps = recoverWorkflowStepsByName($workflow, 'deploy');
 
-    expect(data_get($deploy, 'environment'))->toBe($environment)
+    expect(data_get($deploy, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($deploy, 'if'))->toBe("\${{ needs.recover.outputs.deploy_required == 'yes' }}");
 
     // Deployment tooling always comes from develop, never from the historical
@@ -1121,12 +1138,14 @@ it('makes recover-host --resume the only thing that ends a hold', function (
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = recoverWorkflow($file);
     $resume = data_get($workflow, 'jobs.resume');
     $steps = recoverWorkflowStepsByName($workflow, 'resume');
 
-    expect(data_get($resume, 'environment'))->toBe($environment)
+    expect(data_get($resume, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($resume, 'needs'))->toBe(['validate', 'binding', 'recover', 'build', 'deploy']);
 
     // Runs after a successful controlled deployment AND on the continue-held
@@ -1168,12 +1187,14 @@ it('treats the independent final verification as the definition of success', fun
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $verify = data_get($workflow, 'jobs.verify');
     $steps = recoverWorkflowStepsByName($workflow, 'verify');
 
-    expect(data_get($verify, 'environment'))->toBe($environment)
+    expect(data_get($verify, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($verify, 'needs'))->toBe(['validate', 'binding', 'recover', 'resume']);
 
     // Deliberately tolerant of a FAILED resume, and only of a failed one.
@@ -1267,6 +1288,8 @@ it('records a deployment marker only after the final verification passed', funct
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $observability = data_get($workflow, 'jobs.observability');
@@ -1285,7 +1308,7 @@ it('records a deployment marker only after the final verification passed', funct
     // owed for the release that host is provably serving.
     expect(data_get($observability, 'needs'))->toBe(['validate', 'binding', 'recover', 'verify'])
         ->and(data_get($observability, 'if'))->toBe("\${{ always() && needs.verify.result == 'success' }}")
-        ->and(data_get($observability, 'environment'))->toBe($environment);
+        ->and(data_get($observability, 'environment'))->toBe($githubEnvironment);
 
     $record = $steps['Record deployment in Sentry and Nightwatch'];
 
@@ -1766,7 +1789,7 @@ it('cannot mutate production while tits-guru is planned, and does not activate i
             continue;
         }
 
-        expect(data_get($job, 'environment'))->toBe('production');
+        expect(data_get($job, 'environment'))->toBe('production-tits-guru');
         expect(in_array('validate', (array) data_get($job, 'needs'), true))->toBeTrue();
     }
 
@@ -1913,6 +1936,8 @@ it('proves the replacement host is a clean, supported machine before it prepares
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $preflight = data_get($workflow, 'jobs.preflight');
@@ -1923,7 +1948,7 @@ it('proves the replacement host is a clean, supported machine before it prepares
     // the START path: a continuation addresses a machine the recovery owns.
     expect(data_get($preflight, 'needs'))->toBe(['validate', 'binding'])
         ->and(data_get($preflight, 'if'))->toBe("\${{ needs.validate.outputs.mode == 'start' }}")
-        ->and(data_get($preflight, 'environment'))->toBe($environment);
+        ->and(data_get($preflight, 'environment'))->toBe($githubEnvironment);
 
     $jobs = array_keys($workflow['jobs']);
     expect(array_search('preflight', $jobs, true))->toBeLessThan(array_search('prepare', $jobs, true));
@@ -2022,13 +2047,15 @@ it('refuses to start without the recovery values the environment must hold, nami
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = recoverWorkflow($file);
     $values = data_get($workflow, 'jobs.values');
 
     expect($values)->not->toBeNull("{$file} must prove the environment's values before anything else");
     expect(data_get($values, 'needs'))->toBe('validate')
-        ->and(data_get($values, 'environment'))->toBe($environment)
+        ->and(data_get($values, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($values, 'outputs.cause'))->toBe('${{ steps.values.outputs.cause }}');
 
     // Everything that could connect anywhere waits for it, through binding.
@@ -2066,8 +2093,8 @@ it('refuses to start without the recovery values the environment must hold, nami
 
     expect($run)
         ->toContain('action_required rclone-config-secret-missing \\')
-        ->toContain("\"the {$environment} GitHub Environment has no RECOVERY_RCLONE_CONFIG secret\"")
-        ->toContain("\"Settings -> Environments -> {$environment} -> Environment secrets\"")
+        ->toContain("\"the {$githubEnvironment} GitHub Environment has no RECOVERY_RCLONE_CONFIG secret\"")
+        ->toContain("\"Settings -> Environments -> {$githubEnvironment} -> Environment secrets\"")
         ->toContain('"create RECOVERY_RCLONE_CONFIG"')
         ->toContain('"paste the complete contents of the recovery rclone configuration file"')
         ->toContain('"do not create it as an Environment variable"')
@@ -2081,7 +2108,7 @@ it('refuses to start without the recovery values the environment must hold, nami
 
     // The variable is named as a variable, every secret as a secret.
     expect($run)
-        ->toContain("\"Settings -> Environments -> {$environment} -> Environment variables\"")
+        ->toContain("\"Settings -> Environments -> {$githubEnvironment} -> Environment variables\"")
         ->toContain('"it is an Environment variable, not a secret"');
 
     // A continuation needs no offsite credential: it prepares nothing.
@@ -2152,6 +2179,8 @@ it('tells a values job that judged nothing apart from one that found a value mis
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = recoverWorkflow($file);
     $run = (string) data_get($workflow, 'jobs.report.steps.0.run');
@@ -2162,8 +2191,10 @@ it('tells a values job that judged nothing apart from one that found a value mis
     expect($run)
         ->toContain('if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then')
         ->toContain('if [[ "${VALUES_RESULT}" == "cancelled" ]]; then')
-        ->toContain("the run was cancelled before the {$environment} environment's recovery values were judged")
-        ->toContain("the {$environment} environment's approval was rejected or timed out")
+        // The operator-facing name of the credential box, not the class: this
+        // sentence tells somebody where to go and look.
+        ->toContain("the run was cancelled before the {$githubEnvironment} environment's recovery values were judged")
+        ->toContain("the {$githubEnvironment} environment's approval was rejected or timed out")
         ->toContain('read the values job\'s own log and its environment approval');
 
     // The missing-value guidance stays for the case it was written for.
