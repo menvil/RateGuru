@@ -29,7 +29,19 @@ return [
     'username_url_hint' => 'Your public profile URL is /u/:username.',
     'error_generic' => 'Something went wrong while updating your profile.',
 
+    'information' => [
+        'title' => 'Profile Information',
+        'description' => "Update your account's profile information and email address.",
+        'email_unverified' => 'Your email address is unverified.',
+        'resend_verification' => 'Click here to re-send the verification email.',
+        'verification_sent' => 'A new verification link has been sent to your email address.',
+    ],
+
     'password' => [
+        'update_title' => 'Update Password',
+        'update_description' => 'Ensure your account is using a long, random password to stay secure.',
+        'current' => 'Current Password',
+        'new' => 'New Password',
         'set_title' => 'Set a password',
         'set_description' => 'You sign in with Google or Facebook, so your account has no password yet. We\'ll email you a link to set one; after that you can also sign in with your email and password.',
         'set_send' => 'Email me a link',
@@ -38,6 +50,11 @@ return [
     ],
 
     'delete' => [
+        'title' => 'Delete Account',
+        'description' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.',
+        'action' => 'Delete Account',
+        'confirm_title' => 'Are you sure you want to delete your account?',
+        'confirm_with_password' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.',
         'confirm_with_email' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Your account has no password, so type your email address (:email) to confirm.',
         'email_mismatch' => 'This is not the email address of your account.',
     ],

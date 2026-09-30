@@ -80,7 +80,7 @@ it('reports a username that could not be generated in the modal as well', functi
     $response = $this->post('/register', modalRegistration());
 
     $response->assertRedirect('/posts/123');
-    $response->assertSessionHasErrorsIn('authModal', ['name' => 'Unable to generate a unique username.']);
+    $response->assertSessionHasErrorsIn('authModal', ['name' => __('auth.username_unavailable')]);
 });
 
 it('never follows a hostile return path after registering', function (mixed $returnTo) {

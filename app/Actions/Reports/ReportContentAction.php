@@ -72,7 +72,7 @@ final class ReportContentAction
                 key: RateLimitKey::userAction('report', $user),
                 maxAttempts: (int) config('rate_limits.report.max_attempts'),
                 decaySeconds: (int) config('rate_limits.report.decay_seconds'),
-                message: 'You are reporting too quickly. Please try again later.',
+                message: __('ui.rate_limit.reporting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotReportContentException::becauseRateLimited($e->getMessage());

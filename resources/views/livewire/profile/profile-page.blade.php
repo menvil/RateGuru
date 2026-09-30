@@ -181,8 +181,8 @@
                                             <p class="truncate text-sm font-medium text-rg-text">{{ $vote->post->title ?? '—' }}</p>
                                             @if($vote->group && $vote->option)
                                                 <p class="mt-1 text-xs text-rg-muted">
-                                                    {{ $vote->group->label ?? $vote->group->name ?? '' }}:
-                                                    <span class="font-medium text-rg-text2">{{ $vote->option->label ?? $vote->option->name ?? '' }}</span>
+                                                    {{ $vote->group->translatedLabel() }}:
+                                                    <span class="font-medium text-rg-text2">{{ $vote->option->translatedLabel() }}</span>
                                                 </p>
                                             @endif
                                         </div>

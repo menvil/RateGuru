@@ -8,22 +8,22 @@ final class CannotVoteCommentException extends DomainException
 {
     public static function becauseGuest(): self
     {
-        return new self('Guests cannot vote on comments.');
+        return new self(__('ui.voting.errors.guest_comment'));
     }
 
     public static function becauseUserIsNotAllowed(): self
     {
-        return new self('User is not allowed to vote on comments.');
+        return new self(__('ui.voting.errors.not_allowed_comment'));
     }
 
     public static function becauseCommentIsNotVisible(): self
     {
-        return new self('Comment cannot be voted on.');
+        return new self(__('ui.voting.errors.comment_not_visible'));
     }
 
     public static function becauseOwnComment(): self
     {
-        return new self('You cannot vote on your own comment.');
+        return new self(__('ui.voting.errors.own_comment'));
     }
 
     public static function becauseRateLimited(string $message): self

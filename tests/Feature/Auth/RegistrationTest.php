@@ -126,6 +126,7 @@ test('registration converts username generation exhaustion into a validation err
         'password' => 'password',
         'password_confirmation' => 'password',
     ])->assertSessionHasErrors([
-        'name' => 'Unable to generate a unique username.',
+        // The generator's own message is for logs; the reader gets ours.
+        'name' => __('auth.username_unavailable'),
     ]);
 });

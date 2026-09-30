@@ -36,7 +36,7 @@ it('updates a user locale preference', function () {
 it('rejects unsupported locales at the action boundary', function () {
     $user = User::factory()->create(['locale' => 'en']);
 
-    expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, 'de'))
+    expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, unsupportedLocale()))
         ->toThrow(InvalidArgumentException::class);
 
     expect($user->fresh()->locale)->toBe('en');

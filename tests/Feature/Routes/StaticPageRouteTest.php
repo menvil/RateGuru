@@ -68,12 +68,14 @@ it('publishes a legal or contact page after an administrator supplies content', 
 it('renders static page content in the selected locale', function (string $locale) {
     $page = config("static-pages.defaults.about.{$locale}");
 
+    expect($page)->toBeArray("config/static-pages.php has no default about page in {$locale}");
+
     $this->withSession(['locale' => $locale])
         ->get(route('pages.about'))
         ->assertOk()
         ->assertSee($page['title'])
         ->assertSee($page['content']);
-})->with(['ru', 'bg']);
+})->with(translatedLocales());
 
 it('renders admin-edited static page content for the current locale', function () {
     ProjectSettings::factory()->create([

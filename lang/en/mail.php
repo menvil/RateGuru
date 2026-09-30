@@ -3,6 +3,9 @@
 return [
     'greeting' => 'Hello, :name!',
     'salutation' => 'Regards, :app',
+    'fallback_greeting' => 'Hello!',
+    'error_greeting' => 'Whoops!',
+    'rights_reserved' => 'All rights reserved.',
     'action_fallback' => "If you're having trouble clicking the \":action\" button, copy and paste the URL below into your web browser:",
 
     'verify' => [

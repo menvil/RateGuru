@@ -5,38 +5,36 @@ use App\Support\Locale\LocaleManager;
 it('checks whether locale is supported', function () {
     $manager = app(LocaleManager::class);
 
-    expect($manager->isSupported('en'))->toBeTrue();
-    expect($manager->isSupported('ru'))->toBeTrue();
-    expect($manager->isSupported('bg'))->toBeTrue();
-    expect($manager->isSupported('de'))->toBeFalse();
+    foreach (supportedLocales() as $locale) {
+        expect($manager->isSupported($locale))->toBeTrue();
+    }
+
+    expect($manager->isSupported(unsupportedLocale()))->toBeFalse();
 });
 
 it('returns fallback locale for unsupported locale', function () {
-    expect(app(LocaleManager::class)->normalize('de'))->toBe('en');
+    expect(app(LocaleManager::class)->normalize(unsupportedLocale()))->toBe(config('locales.fallback'));
 });
 
-it('returns same locale when it is supported', function () {
-    expect(app(LocaleManager::class)->normalize('ru'))->toBe('ru');
-});
+it('returns same locale when it is supported', function (string $locale) {
+    expect(app(LocaleManager::class)->normalize($locale))->toBe($locale);
+})->with(supportedLocales());
 
 it('returns fallback locale', function () {
-    expect(app(LocaleManager::class)->fallback())->toBe('en');
+    expect(app(LocaleManager::class)->fallback())->toBe(config('locales.fallback'));
 });
 
 it('returns supported locales array', function () {
     $supported = app(LocaleManager::class)->supported();
 
-    expect($supported)->toHaveKeys(['en', 'ru', 'bg']);
+    expect($supported)->toBe(config('locales.supported'));
 });
 
-it('returns locale label', function () {
-    expect(app(LocaleManager::class)->label('en'))->toBe('English');
-    expect(app(LocaleManager::class)->label('ru'))->toBe('Russian');
-    expect(app(LocaleManager::class)->label('bg'))->toBe('Bulgarian');
-});
+it('returns the labels each locale is declared with', function () {
+    $manager = app(LocaleManager::class);
 
-it('returns locale native label', function () {
-    expect(app(LocaleManager::class)->nativeLabel('en'))->toBe('English');
-    expect(app(LocaleManager::class)->nativeLabel('ru'))->toBe('Русский');
-    expect(app(LocaleManager::class)->nativeLabel('bg'))->toBe('Български');
+    foreach (config('locales.supported') as $locale => $info) {
+        expect($manager->label($locale))->toBe($info['label'])
+            ->and($manager->nativeLabel($locale))->toBe($info['native']);
+    }
 });

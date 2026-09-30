@@ -1,16 +1,20 @@
 <?php
 
-it('has follow translation keys for all supported locales', function (string $locale) {
-    app()->setLocale($locale);
+use Illuminate\Support\Facades\Lang;
 
-    expect(__('follows.follow'))->not->toBe('follows.follow');
-    expect(__('follows.following'))->not->toBe('follows.following');
-    expect(__('follows.unfollow'))->not->toBe('follows.unfollow');
-    expect(__('follows.followers'))->not->toBe('follows.followers');
-    expect(__('follows.following_count'))->not->toBe('follows.following_count');
-    expect(__('follows.login_required'))->not->toBe('follows.login_required');
-    expect(__('follows.feature_disabled'))->not->toBe('follows.feature_disabled');
-    expect(__('follows.notifications.followed_author_posted'))->not->toBe('follows.notifications.followed_author_posted');
-    expect(__('follows.notifications.preference_label'))->not->toBe('follows.notifications.preference_label');
-    expect(__('follows.notifications.preference_description'))->not->toBe('follows.notifications.preference_description');
-})->with(['en', 'ru', 'bg']);
+it('has follow translation keys for all supported locales', function (string $locale) {
+    foreach ([
+        'follows.follow',
+        'follows.following',
+        'follows.unfollow',
+        'follows.followers',
+        'follows.following_count',
+        'follows.login_required',
+        'follows.feature_disabled',
+        'follows.notifications.followed_author_posted',
+        'follows.notifications.preference_label',
+        'follows.notifications.preference_description',
+    ] as $key) {
+        expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
+    }
+})->with(supportedLocales());

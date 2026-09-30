@@ -3215,3 +3215,42 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
 
     expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
 }
+
+/**
+ * The languages the product offers, read from config/locales.php — the one
+ * place a language is declared. Every localization test iterates this rather
+ * than spelling out a list, so declaring a language puts it through all of
+ * them without editing a single test.
+ *
+ * It reads the file rather than going through config() because Pest collects
+ * datasets before the application boots, and `->with(supportedLocales())` is
+ * the usual way a test asks for "every language".
+ *
+ * @return list<string>
+ */
+function supportedLocales(): array
+{
+    return array_keys((require dirname(__DIR__).'/config/locales.php')['supported']);
+}
+
+/**
+ * Every supported language except English, the reference the others are
+ * translated from.
+ *
+ * @return list<string>
+ */
+function translatedLocales(): array
+{
+    return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * A well-formed language code the product will never offer, for tests about
+ * what happens to an unsupported locale. Deliberately not a real language: a
+ * real one ("de") is exactly what may be added to config/locales.php next, and
+ * the test proving it is refused would then fail for the wrong reason.
+ */
+function unsupportedLocale(): string
+{
+    return 'xx';
+}

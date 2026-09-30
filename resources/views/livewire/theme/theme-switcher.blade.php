@@ -1,8 +1,8 @@
 @php
     $options = [
-        ['value' => 'system', 'label' => 'System', 'icon' => 'monitor'],
-        ['value' => 'light',  'label' => 'Light',  'icon' => 'sun'],
-        ['value' => 'dark',   'label' => 'Dark',   'icon' => 'moon'],
+        ['value' => 'system', 'label' => __('ui.theme_options.system'), 'icon' => 'monitor'],
+        ['value' => 'light',  'label' => __('ui.theme_options.light'),  'icon' => 'sun'],
+        ['value' => 'dark',   'label' => __('ui.theme_options.dark'),   'icon' => 'moon'],
     ];
 @endphp
 

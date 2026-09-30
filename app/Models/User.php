@@ -41,9 +41,9 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     use HasFactory, Notifiable;
 
     /**
-     * The only author label public UI may show for a tombstoned account —
-     * also stored into `name` by AnonymizeUserAccountAction so raw
-     * `$user->name` render sites stay safe.
+     * What AnonymizeUserAccountAction stores into `name`, so nothing personal
+     * survives in the column. Public UI shows the reader's own translation of
+     * it (`ui.user.deleted`) through resolved_display_name instead.
      */
     public const TOMBSTONE_DISPLAY_NAME = 'Deleted user';
 
@@ -279,7 +279,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     public function getResolvedDisplayNameAttribute(): string
     {
         if ($this->isTombstoned()) {
-            return self::TOMBSTONE_DISPLAY_NAME;
+            return __('ui.user.deleted');
         }
 
         return $this->display_name ?: ($this->name ?: $this->username);

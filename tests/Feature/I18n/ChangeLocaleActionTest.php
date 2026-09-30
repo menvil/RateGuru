@@ -2,34 +2,34 @@
 
 use App\Models\User;
 
-it('changes locale for guest by storing it in session', function () {
-    $this->post(route('locale.change'), ['locale' => 'ru'])
+it('changes locale for guest by storing it in session', function (string $locale) {
+    $this->post(route('locale.change'), ['locale' => $locale])
         ->assertRedirect();
 
-    expect(session('locale'))->toBe('ru');
-});
+    expect(session('locale'))->toBe($locale);
+})->with(supportedLocales());
 
-it('changes locale preference for authenticated user', function () {
+it('changes locale preference for authenticated user', function (string $locale) {
     $user = User::factory()->create(['locale' => null]);
 
     $this->actingAs($user)
-        ->post(route('locale.change'), ['locale' => 'bg'])
+        ->post(route('locale.change'), ['locale' => $locale])
         ->assertRedirect();
 
-    expect($user->fresh()->locale)->toBe('bg');
-});
+    expect($user->fresh()->locale)->toBe($locale);
+})->with(supportedLocales());
 
-it('also stores locale in session for authenticated user', function () {
+it('also stores locale in session for authenticated user', function (string $locale) {
     $user = User::factory()->create(['locale' => null]);
 
     $this->actingAs($user)
-        ->post(route('locale.change'), ['locale' => 'ru'])
+        ->post(route('locale.change'), ['locale' => $locale])
         ->assertRedirect();
 
-    expect(session('locale'))->toBe('ru');
-});
+    expect(session('locale'))->toBe($locale);
+})->with(supportedLocales());
 
 it('rejects unsupported locale change', function () {
-    $this->post(route('locale.change'), ['locale' => 'de'])
+    $this->post(route('locale.change'), ['locale' => unsupportedLocale()])
         ->assertSessionHasErrors('locale');
 });

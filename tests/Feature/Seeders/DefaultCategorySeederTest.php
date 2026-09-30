@@ -47,7 +47,7 @@ it('rolls back every default category when one category fails', function () {
         ],
         [
             'slug' => 'invalid-category',
-            'name' => ['en' => null, 'ru' => null, 'bg' => null],
+            'name' => array_fill_keys(supportedLocales(), null),
             'sort_order' => 20,
         ],
     ]);

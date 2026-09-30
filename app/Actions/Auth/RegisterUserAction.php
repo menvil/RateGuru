@@ -48,7 +48,7 @@ final class RegisterUserAction
             );
         } catch (CannotGenerateUsernameException $exception) {
             throw ValidationException::withMessages([
-                'name' => $exception->getMessage(),
+                'name' => __('auth.username_unavailable'),
             ]);
         }
 

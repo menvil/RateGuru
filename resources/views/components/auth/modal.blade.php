@@ -40,7 +40,7 @@
                     x-show="mode === '{{ $mode->value }}'"
                     data-testid="auth-modal-title-{{ $mode->value }}"
                     @style(['display: none' => $state->mode !== $mode])
-                >{{ $mode === AuthModalMode::Login ? __('Log in') : __('Sign up') }}</span>
+                >{{ $mode === AuthModalMode::Login ? __('auth.login.title') : __('auth.register.title') }}</span>
             @endforeach
         </x-slot:title>
 

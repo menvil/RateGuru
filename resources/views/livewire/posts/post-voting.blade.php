@@ -6,7 +6,7 @@
     class="{{ $variant === 'rail' ? 'flex flex-col items-center gap-1' : ($variant === 'pill' ? 'flex flex-col items-start gap-1' : 'flex flex-wrap items-center gap-2') }}"
 >
     @if($post === null)
-        <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>
+        <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">{{ __('ui.voting.unavailable') }}</span>
     @else
     @php
         $baseClass = 'inline-flex min-w-[3.5rem] items-center justify-center gap-1 rounded-rgControl border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-60';
@@ -38,7 +38,7 @@
 
             <span
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
-                title="Score"
+                title="{{ __('ui.voting.score') }}"
                 aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
                 data-testid="post-upvote-count-{{ $post->id }}"
             >
@@ -79,7 +79,7 @@
 
             <span
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text') }} min-w-4 text-center text-[13px] font-bold"
-                title="Score"
+                title="{{ __('ui.voting.score') }}"
                 aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
                 data-testid="post-upvote-count-{{ $post->id }}"
             >
@@ -114,7 +114,7 @@
         data-testid="post-upvote-button-{{ $post->id }}"
         class="{{ $baseClass }} {{ $upClass }}"
     >
-        <span wire:loading.remove wire:target="vote">▲ Up {{ $post->upvotes_count }}</span>
+        <span wire:loading.remove wire:target="vote">▲ {{ __('ui.voting.up') }} {{ $post->upvotes_count }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
 
@@ -132,7 +132,7 @@
         data-testid="post-downvote-button-{{ $post->id }}"
         class="{{ $baseClass }} {{ $downClass }}"
     >
-        <span wire:loading.remove wire:target="vote">▼ Down {{ $post->downvotes_count }}</span>
+        <span wire:loading.remove wire:target="vote">▼ {{ __('ui.voting.down') }} {{ $post->downvotes_count }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
     @endif

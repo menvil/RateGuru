@@ -34,13 +34,13 @@
                     <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="md" />
                 </a>
             @else
-                <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->name ?? 'User'" size="md" />
+                <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="md" />
             @endif
             <div class="min-w-0 flex-1">
                 @if($post->user?->public_username)
                     <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                 @else
-                    <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
+                    <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
                 @endif
                 <span class="block truncate text-xs text-rg-muted">
                     @if($post->user?->public_username)
@@ -85,7 +85,7 @@
             </div>
         @else
             <div class="mt-3">
-                <x-ui.image-placeholder label="Post image" ratio="feed" />
+                <x-ui.image-placeholder :label="__('ui.post.image_alt_fallback')" ratio="feed" />
             </div>
         @endif
 
@@ -116,7 +116,7 @@
                 >
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
-                <span class="sr-only">{{ $post->comments_count ?? 0 }} comments</span>
+                <span class="sr-only">{{ trans_choice('ui.comments.count', $post->comments_count ?? 0, ['count' => $post->comments_count ?? 0]) }}</span>
                 @endif
                 @if($postCardSettings->featureEnabled('show_share_buttons'))
                 @if($post->exists)
@@ -190,7 +190,7 @@
 
                 <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                     <div class="space-y-4">
-                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
                         <div class="flex justify-end gap-2">
                             <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>

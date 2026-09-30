@@ -29,7 +29,7 @@
     @endif
 
     <div>
-        <x-input-label :for="$idPrefix.'-name'" :value="__('Name')" />
+        <x-input-label :for="$idPrefix.'-name'" :value="__('auth.fields.name')" />
         <x-text-input
             :id="$idPrefix.'-name'"
             data-testid="{{ $testId }}-name"
@@ -46,7 +46,7 @@
     </div>
 
     <div class="mt-4">
-        <x-input-label :for="$idPrefix.'-email'" :value="__('Email')" />
+        <x-input-label :for="$idPrefix.'-email'" :value="__('auth.fields.email')" />
         <x-text-input
             :id="$idPrefix.'-email'"
             data-testid="{{ $testId }}-email"
@@ -61,7 +61,7 @@
     </div>
 
     <div class="mt-4">
-        <x-input-label :for="$idPrefix.'-password'" :value="__('Password')" />
+        <x-input-label :for="$idPrefix.'-password'" :value="__('auth.fields.password')" />
         <x-text-input
             :id="$idPrefix.'-password'"
             data-testid="{{ $testId }}-password"
@@ -75,7 +75,7 @@
     </div>
 
     <div class="mt-4">
-        <x-input-label :for="$idPrefix.'-password-confirmation'" :value="__('Confirm Password')" />
+        <x-input-label :for="$idPrefix.'-password-confirmation'" :value="__('auth.fields.password_confirmation')" />
         <x-text-input
             :id="$idPrefix.'-password-confirmation'"
             data-testid="{{ $testId }}-password-confirmation"
@@ -89,6 +89,6 @@
     </div>
 
     <x-primary-button class="mt-6 w-full" data-testid="{{ $testId }}-submit">
-        {{ __('Sign up') }}
+        {{ __('auth.register.action') }}
     </x-primary-button>
 </form>

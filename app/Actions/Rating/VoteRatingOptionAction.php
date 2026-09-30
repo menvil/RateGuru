@@ -47,7 +47,7 @@ final class VoteRatingOptionAction
                 key: RateLimitKey::userAction('vote', $user),
                 maxAttempts: (int) config('rate_limits.vote.max_attempts'),
                 decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
-                message: 'You are voting too quickly. Please try again later.',
+                message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotVoteForRatingOptionException::becauseRateLimited($e->getMessage());

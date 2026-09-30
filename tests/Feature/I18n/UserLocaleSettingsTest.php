@@ -4,24 +4,24 @@ use App\Livewire\Settings\UserLocaleSettings;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('allows authenticated user to update locale preference', function () {
+it('allows authenticated user to update locale preference', function (string $locale) {
     $user = User::factory()->create(['locale' => 'en']);
 
     Livewire::actingAs($user)
         ->test(UserLocaleSettings::class)
-        ->set('locale', 'ru')
+        ->set('locale', $locale)
         ->call('save')
         ->assertHasNoErrors();
 
-    expect($user->fresh()->locale)->toBe('ru');
-});
+    expect($user->fresh()->locale)->toBe($locale);
+})->with(translatedLocales());
 
 it('rejects unsupported user locale preference', function () {
     $user = User::factory()->create(['locale' => 'en']);
 
     Livewire::actingAs($user)
         ->test(UserLocaleSettings::class)
-        ->set('locale', 'de')
+        ->set('locale', unsupportedLocale())
         ->call('save')
         ->assertHasErrors('locale');
 });

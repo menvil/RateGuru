@@ -1,8 +1,8 @@
 <?php
 
-it('has all required saved posts translation keys in each locale', function (string $locale) {
-    app()->setLocale($locale);
+use Illuminate\Support\Facades\Lang;
 
+it('has all required saved posts translation keys in each locale', function (string $locale) {
     $keys = [
         'save',
         'saved',
@@ -18,6 +18,6 @@ it('has all required saved posts translation keys in each locale', function (str
     ];
 
     foreach ($keys as $key) {
-        expect(__("saved_posts.{$key}"))->not->toBe("saved_posts.{$key}");
+        expect(Lang::hasForLocale("saved_posts.{$key}", $locale))->toBeTrue("Missing saved_posts.{$key} for {$locale}");
     }
-})->with(['en', 'ru', 'bg']);
+})->with(supportedLocales());

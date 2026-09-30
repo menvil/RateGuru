@@ -57,14 +57,14 @@
                             <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                         </a>
                     @else
-                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->name ?? 'User'" size="lg" />
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
                     @endif
 
                     <div class="min-w-0">
                         @if($post->user?->public_username)
                             <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
                         @else
-                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
 
                         <div class="truncate text-xs text-rg-muted">
@@ -112,7 +112,7 @@
                     testid="post-show-image-open"
                 />
             @else
-                <x-ui.image-placeholder label="Image preview" ratio="video" />
+                <x-ui.image-placeholder :label="__('ui.post.image_preview')" ratio="video" />
             @endif
             </div>
 
