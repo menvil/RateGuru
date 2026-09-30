@@ -504,7 +504,7 @@ select a target:
 | Workflow | Deployment target | GitHub Environment | Concurrency group |
 |---|---|---|---|
 | **Rollback staging** (`.github/workflows/rollback-staging.yml`) | `staging-main` | `staging` | `rateguru-staging-deployment` |
-| **Rollback production** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production` | `rateguru-production-release` |
+| **Rollback tits.guru** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production` | `rateguru-production-release` |
 
 Both are thin — a checkout and one action call each: the target and the
 environment are hard-coded in the workflow and cannot be chosen at dispatch
@@ -513,7 +513,7 @@ composite action, which owns input validation, SSH material, the wrapper
 invocation, the active-release read-back, the Sentry deployment marker and the
 run summary. No rollback business logic exists in GitHub.
 
-1. GitHub → **Actions** → **Rollback staging** (or **Rollback production**)
+1. GitHub → **Actions** → **Rollback staging** (or **Rollback tits.guru**)
    → **Run workflow**.
 2. Leave `mode` at `previous` (the default) to switch the target back to the
    previous release. `release-id` must stay empty in this mode.
@@ -559,7 +559,7 @@ integrity. GitHub concurrency exists so one workflow does not fail merely
 because another already holds that lock. `cancel-in-progress` is `false`
 everywhere: a deployment in flight is never cancelled.
 
-**Rollback production fails closed today.** `tits-guru` is still
+**Rollback tits.guru fails closed today.** `tits-guru` is still
 `lifecycle=planned` and unprovisioned. That gate is enforced server-side by
 the wrapper, and the `production` GitHub Environment has no `DEPLOY_*`
 configuration yet — so the workflow stops with an explicit diagnostic instead

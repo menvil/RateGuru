@@ -10,7 +10,7 @@ It is delivered by:
 | | |
 |---|---|
 | `.github/workflows/restore-staging.yml` | **Restore staging**, fixed to `staging-main` |
-| `.github/workflows/restore-production.yml` | **Restore production**, fixed to `tits-guru` |
+| `.github/workflows/restore-production.yml` | **Restore tits.guru**, fixed to `tits-guru` |
 | `.github/actions/restore-rateguru` | the one GitHub-side restore transport |
 | `infrastructure/config/wrappers/rateguru-restore` | the one server-side restore perimeter |
 | `infrastructure/scripts/restore-target` | all the restore logic ([`restore-target.md`](restore-target.md)) |

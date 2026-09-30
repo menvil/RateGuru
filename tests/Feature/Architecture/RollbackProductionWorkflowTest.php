@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 it('rolls back production manually, through the same shared implementation', function () {
-    expect(data_get($this->workflow, 'name'))->toBe('Rollback production')
+    expect(data_get($this->workflow, 'name'))->toBe('Rollback tits.guru')
         ->and(array_keys($this->workflow['on']))->toBe(['workflow_dispatch'])
         ->and($this->workflow['permissions'])->toBe(['contents' => 'read'])
         ->and(array_keys($this->workflow['jobs']))->toBe(['rollback'])

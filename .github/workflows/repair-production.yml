@@ -1,4 +1,4 @@
-name: Repair production target
+name: Repair tits.guru
 
 # The production counterpart of repair-staging.yml. Same operator semantics,
 # the same shared action, the same server-side repair-target — a different
@@ -17,7 +17,7 @@ name: Repair production target
 # rules stay authoritative on top of the confirmation below.
 #
 # There is deliberately no target dropdown anywhere in this repository:
-# "Repair staging target" and "Repair production target" are two buttons whose
+# "Repair staging target" and "Repair tits.guru" are two buttons whose
 # names say what they do, sharing one implementation underneath.
 on:
   workflow_dispatch:

@@ -15,7 +15,7 @@ It is delivered by:
 | | |
 |---|---|
 | `.github/workflows/recover-staging.yml` | **Recover staging host**, fixed to `staging-main` |
-| `.github/workflows/recover-production.yml` | **Recover production host**, fixed to `tits-guru` |
+| `.github/workflows/recover-production.yml` | **Recover tits.guru host**, fixed to `tits-guru` |
 | `.github/actions/prepare-rateguru-host` | the one host-preparation transport ([`prepare-host.md`](prepare-host.md)) |
 | `.github/actions/recover-rateguru-host` | the one recovery transport |
 | `.github/actions/build-rateguru` | the one build implementation |
@@ -659,7 +659,7 @@ over.
 
 ## 11. Production
 
-`Recover production host` exists now and is fixed to `tits-guru`, in the
+`Recover tits.guru host` exists now and is fixed to `tits-guru`, in the
 `production` environment, in the `rateguru-production-release` concurrency
 domain. It requires the exact confirmation `RECOVER tits-guru`.
 

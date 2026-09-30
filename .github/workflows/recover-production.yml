@@ -1,4 +1,4 @@
-name: Recover production host
+name: Recover tits.guru host
 
 # The production counterpart of recover-staging.yml. Same operator semantics,
 # the same five shared actions, the same server-side prepare-host and
@@ -381,9 +381,9 @@ jobs:
           set -Eeuo pipefail
 
           if [[ "${MODE}" == "start" ]]; then
-            then_action="re-run \"Recover production host\" with mode=start and the same exact backup (backup=${BACKUP})"
+            then_action="re-run \"Recover tits.guru host\" with mode=start and the same exact backup (backup=${BACKUP})"
           else
-            then_action="re-run \"Recover production host\" with mode=continue-held and the same operation"
+            then_action="re-run \"Recover tits.guru host\" with mode=continue-held and the same operation"
           fi
 
           # action_required WORD CAUSE MEANING DO... — the shared operator-facing
@@ -765,7 +765,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # The SAME preparation action the ordinary Prepare production host
+      # The SAME preparation action the ordinary Prepare tits.guru host
       # workflow uses, in its recovery mode. Two differences, and only two:
       # the machine it is pointed at (the replacement, never DEPLOY_HOST), and
       # where the material comes from — the chosen backup, on the host, through
@@ -1558,7 +1558,7 @@ jobs:
           backup="${SERVER_BACKUP:-${BACKUP}}"
 
           {
-            echo "## Recover production host"
+            echo "## Recover tits.guru host"
             echo
             echo "| Fact | Value |"
             echo "| --- | --- |"
@@ -1721,10 +1721,10 @@ jobs:
           done
 
           if [[ -n "${operation}" ]]; then
-            then_action="re-run \"Recover production host\" with mode=continue-held, operation=${operation} and replacement-host=${REPLACEMENT_HOST}"
+            then_action="re-run \"Recover tits.guru host\" with mode=continue-held, operation=${operation} and replacement-host=${REPLACEMENT_HOST}"
             recommendation="CONTINUE"
           else
-            then_action="re-run \"Recover production host\" with mode=start (backup=${backup:-<exact timestamp>}, replacement-host=<the clean machine>, replacement-port=${REPLACEMENT_PORT:-22})"
+            then_action="re-run \"Recover tits.guru host\" with mode=start (backup=${backup:-<exact timestamp>}, replacement-host=<the clean machine>, replacement-port=${REPLACEMENT_PORT:-22})"
             recommendation="START"
           fi
 
@@ -1756,7 +1756,7 @@ jobs:
           # A missing environment value is refused before any connection, and
           # its guidance names the value and the KIND it must be created as.
           if [[ "${stage}" == "values" ]] && [[ "${MODE}" == "start" ]]; then
-            then_action="re-run \"Recover production host\" with mode=start and the same exact backup (backup=${backup:-<exact timestamp>})"
+            then_action="re-run \"Recover tits.guru host\" with mode=start and the same exact backup (backup=${backup:-<exact timestamp>})"
           fi
 
           # A values job that never reported a cause did not judge anything:
@@ -2029,7 +2029,7 @@ jobs:
               echo "Nothing was cleaned up to make this run look green: the recovered data, the"
               echo "recovery guard and the operation's own state are all still on the machine."
               echo
-              echo 'Re-run "Recover production host" with:'
+              echo 'Re-run "Recover tits.guru host" with:'
               echo
               echo '```text'
               echo "mode=continue-held"

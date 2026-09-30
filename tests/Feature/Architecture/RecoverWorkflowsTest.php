@@ -162,7 +162,7 @@ function recoverWorkflowFiles(): array
 // same word.
 dataset('recover workflows', [
     'staging' => ['recover-staging.yml', 'Recover staging host', 'staging-main', 'staging', 'rateguru-staging-deployment', 'staging'],
-    'production' => ['recover-production.yml', 'Recover production host', 'tits-guru', 'production', 'rateguru-production-release', 'production-tits-guru'],
+    'production' => ['recover-production.yml', 'Recover tits.guru host', 'tits-guru', 'production', 'rateguru-production-release', 'production-tits-guru'],
 ]);
 
 // =============================================================================

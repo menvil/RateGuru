@@ -1,4 +1,4 @@
-name: Prepare production host
+name: Prepare tits.guru host
 
 # The production counterpart of prepare-staging-host.yml. Same operator
 # semantics, same shared implementation, different fixed identity — an operator

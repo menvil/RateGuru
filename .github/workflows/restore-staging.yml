@@ -4,7 +4,7 @@ name: Restore staging
 # automatic reaction to anything. The target is fixed to staging-main by this
 # workflow — an operator selects WHICH backup, never WHICH target. There is
 # deliberately no target dropdown anywhere in this repository: "Restore
-# staging" and "Restore production" are two buttons whose names say what they
+# staging" and "Restore tits.guru" are two buttons whose names say what they
 # do, sharing one implementation underneath.
 #
 # This workflow is policy and orchestration only. Every mechanism it uses

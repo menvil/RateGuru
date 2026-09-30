@@ -71,7 +71,7 @@ function phwPrepareStep(string $workflow): array
 it('offers both prepare workflows to an operator by environment name', function () {
     foreach ([
         'prepare-staging-host.yml' => 'Prepare staging host',
-        'prepare-production-host.yml' => 'Prepare production host',
+        'prepare-production-host.yml' => 'Prepare tits.guru host',
     ] as $file => $name) {
         expect(File::exists(base_path('.github/workflows/'.$file)))->toBeTrue();
         expect(phwWorkflow($file)['name'])->toBe($name);

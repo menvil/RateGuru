@@ -10,7 +10,7 @@ this repository, without changing the code it serves or the data it holds:
   authoritative owner of the target's service configuration;
 - `.github/actions/repair-rateguru-target` — the GitHub transport;
 - `.github/workflows/repair-staging.yml` — **Repair staging target**;
-- `.github/workflows/repair-production.yml` — **Repair production target**
+- `.github/workflows/repair-production.yml` — **Repair tits.guru**
   (fail-closed until production is activated; see below).
 
 ## What Repair Target is, and is not
@@ -60,7 +60,7 @@ meaning, so there is nothing to choose — and offering a choice at the moment a
 target is already broken would be offering a decision nobody should be making
 under pressure.
 
-**Repair production target** takes one input: a `confirmation` that must be
+**Repair tits.guru** takes one input: a `confirmation` that must be
 exactly `REPAIR tits-guru`, judged in a job that holds no GitHub Environment and
 no secret, so an unconfirmed request never even becomes an approval request.
 
@@ -428,7 +428,7 @@ there is something to fix that this operation is not allowed to fix.
 | workflow | group |
 |---|---|
 | Repair staging target | `rateguru-staging-deployment` |
-| Repair production target | `rateguru-production-release` |
+| Repair tits.guru | `rateguru-production-release` |
 
 The same domains deploy, rollback, restore and host preparation already use: a
 repair converges the infrastructure a release runs inside, so it must never
@@ -436,7 +436,7 @@ overlap any of them. `cancel-in-progress` stays `false` — a cancelled repair i
 not an undone repair — and the server-side deployment lock remains the ultimate
 protection regardless.
 
-## Repair production target
+## Repair tits.guru
 
 `tits-guru` is `lifecycle=planned` and unprovisioned. The action refuses a
 non-active target before it uploads anything, and `repair-target` refuses it

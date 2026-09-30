@@ -1,4 +1,4 @@
-name: Restore production
+name: Restore tits.guru
 
 # The production counterpart of restore-staging.yml. Same operator semantics,
 # the same four shared actions, the same server-side restore-target — a
@@ -8,7 +8,7 @@ name: Restore production
 # automatic reaction to anything. The target is fixed to tits-guru by this
 # workflow — an operator selects WHICH backup, never WHICH target. There is
 # deliberately no target dropdown anywhere in this repository: "Restore
-# staging" and "Restore production" are two buttons whose names say what they
+# staging" and "Restore tits.guru" are two buttons whose names say what they
 # do, sharing one implementation underneath.
 #
 # tits-guru is still lifecycle=planned and unprovisioned. That gate lives in

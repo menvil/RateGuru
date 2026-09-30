@@ -1,4 +1,4 @@
-name: Rollback production
+name: Rollback tits.guru
 
 # The production counterpart of rollback-staging.yml. Same operator
 # semantics, same shared implementation, different fixed identity — an

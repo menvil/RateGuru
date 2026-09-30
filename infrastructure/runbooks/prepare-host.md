@@ -44,7 +44,7 @@ Prepare Host is therefore **not**:
 | It is not | That is |
 | --- | --- |
 | a deploy | `Deploy to staging` / `Release to production` |
-| a rollback | `Rollback staging` / `Rollback production` |
+| a rollback | `Rollback staging` / `Rollback tits.guru` |
 | a data restore | Phase 7.3 — Restore Target Data |
 | a drift repair | Phase 7.5 — Repair Target |
 | replacement-server recovery | Recover Host — [`recover-host.md`](recover-host.md) |
@@ -440,7 +440,7 @@ target-specific mutation**. Both target-aware children enforce the same gate
 independently. Host-global bootstrap is therefore not a loophole for silently
 provisioning a planned production target.
 
-### Prepare production host
+### Prepare tits.guru host
 
 The workflow exists, is wired to the same shared action, and is pinned to the
 real `tits-guru` target ID — so a real run fails closed on the server's
@@ -465,7 +465,7 @@ repository does not know about it.
 `Prepare staging host` runs in the `rateguru-staging-deployment` concurrency
 group — the same domain as `Deploy to staging`, `Rollback staging` and the
 staging verification step of a production release, and the domain future
-restore and recover operations will join. `Prepare production host` runs in
+restore and recover operations will join. `Prepare tits.guru host` runs in
 `rateguru-production-release`. Neither cancels an in-flight run. This is
 orchestration on top of, never a replacement for, the server-side deployment
 lock.
