@@ -107,6 +107,16 @@ REQUIRED_TOOLS=(grep sed tail printf)
 
 MODE=""
 MODE_SEEN=false
+
+# Explicit authorization to create the database of a target that is not active
+# yet. argv only — there is no environment variable for it, so a run either
+# says so on the command line or does not get it.
+PROVISIONING=false
+
+provisioning() {
+    [[ "${PROVISIONING}" == true ]]
+}
+
 TARGET_ID=""
 TARGET_SEEN=false
 
@@ -117,7 +127,8 @@ Usage:
   install-target-database --apply  --target TARGET_ID
   install-target-database --verify --target TARGET_ID
 
-All modes require root and a lifecycle=active target.
+All modes require root. A lifecycle=active target, unless --provisioning
+names a planned production one.
 
   --check   Read-only: report role, database, ownership and connectivity.
   --apply   Create the role and database if absent, then verify. Never drops,
@@ -130,6 +141,11 @@ USAGE
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --provisioning)
+                PROVISIONING=true
+                shift
+                continue
+                ;;
             --check|--apply|--verify)
                 if [[ "${MODE_SEEN}" == true ]]; then
                     usage >&2
@@ -253,10 +269,20 @@ ENV_DB_PASSWORD=""
 
 resolve_target() {
     # Validates the target ID, the whole registry, that the target exists and
-    # that it is lifecycle=active — before any path is built or any SQL runs.
-    # A planned target (tits-guru today) is rejected here, so no production
-    # database can ever be brought into existence by this script.
-    require_active_target "${TARGET_ID}"
+    # that its lifecycle permits this run — before any path is built or any SQL
+    # runs.
+    #
+    # Two gates, never both, and the flag is the whole difference. Without
+    # --provisioning nothing has changed: only an active target gets a
+    # database. With it, exactly one other shape is allowed — a planned
+    # PRODUCTION target being configured before it operates — which is the
+    # sibling gate `common` already defines and which refuses active, disabled,
+    # unknown and planned-staging by name.
+    if provisioning; then
+        require_provisionable_target "${TARGET_ID}"
+    else
+        require_active_target "${TARGET_ID}"
+    fi
 
     TARGET_ROOT="$(target_root "${TARGET_ID}")"
     DB_NAME="$(target_database_name "${TARGET_ID}")"

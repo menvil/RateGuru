@@ -3,6 +3,7 @@ backup-cycle
 bootstrap-host
 bootstrap-host-preflight
 cleanup
+configure-target
 deploy
 fetch-backup
 fetch-recovery-material
