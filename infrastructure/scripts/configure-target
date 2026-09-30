@@ -384,6 +384,16 @@ child_blocker() {
         return 0
     fi
 
+    # A host prerequisite is not this operation's to fix, and it is not a
+    # contract this target can satisfy by being configured. Told apart from
+    # CONFLICT because the remedy differs: one is a host operation, the other
+    # is something already in the way.
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+        printf '%s: host-level prerequisites are not satisfied. This is a host prerequisite, not this target'"'"'s — prepare or repair the host first; configuring never creates or re-owns host infrastructure' "${label}"
+
+        return 0
+    fi
+
     if printf '%s' "${CHILD_OUTPUT}" | grep -qE '^(CONFLICT|  CONFLICT )'; then
         printf '%s: state that is never resolved automatically, because resolving it would mean replacing something already there' "${label}"
 
