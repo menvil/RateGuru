@@ -208,29 +208,44 @@ it('prints the whole remote transcript when provisioning fails, and reads nothin
         'Provision the target' => 'provision',
         'Verify the provisioned target' => 'verification',
     ] as $name => $prefix) {
-        $run = $steps->firstWhere('name', $name)['run'];
+        // Comment lines removed, for the reason this whole file has an
+        // executable-only view: the step EXPLAINS the hazard it fixes, and
+        // that sentence contains the literal `set -e`. Asserting over the raw
+        // script would let the prose describing the bug stand in for the line
+        // that fixes it — delete the restore and the check would still pass.
+        $executable = executableSourceLines($steps->firstWhere('name', $name)['run']);
 
-        // The capture is explicit: status taken, -e restored, output printed
-        // unconditionally, and only then judged.
-        expect($run)
+        expect($executable)
             ->toContain('set +e')
             ->toContain("{$prefix}_status=\$?")
-            ->toContain('set -e')
             ->toContain("if (( {$prefix}_status != 0 )); then")
-            ->toContain("exit \"\${{$prefix}_status}\"");
+            ->toContain("exit \"\${{$prefix}_status}\"")
+            // stderr belongs to the transcript too: the server-side report
+            // ends in an ERROR line, and it is on stderr.
+            ->toContain('"${remote_command[@]@Q}" 2>&1');
 
-        $print = mb_strpos($run, "printf '%s\\n' \"\${{$prefix}_output}\"");
-        $judge = mb_strpos($run, "if (( {$prefix}_status != 0 )); then");
+        $disable = mb_strpos($executable, 'set +e');
+        $capture = mb_strpos($executable, "{$prefix}_status=\$?");
+        // Not matched by the step's own `set -Eeuo pipefail`, which carries an
+        // uppercase E.
+        $restore = mb_strpos($executable, 'set -e');
+        $print = mb_strpos($executable, "printf '%s\\n' \"\${{$prefix}_output}\"");
+        $judge = mb_strpos($executable, "if (( {$prefix}_status != 0 )); then");
         // The CALL, not the helper's definition, which is above the capture.
-        $parse = mb_strpos($run, "rateguru_provision_result \"\${{$prefix}_output}\"");
+        $parse = mb_strpos($executable, "rateguru_provision_result \"\${{$prefix}_output}\"");
 
-        expect($print)->not->toBeFalse("{$name} must print the remote output");
+        foreach (['set +e' => $disable, 'the status capture' => $capture, 'set -e' => $restore, 'the transcript print' => $print] as $what => $position) {
+            expect($position)->not->toBeFalse("{$name} is missing {$what}");
+        }
+
+        // The whole sequence, in the only order that preserves the diagnosis:
+        // -e off, command run, status taken while it is still \$?, -e back on,
+        // transcript printed unconditionally, and only then judged and parsed.
+        expect($disable)->toBeLessThan($capture, "{$name} must disable -e before the command whose status it captures");
+        expect($capture)->toBeLessThan($restore, "{$name} must capture the status before restoring -e, or the restore would run first and \$? would be its own");
+        expect($restore)->toBeLessThan($print, "{$name} must restore -e before the rest of the step runs");
         expect($print)->toBeLessThan($judge, "{$name} must print the transcript before deciding the step failed");
         expect($judge)->toBeLessThan($parse, "{$name} must refuse a failed run before any result is parsed");
-
-        // stderr belongs to the transcript too: the server-side report ends in
-        // an ERROR line, and it is on stderr.
-        expect($run)->toContain('"${remote_command[@]@Q}" 2>&1');
     }
 });
 
