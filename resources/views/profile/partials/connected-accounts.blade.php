@@ -1,9 +1,10 @@
 {{--
     The Google and Facebook sign-ins of this account. Connecting runs the
     ordinary provider round trip while signed in; disconnecting asks first
-    and is never offered for the account's last way to sign in.
+    and is never offered for the account's last way to sign in. A provider
+    switched off in Project settings is only listed while it is still
+    connected, so the person can see it and remove it.
 --}}
-@use('App\Enums\SocialProvider')
 @use('App\Support\Profile\ConnectedAccountsResponse')
 
 <section id="{{ ConnectedAccountsResponse::FRAGMENT }}" class="scroll-mt-24" data-testid="connected-accounts">
@@ -31,7 +32,7 @@
     />
 
     <ul class="mt-6 divide-y divide-rg-border rounded-rgControl border border-rg-border">
-        @foreach (SocialProvider::cases() as $provider)
+        @foreach ($connectedAccounts->providers() as $provider)
             @php
                 $account = $connectedAccounts->accountFor($provider);
             @endphp
@@ -58,13 +59,19 @@
                                     {{ __('profile.connected.since', ['date' => $account->created_at->translatedFormat('j M Y')]) }}
                                 </p>
                             @endif
+
+                            @unless ($connectedAccounts->isAvailable($provider))
+                                <p class="text-xs text-rg-muted" data-testid="connected-account-unavailable">
+                                    {{ __('profile.connected.unavailable', ['provider' => $provider->label()]) }}
+                                </p>
+                            @endunless
                         @else
                             <p class="text-xs text-rg-muted">{{ __('profile.connected.not_connected') }}</p>
                         @endif
                     </div>
                 </div>
 
-                @if ($account === null)
+                @if ($connectedAccounts->canConnect($provider))
                     <form method="post" action="{{ route('profile.connected-accounts.store', ['provider' => $provider->value]) }}">
                         @csrf
 
@@ -113,7 +120,7 @@
                             </x-ui.button>
                         </x-slot:footer>
                     </x-ui.modal>
-                @else
+                @elseif ($account !== null)
                     <p class="max-w-xs text-xs text-rg-muted sm:text-right" data-testid="connected-account-last-method">
                         {{ __('profile.connected.last_method') }}
                     </p>

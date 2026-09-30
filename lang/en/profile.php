@@ -55,6 +55,7 @@ return [
         'disconnected' => ':provider is disconnected.',
         'confirm_title' => 'Disconnect :provider?',
         'confirm_body' => 'You will no longer be able to sign in with this :provider account. You can connect it again at any time.',
+        'unavailable' => 'Sign-in with :provider is currently turned off.',
         'not_connected_error' => ':provider is not connected to your account.',
         'last_method_error' => ':provider is the only way to sign in to your account. Set a password or connect another account first.',
     ],

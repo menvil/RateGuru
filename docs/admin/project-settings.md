@@ -17,6 +17,7 @@
 - `active_preset_key` — which preset was last applied (informational only)
 - `preset_applied_at` — successful one-time preset installation timestamp
 - `feature_flags` — JSON object controlling UI visibility
+- `sign_in_providers` — JSON object of the social sign-in providers switched on or off (see [Sign-in methods](#sign-in-methods))
 
 ## Installation preset status
 
@@ -115,6 +116,25 @@ Feature flags are stored in `feature_flags` JSON column:
 Disabling `allow_user_uploads` in settings hides the upload button, but does not block the backend action. A determined user could still call the upload endpoint directly.
 
 For security-critical flags, a backend guard must also be added. This is documented as future work.
+
+## Sign-in methods
+
+The **Sign-in methods** section has one switch per social provider, stored in
+`sign_in_providers` as `{"google": true, "facebook": false}`. A provider
+missing from it — or the column being null — is on. It is a separate column
+from `feature_flags` on purpose: applying a preset replaces the feature flags
+and must never switch a way of signing in off.
+
+Email and password sign-in is always on. A provider is **available** only
+while its switch is on *and* its keys (`GOOGLE_CLIENT_ID` /
+`GOOGLE_CLIENT_SECRET`, `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET`) are
+set in the server's `.env`; the section says so under a provider whose keys
+are missing, and shows how many accounts sign in with each provider.
+
+Unlike the UI feature flags above, switching a provider off is enforced by
+the server, not only hidden: its buttons disappear everywhere and its
+redirect, callback and connections are refused. Nobody is locked out
+silently — see [social sign-in](../dev/social-login.md#switching-a-provider-off).
 
 ## Relation to future phases
 

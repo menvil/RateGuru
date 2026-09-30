@@ -55,6 +55,7 @@ return [
         'disconnected' => ':provider отключён.',
         'confirm_title' => 'Отключить :provider?',
         'confirm_body' => 'Вы больше не сможете входить через этот аккаунт :provider. Подключить его снова можно в любой момент.',
+        'unavailable' => 'Вход через :provider сейчас отключён.',
         'not_connected_error' => ':provider не подключён к вашему аккаунту.',
         'last_method_error' => ':provider — единственный способ входа в ваш аккаунт. Сначала установите пароль или подключите другой аккаунт.',
     ],

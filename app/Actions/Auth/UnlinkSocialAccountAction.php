@@ -9,6 +9,7 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use App\Notifications\SocialAccountDisconnectedNotification;
 use App\Support\Auth\SignInMethods;
+use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Support\Facades\DB;
 
@@ -16,8 +17,9 @@ use Illuminate\Support\Facades\DB;
  * Removes a Google or Facebook sign-in from an account.
  *
  * Never the last way in: an account without a password keeps at least one
- * provider. Decided on the locked account row, so two disconnects racing
- * each other cannot both succeed and leave the account unreachable.
+ * provider that is currently available (see SignInMethods). Decided on the
+ * locked account row, so two disconnects racing each other cannot both
+ * succeed and leave the account unreachable.
  */
 final class UnlinkSocialAccountAction
 {
@@ -25,6 +27,7 @@ final class UnlinkSocialAccountAction
 
     public function __construct(
         private readonly DomainLogger $logger,
+        private readonly SocialProviderAvailability $availability,
     ) {}
 
     /**
@@ -48,12 +51,14 @@ final class UnlinkSocialAccountAction
                 throw CannotDisconnectSocialAccountException::notConnected($provider);
             }
 
-            $otherProviders = SocialAccount::query()
+            $otherAvailableProviders = SocialAccount::query()
                 ->where('user_id', $locked->id)
                 ->where('provider', '!=', $provider->value)
+                ->get()
+                ->filter(fn (SocialAccount $other): bool => $this->availability->isAvailable($other->provider))
                 ->count();
 
-            if (! SignInMethods::remainAfterDisconnecting($locked->hasPassword(), $otherProviders)) {
+            if (! SignInMethods::remainAfterDisconnecting($locked->hasPassword(), $otherAvailableProviders)) {
                 throw CannotDisconnectSocialAccountException::lastSignInMethod($provider);
             }
 

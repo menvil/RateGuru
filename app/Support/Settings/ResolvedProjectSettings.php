@@ -2,6 +2,7 @@
 
 namespace App\Support\Settings;
 
+use App\Enums\SocialProvider;
 use App\Support\Translations\TranslatableField;
 
 class ResolvedProjectSettings
@@ -126,6 +127,19 @@ class ResolvedProjectSettings
     public function featureFlag(string $key, bool $default = true): bool
     {
         return (bool) ($this->data['feature_flags'][$key] ?? $default);
+    }
+
+    /**
+     * Whether the admin has left sign-in with this provider on. Every
+     * provider is on until it is explicitly switched off. Whether it can
+     * actually be used also depends on its keys — see
+     * SocialProviderAvailability.
+     */
+    public function signInProviderTurnedOn(SocialProvider $provider): bool
+    {
+        $providers = $this->data['sign_in_providers'] ?? [];
+
+        return (bool) (is_array($providers) ? ($providers[$provider->value] ?? true) : true);
     }
 
     /**

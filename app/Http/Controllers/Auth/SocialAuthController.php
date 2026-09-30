@@ -26,17 +26,26 @@ class SocialAuthController extends Controller
      * Send the person to the provider's consent screen, remembering — in
      * the server-side session only — which surface they left from. This is
      * always a sign-in: a connection abandoned earlier in this session is
-     * void from here on.
+     * void from here on. A provider that is switched off never sees the
+     * person; they are back on their surface with a message instead.
      */
     public function redirect(
         SocialRedirectRequest $request,
         SocialProvider $provider,
         SocialProviderGateway $gateway,
     ): ProviderRedirect {
-        AuthSurfaceContext::fromInput($request->validated())->remember($request->session());
+        $surface = AuthSurfaceContext::fromInput($request->validated());
         SocialLinkContext::forget($request->session());
 
-        return $gateway->redirect($provider);
+        try {
+            $response = $gateway->redirect($provider);
+        } catch (SocialAuthenticationException $exception) {
+            return $surface->redirectAfterSocialFailure($exception->userMessage());
+        }
+
+        $surface->remember($request->session());
+
+        return $response;
     }
 
     /**

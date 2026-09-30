@@ -13,6 +13,9 @@ return [
 
     'social' => [
         'log_in_with' => 'Вход с :provider',
+        'unavailable' => 'Входът чрез :provider в момента не е достъпен.',
+        'unavailable_notice' => 'Входът чрез :provider е изключен. Ако сте влизали чрез :provider, задайте парола за профила си — ще ви изпратим линк по имейл.',
+        'unavailable_set_password' => 'Задайте парола',
         'cancelled' => 'Входът чрез :provider беше отказан. Опитайте отново.',
         'failed' => 'Не успяхме да ви впишем чрез :provider. Опитайте отново.',
         'expired' => 'Входът чрез :provider изтече, преди да приключи. Започнете отначало.',

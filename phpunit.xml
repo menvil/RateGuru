@@ -52,5 +52,12 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Placeholder OAuth keys, never real ones: a provider without keys is
+             unavailable and its buttons are hidden, so tests that exercise the
+             social sign-in flows need a value. No test contacts a provider. -->
+        <env name="GOOGLE_CLIENT_ID" value="testing-google-client-id"/>
+        <env name="GOOGLE_CLIENT_SECRET" value="testing-google-client-secret"/>
+        <env name="FACEBOOK_CLIENT_ID" value="testing-facebook-client-id"/>
+        <env name="FACEBOOK_CLIENT_SECRET" value="testing-facebook-client-secret"/>
     </php>
 </phpunit>
