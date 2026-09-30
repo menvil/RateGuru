@@ -197,6 +197,57 @@ it('never invokes any operation but provisioning on the host', function (string 
     'artisan', 'certbot', 'psql', 'rclone',
 ]);
 
+it('prints the whole remote transcript when provisioning fails, and reads nothing out of it', function () {
+    // A real failed run lost its entire server-side report. `set -e` ends a
+    // step the moment a command substitution fails, so the capture aborted
+    // before the line that would have printed it — and the one thing an
+    // operator needed was the part the host had already said.
+    $steps = collect(data_get(provisionAction(), 'runs.steps'));
+
+    foreach ([
+        'Provision the target' => 'provision',
+        'Verify the provisioned target' => 'verification',
+    ] as $name => $prefix) {
+        $run = $steps->firstWhere('name', $name)['run'];
+
+        // The capture is explicit: status taken, -e restored, output printed
+        // unconditionally, and only then judged.
+        expect($run)
+            ->toContain('set +e')
+            ->toContain("{$prefix}_status=\$?")
+            ->toContain('set -e')
+            ->toContain("if (( {$prefix}_status != 0 )); then")
+            ->toContain("exit \"\${{$prefix}_status}\"");
+
+        $print = mb_strpos($run, "printf '%s\\n' \"\${{$prefix}_output}\"");
+        $judge = mb_strpos($run, "if (( {$prefix}_status != 0 )); then");
+        // The CALL, not the helper's definition, which is above the capture.
+        $parse = mb_strpos($run, "rateguru_provision_result \"\${{$prefix}_output}\"");
+
+        expect($print)->not->toBeFalse("{$name} must print the remote output");
+        expect($print)->toBeLessThan($judge, "{$name} must print the transcript before deciding the step failed");
+        expect($judge)->toBeLessThan($parse, "{$name} must refuse a failed run before any result is parsed");
+
+        // stderr belongs to the transcript too: the server-side report ends in
+        // an ERROR line, and it is on stderr.
+        expect($run)->toContain('"${remote_command[@]@Q}" 2>&1');
+    }
+});
+
+it('still demands exactly one valid machine-readable result on success', function () {
+    // The failure path got looser; the success path did not.
+    $executable = provisionActionExecutable();
+
+    expect(substr_count($executable, "grep -c '^RATEGURU_PROVISION_RESULT='"))->toBe(2);
+    expect($executable)
+        ->toContain('Expected exactly one RATEGURU_PROVISION_RESULT line')
+        ->toContain('.status == "infrastructure-provisioned"')
+        ->toContain('.lifecycle == "planned"')
+        ->toContain('.environment_class == "production"')
+        ->toContain('.application_state == "not-deployed"')
+        ->toContain('.public_state == "not-activated"');
+});
+
 it('removes the uploaded bundle and the local credential whatever happened', function () {
     $steps = collect(data_get(provisionAction(), 'runs.steps'));
 

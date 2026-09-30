@@ -751,13 +751,15 @@ narrow_to_provisioning_scope() {
 # here: sources are resolved by the target's own registry names, and a
 # production target's four service files are rendered rather than read.
 #
-# It is not deleted in this slice because install-target-operations installs it
-# as part of the operational bundle and verifies it byte for byte, and
-# install-target-prerequisites parses the installed copy when it builds a
-# host's external-prerequisite table. Removing it would break the recovery
-# prerequisite machinery, which is a different operation with its own
-# acceptance. Its final public/TLS role is normalized when the real tits.guru
-# public vhost is defined.
+# It is not deleted here because install-target-operations installs it as part
+# of the operational bundle and verifies it byte for byte, so removing the
+# source would fail that installer's own contract. That is the whole reason,
+# and it is worth stating precisely: install-target-prerequisites does NOT
+# read it. That installer resolves a target's vhost by the registry's own
+# nginx.site_name, plus the two committed mail vhosts, and no registered
+# target names rateguru-production — so nothing parses this file for any
+# target that exists. Its final public/TLS role is settled when a real public
+# vhost is defined.
 #
 # What is rendered, from deployment-targets.json and nothing else:
 #   Nginx internal vhost   loopback-only, server_name = nginx.internal_hostname

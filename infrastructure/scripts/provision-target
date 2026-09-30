@@ -327,9 +327,21 @@ resolve_target() {
 #
 #   the supported runtime, its packages, binaries and client versions
 #       -> install-bootstrap-runtime --verify
-#   the RateGuru host roots, and the package-created accounts under them
+#   the RateGuru host roots, the shared namespace this target sits in, and
+#   the package-created accounts under them
 #       -> install-bootstrap-host-layout, reported as HOST-REQ in its own
 #          target-scoped report
+#
+#   The shared namespace deserves naming, because it is the one host root a
+#   provisioning run is tempted to fix: /home/www/rateguru/production is the
+#   directory this target's own root is created inside, and the target's
+#   runtime user must traverse it to reach its own storage. A host that still
+#   owns it the old way — as ONE production application's root — makes the
+#   target unreachable however correctly the target's own directories are
+#   built, which is exactly how a real run got most of the way through and
+#   then failed. It is still not this operation's to repair: the namespace is
+#   shared with every other target on the machine, and converging it is a
+#   host operation with its own review. This run refuses and says so.
 #   nginx / PHP-FPM / Supervisor / PostgreSQL / Redis enabled and running
 #       -> install-bootstrap-services, reported as HOST-REQ in its own
 #          target-scoped report

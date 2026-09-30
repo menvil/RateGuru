@@ -159,6 +159,10 @@ function hostLayoutContractDirs(): array
         '/home/www/rateguru/backups' => ['root', 'root', 0o700],
         '/home/www/rateguru/run' => ['root', 'root', 0o700],
         '/var/log/rateguru' => ['root', 'root', 0o750],
+        // The shared namespace the registry's production targets live in. Host
+        // infrastructure, root-owned and traversable: a runtime user reaches
+        // its own tree THROUGH it, so its ownership is not that of any target.
+        '/home/www/rateguru/production' => ['root', 'root', 0o755],
         '/home/www/rateguru/staging' => ['root', 'root', 0o755],
         '/home/www/rateguru/staging/releases' => [$deploy, $code, 0o2750],
         '/home/www/rateguru/staging/shared' => [$runtime, $runtime, 0o2770],
@@ -657,9 +661,12 @@ it('recognizes the compliant staging host as satisfied and reports the planned t
         expect($output)->toContain("MISSING: 0\n");
         expect($output)->toContain("CONFLICT: 0\n");
 
-        // No tits-guru identity or path is ever demanded.
+        // No tits-guru identity or path is ever demanded. The shared namespace
+        // that target will one day sit in IS demanded — it is host
+        // infrastructure, owned by root and named by no target.
         expect($output)->not->toContain('rateguru-tits-guru');
-        expect($output)->not->toContain('/home/www/rateguru/production');
+        expect($output)->not->toContain('/home/www/rateguru/production/');
+        expect($output)->toContain('PASS     path:/home/www/rateguru/production — directory, root:root, mode 755');
     } finally {
         hostLayoutCleanup($scratch);
     }
@@ -703,10 +710,13 @@ it('reports the full work list on a clean Phase-5.2-compliant host and exits non
         expect($output)->toContain('PASS     path:/home/www/rateguru/staging/current — absent');
         expect($output)->toContain('PASS     path:/home/www/rateguru/staging/previous — absent');
 
-        // The planned target contributes nothing to the work list.
+        // The planned target contributes nothing to the work list — but the
+        // namespace it will sit in is host work, listed like any other host
+        // root.
         expect($output)->toContain('PASS     target:tits-guru — lifecycle=planned');
         expect($output)->not->toContain('rateguru-tits-guru');
-        expect($output)->not->toContain('/home/www/rateguru/production');
+        expect($output)->not->toContain('/home/www/rateguru/production/');
+        expect($output)->toContain('path:/home/www/rateguru/production');
     } finally {
         hostLayoutCleanup($scratch);
     }
@@ -930,8 +940,142 @@ it('bootstraps a clean host: groups, users, membership and the full tree in depe
         expect($identityLog)->not->toContain('tits-guru');
         expect(file_get_contents($fs.'/etc-passwd'))->not->toContain('tits-guru');
         expect(file_get_contents($fs.'/etc-group'))->not->toContain('tits-guru');
-        expect(file_exists($fs.'/home/www/rateguru/production'))->toBeFalse('the planned target tree must never be created');
+        // The namespace is created — it is the host's — and the planned
+        // target's own tree inside it is not. That distinction is the whole
+        // host/target boundary in one assertion.
+        expect(is_dir($fs.'/home/www/rateguru/production'))
+            ->toBeTrue('the shared namespace is host infrastructure and must be created');
+        expect(hostLayoutMode($fs.'/home/www/rateguru/production'))->toBe(0o755);
+        expect(hostLayoutLog($scratch, 'chown.log'))
+            ->toContain('chown -- root:root '.$fs.'/home/www/rateguru/production'."\n");
+        expect(file_exists($fs.'/home/www/rateguru/production/tits-guru'))->toBeFalse('the planned target tree must never be created');
         expect(file_exists($fs.'/home/deploy-rateguru-tits-guru'))->toBeFalse('the planned deploy home must never be created');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('refuses every target-scoped mode on a namespace the host still owns the old way', function (array $arguments, string $expected) {
+    // The same gate both target-scoped operations reach through: Provision
+    // Target for a planned target, Repair Target for an active one. Neither
+    // owns the shared namespace, so neither may fix it — and proving it here,
+    // where the contract lives, is what keeps the two from growing separate
+    // opinions about a directory they share with every other target.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $fs = $scratch.'/fs';
+        $namespace = $fs.'/home/www/rateguru/production';
+
+        $env = hostLayoutFixture($scratch, [
+            'profile' => 'compliant',
+            'ownerRows' => [$namespace => ['deploy-rateguru', 'rateguru-production-code']],
+        ]);
+
+        chmod($namespace, 0o2750);
+
+        [$exit, $output] = hostLayoutRun($arguments, $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // Every mode names the same three things: the path, what the host
+        // actually has, and what the contract requires.
+        expect($output)
+            ->toContain('HOST-REQ')
+            ->toContain('/home/www/rateguru/production')
+            ->toContain('deploy-rateguru:rateguru-production-code')
+            ->toContain('root:root mode 0755')
+            // And each says, in its own mode's vocabulary, that this is the
+            // host's to fix: --check points at the host operation, --apply
+            // refuses with it, and --verify counts it as a host prerequisite
+            // rather than as target drift (it prints no apply hints by
+            // design).
+            ->toContain($expected);
+
+        // It refused rather than repairing, and refused before mutating.
+        expect(hostLayoutLog($scratch, 'chown.log'))->toBe('');
+        expect(hostLayoutLog($scratch, 'chmod.log'))->toBe('');
+        expect(hostLayoutLog($scratch, 'identity.log'))->toBe('');
+        expect(hostLayoutOwnerTableRows($scratch)[$namespace])
+            ->toBe(['deploy-rateguru', 'rateguru-production-code']);
+        expect(hostLayoutMode($namespace))->toBe(0o2750);
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+})->with([
+    'a provisioning check' => [
+        ['--check', '--target', 'tits-guru', '--provisioning'],
+        'run install-bootstrap-host-layout --apply WITHOUT --target',
+    ],
+    'a provisioning apply' => [
+        ['--apply', '--target', 'tits-guru', '--provisioning'],
+        'Converge the host first with install-bootstrap-host-layout --apply (no --target). No mutation was performed',
+    ],
+    'a provisioning verify' => [
+        ['--verify', '--target', 'tits-guru', '--provisioning'],
+        "HOST-REQ: 1\n",
+    ],
+]);
+
+it('migrates the real shared production namespace from the old single-production ownership', function () {
+    // The exact state a real host was found in, and the reason a provisioning
+    // run failed on it: /home/www/rateguru/production was still owned as ONE
+    // production application's root, so a target's runtime user could not
+    // traverse it to reach its own storage however correct that storage was.
+    //
+    // Converging it is host work, and it is one directory entry. Whatever a
+    // previous model left underneath keeps its bytes, its owner and its mode:
+    // the targets already living there own their own trees.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $fs = $scratch.'/fs';
+        $namespace = $fs.'/home/www/rateguru/production';
+
+        $env = hostLayoutFixture($scratch, ['ownerRows' => [
+            $namespace => ['deploy-rateguru', 'rateguru-production-code'],
+            // Sentinels: what a legacy tree actually leaves behind.
+            $namespace.'/legacy-release' => ['deploy-rateguru', 'rateguru-production-code'],
+            $namespace.'/legacy-release/app.php' => ['deploy-rateguru', 'rateguru-production-code'],
+        ]]);
+
+        chmod($namespace, 0o2750);
+        expect(hostLayoutMode($namespace))->toBe(0o2750, 'fixture must reproduce the real legacy namespace mode');
+
+        // Deliberately owned and moded unlike anything this run manages, with
+        // known bytes, so any recursion would be visible.
+        @mkdir($namespace.'/legacy-release', 0o2770, true);
+        chmod($namespace.'/legacy-release', 0o2770);
+        file_put_contents($namespace.'/legacy-release/app.php', "legacy bytes\n");
+        chmod($namespace.'/legacy-release/app.php', 0o640);
+
+        $before = hostLayoutTreeSnapshot($namespace);
+
+        [$exit, $output] = hostLayoutRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "the namespace migration must converge and pass its own closing verify:\n{$output}");
+        expect($output)->toContain('APPLY    path:/home/www/rateguru/production reconciling ownership deploy-rateguru:rateguru-production-code -> root:root (this directory entry only, never recursive)');
+        expect($output)->toContain('APPLY    path:/home/www/rateguru/production reconciling mode 2750 -> 0755 (this directory entry only, never recursive)');
+        expect($output)->toContain('HOST LAYOUT CONTRACT: SATISFIED');
+
+        // Exactly one chown and one chmod, of exactly that entry.
+        expect(hostLayoutLog($scratch, 'chown.log'))->toBe("chown -- root:root {$namespace}\n");
+        expect(hostLayoutLog($scratch, 'chmod.log'))->toBe("chmod =0755 {$namespace}\n");
+        expect(hostLayoutMode($namespace))->toBe(0o755, 'the = operator must clear the legacy setgid bit');
+
+        // The descendants are untouched: same bytes, same mode, same owner.
+        $after = hostLayoutTreeSnapshot($namespace);
+
+        expect($after)->toBe($before, 'converging the namespace must not recurse into what lives under it');
+        expect(file_get_contents($namespace.'/legacy-release/app.php'))->toBe("legacy bytes\n");
+        expect(hostLayoutMode($namespace.'/legacy-release'))->toBe(0o2770);
+        expect(hostLayoutMode($namespace.'/legacy-release/app.php'))->toBe(0o640);
+
+        $rows = hostLayoutOwnerTableRows($scratch);
+
+        expect($rows[$namespace.'/legacy-release'])->toBe(['deploy-rateguru', 'rateguru-production-code']);
+        expect($rows[$namespace.'/legacy-release/app.php'])->toBe(['deploy-rateguru', 'rateguru-production-code']);
+        expect($rows[$namespace])->toBe(['root', 'root'], 'only the namespace entry itself changes hands');
     } finally {
         hostLayoutCleanup($scratch);
     }

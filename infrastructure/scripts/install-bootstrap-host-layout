@@ -964,6 +964,47 @@ report_host_root() {
     item PASS "host:${path}" "directory, ${actual_owner}:${actual_group}, mode ${actual_mode} (${label}; host-owned, never converged here)"
 }
 
+# target_namespace_directories — the shared directories that lie between the
+# RateGuru namespace root and a target's application root.
+#
+# /home/www/rateguru/production is the one this exists for. It used to BE a
+# production application's root — deploy-rateguru:rateguru-production-code,
+# mode 2750 — and the multi-target registry turned it into something else
+# entirely: a shared namespace whose children are independent targets, each
+# with its own runtime user, code group and tree. A runtime user has to
+# TRAVERSE it to reach its own storage, so under the old ownership every
+# target below it is unreachable no matter how correct the target's own
+# directories are. It belongs to the host now, exactly as /home/www/rateguru
+# does.
+#
+# Derived from the registry rather than named here: a second or tenth
+# production brand becomes a sibling under the same namespace by having a
+# registry entry, and a registry that nests deeper gets every level of it.
+# Read from every target, active and planned alike — the namespace is host
+# infrastructure, and its existence says nothing about any target in it.
+#
+# sort -u also orders them: a parent is a prefix of its children, so it sorts
+# first and is therefore converged first.
+target_namespace_directories() {
+    local target_id dir
+    local -a namespaces=()
+
+    for target_id in "${ACTIVE_TARGETS[@]}" "${INACTIVE_TARGETS[@]}"; do
+        [[ -n "${target_id}" ]] || continue
+
+        dir="$(dirname -- "${TGT_ROOT[${target_id}]}")"
+
+        while [[ "${dir}" != "${RATEGURU_ROOT}" ]] && [[ "${dir}" == "${RATEGURU_ROOT}"/* ]]; do
+            namespaces+=("${dir}")
+            dir="$(dirname -- "${dir}")"
+        done
+    done
+
+    (( ${#namespaces[@]} > 0 )) || return 0
+
+    printf '%s\n' "${namespaces[@]}" | sort -u
+}
+
 report_filesystem() {
     section "FILESYSTEM"
 
@@ -976,6 +1017,17 @@ report_filesystem() {
     "${host_report}" "${RATEGURU_ROOT}/backups" root root 0700 exact "local backup base (contents never scanned)"
     "${host_report}" "${RATEGURU_ROOT}/run" root root 0700 exact "operational lock directory"
     "${host_report}" "${LOG_DIR}" root root 0750 exact "operational log directory"
+
+    # The shared namespace every production target sits in. Host-owned for the
+    # same reason the roots above are: a target-scoped run must be able to fail
+    # closed on it rather than re-own infrastructure it shares with every other
+    # target on the machine.
+    local namespace
+    while IFS= read -r namespace; do
+        [[ -n "${namespace}" ]] || continue
+
+        "${host_report}" "${namespace}" root root 0755 exact "shared namespace for the targets beneath it (host-level; each target's own root is separate)"
+    done < <(target_namespace_directories)
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
@@ -1143,6 +1195,7 @@ managed_directory_paths() {
         printf '%s\n' "${RATEGURU_ROOT}/backups"
         printf '%s\n' "${RATEGURU_ROOT}/run"
         printf '%s\n' "${LOG_DIR}"
+        target_namespace_directories
     fi
 
     for target_id in "${ACTIVE_TARGETS[@]}"; do
@@ -1213,6 +1266,18 @@ apply_gate_host_roots() {
         "${RATEGURU_ROOT}/run|root|root|0700"
         "${LOG_DIR}|root|root|0750"
     )
+
+    # And the shared namespace this target sits in. It is the one host root a
+    # target-scoped run can be tempted to fix, because the target cannot work
+    # without it — which is exactly why it is proved here, before the first
+    # mutation, instead of being discovered several minutes later by whichever
+    # child installer first tries to reach through it.
+    local namespace
+    while IFS= read -r namespace; do
+        [[ -n "${namespace}" ]] || continue
+
+        roots+=("${namespace}|root|root|0755")
+    done < <(target_namespace_directories)
 
     local spec owner group mode
     for spec in "${roots[@]}"; do
@@ -1462,6 +1527,18 @@ converge_filesystem() {
         ensure_directory "${RATEGURU_ROOT}/backups" root root 0700 exact
         ensure_directory "${RATEGURU_ROOT}/run" root root 0700 exact
         ensure_directory "${LOG_DIR}" root root 0750 exact
+
+        # The shared namespace, converged as ONE directory entry. A real host
+        # carries the old single-production ownership here, and correcting it
+        # must not touch what is underneath: the targets already provisioned
+        # below it own their own trees, and their releases, shared state and
+        # application data are never re-owned through their parent.
+        local namespace
+        while IFS= read -r namespace; do
+            [[ -n "${namespace}" ]] || continue
+
+            ensure_directory "${namespace}" root root 0755 exact
+        done < <(target_namespace_directories)
     fi
 
     for target_id in "${ACTIVE_TARGETS[@]}"; do
