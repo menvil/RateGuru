@@ -1,0 +1,54 @@
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_65f2eb90734b6e::t_e2f099f6448c8c 7,16,19,27-29,37,43-46,57-60,62,64-78,81-89,93-97,126-151
+  s_65f2eb90734b6e::t_072c35bd57dbe2 107,112
+app/Http/Controllers/Profile/ConnectedAccountController.php
+  s_65f2eb90734b6e::t_072c35bd57dbe2 10,20-23,25,27-32
+tests/Feature/Profile/ConnectedAccountsTest.php
+  s_65f2eb90734b6e::t_060ee865f16002 98,124-135,139,148-333
+  s_65f2eb90734b6e::t_8550fe88d500a7 116
+  s_65f2eb90734b6e::t_d611a54829b9a0 6
+app/Enums/SocialCallbackIntent.php
+  s_65f2eb90734b6e::t_6329b2d12fa00b 1-24
+lang/en/auth.php
+  s_65f2eb90734b6e::t_072c35bd57dbe2 21-22
+tests/Feature/Auth/SocialAccountSecurityEmailTest.php
+  s_65f2eb90734b6e::t_8550fe88d500a7 26,87
+app/Support/Auth/SocialLinkContext.php
+  s_65f2eb90734b6e::t_6329b2d12fa00b 1-102
+tests/Feature/Auth/SocialRedirectTest.php
+  s_65f2eb90734b6e::t_060ee865f16002 5,105,108-111,113
+app/Support/Auth/SocialProviderGateway.php
+  s_65f2eb90734b6e::t_e2f099f6448c8c 8,72-80
+lang/bg/auth.php
+  s_65f2eb90734b6e::t_072c35bd57dbe2 21-22
+tests/Feature/Auth/SocialAccountLinkingTest.php
+  s_65f2eb90734b6e::t_8550fe88d500a7 123,150,173,189,205,223,237
+app/Actions/Auth/ResolveSocialLoginAction.php
+  s_65f2eb90734b6e::t_5e395fb1be642b 20-23,41
+tests/Pest.php
+  s_65f2eb90734b6e::t_8550fe88d500a7 9,3116
+  s_65f2eb90734b6e::t_a5d85f7e0413e0 3112-3115,3117-3123
+docs/dev/social-login.md
+  s_65f2eb90734b6e::t_5e395fb1be642b 74-75,107-139,178-179
+  s_65f2eb90734b6e::t_cd9511d072b0dc 141-142
+routes/auth.php
+  s_65f2eb90734b6e::t_da79bc8107678a 45-53
+lang/ru/auth.php
+  s_65f2eb90734b6e::t_072c35bd57dbe2 21-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b93f60fa7637b3da06686ea0bcd867339c8256bf",
+  "prompts": {},
+  "sessions": {
+    "s_65f2eb90734b6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51542bdd-1f36-4860-8229-04c322f71fde",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
