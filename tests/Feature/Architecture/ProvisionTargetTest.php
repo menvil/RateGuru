@@ -663,11 +663,19 @@ function provisionFixture(string $scratch, array $options = []): array
         provisionOwnerTableAdd($scratch, $fs.$logical, $owner, $group);
     }
 
-    // The production namespace directory itself is a plain parent, not a
-    // managed entry: install-bootstrap-host-layout creates the target root
-    // inside it and requires only that it be a real directory.
+    // The shared namespace every production target sits in. Host
+    // infrastructure: root-owned and traversable, so a runtime user can reach
+    // its own tree through it. `legacyNamespace` reproduces the state a real
+    // host that predates the multi-target registry is actually in, where this
+    // directory was ONE production application's root.
     @mkdir($fs.'/home/www/rateguru/production', 0o755, true);
-    provisionOwnerTableAdd($scratch, $fs.'/home/www/rateguru/production', 'root', 'root');
+
+    if ($options['legacyNamespace'] ?? false) {
+        chmod($fs.'/home/www/rateguru/production', 0o2750);
+        provisionOwnerTableAdd($scratch, $fs.'/home/www/rateguru/production', 'deploy-rateguru', 'rateguru-production-code');
+    } else {
+        provisionOwnerTableAdd($scratch, $fs.'/home/www/rateguru/production', 'root', 'root');
+    }
 
     file_put_contents($fs.'/etc-passwd', implode("\n", array_merge([
         'root:x:0:0:root:/root:/bin/bash',
@@ -1513,6 +1521,117 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
     } finally {
         provisionCleanup($scratch);
     }
+});
+
+// =============================================================================
+// The shared namespace a target sits in belongs to the host
+// =============================================================================
+//
+// A real provisioning run reached target creation and then failed several
+// minutes later inside install-public-storage-access, which proved the runtime
+// user could not write its own shared/storage. Every directory the run had
+// created was exactly right. The blocker was one level above them:
+//
+//   /home/www/rateguru/production   deploy-rateguru:rateguru-production-code 2750
+//
+// That directory used to BE a production application's root. The multi-target
+// registry made it a shared namespace whose children are independent targets —
+// and a runtime user has to traverse it to reach its own tree, which mode 2750
+// owned by a group it is not in forbids. The synthetic fixture had always
+// modelled the new architecture, so nothing failed until a real host did.
+//
+// The fix is a boundary, not a permission: the namespace belongs to the host,
+// a target-scoped run refuses it instead of repairing it, and Prepare Host
+// converges it as one directory entry.
+
+it('refuses to provision into a namespace the host still owns the old way, before touching the target', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch, ['legacyNamespace' => true]);
+        $fs = $scratch.'/fs';
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // Named as what it is — a host prerequisite — and pointed at the
+        // operation that owns it, never repaired here.
+        expect($output)
+            ->toContain('host-level prerequisites are not satisfied')
+            ->toContain('host prerequisite, not this target')
+            ->toContain('never creates or re-owns host infrastructure')
+            ->toContain('No mutation was performed');
+
+        // And the child's own words say which path and which ownership.
+        expect($output)
+            ->toContain('host:/home/www/rateguru/production')
+            ->toContain('deploy-rateguru:rateguru-production-code')
+            ->toContain('run install-bootstrap-host-layout --apply WITHOUT --target');
+
+        // Nothing about demo-shop was created: no identity, no directory, no
+        // service file. The real run got much further than this before it
+        // discovered the problem.
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionLog($scratch, 'chown.log'))->toBe('');
+        expect(provisionLog($scratch, 'install.log'))->toBe('');
+        expect(file_exists($fs.'/home/www/rateguru/production/demo-shop'))->toBeFalse();
+        expect(file_exists($fs.'/home/deploy-rateguru-demo-shop'))->toBeFalse();
+        expect(file_get_contents($fs.'/etc-passwd'))->not->toContain('demo-shop');
+        expect(file_get_contents($fs.'/etc-group'))->not->toContain('demo-shop');
+
+        // The host's own state is left exactly as it was. Provisioning is
+        // target-scoped; converging shared infrastructure is a host operation
+        // with its own review.
+        expect(provisionOwnerTableRows($scratch)[$fs.'/home/www/rateguru/production'] ?? null)
+            ->toBe(['deploy-rateguru', 'rateguru-production-code'], 'a refused run must not re-own the namespace');
+        expect(fileperms($fs.'/home/www/rateguru/production') & 0o7777)->toBe(0o2750);
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('provisions the same target once the host owns the namespace', function () {
+    // The other half: with the namespace converged to the host contract, the
+    // identical command succeeds. Nothing about the target changed.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+        $fs = $scratch.'/fs';
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('TARGET INFRASTRUCTURE: PROVISIONED');
+        expect(is_dir($fs.'/home/www/rateguru/production/demo-shop/shared/storage'))->toBeTrue();
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('names no brand in the namespace it refuses, so a second production target behaves identically', function () {
+    // demo-shop exists nowhere in this repository except the fixture registry.
+    // The refusal above is therefore about the namespace, not about a target
+    // anybody wrote code for — which is what makes food-guru and animals-guru
+    // siblings rather than special cases.
+    $sources = [
+        'infrastructure/scripts/install-bootstrap-host-layout',
+        'infrastructure/scripts/bootstrap-host-preflight',
+        'infrastructure/scripts/provision-target',
+    ];
+
+    foreach ($sources as $path) {
+        $source = File::get(base_path($path));
+
+        foreach (['tits-guru', 'demo-shop', 'food-guru', 'animals-guru', 'rateguru-production-code'] as $brand) {
+            expect($source)->not->toContain($brand, "{$path} must not name a target to manage the shared namespace");
+        }
+    }
+
+    // It is derived from the registry, which is what makes it generic.
+    expect(File::get(base_path('infrastructure/scripts/install-bootstrap-host-layout')))
+        ->toContain('target_namespace_directories');
 });
 
 // =============================================================================

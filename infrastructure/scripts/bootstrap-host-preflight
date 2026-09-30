@@ -1262,6 +1262,35 @@ report_public_storage_acl() {
     done
 }
 
+# registry_namespace_directories — the shared directories between the RateGuru
+# root and each registered target's application root, deduplicated. Read
+# straight from the registry rather than from ACTIVE_TARGETS, because a planned
+# target's namespace has to exist before that target can be provisioned.
+#
+# Degrades silently to nothing when jq or the registry is unavailable: this
+# report must still run to completion on a clean host that has neither.
+registry_namespace_directories() {
+    [[ "${SOURCE_REGISTRY_OK}" == true ]] || return 0
+
+    local root dir
+    local -a namespaces=()
+
+    while IFS= read -r root; do
+        [[ -n "${root}" ]] || continue
+
+        dir="$(dirname -- "${root}")"
+
+        while [[ "${dir}" != /home/www/rateguru ]] && [[ "${dir}" == /home/www/rateguru/* ]]; do
+            namespaces+=("${dir}")
+            dir="$(dirname -- "${dir}")"
+        done
+    done < <(jq -r '.targets[].application_root // empty' "${SOURCE_REGISTRY}" 2>/dev/null)
+
+    (( ${#namespaces[@]} > 0 )) || return 0
+
+    printf '%s\n' "${namespaces[@]}" | sort -u
+}
+
 report_filesystem() {
     section "FILESYSTEM"
 
@@ -1272,6 +1301,22 @@ report_filesystem() {
     report_path bin-root "${RUNTIME_BIN_ROOT}" directory root root 755 "installed operational CLIs"
     report_path backups /home/www/rateguru/backups directory root root 700 "local backup base (contents never scanned)"
     report_path run /home/www/rateguru/run directory root root 700 "operational lock directory"
+
+    # The shared namespaces the registry's targets sit in — /home/www/rateguru
+    # /production today. Host infrastructure, not any target's: a runtime user
+    # has to traverse it to reach its own tree, so a host carrying the old
+    # single-production ownership here makes every target below it unreachable
+    # however correct that target's own directories are.
+    #
+    # Read from every target in the registry, planned included: the namespace
+    # must exist before a planned target can be provisioned into it, and it
+    # says nothing about any target by existing.
+    local namespace
+    while IFS= read -r namespace; do
+        [[ -n "${namespace}" ]] || continue
+
+        report_path namespace "${namespace}" directory root root 755 "shared namespace for the targets beneath it (install-bootstrap-host-layout contract)"
+    done < <(registry_namespace_directories)
 
     # The seventeen files install-target-operations manages that a host must
     # carry to be operable.

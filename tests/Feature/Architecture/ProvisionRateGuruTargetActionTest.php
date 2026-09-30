@@ -197,6 +197,72 @@ it('never invokes any operation but provisioning on the host', function (string 
     'artisan', 'certbot', 'psql', 'rclone',
 ]);
 
+it('prints the whole remote transcript when provisioning fails, and reads nothing out of it', function () {
+    // A real failed run lost its entire server-side report. `set -e` ends a
+    // step the moment a command substitution fails, so the capture aborted
+    // before the line that would have printed it — and the one thing an
+    // operator needed was the part the host had already said.
+    $steps = collect(data_get(provisionAction(), 'runs.steps'));
+
+    foreach ([
+        'Provision the target' => 'provision',
+        'Verify the provisioned target' => 'verification',
+    ] as $name => $prefix) {
+        // Comment lines removed, for the reason this whole file has an
+        // executable-only view: the step EXPLAINS the hazard it fixes, and
+        // that sentence contains the literal `set -e`. Asserting over the raw
+        // script would let the prose describing the bug stand in for the line
+        // that fixes it — delete the restore and the check would still pass.
+        $executable = executableSourceLines($steps->firstWhere('name', $name)['run']);
+
+        expect($executable)
+            ->toContain('set +e')
+            ->toContain("{$prefix}_status=\$?")
+            ->toContain("if (( {$prefix}_status != 0 )); then")
+            ->toContain("exit \"\${{$prefix}_status}\"")
+            // stderr belongs to the transcript too: the server-side report
+            // ends in an ERROR line, and it is on stderr.
+            ->toContain('"${remote_command[@]@Q}" 2>&1');
+
+        $disable = mb_strpos($executable, 'set +e');
+        $capture = mb_strpos($executable, "{$prefix}_status=\$?");
+        // Not matched by the step's own `set -Eeuo pipefail`, which carries an
+        // uppercase E.
+        $restore = mb_strpos($executable, 'set -e');
+        $print = mb_strpos($executable, "printf '%s\\n' \"\${{$prefix}_output}\"");
+        $judge = mb_strpos($executable, "if (( {$prefix}_status != 0 )); then");
+        // The CALL, not the helper's definition, which is above the capture.
+        $parse = mb_strpos($executable, "rateguru_provision_result \"\${{$prefix}_output}\"");
+
+        foreach (['set +e' => $disable, 'the status capture' => $capture, 'set -e' => $restore, 'the transcript print' => $print] as $what => $position) {
+            expect($position)->not->toBeFalse("{$name} is missing {$what}");
+        }
+
+        // The whole sequence, in the only order that preserves the diagnosis:
+        // -e off, command run, status taken while it is still \$?, -e back on,
+        // transcript printed unconditionally, and only then judged and parsed.
+        expect($disable)->toBeLessThan($capture, "{$name} must disable -e before the command whose status it captures");
+        expect($capture)->toBeLessThan($restore, "{$name} must capture the status before restoring -e, or the restore would run first and \$? would be its own");
+        expect($restore)->toBeLessThan($print, "{$name} must restore -e before the rest of the step runs");
+        expect($print)->toBeLessThan($judge, "{$name} must print the transcript before deciding the step failed");
+        expect($judge)->toBeLessThan($parse, "{$name} must refuse a failed run before any result is parsed");
+    }
+});
+
+it('still demands exactly one valid machine-readable result on success', function () {
+    // The failure path got looser; the success path did not.
+    $executable = provisionActionExecutable();
+
+    expect(substr_count($executable, "grep -c '^RATEGURU_PROVISION_RESULT='"))->toBe(2);
+    expect($executable)
+        ->toContain('Expected exactly one RATEGURU_PROVISION_RESULT line')
+        ->toContain('.status == "infrastructure-provisioned"')
+        ->toContain('.lifecycle == "planned"')
+        ->toContain('.environment_class == "production"')
+        ->toContain('.application_state == "not-deployed"')
+        ->toContain('.public_state == "not-activated"');
+});
+
 it('removes the uploaded bundle and the local credential whatever happened', function () {
     $steps = collect(data_get(provisionAction(), 'runs.steps'));
 

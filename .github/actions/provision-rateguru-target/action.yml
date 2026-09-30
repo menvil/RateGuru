@@ -519,6 +519,12 @@ runs:
           printf '%s' "${json}"
         }
 
+        # The remote transcript is the whole diagnosis when this fails, so the
+        # exit status is captured explicitly instead of being allowed to abort
+        # the step: under `set -e` a failing command substitution ends the step
+        # before the captured output is ever printed, which is exactly how a
+        # real failure arrived with its server-side report discarded.
+        set +e
         provision_output="$(
           ssh \
             -p "${BOOTSTRAP_PORT}" \
@@ -531,10 +537,21 @@ runs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
-            "${remote_command[@]@Q}"
+            "${remote_command[@]@Q}" 2>&1
         )"
+        provision_status=$?
+        set -e
 
         printf '%s\n' "${provision_output}"
+
+        # Printed first, judged second — and nothing is read out of the output
+        # of a command that failed. A machine-readable result parsed from a
+        # failed run is worse than none: it would report a provisioned target
+        # from a run that provisioned nothing.
+        if (( provision_status != 0 )); then
+          echo "Provisioning failed on the host with exit ${provision_status}. The complete server-side report is above; no result was read from it." >&2
+          exit "${provision_status}"
+        fi
 
         rateguru_provision_result "${provision_output}" >/dev/null
 
@@ -594,6 +611,12 @@ runs:
           printf '%s' "${json}"
         }
 
+        # The remote transcript is the whole diagnosis when this fails, so the
+        # exit status is captured explicitly instead of being allowed to abort
+        # the step: under `set -e` a failing command substitution ends the step
+        # before the captured output is ever printed, which is exactly how a
+        # real failure arrived with its server-side report discarded.
+        set +e
         verification_output="$(
           ssh \
             -p "${BOOTSTRAP_PORT}" \
@@ -606,10 +629,21 @@ runs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
             "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
-            "${remote_command[@]@Q}"
+            "${remote_command[@]@Q}" 2>&1
         )"
+        verification_status=$?
+        set -e
 
         printf '%s\n' "${verification_output}"
+
+        # Printed first, judged second — and nothing is read out of the output
+        # of a command that failed. A machine-readable result parsed from a
+        # failed run is worse than none: it would report a provisioned target
+        # from a run that provisioned nothing.
+        if (( verification_status != 0 )); then
+          echo "Verification failed on the host with exit ${verification_status}. The complete server-side report is above; no result was read from it." >&2
+          exit "${verification_status}"
+        fi
 
         result_json="$(rateguru_provision_result "${verification_output}")"
 

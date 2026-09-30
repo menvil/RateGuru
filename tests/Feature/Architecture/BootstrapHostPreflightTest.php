@@ -143,6 +143,10 @@ function bootstrapPreflightCompliantStatTable(): array
         '/home/www/rateguru/bin|directory|root|root|755',
         '/home/www/rateguru/backups|directory|root|root|700',
         '/home/www/rateguru/run|directory|root|root|700',
+        // The shared namespace the registry's production targets sit in. Host
+        // infrastructure: root-owned and traversable, so a target's runtime
+        // user can reach its own tree through it.
+        '/home/www/rateguru/production|directory|root|root|755',
         '/home/www/rateguru/config/deployment-targets.json|regular file|root|root|640',
         '/home/www/rateguru/config/deployment.conf|regular file|root|root|640',
         '/home/www/rateguru/bin/common|regular file|root|root|644',

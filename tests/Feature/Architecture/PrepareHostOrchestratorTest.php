@@ -622,6 +622,49 @@ it('reuses bootstrap-host rather than duplicating its slices', function () {
     }
 });
 
+it('converges host-global infrastructure for staging without touching a planned production target', function () {
+    // Why this matters now: the shared production namespace
+    // /home/www/rateguru/production is host-global, so converging it happens
+    // inside bootstrap-host — which on this shared VPS is reached by preparing
+    // the STAGING host, because staging-main is what binds the bootstrap
+    // credential here. An operator therefore fixes a directory named
+    // "production" by running "Prepare staging host", and the thing that makes
+    // that safe is that every target-specific slice stays staging's.
+    $scratch = prepScratchDir();
+
+    try {
+        prepRun(['--apply', '--target', 'staging-main'], prepFixture($scratch));
+
+        $children = prepLog($scratch, 'children');
+        $mutations = prepLog($scratch, 'mutations');
+
+        // The host-global bootstrap ran, and ran host-global: no target.
+        expect(collect($children)->filter(fn (string $c): bool => str_starts_with($c, 'bootstrap ')))
+            ->not->toBeEmpty('the host-global bootstrap must run');
+        expect(collect($children)->filter(fn (string $c): bool => str_starts_with($c, 'bootstrap ') && str_contains($c, '--target')))
+            ->toBeEmpty('bootstrap-host is host-global and takes no target');
+
+        // And nothing anywhere in this run mentions the planned production
+        // target. No identity, no environment file, no database, no deploy
+        // authorization, no activation — preparing a host is not provisioning
+        // the targets that will one day live on it.
+        foreach ([$children, $mutations] as $log) {
+            foreach ($log as $line) {
+                expect($line)->not->toContain('tits-guru');
+            }
+        }
+
+        // Every target-scoped child that did run, ran for staging.
+        foreach ($children as $line) {
+            if (str_contains($line, '--target')) {
+                expect($line)->toContain('--target staging-main');
+            }
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
 it('passes --target only to the target-aware children, never to bootstrap-host', function () {
     $scratch = prepScratchDir();
 
