@@ -1,0 +1,32 @@
+infrastructure/runbooks/configure-target.md
+  s_c7e782fafc9782::t_678e6fda2c5317 56-70,72-74,78-96
+  s_c7e782fafc9782::t_5343e3b6c1b3c4 173-174,177-181
+infrastructure/scripts/configure-target
+  s_c7e782fafc9782::t_73b6aa0db03453 456-457,462-491
+  s_c7e782fafc9782::t_d1503ad7cf1715 642
+  s_c7e782fafc9782::t_7bc756050b9bbf 523,526
+  s_c7e782fafc9782::t_0469a1190c5c1e 494-499,501-507,509-517
+  s_c7e782fafc9782::t_8cd7c44949aa3f 824
+  s_c7e782fafc9782::t_ed691a6033be13 717-726,737,739-741
+  s_c7e782fafc9782::t_bd7cf82ee4d056 167-173
+  s_c7e782fafc9782::t_eb9371d1c4b919 53-60,62-71
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_c7e782fafc9782::t_a8380877fef1cd 654
+  s_c7e782fafc9782::t_e3f8aedf766a2e 553-558,569-573,575-581,583-599,601-607,613-653,655-661
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "485ff665bfcec2411298d9b64b043188ee3c27da",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
