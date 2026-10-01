@@ -21,7 +21,7 @@ class ProjectSettingsManager
         'upload_cta_label_translations' => null,
         'feed_title' => 'Latest posts',
         'feed_title_translations' => null,
-        'default_locale' => 'en',
+        'enabled_locales' => null,
         'default_theme' => 'system',
         'default_sort' => 'hot',
         'active_preset_key' => 'generic',
@@ -46,9 +46,7 @@ class ProjectSettingsManager
             return $this->resolved;
         }
 
-        $defaults = array_merge(self::DEFAULTS, [
-            'static_pages' => config('static-pages.defaults', []),
-        ]);
+        $defaults = $this->defaults();
         $row = ProjectSettings::find(1);
 
         $data = $row
@@ -66,6 +64,22 @@ class ProjectSettingsManager
             : $defaults;
 
         return $this->resolved = new ResolvedProjectSettings($data);
+    }
+
+    /**
+     * What an installation without a settings row runs on, as the columns of
+     * that row — for a writer that has to create it.
+     *
+     * @return array<string, mixed>
+     */
+    public function defaults(): array
+    {
+        return array_merge(self::DEFAULTS, [
+            // Every installed language is offered (enabled_locales NULL), so
+            // the system fallback — installed by contract — is a valid default.
+            'default_locale' => config('locales.fallback', 'en'),
+            'static_pages' => config('static-pages.defaults', []),
+        ]);
     }
 
     public function featureEnabled(string $key): bool

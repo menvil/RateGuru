@@ -1,6 +1,7 @@
 @php
-    $manager = app(\App\Support\Locale\LocaleManager::class);
-    $supported = $manager->supported();
+    // Only the languages this project offers; an installed but withheld one
+    // is neither listed nor accepted by locale.change.
+    $enabled = app(\App\Support\Locale\LocaleManager::class)->enabled();
     $current = app()->getLocale();
 @endphp
 
@@ -12,8 +13,11 @@
         data-testid="locale-switcher-trigger"
         class="inline-flex h-10 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
     >
+        @isset($enabled[$current])
+            <span aria-hidden="true">{{ $enabled[$current]['flag'] }}</span>
+        @endisset
         <span class="sm:hidden">{{ strtoupper($current) }}</span>
-        <span class="hidden sm:inline">{{ $supported[$current]['native'] ?? strtoupper($current) }}</span>
+        <span class="hidden sm:inline">{{ $enabled[$current]['native'] ?? strtoupper($current) }}</span>
         <svg class="size-3 fill-current opacity-60" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
     </button>
 
@@ -30,7 +34,7 @@
         class="absolute right-0 z-50 mt-1 w-max min-w-32 max-w-[calc(100vw-2rem)] origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 shadow-rgPopover"
         style="display: none;"
     >
-        @foreach($supported as $code => $info)
+        @foreach($enabled as $code => $info)
             <form method="POST" action="{{ route('locale.change') }}">
                 @csrf
                 <input type="hidden" name="locale" value="{{ $code }}">
@@ -39,6 +43,7 @@
                     data-testid="locale-option-{{ $code }}"
                     class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
                 >
+                    <span aria-hidden="true">{{ $info['flag'] }}</span>
                     {{ $info['native'] }}
                     @if($code === $current)
                         <svg class="ml-auto size-3 text-rg-accent" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>

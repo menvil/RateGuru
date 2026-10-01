@@ -9,6 +9,7 @@ use App\Models\ProjectSettings;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Settings\ProjectPresetStatusService;
 use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Locale\LocaleManager;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -68,6 +69,9 @@ class ProjectSettingsPage extends Page
             array_fill_keys(SocialProvider::values(), true),
             array_intersect_key($data['sign_in_providers'] ?? [], array_flip(SocialProvider::values())),
         );
+        // A stored default the project no longer offers is shown as the one
+        // visitors actually get, never as a value the select cannot hold.
+        $data['default_locale'] = app(LocaleManager::class)->projectDefault();
 
         $this->form->fill($data);
     }
@@ -121,10 +125,11 @@ class ProjectSettingsPage extends Page
 
                 Section::make(__('admin.project_settings.defaults'))
                     ->schema([
-                        TextInput::make('default_locale')
+                        Select::make('default_locale')
                             ->label(__('admin.fields.default_locale'))
+                            ->options(fn (): array => $this->enabledLocaleOptions())
                             ->required()
-                            ->maxLength(12),
+                            ->in(fn (): array => app(LocaleManager::class)->enabledCodes()),
                         Select::make('default_theme')
                             ->label(__('admin.fields.default_theme'))
                             ->options([
@@ -222,6 +227,21 @@ class ProjectSettingsPage extends Page
             ->title('Settings saved')
             ->success()
             ->send();
+    }
+
+    /**
+     * Only languages the project offers can be its default. Translation tabs
+     * elsewhere on this page list every installed language instead, so content
+     * can be prepared before a language is offered.
+     *
+     * @return array<string, string>
+     */
+    private function enabledLocaleOptions(): array
+    {
+        return array_map(
+            fn (array $info): string => "{$info['flag']} {$info['native']}",
+            app(LocaleManager::class)->enabled(),
+        );
     }
 
     private function presetStatus(): string

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Settings\ApplyProjectPresetAction;
+use App\Exceptions\Settings\InvalidProjectPresetException;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
@@ -11,6 +12,7 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Locale\LocaleManager;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -159,4 +161,74 @@ it('rolls back every preset change when one part fails', function () {
         ->and(RatingGroup::query()->where('key', 'photographer_type')->exists())->toBeFalse()
         ->and(Category::query()->exists())->toBeFalse()
         ->and(Tag::query()->exists())->toBeFalse();
+});
+
+// The language policy of the project ---------------------------------------
+
+it('keeps the only language a project offers when a preset is forced over it', function () {
+    [, $only] = twoTranslatedLocales();
+    ProjectSettings::factory()->create(['site_name' => 'Before']);
+    offerLocales([$only], $only);
+
+    app(ApplyProjectPresetAction::class)->handle('nature', force: true);
+
+    $settings = ProjectSettings::findOrFail(1);
+
+    expect($settings->enabled_locales)->toBe([$only])
+        ->and($settings->default_locale)->toBe($only)
+        // The rest of the preset applied as usual.
+        ->and($settings->site_name)->toBe('NatureGuru')
+        ->and($settings->active_preset_key)->toBe('nature')
+        ->and(Category::query()->active()->exists())->toBeTrue()
+        ->and(app(LocaleManager::class)->projectDefault())->toBe($only);
+});
+
+it('keeps several offered languages and their default when a preset is forced over them', function () {
+    [$default, $other] = twoTranslatedLocales();
+    ProjectSettings::factory()->create();
+    offerLocales([$default, $other], $default);
+    $offered = ProjectSettings::findOrFail(1)->enabled_locales;
+
+    app(ApplyProjectPresetAction::class)->handle('nature', force: true);
+
+    expect(ProjectSettings::findOrFail(1))
+        ->enabled_locales->toBe($offered)
+        ->default_locale->toBe($default);
+});
+
+it('gives a new installation the preset default and every installed language', function () {
+    expect(ProjectSettings::count())->toBe(0);
+
+    app(ApplyProjectPresetAction::class)->handle('nature');
+
+    $settings = ProjectSettings::findOrFail(1);
+    $presetDefault = config('project_presets.nature.settings.default_locale');
+
+    expect($settings->enabled_locales)->toBeNull()
+        ->and($settings->default_locale)->toBe($presetDefault)
+        ->and(app(LocaleManager::class)->isSupported($presetDefault))->toBeTrue()
+        ->and(app(LocaleManager::class)->projectDefault())->toBe($presetDefault);
+});
+
+it('refuses a preset whose default language is not installed, and writes nothing', function () {
+    $preset = config('project_presets.nature');
+    $preset['settings']['default_locale'] = unsupportedLocale();
+    config(['project_presets.unknown_locale' => $preset]);
+
+    expect(fn () => app(ApplyProjectPresetAction::class)->handle('unknown_locale'))
+        ->toThrow(InvalidProjectPresetException::class, unsupportedLocale());
+
+    expect(ProjectSettings::count())->toBe(0)
+        ->and(Category::query()->exists())->toBeFalse();
+});
+
+it('never lets a preset choose which languages are offered', function () {
+    [$only] = twoTranslatedLocales();
+    $preset = config('project_presets.nature');
+    $preset['settings']['enabled_locales'] = [$only];
+    config(['project_presets.offering' => $preset]);
+
+    app(ApplyProjectPresetAction::class)->handle('offering');
+
+    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull();
 });

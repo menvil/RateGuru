@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\Settings\ApplyProjectPresetAction;
+use App\Exceptions\Settings\InvalidProjectPresetException;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
@@ -57,7 +58,7 @@ class SetupProjectPresetCommand extends Command
 
         try {
             $result = $action->handle($presetKey, force: (bool) $this->option('force'));
-        } catch (ProjectPresetAlreadyAppliedException|ProjectPresetHasContentException|UnknownProjectPresetException $exception) {
+        } catch (InvalidProjectPresetException|ProjectPresetAlreadyAppliedException|ProjectPresetHasContentException|UnknownProjectPresetException $exception) {
             $this->error($exception->getMessage());
 
             return self::FAILURE;

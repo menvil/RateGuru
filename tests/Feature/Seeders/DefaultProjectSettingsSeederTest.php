@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ProjectSettings;
+use App\Support\Locale\LocaleManager;
 use Database\Seeders\DefaultProjectSettingsSeeder;
 
 it('seeds default project settings', function () {
@@ -52,4 +53,26 @@ it('preserves administrator edited static pages on subsequent seed runs', functi
 
     expect($settings->site_name)->toBe('RateGuru')
         ->and($settings->static_pages)->toBe($staticPages);
+});
+
+it('never reseeds the languages an existing project offers or its default', function () {
+    [, $only] = twoTranslatedLocales();
+    ProjectSettings::factory()->create();
+    offerLocales([$only], $only);
+
+    $this->seed(DefaultProjectSettingsSeeder::class);
+
+    expect(ProjectSettings::firstOrFail())
+        ->enabled_locales->toBe([$only])
+        ->default_locale->toBe($only);
+});
+
+it('gives a fresh database every installed language and an installed default', function () {
+    $this->seed(DefaultProjectSettingsSeeder::class);
+
+    $settings = ProjectSettings::firstOrFail();
+
+    expect($settings->enabled_locales)->toBeNull()
+        ->and($settings->default_locale)->toBe(config('locales.fallback'))
+        ->and(app(LocaleManager::class)->isEnabled($settings->default_locale))->toBeTrue();
 });
