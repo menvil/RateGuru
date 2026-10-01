@@ -452,6 +452,19 @@ function deployOpsRunQueueTransition(string $scratch, bool $originalRunning, arr
 }
 
 /**
+ * How many keys the committed staging template declares — the template the
+ * artifact fixture ships and therefore the number deploy reports.
+ *
+ * Derived rather than written down: a count in a test is a number that goes stale
+ * the next time the environment contract gains a key, and the failure then points
+ * at the wrong thing.
+ */
+function deployOpsStagingTemplateKeyCount(): int
+{
+    return count(environmentTemplateKeys('infrastructure/templates/environment/staging.env.example'));
+}
+
+/**
  * A scratch target root + a separate incoming-artifacts directory + a real
  * .tar.gz built with real tar/sha256sum (portable, no stubbing needed). Pass
  * $laravel=true to additionally include artisan and the required-CLI
@@ -4080,7 +4093,7 @@ it('lets an ordinary deploy proceed when the candidate contract is satisfied', f
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
-            ->toContain('environment contract: all 97 declared key(s) present')
+            ->toContain('environment contract: all '.deployOpsStagingTemplateKeyCount().' declared key(s) present')
             ->toContain('switching current symlink');
     } finally {
         deployOpsCleanup($scratch);

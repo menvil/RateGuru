@@ -134,15 +134,23 @@ function completenessInventory(): array
     return ['keys' => $keys, 'dynamic' => array_values(array_unique($dynamic))];
 }
 
-/** The callee name for a token that starts a call, or null when it is not one. */
+/**
+ * The callee name for a token that starts a call, or null when it is not one.
+ *
+ * Both `env('KEY')` and `\env('KEY')` have to be recognised. The second is the
+ * same function — PHP resolves an unqualified call to the global one anyway — but
+ * it tokenizes as T_NAME_FULLY_QUALIFIED rather than T_STRING, so a reader that
+ * only knew T_STRING would let one leading backslash walk a key straight past the
+ * inventory. The separator is stripped before comparing.
+ */
 function completenessCallName(array|string $token): ?string
 {
     if (! is_array($token)) {
         return null;
     }
 
-    if ($token[0] === T_STRING && $token[1] === 'env') {
-        return 'env';
+    if (in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)) {
+        return ltrim($token[1], '\\') === 'env' ? 'env' : null;
     }
 
     if ($token[0] === T_VARIABLE) {
@@ -150,6 +158,14 @@ function completenessCallName(array|string $token): ?string
     }
 
     return null;
+}
+
+/** Does this token call the named global function, qualified or not? */
+function completenessCallsFunction(array|string $token, string $name): bool
+{
+    return is_array($token)
+        && in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)
+        && ltrim($token[1], '\\') === $name;
 }
 
 /**
@@ -296,8 +312,17 @@ it('accounts for every environment variable config/*.php reads', function () {
         'These environment variables are read by config/ and nobody has decided whether a deployed target must supply them:',
         ...array_map(fn ($files, $key): string => "  {$key}  ({$files})", $unaccounted, array_keys($unaccounted)),
         '',
-        'Add each to infrastructure/templates/environment/*.env.example if a target must supply it,',
-        'or to infrastructure/config/environment-contract.json with a category if it must not.',
+        'Add each ONCE to infrastructure/config/environment-contract.json, classified:',
+        '',
+        '  a deployed target must supply it ->  "classification": "target", with a',
+        '      "section" that exists and the value it should render with, then run',
+        '      infrastructure/scripts/render-environment-templates --write',
+        '',
+        '  it is not part of a target\'s contract ->  "classification": "excluded",',
+        '      with a "category" from exclusion_categories and a "reason" saying why',
+        '',
+        'Do NOT edit infrastructure/templates/environment/*.env.example: those files',
+        'are generated from the contract, and a hand-edit fails CI on the next render.',
     ]));
 });
 
@@ -382,7 +407,7 @@ it('accounts for every environment variable read outside config/, too', function
             }
 
             foreach (token_get_all(File::get($file->getPathname())) as $index => $token) {
-                if (! is_array($token) || $token[0] !== T_STRING || ! in_array($token[1], ['env', 'getenv'], true)) {
+                if (! completenessCallsFunction($token, 'env') && ! completenessCallsFunction($token, 'getenv')) {
                     continue;
                 }
 
@@ -742,8 +767,15 @@ it('can only ever write a repository template', function () {
 
     expect($matches[1])->not->toBeEmpty('the renderer writes nothing at all — the scan is wrong');
 
+    // Stronger than it was, and for a reason that came out of making --write
+    // atomic: nothing is redirected at a committed file any more. Every render
+    // goes to the private staging copy, and the only thing that touches a
+    // committed template is one install(1) whose target is the registry-derived
+    // destination.
     expect(array_values(array_unique($matches[1])))
-        ->toBe(['${destination}', '${rendered}'], 'the renderer must write only its registry-derived destination and its own staging copy');
+        ->toBe(['${rendered}'], 'the renderer must only ever redirect into its own staging copy');
+
+    expect($code)->toContain('install -m 0644 "${source}" "${target}"');
 
     // The destination is composed from the repository root plus the registry's own
     // declaration, and that declaration is PROVED to name a file directly inside
@@ -835,7 +867,9 @@ it('forbids getenv() in application config, so there is one way in', function ()
 
     foreach (completenessConfigFiles() as $path) {
         foreach (token_get_all(File::get($path)) as $token) {
-            if (is_array($token) && $token[0] === T_STRING && $token[1] === 'getenv') {
+            // Qualified or not: `\getenv()` is the same function, and a reader
+            // that only knew the bare form would let one backslash past.
+            if (completenessCallsFunction($token, 'getenv')) {
                 $offenders[] = 'config/'.basename($path).':'.$token[2];
             }
         }
@@ -981,4 +1015,119 @@ it('validates the registry before it is willing to render anything', function ()
     // The destination is reconstructed from its own basename and required to equal
     // what was declared, which nothing with a path segment in the middle survives.
     expect($source)->toContain('"${declared}" == "infrastructure/templates/environment/${base}"');
+});
+
+it('recognises an environment read in every form PHP accepts', function (string $call, string $expected) {
+    // A leading namespace separator is the same function and a different token:
+    // `env()` is T_STRING, `\env()` is T_NAME_FULLY_QUALIFIED. A reader that knew
+    // only the first would let one backslash walk a key straight past the
+    // inventory, which is the whole point of having one.
+    $source = "<?php\nreturn ['probe' => {$call}];\n";
+    $tokens = token_get_all($source);
+
+    $found = null;
+
+    foreach ($tokens as $index => $token) {
+        if (completenessCallName($token) === 'env') {
+            $found = completenessFirstArgument($tokens, $index);
+
+            break;
+        }
+    }
+
+    expect($found)->toBe($expected, "{$call} was not inventoried");
+})->with([
+    "env('SINGLE_QUOTED')" => ["env('SINGLE_QUOTED')", 'SINGLE_QUOTED'],
+    'env("DOUBLE_QUOTED")' => ['env("DOUBLE_QUOTED")', 'DOUBLE_QUOTED'],
+    "\\env('QUALIFIED_SINGLE')" => ["\\env('QUALIFIED_SINGLE')", 'QUALIFIED_SINGLE'],
+    '\\env("QUALIFIED_DOUBLE")' => ['\\env("QUALIFIED_DOUBLE")', 'QUALIFIED_DOUBLE'],
+]);
+
+it('rejects getenv in every form PHP accepts', function (string $call) {
+    // Same normalization on the prohibition side: one backslash must not turn a
+    // forbidden call into an invisible one.
+    $tokens = token_get_all("<?php\nreturn ['probe' => {$call}];\n");
+
+    $detected = false;
+
+    foreach ($tokens as $token) {
+        if (completenessCallsFunction($token, 'getenv')) {
+            $detected = true;
+
+            break;
+        }
+    }
+
+    expect($detected)->toBeTrue("{$call} would bypass the getenv prohibition");
+})->with([
+    "getenv('BARE')" => ["getenv('BARE')"],
+    '\\getenv("QUALIFIED")' => ['\\getenv("QUALIFIED")'],
+]);
+
+it('leaves every committed template untouched when a render fails', function () {
+    // --write used to redirect straight at the committed file, which truncates it
+    // before the renderer has produced a byte. A render that then failed left the
+    // repository holding a half-written template — and the operator who ran
+    // --write to fix something had broken the thing they were fixing.
+    //
+    // So every target renders into a private file first and the committed files are
+    // replaced only once ALL of them succeeded.
+    $templates = [];
+
+    foreach (['staging', 'tits-guru'] as $target) {
+        $path = base_path("infrastructure/templates/environment/{$target}.env.example");
+        $templates[$path] = [File::get($path), filemtime($path), fileperms($path)];
+    }
+
+    $contractPath = base_path('infrastructure/config/environment-contract.json');
+    $contract = File::get($contractPath);
+
+    try {
+        // A value shape the renderer cannot evaluate: it fails mid-run, after the
+        // first target would have been written under the old model.
+        $broken = json_decode($contract, true, 512, JSON_THROW_ON_ERROR);
+
+        foreach ($broken['keys'] as $index => $entry) {
+            if (($entry['classification'] ?? null) === 'target') {
+                $broken['keys'][$index]['value'] = ['by_something_nobody_implemented' => ['x' => 'y']];
+
+                break;
+            }
+        }
+
+        file_put_contents($contractPath, json_encode($broken, JSON_PRETTY_PRINT));
+
+        [$exit, $output] = completenessRender('--write');
+
+        expect($exit)->not->toBe(0, 'a render that cannot evaluate the contract must fail');
+        expect($output)->toContain('no committed template was changed');
+
+        clearstatcache();
+
+        foreach ($templates as $path => [$content, $mtime, $perms]) {
+            expect(File::get($path))->toBe($content, basename($path).' was modified by a failed render');
+            expect(filemtime($path))->toBe($mtime, basename($path).' was touched by a failed render');
+            expect(fileperms($path))->toBe($perms, basename($path).' lost its mode');
+        }
+    } finally {
+        file_put_contents($contractPath, $contract);
+
+        foreach ($templates as $path => [$content]) {
+            file_put_contents($path, $content);
+        }
+    }
+});
+
+it('installs a rendered template as 0644', function () {
+    // The mode is set as the file lands, by install(1), rather than fixed
+    // afterwards — so there is no window where a generated template exists with
+    // the wrong one.
+    expect(executableSourceLines(File::get(completenessRenderer())))
+        ->toContain('install -m 0644 "${source}" "${target}"');
+
+    foreach (['staging', 'tits-guru'] as $target) {
+        $path = base_path("infrastructure/templates/environment/{$target}.env.example");
+
+        expect(substr(sprintf('%o', fileperms($path)), -3))->toBe('644', basename($path).' must be 0644');
+    }
 });

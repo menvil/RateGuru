@@ -272,16 +272,28 @@ main() {
     parse_args "$@"
     require_inputs
 
+    # BOTH modes render into a private directory first, and that is the point of
+    # it in --write as much as in --check.
+    #
+    # Redirecting straight at a committed file truncates it before the renderer has
+    # produced a byte: a render that then fails — a contract a jq program cannot
+    # evaluate, a value shape nobody has taught it — leaves the repository holding
+    # an empty or half-written template, and the operator who runs --write to fix
+    # something has broken the thing they were fixing. So every target is rendered
+    # first, and the committed files are replaced only once ALL of them succeeded.
     local stage=""
 
-    if [[ "${MODE}" == check ]]; then
-        stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-environment-render.XXXXXX")" \
-            || fail "could not create a temporary directory to render into"
-        chmod 0700 "${stage}"
-    fi
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-environment-render.XXXXXX")" \
+        || fail "could not create a temporary directory to render into"
+
+    chmod 0700 "${stage}"
+
+    # Removed however this ends, including a fail() inside the loop below.
+    # shellcheck disable=SC2064  # the path is fixed now, which is what is wanted
+    trap "rm -rf -- '${stage}'" EXIT
 
     local target_id environment_class declared destination rendered
-    local -a stale=() claimed=()
+    local -a stale=() claimed=() pending=()
     local written=0
 
     while IFS=$'\t' read -r target_id environment_class declared; do
@@ -300,17 +312,22 @@ main() {
         claimed+=("${declared}")
 
         destination="${REPO_ROOT}/${declared}"
+        rendered="${stage}/$(basename "${declared}")"
+
+        # A render that fails must not have touched anything. fail() here exits
+        # with the staging directory removed by the trap and every committed file
+        # exactly as it was.
+        render_template "${target_id}" "${environment_class}" > "${rendered}" \
+            || fail "could not render ${declared} for target ${target_id}; no committed template was changed"
+
+        [[ -s "${rendered}" ]] \
+            || fail "rendering ${declared} for target ${target_id} produced nothing; no committed template was changed"
 
         if [[ "${MODE}" == write ]]; then
-            render_template "${target_id}" "${environment_class}" > "${destination}"
-            printf 'WROTE %s\n' "${declared}"
-            written=$((written + 1))
+            pending+=("${rendered}|${destination}|${declared}")
 
             continue
         fi
-
-        rendered="${stage}/$(basename "${declared}")"
-        render_template "${target_id}" "${environment_class}" > "${rendered}"
 
         if [[ ! -f "${destination}" ]]; then
             stale+=("${declared} (missing)")
@@ -328,12 +345,28 @@ main() {
     done < <(target_rows)
 
     if [[ "${MODE}" == write ]]; then
+        # Every target rendered. Only now is anything committed replaced, and each
+        # replacement is a single install(1) — the mode is set as the file lands
+        # rather than afterwards, so there is no window where a generated template
+        # exists with the wrong one.
+        local entry source target label
+        for entry in ${pending[@]+"${pending[@]}"}; do
+            source="${entry%%|*}"
+            label="${entry##*|}"
+            target="${entry#*|}"
+            target="${target%|*}"
+
+            install -m 0644 "${source}" "${target}" \
+                || fail "could not install the rendered ${label}"
+
+            printf 'WROTE %s\n' "${label}"
+            written=$((written + 1))
+        done
+
         printf 'rendered %d target template(s) from %s\n' "${written}" "infrastructure/config/environment-contract.json"
 
         return 0
     fi
-
-    rm -rf "${stage}"
 
     if (( ${#stale[@]} > 0 )); then
         printf '\n%d committed target template(s) do not match the canonical contract:\n' "${#stale[@]}" >&2

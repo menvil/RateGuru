@@ -124,7 +124,13 @@ it('passes when the runtime file declares every key the template does', function
         [$exit, $output] = envContractRun($scratch);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('all 97 declared key(s) present');
+
+        // Derived from the template this test actually compares against, not
+        // written down: a count in a second file is a number that goes stale the
+        // next time the contract gains a key.
+        $declared = count(environmentTemplateKeys('infrastructure/templates/environment/staging.env.example'));
+
+        expect($output)->toContain("all {$declared} declared key(s) present");
     } finally {
         envContractCleanup($scratch);
     }
