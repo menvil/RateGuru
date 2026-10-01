@@ -5,6 +5,7 @@ use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
@@ -3308,6 +3309,28 @@ function twoTranslatedLocales(): array
     }
 
     return [$locales[0], $locales[1]];
+}
+
+/**
+ * A published post whose image has these generated variants, with the asset
+ * and its variants loaded — the shape the presenter is handed in a list.
+ *
+ * @param  array<string, array{0: int, 1: int}>  $variantDimensionsByName  keyed by MediaVariantName::value
+ */
+function postWithVariants(array $variantDimensionsByName): Post
+{
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
+
+    foreach ($variantDimensionsByName as $name => $dimensions) {
+        MediaVariant::factory()->named(MediaVariantName::from($name))->create([
+            'media_asset_id' => $asset->id,
+            'width' => $dimensions[0],
+            'height' => $dimensions[1],
+        ]);
+    }
+
+    return Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset.variants');
 }
 
 /**
