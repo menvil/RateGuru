@@ -1,0 +1,103 @@
+infrastructure/runbooks/deployment-targets.md
+  s_c0fe1399ff286f::t_dd9b0a5a1aee98 457-482
+app/Support/Translations/ProjectContentSection.php
+  s_c0fe1399ff286f::t_c7348dd4014965 1-30
+app/Actions/Settings/ApplyProjectPresetAction.php
+  s_c0fe1399ff286f::t_ad8b6bb80691e9 29-30,60-69
+tests/Feature/Actions/ApplyProjectPresetActionTest.php
+  s_c0fe1399ff286f::t_16000703eccfbe 235-249
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_c0fe1399ff286f::t_29270aa059da35 1-233
+app/Support/Settings/PresetSettingsBuilder.php
+  s_c0fe1399ff286f::t_3c9bbc395cc9a8 7-8
+config/locales.php
+  s_c0fe1399ff286f::t_2cc53ce4ac4705 15-20,22-24
+tests/Feature/Actions/BackfillProjectTranslationsActionTest.php
+  s_c0fe1399ff286f::t_c0bbcb92178589 10,228-230,232
+  s_c0fe1399ff286f::t_02e9a40c55616a 1-9,11-227,231,233
+resources/views/filament/pages/languages.blade.php
+  s_c0fe1399ff286f::t_00c8ab04f2bae0 1-12
+app/Support/Translations/ProjectTranslationCompleteness.php
+  s_c0fe1399ff286f::t_7014b8a1261c79 1-238
+tests/Feature/Architecture/RepositoryTranslationParityTest.php
+  s_c0fe1399ff286f::t_4d512737e2f169 62
+  s_c0fe1399ff286f::t_7993989ebefa33 1-61,63-72
+app/Support/Translations/RepositoryTranslation.php
+  s_c0fe1399ff286f::t_c7348dd4014965 1-37
+app/Actions/Translations/BackfillProjectTranslationsAction.php
+  s_c0fe1399ff286f::t_03d234e5058ce5 1-110,112-152,154-175,177,179-180,182,184-185,187-197,200,202-213,215-244,246-254,256,258,260-261,263-269,271-274
+  s_c0fe1399ff286f::t_eb37e26f3f219b 198-199,201
+  s_c0fe1399ff286f::t_798590087ef605 111,153,176,178,181,183,186,214,245,255,257,259,262,270
+app/Support/Translations/TranslatableField.php
+  s_c0fe1399ff286f::t_c7348dd4014965 7-22
+app/Support/Translations/TranslationCatalogReport.php
+  s_c0fe1399ff286f::t_3ab6472d491b6d 1-46
+tests/Feature/Architecture/TranslationParityTest.php
+  s_c0fe1399ff286f::t_7dbc72e931a88c 3-5,20-23,28,30,34,39,44-45,53-54,56,61-69,71-76,85,87-90,97,103-106,117,126,134,157
+app/Support/Translations/TranslationBackfillReport.php
+  s_c0fe1399ff286f::t_4672969f927857 1-23
+app/Support/Translations/MissingProjectTranslation.php
+  s_c0fe1399ff286f::t_4894d0a1452220 1-24
+resources/views/filament/pages/languages-missing.blade.php
+  s_c0fe1399ff286f::t_00c8ab04f2bae0 1-39
+tests/Feature/I18n/LocalesConfigTest.php
+  s_c0fe1399ff286f::t_51aba6747369a6 19-41
+tests/Feature/Architecture/DeployTest.php
+  s_c0fe1399ff286f::t_eb663c8d2e0f0c 1340-1342,1347-1348,1868,1896,2501,2510-2523,2560-2563,3746-3923
+app/Filament/Pages/LanguagesPage.php
+  s_c0fe1399ff286f::t_99ad8969382d59 1-327
+tests/Feature/Filament/ProjectLanguageSettingsTest.php
+  s_c0fe1399ff286f::t_9abfbcb9f37a61 16-17,47-48
+app/Support/Translations/TranslationCatalogIssue.php
+  s_c0fe1399ff286f::t_3ab6472d491b6d 1-93
+app/Support/Translations/RepositoryTranslations.php
+  s_c0fe1399ff286f::t_ddecf40a6915a4 1-161
+app/Console/Commands/BackfillProjectTranslationsCommand.php
+  s_c0fe1399ff286f::t_798590087ef605 1-33
+tests/Feature/Filament/LanguagesPageTest.php
+  s_c0fe1399ff286f::t_e8693d030fc305 129
+  s_c0fe1399ff286f::t_ff6f035b36b360 142,216-217
+  s_c0fe1399ff286f::t_07bd065143af3d 1-128,130-141,143-215,218-229
+app/Support/Translations/TranslationCatalogInspector.php
+  s_c0fe1399ff286f::t_c7348dd4014965 20,188
+  s_c0fe1399ff286f::t_a310b37f97f02c 1-19,21-187,189-228
+app/Support/Locale/LocaleManager.php
+  s_c0fe1399ff286f::t_2cc53ce4ac4705 18-22,34,54-64,66-68,78,84-86
+  s_c0fe1399ff286f::t_e64e9cc14fe2e9 65
+tests/Feature/I18n/TranslationCatalogInspectorTest.php
+  s_c0fe1399ff286f::t_ebe98e3fc0fd4f 1-81,83-113
+  s_c0fe1399ff286f::t_3c9bbc395cc9a8 82
+tests/Feature/I18n/LocaleManagerTest.php
+  s_c0fe1399ff286f::t_51aba6747369a6 50,54-85
+docs/i18n/project-translation-lifecycle.md
+  s_c0fe1399ff286f::t_bd1a8254f6c4ee 1-160
+docs/i18n/multilingual-ui.md
+  s_c0fe1399ff286f::t_c2e9463b97025d 13,18-19,25-29,134
+infrastructure/scripts/deploy
+  s_c0fe1399ff286f::t_333ce38aca8335 446-495,1555-1558
+app/Exceptions/Settings/InvalidProjectPresetException.php
+  s_c0fe1399ff286f::t_ad8b6bb80691e9 13-17
+lang/README.md
+  s_c0fe1399ff286f::t_cdfad2438a2aeb 16-18,28-33,39-51,85,88-93,96-99
+  s_c0fe1399ff286f::t_68b5733e484119 12
+app/Support/Translations/ProjectTranslationReport.php
+  s_c0fe1399ff286f::t_4894d0a1452220 1-52
+tests/Feature/Architecture/SupportedLocaleListTest.php
+  s_c0fe1399ff286f::t_51aba6747369a6 18-19,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "de04748c317b40ab73ccd3a4875a140349b204c9",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
