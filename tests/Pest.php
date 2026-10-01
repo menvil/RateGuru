@@ -3302,3 +3302,18 @@ function noBrowserLanguage(): array
 {
     return acceptLanguage('');
 }
+
+/**
+ * Stored values that are not a translation (TranslatableField::isPresent()):
+ * completeness counts each as missing, and a visitor gets the fallback for
+ * each — the two sides of the same rule, tested with the same values.
+ */
+dataset('not a translation', [
+    'null' => [null],
+    'empty' => [''],
+    'spaces' => ['   '],
+    'tabs and newlines' => ["\t\n"],
+    'a number' => [42],
+    'a boolean' => [true],
+    'a list' => [['Desserts']],
+]);

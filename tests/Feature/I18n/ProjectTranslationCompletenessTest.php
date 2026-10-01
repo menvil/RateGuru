@@ -52,13 +52,6 @@ function translatedProjectSettings(array $locales, array $overrides = []): Proje
     return ProjectSettings::factory()->create([...$attributes, 'site_description' => 'About this site', ...$overrides]);
 }
 
-dataset('not a translation', [
-    'null' => [null],
-    'empty' => [''],
-    'whitespace' => ['   '],
-    'a number' => [42],
-]);
-
 // Project settings ------------------------------------------------------------
 
 it('counts a project setting as translated when the language has text for it', function () {

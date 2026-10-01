@@ -173,7 +173,7 @@ class ResolvedProjectSettings
     {
         $value = $localized[$key] ?? null;
 
-        if (is_string($value) && trim($value) !== '') {
+        if (TranslatableField::isPresent($value)) {
             return $value;
         }
 
