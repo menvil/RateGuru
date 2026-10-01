@@ -234,8 +234,11 @@ closed, with no fallback to the installed template.
 So a new key travels a closed route:
 
 ```text
-a key is added to one template
-  -> CI fails until every target's template declares it
+config/ starts reading a new setting
+  -> CI fails: no record in environment-contract.json
+  -> the key is classified once, target or excluded
+  -> if target: render-environment-templates --write regenerates EVERY target
+     template, so no second file has to be remembered
   -> it ships inside every artifact built from that point on
   -> the next ordinary deploy refuses on any host whose .env lacks it
   -> an operator adds it deliberately, and only then does the deploy proceed

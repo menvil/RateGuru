@@ -57,6 +57,8 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
 CONTRACT_FILE="${REPO_ROOT}/infrastructure/config/environment-contract.json"
 REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 TEMPLATE_ROOT="${REPO_ROOT}/infrastructure/templates/environment"
+TARGETS_CLI="${SCRIPT_DIR}/targets"
+TEMPLATE_ROOT_CANONICAL=""
 
 fail() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -113,6 +115,9 @@ require_inputs() {
     [[ -f "${REGISTRY_FILE}" ]] || fail "target registry is missing: ${REGISTRY_FILE}"
     [[ -d "${TEMPLATE_ROOT}" ]] || fail "template directory is missing: ${TEMPLATE_ROOT}"
 
+    TEMPLATE_ROOT_CANONICAL="$(cd -- "${TEMPLATE_ROOT}" >/dev/null 2>&1 && pwd -P)" \
+        || fail "cannot resolve the template directory: ${TEMPLATE_ROOT}"
+
     command -v jq >/dev/null 2>&1 || fail "jq is required"
 
     jq -e . "${CONTRACT_FILE}" >/dev/null 2>&1 || fail "canonical contract is not valid JSON: ${CONTRACT_FILE}"
@@ -123,6 +128,64 @@ require_inputs() {
 
     [[ "${version}" == "1" ]] \
         || fail "canonical contract declares schema_version ${version}; this renderer understands 1"
+
+    # The registry is where every destination comes from, so it is validated by
+    # its own authority before a single path is believed — in BOTH modes, and
+    # before --write touches anything. Syntactically-valid JSON is not the same
+    # as a valid registry, and this script must not be the place that discovers
+    # the difference after writing a file.
+    [[ -x "${TARGETS_CLI}" ]] \
+        || fail "the target registry validator is not executable: ${TARGETS_CLI} — run from a full repository checkout"
+
+    "${TARGETS_CLI}" validate --file "${REGISTRY_FILE}" >/dev/null \
+        || fail "the target registry does not validate, so no destination it declares may be trusted; nothing was rendered"
+}
+
+# assert_destination_within_templates DECLARED TARGET_ID — prove, rather than
+# pattern-match, that this declaration names a file directly inside the
+# repository's environment template directory.
+#
+# A glob is not a boundary. `infrastructure/templates/environment/*.env.example`
+# is matched by
+#
+#   infrastructure/templates/environment/../../escaped.env.example
+#
+# because `*` happily spans `/../`. For a tool whose whole claim is "I can only
+# write here", a pattern that can be walked out of is not good enough — so the
+# path is RECONSTRUCTED from its own basename and required to equal what was
+# declared. A declaration with anything between the directory and the file name
+# cannot survive that, whatever it is.
+assert_destination_within_templates() {
+    local declared="$1" target_id="$2" base parent
+
+    case "${declared}" in
+        /*) fail "target ${target_id} declares an absolute environment_template (${declared}); only a repository-relative path may be rendered" ;;
+    esac
+
+    base="${declared##*/}"
+
+    [[ "${declared}" == "infrastructure/templates/environment/${base}" ]] \
+        || fail "target ${target_id} declares environment_template ${declared}, which is not a file directly inside infrastructure/templates/environment/ — refusing to render outside the template directory"
+
+    [[ "${base}" == *.env.example ]] \
+        || fail "target ${target_id} declares environment_template ${declared}, which is not an .env.example file"
+
+    [[ "${base}" != "." ]] && [[ "${base}" != ".." ]] && [[ "${base}" != ".env.example" ]] \
+        || fail "target ${target_id} declares an unusable environment_template file name: ${base}"
+
+    # Belt and braces: the directory the file would land in, canonicalized, must
+    # be the template directory itself — so a symlinked path cannot escape even
+    # though the textual check above already passed.
+    parent="$(cd -- "$(dirname -- "${REPO_ROOT}/${declared}")" >/dev/null 2>&1 && pwd -P)" \
+        || fail "target ${target_id} declares environment_template ${declared}, whose directory cannot be resolved"
+
+    [[ "${parent}" == "${TEMPLATE_ROOT_CANONICAL}" ]] \
+        || fail "target ${target_id} declares environment_template ${declared}, which resolves into ${parent} rather than ${TEMPLATE_ROOT_CANONICAL} — refusing to render outside the template directory"
+
+    # A generated file is a regular file. Rendering through a symlink would write
+    # wherever it points.
+    [[ ! -L "${REPO_ROOT}/${declared}" ]] \
+        || fail "target ${target_id} declares environment_template ${declared}, which is a symlink — refusing to render through one"
 }
 
 # render_template TARGET_ID ENVIRONMENT_CLASS — the whole file, on stdout.
@@ -218,18 +281,23 @@ main() {
     fi
 
     local target_id environment_class declared destination rendered
-    local -a stale=()
+    local -a stale=() claimed=()
     local written=0
 
     while IFS=$'\t' read -r target_id environment_class declared; do
         [[ -n "${target_id}" ]] || continue
 
-        # The destination is the registry's own declaration, and it must name a
-        # file inside the template directory — never an arbitrary path.
-        case "${declared}" in
-            infrastructure/templates/environment/*.env.example) ;;
-            *) fail "target ${target_id} declares environment_template ${declared}, which is not a repository environment template this renderer may write" ;;
+        assert_destination_within_templates "${declared}" "${target_id}"
+
+        # The registry forbids two targets sharing a template, and this is the
+        # same rule where the writing happens: without it the second render would
+        # overwrite the first, and the target that lost would be deployed against
+        # a contract describing somebody else.
+        case " ${claimed[*]-} " in
+            *" ${declared} "*) fail "two targets declare environment_template ${declared}; the second render would overwrite the first" ;;
         esac
+
+        claimed+=("${declared}")
 
         destination="${REPO_ROOT}/${declared}"
 

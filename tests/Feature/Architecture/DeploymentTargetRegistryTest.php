@@ -1189,6 +1189,11 @@ it('rejects collision-sensitive values shared between targets', function () {
         '.scheduler.name',
         '.nginx.site_name',
         '.nginx.internal_hostname',
+        // Two targets pointing at one generated template would have the renderer
+        // write one target's identity and environment class, then overwrite it
+        // with the other's — last one wins, and the target that lost is deployed
+        // against a contract describing somebody else.
+        '.environment_template',
     ];
 
     foreach ($fields as $field) {

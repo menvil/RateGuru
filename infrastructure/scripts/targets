@@ -59,6 +59,11 @@ COLLISION_FIELDS=(
     # Flattened across targets: two targets claiming the same public hostname
     # would collide in Nginx and in certificate issuance.
     '.public_hostnames[]?|public hostname'
+    # Two targets declaring the same generated environment template would have
+    # the renderer write one target's identity and environment class, then
+    # overwrite it with the other's — last one wins, silently, and the target
+    # that lost is deployed against a contract describing somebody else.
+    '.environment_template|environment template'
 )
 
 REQUIRED_STRINGS=(

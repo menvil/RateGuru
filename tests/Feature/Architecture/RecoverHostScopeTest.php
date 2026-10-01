@@ -37,7 +37,10 @@ it('adds exactly one server primitive and one transport action', function () {
         ->values()
         ->all();
 
-    $expected = [...requiredCliManifestNames(), ...sourcedLibraryNames()];
+    // Three categories, not two: repository-only tooling is never installed on a
+    // host, and for the environment template renderer that absence is a safety
+    // property rather than an omission.
+    $expected = [...requiredCliManifestNames(), ...sourcedLibraryNames(), ...repositoryOnlyScriptNames()];
     sort($expected);
 
     expect($flat)->toBe($expected);

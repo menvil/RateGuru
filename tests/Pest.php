@@ -440,6 +440,29 @@ function sourcedLibraryNames(): array
 }
 
 /**
+ * Scripts under infrastructure/scripts/ that are REPOSITORY tooling: run from a
+ * checkout by a developer or by CI, and deliberately never installed onto a host.
+ *
+ * The third category, and it exists because the first two could not honestly hold
+ * one. A required CLI is installed on every host; a sourced library is installed
+ * and read by those CLIs. `render-environment-templates` is neither — and its
+ * absence from a host is a SAFETY property, not an omission: it generates the
+ * committed environment templates, and a generator reachable on a host would be a
+ * way for tooling to write a target's canonical shared/.env, which is the
+ * operator's to own.
+ *
+ * So a script listed here must stay out of required-clis.txt and out of the
+ * operational bundle, and the guards that inventory infrastructure/scripts/ know
+ * to expect exactly that rather than reporting it as unclassified.
+ *
+ * @return list<string>
+ */
+function repositoryOnlyScriptNames(): array
+{
+    return ['render-environment-templates'];
+}
+
+/**
  * A correctly normalized release-tree fixture: every manifested CLI present
  * and executable, every sourced library present, readable and non-executable,
  * the manifest itself copied verbatim from the real committed one. Shared by

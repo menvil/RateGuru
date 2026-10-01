@@ -30,6 +30,10 @@
             "description": "How long content outlives the account, or the decision, that removed it.\n\nA retention of 0 would delete immediately, and a blank one is not \"forever\" —\nit is whatever the application's own default happens to be, which is the thing\na deployed target should not be left guessing at. The moderation retention is\ndeliberately blank: it is the one value here that is a policy decision per\nbrand rather than a platform default."
         },
         {
+            "name": "Feed",
+            "description": "How many posts a feed page serves, and the ceiling a caller may ask for.\n\nFeedQuery reads both directly, so these are deployed performance policy: the\ndefault decides the size of every feed query, and the maximum is what stops a\ncaller asking for the whole table. The values below are the application's own\ndefaults, made visible rather than changed."
+        },
+        {
             "name": "Import",
             "description": "Whether a visitor may create a post from an external URL. Off by default, and\noff is a decision rather than an oversight: the importer fetches a\ncaller-supplied address from the server, so enabling it widens what the host\nwill connect to."
         },
@@ -357,6 +361,18 @@
             "section": "Content lifecycle",
             "classification": "target",
             "value": ""
+        },
+        {
+            "key": "FEED_DEFAULT_PER_PAGE",
+            "section": "Feed",
+            "classification": "target",
+            "value": "12"
+        },
+        {
+            "key": "FEED_MAX_PER_PAGE",
+            "section": "Feed",
+            "classification": "target",
+            "value": "50"
         },
         {
             "key": "IMPORT_FROM_URL_ENABLED",
@@ -904,18 +920,6 @@
             "classification": "excluded",
             "category": "dormant-driver",
             "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
-        },
-        {
-            "key": "FEED_DEFAULT_PER_PAGE",
-            "classification": "excluded",
-            "category": "application-default",
-            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
-        },
-        {
-            "key": "FEED_MAX_PER_PAGE",
-            "classification": "excluded",
-            "category": "application-default",
-            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
         },
         {
             "key": "LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK",
@@ -1474,19 +1478,12 @@
             "classification": "excluded",
             "category": "dormant-driver",
             "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
-        },
-        {
-            "key": "THEME_DEFAULT",
-            "classification": "excluded",
-            "category": "application-default",
-            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
         }
     ],
     "exclusion_categories": {
         "laravel-framework-default": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it.",
         "dormant-driver": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction.",
         "vendor-tuning-default": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply.",
-        "application-default": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of.",
         "local-or-build-only": "Meaningful only for local development or a build step, never on a deployed target."
     },
     "config_env_readers": {

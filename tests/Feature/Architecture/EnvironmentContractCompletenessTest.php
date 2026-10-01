@@ -746,10 +746,14 @@ it('can only ever write a repository template', function () {
         ->toBe(['${destination}', '${rendered}'], 'the renderer must write only its registry-derived destination and its own staging copy');
 
     // The destination is composed from the repository root plus the registry's own
-    // declaration, and that declaration is required to be a repository template.
+    // declaration, and that declaration is PROVED to name a file directly inside
+    // the template directory — reconstructed from its own basename and required to
+    // equal what was declared, which no path with a segment in the middle can
+    // survive. A glob here would not be a boundary: `*` spans `/../`.
     expect($code)
         ->toContain('destination="${REPO_ROOT}/${declared}"')
-        ->toContain('infrastructure/templates/environment/*.env.example)');
+        ->toContain('assert_destination_within_templates "${declared}" "${target_id}"')
+        ->toContain('"${declared}" == "infrastructure/templates/environment/${base}"');
 
     // It takes no path from the caller at all.
     expect($code)->not->toContain('--env-file');
@@ -816,3 +820,165 @@ it('documents the first-party settings a local developer needs', function (strin
     'RATE_LIMIT_UPLOAD_ATTEMPTS', 'RATE_LIMIT_COMMENT_ATTEMPTS',
     'RATE_LIMIT_REPORT_ATTEMPTS', 'RATE_LIMIT_VOTE_ATTEMPTS',
 ]);
+
+// =============================================================================
+// Closing the ways around the inventory
+// =============================================================================
+
+it('forbids getenv() in application config, so there is one way in', function () {
+    // The inventory understands env() and the registered wrappers. getenv() would
+    // reach the same variables and be invisible to it — so rather than teaching
+    // the scanner a second mechanism, config/ is held to one. Laravel's own
+    // convention is env() anyway, and one way in is what makes the inventory
+    // closed.
+    $offenders = [];
+
+    foreach (completenessConfigFiles() as $path) {
+        foreach (token_get_all(File::get($path)) as $token) {
+            if (is_array($token) && $token[0] === T_STRING && $token[1] === 'getenv') {
+                $offenders[] = 'config/'.basename($path).':'.$token[2];
+            }
+        }
+    }
+
+    expect($offenders)->toBe([], implode("\n", [
+        'getenv() in application config bypasses the environment inventory:',
+        ...array_map(fn (string $site): string => '  '.$site, $offenders),
+        '',
+        'Use env(), or one of the wrappers registered in',
+        'infrastructure/config/environment-contract.json under config_env_readers.',
+    ]));
+});
+
+it('requires a secret-like name to be marked sensitive and rendered blank', function () {
+    // sensitive: true is a human judgement, and the contract is now the source of
+    // rendered values — so a key whose NAME says credential must not depend on
+    // somebody remembering. The indicators are deliberately conservative: an
+    // OAuth client ID is a public identifier and is not caught by them, while
+    // anything named password, secret, token, key, credential or dsn is.
+    $indicators = ['PASSWORD', 'PASSWD', 'SECRET', 'TOKEN', 'PRIVATE_KEY', 'CREDENTIAL', 'DSN', 'API_KEY', 'ACCESS_KEY'];
+
+    $unmarked = [];
+    $valued = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (($entry['classification'] ?? null) !== 'target') {
+            continue;
+        }
+
+        $looksSecret = false;
+
+        foreach ($indicators as $indicator) {
+            if (str_contains($entry['key'], $indicator)) {
+                $looksSecret = true;
+
+                break;
+            }
+        }
+
+        // APP_KEY and the like: a bare _KEY suffix counts, but CLIENT_ID does not.
+        if (! $looksSecret && preg_match('/(^|_)KEY$/', $entry['key']) === 1) {
+            $looksSecret = true;
+        }
+
+        if (! $looksSecret) {
+            continue;
+        }
+
+        if (($entry['sensitive'] ?? false) !== true) {
+            $unmarked[] = $entry['key'];
+        }
+
+        if (($entry['value'] ?? null) !== '') {
+            $valued[] = $entry['key'];
+        }
+    }
+
+    expect($unmarked)->toBe([], 'these names indicate a credential and must carry "sensitive": true — '.implode(' ', $unmarked));
+    expect($valued)->toBe([], 'these credentials must render blank, never with a committed value — '.implode(' ', $valued));
+});
+
+it('does not treat a public identifier as a secret', function () {
+    // The guard above must stay conservative in the other direction too: marking a
+    // public value sensitive would force it blank and break the target it belongs
+    // to. An OAuth client id is published to every browser that starts a login.
+    foreach (['GOOGLE_CLIENT_ID', 'FACEBOOK_CLIENT_ID'] as $key) {
+        $entry = collect(completenessContract()['keys'])->firstWhere('key', $key);
+
+        expect($entry)->not->toBeNull();
+        expect($entry['sensitive'] ?? false)->toBeFalse("{$key} is a public identifier, not a secret");
+    }
+});
+
+// =============================================================================
+// Schema integrity
+// =============================================================================
+
+it('names every section once, and every target key belongs to one that exists', function () {
+    $contract = completenessContract();
+    $names = array_column($contract['sections'], 'name');
+
+    expect($names)->toBe(array_values(array_unique($names)), 'section names must be unique');
+
+    $orphans = [];
+
+    foreach ($contract['keys'] as $entry) {
+        if (($entry['classification'] ?? null) !== 'target') {
+            continue;
+        }
+
+        if (! in_array($entry['section'] ?? '', $names, true)) {
+            $orphans[] = $entry['key'].' => '.($entry['section'] ?? '(none)');
+        }
+    }
+
+    expect($orphans)->toBe([], 'these target keys name a section that does not exist: '.implode(' ', $orphans));
+});
+
+it('uses a valid environment variable name for every target key', function () {
+    $invalid = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (preg_match('/^[A-Z][A-Z0-9_]*$/', $entry['key'] ?? '') !== 1) {
+            $invalid[] = var_export($entry['key'] ?? null, true);
+        }
+    }
+
+    expect($invalid)->toBe([], 'not usable as environment variable names: '.implode(' ', $invalid));
+});
+
+it('gives every registered target exactly one template, and no two share it', function () {
+    // The renderer writes one file per target. Two targets naming one file would
+    // have the second overwrite the first, and the target that lost would be
+    // deployed against a contract describing somebody else.
+    $targets = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets'];
+
+    $declared = [];
+
+    foreach ($targets as $id => $target) {
+        expect($target['environment_template'] ?? null)->not->toBeNull("{$id} declares no environment_template");
+        $declared[] = $target['environment_template'];
+    }
+
+    expect($declared)->toBe(array_values(array_unique($declared)), 'two targets share an environment template');
+
+    // Enforced by the registry's own validator, not only here.
+    expect(File::get(base_path('infrastructure/scripts/targets')))
+        ->toContain('.environment_template|environment template');
+});
+
+it('validates the registry before it is willing to render anything', function () {
+    // A glob is not a boundary: `infrastructure/templates/environment/*.env.example`
+    // is matched by `.../environment/../../escaped.env.example`, because `*` spans
+    // `/../`. CI would catch an invalid registry, but --write can be run locally
+    // first — so the renderer proves it itself, in both modes, before writing.
+    $source = executableSourceLines(File::get(completenessRenderer()));
+
+    expect($source)
+        ->toContain('"${TARGETS_CLI}" validate --file "${REGISTRY_FILE}"')
+        ->toContain('assert_destination_within_templates');
+
+    // The destination is reconstructed from its own basename and required to equal
+    // what was declared, which nothing with a path segment in the middle survives.
+    expect($source)->toContain('"${declared}" == "infrastructure/templates/environment/${base}"');
+});

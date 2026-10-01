@@ -74,10 +74,20 @@ it('keeps every infrastructure CLI script executable and every sourced library n
         sourcedLibraryNames(),
     );
 
+    // Repository-only tooling: run directly, so executable like any CLI, but
+    // deliberately absent from required-clis.txt and from the operational bundle.
+    // For the environment template renderer that absence is a safety property —
+    // a generator reachable on a host would be a way for tooling to write a
+    // target's canonical shared/.env, which is the operator's to own.
+    $repositoryOnly = array_map(
+        fn (string $name): string => "infrastructure/scripts/{$name}",
+        repositoryOnlyScriptNames(),
+    );
+
     $modes = infrastructureScriptGitModes();
 
-    foreach ($cliAllowlist as $path) {
-        expect(array_key_exists($path, $modes))->toBeTrue("expected CLI is missing from the repository: {$path}");
+    foreach ([...$cliAllowlist, ...$repositoryOnly] as $path) {
+        expect(array_key_exists($path, $modes))->toBeTrue("expected executable script is missing from the repository: {$path}");
         expect($modes[$path])->toBe('100755', "{$path} must be Git mode 100755 (executable) — is {$modes[$path]}");
     }
 
@@ -90,12 +100,12 @@ it('keeps every infrastructure CLI script executable and every sourced library n
     // No expected CLI is missing from the allowlist, and nothing untracked
     // slipped in unclassified: the flat files directly under
     // infrastructure/scripts/ are exactly the allowlist plus the libraries.
-    $expectedPaths = [...$cliAllowlist, ...$sourcedLibraries];
+    $expectedPaths = [...$cliAllowlist, ...$sourcedLibraries, ...$repositoryOnly];
     sort($expectedPaths);
     $actualPaths = array_keys($modes);
     sort($actualPaths);
 
-    expect($actualPaths)->toBe($expectedPaths, 'infrastructure/scripts/ contains a file this test does not know how to classify — add it to infrastructure/config/required-clis.txt or to sourcedLibraryNames() in tests/Pest.php');
+    expect($actualPaths)->toBe($expectedPaths, 'infrastructure/scripts/ contains a file this test does not know how to classify — add it to infrastructure/config/required-clis.txt, or to sourcedLibraryNames() or repositoryOnlyScriptNames() in tests/Pest.php');
 });
 
 it('carries every infrastructure script through checkout and deploy normalization with the correct final mode', function () {

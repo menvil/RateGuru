@@ -94,7 +94,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         ->values()
         ->all();
 
-    $expected = [...requiredCliManifestNames(), ...sourcedLibraryNames()];
+    // Three categories, not two: repository-only tooling is never installed on a
+    // host, and for the environment template renderer that absence is a safety
+    // property rather than an omission.
+    $expected = [...requiredCliManifestNames(), ...sourcedLibraryNames(), ...repositoryOnlyScriptNames()];
     sort($expected);
 
     expect($scripts)->toBe($expected);
