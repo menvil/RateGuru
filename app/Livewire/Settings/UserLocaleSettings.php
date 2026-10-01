@@ -30,6 +30,10 @@ class UserLocaleSettings extends Component
         /** @var User $user */
         $user = auth()->user();
         app(UpdateUserLocaleAction::class)->handle($user, $this->locale);
+
+        // The page around this form was rendered in the old language; a full
+        // load renders all of it in the new one, as the header switcher does.
+        $this->redirect(route('profile.edit'));
     }
 
     public function render(): View
