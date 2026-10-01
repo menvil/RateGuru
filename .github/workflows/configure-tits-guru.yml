@@ -14,12 +14,18 @@ name: Configure tits.guru
 # deploys no application, configures no TLS, DNS or mail, and never writes the
 # registry. A green run is NOT "production is ready".
 #
-# IT CARRIES NO MATERIAL. There is deliberately no environment file and no
-# authorized_keys input. The target's shared/.env is CANONICAL on the host: an
-# operator creates it there once as rateguru-tits-guru:rateguru-tits-guru mode
-# 0640, backups carry it as environment.env, and a recovery restores it from
-# the selected backup. GitHub is not a copy of it and is never asked to resend
-# it. The same is true of the deploy user's authorized_keys. This is exactly
+# WHAT IT SENDS. Exactly one thing: the target's deploy PUBLIC key, derived on
+# the runner from DEPLOY_SSH_KEY with `ssh-keygen -y`. Provisioning deliberately
+# left the deploy user's authorized_keys absent, and nothing else installs it,
+# so a target would stay permanently unreachable without this. The private key
+# is used on the runner and never uploaded.
+#
+# IT NEVER SENDS THE ENVIRONMENT FILE. The target's shared/.env is CANONICAL on
+# the host: an operator creates it there once as
+# rateguru-tits-guru:rateguru-tits-guru mode 0640, backups carry it as
+# environment.env, and a recovery restores it from the selected backup. GitHub
+# is not a copy of it and is never asked to resend it. The server-side operation
+# REQUIRES it to already exist and refuses to run without it. This is exactly
 # how staging already works.
 on:
   workflow_dispatch:
@@ -54,9 +60,11 @@ jobs:
     # per target, so the credentials, reviewers and protection rules that reach
     # tits-guru are not the ones that reach staging-main.
     #
-    # What it must hold is small and exact, because this operation carries no
-    # material of its own: DEPLOY_HOST, DEPLOY_PORT and BOOTSTRAP_USER as
-    # variables, BOOTSTRAP_SSH_KEY and BOOTSTRAP_KNOWN_HOSTS as secrets. Today
+    # What it must hold is small and exact: DEPLOY_HOST, DEPLOY_PORT and
+    # BOOTSTRAP_USER as variables, and BOOTSTRAP_SSH_KEY, BOOTSTRAP_KNOWN_HOSTS
+    # and DEPLOY_SSH_KEY as secrets. DEPLOY_SSH_KEY is read on the runner only,
+    # to derive the public half that becomes this target's authorized_keys;
+    # it is never uploaded. Today
     # those name the machine staging also lives on — tits-guru has no separate
     # server yet, and it does not need one to be configured. When it gets one,
     # only these values change; nothing in this workflow does.
@@ -100,6 +108,13 @@ jobs:
           bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
           bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
 
+          # Read on the runner and nowhere else: the action derives the public
+          # half with `ssh-keygen -y` and uploads only that. A provisioned
+          # target has no authorized_keys yet, and deriving it from the
+          # credential GitHub already holds is what keeps the deploy identity
+          # single-sourced.
+          deploy-ssh-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
       # Phrased so a green run cannot be read as more than it is.
       - name: Report what this run did and did not do
         shell: bash
@@ -116,9 +131,9 @@ jobs:
             echo "| --- | --- |"
             echo "| Target | \`tits-guru\` |"
             echo "| Lifecycle | \`${LIFECYCLE}\` — unchanged, because configuring never writes the registry |"
-            echo "| Environment file | present on the host, accepted as it stands and never overwritten |"
+            echo "| Environment file | required to pre-exist on the host; validated, never sent from here and never written |"
             echo "| Database | ready |"
-            echo "| Deploy SSH key | present on the host |"
+            echo "| Deploy SSH key | public half installed from \`DEPLOY_SSH_KEY\`; the private key never left the runner |"
             echo "| Deploy operational sudo access | **NOT enabled** |"
             echo "| Application | **NOT deployed** |"
             echo "| Public traffic | **NOT activated** |"

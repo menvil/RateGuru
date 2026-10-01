@@ -42,7 +42,11 @@ it('is a valid composite action whose every step names itself and its shell', fu
     }
 });
 
-it('accepts the connection inputs and nothing that could carry material', function () {
+it('accepts the connection inputs, the deploy credential, and nothing else', function () {
+    // deploy-ssh-key is the one input that is not a connection parameter, and
+    // it is deliberately not material either: it is never sent anywhere. The
+    // runner derives its PUBLIC half and uploads only that, because a
+    // provisioned target has no authorized_keys and nothing else installs one.
     expect(array_keys(configureAction()['inputs']))->toBe([
         'deployment-target',
         'environment',
@@ -51,6 +55,7 @@ it('accepts the connection inputs and nothing that could carry material', functi
         'bootstrap-user',
         'bootstrap-ssh-key',
         'bootstrap-known-hosts',
+        'deploy-ssh-key',
     ]);
 });
 
@@ -62,7 +67,11 @@ it('has no input that could carry the material it causes to be used', function (
         ->toBeFalse("configuring must not be able to accept: {$forbidden}");
 })->with([
     'laravel-env', 'env', 'env-file', 'environment-file', 'app-key', 'application-key',
-    'deploy-authorized-keys', 'authorized-keys', 'deploy-ssh-key',
+    // Not deploy-ssh-key: that one is accepted, used on the runner only, and
+    // covered by its own tests below. deploy-authorized-keys stays forbidden —
+    // the public key is DERIVED from the credential above, never pasted
+    // separately, so that two sources of the same identity cannot diverge.
+    'deploy-authorized-keys', 'authorized-keys',
     'db-password', 'database-password', 'database-url',
     'rclone-config', 'tls-certificate', 'tls-key', 'basic-auth', 'mail-password',
     'ref', 'branch', 'tag', 'commit', 'artifact', 'release', 'run-migrations',
@@ -76,14 +85,47 @@ it('says in its own prose where the environment file actually lives', function (
         ->toContain('never asked to resend it');
 });
 
-it('uses the bootstrap credential and never a deployment key', function () {
+it('connects with the bootstrap credential and never with the deployment key', function () {
+    // The deploy key is now an input, so "it is absent" is no longer the
+    // property. The property is what it is USED for: every ssh and scp
+    // identity is the bootstrap key, because creating a role and a database
+    // needs root and the deploy key reaches only the narrow sudo wrappers.
     $executable = configureActionExecutable();
 
     expect($executable)
         ->toContain('inputs.bootstrap-ssh-key')
-        ->toContain('inputs.bootstrap-known-hosts')
-        ->not->toContain('DEPLOY_SSH_KEY')
-        ->not->toContain('deploy-ssh-key');
+        ->toContain('inputs.bootstrap-known-hosts');
+
+    // Every -i names the bootstrap key path, and nothing else does.
+    $identities = preg_match_all('/-i\s+"\$\{([A-Z_]+)\}"/', $executable, $matches);
+
+    expect($identities)->toBeGreaterThanOrEqual(4);
+    expect(array_unique($matches[1]))->toBe(['RATEGURU_BOOTSTRAP_SSH_KEY_PATH']);
+});
+
+it('uses the deployment key only to derive a public key, and never uploads it', function () {
+    $executable = configureActionExecutable();
+
+    // Read once, by ssh-keygen -y, into the one material file.
+    expect($executable)
+        ->toContain('ssh-keygen -y -f "${private_path}" > "${material_dir}/deploy-authorized-keys"')
+        ->toContain('rm -f "${private_path}"');
+
+    // The private key never appears in anything sent to the host: the only scp
+    // of material names the public file explicitly, rather than globbing a
+    // directory that could come to hold more than one thing.
+    expect($executable)
+        ->toContain('"${RATEGURU_MATERIAL_DIR}/deploy-authorized-keys" \\')
+        ->not->toContain('"${RATEGURU_MATERIAL_DIR}"/*');
+
+    // And it is removed from the runner on every exit path, successful or not.
+    expect($executable)->toContain('rateguru_configure_deploy_key');
+});
+
+it('passes the staged material to the server-side operation', function () {
+    // Staging a file nothing is told about would install nothing at all.
+    expect(configureActionExecutable())
+        ->toContain('--material-dir "${RATEGURU_REMOTE_ROOT}/material"');
 });
 
 it('never relaxes host key checking, and carries the same policy on every connection', function () {

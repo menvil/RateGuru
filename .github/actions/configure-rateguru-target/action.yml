@@ -11,15 +11,25 @@ description: >-
 # may be configured, what counts as already provisioned, which installer owns
 # which contract, and what stays deferred. None of that is reimplemented here.
 #
-# WHAT IT DOES NOT CARRY. There is deliberately no material input of any kind —
-# no environment file, no authorized_keys, no database password. That is not an
-# omission, it is the model: a target's shared/.env is CANONICAL on the host.
-# An operator creates it there once, backups carry it as environment.env, and a
-# recovery restores it from the selected backup. GitHub is not a copy of it and
-# is never asked to resend it. The same is true of the deploy user's
-# authorized_keys. This action therefore transports no secret at all, and the
-# server-side operation accepts what the host already holds rather than
-# overwriting it.
+# WHAT IT CARRIES, AND WHAT IT REFUSES TO. Exactly one piece of material
+# reaches the host: the target's deploy PUBLIC key, as deploy-authorized-keys.
+# Provisioning deliberately left that file absent — a provisioned target has an
+# identity and a home but no way in — and nothing else in the pipeline installs
+# it, so a target would stay undeployable forever without this step.
+#
+# It is derived here rather than supplied: `ssh-keygen -y` reads the deployment
+# private key GitHub already holds and emits its public half. The private key
+# exists only in the runner's own temporary directory, is never uploaded, and is
+# deleted the moment the public half has been written. Deriving it is what keeps
+# the deploy identity single-sourced — a separately pasted public key is a
+# second source of truth that silently stops matching.
+#
+# The environment file is the opposite, and is NEVER carried. A target's
+# shared/.env is CANONICAL on the host: an operator creates it there once,
+# backups carry it as environment.env, and a recovery restores it from the
+# selected backup. GitHub is not a copy of it and is never asked to resend it.
+# The server-side operation REQUIRES it to be there already and refuses to run
+# without it, rather than accepting one from here.
 #
 # CREDENTIAL SEPARATION. This uses the privileged BOOTSTRAP credential, the
 # same one provisioning and host preparation use, and deliberately NOT the
@@ -68,6 +78,18 @@ inputs:
     description: >-
       Verified known_hosts entry for the host. Strict host key checking is
       non-negotiable: no TOFU, no relaxed policy, no password fallback.
+
+  deploy-ssh-key:
+    required: true
+    description: >-
+      The target's deployment SSH PRIVATE key, used on the runner and nowhere
+      else: `ssh-keygen -y` derives its public half, and only that public half
+      is ever staged or uploaded. The private key never reaches the host, is
+      never written anywhere but the runner's own temporary directory, and is
+      deleted as soon as the public half exists. It is required because a
+      provisioned target has no authorized_keys yet, and deriving the public key
+      from the credential GitHub already holds is what avoids inventing a second
+      source of truth for the deploy identity.
 
 outputs:
   configured:
@@ -194,6 +216,55 @@ runs:
 
         echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
 
+    # The deploy identity, derived rather than supplied. The private key is
+    # written 0600 into the runner's own temporary directory, read exactly once
+    # by ssh-keygen, and shredded before the step ends — so the only artefact
+    # that outlives this step, and the only one that can reach the host, is the
+    # public half.
+    #
+    # ssh-keygen -y also authenticates the key as a key: a malformed or
+    # passphrase-protected credential fails here, on the runner, before anything
+    # is uploaded or any remote command runs.
+    - name: Stage the deploy public key
+      shell: bash
+      env:
+        DEPLOY_SSH_KEY: ${{ inputs.deploy-ssh-key }}
+      run: |
+        set -Eeuo pipefail
+
+        material_dir="${RUNNER_TEMP}/rateguru-configure-material"
+        private_path="${RUNNER_TEMP}/rateguru_configure_deploy_key"
+
+        rm -rf "${material_dir}"
+        install -d -m 0700 "${material_dir}"
+
+        install -m 0600 /dev/null "${private_path}"
+        printf '%s\n' "${DEPLOY_SSH_KEY}" > "${private_path}"
+
+        install -m 0600 /dev/null "${material_dir}/deploy-authorized-keys"
+
+        if ! ssh-keygen -y -f "${private_path}" > "${material_dir}/deploy-authorized-keys"; then
+          rm -f "${private_path}"
+          rm -rf "${material_dir}"
+          echo "The deployment key could not be read as an SSH private key, so its public half could not be derived." >&2
+          echo "Nothing was uploaded and nothing was changed. Check DEPLOY_SSH_KEY in this environment; a passphrase-protected key is not usable here." >&2
+          exit 1
+        fi
+
+        # The private key has no further use anywhere in this action.
+        rm -f "${private_path}"
+
+        test -s "${material_dir}/deploy-authorized-keys"
+
+        # The environment file is never staged, and the server-side operation
+        # refuses a material directory that carries one. Stated here as well
+        # because this is the step that would have to be edited to break it.
+        test ! -e "${material_dir}/laravel-env"
+
+        echo "RATEGURU_MATERIAL_DIR=${material_dir}" >> "${GITHUB_ENV}"
+
+        echo "Staged deploy-authorized-keys (public key only). The private key was used on this runner and removed."
+
     # Only infrastructure/ — configure-target and the installers it delegates
     # to resolve every file beneath that one directory. The application is
     # emphatically not part of the bundle: this operation never touches code.
@@ -252,7 +323,7 @@ runs:
             "$@"
         }
 
-        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q' \
+        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q/material' \
           "${staging_dir}" "${staging_dir}"
 
         ssh_bootstrap "${prepare_staging}"
@@ -270,10 +341,31 @@ runs:
           "${RATEGURU_BUNDLE_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
 
+        # The public deploy key, and only ever that one file: the staging
+        # directory is built by this action and holds nothing else.
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_MATERIAL_DIR}/deploy-authorized-keys" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/deploy-authorized-keys"
+
+        # scp can only ever write as the bootstrap user, so everything lands in
+        # that user's home first and is moved into the root-only tree before
+        # anything reads it. The material directory is 0700 root:root, which is
+        # the only shape install-target-prerequisites accepts.
         printf -v install_remote \
-          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s chown -R root:root %q && rm -rf %q' \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s cp -a %q/material %q/material && %s chown -R root:root %q && %s chmod -R go-rwx %q/material && rm -rf %q' \
           "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
           "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
           "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
           "${staging_dir}"
 
@@ -294,6 +386,7 @@ runs:
           "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/configure-target"
           --apply
           --target "${DEPLOYMENT_TARGET}"
+          --material-dir "${RATEGURU_REMOTE_ROOT}/material"
         )
 
         # The status is captured explicitly rather than allowed to abort the
@@ -443,4 +536,7 @@ runs:
         rm -f \
           "${RATEGURU_BUNDLE_PATH:-}" \
           "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
-          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}" \
+          "${RUNNER_TEMP}/rateguru_configure_deploy_key"
+
+        rm -rf "${RATEGURU_MATERIAL_DIR:-}"
