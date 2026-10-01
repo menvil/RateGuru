@@ -1,0 +1,44 @@
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 41,55,69
+tests/Pest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 3338-3347
+app/Actions/Translations/BackfillProjectTranslationsAction.php
+  s_c0fe1399ff286f::t_6de3cab6a35a2a 46-52
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 69,80,93,110,131,153,220,231
+tests/Feature/Localization/RecipientLocaleTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 152
+  s_c0fe1399ff286f::t_64d8dc61d67fc4 133
+docs/i18n/project-translation-lifecycle.md
+  s_c0fe1399ff286f::t_6409e2341c00de 146-153
+tests/Feature/Filament/LanguagesPageTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 123,139,154,207
+tests/Feature/Filament/ProjectLanguageSettingsTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 28
+tests/Feature/Actions/BackfillProjectTranslationsActionTest.php
+  s_c0fe1399ff286f::t_a7cc351b84288d 13,183-184,186,188,192,196,203-204
+  s_c0fe1399ff286f::t_b89c9c8b56d9d1 164-167,171,178-182,185,187,189-191,193-195,197-202
+  s_c0fe1399ff286f::t_ed6636aeee1d75 295
+tests/Feature/I18n/ChangeLocaleActionTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 62
+tests/Feature/Actions/PresentationPreferenceActionsTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 38
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_c0fe1399ff286f::t_ed6636aeee1d75 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c2a5b1d9a9c82e0016542a8aaa94ee096d8a03fc",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
