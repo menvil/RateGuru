@@ -1696,3 +1696,100 @@ it('the three wrapper source files are present, readable, and syntactically vali
         expect($exit)->toBe(0, "bash -n failed for {$name}: ".implode("\n", $output));
     }
 });
+
+// =============================================================================
+// The deploy-account match is a whole token, not a substring
+// =============================================================================
+//
+// The installed sudoers file is validated against the registry in both
+// directions — every active target's deploy user granted, every other target's
+// absent — and, unlike the committed source, it is NOT additionally compared
+// against the rendered candidate. So this loop is the only thing standing
+// between the perimeter and an account that does not belong in it, and asking
+// the question with a substring search gets it wrong in both directions the
+// moment two Linux accounts share a prefix.
+
+function installPerimeterSudoersFixture(string $scratch, array $targets, string $grantedAccount): array
+{
+    $registry = $scratch.'/token-registry-'.uniqid('', true).'.json';
+    file_put_contents($registry, json_encode(['targets' => $targets], JSON_PRETTY_PRINT));
+
+    $sudoers = $scratch.'/token-sudoers-'.uniqid('', true);
+    file_put_contents($sudoers, <<<SUDOERS
+        Defaults:{$grantedAccount} !requiretty
+
+        {$grantedAccount} ALL=(root) NOPASSWD: \\
+            /usr/local/sbin/rateguru-deploy, \\
+            /usr/local/sbin/rateguru-rollback, \\
+            /usr/local/sbin/rateguru-cleanup, \\
+            /usr/local/sbin/rateguru-restore
+
+        SUDOERS);
+
+    return [$registry, $sudoers];
+}
+
+it('does not accept a longer account name as the active deploy user it was looking for', function () {
+    // The dangerous direction. The registry's active deploy user is
+    // `deploy-rateguru-staging`; the file grants only `deploy-rateguru-staging-next`,
+    // an account the registry has never heard of. A substring search answers
+    // "yes, the active target is granted" and waves through a perimeter that
+    // grants a completely different account.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        [$registry, $sudoers] = installPerimeterSudoersFixture(
+            $scratch,
+            ['staging-main' => ['deploy_user' => 'deploy-rateguru-staging', 'lifecycle' => 'active']],
+            'deploy-rateguru-staging-next',
+        );
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_REGISTRY'] = $registry;
+
+        [$exit, $output] = installPerimeterRunHarness(
+            $scratch,
+            $vars,
+            'validate_sudoers_content '.escapeshellarg($sudoers),
+        );
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('does not grant the deploy user of active target staging-main');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('does not read an active account as a grant to the shorter planned one inside it', function () {
+    // The same bug the other way round, and the one that bites first: a
+    // correct perimeter gets REFUSED. `deploy-rateguru-staging` is a prefix of
+    // the active account, so a substring search finds the planned target's
+    // deploy user inside the active target's own grant and reports a perimeter
+    // granted to a target that is not active — when nothing of the sort is
+    // there.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        [$registry, $sudoers] = installPerimeterSudoersFixture(
+            $scratch,
+            [
+                'staging-next' => ['deploy_user' => 'deploy-rateguru-staging-next', 'lifecycle' => 'active'],
+                'staging-main' => ['deploy_user' => 'deploy-rateguru-staging', 'lifecycle' => 'planned'],
+            ],
+            'deploy-rateguru-staging-next',
+        );
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_REGISTRY'] = $registry;
+
+        [$exit, $output] = installPerimeterRunHarness(
+            $scratch,
+            $vars,
+            'validate_sudoers_content '.escapeshellarg($sudoers),
+        );
+
+        expect($exit)->toBe(0, $output);
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});

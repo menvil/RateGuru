@@ -596,13 +596,13 @@ validate_sudoers_content() {
         lifecycle="$(jq -r --arg id "${target_id}" '.targets[$id].lifecycle' "${SRC_REGISTRY}")"
 
         if [[ "${lifecycle}" == active ]]; then
-            grep -Fq "${deploy_user}" "${path}" \
+            sudoers_names_account "${path}" "${deploy_user}" \
                 || fail "sudoers file does not grant the deploy user of active target ${target_id} (${deploy_user}): ${path}"
 
             continue
         fi
 
-        if grep -Fq "${deploy_user}" "${path}"; then
+        if sudoers_names_account "${path}" "${deploy_user}"; then
             fail "sudoers file grants ${deploy_user}, whose target ${target_id} is lifecycle=${lifecycle} — a perimeter is granted on activation, never before: ${path}"
         fi
     done < <(jq -r '.targets | keys[]' "${SRC_REGISTRY}" | sort)
@@ -613,6 +613,27 @@ validate_sudoers_content() {
             fail "sudoers file still mentions the legacy wrapper ${legacy_name}: ${path}"
         fi
     done
+}
+
+# sudoers_names_account PATH ACCOUNT — does this sudoers file name this exact
+# account?
+#
+# A plain substring search is the wrong question, and silently so in both
+# directions: Linux account names may share a prefix, so a file granting only
+# `deploy-rateguru-staging-next` answers yes to "is deploy-rateguru-staging
+# granted?" — which would report an active target's missing grant as present,
+# and let a planned target's grant hide behind an active one's name. So the
+# match is anchored to a complete token: the account must be bounded by
+# something that cannot itself be part of an account name. Account names are
+# [a-z0-9_-], which makes that boundary exact, and makes the account safe to
+# interpolate into the pattern — it carries no regex metacharacter.
+sudoers_names_account() {
+    local path="$1" account="$2"
+
+    [[ "${account}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
+        || fail "registry deploy_user '${account}' is not an account name this validation can match exactly: ${path}"
+
+    grep -Eq "(^|[^A-Za-z0-9_-])${account}([^A-Za-z0-9_-]|\$)" "${path}"
 }
 
 # Shared by --check (against the committed source) and --verify (against the
