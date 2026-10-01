@@ -3353,15 +3353,15 @@ function twoTranslatedLocales(): array
 }
 
 /**
- * Makes the project offer these installed languages, with this default,
- * through the same action the Languages settings use — so a test cannot set
- * up a state the application itself would refuse.
+ * Makes the project offer these installed languages through the same action
+ * the Languages page uses — so a test cannot set up a state the application
+ * itself would refuse. English, the default, is always among them.
  *
  * @param  list<string>  $enabled
  */
-function offerLocales(array $enabled, string $default): void
+function offerLocales(array $enabled): void
 {
-    app(UpdateProjectLocaleSettingsAction::class)->handle($enabled, $default);
+    app(UpdateProjectLocaleSettingsAction::class)->handle(array_values(array_unique([config('locales.default'), ...$enabled])));
 }
 
 /**
@@ -3374,7 +3374,17 @@ function offerLocales(array $enabled, string $default): void
  */
 function offerEveryInstalledLocale(): void
 {
-    offerLocales(supportedLocales(), config('locales.fallback'));
+    offerLocales(supportedLocales());
+}
+
+/**
+ * Makes the project offer every installed language except these — the usual
+ * way a test withholds a language. English, the default, is offered whatever
+ * is passed.
+ */
+function offerEveryInstalledLocaleExcept(string ...$withheld): void
+{
+    offerLocales(array_values(array_diff(supportedLocales(), $withheld)));
 }
 
 /** Request headers for a browser asking for these languages. */

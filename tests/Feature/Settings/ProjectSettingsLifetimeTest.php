@@ -52,8 +52,8 @@ it('is shared within a request or job and replaced for the next one', function (
 });
 
 it('serves the next job the languages as they are now, not as the worker first saw them', function () {
-    [$offered, $withheld] = twoTranslatedLocales();
-    ProjectSettings::factory()->create(['enabled_locales' => null, 'default_locale' => $offered]);
+    [, $withheld] = twoTranslatedLocales();
+    ProjectSettings::factory()->create(['enabled_locales' => null]);
     $reader = User::factory()->create(['locale' => $withheld]);
 
     // A job reads the settings: every language is on offer.

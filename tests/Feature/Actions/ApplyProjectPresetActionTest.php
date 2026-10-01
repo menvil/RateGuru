@@ -1,7 +1,6 @@
 <?php
 
 use App\Actions\Settings\ApplyProjectPresetAction;
-use App\Exceptions\Settings\InvalidProjectPresetException;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
@@ -163,87 +162,61 @@ it('rolls back every preset change when one part fails', function () {
         ->and(Tag::query()->exists())->toBeFalse();
 });
 
-// The language policy of the project ---------------------------------------
+// The language policy and the static pages of the project ------------------
 
-it('keeps the only language a project offers when a preset is forced over it', function () {
-    [, $only] = twoTranslatedLocales();
+it('keeps the languages a project offers when a preset is forced over them', function () {
+    [, $other] = twoTranslatedLocales();
     ProjectSettings::factory()->create(['site_name' => 'Before']);
-    offerLocales([$only], $only);
-
-    app(ApplyProjectPresetAction::class)->handle('nature', force: true);
-
-    $settings = ProjectSettings::findOrFail(1);
-
-    expect($settings->enabled_locales)->toBe([$only])
-        ->and($settings->default_locale)->toBe($only)
-        // The rest of the preset applied as usual.
-        ->and($settings->site_name)->toBe('NatureGuru')
-        ->and($settings->active_preset_key)->toBe('nature')
-        ->and(Category::query()->active()->exists())->toBeTrue()
-        ->and(app(LocaleManager::class)->projectDefault())->toBe($only);
-});
-
-it('keeps several offered languages and their default when a preset is forced over them', function () {
-    [$default, $other] = twoTranslatedLocales();
-    ProjectSettings::factory()->create();
-    offerLocales([$default, $other], $default);
+    offerLocales([$other]);
     $offered = ProjectSettings::findOrFail(1)->enabled_locales;
 
     app(ApplyProjectPresetAction::class)->handle('nature', force: true);
 
-    expect(ProjectSettings::findOrFail(1))
-        ->enabled_locales->toBe($offered)
-        ->default_locale->toBe($default);
+    $settings = ProjectSettings::findOrFail(1);
+
+    expect($settings->enabled_locales)->toBe($offered)
+        // The rest of the preset applied as usual.
+        ->and($settings->site_name)->toBe('NatureGuru')
+        ->and($settings->active_preset_key)->toBe('nature')
+        ->and(Category::query()->active()->exists())->toBeTrue();
 });
 
-it('gives a new installation the preset default and every installed language', function () {
+it('gives a new installation every language enabled by default, and English as its default', function () {
     expect(ProjectSettings::count())->toBe(0);
 
     app(ApplyProjectPresetAction::class)->handle('nature');
 
-    $settings = ProjectSettings::findOrFail(1);
-    $presetDefault = config('project_presets.nature.settings.default_locale');
-
-    expect($settings->enabled_locales)->toBeNull()
-        ->and($settings->default_locale)->toBe($presetDefault)
-        ->and(app(LocaleManager::class)->isSupported($presetDefault))->toBeTrue()
-        ->and(app(LocaleManager::class)->projectDefault())->toBe($presetDefault);
+    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull()
+        ->and(app(LocaleManager::class)->enabledCodes())->toBe(app(LocaleManager::class)->enabledByDefault())
+        ->and(app(LocaleManager::class)->default())->toBe('en');
 });
 
-it('refuses a preset whose default language is not installed, and writes nothing', function () {
-    $preset = config('project_presets.nature');
-    $preset['settings']['default_locale'] = unsupportedLocale();
-    config(['project_presets.unknown_locale' => $preset]);
-
-    expect(fn () => app(ApplyProjectPresetAction::class)->handle('unknown_locale'))
-        ->toThrow(InvalidProjectPresetException::class, unsupportedLocale());
-
-    expect(ProjectSettings::count())->toBe(0)
-        ->and(Category::query()->exists())->toBeFalse();
-});
-
-it('never lets a preset choose which languages are offered', function () {
+it('never lets a preset choose the languages offered or the default', function () {
+    // A custom preset written for the older shape may still name a default.
     [$only] = twoTranslatedLocales();
     $preset = config('project_presets.nature');
     $preset['settings']['enabled_locales'] = [$only];
+    $preset['settings']['default_locale'] = $only;
     config(['project_presets.offering' => $preset]);
 
     app(ApplyProjectPresetAction::class)->handle('offering');
 
-    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull();
+    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull()
+        ->and(app(LocaleManager::class)->default())->toBe('en');
 });
 
-it('refuses a preset whose default language a new project would not offer', function () {
-    // A new installation offers the languages enabled by default; a default
-    // outside them would start the project with a default nobody is offered.
-    [, $notByDefault] = twoTranslatedLocales();
-    config(["locales.supported.{$notByDefault}.enabled_by_default" => false]);
-    $preset = config('project_presets.nature');
-    $preset['settings']['default_locale'] = $notByDefault;
-    config(['project_presets.not_offered' => $preset]);
+it('gives a new installation a copy of every static page in every language the repository ships', function () {
+    app(ApplyProjectPresetAction::class)->handle('nature');
 
-    expect(fn () => app(ApplyProjectPresetAction::class)->handle('not_offered'))
-        ->toThrow(InvalidProjectPresetException::class, 'enabled_by_default');
+    expect(ProjectSettings::findOrFail(1)->static_pages)->toBe(config('static-pages.defaults'));
+});
 
-    expect(ProjectSettings::count())->toBe(0);
+it('leaves the static pages of an existing project as they are when a preset is forced over it', function () {
+    $pages = config('static-pages.defaults');
+    $pages['about']['en']['title'] = 'About us, as the project wrote it';
+    ProjectSettings::factory()->create(['static_pages' => $pages]);
+
+    app(ApplyProjectPresetAction::class)->handle('nature', force: true);
+
+    expect(ProjectSettings::findOrFail(1)->static_pages)->toBe($pages);
 });

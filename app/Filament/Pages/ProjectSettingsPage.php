@@ -9,6 +9,8 @@ use App\Models\ProjectSettings;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Settings\ProjectPresetStatusService;
 use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\TranslatableField;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -56,12 +58,11 @@ class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
+        // What the project stores, as it stores it: a page or a language with
+        // no text shows empty, not filled in from config. An installation
+        // without a row shows the bootstrap it would be created from.
         $settings = ProjectSettings::find(1);
-        $data = $settings ? $settings->toArray() : [];
-        $data['static_pages'] = array_replace_recursive(
-            config('static-pages.defaults', []),
-            $data['static_pages'] ?? [],
-        );
+        $data = $settings ? $settings->toArray() : app(ProjectSettingsManager::class)->defaults();
         // Every provider is on until it is switched off; an unsaved row or
         // a provider added later must not render as an unticked box.
         $data['sign_in_providers'] = array_merge(
@@ -256,11 +257,15 @@ class ProjectSettingsPage extends Page
         return array_map(
             fn (string $pageKey): Section => Section::make(__('admin.static_pages.'.$pageKey))
                 ->schema([
+                    // English is what every other language falls back to, and
+                    // nothing falls back for English: it cannot be left blank.
                     TextInput::make("static_pages.{$pageKey}.{$locale}.title")
                         ->label(__('admin.fields.title'))
+                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
                         ->maxLength(160),
                     Textarea::make("static_pages.{$pageKey}.{$locale}.content")
                         ->label(__('admin.fields.content'))
+                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
                         ->rows(6)
                         ->maxLength(20000),
                 ]),

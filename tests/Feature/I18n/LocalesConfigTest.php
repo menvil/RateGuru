@@ -34,6 +34,14 @@ it('offers the technical fallback by default, so a new project starts with a val
         ->and(array_filter(array_column(config('locales.supported'), 'enabled_by_default')))->not->toBeEmpty();
 });
 
+it('makes English the default, installed and offered by default', function () {
+    // System policy, not a setting: nothing reads a default from the
+    // environment or from the project.
+    expect(config('locales.default'))->toBe('en')
+        ->and(config('locales.supported'))->toHaveKey('en')
+        ->and(config('locales.supported.en.enabled_by_default'))->toBeTrue();
+});
+
 it('keeps the technical fallback installed', function () {
     // It is the emergency catalog and the last resort when the project
     // settings resolve to nothing, so it must exist. A project need not

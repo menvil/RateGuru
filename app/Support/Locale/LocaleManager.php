@@ -9,20 +9,23 @@ use Symfony\Component\HttpFoundation\AcceptHeader;
  * Which languages exist, which ones this project offers, and which one a
  * visitor gets.
  *
- * Three sets, kept apart on purpose:
+ * Kept apart on purpose:
  *
  *  - supported: installed with the application — declared in
  *    config/locales.php with a complete catalog. Admin translation editors and
  *    catalog checks work on these, so a language can be prepared before it is
  *    offered.
- *  - enabled: the installed languages this project offers its visitors —
- *    project_settings.enabled_locales once the project has chosen them, and
- *    until then the installed languages declared `enabled_by_default` in
- *    config/locales.php. Everything a visitor can pick or be served comes
+ *  - default: English, by system policy (config/locales.php `default`) — what
+ *    a visitor gets when nothing else applies. Always offered; no project
+ *    setting changes it.
+ *  - enabled: the installed languages this project offers its visitors — the
+ *    default, plus project_settings.enabled_locales once the project has
+ *    chosen them, and until then the installed languages declared
+ *    `enabled_by_default`. Everything a visitor can pick or be served comes
  *    from here.
- *  - fallback: the technical emergency locale from config. Installed, but not
- *    necessarily offered, and never the answer to "which language does a new
- *    visitor get" — that is projectDefault().
+ *  - fallback: the technical catalog fallback from config, for a missing
+ *    catalog line. English too, but never consulted to choose a visitor's
+ *    language.
  */
 class LocaleManager
 {
@@ -43,6 +46,20 @@ class LocaleManager
         return array_key_exists($locale, $this->supported());
     }
 
+    /**
+     * The language a visitor gets when nothing about them points anywhere
+     * else, and the one language that is always offered.
+     */
+    public function default(): string
+    {
+        return config('locales.default', 'en');
+    }
+
+    public function isDefault(string $locale): bool
+    {
+        return $locale === $this->default();
+    }
+
     /** The technical fallback: always an installed language. */
     public function fallback(): string
     {
@@ -54,7 +71,8 @@ class LocaleManager
     /**
      * The installed languages a project offers before it has chosen its own,
      * in config order. Bootstrap policy only: a project that has chosen
-     * (enabled_locales is set) never consults it again.
+     * (enabled_locales is set) never consults it again. The default is offered
+     * either way.
      *
      * @return list<string>
      */
@@ -67,13 +85,13 @@ class LocaleManager
     }
 
     /**
-     * The installed languages this project offers, in config order.
+     * The installed languages this project offers, in config order — the
+     * default always among them.
      *
      * Read defensively: a stored code that is not installed is ignored, and a
-     * stored value that leaves nothing at all resolves to the technical
-     * fallback rather than to a site without a language. Writes never allow
-     * that state (UpdateProjectLocaleSettingsAction); this only keeps a bad
-     * row from taking the site down.
+     * stored list without the default still offers it. Writes never produce
+     * either (UpdateProjectLocaleSettingsAction); this only keeps an old or
+     * damaged row from taking the default away.
      *
      * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool}>
      */
@@ -84,15 +102,9 @@ class LocaleManager
         // Never chosen: whatever the installed languages offer by default — so
         // a language a release adds as not enabled by default stays withheld.
         $codes = $stored === null ? $this->enabledByDefault() : array_filter($stored, is_string(...));
-        $enabled = array_intersect_key($this->supported(), array_flip($codes));
+        $codes[] = $this->default();
 
-        if ($enabled !== []) {
-            return $enabled;
-        }
-
-        $fallback = $this->fallback();
-
-        return array_intersect_key($this->supported(), [$fallback => true]);
+        return array_intersect_key($this->supported(), array_flip($codes));
     }
 
     /** @return list<string> */
@@ -107,36 +119,13 @@ class LocaleManager
     }
 
     /**
-     * The language a visitor gets when nothing about them points anywhere
-     * else: the project default when it is offered, then the technical
-     * fallback when that is offered, then the first offered language.
-     */
-    public function projectDefault(): string
-    {
-        $enabled = $this->enabledCodes();
-        $default = $this->settings->current()->defaultLocale();
-
-        if (in_array($default, $enabled, true)) {
-            return $default;
-        }
-
-        $fallback = $this->fallback();
-
-        if (in_array($fallback, $enabled, true)) {
-            return $fallback;
-        }
-
-        return $enabled[0] ?? $fallback;
-    }
-
-    /**
      * A locale to serve for a value read from somewhere: the value itself when
-     * it is offered, otherwise the project default. For reading only — a write
-     * of a locale nobody offers is an error, not something to correct quietly.
+     * it is offered, otherwise the default. For reading only — a write of a
+     * locale nobody offers is an error, not something to correct quietly.
      */
     public function enabledOrDefault(?string $locale): string
     {
-        return $locale !== null && $this->isEnabled($locale) ? $locale : $this->projectDefault();
+        return $locale !== null && $this->isEnabled($locale) ? $locale : $this->default();
     }
 
     /**
@@ -146,8 +135,8 @@ class LocaleManager
      * Languages are tried in the header's quality order, and each one first as
      * written and then by its primary language, so `ru-RU` reaches `ru`. A
      * language refused with `q=0` and the `*` wildcard never match. Null is a
-     * real answer: the caller falls through to the project default, never to
-     * whichever offered language happens to come first.
+     * real answer: the caller falls through to the default, never to whichever
+     * offered language happens to come first.
      */
     public function fromAcceptLanguage(?string $header): ?string
     {

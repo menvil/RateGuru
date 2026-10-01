@@ -17,16 +17,16 @@ use Illuminate\Support\Str;
  * from the database as it is now — admin-created categories and tags
  * included, not just what a preset shipped.
  *
- * Counted: the translatable project settings; every static page of
- * config/static-pages.php; active categories; active rating groups; active,
+ * Counted: the translatable project settings; every built-in static page;
+ * active categories; active rating groups; active,
  * unarchived options of active groups; and every tag. Inactive and archived
  * content is left out, because no visitor sees it. A field whose reference
  * (English) text is blank needs no translation; the reference language itself
  * is complete through its base columns.
  *
- * Only presence is measured — a non-blank string — never quality. Each
- * missing translation carries its reason, so a static page flagged because its
- * English was rewritten reads differently from one nobody translated.
+ * Everything is read from the database as it is now, static pages included:
+ * repository config is never consulted for what a project shows. Only
+ * presence is measured — a non-blank string — never quality.
  */
 final class ProjectTranslationCompleteness
 {
@@ -53,11 +53,9 @@ final class ProjectTranslationCompleteness
         foreach ($locales as $locale) {
             $missing = [];
 
-            foreach ($requirements as [$item, $lacks]) {
-                $reason = $lacks($locale);
-
-                if ($reason !== null) {
-                    $missing[] = $item->because($reason);
+            foreach ($requirements as [$item, $isTranslated]) {
+                if (! $isTranslated($locale)) {
+                    $missing[] = $item;
                 }
             }
 
@@ -68,10 +66,10 @@ final class ProjectTranslationCompleteness
     }
 
     /**
-     * Every field that needs a translation, with the test of why a language
-     * lacks it — null when the language has it.
+     * Every field that needs a translation, with the test of whether a
+     * language has one.
      *
-     * @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}>
+     * @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}>
      */
     private function requirements(): array
     {
@@ -85,7 +83,7 @@ final class ProjectTranslationCompleteness
         ];
     }
 
-    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}> */
+    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}> */
     private function projectSettings(): array
     {
         $row = ProjectSettings::query()->find(1)?->toArray() ?? $this->settings->defaults();
@@ -103,66 +101,36 @@ final class ProjectTranslationCompleteness
     }
 
     /**
-     * A static page's configured text is a full translation as long as the
-     * project has not rewritten the page. Once the stored English differs from
-     * the configured English, the configured translations describe text that
-     * is no longer on the page: every other language then needs its own stored
-     * text, and a stored copy of the configured translation — which the Project
-     * Settings form writes for every language on save — does not count. The
-     * two cases keep their own reasons: no text of its own is
-     * SourceCustomized, the stored copy is StaleRepositoryDefault.
+     * The static pages as the project stores them — the only text a visitor
+     * is shown. Which pages there are is the application's (config keys); what
+     * they say is the database's, and a language without its own text for a
+     * field is missing it, whatever the repository once shipped.
      *
-     * @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}>
+     * @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}>
      */
     private function staticPages(): array
     {
-        $configured = (array) config('static-pages.defaults', []);
-        $stored = ProjectSettings::query()->find(1)?->static_pages;
+        $row = ProjectSettings::query()->find(1);
+        $stored = $row !== null ? $row->static_pages : $this->settings->defaults()['static_pages'];
         $stored = is_array($stored) ? $stored : [];
         $requirements = [];
 
-        foreach ($configured as $page => $configuredLocales) {
+        foreach (array_keys((array) config('static-pages.defaults', [])) as $page) {
+            $localized = is_array($stored[$page] ?? null) ? $stored[$page] : [];
+
             foreach (RepositoryTranslations::STATIC_PAGE_FIELDS as $field) {
-                $configuredReference = $configuredLocales[self::REFERENCE][$field] ?? null;
-                $storedReference = $stored[$page][self::REFERENCE][$field] ?? null;
-                $reference = TranslatableField::isPresent($storedReference) ? $storedReference : $configuredReference;
-
-                if (! TranslatableField::isPresent($reference)) {
-                    continue;
-                }
-
-                $customized = TranslatableField::isPresent($storedReference) && $storedReference !== $configuredReference;
-
-                $requirements[] = [
+                $requirements[] = $this->field(
                     new MissingProjectTranslation(ProjectContentSection::StaticPages, null, null, (string) $page, Str::headline((string) $page), $field),
-                    function (string $locale) use ($stored, $configuredLocales, $page, $field, $customized): ?MissingTranslationReason {
-                        if ($locale === self::REFERENCE) {
-                            return null;
-                        }
-
-                        $storedText = $stored[$page][$locale][$field] ?? null;
-                        $configuredText = $configuredLocales[$locale][$field] ?? null;
-                        $hasStored = TranslatableField::isPresent($storedText);
-                        $hasConfigured = TranslatableField::isPresent($configuredText);
-
-                        if (! $customized) {
-                            return $hasStored || $hasConfigured ? null : MissingTranslationReason::Untranslated;
-                        }
-
-                        if (! $hasStored) {
-                            return $hasConfigured ? MissingTranslationReason::SourceCustomized : MissingTranslationReason::Untranslated;
-                        }
-
-                        return $hasConfigured && $storedText === $configuredText ? MissingTranslationReason::StaleRepositoryDefault : null;
-                    },
-                ];
+                    is_array($localized[self::REFERENCE] ?? null) ? ($localized[self::REFERENCE][$field] ?? null) : null,
+                    collect($localized)->map(fn (mixed $texts): mixed => is_array($texts) ? ($texts[$field] ?? null) : null)->all(),
+                );
             }
         }
 
-        return $requirements;
+        return array_values(array_filter($requirements));
     }
 
-    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}> */
+    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}> */
     private function categories(): array
     {
         return Category::query()->active()->orderBy('id')->get()
@@ -176,7 +144,7 @@ final class ProjectTranslationCompleteness
             ->all();
     }
 
-    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}> */
+    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}> */
     private function ratingGroups(): array
     {
         return RatingGroup::query()->active()->orderBy('id')->get()
@@ -189,7 +157,7 @@ final class ProjectTranslationCompleteness
             ->all();
     }
 
-    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}> */
+    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}> */
     private function ratingOptions(): array
     {
         return RatingOption::query()
@@ -213,7 +181,7 @@ final class ProjectTranslationCompleteness
             ->all();
     }
 
-    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}> */
+    /** @return list<array{0: MissingProjectTranslation, 1: Closure(string): bool}> */
     private function tags(): array
     {
         return Tag::query()->orderBy('id')->get()
@@ -231,7 +199,7 @@ final class ProjectTranslationCompleteness
      * A translatable model field: required when its reference text is not
      * blank, translated for a language when that language's entry is.
      *
-     * @return array{0: MissingProjectTranslation, 1: Closure(string): ?MissingTranslationReason}|null
+     * @return array{0: MissingProjectTranslation, 1: Closure(string): bool}|null
      */
     private function field(MissingProjectTranslation $item, mixed $reference, mixed $translations): ?array
     {
@@ -243,9 +211,7 @@ final class ProjectTranslationCompleteness
 
         return [
             $item,
-            fn (string $locale): ?MissingTranslationReason => $locale === self::REFERENCE || TranslatableField::isPresent($translations[$locale] ?? null)
-                ? null
-                : MissingTranslationReason::Untranslated,
+            fn (string $locale): bool => $locale === self::REFERENCE || TranslatableField::isPresent($translations[$locale] ?? null),
         ];
     }
 }

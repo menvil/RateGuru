@@ -17,13 +17,13 @@ use Symfony\Component\HttpFoundation\Response;
  *  2. the session — a choice made earlier in this visit
  *  3. the `locale` cookie — a choice made on an earlier visit
  *  4. the browser's Accept-Language, in its quality order
- *  5. the project default (which falls back to the technical fallback only
- *     when the project settings themselves are unusable)
+ *  5. English, the default — only when nothing above matches
  *
  * A stored value the project does not offer is skipped, never deleted: the
- * account, session and cookie keep it, and it applies again the day the
- * language is offered again. Nothing here writes anything — a language
- * guessed from the browser serves this request only.
+ * search goes on to the next place, and the account, session and cookie keep
+ * the value, so it applies again the day the language is offered again.
+ * Nothing here writes anything — a language guessed from the browser serves
+ * this request only.
  *
  * The admin panel does not go through this at all; SetAdminLocale pins it to
  * English.
@@ -56,6 +56,6 @@ class SetLocale
         }
 
         return $this->localeManager->fromAcceptLanguage($request->header('Accept-Language'))
-            ?? $this->localeManager->projectDefault();
+            ?? $this->localeManager->default();
     }
 }

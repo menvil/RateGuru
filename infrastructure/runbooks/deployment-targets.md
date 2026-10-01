@@ -647,14 +647,26 @@ normalization, and everything downstream of it.
 
 ### Project translation backfill
 
-After Laravel preparation — so after any `--migrate` — a normal deployment runs
+After Laravel preparation — so after any `--migrate`, and against the new
+release's schema — every normal deployment runs
 `php artisan rateguru:translations:backfill` as the runtime user, before the
-`current` switch. It fills in the project translations the release ships but
-the database lacks (a language a release adds, for content the project set up
-from a preset or the static page defaults), and only where the project still
-shows the text the repository translated. It never creates content, never
-overwrites a translation and never deletes one; running it again does
-nothing.
+`current` switch. The database owns a project's content; the backfill only
+lends it what the release ships and the database lacks (a language a release
+adds, for content the project set up from a preset or the static page
+defaults), and only where the project still shows the text the repository
+translated. It never creates a category, tag, group or option, never
+overwrites a translation — not even one the release now translates
+differently — and never deletes one. The one thing it creates is a built-in
+static page the project has no text for at all, such as a page the release
+adds. Running it again does nothing, which is what makes it safe on every
+deployment; its report line ends the step:
+
+```text
+backfilling repository-known project translations
+Translation backfill: filled 0, already present 812, skipped as customized 3, skipped as unknown 9.
+```
+
+`filled 0` is a normal, successful run.
 
 - **Historical releases.** `deploy` deploys older releases too, and they
   predate the command. It asks the release (`artisan list --raw`) instead of
@@ -665,9 +677,9 @@ nothing.
   `--recovery-operation` never run it: they install the exact code the
   restored data belongs to and change nothing else.
 - **Rollback.** Nothing to undo. The backfill only adds language entries to
-  translation JSON, which the previous release reads past, so a deployment
-  that fails its health check and returns `current` to the previous release
-  leaves a consistent database behind.
+  translation JSON and missing static pages, which the previous release reads
+  past, so a deployment that fails its health check and returns `current` to
+  the previous release leaves a consistent database behind.
 
 The rules for what it may fill are in `docs/i18n/project-translation-lifecycle.md`.
 

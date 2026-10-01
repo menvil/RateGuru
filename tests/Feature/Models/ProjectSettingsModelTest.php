@@ -22,7 +22,6 @@ it('creates project settings with factory defaults', function () {
     expect($settings->object_plural_name)->toBe('posts');
     expect($settings->upload_cta_label)->toBe('Upload post');
     expect($settings->feed_title)->toBe('Latest posts');
-    expect($settings->default_locale)->toBe('en');
     expect($settings->default_theme)->toBe('system');
     expect($settings->default_sort)->toBe('hot');
     expect($settings->active_preset_key)->toBe('generic');

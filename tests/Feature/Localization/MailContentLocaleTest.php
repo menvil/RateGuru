@@ -46,6 +46,19 @@ it('renders the verification email with no untranslated keys', function (string 
         ->and($mail['subject'])->not->toBe('Verify Email Address');
 })->with(supportedLocales());
 
+it('takes its wording from the catalog of the running release, with nothing stored', function () {
+    // Mail wording is the application's, not the project's: a release that
+    // changes lang/{locale}/mail.php changes the next mail, and no database
+    // copy or backfill is involved.
+    [$locale] = twoTranslatedLocales();
+    app('translator')->addLines(['mail.verify.subject' => 'Wording from a later release'], $locale);
+    app()->setLocale($locale);
+
+    $mail = renderedMail(new VerifyEmail, User::factory()->unverified()->create(['locale' => $locale]));
+
+    expect($mail['subject'])->toBe('Wording from a later release');
+});
+
 it('renders the password reset email with no untranslated keys', function (string $locale) {
     app()->setLocale($locale);
     $user = User::factory()->create(['locale' => $locale, 'name' => 'Reader']);

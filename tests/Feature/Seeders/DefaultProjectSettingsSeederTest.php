@@ -2,6 +2,7 @@
 
 use App\Models\ProjectSettings;
 use App\Support\Locale\LocaleManager;
+use App\Support\Settings\ProjectSettingsManager;
 use Database\Seeders\DefaultProjectSettingsSeeder;
 
 it('seeds default project settings', function () {
@@ -55,24 +56,32 @@ it('preserves administrator edited static pages on subsequent seed runs', functi
         ->and($settings->static_pages)->toBe($staticPages);
 });
 
-it('never reseeds the languages an existing project offers or its default', function () {
+it('never reseeds the languages an existing project offers', function () {
     [, $only] = twoTranslatedLocales();
     ProjectSettings::factory()->create();
-    offerLocales([$only], $only);
+    offerLocales([$only]);
+    $offered = ProjectSettings::firstOrFail()->enabled_locales;
 
     $this->seed(DefaultProjectSettingsSeeder::class);
 
-    expect(ProjectSettings::firstOrFail())
-        ->enabled_locales->toBe([$only])
-        ->default_locale->toBe($only);
+    expect(ProjectSettings::firstOrFail()->enabled_locales)->toBe($offered);
 });
 
-it('gives a fresh database every installed language and an installed default', function () {
+it('gives a fresh database the languages enabled by default, with English the default', function () {
     $this->seed(DefaultProjectSettingsSeeder::class);
 
+    expect(ProjectSettings::firstOrFail()->enabled_locales)->toBeNull()
+        ->and(app(LocaleManager::class)->enabledCodes())->toBe(app(LocaleManager::class)->enabledByDefault())
+        ->and(app(LocaleManager::class)->default())->toBe('en');
+});
+
+it('creates the row from the same bootstrap every other writer uses', function () {
+    $this->seed(DefaultProjectSettingsSeeder::class);
+
+    $defaults = app(ProjectSettingsManager::class)->defaults();
     $settings = ProjectSettings::firstOrFail();
 
-    expect($settings->enabled_locales)->toBeNull()
-        ->and($settings->default_locale)->toBe(config('locales.fallback'))
-        ->and(app(LocaleManager::class)->isEnabled($settings->default_locale))->toBeTrue();
+    foreach (['site_name', 'site_tagline', 'object_singular_name', 'object_plural_name', 'upload_cta_label', 'feed_title', 'default_theme', 'default_sort', 'active_preset_key', 'feature_flags', 'static_pages'] as $column) {
+        expect($settings->getAttribute($column))->toBe($defaults[$column], $column);
+    }
 });

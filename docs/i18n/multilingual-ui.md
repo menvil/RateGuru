@@ -4,9 +4,10 @@
 
 The supported locales — every language the application is installed with — are defined in `config/locales.php`, each with its English label, native name and display flag:
 
-- `en` — English (system fallback)
+- `en` — English (the default, always enabled)
 - `ru` — Russian / Русский
 - `bg` — Bulgarian / Български
+- `de` — German / Deutsch (ships disabled)
 
 The flag is chosen per language rather than derived from the code: a language is not a country.
 
@@ -16,17 +17,17 @@ The flag is chosen per language rather than derived from the code: a language is
 |---|---|---|
 | Supported / installed | `config/locales.php` + `lang/{code}/` | present in config and in the translation catalogs |
 | Complete | computed live on Admin → System → Languages | application catalogs (the CI contract) and this project's own content as the database holds it |
-| Enabled | `project_settings.enabled_locales` | offered by this project to public users; `NULL` means the installed languages marked `enabled_by_default` |
-| Project default | `project_settings.default_locale` | the normal locale for a visitor with no preference and no browser match; always enabled |
-| System fallback | `config('locales.fallback')` | technical emergency locale; always installed, not necessarily enabled |
+| Enabled | `project_settings.enabled_locales` | offered by this project to public users; English always; `NULL` means English plus the installed languages marked `enabled_by_default` |
+| Default | `config('locales.default')` | English, by system policy: what a visitor gets when nothing else applies; always enabled, never disabled, not a project setting |
+| System fallback | `config('locales.fallback')` | the catalog Laravel falls back to for a missing line; English too, never used to choose a visitor's language |
 
 A disabled locale remains installed and its DB/content translations may still be edited in admin: every translation editor (project settings, static pages, categories, tags, rating groups and options) lists all installed languages, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones.
 
-`enabled_by_default` (per installed language, in `config/locales.php`) is bootstrap policy only: it decides what a project offers while `enabled_locales` is `NULL`. Every language installed today is `true`; a language a release adds is `false`, so installing it never offers it to an existing project.
+`enabled_by_default` (per installed language, in `config/locales.php`) is bootstrap policy only: it decides what a project offers besides English while `enabled_locales` is `NULL`. A language a release adds is `false`, so installing it never offers it to an existing project.
 
-`enabled_locales` is written only by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which changes `enabled_locales` and `default_locale` atomically and always writes an explicit list: installed codes only, in config order, never an empty set, and a default inside the set. Its only interface is the **Languages** page (Admin → System), which enables, disables and sets the default — it will not disable the default or the last enabled language, will not enable a language whose application catalogs break the contract, and asks for confirmation before enabling one whose project content is incomplete. The Project Settings page no longer edits the default; `SaveProjectSettingsAction` still refuses `enabled_locales` and an unoffered `default_locale` from any internal caller. Presets and the default settings seeder never change the languages or the default of an existing project. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
+`enabled_locales` is written only by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which takes the offered languages and nothing else and always writes an explicit list: installed codes only, in config order, English always among them — a list without English is refused, not repaired. It also refuses to newly enable a language whose application catalogs break the contract. Its only interface is the **Languages** page (Admin → System), which enables and disables languages other than English; English shows as Enabled and Default with nothing to disable, and there is no way to make another language the default. `SaveProjectSettingsAction` refuses `enabled_locales` from any internal caller. Presets and the default settings seeder never change the languages of an existing project. Reading is defensive: unknown codes are ignored, and English is offered even from a row that leaves it out.
 
-How completeness is measured, and what the deploy's safe backfill fills in, is in `docs/i18n/project-translation-lifecycle.md`.
+How completeness is measured, who owns which translation, and what the deploy's backfill fills in, is in `docs/i18n/project-translation-lifecycle.md`.
 
 ## Locale resolution order
 
@@ -36,10 +37,9 @@ For public requests the first **enabled** locale among:
 2. Session locale (`locale` key)
 3. Cookie locale (`locale` cookie)
 4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`)
-5. Project default (`project_settings.default_locale`)
-6. System fallback (`locales.fallback`) — only when the project settings resolve to nothing usable
+5. English, the default — only when nothing above matches
 
-A stored preference for a disabled locale is ignored, not deleted, and applies again if the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.
+A stored preference for a disabled locale is skipped, not deleted — the search goes on to the next source — and applies again once the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.
 
 The admin panel is always English (`SetAdminLocale`) and is not part of this order.
 
@@ -50,10 +50,11 @@ No locale URL prefix (`/en/`, `/ru/`) is used in Phase 46. That is reserved for 
 `App\Support\Locale\LocaleManager` provides:
 
 - `supported(): array` / `isSupported(string $locale): bool` — installed languages
-- `enabled(): array` / `enabledCodes(): array` / `isEnabled(string $locale): bool` — languages this project offers, in config order
-- `projectDefault(): string` — the enabled default, else the fallback when enabled, else the first enabled locale
-- `fallback(): string` — the system fallback
-- `enabledOrDefault(?string $locale): string` — a read value when enabled, otherwise the project default (never used for writes)
+- `default(): string` / `isDefault(string $locale): bool` — English
+- `enabled(): array` / `enabledCodes(): array` / `isEnabled(string $locale): bool` — languages this project offers, in config order, English always among them
+- `enabledByDefault(): array` — what a project that never chose offers besides English
+- `fallback(): string` — the catalog fallback
+- `enabledOrDefault(?string $locale): string` — a read value when enabled, otherwise English (never used for writes)
 - `fromAcceptLanguage(?string $header): ?string` — the enabled locale a browser asks for, or `null`
 - `label()`, `nativeLabel()`, `flag()`
 
