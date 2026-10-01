@@ -1,0 +1,19 @@
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_66eed8648a7183 10-20,22-31,288-375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "38746e6491304d4449133b0c4b8208f3194334a8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
