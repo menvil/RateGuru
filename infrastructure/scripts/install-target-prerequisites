@@ -210,14 +210,7 @@ ARCHIVE_SEEN=false
 usage() {
     cat <<'USAGE'
 Usage:
-  install-target-prerequisites --check  --provisioning
-            Only with --scope target, and only for a lifecycle=planned,
-            environment_class=production target. Authorizes installing that
-            target's own material before it is active. Never installs host
-            material, never changes the registry, never activates anything.
-            Without it the active-only contract is exactly what it was.
-
-  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
+  install-target-prerequisites --check  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
   install-target-prerequisites --apply  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
   install-target-prerequisites --verify --target TARGET_ID [--scope SCOPE]
   install-target-prerequisites --list-material-names --target TARGET_ID [--scope SCOPE]
@@ -236,6 +229,15 @@ names a planned production one.
   --material-dir  Root-owned 0700 directory holding operator-supplied material,
                   one file per logical prerequisite name. Read only; never
                   modified, and never left behind by this script.
+  --provisioning  Explicit authorization to act on a target that is not active
+                  yet. Valid only with --check, --apply or --verify, only with
+                  --scope target, and only for a lifecycle=planned,
+                  environment_class=production target. It narrows the contract
+                  rather than widening it: the host-global offsite credential is
+                  not a row a not-yet-active target may install, so rclone-config
+                  is excluded. Never installs host material, never changes the
+                  registry, never activates anything. Without it the active-only
+                  contract is exactly what it was.
   --output-dir    --capture only: an existing, EMPTY, root-owned 0700 directory
                   that receives one file per host-scope logical name.
   --archive       --validate-recovery-material only: the recovery-material
@@ -627,10 +629,23 @@ build_target_prerequisite_rows() {
         "${deploy_user}" "${deploy_user}" 0600 public \
         "GitHub Actions deploy public key for ${deploy_user}"
 
-    emit_row target rclone-config \
-        "/root/.config/rclone/rclone.conf" \
-        root root 0600 secret \
-        "Backblaze B2 credentials for offsite backups"
+    # The one row in this scope that is not the target's at all: it is root's
+    # own host-global offsite credential, shared by every target on the machine,
+    # and it sits here only because it lives outside /etc and so cannot be host
+    # scope. That distinction does not matter while the caller is an active
+    # target whose backups need it — and it matters completely under
+    # --provisioning, where the caller is a target that is not operating yet and
+    # has no backup schedule to serve. Installing a host-global credential on
+    # the authority of "configure this one planned target" would let the narrow
+    # operation create the broadest secret on the host, so the row is simply not
+    # derived: an absent credential stays a host prerequisite for the operation
+    # that genuinely owns it, and an existing one is never touched either way.
+    if [[ "${PROVISIONING}" != true ]]; then
+        emit_row target rclone-config \
+            "/root/.config/rclone/rclone.conf" \
+            root root 0600 secret \
+            "Backblaze B2 credentials for offsite backups"
+    fi
 }
 
 # require_vhost_source PATH — a committed vhost this checkout must contain.
