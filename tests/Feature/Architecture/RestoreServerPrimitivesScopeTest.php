@@ -147,13 +147,18 @@ it('installs every new primitive through the existing target-operations installe
         ->toContain('all '.$words[$installedFiles].' source files are present regular files');
 
     // The registry and deployment.conf are data, and so are the committed
-    // vhost sources; everything else — the two sourced libraries included —
-    // is `bash -n`'d as a shell script.
-    $nginxSources = count(array_filter(
+    // vhost sources and the environment templates; everything else — the two
+    // sourced libraries included — is `bash -n`'d as a shell script.
+    //
+    // Counted by prefix rather than by a literal, so a new file of an existing
+    // kind lands on the right side of the split without this derivation being
+    // edited — which is the whole reason the count is derived at all.
+    $dataFiles = count(array_filter(
         $destinations[1],
-        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_'),
+        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_')
+            || str_starts_with($name, 'DST_ENV_TEMPLATE_'),
     ));
-    $scripts = $installedFiles - 2 - $nginxSources;
+    $scripts = $installedFiles - 2 - $dataFiles;
 
     expect($installer)
         ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
