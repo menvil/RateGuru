@@ -1,0 +1,33 @@
+infrastructure/config/environment-contract.json
+  s_c7e782fafc9782::t_4a023f121d0127 2-1485,1487-1489,1505,1510
+infrastructure/templates/environment/tits-guru.env.example
+  s_c7e782fafc9782::t_59b55defcb6066 3-7,10-11,13-18,20-21
+infrastructure/templates/environment/staging.env.example
+  s_c7e782fafc9782::t_448bc07be4bbf9 3-7,10-11,13-18,20-21
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_8c45623605712e 279-337,341-342
+infrastructure/scripts/render-environment-templates
+  s_c7e782fafc9782::t_60636a35c6efb8 1-286
+tests/Feature/Architecture/EnvironmentContractCompletenessTest.php
+  s_c7e782fafc9782::t_e54d0e1de4c2f4 535-676,684,686-687,690-691,695,703-724,736,753,757,759-818
+  s_c7e782fafc9782::t_72937a6c15ba6a 463-464,725-735,738-752,754-756,758
+  s_c7e782fafc9782::t_59b55defcb6066 677-683,685,688-689,692-694,696-702
+  s_c7e782fafc9782::t_a590fce401f1aa 25,28,35-60,89,281,300,308,322,341,348,399,414-416,423
+  s_c7e782fafc9782::t_2431195a07a6b3 428-440,442-444,446-449,452-462,465-466,737
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "07c11d0efd8e214690e805804065fd294c5a4513",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
