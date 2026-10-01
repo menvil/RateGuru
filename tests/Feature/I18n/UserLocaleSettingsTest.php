@@ -34,3 +34,46 @@ it('renders user locale settings on profile page', function () {
         ->assertOk()
         ->assertSee(__('ui.settings.language'));
 });
+
+it('offers only the languages the project offers, with their flags', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+
+    $component = Livewire::actingAs(User::factory()->create(['locale' => $offered]))
+        ->test(UserLocaleSettings::class);
+
+    foreach (array_diff(supportedLocales(), [$withheld]) as $code) {
+        $component->assertSeeHtml('<option value="'.$code.'">'.config("locales.supported.{$code}.flag").' '.config("locales.supported.{$code}.native").'</option>');
+    }
+
+    $component->assertDontSeeHtml('<option value="'.$withheld.'">');
+});
+
+it('refuses a language that is installed but not offered', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    $user = User::factory()->create(['locale' => $offered]);
+
+    Livewire::actingAs($user)
+        ->test(UserLocaleSettings::class)
+        ->set('locale', $withheld)
+        ->call('save')
+        ->assertHasErrors('locale');
+
+    expect($user->fresh()->locale)->toBe($offered);
+});
+
+it('preselects a language that can be saved when the stored one is no longer offered', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    $user = User::factory()->create(['locale' => $withheld]);
+
+    $this->actingAs($user)->withHeaders(noBrowserLanguage())->get(route('profile.edit'))->assertOk();
+
+    Livewire::actingAs($user)
+        ->test(UserLocaleSettings::class)
+        ->assertSet('locale', app()->getLocale());
+
+    expect(app()->getLocale())->not->toBe($withheld)
+        ->and($user->fresh()->locale)->toBe($withheld);
+});

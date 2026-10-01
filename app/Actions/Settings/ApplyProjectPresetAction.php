@@ -3,6 +3,7 @@
 namespace App\Actions\Settings;
 
 use App\Data\Settings\ProjectPresetApplicationResult;
+use App\Exceptions\Settings\InvalidProjectPresetException;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
@@ -12,6 +13,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
+use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Cache;
@@ -20,7 +22,21 @@ use Illuminate\Support\Str;
 
 class ApplyProjectPresetAction
 {
-    public function __construct(private readonly ProjectSettingsManager $manager) {}
+    /**
+     * The language policy of a project is not part of a preset's job: which
+     * languages it offers and its default are written only by
+     * UpdateProjectLocaleSettingsAction. A preset may seed the default of a
+     * brand-new installation — which offers every installed language, so any
+     * installed default is valid there — and nothing else.
+     */
+    private const OFFERED_LOCALES = 'enabled_locales';
+
+    private const DEFAULT_LOCALE = 'default_locale';
+
+    public function __construct(
+        private readonly ProjectSettingsManager $manager,
+        private readonly LocaleManager $locales,
+    ) {}
 
     public function handle(string $presetKey, bool $force = false): ProjectPresetApplicationResult
     {
@@ -36,8 +52,16 @@ class ApplyProjectPresetAction
             throw UnknownProjectPresetException::for($presetKey);
         }
 
-        $result = DB::transaction(function () use ($force, $presetKey, $preset): ProjectPresetApplicationResult {
-            $settings = PresetSettingsBuilder::build($preset['settings']);
+        $settings = PresetSettingsBuilder::build($preset['settings']);
+        unset($settings[self::OFFERED_LOCALES]);
+
+        // Refused up front rather than left for the runtime to paper over: a
+        // new installation would otherwise start with a default nobody offers.
+        if (isset($settings[self::DEFAULT_LOCALE]) && ! $this->locales->isSupported((string) $settings[self::DEFAULT_LOCALE])) {
+            throw InvalidProjectPresetException::unknownDefaultLocale($presetKey, (string) $settings[self::DEFAULT_LOCALE]);
+        }
+
+        $result = DB::transaction(function () use ($force, $presetKey, $preset, $settings): ProjectPresetApplicationResult {
             $appliedSettings = array_merge($settings, [
                 'feature_flags' => $preset['feature_flags'],
                 'active_preset_key' => $presetKey,
@@ -61,7 +85,12 @@ class ApplyProjectPresetAction
                 throw ProjectPresetHasContentException::make();
             }
 
-            $existingSettings->fill($appliedSettings)->save();
+            // An existing project keeps the languages it offers and its
+            // default, forced or not; only a row this preset just created
+            // takes the preset's default.
+            $existingSettings->fill($initialSettings->wasRecentlyCreated
+                ? $appliedSettings
+                : array_diff_key($appliedSettings, [self::DEFAULT_LOCALE => true]))->save();
 
             [$categories, $deactivatedCategories] = $this->applyCategories($preset['categories'] ?? null);
             [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);

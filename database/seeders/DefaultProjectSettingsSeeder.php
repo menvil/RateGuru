@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\ProjectSettings;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Database\Seeder;
 
 class DefaultProjectSettingsSeeder extends Seeder
@@ -24,7 +25,6 @@ class DefaultProjectSettingsSeeder extends Seeder
             'object_plural_name' => 'posts',
             'upload_cta_label' => 'Upload post',
             'feed_title' => 'Latest posts',
-            'default_locale' => 'en',
             'default_theme' => 'system',
             'default_sort' => 'hot',
             'active_preset_key' => 'generic',
@@ -42,6 +42,10 @@ class DefaultProjectSettingsSeeder extends Seeder
 
         if ($isNew) {
             $settings->static_pages = config('static-pages.defaults');
+            // The language policy of an existing project — which languages it
+            // offers and its default — is never reseeded; only a new row gets
+            // the defaults, and it offers every installed language.
+            $settings->default_locale = app(ProjectSettingsManager::class)->defaults()['default_locale'];
         }
 
         $settings->save();

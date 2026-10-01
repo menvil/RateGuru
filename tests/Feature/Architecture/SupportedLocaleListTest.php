@@ -15,8 +15,8 @@ use Symfony\Component\Finder\Finder;
  *
  * A copy takes three shapes, all refused when two or more supported languages
  * sit in the same array: the codes as a list; rows of the registry keyed by
- * code — entries carrying the `label` / `native` a language is declared with,
- * or its name, which is what a test overriding config('locales.supported')
+ * code — entries carrying the `label` / `native` / `flag` a language is
+ * declared with, or its name or flag alone, which is what a test overriding config('locales.supported')
  * with its own set writes; and codes keyed to a bare `true` or `false`, which
  * is a list wearing keys (a hand-written "enabled languages" map).
  *
@@ -107,16 +107,16 @@ function handWrittenLocaleSets(string $source, array $registry): array
         if ($text($i + 1) === '=>') {
             $stack[$top]['key'] = isset($registry[$string]) ? $string : null;
 
-            if (in_array($string, ['label', 'native'], true)) {
+            if (in_array($string, ['label', 'native', 'flag'], true)) {
                 $stack[$top]['row'] = true;
             }
 
-            // `'ru' => 'Русский'` is the row reduced to the language's name;
+            // `'ru' => 'Русский'` is the row reduced to the language's name or flag;
             // `'ru' => true` is the code with nothing about the language at all.
             $value = $literal($i + 2);
             $flag = in_array(strtolower((string) $text($i + 2)), ['true', 'false'], true);
 
-            if (isset($registry[$string]) && $endsElement($i + 3) && ($flag || ($value !== null && in_array($value, [$registry[$string]['label'], $registry[$string]['native']], true)))) {
+            if (isset($registry[$string]) && $endsElement($i + 3) && ($flag || ($value !== null && in_array($value, [$registry[$string]['label'], $registry[$string]['native'], $registry[$string]['flag']], true)))) {
                 $stack[$top]['codes'][] = $string;
             }
         } elseif (isset($registry[$string]) && $endsElement($i + 1)) {
@@ -132,7 +132,7 @@ function registryRowSource(string $locale): string
 {
     $info = config("locales.supported.{$locale}");
 
-    return var_export($locale, true).' => [\'label\' => '.var_export($info['label'], true).', \'native\' => '.var_export($info['native'], true).']';
+    return var_export($locale, true).' => [\'label\' => '.var_export($info['label'], true).', \'native\' => '.var_export($info['native'], true).', \'flag\' => '.var_export($info['flag'], true).']';
 }
 
 it('reads the supported languages from config/locales.php alone', function () {
@@ -184,6 +184,7 @@ it('recognises every shape a copied set of languages takes', function () {
         'registry as array()' => '<?php $supported = '.var_export($registry, true).';',
         'part of the registry' => '<?php $x = ['.registryRowSource($first).', '.registryRowSource($second).'];',
         'names by code' => "<?php \$x = ['{$first}' => '{$registry[$first]['native']}', '{$second}' => '{$registry[$second]['label']}'];",
+        'flags by code' => "<?php \$x = ['{$first}' => '{$registry[$first]['flag']}', '{$second}' => '{$registry[$second]['flag']}'];",
         'list of codes' => "<?php foreach (['{$first}', '{$second}'] as \$locale) {}",
         'codes keyed to a flag' => "<?php \$enabled = ['{$first}' => true, '{$second}' => false];",
         'dataset' => "<?php it('x', fn () => null)->with(['{$first}', \"{$second}\"]);",

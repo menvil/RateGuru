@@ -6,6 +6,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Password;
+use Tests\TestCase;
 
 /**
  * Which language a message leaves in.
@@ -123,8 +124,10 @@ it('stores the site language on the account at registration', function (string $
         ->and($user->preferredLocale())->toBe($locale);
 })->with(supportedLocales());
 
-it('stores a supported language even when the request locale is not one', function () {
-    app()->setLocale(unsupportedLocale());
+it('stores the project default when the request locale is not an offered language', function (string $requestLocale) {
+    [$default] = twoTranslatedLocales();
+    offerLocales(array_values(array_diff(supportedLocales(), [twoTranslatedLocales()[1]])), $default);
+    app()->setLocale($requestLocale);
 
     $user = app(RegisterUserAction::class)->execute([
         'name' => 'Reader',
@@ -132,5 +135,61 @@ it('stores a supported language even when the request locale is not one', functi
         'password' => 'password-that-is-long-enough',
     ]);
 
-    expect($user->locale)->toBe(config('locales.fallback'));
+    expect($user->locale)->toBe($default);
+})->with([
+    'not installed' => fn () => unsupportedLocale(),
+    'installed but not offered' => fn () => twoTranslatedLocales()[1],
+]);
+
+it('has no preference when the stored language is installed but not offered, and keeps it', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    $user = User::factory()->create(['locale' => $withheld]);
+
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+
+    expect($user->fresh()->preferredLocale())->toBeNull()
+        ->and($user->fresh()->locale)->toBe($withheld);
+
+    // Offered again, the same stored choice counts again.
+    offerLocales(supportedLocales(), $offered);
+
+    expect($user->fresh()->preferredLocale())->toBe($withheld);
+});
+
+/** Registers through the real form, so SetLocale decides the language first. */
+function registerThroughTheSite(TestCase $test, string $email, array $headers = [], array $session = []): User
+{
+    $test->withHeaders($headers)->withSession($session)->post(route('register'), [
+        'name' => 'Reader',
+        'email' => $email,
+        'password' => 'password-that-is-long-enough',
+        'password_confirmation' => 'password-that-is-long-enough',
+    ])->assertSessionHasNoErrors();
+
+    return User::query()->where('email', $email)->sole();
+}
+
+it('stores the language the browser asked for when that is offered', function () {
+    [$browser] = twoTranslatedLocales();
+
+    $user = registerThroughTheSite($this, 'browser@example.test', acceptLanguage("{$browser}-".strtoupper($browser).",{$browser};q=0.9"));
+
+    expect($user->locale)->toBe($browser);
+});
+
+it('stores the project default when the visitor gave no language', function () {
+    [, $default] = twoTranslatedLocales();
+    offerLocales(supportedLocales(), $default);
+
+    $user = registerThroughTheSite($this, 'default@example.test', noBrowserLanguage());
+
+    expect($user->locale)->toBe($default);
+});
+
+it('stores the language the visitor chose over the one the browser asks for', function () {
+    [$browser] = twoTranslatedLocales();
+
+    $user = registerThroughTheSite($this, 'chosen@example.test', acceptLanguage($browser), ['locale' => 'en']);
+
+    expect($user->locale)->toBe('en');
 });

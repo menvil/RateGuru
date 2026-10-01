@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
@@ -3253,4 +3254,51 @@ function translatedLocales(): array
 function unsupportedLocale(): string
 {
     return 'xx';
+}
+
+/**
+ * Two installed languages other than English, for tests that need distinct
+ * roles — one offered, one withheld; a project default that is not the
+ * technical fallback. Taken from config/locales.php like everything else, so
+ * the tests keep meaning the same thing whichever languages are installed.
+ *
+ * @return array{0: string, 1: string}
+ */
+function twoTranslatedLocales(): array
+{
+    $locales = translatedLocales();
+
+    if (count($locales) < 2) {
+        throw new RuntimeException('These tests need at least two installed languages besides English.');
+    }
+
+    return [$locales[0], $locales[1]];
+}
+
+/**
+ * Makes the project offer these installed languages, with this default,
+ * through the same action the Languages settings use — so a test cannot set
+ * up a state the application itself would refuse.
+ *
+ * @param  list<string>  $enabled
+ */
+function offerLocales(array $enabled, string $default): void
+{
+    app(UpdateProjectLocaleSettingsAction::class)->handle($enabled, $default);
+}
+
+/** Request headers for a browser asking for these languages. */
+function acceptLanguage(string $header): array
+{
+    return ['Accept-Language' => $header];
+}
+
+/**
+ * Request headers for a browser that states no language. Test requests
+ * otherwise carry Symfony's default `Accept-Language: en-us,en;q=0.5`, which
+ * answers before the project default ever could.
+ */
+function noBrowserLanguage(): array
+{
+    return acceptLanguage('');
 }
