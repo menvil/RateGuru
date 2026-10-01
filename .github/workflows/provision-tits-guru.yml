@@ -72,14 +72,18 @@ jobs:
     # A GitHub Environment is a LOGICAL credential and permission boundary. It
     # says nothing about how many machines exist, and it never has: one
     # environment can bind a host that another environment also binds. That is
-    # exactly the case today — tits-guru shares staging-main's machine, so
-    # `production-tits-guru` names that same host. Sharing a machine is not a
-    # reason to share a credential box, and this workflow no longer does: a
-    # tits-guru operation that drew on staging's credentials would make the
-    # blast radius of a staging secret include production.
+    # exactly the case today — tits-guru shares staging-main's machine, and
+    # `production-tits-guru` names that same host.
     #
-    # When tits-guru gets its own server, only the values inside this
-    # environment change. Nothing in this workflow does.
+    # Sharing a machine is not a reason to share a credential box.
+    #
+    # While this job read staging's box, the blast radius of a staging secret
+    # included every production provisioning run, and a protection rule on
+    # production could be sidestepped by going through staging's.
+    #
+    # The hardware is not what decides this, so the hardware changing does not
+    # revisit it: when tits-guru gets its own server, only the values inside
+    # this environment change, and nothing in this workflow does.
     environment: production-tits-guru
 
     # Provisioning converges a target's filesystem, PHP-FPM pool, Supervisor
