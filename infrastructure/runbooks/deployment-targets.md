@@ -180,6 +180,55 @@ Secrets do not move into the registry:
 The registry names *which* database a target uses. It never says how to
 authenticate to it.
 
+### The environment contract
+
+Each target declares an `environment_template` — the committed file that says
+**which keys** its runtime `shared/.env` must carry. Every target's template
+declares the same keys in the same order, enforced in CI, so the two differ only
+in environment-specific values and can be diffed against each other.
+
+The runtime file is canonical on the host and nothing ever writes it. That is
+correct, and it is exactly why it can fall behind: a reviewed change adds a key
+to the templates, and the host file does not know. So the key names are compared
+before anything happens:
+
+```bash
+verify-environment-contract --target TARGET_ID
+```
+
+Read-only, for any target in any lifecycle. **Key names only** — no value is
+read, printed, hashed, measured or compared, and the file is read rather than
+sourced, because it is operator-authored root-owned material. Keys the template
+does not declare are reported and allowed; a key declared twice fails, because
+which value is in force is then unreadable.
+
+`deploy` runs it under the deployment lock before the first mutation — before
+the history row, the extraction, any migration and the `current` switch — and
+`configure-target` runs it before creating a database or installing a deploy
+key. Both refuse and name the missing keys and the file to edit. Neither ever
+adds a key: the value of a key an operator has not supplied is the operator's to
+decide, and a deploy that invented one would make the drift permanent and
+invisible.
+
+So a new key travels a closed route:
+
+```text
+a key is added to one template
+  -> CI fails until every target's template declares it
+  -> deploy and configure refuse on any host whose .env lacks it
+  -> an operator adds it deliberately, and only then does the deploy proceed
+```
+
+**A recovered host is subject to the same rule.** A backup restores the `.env`
+as it was when the backup was taken, so recovering onto a release that expects a
+newer key refuses with that key named — which is the intended behaviour, and
+quicker to resolve than the 500 it replaces.
+
+The templates travel to the host with the operational bundle
+(`install-target-operations` installs them under
+`/home/www/rateguru/config/environment/`), because `deploy` runs on a machine
+that has no repository.
+
 ## Validation
 
 ```bash
