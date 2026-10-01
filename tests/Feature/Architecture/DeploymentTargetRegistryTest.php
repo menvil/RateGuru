@@ -436,19 +436,74 @@ it('gives every target an environment template that agrees with the registry abo
     expect($checked)->toBeGreaterThan(1, 'the loop must actually have checked the registry, not skipped it');
 });
 
-it('declares the same operational keys for every target, so one is never configured with less than another', function () {
+/**
+ * The keys a template declares, in FILE ORDER.
+ *
+ * Section comments and the blank lines between them are layout, not content,
+ * so they are dropped — a template may be grouped and annotated freely. What
+ * survives is the ordered list of variables, which is the thing a reviewer
+ * actually has to read.
+ */
+function environmentTemplateKeys(string $path): array
+{
+    return collect(preg_split('/\R/', File::get(base_path($path))))
+        ->map(fn (string $line): string => ltrim($line))
+        ->reject(fn (string $line): bool => $line === '' || str_starts_with($line, '#'))
+        ->filter(fn (string $line): bool => str_contains($line, '='))
+        ->map(fn (string $line): string => rtrim((string) strstr($line, '=', true)))
+        ->values()
+        ->all();
+}
+
+it('declares the same operational keys in the same order for every target, so one is never configured with less than another', function () {
     // Parity by key set, not by value: what each target sets is its own, but a
     // key missing from one template is a setting nobody will remember to add
     // when that target is configured.
-    $keys = static fn (string $path): array => collect(preg_split('/\R/', File::get(base_path($path))))
-        ->map(fn (string $line): string => (string) preg_replace('/=.*$/s', '', $line))
-        ->filter(fn (string $key): bool => $key !== '' && ! str_starts_with($key, '#'))
-        ->sort()
-        ->values()
-        ->all();
+    //
+    // Asserted in ORDER, not merely as a set, and that is the stronger claim on
+    // purpose. Two templates holding the same keys in different arrangements
+    // cannot be diffed against each other, so a reviewer checking "did this
+    // change land in both?" has to read seventy lines twice. Identical order
+    // makes the diff between them exactly the environment-specific values.
+    //
+    // Driven off the registry rather than hard-coded paths: a target whose
+    // template is not compared is a target that can quietly drift.
+    $templates = collect(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets'])
+        ->map(fn (array $target): string => $target['environment_template']);
 
-    expect($keys('infrastructure/templates/environment/tits-guru.env.example'))
-        ->toBe($keys('infrastructure/templates/environment/staging.env.example'));
+    expect($templates)->toHaveCount(2);
+
+    $reference = $templates->first();
+
+    foreach ($templates as $id => $path) {
+        expect(environmentTemplateKeys($path))
+            ->toBe(environmentTemplateKeys($reference), "{$id}'s template must declare the same keys, in the same order");
+    }
+});
+
+it('keeps the templates comparable by ignoring layout but not content', function () {
+    // The parity above would be worthless if the parser silently dropped a real
+    // key, so the dropping rules are pinned here rather than trusted: layout is
+    // ignored, declarations are not, and a key declared blank is still a key —
+    // which matters because every secret in these templates is deliberately
+    // declared-and-blank.
+    $keys = collect(preg_split('/\R/', File::get(base_path('infrastructure/templates/environment/staging.env.example'))));
+
+    expect($keys->filter(fn (string $l): bool => str_starts_with($l, '#')))->not->toBeEmpty('the template should carry section comments');
+    expect($keys->filter(fn (string $l): bool => trim($l) === ''))->not->toBeEmpty('the template should be grouped with blank lines');
+
+    $parsed = environmentTemplateKeys('infrastructure/templates/environment/staging.env.example');
+
+    expect($parsed)->not->toContain('')
+        ->and($parsed)->toContain('APP_KEY')
+        ->and($parsed)->toContain('DB_PASSWORD')
+        ->and($parsed)->toContain('SENTRY_DSN');
+
+    // Every parsed entry is a plausible variable name — a comment or a blank
+    // line leaking through would not be.
+    foreach ($parsed as $key) {
+        expect($key)->toMatch('/^[A-Z][A-Z0-9_]*$/', "parsed a non-variable as a key: {$key}");
+    }
 });
 
 it('puts no secret in the tits-guru template', function (string $key) {
