@@ -10,7 +10,6 @@ use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Support\Locale\LocaleManager;
 use App\Support\Translations\MissingProjectTranslation;
-use App\Support\Translations\MissingTranslationReason;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
@@ -29,7 +28,7 @@ use UnitEnum;
 
 /**
  * Every installed language, whether this project offers it, and how complete
- * it is — the place a language is enabled, disabled or made the default.
+ * it is — the place a language is enabled or disabled.
  *
  * Three separate facts per language:
  *
@@ -38,11 +37,14 @@ use UnitEnum;
  *    them to, and this project's own content as the database holds it now;
  *  - enabled: whether visitors are offered it.
  *
+ * English is the default by system policy: always enabled, never disabled,
+ * and nothing here makes another language the default.
+ *
  * The page only reads; every change goes through
  * UpdateProjectLocaleSettingsAction, which also refuses to enable a language
- * whose application catalogs break the contract. One whose project content is missing
- * translations can, after an explicit warning: visitors then see fallback
- * text where a translation is missing, which an administrator may accept.
+ * whose application catalogs break the contract. One whose project content is
+ * missing translations can, after a warning: visitors then see English where
+ * a translation is missing, which an administrator may accept.
  */
 final class LanguagesPage extends Page implements HasTable
 {
@@ -87,7 +89,8 @@ final class LanguagesPage extends Page implements HasTable
                     ->state(fn (array $record): string => $record['enabled'] ? 'Enabled' : 'Disabled')
                     ->badge()
                     ->color(fn (string $state): string => $state === 'Enabled' ? 'success' : 'gray')
-                    ->description(fn (array $record): ?string => $record['default'] ? 'Default' : null),
+                    ->description(fn (array $record): ?string => $record['default'] ? 'Default' : null)
+                    ->tooltip(fn (array $record): ?string => $record['default'] ? "{$record['label']} is always enabled and is the default language." : null),
                 TextColumn::make('application')
                     ->label('Application')
                     ->state(fn (array $record): string => "{$record['application']}%")
@@ -104,7 +107,6 @@ final class LanguagesPage extends Page implements HasTable
             ->recordActions([
                 $this->enableAction(),
                 $this->disableAction(),
-                $this->setDefaultAction(),
                 $this->missingTranslationsAction(),
             ]);
     }
@@ -121,15 +123,15 @@ final class LanguagesPage extends Page implements HasTable
             // refuses it whoever asks; this only says so before the click.
             ->disabled(fn (array $record): bool => ! $record['application_complete'])
             ->tooltip(fn (array $record): ?string => $record['application_complete'] ? null : 'Its application translations break the catalog contract. Fix the release first.')
-            ->requiresConfirmation(fn (array $record): bool => $record['project_missing'] > 0)
+            ->requiresConfirmation()
             ->modalHeading(fn (array $record): string => "Enable {$record['label']}?")
-            ->modalDescription(fn (array $record): string => "{$record['label']} has {$record['project_missing']} missing project translations. Visitors may see fallback content.\n\nEnable anyway?")
-            ->modalSubmitActionLabel('Enable anyway')
+            ->modalDescription(fn (array $record): string => $record['project_missing'] === 0
+                ? "{$record['label']} has complete project translations and will become available to visitors."
+                : "{$record['label']} has {$record['project_missing']} missing project ".($record['project_missing'] === 1 ? 'translation' : 'translations').". Visitors may see {$this->defaultLabel()} fallback content.")
+            ->modalSubmitActionLabel(fn (array $record): string => $record['project_missing'] === 0 ? 'Enable' : 'Enable anyway')
             ->action(function (array $record): void {
-                $locales = app(LocaleManager::class);
-
                 try {
-                    $this->updateLocales([...$locales->enabledCodes(), $record['code']], $locales->projectDefault());
+                    $this->updateLocales([...app(LocaleManager::class)->enabledCodes(), $record['code']]);
                 } catch (IncompleteLocaleCatalogException) {
                     $this->refuse("{$record['label']} cannot be enabled: its application translations break the catalog contract.");
 
@@ -146,49 +148,23 @@ final class LanguagesPage extends Page implements HasTable
             ->label('Disable')
             ->icon('heroicon-o-x-circle')
             ->color('gray')
-            ->visible(fn (array $record): bool => $record['enabled'])
-            ->disabled(fn (array $record): bool => $this->disableRefusal($record) !== null)
-            ->tooltip(fn (array $record): ?string => $this->disableRefusal($record))
-            ->requiresConfirmation()
-            ->modalHeading(fn (array $record): string => "Disable {$record['label']}?")
-            ->modalDescription('Visitors who chose it get another language. Their choice is kept and applies again if the language is enabled again.')
-            ->action(function (array $record): void {
-                $refusal = $this->disableRefusal($this->languages()[$record['code']]);
-
-                if ($refusal !== null) {
-                    $this->refuse($refusal);
-
-                    return;
-                }
-
-                $locales = app(LocaleManager::class);
-                $this->updateLocales(array_values(array_diff($locales->enabledCodes(), [$record['code']])), $locales->projectDefault());
-
-                Notification::make()->title("{$record['label']} disabled")->success()->send();
-            });
-    }
-
-    private function setDefaultAction(): Action
-    {
-        return Action::make('setDefault')
-            ->label('Set as default')
-            ->icon('heroicon-o-star')
+            // The default is always enabled: it has nothing to disable.
             ->visible(fn (array $record): bool => $record['enabled'] && ! $record['default'])
             ->requiresConfirmation()
-            ->modalHeading(fn (array $record): string => "Make {$record['label']} the default?")
-            ->modalDescription('New visitors whose browser asks for no offered language get the default.')
+            ->modalHeading(fn (array $record): string => "Disable {$record['label']}?")
+            ->modalDescription(fn (array $record): string => "Visitors currently using {$record['label']} will get their browser's language if it is enabled, otherwise {$this->defaultLabel()}. Their {$record['label']} preference is kept and will apply again if {$record['label']} is enabled later.")
             ->action(function (array $record): void {
                 $locales = app(LocaleManager::class);
 
-                if (! $locales->isEnabled($record['code'])) {
-                    $this->refuse('Only an enabled language can be the default. Enable it first.');
+                if ($locales->isDefault($record['code'])) {
+                    $this->refuse("{$record['label']} is the default language and is always enabled.");
 
                     return;
                 }
 
-                $this->updateLocales($locales->enabledCodes(), $record['code']);
+                $this->updateLocales(array_values(array_diff($locales->enabledCodes(), [$record['code']])));
 
-                Notification::make()->title("{$record['label']} is now the default")->success()->send();
+                Notification::make()->title("{$record['label']} disabled")->success()->send();
             });
     }
 
@@ -210,29 +186,26 @@ final class LanguagesPage extends Page implements HasTable
     }
 
     /**
-     * Why a language cannot be disabled, or null when it can. Choosing a new
-     * default is left to the administrator, never made for them.
+     * Writes the offered languages, then drops what this request already read:
+     * the rows built here and the records Filament cached for the table while
+     * it resolved the clicked row. Without both, the response would render the
+     * state from before the change — the row still Enabled, its old action
+     * still showing — until a full page reload.
      *
-     * @param  array<string, mixed>  $record
+     * @param  list<string>  $enabled
      */
-    private function disableRefusal(array $record): ?string
+    private function updateLocales(array $enabled): void
     {
-        if ($record['default']) {
-            return 'Set another default language first.';
-        }
-
-        if (count(app(LocaleManager::class)->enabledCodes()) <= 1) {
-            return 'At least one language has to stay enabled.';
-        }
-
-        return null;
+        app(UpdateProjectLocaleSettingsAction::class)->handle($enabled);
+        $this->rows = null;
+        $this->flushCachedTableRecords();
     }
 
-    /** @param  list<string>  $enabled */
-    private function updateLocales(array $enabled, string $default): void
+    private function defaultLabel(): string
     {
-        app(UpdateProjectLocaleSettingsAction::class)->handle($enabled, $default);
-        $this->rows = null;
+        $locales = app(LocaleManager::class);
+
+        return $locales->label($locales->default());
     }
 
     private function refuse(string $message): void
@@ -254,7 +227,6 @@ final class LanguagesPage extends Page implements HasTable
         $locales = app(LocaleManager::class);
         $catalogs = $this->catalogReports();
         $projects = $this->projectReports();
-        $default = $locales->projectDefault();
         $rows = [];
 
         foreach ($locales->supported() as $code => $info) {
@@ -264,7 +236,7 @@ final class LanguagesPage extends Page implements HasTable
                 'label' => $info['label'],
                 'native' => $info['native'],
                 'enabled' => $locales->isEnabled($code),
-                'default' => $code === $default,
+                'default' => $locales->isDefault($code),
                 'application' => $catalogs[$code]->percentage(),
                 'application_complete' => $catalogs[$code]->isComplete(),
                 'application_issues' => count($catalogs[$code]->issues),
@@ -293,10 +265,10 @@ final class LanguagesPage extends Page implements HasTable
     }
 
     /**
-     * The missing translations by section, each with why it counts as
-     * missing and a link to the editor that already manages that content.
+     * The missing translations by section, each with a link to the editor
+     * that already manages that content.
      *
-     * @return list<array{label: string, items: list<array{label: string, field: string, reason: string, reason_color: string, explanation: string|null, url: string}>}>
+     * @return list<array{label: string, items: list<array{label: string, field: string, url: string}>}>
      */
     private function missingSections(ProjectTranslationReport $report): array
     {
@@ -308,9 +280,6 @@ final class LanguagesPage extends Page implements HasTable
                 'items' => array_map(fn (MissingProjectTranslation $item): array => [
                     'label' => $item->label,
                     'field' => $item->field,
-                    'reason' => $item->reason->label(),
-                    'reason_color' => $item->reason === MissingTranslationReason::Untranslated ? 'gray' : 'warning',
-                    'explanation' => $item->reason->explanation(),
                     'url' => $this->editUrl($item),
                 ], $items),
             ];

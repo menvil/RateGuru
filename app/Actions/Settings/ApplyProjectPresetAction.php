@@ -3,7 +3,6 @@
 namespace App\Actions\Settings;
 
 use App\Data\Settings\ProjectPresetApplicationResult;
-use App\Exceptions\Settings\InvalidProjectPresetException;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
@@ -13,7 +12,6 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
-use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Cache;
@@ -23,19 +21,16 @@ use Illuminate\Support\Str;
 class ApplyProjectPresetAction
 {
     /**
-     * The language policy of a project is not part of a preset's job: which
-     * languages it offers and its default are written only by
-     * UpdateProjectLocaleSettingsAction. A preset may seed the default of a
-     * brand-new installation — which offers the languages enabled by default,
-     * so the default has to be one of them — and nothing else.
+     * The language policy of a project is not part of a preset's job: the
+     * languages it offers are written only by
+     * UpdateProjectLocaleSettingsAction, and English is the default by system
+     * policy. A custom preset written for the older shape may still name a
+     * default language; it is dropped, not obeyed.
      */
-    private const OFFERED_LOCALES = 'enabled_locales';
-
-    private const DEFAULT_LOCALE = 'default_locale';
+    private const LANGUAGE_POLICY = ['enabled_locales' => true, 'default_locale' => true];
 
     public function __construct(
         private readonly ProjectSettingsManager $manager,
-        private readonly LocaleManager $locales,
     ) {}
 
     public function handle(string $presetKey, bool $force = false): ProjectPresetApplicationResult
@@ -52,22 +47,7 @@ class ApplyProjectPresetAction
             throw UnknownProjectPresetException::for($presetKey);
         }
 
-        $settings = PresetSettingsBuilder::build($preset['settings']);
-        unset($settings[self::OFFERED_LOCALES]);
-
-        // Refused up front rather than left for the runtime to paper over: a
-        // new installation would otherwise start with a default nobody offers.
-        if (isset($settings[self::DEFAULT_LOCALE])) {
-            $default = (string) $settings[self::DEFAULT_LOCALE];
-
-            if (! $this->locales->isSupported($default)) {
-                throw InvalidProjectPresetException::unknownDefaultLocale($presetKey, $default);
-            }
-
-            if (! in_array($default, $this->locales->enabledByDefault(), true)) {
-                throw InvalidProjectPresetException::defaultLocaleNotOfferedByDefault($presetKey, $default);
-            }
-        }
+        $settings = array_diff_key(PresetSettingsBuilder::build($preset['settings']), self::LANGUAGE_POLICY);
 
         $result = DB::transaction(function () use ($force, $presetKey, $preset, $settings): ProjectPresetApplicationResult {
             $appliedSettings = array_merge($settings, [
@@ -76,10 +56,12 @@ class ApplyProjectPresetAction
                 'preset_applied_at' => now(),
             ]);
 
+            // A brand-new installation starts from the same bootstrap every
+            // writer uses — its static pages included — with the preset on top.
             $initialSettings = ProjectSettings::unguarded(
                 fn (): ProjectSettings => ProjectSettings::query()->firstOrCreate(
                     ['id' => 1],
-                    $appliedSettings,
+                    [...$this->manager->defaults(), ...$appliedSettings],
                 ),
             );
 
@@ -93,12 +75,9 @@ class ApplyProjectPresetAction
                 throw ProjectPresetHasContentException::make();
             }
 
-            // An existing project keeps the languages it offers and its
-            // default, forced or not; only a row this preset just created
-            // takes the preset's default.
-            $existingSettings->fill($initialSettings->wasRecentlyCreated
-                ? $appliedSettings
-                : array_diff_key($appliedSettings, [self::DEFAULT_LOCALE => true]))->save();
+            // An existing project keeps the languages it offers and its static
+            // pages, forced or not: neither is the preset's to replace.
+            $existingSettings->fill($appliedSettings)->save();
 
             [$categories, $deactivatedCategories] = $this->applyCategories($preset['categories'] ?? null);
             [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);

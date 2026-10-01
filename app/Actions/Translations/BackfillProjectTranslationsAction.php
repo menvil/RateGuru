@@ -23,20 +23,38 @@ use Illuminate\Support\Facades\DB;
  * have yet — for every installed language, enabled or not, so a language a
  * release adds is filled in before anyone offers it.
  *
- * Deliberately narrow. A translation is written only when all of these hold:
+ * The database owns project content; the repository only lends what is
+ * missing. A translation is written only when all of these hold:
  *
  *  - the content already exists, found by the identity preset application
- *    uses — nothing is ever created;
- *  - that language has no text for the field — nothing is ever overwritten;
+ *    uses — no category, tag, group or option is ever created;
+ *  - that language has no text for the field — nothing is ever overwritten,
+ *    so a translation the repository changes later does not reach a project
+ *    that already has one;
  *  - the repository has text for that language;
  *  - the field's reference (English) text is exactly the repository's, so the
  *    translation is of the text the project actually shows. Once a project
  *    changes the text, the repository's translation of the old one is left
  *    out, and the field is for an administrator to translate.
  *
+ * Static pages follow the same rules, with one addition: a built-in page, or
+ * a field of one, that has no English in the database at all — a page a
+ * release adds, or a row saved before pages had content — gets the
+ * repository's English, and with it the translations. That fills a gap and
+ * replaces nothing.
+ *
+ * Its scope is what the repository knows, and nothing else: it starts from
+ * each repository value and looks for the one row that holds it. Content the
+ * repository has no identity for — categories, tags, groups and options an
+ * administrator created — is the project's alone and never even read here.
+ * Skipped as unknown means a repository value it could not safely fill: no
+ * matching row in the database, a language the repository has no text for,
+ * or stored translations of an unexpected shape.
+ *
  * The check is per field, under a lock on the row it writes, so an
  * administrator's edit cannot land between the comparison and the write.
- * Running it again finds nothing more to do.
+ * Running it again finds nothing more to do, which is what makes it safe on
+ * every deploy.
  *
  * Project settings and categories, rating groups, options and tags come from
  * the preset the project was set up with (active_preset_key); static pages
@@ -138,11 +156,10 @@ final class BackfillProjectTranslationsAction
     }
 
     /**
-     * A static page's configured text is what visitors already get until the
-     * project rewrites the page, so nothing needs writing for a page the
-     * project left alone. A stored copy whose English is still the configured
-     * English gets the configured text for a language it lacks — the case of a
-     * language added after the page was last saved.
+     * The static pages the project stores, with what the repository ships
+     * filled in where the project has nothing. A page or field without any
+     * English gets the repository's English first; then every language is
+     * filled under the usual rules, against that English.
      *
      * @param  list<string>  $locales
      * @return array<string, mixed>|null the pages to store, or null when nothing changed
@@ -160,29 +177,46 @@ final class BackfillProjectTranslationsAction
 
         foreach ($this->repository->staticPages() as $entry) {
             $page = $entry->identity['page'];
-            $configuredReference = $entry->reference();
+            $field = $entry->field;
+            $reference = $entry->reference();
 
-            if ($configuredReference === null) {
+            if ($reference === null) {
                 continue;
             }
 
-            $storedReference = $pages[$page][self::REFERENCE][$entry->field] ?? null;
+            if (array_key_exists($page, $pages) && ! is_array($pages[$page])) {
+                // Not a page at all: nothing here can be added safely.
+                $this->tally('skipped_unknown', count($locales));
+
+                continue;
+            }
+
+            $writable = fn (string $locale): bool => ! array_key_exists($locale, $pages[$page] ?? []) || is_array($pages[$page][$locale]);
+
+            if (! TranslatableField::isPresent($pages[$page][self::REFERENCE][$field] ?? null)) {
+                if (! $writable(self::REFERENCE)) {
+                    $this->tally('skipped_unknown', count($locales));
+
+                    continue;
+                }
+
+                // No English at all: the page is not the project's text yet.
+                $pages[$page][self::REFERENCE][$field] = $reference;
+                $this->tally('filled');
+                $changed = true;
+            }
+
+            $storedReference = $pages[$page][self::REFERENCE][$field];
 
             foreach ($locales as $locale) {
-                $storedText = $pages[$page][$locale][$entry->field] ?? null;
-                $configuredText = $entry->value($locale);
-
-                if (TranslatableField::isPresent($storedText)) {
+                if (TranslatableField::isPresent($pages[$page][$locale][$field] ?? null)) {
                     $this->tally('already_present');
-                } elseif ($configuredText === null) {
+                } elseif ($entry->value($locale) === null || ! $writable($locale)) {
                     $this->tally('skipped_unknown');
-                } elseif (! TranslatableField::isPresent($storedReference)) {
-                    // Untouched: the configured translation is already what is shown.
-                    $this->tally('already_present');
-                } elseif ($storedReference !== $configuredReference) {
+                } elseif ($storedReference !== $reference) {
                     $this->tally('skipped_customized');
                 } else {
-                    $pages[$page][$locale][$entry->field] = $configuredText;
+                    $pages[$page][$locale][$field] = $entry->value($locale);
                     $this->tally('filled');
                     $changed = true;
                 }

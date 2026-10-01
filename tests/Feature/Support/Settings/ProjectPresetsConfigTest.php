@@ -34,10 +34,11 @@ it('project presets have required shape', function () {
             'object_plural_name',
             'upload_cta_label',
             'feed_title',
-            'default_locale',
             'default_theme',
             'default_sort',
         ]);
+        // Language policy is not a preset's: no preset names a default.
+        expect($preset['settings'])->not->toHaveKey('default_locale');
         expect($preset['feature_flags'])->toHaveKeys([
             'show_comments',
             'show_share_buttons',

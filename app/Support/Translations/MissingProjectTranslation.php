@@ -3,7 +3,7 @@
 namespace App\Support\Translations;
 
 /**
- * One piece of project content a language has no translation for, and why.
+ * One piece of project content a language has no translation for.
  */
 final readonly class MissingProjectTranslation
 {
@@ -20,11 +20,5 @@ final readonly class MissingProjectTranslation
         public string $key,
         public string $label,
         public string $field,
-        public MissingTranslationReason $reason = MissingTranslationReason::Untranslated,
     ) {}
-
-    public function because(MissingTranslationReason $reason): self
-    {
-        return new self($this->section, $this->recordId, $this->parentId, $this->key, $this->label, $this->field, $reason);
-    }
 }

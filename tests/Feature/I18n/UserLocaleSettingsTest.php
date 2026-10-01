@@ -38,7 +38,7 @@ it('renders user locale settings on profile page', function () {
 
 it('offers only the languages the project offers, with their flags', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    offerEveryInstalledLocaleExcept($withheld);
 
     $component = Livewire::actingAs(User::factory()->create(['locale' => $offered]))
         ->test(UserLocaleSettings::class);
@@ -52,7 +52,7 @@ it('offers only the languages the project offers, with their flags', function ()
 
 it('refuses a language that is installed but not offered', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    offerEveryInstalledLocaleExcept($withheld);
     $user = User::factory()->create(['locale' => $offered]);
 
     Livewire::actingAs($user)
@@ -66,7 +66,7 @@ it('refuses a language that is installed but not offered', function () {
 
 it('preselects a language that can be saved when the stored one is no longer offered', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    offerEveryInstalledLocaleExcept($withheld);
     $user = User::factory()->create(['locale' => $withheld]);
 
     $this->actingAs($user)->withHeaders(noBrowserLanguage())->get(route('profile.edit'))->assertOk();

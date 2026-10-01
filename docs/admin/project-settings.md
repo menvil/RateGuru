@@ -11,7 +11,8 @@
 - `object_plural_name` — plural form (e.g. "posts", "photos", "animals")
 - `upload_cta_label` — text of the upload button (e.g. "Upload post")
 - `feed_title` — heading above the main feed (e.g. "Latest posts")
-- `default_locale` — locale string (e.g. `en`)
+- `static_pages` — the title and content of each built-in page (about, privacy, terms, contact) per language; the only source visitors read them from
+- `enabled_locales` — the languages offered to visitors, English always among them; written only from Admin → System → Languages
 - `default_theme` — one of `system`, `light`, `dark`
 - `default_sort` — one of `hot`, `new`, `top`
 - `active_preset_key` — which preset was last applied (informational only)
@@ -31,9 +32,19 @@ This separation is intentional: a preset also synchronizes categories, rating
 groups, rating options, and tags, so it is not a normal settings-form operation. See
 `docs/admin/project-presets.md` for the command workflow and safety guards.
 
-## Fallback defaults
+There is no default-language setting: English is the default language by
+system policy (`config/locales.php`).
 
-If the `project_settings` table is empty, the app continues to work using these fallback defaults built into `ProjectSettingsManager`:
+## Bootstrap defaults
+
+`ProjectSettingsManager::defaults()` is the one bootstrap: every writer that
+creates the row — `rateguru:setup`, the default settings seeder, the Project
+Settings and Languages pages on an installation without a row — starts from
+it, and an installation with no row runs on it. It includes a copy of every
+page of `config/static-pages.php` in every language the repository ships;
+once stored, the pages are the project's, and a later change to that file
+does not reach them (the deploy's translation backfill only fills what is
+missing — see `docs/i18n/project-translation-lifecycle.md`).
 
 ```text
 site_name = RateGuru
@@ -42,7 +53,8 @@ object_singular_name = post
 object_plural_name = posts
 upload_cta_label = Upload post
 feed_title = Latest posts
-default_locale = en
+enabled_locales = null (English and the languages enabled by default)
+static_pages = config/static-pages.php
 default_theme = system
 default_sort = hot
 active_preset_key = generic

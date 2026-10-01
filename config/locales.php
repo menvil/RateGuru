@@ -1,11 +1,16 @@
 <?php
 
 return [
+    // The default language: what a visitor gets when nothing they chose or
+    // their browser asks for is offered, and the language every piece of
+    // project content is written in first. System policy, not a setting —
+    // English, always installed, always offered, never disabled.
+    'default' => 'en',
+
     // The technical fallback: the catalog Laravel falls back to for a missing
-    // line, and the emergency locale when nothing else resolves. It must be
-    // installed, but a project does not have to offer it — which languages a
-    // project offers and which one new visitors get are project settings
-    // (enabled_locales, default_locale), read through LocaleManager.
+    // line. Also English today, but a different job: it keeps a missing
+    // catalog line from rendering as its key, while the default decides which
+    // language a visitor is served.
     'fallback' => env('APP_FALLBACK_LOCALE', 'en'),
 
     // Every language the application is installed with: a complete catalog in
@@ -14,10 +19,11 @@ return [
     // the US nor the UK by itself.
     //
     // `enabled_by_default` is bootstrap policy, not project state: it decides
-    // which languages a project offers while it has never chosen its own
-    // (project_settings.enabled_locales is NULL). A language added in a
-    // release ships with it false, so installing it never offers it to the
-    // visitors of an existing project; the Languages page enables it.
+    // which languages besides the default a project offers while it has never
+    // chosen its own (project_settings.enabled_locales is NULL). A language
+    // added in a release ships with it false, so installing it never offers it
+    // to the visitors of an existing project; the Languages page enables it.
+    // The default language is offered whatever its row says.
     'supported' => [
         'en' => ['label' => 'English', 'native' => 'English', 'flag' => '🇬🇧', 'enabled_by_default' => true],
         'ru' => ['label' => 'Russian', 'native' => 'Русский', 'flag' => '🇷🇺', 'enabled_by_default' => true],

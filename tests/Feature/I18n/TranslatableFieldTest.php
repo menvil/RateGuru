@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -114,3 +115,39 @@ it('shows a visitor the stored translation wherever it is one', function (string
 
     expect(visitorText($content, $target, 'Normal'))->toBe('Normal');
 })->with('visitor-facing content');
+
+it('serves visitors the database text, never what the repository ships now', function () {
+    // Content a preset seeded is the project's from then on. A later release
+    // that drops every preset and rewrites the static pages changes nothing a
+    // visitor reads.
+    [$target] = twoTranslatedLocales();
+    app(ApplyProjectPresetAction::class)->handle('nature');
+    offerEveryInstalledLocale();
+
+    $read = function () use ($target): array {
+        app(ProjectSettingsManager::class)->flush();
+        app()->setLocale($target);
+        $settings = app(ProjectSettingsManager::class)->current();
+
+        return [
+            'category' => Category::query()->where('slug', 'landscape')->sole()->translatedName($target),
+            'tag' => Tag::query()->where('slug', 'sunrise')->sole()->translatedName($target),
+            'rating group' => RatingGroup::query()->where('key', 'photographer_type')->sole()->translatedLabel($target),
+            'rating option' => RatingOption::query()->where('key', 'professional')->sole()->translatedLabel($target),
+            'project setting' => $settings->siteName(),
+            'static page' => $settings->staticPage('about')['title'],
+        ];
+    };
+    $before = $read();
+
+    config([
+        'project_presets' => [],
+        'static-pages.defaults.about' => [
+            'en' => ['title' => 'Rewritten in a later release', 'content' => 'Rewritten.'],
+            $target => ['title' => 'Translated anew in a later release', 'content' => 'Translated anew.'],
+        ],
+    ]);
+
+    expect($read())->toBe($before)
+        ->and($before['static page'])->not->toBe('Translated anew in a later release');
+});

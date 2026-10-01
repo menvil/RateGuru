@@ -4,6 +4,14 @@ namespace App\Support\Settings;
 
 use App\Models\ProjectSettings;
 
+/**
+ * The project settings as the database holds them — the one source a running
+ * project reads. Repository config (config/project_presets.php,
+ * config/static-pages.php) only seeds a project that has no settings row yet
+ * (defaults()) and lends missing translations to the backfill; it is never a
+ * fallback for what the row says, so editing it in a later release never
+ * changes an existing project's content.
+ */
 class ProjectSettingsManager
 {
     private const DEFAULTS = [
@@ -56,10 +64,9 @@ class ProjectSettingsManager
                     $row->feature_flags ?? []
                 ),
                 'sign_in_providers' => $row->sign_in_providers ?? [],
-                'static_pages' => $this->mergeStaticPages(
-                    $defaults['static_pages'],
-                    $row->static_pages ?? [],
-                ),
+                // The row's pages only: a page or a language the row does not
+                // have is not borrowed from config.
+                'static_pages' => is_array($row->static_pages) ? $row->static_pages : [],
             ])
             : $defaults;
 
@@ -67,18 +74,17 @@ class ProjectSettingsManager
     }
 
     /**
-     * What an installation without a settings row runs on, as the columns of
-     * that row — for a writer that has to create it.
+     * The bootstrap: what an installation without a settings row runs on, as
+     * the columns of that row. Every writer that has to create the row starts
+     * from it, so a new project gets one set of initial values — including a
+     * copy of every static page in every language the repository ships, which
+     * the project owns from then on.
      *
      * @return array<string, mixed>
      */
     public function defaults(): array
     {
         return array_merge(self::DEFAULTS, [
-            // No languages chosen yet (enabled_locales NULL) offers the ones
-            // enabled by default, and the system fallback is installed and
-            // enabled by default by contract — so it is a valid default.
-            'default_locale' => config('locales.fallback', 'en'),
             'static_pages' => config('static-pages.defaults', []),
         ]);
     }
@@ -91,30 +97,5 @@ class ProjectSettingsManager
     public function flush(): void
     {
         $this->resolved = null;
-    }
-
-    /**
-     * Keep default pages and locales, but preserve missing localized fields so
-     * ResolvedProjectSettings can fall them back to English independently.
-     *
-     * @param  array<string, mixed>  $defaults
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
-    private function mergeStaticPages(array $defaults, array $overrides): array
-    {
-        foreach ($overrides as $pageKey => $locales) {
-            if (! is_array($locales) || ! isset($defaults[$pageKey])) {
-                continue;
-            }
-
-            foreach ($locales as $locale => $localized) {
-                if (is_array($localized)) {
-                    $defaults[$pageKey][$locale] = $localized;
-                }
-            }
-        }
-
-        return $defaults;
     }
 }
