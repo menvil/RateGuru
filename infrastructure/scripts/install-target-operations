@@ -136,15 +136,20 @@ SRC_NGINX_SOURCE_STAGING="${REPO_ROOT}/infrastructure/config/nginx/rateguru-stag
 SRC_NGINX_SOURCE_PRODUCTION="${REPO_ROOT}/infrastructure/config/nginx/rateguru-production"
 SRC_NGINX_SOURCE_MAILPIT="${REPO_ROOT}/infrastructure/config/nginx/mailpit-staging"
 SRC_NGINX_SOURCE_MAILTRAP="${REPO_ROOT}/infrastructure/config/nginx/mailtrap-local-staging"
-# The committed environment templates: the ONE declaration of which keys
-# each target's canonical shared/.env must carry. deploy reads them through
-# verify-environment-contract before it touches anything, on a host that has
-# no repository — so they have to be here.
+# The committed environment templates, installed for STANDALONE host-side
+# inspection: verify-environment-contract answers "does this host satisfy the
+# contract its installed tooling declares?", and it needs them locally.
 #
-# Listed rather than globbed or derived, for the reason the vhosts above are:
-# a glob would make a template nobody intended into a contract a deploy is
-# refused by. Completeness is enforced instead — a test fails when a target
-# in the registry declares a template this installer does not install.
+# They are deliberately NOT what an ordinary deploy decides by. This installer is
+# not part of an application deployment, so what it installs can be older than
+# the application being deployed onto the host — judged against these, an artifact
+# requiring a key the host has never had would be waved through. deploy reads its
+# contract out of the artifact it is installing instead.
+#
+# Listed rather than globbed or derived, for the reason the vhosts above are: a
+# glob would make a template nobody intended into one an operator is told to
+# satisfy. Completeness is enforced instead — a test fails when a target in the
+# registry declares a template this installer does not install.
 SRC_ENV_TEMPLATE_STAGING="${REPO_ROOT}/infrastructure/templates/environment/staging.env.example"
 SRC_ENV_TEMPLATE_TITS_GURU="${REPO_ROOT}/infrastructure/templates/environment/tits-guru.env.example"
 

@@ -426,10 +426,14 @@ it('gates configure before the database and the deploy key', function () {
     expect($source)->toContain('environment:canonical');
 });
 
-it('is carried to the host, so a deploy there can judge the same contract', function () {
-    // deploy runs from the installed bundle on a machine with no repository, so
-    // the templates and the validator have to be installed with it. Without
-    // this the gate would simply never run where it matters most.
+it('installs the standalone validator and its templates for host-side inspection', function () {
+    // Installed for the STANDALONE check, not for the deployment decision: an
+    // operator asking "does this host satisfy the contract its tooling declares?"
+    // needs both locally, on a machine with no repository.
+    //
+    // An ordinary deploy deliberately does not consult these — see the test above
+    // — because this installer is not part of an application deployment and so
+    // what it installed may be older than the application being deployed.
     $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
 
     expect($installer)
@@ -447,7 +451,7 @@ it('is carried to the host, so a deploy there can judge the same contract', func
         $basename = basename($target['environment_template']);
 
         expect(str_contains($installer, $basename))
-            ->toBeTrue("{$id} declares {$basename}, which install-target-operations does not install — a deploy to it could not judge its contract");
+            ->toBeTrue("{$id} declares {$basename}, which install-target-operations does not install — the standalone validator could not judge that target on a host");
     }
 
     // And the installed location is the one `common` resolves.
