@@ -50,7 +50,7 @@ it('lists only the languages the project offers', function () {
 
 it('shows the flags a little larger than the text beside them, in the trigger and in the menu', function () {
     offerEveryInstalledLocale();
-    $flag = fn (string $emoji): string => '<span aria-hidden="true" class="text-lg leading-none" data-testid="locale-flag">'.$emoji.'</span>';
+    $flag = fn (string $emoji): string => '<span aria-hidden="true" class="inline-block scale-125 leading-none" data-testid="locale-flag">'.$emoji.'</span>';
 
     $html = $this->withHeaders(noBrowserLanguage())->get(route('feed'))->assertOk()->getContent();
 

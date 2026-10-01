@@ -14,9 +14,10 @@
         class="inline-flex h-10 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
     >
         @isset($enabled[$current])
-            {{-- The flag a little larger than the text beside it, without
-                 growing the control: leading-none keeps the row height. --}}
-            <span aria-hidden="true" class="text-lg leading-none" data-testid="locale-flag">{{ $enabled[$current]['flag'] }}</span>
+            {{-- The flag drawn a little larger than the text beside it. Scaled
+                 rather than set in a larger font, so neither the control nor
+                 the header around it changes width or height. --}}
+            <span aria-hidden="true" class="inline-block scale-125 leading-none" data-testid="locale-flag">{{ $enabled[$current]['flag'] }}</span>
         @endisset
         <span class="sm:hidden">{{ strtoupper($current) }}</span>
         <span class="hidden sm:inline">{{ $enabled[$current]['native'] ?? strtoupper($current) }}</span>
@@ -45,7 +46,7 @@
                     data-testid="locale-option-{{ $code }}"
                     class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
                 >
-                    <span aria-hidden="true" class="text-lg leading-none" data-testid="locale-flag">{{ $info['flag'] }}</span>
+                    <span aria-hidden="true" class="inline-block scale-125 leading-none" data-testid="locale-flag">{{ $info['flag'] }}</span>
                     {{ $info['native'] }}
                     @if($code === $current)
                         <svg class="ml-auto size-3 text-rg-accent" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
