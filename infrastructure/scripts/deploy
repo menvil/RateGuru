@@ -443,6 +443,56 @@ issue_queue_restart() {
     )
 }
 
+# backfill_project_translations — fills in the project translations a release
+# ships but the database does not have yet (rateguru:translations:backfill),
+# only where the project still shows the text the repository translated. It
+# only ever adds a missing language entry — never overwrites one, never deletes
+# one — so it is safe while the previous release is still serving, and nothing
+# needs undoing if this deployment is rolled back: older code simply never
+# reads a language it does not know.
+#
+# Feature-detected rather than assumed: this script deploys historical
+# releases too, which predate the command, and skipping it for them is the
+# correct behaviour. A release that has the command and fails it fails the
+# deployment, like any other preparation step.
+#
+# Normal deployments only — the caller does not run it in a controlled restore
+# or recovery alignment, which installs the exact code the restored data
+# belongs to and changes nothing else.
+backfill_project_translations() {
+    local commands
+
+    if ! commands="$(
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan list --raw
+    )"; then
+        FAILURE_STATUS="failed-preparation"
+        fail "artisan list failed — cannot tell whether this release has the translation backfill"
+    fi
+
+    if ! grep -Eq '^rateguru:translations:backfill([[:space:]]|$)' <<<"${commands}"; then
+        log "release has no rateguru:translations:backfill — it predates the translation backfill, skipping it"
+
+        return 0
+    fi
+
+    log "backfilling repository-known project translations"
+
+    if ! (
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan rateguru:translations:backfill
+    ); then
+        FAILURE_STATUS="failed-preparation"
+        fail "rateguru:translations:backfill failed"
+    fi
+}
+
 # perform_queue_transition — the single place the queue is handled, after the
 # atomic current switch and the HTTP health check, and before the success
 # record. Which action is correct depends entirely on the worker's state
@@ -1500,6 +1550,12 @@ perform_deploy() {
         ); then
             FAILURE_STATUS="failed-preparation"
             fail "Laravel release preparation failed"
+        fi
+
+        # After any requested migrations, so the backfill sees the schema
+        # the new release expects.
+        if ! controlled_mode; then
+            backfill_project_translations
         fi
 
         chown -R \

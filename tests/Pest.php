@@ -15,6 +15,8 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use App\Support\Settings\PresetSettingsBuilder;
+use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -3287,6 +3289,19 @@ function offerLocales(array $enabled, string $default): void
     app(UpdateProjectLocaleSettingsAction::class)->handle($enabled, $default);
 }
 
+/**
+ * Makes the project offer every installed language, for a test that puts each
+ * one through what a visitor or a reader gets. A project that never chose
+ * offers only the languages enabled by default, and a language a release adds
+ * is not among them — but what such a test checks is that a language works
+ * once it is offered, which has to hold from the day the language is
+ * installed, before anyone enables it.
+ */
+function offerEveryInstalledLocale(): void
+{
+    offerLocales(supportedLocales(), config('locales.fallback'));
+}
+
 /** Request headers for a browser asking for these languages. */
 function acceptLanguage(string $header): array
 {
@@ -3302,3 +3317,75 @@ function noBrowserLanguage(): array
 {
     return acceptLanguage('');
 }
+
+/**
+ * Every translatable project setting translated into these languages, as the
+ * `{field}_translations` attributes of a settings row.
+ *
+ * @param  list<string>  $locales
+ * @return array<string, array<string, string>>
+ */
+function projectSettingsTranslationsIn(array $locales): array
+{
+    $attributes = [];
+
+    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
+        $attributes["{$field}_translations"] = collect($locales)->mapWithKeys(fn (string $locale): array => [$locale => "{$field} in {$locale}"])->all();
+    }
+
+    return $attributes;
+}
+
+/**
+ * A fresh, empty directory for one test's own language catalogs. The file
+ * that uses it removes it again with removeCatalogScratchDirectory($this) in
+ * its afterEach.
+ */
+function catalogScratchDirectory(): string
+{
+    $root = sys_get_temp_dir().'/rateguru-catalogs-'.uniqid('', true);
+    File::ensureDirectoryExists($root);
+    test()->catalogScratchDirectory = $root;
+
+    return $root;
+}
+
+/**
+ * Takes the test case itself: test() hands back a proxy that forwards reads
+ * and writes but answers isset() with false, so a check through it would
+ * never find the directory.
+ */
+function removeCatalogScratchDirectory(TestCase $test): void
+{
+    if (isset($test->catalogScratchDirectory)) {
+        File::deleteDirectory($test->catalogScratchDirectory);
+    }
+}
+
+/**
+ * Points the inspector at a copy of the catalogs with one of this language's
+ * files removed — a broken release on a server.
+ */
+function breakCatalogsOf(string $locale): void
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    File::delete("{$root}/{$locale}/ui.php");
+
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+}
+
+/**
+ * Stored values that are not a translation (TranslatableField::isPresent()):
+ * completeness counts each as missing, and a visitor gets the fallback for
+ * each — the two sides of the same rule, tested with the same values.
+ */
+dataset('not a translation', [
+    'null' => [null],
+    'empty' => [''],
+    'spaces' => ['   '],
+    'tabs and newlines' => ["\t\n"],
+    'a number' => [42],
+    'a boolean' => [true],
+    'a list' => [['Desserts']],
+]);

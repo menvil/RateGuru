@@ -40,6 +40,8 @@ function admin(string $locale, string $email): User
 beforeEach(fn () => Mail::fake());
 
 it('writes to each administrator in their own language', function () {
+    offerEveryInstalledLocale();
+
     foreach (translatedLocales() as $locale) {
         admin($locale, "{$locale}-admin@example.test");
     }

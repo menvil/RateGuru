@@ -460,6 +460,32 @@ disk-space check, the shared deployment lock (the same one `cleanup`/
 directory, `.env`/`storage`/`public/storage` symlinks, ownership/permission
 normalization, and everything downstream of it.
 
+### Project translation backfill
+
+After Laravel preparation — so after any `--migrate` — a normal deployment runs
+`php artisan rateguru:translations:backfill` as the runtime user, before the
+`current` switch. It fills in the project translations the release ships but
+the database lacks (a language a release adds, for content the project set up
+from a preset or the static page defaults), and only where the project still
+shows the text the repository translated. It never creates content, never
+overwrites a translation and never deletes one; running it again does
+nothing.
+
+- **Historical releases.** `deploy` deploys older releases too, and they
+  predate the command. It asks the release (`artisan list --raw`) instead of
+  assuming: a release without the command logs that it is skipping the
+  backfill and the deployment continues. A release that has the command and
+  fails it fails preparation, like any other preparation step.
+- **Restore and recovery alignments.** `--restore-operation` and
+  `--recovery-operation` never run it: they install the exact code the
+  restored data belongs to and change nothing else.
+- **Rollback.** Nothing to undo. The backfill only adds language entries to
+  translation JSON, which the previous release reads past, so a deployment
+  that fails its health check and returns `current` to the previous release
+  leaves a consistent database behind.
+
+The rules for what it may fill are in `docs/i18n/project-translation-lifecycle.md`.
+
 ## Rollback
 
 `rollback --target TARGET_ID (--release RELEASE_ID | --previous)`. Exactly one

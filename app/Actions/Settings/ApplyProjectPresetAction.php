@@ -26,8 +26,8 @@ class ApplyProjectPresetAction
      * The language policy of a project is not part of a preset's job: which
      * languages it offers and its default are written only by
      * UpdateProjectLocaleSettingsAction. A preset may seed the default of a
-     * brand-new installation — which offers every installed language, so any
-     * installed default is valid there — and nothing else.
+     * brand-new installation — which offers the languages enabled by default,
+     * so the default has to be one of them — and nothing else.
      */
     private const OFFERED_LOCALES = 'enabled_locales';
 
@@ -57,8 +57,16 @@ class ApplyProjectPresetAction
 
         // Refused up front rather than left for the runtime to paper over: a
         // new installation would otherwise start with a default nobody offers.
-        if (isset($settings[self::DEFAULT_LOCALE]) && ! $this->locales->isSupported((string) $settings[self::DEFAULT_LOCALE])) {
-            throw InvalidProjectPresetException::unknownDefaultLocale($presetKey, (string) $settings[self::DEFAULT_LOCALE]);
+        if (isset($settings[self::DEFAULT_LOCALE])) {
+            $default = (string) $settings[self::DEFAULT_LOCALE];
+
+            if (! $this->locales->isSupported($default)) {
+                throw InvalidProjectPresetException::unknownDefaultLocale($presetKey, $default);
+            }
+
+            if (! in_array($default, $this->locales->enabledByDefault(), true)) {
+                throw InvalidProjectPresetException::defaultLocaleNotOfferedByDefault($presetKey, $default);
+            }
         }
 
         $result = DB::transaction(function () use ($force, $presetKey, $preset, $settings): ProjectPresetApplicationResult {

@@ -47,18 +47,56 @@ it('returns the labels and flag each locale is declared with', function () {
 
 // Enabled --------------------------------------------------------------------
 
-it('offers every installed language when the project never narrowed them', function () {
+it('offers exactly the languages enabled by default when the project never chose any', function () {
     storeProjectLocales(null, 'en');
 
-    expect(locales()->enabled())->toBe(config('locales.supported'))
-        ->and(locales()->enabledCodes())->toBe(supportedLocales());
+    expect(locales()->enabledCodes())->toBe(locales()->enabledByDefault())
+        ->and(locales()->enabled())->toBe(array_intersect_key(config('locales.supported'), array_flip(locales()->enabledByDefault())));
 });
 
-it('offers every installed language on an installation without a settings row', function () {
+it('reads the languages enabled by default from config, in config order', function () {
+    expect(locales()->enabledByDefault())->toBe(array_keys(array_filter(
+        config('locales.supported'),
+        fn (array $info): bool => $info['enabled_by_default'],
+    )));
+});
+
+it('keeps a language a release adds as not enabled by default away from a project that never chose', function () {
+    // The day a release installs a new language, a project still on NULL
+    // must not start offering it.
+    [, $added] = twoTranslatedLocales();
+    config(["locales.supported.{$added}.enabled_by_default" => false]);
+    storeProjectLocales(null, 'en');
+
+    expect(locales()->isEnabled($added))->toBeFalse()
+        ->and(locales()->isSupported($added))->toBeTrue()
+        ->and(locales()->enabledCodes())->toBe(locales()->enabledByDefault())
+        ->and(locales()->enabledCodes())->not->toContain($added);
+});
+
+it('lets a project choose a language that is not enabled by default', function () {
+    [, $added] = twoTranslatedLocales();
+    config(["locales.supported.{$added}.enabled_by_default" => false]);
+    storeProjectLocales(['en', $added], 'en');
+
+    expect(locales()->isEnabled($added))->toBeTrue();
+});
+
+it('falls back to the technical locale when nothing is enabled by default', function () {
+    foreach (supportedLocales() as $locale) {
+        config(["locales.supported.{$locale}.enabled_by_default" => false]);
+    }
+
+    storeProjectLocales(null, 'en');
+
+    expect(locales()->enabledCodes())->toBe([locales()->fallback()]);
+});
+
+it('offers the languages enabled by default on an installation without a settings row', function () {
     ProjectSettings::query()->delete();
     app(ProjectSettingsManager::class)->flush();
 
-    expect(locales()->enabledCodes())->toBe(supportedLocales());
+    expect(locales()->enabledCodes())->toBe(locales()->enabledByDefault());
 });
 
 it('offers only the languages the project enabled', function () {
@@ -140,6 +178,8 @@ it('serves a read value only when it is offered', function () {
 // Browser --------------------------------------------------------------------
 
 it('matches a regional browser language to the installed language', function (string $locale) {
+    offerEveryInstalledLocale();
+
     expect(locales()->fromAcceptLanguage("{$locale}-".strtoupper($locale).",{$locale};q=0.9,en;q=0.8"))->toBe($locale)
         ->and(locales()->fromAcceptLanguage(strtoupper($locale).'_'.strtoupper($locale)))->toBe($locale);
 })->with(translatedLocales());

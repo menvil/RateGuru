@@ -5,6 +5,7 @@ use App\Models\User;
 use Livewire\Livewire;
 
 it('allows authenticated user to update locale preference', function (string $locale) {
+    offerEveryInstalledLocale();
     $user = User::factory()->create(['locale' => 'en']);
 
     Livewire::actingAs($user)

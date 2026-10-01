@@ -69,7 +69,22 @@ class ResolvedProjectSettings
         );
     }
 
-    /** @return array{title: string, content: string} */
+    /**
+     * A static page in the current language, field by field.
+     *
+     * The page's English is the stored English, or the configured English
+     * where none is stored. Another language shows its own text — stored, or
+     * configured where none is stored — until the project rewrites that
+     * field's English. From then on the configured translation, and a stored
+     * copy of it, translate text the page no longer shows, so the visitor gets
+     * the current English instead; only a stored text of their own language
+     * that differs from the configured one is shown. This is the rule the
+     * Languages page counts missing translations by
+     * (ProjectTranslationCompleteness): what it lists as missing is what a
+     * visitor falls back from.
+     *
+     * @return array{title: string, content: string}
+     */
     public function staticPage(string $pageKey): array
     {
         $page = $this->data['static_pages'][$pageKey] ?? null;
@@ -78,29 +93,13 @@ class ResolvedProjectSettings
             throw new \InvalidArgumentException("Unknown static page [{$pageKey}].");
         }
 
+        $configured = config("static-pages.defaults.{$pageKey}", []);
+        $configured = is_array($configured) ? $configured : [];
         $locale = app()->getLocale();
-        $fallbackLocale = config('locales.fallback', 'en');
-        $storedLocalized = is_array($page[$locale] ?? null) ? $page[$locale] : [];
-        $storedFallback = is_array($page[$fallbackLocale] ?? null) ? $page[$fallbackLocale] : [];
-        $configuredPage = config("static-pages.defaults.{$pageKey}", []);
-        $configuredLocalized = is_array($configuredPage[$locale] ?? null)
-            ? $configuredPage[$locale]
-            : [];
-        $configuredFallback = is_array($configuredPage[$fallbackLocale] ?? null)
-            ? $configuredPage[$fallbackLocale]
-            : [];
-        $localized = [
-            'title' => $this->localizedStaticPageValue($storedLocalized, $configuredLocalized, 'title'),
-            'content' => $this->localizedStaticPageValue($storedLocalized, $configuredLocalized, 'content'),
-        ];
-        $fallback = [
-            'title' => $this->localizedStaticPageValue($storedFallback, $configuredFallback, 'title'),
-            'content' => $this->localizedStaticPageValue($storedFallback, $configuredFallback, 'content'),
-        ];
 
         return [
-            'title' => $this->localizedStaticPageValue($localized, $fallback, 'title'),
-            'content' => $this->localizedStaticPageValue($localized, $fallback, 'content'),
+            'title' => $this->staticPageText($page, $configured, $locale, 'title'),
+            'content' => $this->staticPageText($page, $configured, $locale, 'content'),
         ];
     }
 
@@ -115,9 +114,9 @@ class ResolvedProjectSettings
 
     /**
      * The codes stored as offered, unvalidated: null when the project never
-     * narrowed them (every installed language), and an empty list for a value
-     * that is not a list at all. LocaleManager::enabled() decides what they
-     * mean.
+     * chose (the languages enabled by default are offered), and an empty list
+     * for a value that is not a list at all. LocaleManager::enabled() decides
+     * what they mean.
      *
      * @return array<mixed>|null
      */
@@ -166,19 +165,38 @@ class ResolvedProjectSettings
     }
 
     /**
-     * @param  array<string, mixed>  $localized
-     * @param  array<string, mixed>  $fallback
+     * @param  array<string, mixed>  $page  the page as served: configured, with each stored language in its place
+     * @param  array<string, mixed>  $configured  the page as config/static-pages.php ships it
      */
-    private function localizedStaticPageValue(array $localized, array $fallback, string $key): string
+    private function staticPageText(array $page, array $configured, string $locale, string $field): string
     {
-        $value = $localized[$key] ?? null;
+        $reference = TranslatableField::REFERENCE_LOCALE;
+        $english = $this->staticPageField($page, $reference, $field);
+        $configuredEnglish = $this->staticPageField($configured, $reference, $field);
+        $current = $english ?? $configuredEnglish ?? '';
 
-        if (is_string($value) && trim($value) !== '') {
-            return $value;
+        $text = $this->staticPageField($page, $locale, $field);
+        $configuredText = $this->staticPageField($configured, $locale, $field);
+
+        if ($english === null || $english === $configuredEnglish) {
+            return $text ?? $configuredText ?? $current;
         }
 
-        $fallbackValue = $fallback[$key] ?? '';
+        // The English was rewritten: the configured translation, stored or
+        // not, is of the old English and does not count.
+        return $text !== null && $text !== $configuredText ? $text : $current;
+    }
 
-        return is_string($fallbackValue) ? $fallbackValue : '';
+    /**
+     * One field of one language of a page, or null where it has no text
+     * (TranslatableField::isPresent()).
+     *
+     * @param  array<string, mixed>  $page
+     */
+    private function staticPageField(array $page, string $locale, string $field): ?string
+    {
+        $value = is_array($page[$locale] ?? null) ? ($page[$locale][$field] ?? null) : null;
+
+        return TranslatableField::isPresent($value) ? $value : null;
     }
 }

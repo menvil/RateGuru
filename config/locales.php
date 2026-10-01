@@ -12,9 +12,15 @@ return [
     // lang/{code}/ and the metadata to show it. The flag is chosen per
     // language on purpose — a language is not a country, and `en` is neither
     // the US nor the UK by itself.
+    //
+    // `enabled_by_default` is bootstrap policy, not project state: it decides
+    // which languages a project offers while it has never chosen its own
+    // (project_settings.enabled_locales is NULL). A language added in a
+    // release ships with it false, so installing it never offers it to the
+    // visitors of an existing project; the Languages page enables it.
     'supported' => [
-        'en' => ['label' => 'English', 'native' => 'English', 'flag' => '🇬🇧'],
-        'ru' => ['label' => 'Russian', 'native' => 'Русский', 'flag' => '🇷🇺'],
-        'bg' => ['label' => 'Bulgarian', 'native' => 'Български', 'flag' => '🇧🇬'],
+        'en' => ['label' => 'English', 'native' => 'English', 'flag' => '🇬🇧', 'enabled_by_default' => true],
+        'ru' => ['label' => 'Russian', 'native' => 'Русский', 'flag' => '🇷🇺', 'enabled_by_default' => true],
+        'bg' => ['label' => 'Bulgarian', 'native' => 'Български', 'flag' => '🇧🇬', 'enabled_by_default' => true],
     ],
 ];

@@ -110,6 +110,8 @@ it('skips a cookie language the project does not offer', function () {
 // Browser --------------------------------------------------------------------
 
 it('serves the language of a regional browser setting', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->withHeaders(acceptLanguage("{$locale}-".strtoupper($locale).",{$locale};q=0.9"))
         ->get(route('feed'))
         ->assertOk()

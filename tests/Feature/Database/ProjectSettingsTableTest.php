@@ -30,8 +30,9 @@ it('has project settings table', function () {
 });
 
 it('leaves the offered languages unset on a row written before they existed', function () {
-    // Every installation that predates the column keeps offering every
-    // installed language, with no data migration.
+    // An installation that predates the column keeps offering the languages
+    // enabled by default — every language it offered before the column
+    // existed — with no data migration.
     DB::table('project_settings')->insert([
         'id' => 1,
         'site_name' => 'RateGuru',
@@ -42,5 +43,5 @@ it('leaves the offered languages unset on a row written before they existed', fu
     ]);
 
     expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull()
-        ->and(app(LocaleManager::class)->enabledCodes())->toBe(supportedLocales());
+        ->and(app(LocaleManager::class)->enabledCodes())->toBe(app(LocaleManager::class)->enabledByDefault());
 });

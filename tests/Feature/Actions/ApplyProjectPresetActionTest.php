@@ -232,3 +232,18 @@ it('never lets a preset choose which languages are offered', function () {
 
     expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBeNull();
 });
+
+it('refuses a preset whose default language a new project would not offer', function () {
+    // A new installation offers the languages enabled by default; a default
+    // outside them would start the project with a default nobody is offered.
+    [, $notByDefault] = twoTranslatedLocales();
+    config(["locales.supported.{$notByDefault}.enabled_by_default" => false]);
+    $preset = config('project_presets.nature');
+    $preset['settings']['default_locale'] = $notByDefault;
+    config(['project_presets.not_offered' => $preset]);
+
+    expect(fn () => app(ApplyProjectPresetAction::class)->handle('not_offered'))
+        ->toThrow(InvalidProjectPresetException::class, 'enabled_by_default');
+
+    expect(ProjectSettings::count())->toBe(0);
+});

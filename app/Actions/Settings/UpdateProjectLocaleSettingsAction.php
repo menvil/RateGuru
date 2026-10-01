@@ -2,9 +2,11 @@
 
 namespace App\Actions\Settings;
 
+use App\Exceptions\Settings\IncompleteLocaleCatalogException;
 use App\Models\ProjectSettings;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -15,12 +17,18 @@ use InvalidArgumentException;
  * Refuses rather than repairs: a code that is not installed, an empty set and a
  * default outside the set are caller errors. Reading tolerates a bad row
  * (LocaleManager::enabled()); writing never produces one.
+ *
+ * A language whose application catalogs break the contract is never newly
+ * offered, whoever asks (IncompleteLocaleCatalogException). One already
+ * offered is left alone, so a broken release does not lock the rest of the
+ * project's language settings.
  */
 final class UpdateProjectLocaleSettingsAction
 {
     public function __construct(
         private readonly LocaleManager $locales,
         private readonly ProjectSettingsManager $manager,
+        private readonly TranslationCatalogInspector $catalogs,
     ) {}
 
     /** @param  list<string>  $enabledLocales */
@@ -43,6 +51,14 @@ final class UpdateProjectLocaleSettingsAction
 
         if (! in_array($defaultLocale, $enabled, true)) {
             throw new InvalidArgumentException("The default locale [{$defaultLocale}] is not one of the offered languages.");
+        }
+
+        foreach (array_diff($enabled, $this->locales->enabledCodes()) as $locale) {
+            $catalog = $this->catalogs->inspect($locale);
+
+            if (! $catalog->isComplete()) {
+                throw new IncompleteLocaleCatalogException($locale, count($catalog->issues));
+            }
         }
 
         $settings = DB::transaction(function () use ($enabled, $defaultLocale): ProjectSettings {

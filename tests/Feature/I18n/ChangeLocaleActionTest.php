@@ -13,6 +13,8 @@ function localeCookie(TestResponse $response): ?Cookie
 }
 
 it('remembers a guest choice in the session and in a cookie', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->post(route('locale.change'), ['locale' => $locale])
         ->assertRedirect()
         ->assertCookie('locale', $locale);
@@ -21,6 +23,7 @@ it('remembers a guest choice in the session and in a cookie', function (string $
 })->with(supportedLocales());
 
 it('remembers a signed-in choice on the account, in the session and in a cookie', function (string $locale) {
+    offerEveryInstalledLocale();
     $user = User::factory()->create(['locale' => null]);
 
     $this->actingAs($user)

@@ -51,6 +51,8 @@ function adminPageSnapshot(string $html, string $componentName): string
 }
 
 it('renders the public site in the language on the account', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->actingAs(panelAdmin($locale))
         ->get(route('feed'))
         ->assertOk()
@@ -112,6 +114,7 @@ it('renders the admin sign-in page in English for a visitor browsing in another 
 })->with(translatedLocales());
 
 it('leaves the public language untouched after working in the panel', function (string $locale) {
+    offerEveryInstalledLocale();
     $admin = panelAdmin($locale);
 
     $this->actingAs($admin)
