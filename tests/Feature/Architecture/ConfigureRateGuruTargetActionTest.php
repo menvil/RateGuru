@@ -7,13 +7,28 @@ use Symfony\Component\Yaml\Yaml;
  * .github/actions/configure-rateguru-target — transport and invocation for the
  * server-side configure-target primitive.
  *
- * The property worth asserting hardest is an absence. This action carries NO
- * material: not an environment file, not authorized_keys, not a database
- * password. The target's shared/.env is canonical on the host — an operator
- * creates it there once, backups carry it as environment.env, and a recovery
- * restores it from the selected backup. GitHub is not a copy of it and is
- * never asked to resend it.
+ * Exactly one thing reaches the host: the target's deploy PUBLIC key, derived
+ * here from the deployment credential GitHub already holds. Provisioning
+ * deliberately left the deploy user without an authorized_keys and nothing else
+ * installs one, so without this a configured target stays unreachable.
+ *
+ * The property worth asserting hardest is still an absence, and it is now two:
+ * the deployment PRIVATE key never leaves the runner, and the environment file
+ * is never sent at all. The target's shared/.env is canonical on the host — an
+ * operator creates it there once, backups carry it as environment.env, and a
+ * recovery restores it from the selected backup. GitHub is not a copy of it and
+ * is never asked to resend it.
  */
+function configureActionStepScript(string $name): string
+{
+    foreach (data_get(configureAction(), 'runs.steps') as $step) {
+        if (($step['name'] ?? '') === $name) {
+            return $step['run'];
+        }
+    }
+
+    throw new RuntimeException("no step named {$name}");
+}
 function configureActionPath(): string
 {
     return base_path('.github/actions/configure-rateguru-target/action.yml');
@@ -268,5 +283,95 @@ it('tells the operator what is still not true', function () {
         'The next step is **not** \"deploy\"',
     ] as $claim) {
         expect($source)->toContain($claim);
+    }
+});
+
+// =============================================================================
+// The key derivation, executed rather than read
+// =============================================================================
+//
+// Every other assertion here matches the action's source text, which cannot
+// catch a step that is written correctly and behaves wrongly. This one runs the
+// real staging step against a real generated key.
+
+/** @return array{0: int, 1: string, 2: string} */
+function configureRunStagingStep(string $scratch, string $keyMaterial): array
+{
+    $runnerTemp = $scratch.'/runner';
+    $githubEnv = $scratch.'/github-env';
+
+    @mkdir($runnerTemp, 0o700, true);
+    touch($githubEnv);
+
+    $script = $scratch.'/stage.sh';
+    file_put_contents($script, configureActionStepScript('Stage the deploy public key'));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $script], $descriptors, $pipes, null, [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RUNNER_TEMP' => $runnerTemp,
+        'GITHUB_ENV' => $githubEnv,
+        'DEPLOY_SSH_KEY' => $keyMaterial,
+    ]);
+
+    expect($process)->not->toBeFalse();
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output, $runnerTemp];
+}
+
+it('derives the real public half of the deployment key and destroys the private one', function () {
+    $scratch = sys_get_temp_dir().'/configure-action-'.uniqid('', true);
+    @mkdir($scratch, 0o700, true);
+
+    try {
+        // A real key, so the derivation is checked against ssh-keygen's own
+        // answer rather than against a shape this test invented.
+        exec('ssh-keygen -t ed25519 -N "" -C deploy@test -f '.escapeshellarg($scratch.'/k').' 2>&1', $ignored, $generated);
+        expect($generated)->toBe(0, 'could not generate a test key');
+
+        [$exit, $output, $runnerTemp] = configureRunStagingStep($scratch, (string) file_get_contents($scratch.'/k'));
+
+        expect($exit)->toBe(0, $output);
+
+        $staged = $runnerTemp.'/rateguru-configure-material/deploy-authorized-keys';
+
+        // Byte-for-byte the key ssh-keygen itself wrote, on type and key body.
+        $derived = preg_split('/\s+/', trim((string) file_get_contents($staged)));
+        $real = preg_split('/\s+/', trim((string) file_get_contents($scratch.'/k.pub')));
+
+        expect([$derived[0], $derived[1]])->toBe([$real[0], $real[1]]);
+
+        // Nothing else was staged, and the private key is gone.
+        expect(scandir($runnerTemp.'/rateguru-configure-material'))->toBe(['.', '..', 'deploy-authorized-keys']);
+        expect(file_exists($runnerTemp.'/rateguru_configure_deploy_key'))->toBeFalse();
+        expect(substr(sprintf('%o', fileperms($staged)), -3))->toBe('600');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('fails on the runner, before any upload, when the deployment key is unusable', function () {
+    // ssh-keygen -y authenticates the credential as a key. A malformed or
+    // passphrase-protected one must stop here, where nothing has been uploaded
+    // and no remote command has run.
+    $scratch = sys_get_temp_dir().'/configure-action-'.uniqid('', true);
+    @mkdir($scratch, 0o700, true);
+
+    try {
+        [$exit, $output, $runnerTemp] = configureRunStagingStep($scratch, 'this is not an SSH private key');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('Nothing was uploaded and nothing was changed');
+
+        // The staging directory is torn down, so a later step cannot find a
+        // half-written file and upload it.
+        expect(is_dir($runnerTemp.'/rateguru-configure-material'))->toBeFalse();
+        expect(file_exists($runnerTemp.'/rateguru_configure_deploy_key'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
     }
 });
