@@ -1,6 +1,40 @@
 <?php
 
 use App\Models\ProjectSettings;
+use App\Support\Translations\MissingProjectTranslation;
+use App\Support\Translations\MissingTranslationReason;
+use App\Support\Translations\ProjectContentSection;
+use App\Support\Translations\ProjectTranslationCompleteness;
+
+/**
+ * Stores the configured about page with its English title rewritten, the way
+ * the Project Settings form stores it, and this language's stored text
+ * replaced by the given one — or left out when null.
+ *
+ * @param  array<string, string>|null  $localized
+ */
+function aboutPageWithRewrittenEnglishTitle(string $locale, ?array $localized): void
+{
+    $pages = config('static-pages.defaults');
+    $pages['about']['en']['title'] = 'About TitsGuru';
+
+    if ($localized === null) {
+        unset($pages['about'][$locale]);
+    } else {
+        $pages['about'][$locale] = $localized;
+    }
+
+    ProjectSettings::factory()->create(['static_pages' => $pages]);
+    offerEveryInstalledLocale();
+}
+
+/** Why the Languages page counts the about page title as missing in this language, if it does. */
+function aboutTitleMissingReason(string $locale): ?MissingTranslationReason
+{
+    return collect(app(ProjectTranslationCompleteness::class)->report($locale)->missing)
+        ->first(fn (MissingProjectTranslation $item): bool => $item->section === ProjectContentSection::StaticPages && $item->key === 'about' && $item->field === 'title')
+        ?->reason;
+}
 
 it('serves the public about page with its default content', function () {
     $page = config('static-pages.defaults.about.en');
@@ -95,6 +129,52 @@ it('renders admin-edited static page content for the current locale', function (
         ->assertOk()
         ->assertSee('О проекте после редактирования')
         ->assertSee('Текст страницы, сохранённый администратором.');
+});
+
+it('shows the rewritten English to a language with no text of its own for it', function () {
+    [$target] = twoTranslatedLocales();
+    aboutPageWithRewrittenEnglishTitle($target, null);
+
+    $this->withSession(['locale' => $target])
+        ->get(route('pages.about'))
+        ->assertOk()
+        ->assertSee('About TitsGuru')
+        ->assertDontSee(config("static-pages.defaults.about.{$target}.title"))
+        // Field by field: the content's English is unchanged, so its
+        // translation still applies.
+        ->assertSee(config("static-pages.defaults.about.{$target}.content"));
+
+    expect(aboutTitleMissingReason($target))->toBe(MissingTranslationReason::SourceCustomized);
+});
+
+it('shows the rewritten English rather than a stored copy of the old translation', function () {
+    [$target] = twoTranslatedLocales();
+    aboutPageWithRewrittenEnglishTitle($target, config("static-pages.defaults.about.{$target}"));
+
+    $this->withSession(['locale' => $target])
+        ->get(route('pages.about'))
+        ->assertOk()
+        ->assertSee('About TitsGuru')
+        ->assertDontSee(config("static-pages.defaults.about.{$target}.title"))
+        ->assertSee(config("static-pages.defaults.about.{$target}.content"));
+
+    expect(aboutTitleMissingReason($target))->toBe(MissingTranslationReason::StaleRepositoryDefault);
+});
+
+it('shows a translation written for the rewritten English', function () {
+    [$target] = twoTranslatedLocales();
+    aboutPageWithRewrittenEnglishTitle($target, [
+        'title' => 'A translation of the new title',
+        'content' => config("static-pages.defaults.about.{$target}.content"),
+    ]);
+
+    $this->withSession(['locale' => $target])
+        ->get(route('pages.about'))
+        ->assertOk()
+        ->assertSee('A translation of the new title')
+        ->assertDontSee('About TitsGuru');
+
+    expect(aboutTitleMissingReason($target))->toBeNull();
 });
 
 it('merges each blank or absent Russian static page field with configured Russian defaults', function (
