@@ -1,0 +1,28 @@
+tests/Feature/Filament/LanguagesPageTest.php
+  s_c0fe1399ff286f::t_1968243d16e9e8 32
+  s_c0fe1399ff286f::t_0c95c0643be8a8 47
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_c0fe1399ff286f::t_1968243d16e9e8 46
+tests/Pest.php
+  s_c0fe1399ff286f::t_1968243d16e9e8 18-19,3321-3340,3343-3352,3359,3362-3375
+  s_c0fe1399ff286f::t_0c95c0643be8a8 3341-3342,3353-3358,3360-3361
+tests/Feature/I18n/TranslationCatalogInspectorTest.php
+  s_c0fe1399ff286f::t_0c95c0643be8a8 31
+  s_c0fe1399ff286f::t_1968243d16e9e8 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4b2175cf4341a39ee0a0ecf954a565964cdb8c12",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
