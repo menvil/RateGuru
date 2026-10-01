@@ -1220,6 +1220,25 @@ function parityRegistryFixture(string $scratch, array $options = []): array
 }
 
 /**
+ * The keys a template declares, in FILE ORDER.
+ *
+ * Section comments and the blank lines between them are layout, not content,
+ * so they are dropped — a template may be grouped and annotated freely. What
+ * survives is the ordered list of variables, which is the thing a reviewer
+ * actually has to read.
+ */
+function environmentTemplateKeys(string $path): array
+{
+    return collect(preg_split('/\R/', File::get(base_path($path))))
+        ->map(fn (string $line): string => ltrim($line))
+        ->reject(fn (string $line): bool => $line === '' || str_starts_with($line, '#'))
+        ->filter(fn (string $line): bool => str_contains($line, '='))
+        ->map(fn (string $line): string => rtrim((string) strstr($line, '=', true)))
+        ->values()
+        ->all();
+}
+
+/**
  * A runtime .env that satisfies the environment contract: every key the
  * committed template declares, with the given values substituted in.
  *

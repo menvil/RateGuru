@@ -258,6 +258,51 @@ target — before it is moved forward, not while it is being put back.
 The exemption is logged rather than silent, and the log says where the contract
 is applied instead.
 
+#### Two protections, and they fail differently
+
+The gate above protects a **host** from an incomplete `.env`. It is only ever as
+good as the template it compares against — and says nothing about a template that
+has quietly forgotten a variable the application reads. That happened: a staging
+deploy was correctly refused for a missing `MEDIA_PUBLIC_DISK`, and the template
+had not been carrying it either, so nothing before the refusal had noticed.
+
+So there are two independent checks, and it is worth knowing which one a failure
+is:
+
+```text
+completeness   config/*.php  ->  target template or explicit policy  ->  CI
+host drift     candidate template  ->  live shared/.env  ->  deploy / configure
+```
+
+**Completeness** is enforced in CI, by
+`tests/Feature/Architecture/EnvironmentContractCompletenessTest.php`. Every
+environment variable `config/*.php` reads must be accounted for: declared by the
+deployment target templates, or recorded in
+`infrastructure/config/environment-contract-policy.json` as deliberately outside
+the deployed contract, with a category explaining why. Adding an `env()` and
+deciding nothing is the failure — and the inventory is closed in both directions,
+so an exception nobody needs any more fails too.
+
+The policy carries **key names and reasons only**, never a value. Its categories
+exist so that "completeness" cannot be read as a reason to require credentials
+for infrastructure this deployment does not use: Laravel's generic configuration
+references AWS, Postmark, Resend, Slack, Memcached, SQS and more, and none of
+those belong in a target's contract merely because the framework supports them.
+A setting of our own that carries a working default in `config/` is also outside
+the contract until it genuinely needs to differ per target — moving it in is a
+deliberate act, and the policy is what it moves out of.
+
+Two config files read `env()` through a local closure that normalizes a blank
+value to unset. The key is still a literal at every call site, but the `env()`
+call itself is not, so those closures are declared in the policy by name. Any
+*other* dynamic `env()` fails the guard rather than escaping the inventory
+silently.
+
+`.env.example` is deliberately **not** held to the same list: it serves local
+development and legitimately carries local, build and provider settings a
+deployed target has no use for. What it must not do is omit a setting the
+application reads.
+
 #### A separate gap, not solved here
 
 The installed templates under `/home/www/rateguru/config/environment/` exist for
