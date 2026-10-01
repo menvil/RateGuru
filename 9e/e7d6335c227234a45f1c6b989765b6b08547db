@@ -1,0 +1,26 @@
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_3268e9bf3ad18f 1931-1938
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  ai_agent 78
+  s_c7e782fafc9782::t_90c441d2dc2a52 76-77
+infrastructure/scripts/install-target-operations
+  ai_agent 15-17
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_c7e782fafc9782::t_90c441d2dc2a52 137-138,555-556,568-569,598-604,615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ee7d6335c227234a45f1c6b989765b6b08547db",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

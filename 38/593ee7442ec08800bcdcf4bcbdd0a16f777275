@@ -1,0 +1,66 @@
+infrastructure/scripts/configure-target
+  s_c7e782fafc9782::t_b8205e17e664c1 471-493
+  s_c7e782fafc9782::t_66f3a85cab4e46 748-758
+tests/Feature/Architecture/DeployTest.php
+  s_c7e782fafc9782::t_bf2dcce86289fe 477
+infrastructure/scripts/deploy
+  s_c7e782fafc9782::t_a5ce7b0d300b28 1275-1289
+infrastructure/scripts/verify-environment-contract
+  s_c7e782fafc9782::t_81cc6ac17bc23e 146
+  s_c7e782fafc9782::t_ec1d12e6ea590e 138-142
+  s_c7e782fafc9782::t_d4b0b937bf5ed5 1-59,79-137,143-145,147-151
+  s_c7e782fafc9782::t_1165e17e0d9399 60-78
+infrastructure/scripts/install-target-operations
+  s_c7e782fafc9782::t_715e2999157334 223,915-918,1041-1075,1126-1130,1815,1857-1859,1913-1917,1931-1932
+  s_c7e782fafc9782::t_6123ef4cd8421c 9,25,77-78,396,1137,1606-1607
+  s_c7e782fafc9782::t_90a96c1d63ebef 126,137-147,175,185-189,216-220,390,410,426,429,1152,1155
+  s_c7e782fafc9782::t_2f73c63aa2d143 421
+infrastructure/config/required-clis.txt
+  s_c7e782fafc9782::t_199920453163b6 39
+infrastructure/templates/environment/staging.env.example
+  s_c7e782fafc9782::t_670ce42c1ac8e8 8-16
+  s_c7e782fafc9782::t_cd7a8085e0bb59 1-7,17-24,27-29,31,35-39,43,45-51,55-57,59-64,68-78,81,83,85-142
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_c7e782fafc9782::t_f3a576463854d8 970-975,1009,1016-1018,1110,1234-1236,1257,1315,2487
+  s_c7e782fafc9782::t_6123ef4cd8421c 1291,1295-1298
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_93b441460e29a0 183-231
+tests/Pest.php
+  s_c7e782fafc9782::t_c45eaca59ff271 1223-1255
+  s_c7e782fafc9782::t_bf2dcce86289fe 1284-1291
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_5bf91a8b986a8d 957-961
+  s_c7e782fafc9782::t_98b89586b073f5 2114-2124
+  s_c7e782fafc9782::t_aa37cb5fc1cdd5 1917-2113,2125-2133
+infrastructure/runbooks/install-target-operations.md
+  s_c7e782fafc9782::t_4f50a6bbc64d56 19,29-31,57-58,96,162-163,204,317,381
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_c7e782fafc9782::t_f5417899a7b2cc 72-77
+  s_c7e782fafc9782::t_0d0aa841240f43 120-126,131-138
+tests/Feature/Architecture/EnvironmentContractTest.php
+  s_c7e782fafc9782::t_b8303798667b49 274-287
+  s_c7e782fafc9782::t_ae75d89a82a908 261-270,272-273,327-337,339-340,342-346,348-350
+  s_c7e782fafc9782::t_81cc6ac17bc23e 55
+  s_c7e782fafc9782::t_8cbdd36656391d 1-54,56-260,271,288-326,338,341,347,351-387
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_c7e782fafc9782::t_0c97f9387a127b 439-458,462-482,484-506
+infrastructure/templates/environment/tits-guru.env.example
+  s_c7e782fafc9782::t_cd7a8085e0bb59 1-7,17-24,27-29,31,35-39,43,45-51,55-57,59-64,68-78,81,83,85-142
+  s_c7e782fafc9782::t_670ce42c1ac8e8 8-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "38593ee7442ec08800bcdcf4bcbdd0a16f777275",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

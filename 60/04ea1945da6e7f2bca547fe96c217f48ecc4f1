@@ -1,0 +1,34 @@
+infrastructure/scripts/deploy
+  s_c7e782fafc9782::t_443034c85df818 1013-1084
+  s_c7e782fafc9782::t_e707d784ff2434 1400-1402
+tests/Feature/Architecture/DeployTest.php
+  s_c7e782fafc9782::t_da01819a0eb825 2552,2575-2600
+  s_c7e782fafc9782::t_ff4b27a559d3ca 460-474,477,512-544
+  s_c7e782fafc9782::t_1eaa9dc8736ed2 4003-4243
+infrastructure/scripts/verify-environment-contract
+  s_c7e782fafc9782::t_5bb8de73bb3a83 146-157
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_94e9c5b8bd7d2c 2032-2039,2059,2074,2137,2139,2142
+  s_c7e782fafc9782::t_f2dc2348141800 2040-2058,2060-2073,2075-2136,2138,2140-2141,2143-2145
+  s_c7e782fafc9782::t_5bd1e48184e393 2156-2157,2161-2162,2165,2177
+infrastructure/scripts/configure-target
+  s_c7e782fafc9782::t_5bb8de73bb3a83 478,757-766
+tests/Feature/Architecture/EnvironmentContractTest.php
+  s_c7e782fafc9782::t_c8acc44b44c936 100-113,311-316,319,321,323-329,331-335,338,345,349-398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6004ea1945da6e7f2bca547fe96c217f48ecc4f1",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
