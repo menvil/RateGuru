@@ -44,6 +44,7 @@ final class PostOpenGraph
         return match (app()->getLocale()) {
             'ru' => 'ru_RU',
             'bg' => 'bg_BG',
+            'de' => 'de_DE',
             default => 'en_US',
         };
     }
