@@ -1,0 +1,21 @@
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_c0fe1399ff286f::t_2f8d54dc1c1eab 53
+resources/views/components/locale-switcher.blade.php
+  s_c0fe1399ff286f::t_2f8d54dc1c1eab 17-20,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "560bd32cd486945202f1da782c02185b05f7134b",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
