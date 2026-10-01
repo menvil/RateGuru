@@ -15,6 +15,8 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use App\Support\Settings\PresetSettingsBuilder;
+use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -3314,6 +3316,63 @@ function acceptLanguage(string $header): array
 function noBrowserLanguage(): array
 {
     return acceptLanguage('');
+}
+
+/**
+ * Every translatable project setting translated into these languages, as the
+ * `{field}_translations` attributes of a settings row.
+ *
+ * @param  list<string>  $locales
+ * @return array<string, array<string, string>>
+ */
+function projectSettingsTranslationsIn(array $locales): array
+{
+    $attributes = [];
+
+    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
+        $attributes["{$field}_translations"] = collect($locales)->mapWithKeys(fn (string $locale): array => [$locale => "{$field} in {$locale}"])->all();
+    }
+
+    return $attributes;
+}
+
+/**
+ * A fresh, empty directory for one test's own language catalogs. The file
+ * that uses it removes it again with removeCatalogScratchDirectory($this) in
+ * its afterEach.
+ */
+function catalogScratchDirectory(): string
+{
+    $root = sys_get_temp_dir().'/rateguru-catalogs-'.uniqid('', true);
+    File::ensureDirectoryExists($root);
+    test()->catalogScratchDirectory = $root;
+
+    return $root;
+}
+
+/**
+ * Takes the test case itself: test() hands back a proxy that forwards reads
+ * and writes but answers isset() with false, so a check through it would
+ * never find the directory.
+ */
+function removeCatalogScratchDirectory(TestCase $test): void
+{
+    if (isset($test->catalogScratchDirectory)) {
+        File::deleteDirectory($test->catalogScratchDirectory);
+    }
+}
+
+/**
+ * Points the inspector at a copy of the catalogs with one of this language's
+ * files removed — a broken release on a server.
+ */
+function breakCatalogsOf(string $locale): void
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    File::delete("{$root}/{$locale}/ui.php");
+
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
 }
 
 /**

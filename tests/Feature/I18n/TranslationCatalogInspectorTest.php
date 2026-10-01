@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\File;
  */
 function catalogFixture(array $locales, array $json = []): TranslationCatalogInspector
 {
-    $root = sys_get_temp_dir().'/catalogs-'.uniqid('', true);
+    $root = catalogScratchDirectory();
 
     foreach ($locales as $locale => $catalogs) {
         File::ensureDirectoryExists("{$root}/{$locale}");
@@ -25,16 +25,10 @@ function catalogFixture(array $locales, array $json = []): TranslationCatalogIns
         File::put("{$root}/{$locale}.json", '{}');
     }
 
-    test()->catalogRoot = $root;
-
     return new TranslationCatalogInspector($root);
 }
 
-afterEach(function () {
-    if (isset($this->catalogRoot)) {
-        File::deleteDirectory($this->catalogRoot);
-    }
-});
+afterEach(fn () => removeCatalogScratchDirectory($this));
 
 function referenceCatalogFixture(): array
 {

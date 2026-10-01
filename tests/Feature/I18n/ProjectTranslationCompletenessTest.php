@@ -43,13 +43,7 @@ function missingReasonsIn(ProjectTranslationReport $report, ProjectContentSectio
 /** Project settings with every translatable field translated into these languages. */
 function translatedProjectSettings(array $locales, array $overrides = []): ProjectSettings
 {
-    $attributes = [];
-
-    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
-        $attributes["{$field}_translations"] = collect($locales)->mapWithKeys(fn (string $locale): array => [$locale => "{$field} in {$locale}"])->all();
-    }
-
-    return ProjectSettings::factory()->create([...$attributes, 'site_description' => 'About this site', ...$overrides]);
+    return ProjectSettings::factory()->create([...projectSettingsTranslationsIn($locales), 'site_description' => 'About this site', ...$overrides]);
 }
 
 // Project settings ------------------------------------------------------------

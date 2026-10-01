@@ -7,8 +7,6 @@ use App\Models\User;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
-use App\Support\Translations\TranslationCatalogInspector;
-use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 
 /**
@@ -31,29 +29,14 @@ function offeredLocales(): array
 /** Project settings with every translatable field translated into these languages. */
 function settingsTranslatedInto(array $locales): void
 {
-    $attributes = [];
+    $attributes = projectSettingsTranslationsIn($locales);
 
     foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
         $attributes[$field] = "{$field} text";
-        $attributes["{$field}_translations"] = collect($locales)->mapWithKeys(fn (string $locale): array => [$locale => "{$field} in {$locale}"])->all();
     }
 
     ProjectSettings::query()->update(collect($attributes)->map(fn (mixed $value): mixed => is_array($value) ? json_encode($value) : $value)->all());
     app(ProjectSettingsManager::class)->flush();
-}
-
-/**
- * Points the inspector at a copy of the catalogs with one of this language's
- * files removed — a broken release on a server.
- */
-function breakCatalogsOf(string $locale): void
-{
-    $root = sys_get_temp_dir().'/broken-lang-'.uniqid('', true);
-    File::copyDirectory(lang_path(), $root);
-    File::delete("{$root}/{$locale}/ui.php");
-    test()->brokenLangRoot = $root;
-
-    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
 }
 
 beforeEach(function () {
@@ -61,11 +44,7 @@ beforeEach(function () {
     $this->actingAs(User::factory()->admin()->create());
 });
 
-afterEach(function () {
-    if (isset($this->brokenLangRoot)) {
-        File::deleteDirectory($this->brokenLangRoot);
-    }
-});
+afterEach(fn () => removeCatalogScratchDirectory($this));
 
 it('is for administrators only', function () {
     $this->get(LanguagesPage::getUrl())->assertOk();
