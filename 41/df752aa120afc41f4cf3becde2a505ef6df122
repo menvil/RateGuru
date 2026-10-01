@@ -1,0 +1,19 @@
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_c7e782fafc9782::t_050214d5cd940c 150-156,158-159,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "41df752aa120afc41f4cf3becde2a505ef6df122",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
