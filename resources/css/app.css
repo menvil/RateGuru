@@ -38,6 +38,18 @@
     }
 }
 
+/*
+ * A disabled control never shows the pointer, whatever utility classes it
+ * carries. Kept outside any layer on purpose: unlayered rules outrank the
+ * utilities layer, so a cursor-pointer on the element cannot win.
+ */
+button:disabled,
+[role='button'][aria-disabled='true'],
+input:disabled,
+select:disabled {
+    cursor: not-allowed;
+}
+
 .rg-search-input::-webkit-search-cancel-button {
     display: none;
 }

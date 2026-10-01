@@ -64,10 +64,37 @@ it('shows the pointer on the admin table checkboxes and the settings selects', f
     'project settings' => '/admin/project-settings',
 ]);
 
-it('keeps the arrow on a disabled button', function () {
-    $page = visit(route('feed'))->resize(1440, 900)->wait(0.3);
+it('never shows the pointer on a disabled button, whatever classes it carries', function (string $route) {
+    // Every distinct button the page renders, disabled as it is: its own
+    // classes (cursor-pointer among them) must not bring the pointer back.
+    actingAs(User::factory()->unverified()->create());
+    Post::factory()->published()->withImage()->create();
 
-    expect($page->script(<<<'JS'
-        (() => { const button = document.createElement('button'); button.disabled = true; document.body.append(button); return getComputedStyle(button).cursor; })()
-    JS))->not->toBe('pointer');
-});
+    $page = visit(route($route))->resize(1440, 900)->wait(0.3);
+
+    $result = $page->script(<<<'JS'
+        (() => {
+            const seen = new Set();
+            const offenders = [];
+
+            for (const button of document.querySelectorAll('button')) {
+                if (button.offsetParent === null || seen.has(button.className)) continue;
+                seen.add(button.className);
+
+                const disabled = button.cloneNode(true);
+                disabled.disabled = true;
+                button.parentNode.append(disabled);
+
+                const cursor = getComputedStyle(disabled).cursor;
+                disabled.remove();
+
+                if (cursor === 'pointer') offenders.push(button.getAttribute('data-testid') || button.className.toString().slice(0, 60));
+            }
+
+            return {checked: seen.size, offenders};
+        })()
+    JS);
+
+    expect($result['offenders'])->toBe([])
+        ->and($result['checked'])->toBeGreaterThan(3);
+})->with(['feed', 'profile.edit']);

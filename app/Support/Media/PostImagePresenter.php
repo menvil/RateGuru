@@ -73,9 +73,12 @@ final class PostImagePresenter
      * A list of posts must not make the browser fetch every original upload
      * (up to 16 megapixels each) to draw a few dozen pixels.
      *
-     * Like responsive(), it never lazy-loads `variants` and never resolves a
-     * variant for an asset that has no public URL: a caller that did not
-     * eager-load imageAsset.variants gets the master.
+     * Like openGraph(), a variant is used only when its file is on disk, so a
+     * stale variant row falls through to the next one or to the master rather
+     * than to a broken image. Like responsive(), it never lazy-loads
+     * `variants` and never resolves a variant for an asset that has no public
+     * URL: a caller that did not eager-load imageAsset.variants gets the
+     * master.
      */
     public function thumbnailUrl(Post $post): ?string
     {
@@ -91,7 +94,7 @@ final class PostImagePresenter
             return $masterUrl;
         }
 
-        $smallest = $this->firstExisting(
+        $smallest = $this->firstExistingOnDisk(
             $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
             [MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920],
         );

@@ -27,23 +27,46 @@ function variantUrl(Post $post, MediaVariantName $name): string
     return Storage::disk('public')->url($post->imageAsset->variants->firstWhere('name', $name)->path);
 }
 
+/** Puts the files of these variants on disk; a variant row without its file is stale. */
+function storeVariantFiles(Post $post, MediaVariantName ...$names): Post
+{
+    foreach ($names as $name) {
+        Storage::disk('public')->put($post->imageAsset->variants->firstWhere('name', $name)->path, 'image');
+    }
+
+    return $post;
+}
+
 it('uses the smallest generated variant', function () {
-    $post = postWithVariants([
+    $post = storeVariantFiles(postWithVariants([
         MediaVariantName::PostDetail1920->value => [1920, 1280],
         MediaVariantName::PostFeed1280->value => [1280, 853],
         MediaVariantName::PostFeed640->value => [640, 427],
-    ]);
+    ]), MediaVariantName::PostDetail1920, MediaVariantName::PostFeed1280, MediaVariantName::PostFeed640);
 
     expect(thumbnailOf($post))->toBe(variantUrl($post, MediaVariantName::PostFeed640));
 });
 
 it('takes the next smallest variant when the smallest was not generated', function () {
-    $post = postWithVariants([
+    $post = storeVariantFiles(postWithVariants([
         MediaVariantName::PostDetail1920->value => [1920, 1280],
         MediaVariantName::PostFeed1280->value => [1280, 853],
-    ]);
+    ]), MediaVariantName::PostDetail1920, MediaVariantName::PostFeed1280);
 
     expect(thumbnailOf($post))->toBe(variantUrl($post, MediaVariantName::PostFeed1280));
+});
+
+it('passes over a variant whose file is gone, to the next one or the original', function () {
+    $post = storeVariantFiles(postWithVariants([
+        MediaVariantName::PostFeed1280->value => [1280, 853],
+        MediaVariantName::PostFeed640->value => [640, 427],
+    ]), MediaVariantName::PostFeed1280);
+
+    expect(thumbnailOf($post))->toBe(variantUrl($post, MediaVariantName::PostFeed1280));
+
+    Storage::disk('public')->delete($post->imageAsset->variants->firstWhere('name', MediaVariantName::PostFeed1280)->path);
+
+    expect(thumbnailOf($post))->toBe(Storage::disk('public')->url($post->imageAsset->path));
 });
 
 it('falls back to the original when no variant exists yet', function () {

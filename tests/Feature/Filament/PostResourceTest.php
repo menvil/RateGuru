@@ -6,6 +6,7 @@ use App\Filament\Resources\Posts\PostResource;
 use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('allows admin to access post resource index', function () {
@@ -60,6 +61,8 @@ it('renders an image column in the post resource table', function () {
 });
 
 it('shows the smallest variant as the thumbnail, lazily, and links the original', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('posts/variants/thumb-640.jpg', 'image');
     $this->actingAs(User::factory()->admin()->create());
     $post = Post::factory()->published()->withImage(path: 'posts/original.jpg', width: 4000, height: 3000)->create();
     MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
