@@ -1220,6 +1220,40 @@ function parityRegistryFixture(string $scratch, array $options = []): array
 }
 
 /**
+ * A runtime .env that satisfies the environment contract: every key the
+ * committed template declares, with the given values substituted in.
+ *
+ * Built FROM the template rather than from a list kept here, which is the whole
+ * point — deploy and configure refuse when a key the template declares is
+ * absent from the runtime file, so a fixture carrying its own hand-written key
+ * list would start failing the moment a key is added and would teach whoever
+ * fixed it to copy the list again. There is one list of keys and it is the
+ * template.
+ *
+ * @param  array<string, string>  $values  keys to give a concrete value
+ */
+function contractSatisfyingEnvironment(array $values = [], string $template = 'staging'): string
+{
+    $path = base_path("infrastructure/templates/environment/{$template}.env.example");
+
+    $lines = [];
+
+    foreach (preg_split('/\R/', (string) file_get_contents($path)) as $line) {
+        $trimmed = ltrim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        $key = rtrim(strstr($trimmed, '=', true) ?: '');
+
+        $lines[] = $key.'='.($values[$key] ?? substr(strstr($trimmed, '=') ?: '=', 1));
+    }
+
+    return implode("\n", $lines)."\n";
+}
+
+/**
  * The scratch target tree a live restore acts on: an immutable release under
  * releases/, a current symlink, shared/.env, the shared storage layout deploy
  * itself creates, and the lock/deployment directories.
@@ -1247,15 +1281,14 @@ function targetTreeFixture(string $scratch, array $options = []): string
         symlink($root.'/releases/'.$release, $root.'/current');
     }
 
-    file_put_contents($root.'/shared/.env', implode("\n", [
-        'APP_ENV=staging',
-        'DB_CONNECTION=pgsql',
-        'DB_HOST=127.0.0.1',
-        'DB_PORT=5432',
-        'DB_DATABASE='.($options['database'] ?? 'parity_db'),
-        'DB_USERNAME='.($options['role'] ?? 'parity_app'),
-        'DB_PASSWORD=s3cr3t-not-logged',
-        '',
+    file_put_contents($root.'/shared/.env', contractSatisfyingEnvironment([
+        'APP_ENV' => 'staging',
+        'DB_CONNECTION' => 'pgsql',
+        'DB_HOST' => '127.0.0.1',
+        'DB_PORT' => '5432',
+        'DB_DATABASE' => $options['database'] ?? 'parity_db',
+        'DB_USERNAME' => $options['role'] ?? 'parity_app',
+        'DB_PASSWORD' => 's3cr3t-not-logged',
     ]));
 
     file_put_contents($root.'/shared/storage/app/live-marker.txt', "live\n");

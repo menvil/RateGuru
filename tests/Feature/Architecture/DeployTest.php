@@ -457,9 +457,24 @@ function deployOpsRunQueueTransition(string $scratch, bool $originalRunning, arr
  * $laravel=true to additionally include artisan and the required-CLI
  * manifest verify-required-clis (stubbed elsewhere) would otherwise expect.
  *
+ * $release controls the ARTIFACT-OWNED environment contract inside the tarball,
+ * which is what an ordinary deploy now judges the host's .env against:
+ *
+ *   'contract' => false      the artifact carries no target registry at all,
+ *                            which is what an artifact built before the feature
+ *                            looks like (the default, and what every older test
+ *                            in this file relies on)
+ *   'contract' => 'declared' the artifact declares and ships a template
+ *   'keys'                   extra keys that template requires on top of the
+ *                            committed staging set
+ *   'declared'               override the declared path, to build the unsafe
+ *                            declarations the resolver must refuse
+ *   'ship'                   false to declare a template and not ship it
+ *   'registry'               raw registry contents, for a malformed one
+ *
  * @return array{root: string, incoming: string, artifact: string, checksum: string}
  */
-function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
+function deployOpsBuildFixture(string $scratch, bool $laravel = false, array $release = []): array
 {
     $id = uniqid('', true);
     $root = $scratch.'/target-'.$id;
@@ -474,7 +489,7 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
     ] as $dir) {
         expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create fixture directory: {$dir}");
     }
-    touch($root.'/shared/.env');
+    file_put_contents($root.'/shared/.env', contractSatisfyingEnvironment());
 
     $artifactSrc = $scratch.'/artifact-src-'.$id;
     mkdir($artifactSrc.'/public', 0o755, true);
@@ -492,6 +507,41 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
         file_put_contents($artifactSrc.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
         chmod($artifactSrc.'/infrastructure/scripts/common', 0o644);
         $tarEntries = 'public artisan infrastructure';
+    }
+
+    // The artifact-owned environment contract. Absent by default: an artifact
+    // that declares nothing is exactly what a pre-feature one is, and deploy
+    // must keep deploying it.
+    if (($release['contract'] ?? false) !== false) {
+        @mkdir($artifactSrc.'/infrastructure/config', 0o755, true);
+
+        $declared = $release['declared'] ?? 'infrastructure/templates/environment/staging.env.example';
+
+        file_put_contents(
+            $artifactSrc.'/infrastructure/config/deployment-targets.json',
+            $release['registry'] ?? json_encode(
+                ['targets' => ['parity-target' => ['environment_template' => $declared]]],
+                JSON_PRETTY_PRINT,
+            ),
+        );
+
+        if (($release['ship'] ?? true) === true) {
+            $shipAt = $artifactSrc.'/'.$declared;
+
+            @mkdir(dirname($shipAt), 0o755, true);
+
+            // Built FROM the committed template, so the fixture cannot drift
+            // from the real key set.
+            $template = File::get(base_path('infrastructure/templates/environment/staging.env.example'));
+
+            foreach ($release['keys'] ?? [] as $key) {
+                $template .= $key."=\n";
+            }
+
+            file_put_contents($shipAt, $template);
+        }
+
+        $tarEntries = $laravel ? 'public artisan infrastructure' : 'public infrastructure';
     }
 
     $artifact = $incoming.'/release.tar.gz';
@@ -2499,6 +2549,7 @@ function deployOpsAlignmentArtifact(
     ?string $sourceSha = DEPLOY_OPS_REQUIRED_SHA,
     bool $withReleaseJson = true,
     bool $laravel = false,
+    array $release = [],
 ): array {
     $id = uniqid('', true);
     $source = $scratch.'/alignment-src-'.$id;
@@ -2519,6 +2570,34 @@ function deployOpsAlignmentArtifact(
         file_put_contents($source.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
         chmod($source.'/infrastructure/scripts/common', 0o644);
         $entries .= ' artisan infrastructure';
+    }
+
+    // An alignment artifact may declare a contract too, which is how the
+    // controlled-mode tests prove the EXEMPTION is doing the work rather than
+    // simply that nothing was declared.
+    if (($release['contract'] ?? false) !== false) {
+        @mkdir($source.'/infrastructure/config', 0o755, true);
+
+        $declared = $release['declared'] ?? 'infrastructure/templates/environment/staging.env.example';
+
+        file_put_contents(
+            $source.'/infrastructure/config/deployment-targets.json',
+            json_encode(['targets' => ['parity-target' => ['environment_template' => $declared]]], JSON_PRETTY_PRINT),
+        );
+
+        @mkdir(dirname($source.'/'.$declared), 0o755, true);
+
+        $template = File::get(base_path('infrastructure/templates/environment/staging.env.example'));
+
+        foreach ($release['keys'] ?? [] as $key) {
+            $template .= $key."=\n";
+        }
+
+        file_put_contents($source.'/'.$declared, $template);
+
+        if (! str_contains($entries, 'infrastructure')) {
+            $entries .= ' infrastructure';
+        }
     }
 
     if ($withReleaseJson) {
@@ -3917,6 +3996,247 @@ it('never backfills translations during a recovery deployment', function () {
             ->not->toContain('artisan list')
             ->not->toContain('artisan rateguru:translations:backfill');
         expect($result['output'])->not->toContain('backfilling repository-known project translations');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The environment contract belongs to the candidate artifact
+// =============================================================================
+//
+// The drift that produced this: install-target-operations is not part of an
+// application deployment, so a host's operational bundle can be older than the
+// application being deployed onto it. We have already seen the installed
+// /home/www/rateguru/bin/deploy lag repository behaviour on the real staging
+// host. Judged against the installed template, an artifact needing a 71st key
+// deploys onto a 70-key .env and breaks on the request path.
+
+it('refuses an ordinary deploy when the candidate artifact needs a key the host lacks', function () {
+    // THE regression, built as the exact drift case:
+    //   installed operational template : the committed 70 keys
+    //   candidate artifact template     : 71, including NEW_RELEASE_KEY
+    //   live shared/.env                : the 70 it always had
+    //
+    // Consulting the installed template compares 70 against 70 and passes. The
+    // installed template is additionally pointed at a 70-key file here, so a
+    // regression to it would be silent rather than merely wrong.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, true, [
+            'contract' => 'declared',
+            'keys' => ['NEW_RELEASE_KEY'],
+        ]);
+
+        $installed = $scratch.'/installed-environment';
+        mkdir($installed, 0o755, true);
+        copy(base_path('infrastructure/templates/environment/staging.env.example'), $installed.'/staging.env.example');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'].' --migrate',
+            ['env' => ['RATEGURU_ENVIRONMENT_TEMPLATE_FILE' => $installed.'/staging.env.example']],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('ENVIRONMENT CONTRACT: BROKEN')
+            ->toContain('NEW_RELEASE_KEY');
+
+        // Refused before the target changed in any way.
+        expect($result['output'])
+            ->not->toContain('extracting v1.0.0')
+            ->not->toContain('running database migrations')
+            ->not->toContain('switching current symlink');
+
+        expect(is_link($fixture['root'].'/current'))->toBeFalse('current must not be switched after a contract refusal');
+        expect(glob($fixture['root'].'/releases/*'))->toBe([], 'no release directory may exist after a contract refusal');
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse('no history row may be written');
+
+        // The canonical file was not edited to make the deploy pass.
+        expect(File::get($fixture['root'].'/shared/.env'))->not->toContain('NEW_RELEASE_KEY');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('lets an ordinary deploy proceed when the candidate contract is satisfied', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // No artisan: this proves the contract decision, and Laravel preparation
+        // needs a group shim it has no reason to carry.
+        $fixture = deployOpsBuildFixture($scratch, false, ['contract' => 'declared']);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('environment contract: all 70 declared key(s) present')
+            ->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('deploys an artifact built before the contract existed', function () {
+    // No 'contract' key: the artifact carries no target registry, exactly as a
+    // pre-feature one does. It must still deploy.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('release predates artifact-owned environment contract — skipping environment key validation')
+            ->not->toContain('ENVIRONMENT CONTRACT: BROKEN');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('fails closed on an artifact that declares a contract it cannot produce', function (array $release, string $expected) {
+    // Feature detection must not become a way for a corrupt artifact to be waved
+    // through, and there is deliberately no fallback to the installed template.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, true, array_merge(['contract' => 'declared'], $release));
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'].' --migrate',
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        expect($result['output'])
+            ->not->toContain('predates artifact-owned environment contract')
+            ->not->toContain('extracting v1.0.0')
+            ->not->toContain('running database migrations');
+
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'the declared template is not in the artifact' => [
+        ['ship' => false],
+        'which it does not contain',
+    ],
+    'the declared path is absolute' => [
+        ['declared' => '/etc/passwd', 'ship' => false],
+        'declares an absolute environment_template',
+    ],
+    'the declared path escapes with ..' => [
+        ['declared' => 'infrastructure/../../etc/passwd', 'ship' => false],
+        "containing '..'",
+    ],
+    'the registry is not valid JSON' => [
+        ['registry' => "not json at all\n"],
+        'not valid JSON',
+    ],
+]);
+
+it('does not reject a controlled alignment whose environment predates the current contract', function (string $mode) {
+    // A restore or a recovery installs an EXACT historical release beside
+    // historical, restored state. The backup's environment belongs to the source
+    // SHA it was taken from and may legitimately predate keys that exist today;
+    // refusing that pair would make a valid disaster recovery impossible.
+    //
+    // The alignment artifact deliberately DECLARES a contract requiring a key the
+    // runtime .env does not have — so passing proves the controlled exemption is
+    // doing the work, not merely that nothing was declared.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = $mode === 'recovery'
+            ? deployOpsBuildFixture($scratch)
+            : deployOpsServingFixture($scratch);
+
+        $artifact = deployOpsAlignmentArtifact(
+            $scratch,
+            $fixture,
+            release: ['contract' => 'declared', 'keys' => ['KEY_ADDED_AFTER_THE_BACKUP']],
+        );
+
+        $mode === 'restore'
+            ? deployOpsWriteHeldRestore($scratch)
+            : deployOpsWriteAwaitingCodeRecovery($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact'].' --checksum '.$artifact['checksum']
+                .($mode === 'restore'
+                    ? ' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION
+                    : ' --recovery-operation '.DEPLOY_OPS_RECOVERY_OPERATION),
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('deliberately NOT applied')
+            ->not->toContain('ENVIRONMENT CONTRACT: BROKEN')
+            ->not->toContain('KEY_ADDED_AFTER_THE_BACKUP');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with(['restore', 'recovery']);
+
+it('never prints a value from the environment file, and never writes it', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, true, [
+            'contract' => 'declared',
+            'keys' => ['NEW_RELEASE_KEY'],
+        ]);
+
+        // Unmistakable values in the live canonical file.
+        $envPath = $fixture['root'].'/shared/.env';
+        file_put_contents($envPath, contractSatisfyingEnvironment([
+            'APP_KEY' => 'base64:DEPLOY-MUST-NEVER-PRINT-THIS',
+            'DB_PASSWORD' => 'DEPLOY-MUST-NEVER-PRINT-THIS-EITHER',
+        ]));
+
+        $before = File::get($envPath);
+        $mtimeBefore = filemtime($envPath);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->not->toContain('DEPLOY-MUST-NEVER-PRINT-THIS')
+            ->not->toContain('DEPLOY-MUST-NEVER-PRINT-THIS-EITHER');
+
+        clearstatcache();
+        expect(File::get($envPath))->toBe($before, 'deploy must never write the canonical environment file');
+        expect(filemtime($envPath))->toBe($mtimeBefore);
     } finally {
         deployOpsCleanup($scratch);
     }

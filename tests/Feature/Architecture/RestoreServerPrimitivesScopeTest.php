@@ -134,7 +134,8 @@ it('installs every new primitive through the existing target-operations installe
         20 => 'twenty', 21 => 'twenty-one', 22 => 'twenty-two',
         23 => 'twenty-three', 24 => 'twenty-four', 25 => 'twenty-five',
         26 => 'twenty-six', 27 => 'twenty-seven', 28 => 'twenty-eight',
-        29 => 'twenty-nine', 30 => 'thirty',
+        29 => 'twenty-nine', 30 => 'thirty', 31 => 'thirty-one',
+        32 => 'thirty-two', 33 => 'thirty-three', 34 => 'thirty-four',
     ];
 
     // toHaveKey's second argument is an expected VALUE, not a message.
@@ -146,13 +147,18 @@ it('installs every new primitive through the existing target-operations installe
         ->toContain('all '.$words[$installedFiles].' source files are present regular files');
 
     // The registry and deployment.conf are data, and so are the committed
-    // vhost sources; everything else — the two sourced libraries included —
-    // is `bash -n`'d as a shell script.
-    $nginxSources = count(array_filter(
+    // vhost sources and the environment templates; everything else — the two
+    // sourced libraries included — is `bash -n`'d as a shell script.
+    //
+    // Counted by prefix rather than by a literal, so a new file of an existing
+    // kind lands on the right side of the split without this derivation being
+    // edited — which is the whole reason the count is derived at all.
+    $dataFiles = count(array_filter(
         $destinations[1],
-        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_'),
+        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_')
+            || str_starts_with($name, 'DST_ENV_TEMPLATE_'),
     ));
-    $scripts = $installedFiles - 2 - $nginxSources;
+    $scripts = $installedFiles - 2 - $dataFiles;
 
     expect($installer)
         ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
@@ -551,6 +557,8 @@ it('confines every restore concern in the shared library to its own sections', f
     $gatesEnd = mb_strpos($common, '# --- registry lifecycle gates (end) ---');
     $lockStart = mb_strpos($common, '# --- host infrastructure lock (begin) ---');
     $lockEnd = mb_strpos($common, '# --- host infrastructure lock (end) ---');
+    $contractStart = mb_strpos($common, '# --- environment contract (begin) ---');
+    $contractEnd = mb_strpos($common, '# --- environment contract (end) ---');
     $guardStart = mb_strpos($common, '# --- restore guard');
     $alignmentStart = mb_strpos($common, '# --- restore alignment authorization');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
@@ -562,6 +570,8 @@ it('confines every restore concern in the shared library to its own sections', f
     expect($gatesStart)->toBeGreaterThan($formatEnd);
     expect($lockStart)->not->toBeFalse('the host infrastructure lock section is missing from common');
     expect($lockEnd)->toBeGreaterThan($lockStart);
+    expect($contractStart)->not->toBeFalse('the environment contract section is missing from common');
+    expect($contractEnd)->toBeGreaterThan($contractStart);
     expect($lockStart)->toBeGreaterThan($gatesEnd);
     expect($guardStart)->not->toBeFalse('the restore guard section is missing from common');
     expect($guardStart)->toBeGreaterThan($lockEnd);
@@ -590,6 +600,13 @@ it('confines every restore concern in the shared library to its own sections', f
     // does nothing else — no chmod, no install, no child, no registry.
     $lockSection = mb_substr($common, $lockStart, $lockEnd - $lockStart);
 
+    // The sixth. It reads two files and compares the KEY NAMES in them, which
+    // is neither a gate (it opens files) nor a lock (it compares contents), so
+    // it could not honestly live in either. What pins it instead is asserted
+    // in EnvironmentContractTest: nothing in it sources, evaluates or writes,
+    // and no value from the file it reads ever reaches its output.
+    $contractSection = mb_substr($common, $contractStart, $contractEnd - $contractStart);
+
     // Every line of CODE this branch added to common belongs to one of them.
     // Comments are excluded deliberately: `common` carries prose all over it,
     // and rewording a comment somewhere else in the file is not a restore
@@ -600,6 +617,7 @@ it('confines every restore concern in the shared library to its own sections', f
             || str_contains($restoreSections, $line)
             || str_contains($gatesSection, $line)
             || str_contains($lockSection, $line)
+            || str_contains($contractSection, $line)
         )->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
     }
 

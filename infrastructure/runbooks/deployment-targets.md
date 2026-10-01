@@ -180,6 +180,100 @@ Secrets do not move into the registry:
 The registry names *which* database a target uses. It never says how to
 authenticate to it.
 
+### The environment contract
+
+Each target declares an `environment_template` — the committed file that says
+**which keys** its runtime `shared/.env` must carry. Every target's template
+declares the same keys in the same order, enforced in CI, so the two differ only
+in environment-specific values and can be diffed against each other.
+
+The runtime file is canonical on the host and nothing ever writes it. That is
+correct, and it is exactly why it can fall behind: a reviewed change adds a key
+to the templates, and the host file does not know. So the key names are compared
+before anything happens:
+
+```bash
+verify-environment-contract --target TARGET_ID
+```
+
+Read-only, for any target in any lifecycle. **Key names only** — no value is
+read, printed, hashed, measured or compared, and the file is read rather than
+sourced, because it is operator-authored root-owned material. Keys the template
+does not declare are reported and allowed; a key declared twice fails, because
+which value is in force is then unreadable. Nothing ever writes the runtime file:
+the value of a key an operator has not supplied is the operator's to decide, and
+an operation that invented one would make the drift permanent and invisible.
+
+#### Whose contract applies, and when
+
+There are three templates in play and they can legitimately disagree. Which one
+decides depends on what is being asked.
+
+| Operation | Contract it is judged against | Why |
+|---|---|---|
+| **Ordinary deploy** | the template inside the **candidate artifact** | the artifact is the code that will run, so its requirements are the ones that matter |
+| **Configure Target** | the **repository** template of the trusted checkout | configuring prepares a host for the code that checkout describes; no release has been deployed yet |
+| `verify-environment-contract` | the **installed** template under `/home/www/rateguru/config/environment/` | a standalone host-side question: does this host satisfy the contract its installed tooling declares? |
+| **Restore / recovery alignment** | none — deliberately exempt | see below |
+
+**An ordinary deploy must not be judged by the installed template**, and this is
+the trap worth stating plainly. `install-target-operations` is not part of an
+application deployment, so a host's operational bundle can be older than the
+application being deployed onto it. A host with 70 keys installed, an artifact
+expecting 71 and a `.env` carrying 70 would compare 70 against 70, pass, and
+install an application that cannot read the key it needs. So deploy reads the
+contract out of the artifact: its own target registry, then the template that
+registry declares — after the lock is held, the checksum is verified and unsafe
+tar paths are rejected, and before the history row, any extraction, any migration
+and the `current` switch. A refusal leaves no release directory and no history.
+
+An artifact built before this feature declares nothing and deploys exactly as it
+always did. An artifact that *declares* a contract it cannot produce fails
+closed, with no fallback to the installed template.
+
+So a new key travels a closed route:
+
+```text
+a key is added to one template
+  -> CI fails until every target's template declares it
+  -> it ships inside every artifact built from that point on
+  -> the next ordinary deploy refuses on any host whose .env lacks it
+  -> an operator adds it deliberately, and only then does the deploy proceed
+```
+
+#### Restore and recovery are exempt, on purpose
+
+A controlled alignment — `--restore-operation` or `--recovery-operation` — puts
+an **exact historical release** beside historical, restored state. The backup's
+`environment.env` belongs to the source SHA it was taken from, and that release
+may legitimately predate keys that exist today.
+
+Enforcing today's contract there would make a valid disaster recovery
+impossible, so it is not enforced. What those modes preserve is the
+backup↔code contract: the artifact must be the exact commit the backup names,
+which their own authorization and state guards already prove, strictly. The
+environment contract is enforced at the next **ordinary promotion** of that
+target — before it is moved forward, not while it is being put back.
+
+The exemption is logged rather than silent, and the log says where the contract
+is applied instead.
+
+#### A separate gap, not solved here
+
+The installed templates under `/home/www/rateguru/config/environment/` exist for
+standalone inspection and are **not** what an ordinary deploy decides by. They
+are installed by `install-target-operations` alongside the standalone validator.
+
+That leaves a broader problem this section does not solve: an application deploy
+executes `/home/www/rateguru/bin/deploy`, whose implementation may lag the
+repository's. We have seen it happen — an installed deploy skipped a translation
+backfill a release expected, because the installed script predated it. Reading
+the environment contract from the artifact closes that one class of drift and
+nothing more. RateGuru still needs an **operational-bundle compatibility
+contract**, so a host can refuse to run a deployment its tooling is too old to
+perform correctly. That is a dedicated follow-up, required before production
+activation.
+
 ## Validation
 
 ```bash

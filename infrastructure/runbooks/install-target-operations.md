@@ -16,7 +16,7 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly twenty-eight files:
+Exactly thirty-one files:
 
 | Source (this repo) | Destination |
 |---|---|
@@ -26,6 +26,9 @@ Exactly twenty-eight files:
 | `infrastructure/config/nginx/rateguru-production` | `/home/www/rateguru/config/nginx/rateguru-production` |
 | `infrastructure/config/nginx/mailpit-staging` | `/home/www/rateguru/config/nginx/mailpit-staging` |
 | `infrastructure/config/nginx/mailtrap-local-staging` | `/home/www/rateguru/config/nginx/mailtrap-local-staging` |
+| `infrastructure/templates/environment/staging.env.example` | `/home/www/rateguru/config/environment/staging.env.example` |
+| `infrastructure/templates/environment/tits-guru.env.example` | `/home/www/rateguru/config/environment/tits-guru.env.example` |
+| `infrastructure/scripts/verify-environment-contract` | `/home/www/rateguru/bin/verify-environment-contract` |
 | `infrastructure/scripts/targets` | `/home/www/rateguru/bin/targets` |
 | `infrastructure/scripts/common` | `/home/www/rateguru/bin/common` |
 | `infrastructure/scripts/health-check` | `/home/www/rateguru/bin/health-check` |
@@ -51,8 +54,8 @@ Exactly twenty-eight files:
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these twenty-eight files in these
-twenty-eight places with these exact permissions. Nothing else. It never sources or
+installer's entire job is putting these thirty-one files in these
+thirty-one places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
 
@@ -90,7 +93,7 @@ check.
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the twenty-eight files inside them. `--apply` validates both directories before
+the thirty-one files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -156,8 +159,8 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the twenty-eight source files (exist, regular, not a symlink), runs
-`bash -n` on the twenty-two shell scripts (every source file except the
+Validates the thirty-one source files (exist, regular, not a symlink), runs
+`bash -n` on the twenty-three shell scripts (every source file except the
 registry, `deployment.conf` and the four Nginx vhost sources, none of which
 is shell), confirms `jq`
 can parse the registry, runs the *committed* `targets` CLI against the
@@ -198,7 +201,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-5. The twenty-eight source files are copied into a private, root-only temporary
+5. The thirty-one source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -311,7 +314,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
 | `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts; `rateguru-production` is named by no registered target and is carried for this installer's own byte-verification alone |
 
-None of the twenty-eight may be group- or world-writable, and none may be a
+None of the thirty-one may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -375,7 +378,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the twenty-eight destinations that need restoring. Confirm with:
+Repeat for each of the thirty-one destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify

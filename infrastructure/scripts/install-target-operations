@@ -6,13 +6,15 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the twenty-two operational scripts
+#   --apply   Install the target registry, the twenty-three operational scripts
 #             (targets, common, restore-common, health-check, status,
 #             cleanup, deploy, rollback, backup, restore-test,
 #             offsite-backup, offsite-retention, offsite-restore-test,
 #             backup-cycle, fetch-backup, verify-backup, restore-database,
 #             restore-storage, restore-target, recover-host,
-#             install-target-prerequisites, verify-required-clis), the four
+#             install-target-prerequisites, verify-required-clis,
+#             verify-environment-contract), the two committed environment
+#             templates, the four
 #             committed Nginx vhost sources the prerequisite table is derived
 #             from, and the host-global deployment.conf, verify a staged copy
 #             before touching anything, install transactionally, then verify
@@ -22,7 +24,7 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Twenty-eight files: the registry, the twenty-two scripts — targets,
+#   * Thirty-one files: the registry, the twenty-three scripts — targets,
 #     common and restore-common (sourced libraries), health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
 #     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
@@ -74,8 +76,8 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these twenty-eight files in these
-# twenty-eight places with these exact permissions, nothing else. The one
+# this installer's whole job is to put these thirty-one files in these
+# thirty-one places with these exact permissions, nothing else. The one
 # directory it creates is config/nginx, which exists solely to hold four of
 # those files.
 #
@@ -123,6 +125,7 @@ SRC_RESTORE_TARGET="${REPO_ROOT}/infrastructure/scripts/restore-target"
 SRC_RECOVER_HOST="${REPO_ROOT}/infrastructure/scripts/recover-host"
 SRC_TARGET_PREREQUISITES="${REPO_ROOT}/infrastructure/scripts/install-target-prerequisites"
 SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
+SRC_VERIFY_ENV_CONTRACT="${REPO_ROOT}/infrastructure/scripts/verify-environment-contract"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 # The committed Nginx vhost sources install-target-prerequisites parses its
 # host-scope prerequisite table out of: every target's own site, plus the two
@@ -133,6 +136,22 @@ SRC_NGINX_SOURCE_STAGING="${REPO_ROOT}/infrastructure/config/nginx/rateguru-stag
 SRC_NGINX_SOURCE_PRODUCTION="${REPO_ROOT}/infrastructure/config/nginx/rateguru-production"
 SRC_NGINX_SOURCE_MAILPIT="${REPO_ROOT}/infrastructure/config/nginx/mailpit-staging"
 SRC_NGINX_SOURCE_MAILTRAP="${REPO_ROOT}/infrastructure/config/nginx/mailtrap-local-staging"
+# The committed environment templates, installed for STANDALONE host-side
+# inspection: verify-environment-contract answers "does this host satisfy the
+# contract its installed tooling declares?", and it needs them locally.
+#
+# They are deliberately NOT what an ordinary deploy decides by. This installer is
+# not part of an application deployment, so what it installs can be older than
+# the application being deployed onto the host — judged against these, an artifact
+# requiring a key the host has never had would be waved through. deploy reads its
+# contract out of the artifact it is installing instead.
+#
+# Listed rather than globbed or derived, for the reason the vhosts above are: a
+# glob would make a template nobody intended into one an operator is told to
+# satisfy. Completeness is enforced instead — a test fails when a target in the
+# registry declares a template this installer does not install.
+SRC_ENV_TEMPLATE_STAGING="${REPO_ROOT}/infrastructure/templates/environment/staging.env.example"
+SRC_ENV_TEMPLATE_TITS_GURU="${REPO_ROOT}/infrastructure/templates/environment/tits-guru.env.example"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -160,6 +179,7 @@ DST_RESTORE_TARGET="${DST_BIN_ROOT}/restore-target"
 DST_RECOVER_HOST="${DST_BIN_ROOT}/recover-host"
 DST_TARGET_PREREQUISITES="${DST_BIN_ROOT}/install-target-prerequisites"
 DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
+DST_VERIFY_ENV_CONTRACT="${DST_BIN_ROOT}/verify-environment-contract"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 # The one directory this installer owns: it exists solely to hold the four
 # vhost sources below, in the position install-target-prerequisites resolves
@@ -169,6 +189,11 @@ DST_NGINX_SOURCE_STAGING="${DST_CONFIG_ROOT}/nginx/rateguru-staging"
 DST_NGINX_SOURCE_PRODUCTION="${DST_CONFIG_ROOT}/nginx/rateguru-production"
 DST_NGINX_SOURCE_MAILPIT="${DST_CONFIG_ROOT}/nginx/mailpit-staging"
 DST_NGINX_SOURCE_MAILTRAP="${DST_CONFIG_ROOT}/nginx/mailtrap-local-staging"
+# The second directory this installer owns, in the position `common`
+# resolves environment templates from on a deployed host.
+DST_ENV_TEMPLATES_ROOT="${DST_CONFIG_ROOT}/environment"
+DST_ENV_TEMPLATE_STAGING="${DST_ENV_TEMPLATES_ROOT}/staging.env.example"
+DST_ENV_TEMPLATE_TITS_GURU="${DST_ENV_TEMPLATES_ROOT}/tits-guru.env.example"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
 
@@ -195,9 +220,14 @@ DEPLOYMENT_CONF_MODE="0640"
 # install-bootstrap-services installs under /etc/nginx as 0644.
 NGINX_SOURCE_MODE="0644"
 NGINX_SOURCES_ROOT_MODE="0755"
+# The templates carry no secret: every secret key in them is committed blank,
+# and their whole purpose is to be compared by key NAME. Same public,
+# non-secret configuration shape as the vhost sources.
+ENV_TEMPLATE_MODE="0644"
+ENV_TEMPLATES_ROOT_MODE="0755"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the twenty-eight files it installs. A named constant (not a literal
+# about: the thirty-one files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -364,13 +394,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all twenty-eight source files are present regular files"
+    log "all thirty-one source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -384,7 +414,7 @@ validate_source_files() {
 # validate_source_files already requires them to be readable regular files.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
 
@@ -395,15 +425,15 @@ validate_source_executable_modes() {
         [[ ! -x "${path}" ]] || fail "sourced library must not be executable: ${path}"
     done
 
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites and verify-required-clis are all executable; common and restore-common are not"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all twenty-two source shell scripts"
+    log "bash -n passed for all twenty-three source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -889,6 +919,10 @@ rollback_installed_files() {
     # The vhost sources directory is removed only when this run created it and
     # the file rollback above left it empty: rmdir cannot delete anything a
     # rollback did not already account for.
+    if [[ "${CREATED_ENV_TEMPLATES_ROOT:-false}" == true ]] && [[ -d "${DST_ENV_TEMPLATES_ROOT}" ]]; then
+        rmdir "${DST_ENV_TEMPLATES_ROOT}" 2>/dev/null || true
+    fi
+
     if [[ "${CREATED_NGINX_SOURCES_ROOT:-false}" == true ]] && [[ -d "${DST_NGINX_SOURCES_ROOT}" ]]; then
         rmdir "${DST_NGINX_SOURCES_ROOT}" 2>/dev/null \
             || { log "ERROR: could not remove ${DST_NGINX_SOURCES_ROOT} during rollback (not empty?)"; status=1; }
@@ -1011,6 +1045,41 @@ ensure_nginx_sources_root() {
 
 CREATED_NGINX_SOURCES_ROOT=false
 
+# The environment templates directory, created the same way and for the same
+# reason: it exists solely to hold the committed templates, in the position
+# `common` resolves them from when no repository exists on the host.
+ensure_env_templates_root() {
+    if [[ -e "${DST_ENV_TEMPLATES_ROOT}" ]] || [[ -L "${DST_ENV_TEMPLATES_ROOT}" ]]; then
+        [[ ! -L "${DST_ENV_TEMPLATES_ROOT}" ]] \
+            || fail "environment templates directory must not be a symlink: ${DST_ENV_TEMPLATES_ROOT}"
+        [[ -d "${DST_ENV_TEMPLATES_ROOT}" ]] \
+            || fail "environment templates path exists but is not a directory: ${DST_ENV_TEMPLATES_ROOT}"
+        return 0
+    fi
+
+    install -d -o "${INSTALL_OWNER}" -g "${INSTALL_GROUP}" -m "${ENV_TEMPLATES_ROOT_MODE}" "${DST_ENV_TEMPLATES_ROOT}" \
+        || fail "could not create the environment templates directory: ${DST_ENV_TEMPLATES_ROOT}"
+    CREATED_ENV_TEMPLATES_ROOT=true
+    log "created ${DST_ENV_TEMPLATES_ROOT} (${INSTALL_OWNER}:${INSTALL_GROUP} ${ENV_TEMPLATES_ROOT_MODE})"
+}
+
+CREATED_ENV_TEMPLATES_ROOT=false
+
+verify_env_templates_root() {
+    [[ -e "${DST_ENV_TEMPLATES_ROOT}" ]] || fail "environment templates directory is missing: ${DST_ENV_TEMPLATES_ROOT}"
+    [[ ! -L "${DST_ENV_TEMPLATES_ROOT}" ]] || fail "environment templates directory must not be a symlink: ${DST_ENV_TEMPLATES_ROOT}"
+    [[ -d "${DST_ENV_TEMPLATES_ROOT}" ]] || fail "environment templates path is not a directory: ${DST_ENV_TEMPLATES_ROOT}"
+
+    local owner mode
+    owner="$(stat -c '%u:%g' "${DST_ENV_TEMPLATES_ROOT}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "environment templates directory has wrong ownership: ${DST_ENV_TEMPLATES_ROOT} is ${owner}, expected ${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}"
+
+    mode="$(stat -c '%a' "${DST_ENV_TEMPLATES_ROOT}")"
+    (( (8#${mode} & 8#022) == 0 )) \
+        || fail "environment templates directory must not be group- or other-writable: ${DST_ENV_TEMPLATES_ROOT} (mode ${mode})"
+}
+
 verify_nginx_sources_root() {
     [[ -e "${DST_NGINX_SOURCES_ROOT}" ]] || fail "vhost sources directory is missing: ${DST_NGINX_SOURCES_ROOT}"
     [[ ! -L "${DST_NGINX_SOURCES_ROOT}" ]] || fail "vhost sources directory must not be a symlink: ${DST_NGINX_SOURCES_ROOT}"
@@ -1061,13 +1130,18 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_RECOVER_HOST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RECOVER_HOST}"
     verify_installed_regular_file "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_TARGET_PREREQUISITES}"
     verify_installed_regular_file "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_REQUIRED_CLIS}"
+    verify_installed_regular_file "${DST_VERIFY_ENV_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_ENV_CONTRACT}"
+
+    verify_env_templates_root
+    verify_installed_regular_file "${DST_ENV_TEMPLATE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${ENV_TEMPLATE_MODE}" "${SRC_ENV_TEMPLATE_STAGING}"
+    verify_installed_regular_file "${DST_ENV_TEMPLATE_TITS_GURU}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${ENV_TEMPLATE_MODE}" "${SRC_ENV_TEMPLATE_TITS_GURU}"
     verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
     verify_nginx_sources_root
     verify_installed_regular_file "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_STAGING}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_PRODUCTION}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILPIT}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILTRAP}"
-    log "  ownership, mode and content: OK for all twenty-eight files"
+    log "  ownership, mode and content: OK for all thirty-one files"
 
     # common and restore-common are sourced libraries, never CLIs —
     # verify_installed_regular_file already proved their mode is exactly
@@ -1082,10 +1156,10 @@ verify_installed_files() {
     log "  common and restore-common are not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_VERIFY_REQUIRED_CLIS}" "${DST_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all twenty-two installed scripts"
+    log "  bash -n: OK for all twenty-three installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -1536,8 +1610,8 @@ run_check() {
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the twenty-three destinations lives under.
-# This installer owns exactly twenty-three *files* — it never creates, chowns or chmods
+# The directories every one of the thirty-one destinations lives under.
+# This installer owns exactly thirty-one *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1745,6 +1819,7 @@ perform_apply() {
     ROLLBACK_REMOVE=()
     APPLY_COMMITTED=false
     CREATED_NGINX_SOURCES_ROOT=false
+    CREATED_ENV_TEMPLATES_ROOT=false
 
     log "mode: apply"
 
@@ -1786,6 +1861,9 @@ perform_apply() {
     install -m 0700 "${SRC_RECOVER_HOST}" "${STAGE_DIR}/recover-host"
     install -m 0700 "${SRC_TARGET_PREREQUISITES}" "${STAGE_DIR}/install-target-prerequisites"
     install -m 0700 "${SRC_VERIFY_REQUIRED_CLIS}" "${STAGE_DIR}/verify-required-clis"
+    install -m 0700 "${SRC_VERIFY_ENV_CONTRACT}" "${STAGE_DIR}/verify-environment-contract"
+    install -m 0600 "${SRC_ENV_TEMPLATE_STAGING}" "${STAGE_DIR}/env-template-staging"
+    install -m 0600 "${SRC_ENV_TEMPLATE_TITS_GURU}" "${STAGE_DIR}/env-template-tits-guru"
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
     install -m 0600 "${SRC_NGINX_SOURCE_STAGING}" "${STAGE_DIR}/nginx-rateguru-staging"
     install -m 0600 "${SRC_NGINX_SOURCE_PRODUCTION}" "${STAGE_DIR}/nginx-rateguru-production"
@@ -1839,6 +1917,11 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/nginx-mailtrap-local-staging" "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/install-target-prerequisites" "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-required-clis" "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/verify-environment-contract" "${DST_VERIFY_ENV_CONTRACT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+
+    ensure_env_templates_root
+    install_regular_file_transactional "${STAGE_DIR}/env-template-staging" "${DST_ENV_TEMPLATE_STAGING}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${ENV_TEMPLATE_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/env-template-tits-guru" "${DST_ENV_TEMPLATE_TITS_GURU}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${ENV_TEMPLATE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
 
     log "files installed; verifying before committing"
@@ -1852,7 +1935,8 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_VERIFY_REQUIRED_CLIS}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
+    log "  env templates: ${DST_ENV_TEMPLATE_STAGING}, ${DST_ENV_TEMPLATE_TITS_GURU}"
     log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  backups      : ${BACKUP_DIR}"

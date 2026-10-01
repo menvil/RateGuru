@@ -69,11 +69,12 @@ function configureFixture(string $scratch, array $options = []): array
                 exit 1
             fi
 
-            # Faithful to the two real installers on the one point this
-            # orchestrator's ordering depends on: the database installer reads
-            # the target's environment file for its credentials and ABORTS when
-            # it is absent, in every mode including --check; and the material
-            # installer is what puts that file there.
+            # Faithful to the real database installer on the one point this
+            # orchestrator's ordering depends on: it reads the target's
+            # environment file for its credentials and ABORTS when it is
+            # absent, in every mode including --check. The file itself is the
+            # operator's to create; the touch below only keeps this stub
+            # self-consistent once an apply has run.
             if [[ "${me}" == install-target-database ]] && [[ ! -f "${STUB_SHARED_ENV}" ]]; then
                 echo "ERROR: target environment file is missing: ${STUB_SHARED_ENV} — external secret material, never generated here"
                 exit 1
@@ -116,13 +117,25 @@ function configureFixture(string $scratch, array $options = []): array
     // The canonical environment file, where the installers compose its path:
     // FS_ROOT + the registry's application_root + /shared/.env. The operator
     // creates it on the host before configuring, so it is present by default
-    // here; 'noEnv' is the not-yet-created case. Its CONTENT is nothing —
-    // configure-target never opens it, and the installer that does is stubbed.
+    // here; 'noEnv' is the not-yet-created case.
+    //
+    // Its content is the target's own committed template, because configuring
+    // now also judges the KEY NAMES in it against that template. Using the
+    // template itself keeps this fixture honest for free: a key added to the
+    // template is a key this fixture has, so the test does not have to be
+    // remembered. 'brokenEnv' drops one key to produce the failing case.
     if (! ($options['noEnv'] ?? false)) {
         $shared = $scratch.'/home/www/rateguru/production/tits-guru/shared';
 
         @mkdir($shared, 0o755, true);
-        touch($shared.'/.env');
+
+        $template = File::get(base_path('infrastructure/templates/environment/tits-guru.env.example'));
+
+        if ($options['brokenEnv'] ?? false) {
+            $template = preg_replace('/^SENTRY_DSN=.*$\n/m', '', $template);
+        }
+
+        file_put_contents($shared.'/.env', $template);
     }
 
     foreach ($options['toggles'] ?? [] as $toggle) {
