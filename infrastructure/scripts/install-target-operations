@@ -12,7 +12,9 @@
 #             offsite-backup, offsite-retention, offsite-restore-test,
 #             backup-cycle, fetch-backup, verify-backup, restore-database,
 #             restore-storage, restore-target, recover-host,
-#             install-target-prerequisites, verify-required-clis), the four
+#             install-target-prerequisites, verify-required-clis,
+#             verify-environment-contract), the two committed environment
+#             templates, the four
 #             committed Nginx vhost sources the prerequisite table is derived
 #             from, and the host-global deployment.conf, verify a staged copy
 #             before touching anything, install transactionally, then verify

@@ -954,11 +954,6 @@ target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' 
 # into "target X is missing a valid .public_hostnames[0] (expected string)".
 target_primary_public_hostname()  { _target_property "${1-}" '.public_hostnames[0]' string; }
 
-# The repository-relative path of the template that declares which keys this
-# target's runtime environment file must carry. It is the ONLY declaration of
-# that key set — there is deliberately no second list anywhere.
-target_environment_template()     { _target_property "${1-}" '.environment_template' string; }
-
 # The Supervisor program running this target's Laravel Nightwatch
 # agent, or a non-zero return when the target does not run one.
 #
@@ -1932,6 +1927,15 @@ assert_recovery_alignment_operation() {
 #
 # There is one list of keys and it lives in the template. Nothing here, and
 # nothing in any caller, restates it.
+
+# The repository-relative path of the template that declares which keys this
+# target's runtime environment file must carry. It is the ONLY declaration of
+# that key set — there is deliberately no second list anywhere.
+#
+# It lives inside this section rather than beside the other registry accessors
+# because it is read by nothing else: the section is self-contained, which is
+# what lets a guard pin what the whole of it may do.
+target_environment_template()     { _target_property "${1-}" '.environment_template' string; }
 
 ENVIRONMENT_TEMPLATE_INSTALLED_ROOT="/home/www/rateguru/config/environment"
 
