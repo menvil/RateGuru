@@ -16,6 +16,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
 
     expect($workflows)->toBe([
         'ci.yml',
+        'configure-tits-guru.yml',
         'coverage.yml',
         'deploy-staging.yml',
         'label-review-bot-prs.yml',
@@ -44,6 +45,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
 
     expect($actions)->toBe([
         'build-rateguru',
+        'configure-rateguru-target',
         'deploy-rateguru',
         'prepare-rateguru-host',
         // The generic target provisioner's transport, added later and guarded

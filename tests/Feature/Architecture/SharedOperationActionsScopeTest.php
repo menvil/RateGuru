@@ -61,6 +61,11 @@ it('has exactly one build, one deploy and one rollback implementation', function
 
     expect($actions)->toBe([
         'build-rateguru',
+        // One CONFIGURE implementation, for an already-provisioned planned
+        // production target. Transport only: it carries no material at all —
+        // the target's environment file and deploy key are canonical on the
+        // host — and it cannot build, deploy, restore, repair or activate.
+        'configure-rateguru-target',
         'deploy-rateguru',
         // Prepare Host's two additions: one PREPARE implementation and one
         // deployment-recording implementation. Still one action per operation,
@@ -93,6 +98,7 @@ it('has exactly one build, one deploy and one rollback implementation', function
 it('keeps one operator-facing workflow per environment, with no target selector anywhere', function () {
     expect(array_keys(phase71Workflows()))->toEqualCanonicalizing([
         'ci.yml',
+        'configure-tits-guru.yml',
         'coverage.yml',
         'deploy-staging.yml',
         'label-review-bot-prs.yml',
@@ -167,12 +173,16 @@ it('keeps one operator-facing workflow per environment, with no target selector 
     }
 });
 
-it('pairs each fixed target with the environment that owns it', function () {
+it('pairs each fixed target with the GitHub Environment that owns it', function () {
+    // The box, not the class. staging-main's box happens to be spelled the
+    // same as its environment class; tits-guru's is not, and that asymmetry is
+    // the point — one box per target, so the credentials and reviewers that
+    // reach one brand are not the ones that reach another.
     $expected = [
         'deploy-staging.yml' => ['staging-main' => 'staging'],
-        'release.yml' => ['staging-main' => 'staging', 'tits-guru' => 'production'],
+        'release.yml' => ['staging-main' => 'staging', 'tits-guru' => 'production-tits-guru'],
         'rollback-staging.yml' => ['staging-main' => 'staging'],
-        'rollback-production.yml' => ['tits-guru' => 'production'],
+        'rollback-production.yml' => ['tits-guru' => 'production-tits-guru'],
     ];
 
     foreach ($expected as $name => $pairs) {
@@ -481,6 +491,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // can touch the same host. This becomes a question about hosts rather
         // than environments once a second host exists.
         'provision-tits-guru.yml:provision' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Configuring creates that target's database on the same shared
+        // machine, for the same reason and with the same consequence.
+        'configure-tits-guru.yml:configure' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

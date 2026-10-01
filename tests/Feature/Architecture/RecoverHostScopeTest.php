@@ -527,6 +527,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
 
     expect($workflows)->toBe([
         'ci.yml',
+        'configure-tits-guru.yml',
         'coverage.yml',
         'deploy-staging.yml',
         'label-review-bot-prs.yml',
@@ -627,7 +628,10 @@ it('leaves every accepted operational surface it does not extend untouched', fun
     // writers are not on it either: they read the shared offsite-write hold,
     // and that is asserted structurally below.
     foreach ([
-        'infrastructure/scripts/install-target-perimeter',
+        // The perimeter has since left this list: it became registry-driven,
+        // so it changes when a target's lifecycle does. What recovery needs to
+        // stay true of it — that it grants recovery nothing — is asserted
+        // directly below instead of by freezing the file.
         'infrastructure/scripts/install-mail-capture',
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
@@ -637,12 +641,38 @@ it('leaves every accepted operational surface it does not extend untouched', fun
         expect($changed)->not->toContain($untouched);
     }
 
+    // The perimeter grants recovery nothing. It is derived from the registry
+    // now, so what matters is not that the file is unchanged but that nothing
+    // in it reaches a recovery path.
+    $perimeter = File::get(base_path('infrastructure/scripts/install-target-perimeter'));
+
+    foreach (['recover-host', 'rateguru-recover', 'RECOVERY_'] as $forbidden) {
+        expect(str_contains(executableSourceLines($perimeter), $forbidden))
+            ->toBeFalse("the deploy perimeter must grant nothing to a recovery: {$forbidden}");
+    }
+
     // No new wrapper and no new sudoers grant: the recovery credential is the
     // existing privileged bootstrap one, and it needs neither.
-    foreach (['infrastructure/config/wrappers', 'infrastructure/config/ssh', 'infrastructure/config/sudoers'] as $directory) {
+    //
+    // config/ssh has since left this list. The deploy restriction became a
+    // pattern, so it changes when the shape of a deploy identity does — and
+    // what recovery needs of it is not that it is frozen but that it still
+    // names no recovery account and still only ever takes capability away,
+    // which is asserted directly below.
+    foreach (['infrastructure/config/wrappers', 'infrastructure/config/sudoers'] as $directory) {
         foreach ($changed as $path) {
             expect($path)->not->toStartWith($directory.'/');
         }
+    }
+
+    $ssh = File::get(base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'));
+
+    // One Match block, for deploy identities, and nothing that grants.
+    expect(substr_count($ssh, 'Match '))->toBe(1);
+
+    foreach (['recover', 'RECOVERY', 'bootstrap', 'AllowUsers', 'PermitRootLogin', 'ForceCommand'] as $forbidden) {
+        expect(str_contains($ssh, $forbidden))
+            ->toBeFalse("the deploy SSH restriction must say nothing about a recovery credential: {$forbidden}");
     }
 })->skip(fn (): bool => branchBaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');

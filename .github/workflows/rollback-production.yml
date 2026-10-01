@@ -1,4 +1,4 @@
-name: Rollback production
+name: Rollback tits.guru
 
 # The production counterpart of rollback-staging.yml. Same operator
 # semantics, same shared implementation, different fixed identity — an
@@ -12,9 +12,11 @@ name: Rollback production
 # rollback history) and .github/actions/rollback-rateguru owns the GitHub
 # transport — this workflow only fixes the identity of what is rolled back.
 #
-# tits-guru is still lifecycle=planned and unprovisioned. That gate lives in
-# the target registry and is enforced server-side by the wrapper, so this
-# workflow fails closed on a real run until production is provisioned and
+# tits-guru is still lifecycle=planned. Its infrastructure now exists — it is
+# structurally provisioned — but lifecycle is permission to OPERATE a target,
+# not a description of how much of it exists. That gate lives in the target
+# registry and is enforced server-side by the wrapper, so this
+# workflow fails closed on a real run until production is
 # activated in a later phase. Nothing here weakens it, and the production
 # GitHub Environment's own protection rules stay authoritative on top.
 on:
@@ -48,7 +50,7 @@ jobs:
   rollback:
     name: Roll back tits-guru
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 10
 
     steps:

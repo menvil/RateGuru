@@ -1,11 +1,12 @@
-name: Repair production target
+name: Repair tits.guru
 
 # The production counterpart of repair-staging.yml. Same operator semantics,
 # the same shared action, the same server-side repair-target — a different
 # fixed identity, a different concurrency domain, and one extra gate.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
-# and unprovisioned. The repair action refuses a non-active target before it
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
+# Its infrastructure exists, but a planned target may not be operated.
+# The repair action refuses a non-active target before it
 # uploads anything, and infrastructure/scripts/repair-target refuses it again
 # server-side — so a real run of this workflow fails closed today. It exists now
 # to prove that production will be repaired by exactly the same mechanism once
@@ -13,11 +14,11 @@ name: Repair production target
 # procedure invented under pressure during an incident.
 #
 # Nothing here weakens that gate, nothing here edits the registry, this workflow
-# activates nothing, and the production GitHub Environment's own protection
+# activates nothing, and the production-tits-guru GitHub Environment's own protection
 # rules stay authoritative on top of the confirmation below.
 #
 # There is deliberately no target dropdown anywhere in this repository:
-# "Repair staging target" and "Repair production target" are two buttons whose
+# "Repair staging target" and "Repair tits.guru" are two buttons whose
 # names say what they do, sharing one implementation underneath.
 on:
   workflow_dispatch:
@@ -57,7 +58,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Deliberately IN ADDITION to the production environment's own
+          # Deliberately IN ADDITION to the production-tits-guru environment's own
           # protection rules, not instead of them — one gate proves a human
           # meant this specific target, the other proves the right humans
           # approved it.
@@ -72,7 +73,7 @@ jobs:
     name: Repair tits-guru
     needs: validate
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 30
 
     steps:

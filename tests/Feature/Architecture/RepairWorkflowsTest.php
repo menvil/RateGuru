@@ -148,7 +148,9 @@ it('gates production behind an exact typed confirmation, in a job that holds no 
     expect($body)->toContain('"${CONFIRMATION}" != "REPAIR tits-guru"');
 
     expect($workflow['jobs']['repair']['needs'])->toBe('validate');
-    expect($workflow['jobs']['repair']['environment'])->toBe('production');
+    // Per-target GitHub Environment. The class the action is told is asserted
+    // separately, and stays `production`.
+    expect($workflow['jobs']['repair']['environment'])->toBe('production-tits-guru');
 });
 
 it('is manual-only: nothing pushes, schedules or calls a repair', function () use ($repairWorkflows) {

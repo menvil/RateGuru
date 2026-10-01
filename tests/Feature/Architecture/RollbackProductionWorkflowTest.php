@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 it('rolls back production manually, through the same shared implementation', function () {
-    expect(data_get($this->workflow, 'name'))->toBe('Rollback production')
+    expect(data_get($this->workflow, 'name'))->toBe('Rollback tits.guru')
         ->and(array_keys($this->workflow['on']))->toBe(['workflow_dispatch'])
         ->and($this->workflow['permissions'])->toBe(['contents' => 'read'])
         ->and(array_keys($this->workflow['jobs']))->toBe(['rollback'])
@@ -64,7 +64,9 @@ it('is structurally pinned to tits-guru and the production environment', functio
 
     expect(data_get($rollback, 'with.deployment-target'))->toBe('tits-guru')
         ->and(data_get($rollback, 'with.environment'))->toBe('production')
-        ->and(data_get($this->workflow, 'jobs.rollback.environment'))->toBe('production');
+        // The GitHub Environment is this target's own box of credentials;
+        // `with.environment` above is the application's environment CLASS.
+        ->and(data_get($this->workflow, 'jobs.rollback.environment'))->toBe('production-tits-guru');
 
     // The operator may choose what to roll back to, never where.
     expect(array_keys((array) data_get($this->workflow, 'on.workflow_dispatch.inputs')))
@@ -101,7 +103,7 @@ it('cannot mutate tits-guru concurrently with the workflow that deploys it', fun
 it('fails closed while production is unprovisioned, without weakening any gate', function () {
     // tits-guru is still lifecycle=planned. Nothing in this workflow tries to
     // work around that: the gate is server-side, the DEPLOY_* configuration
-    // comes from the production GitHub Environment, and the shared action
+    // comes from the production-tits-guru GitHub Environment, and the shared action
     // stops on the missing configuration before any SSH connection is made.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
 

@@ -196,6 +196,11 @@ TARGET_SEEN=false
 MATERIAL_DIR=""
 MATERIAL_DIR_SEEN=false
 SCOPE="all"
+
+# Explicit authorization to install material for a target that is not active
+# yet. argv only: there is no environment variable for it, so a run either says
+# so on the command line or does not get it.
+PROVISIONING=false
 SCOPE_SEEN=false
 OUTPUT_DIR=""
 OUTPUT_DIR_SEEN=false
@@ -212,7 +217,8 @@ Usage:
   install-target-prerequisites --capture --target TARGET_ID --scope host --output-dir DIR
   install-target-prerequisites --validate-recovery-material --target TARGET_ID --scope host --archive FILE
 
-All modes require root and a lifecycle=active target.
+All modes require root. A lifecycle=active target, unless --provisioning
+names a planned production one.
 
   --target        Deployment target ID from the RateGuru target registry.
   --scope         host   Nginx-referenced material under /etc, required BEFORE
@@ -223,6 +229,15 @@ All modes require root and a lifecycle=active target.
   --material-dir  Root-owned 0700 directory holding operator-supplied material,
                   one file per logical prerequisite name. Read only; never
                   modified, and never left behind by this script.
+  --provisioning  Explicit authorization to act on a target that is not active
+                  yet. Valid only with --check, --apply or --verify, only with
+                  --scope target, and only for a lifecycle=planned,
+                  environment_class=production target. It narrows the contract
+                  rather than widening it: the host-global offsite credential is
+                  not a row a not-yet-active target may install, so rclone-config
+                  is excluded. Never installs host material, never changes the
+                  registry, never activates anything. Without it the active-only
+                  contract is exactly what it was.
   --output-dir    --capture only: an existing, EMPTY, root-owned 0700 directory
                   that receives one file per host-scope logical name.
   --archive       --validate-recovery-material only: the recovery-material
@@ -296,6 +311,10 @@ parse_args() {
                 SCOPE_SEEN=true
                 shift 2
                 ;;
+            --provisioning)
+                PROVISIONING=true
+                shift
+                ;;
             --material-dir)
                 if [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
                     fail "--material-dir given more than once"
@@ -330,6 +349,22 @@ parse_args() {
 
     if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
         fail "--verify never consults supplied material; it inspects the canonical destinations only"
+    fi
+
+    # --provisioning authorizes exactly one thing: installing a target's OWN
+    # material before that target is active. It therefore refuses host scope
+    # outright — a target that is not operating yet has no business deciding
+    # what the host's TLS, htpasswd or mail material should be, and a run that
+    # asked for both would be a host operation wearing a target's argv.
+    if [[ "${PROVISIONING}" == true ]]; then
+        if [[ "${SCOPE}" != target ]]; then
+            fail "--provisioning is target scope only: pass --scope target. A target that is not active yet never installs host material"
+        fi
+
+        case "${MODE}" in
+            check|apply|verify) ;;
+            *) fail "--provisioning applies to --check, --apply and --verify only, not --${MODE}" ;;
+        esac
     fi
 
     case "${MODE}" in
@@ -412,11 +447,29 @@ resolve_target() {
     TARGET_JSON="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}")" \
         || fail "unknown target: ${TARGET_ID}"
 
-    local lifecycle
+    local lifecycle environment
     lifecycle="$(target_field .lifecycle)"
+    environment="$(target_field .environment_class)"
 
-    [[ "${lifecycle}" == active ]] \
-        || fail "target ${TARGET_ID} has lifecycle=${lifecycle}, not active — external material is never installed for a target that is not active"
+    # Two gates, never both. Without --provisioning this is exactly the check
+    # it has always been. With it, the target must be the one shape a
+    # not-yet-operating target may be configured in — planned AND production —
+    # and an active target is refused just as firmly in the other direction:
+    # an operating target's material is installed by the ordinary path, not by
+    # an authorization meant for one that has never run.
+    if [[ "${PROVISIONING}" == true ]]; then
+        [[ "${lifecycle}" != active ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is lifecycle=active. An active target's material is installed without it"
+
+        [[ "${lifecycle}" == planned ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is lifecycle=${lifecycle}, and material is only ever installed ahead of operation for a planned target"
+
+        [[ "${environment}" == production ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is environment_class=${environment}, and this authorization exists for a new production brand only"
+    else
+        [[ "${lifecycle}" == active ]] \
+            || fail "target ${TARGET_ID} has lifecycle=${lifecycle}, not active — external material is never installed for a target that is not active"
+    fi
 
     build_prerequisite_table
 }
@@ -494,6 +547,29 @@ build_prerequisite_table() {
     # unprefixed name; the shared mail-capture vhosts afterwards, contributing
     # only paths the target's site did not already claim (the htpasswd and the
     # shared TLS options are literally the same file for both).
+    #
+    # Built only when this run actually wants host rows. It used to be built
+    # unconditionally and filtered afterwards by rows_in_scope, which made a
+    # target-only run depend on host material it had no interest in: resolving
+    # the target's committed vhost, and through it the TLS, htpasswd and mail
+    # material the host owns. A production target has no committed vhost at all
+    # — its service configuration is rendered from the registry — so asking for
+    # its target-scope material alone aborted on a file that is correctly
+    # absent. Scope now decides what is derived, not merely what is printed.
+    if host_scope_wanted; then
+        build_host_prerequisite_rows "${nginx_site}"
+    fi
+
+    build_target_prerequisite_rows "${target_root}" "${deploy_user}" "${runtime_user}" "${runtime_group}"
+}
+
+# host_scope_wanted — whether this run needs the Nginx-derived host rows at all.
+host_scope_wanted() {
+    [[ "${SCOPE}" == host ]] || [[ "${SCOPE}" == all ]]
+}
+
+build_host_prerequisite_rows() {
+    local nginx_site="$1"
     local category path mail_src
 
     # Every vhost source is proved readable BEFORE it is parsed. A process
@@ -528,9 +604,18 @@ build_prerequisite_table() {
 
     (( host_rows > 0 )) \
         || fail "no external prerequisites could be derived from the committed vhosts — refusing to report a target as prepared against an empty contract"
+}
 
-    # --- target scope: files inside RateGuru's own identities and directories.
-    #
+# --- target scope: files inside RateGuru's own identities and directories.
+#
+# These are the only rows a target-only run derives, and they depend on nothing
+# but the registry: the target's own root, its runtime identity and its deploy
+# identity. Nothing here reads a committed vhost, a certificate or a mail
+# source, which is what lets a production target whose service configuration is
+# rendered be configured at all.
+build_target_prerequisite_rows() {
+    local target_root="$1" deploy_user="$2" runtime_user="$3" runtime_group="$4"
+
     # The Laravel environment is the target's most sensitive file: it carries
     # APP_KEY, the database password and every third-party token. Group-readable
     # so the runtime group can read it, and nothing wider.
@@ -544,10 +629,23 @@ build_prerequisite_table() {
         "${deploy_user}" "${deploy_user}" 0600 public \
         "GitHub Actions deploy public key for ${deploy_user}"
 
-    emit_row target rclone-config \
-        "/root/.config/rclone/rclone.conf" \
-        root root 0600 secret \
-        "Backblaze B2 credentials for offsite backups"
+    # The one row in this scope that is not the target's at all: it is root's
+    # own host-global offsite credential, shared by every target on the machine,
+    # and it sits here only because it lives outside /etc and so cannot be host
+    # scope. That distinction does not matter while the caller is an active
+    # target whose backups need it — and it matters completely under
+    # --provisioning, where the caller is a target that is not operating yet and
+    # has no backup schedule to serve. Installing a host-global credential on
+    # the authority of "configure this one planned target" would let the narrow
+    # operation create the broadest secret on the host, so the row is simply not
+    # derived: an absent credential stays a host prerequisite for the operation
+    # that genuinely owns it, and an existing one is never touched either way.
+    if [[ "${PROVISIONING}" != true ]]; then
+        emit_row target rclone-config \
+            "/root/.config/rclone/rclone.conf" \
+            root root 0600 secret \
+            "Backblaze B2 credentials for offsite backups"
+    fi
 }
 
 # require_vhost_source PATH — a committed vhost this checkout must contain.

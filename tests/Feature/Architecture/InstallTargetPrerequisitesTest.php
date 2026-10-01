@@ -1509,3 +1509,47 @@ it('reports metadata drift without ever describing the content it protects', fun
         itpCleanup($scratch);
     }
 });
+
+// =============================================================================
+// --provisioning narrows the target scope, and the row it drops is the one
+// that was never this target's
+// =============================================================================
+
+it('derives no host-global offsite credential for a target that is not active yet', function () {
+    // rclone-config is the odd row in this scope: /root/.config/rclone/rclone.conf
+    // is root's own Backblaze credential, shared by every target on the machine.
+    // It sits in target scope only because it lives outside /etc, and that is
+    // harmless while the caller is an active target whose backups need it.
+    //
+    // Under --provisioning the caller is a planned target with no backup
+    // schedule, reached through configure-target — the narrowest operation on
+    // the host. Deriving the row there would let it install the broadest secret
+    // on the machine, which is exactly the boundary that operation advertises
+    // it does not cross.
+    $scratch = itpScratchDir();
+
+    try {
+        [, $provisioning] = itpRun($scratch, [
+            '--check', '--scope', 'target', '--provisioning', '--target', 'tits-guru',
+        ]);
+
+        expect($provisioning)->not->toContain('rclone');
+
+        // Still a real contract rather than an empty one: the two rows that
+        // genuinely belong to this target are derived exactly as before.
+        expect($provisioning)
+            ->toContain('shared/.env')
+            ->toContain('authorized_keys');
+
+        // And the row is not gone from the script — an active target still
+        // derives it, which is what makes this a narrowing of authority rather
+        // than a deletion.
+        [, $active] = itpRun($scratch, [
+            '--check', '--scope', 'target', '--target', 'staging-main',
+        ]);
+
+        expect($active)->toContain('rclone');
+    } finally {
+        itpCleanup($scratch);
+    }
+});

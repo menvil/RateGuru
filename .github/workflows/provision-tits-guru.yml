@@ -55,11 +55,11 @@ jobs:
 
     # READ THIS BEFORE CHANGING IT.
     #
-    # `staging` here is the GitHub Environment, and a GitHub Environment is
-    # where a PHYSICAL HOST is bound to its bootstrap credential. tits-guru
-    # currently lives on the same machine as staging-main, and that machine's
-    # address, port, bootstrap user and privileged key are configured in the
-    # `staging` environment — so that is where they are read from.
+    # `production-tits-guru` here is the GitHub Environment, and a GitHub
+    # Environment is where a PHYSICAL HOST is bound to its bootstrap credential.
+    # It is named after the TARGET rather than after an environment class,
+    # because a class is shared and a credential boundary must not be: a second
+    # production brand gets its own environment, not a share of this one.
     #
     # It is NOT the target's environment class. tits-guru is a production
     # target; `environment: production` is passed to the action below, and that
@@ -71,19 +71,20 @@ jobs:
     #
     # A GitHub Environment is a LOGICAL credential and permission boundary. It
     # says nothing about how many machines exist, and it never has: one
-    # environment can bind a host that another environment also binds.
+    # environment can bind a host that another environment also binds. That is
+    # exactly the case today — tits-guru shares staging-main's machine, and
+    # `production-tits-guru` names that same host.
     #
-    # Conflating the two would either reach the wrong machine with the wrong
-    # credential or apply staging's contract to a production target.
+    # Sharing a machine is not a reason to share a credential box.
     #
-    # This binding is temporary. The work that gives production its own GitHub
-    # Environment and its own credentials is separate and already planned, and
-    # it does NOT wait for production to get its own VPS — that environment may
-    # perfectly well point at this same machine on the day it is created.
-    # Moving production onto another host is an independent decision that
-    # nothing here depends on. When production has its own environment, this
-    # line becomes `production` deliberately, not as a side effect.
-    environment: staging
+    # While this job read staging's box, the blast radius of a staging secret
+    # included every production provisioning run, and a protection rule on
+    # production could be sidestepped by going through staging's.
+    #
+    # The hardware is not what decides this, so the hardware changing does not
+    # revisit it: when tits-guru gets its own server, only the values inside
+    # this environment change, and nothing in this workflow does.
+    environment: production-tits-guru
 
     # Provisioning converges a target's filesystem, PHP-FPM pool, Supervisor
     # program, scheduler entry and internal vhost, then verifies all of it. On

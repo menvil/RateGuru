@@ -18,11 +18,12 @@ use Symfony\Component\Yaml\Yaml;
  *   action `environment` = which environment class the TARGET belongs to
  *
  * A GitHub Environment is a LOGICAL credential boundary; it implies nothing
- * about how many machines exist. tits-guru is a production target whose
- * bootstrap credential currently lives in the staging environment, so the two
- * legitimately disagree today. Making them agree by "fixing" either one would
- * reach the wrong machine with the wrong credential, or apply staging's
- * contract to a production target.
+ * about how many machines exist. tits-guru reads its credentials from
+ * `production-tits-guru` — named after the TARGET, because a class is shared and
+ * a credential boundary must not be — while the class it passes to the action
+ * stays `production`. The two are different kinds of thing and are supposed to
+ * read differently; collapsing either into the other would apply the wrong
+ * contract or reach for the wrong credential.
  */
 
 /** @return array{0: array, 1: string} */
@@ -91,9 +92,10 @@ it('fixes the target and its environment class as literals', function () {
 it('reads the machine from the environment that currently binds it', function () {
     [$workflow, $source] = provisionWorkflow();
 
-    // staging is the PHYSICAL HOST binding, not the target's class. The two
-    // are allowed to disagree, and here they do.
-    expect(data_get($workflow, 'jobs.provision.environment'))->toBe('staging')
+    // The GitHub Environment is the PHYSICAL HOST binding and the credential
+    // boundary, named per target. It is not the target's class, which is
+    // `production` and is passed to the action separately.
+    expect(data_get($workflow, 'jobs.provision.environment'))->toBe('production-tits-guru')
         ->and(data_get($workflow, 'jobs.provision.runs-on'))->toBe('ubuntu-24.04');
 
     $step = collect(data_get($workflow, 'jobs.provision.steps'))
@@ -109,14 +111,14 @@ it('reads the machine from the environment that currently binds it', function ()
         ->toContain('action `environment`= which environment class the TARGET belongs to')
         ->toContain('A GitHub Environment is a LOGICAL credential and permission boundary');
 
-    // ...and it must not explain the split as a consequence of hardware.
-    // Production gets its own environment and its own credentials whether or
-    // not it ever gets its own machine, and that environment may point at this
-    // same VPS on the day it is created. Tying the two together would leave
-    // whoever does that work believing a host has to move first.
+    // ...and it must not explain the split as a consequence of hardware. The
+    // two targets share one VPS today, so the tempting next edit is to merge
+    // the credential boxes back "since it is the same machine anyway" — which
+    // would put a staging secret inside production's blast radius again. The
+    // separation is a boundary decision and survives the hardware either way.
     expect($source)
-        ->toContain('does NOT wait for production to get its own VPS')
-        ->toContain('point at this same machine');
+        ->toContain('Sharing a machine is not a reason to share a credential box.')
+        ->toContain('The hardware is not what decides this, so the hardware changing does not');
 
     expect(mb_strtolower($source))->not->toContain('when production gets its own host');
 });

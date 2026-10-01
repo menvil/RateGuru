@@ -378,20 +378,88 @@ it('declares tits-guru completely but leaves it planned', function () {
     );
 });
 
-it('creates no production infrastructure for the planned target', function () {
-    // A planned target must remain a declaration only: this slice must not add
-    // its environment template, Nginx site, pool, queue or cron entry.
+it('commits no per-brand service configuration for a production target', function () {
+    // A production target's Nginx site, PHP-FPM pool, Supervisor program and
+    // scheduler cron are RENDERED from the registry, so a committed file named
+    // after the brand is the thing that must never appear — it would be a
+    // second, divergent source for configuration the installer already owns.
+    //
+    // The environment template is deliberately not in this list. It is not
+    // service configuration: it is the target's declared key set, it carries
+    // no secret, and the registry names it.
     foreach ([
-        'templates/environment/tits-guru.env.example',
         'config/nginx/rateguru-tits-guru',
         'config/php-fpm/rateguru-tits-guru.conf',
         'config/supervisor/rateguru-tits-guru-queue.conf',
         'config/cron/rateguru-tits-guru-scheduler',
     ] as $path) {
         expect(File::exists(base_path('infrastructure/'.$path)))
-            ->toBeFalse("planned target must not be provisioned in this slice: {$path}");
+            ->toBeFalse("a production target's service configuration is rendered, never committed: {$path}");
     }
 });
+
+it('gives every target an environment template that agrees with the registry about what it is', function () {
+    // The registry named a template for tits-guru that did not exist, and
+    // nothing noticed — a target cannot be configured from a file that is not
+    // there. So the naming is now a contract, and so is what the file says
+    // about itself: a template that disagreed with the registry would compose
+    // a .env for the wrong target or the wrong environment class.
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+
+    $checked = 0;
+
+    foreach ($registry['targets'] as $id => $target) {
+        $template = $target['environment_template'] ?? '';
+
+        if ($template === '') {
+            continue;
+        }
+
+        $path = base_path($template);
+
+        expect(File::exists($path))->toBeTrue("{$id}: environment_template names a file that does not exist: {$template}");
+        expect(is_file($path) && ! is_link($path))->toBeTrue("{$id}: environment_template must be a regular committed file");
+
+        $source = File::get($path);
+
+        // The three keys whose value is an identity rather than a setting.
+        expect($source)->toMatch('/^APP_DEPLOYMENT_TARGET='.preg_quote($id, '/').'$/m',
+            "{$id}: template must declare APP_DEPLOYMENT_TARGET={$id}");
+        expect($source)->toMatch('/^APP_ENV='.preg_quote($target['environment_class'], '/').'$/m',
+            "{$id}: template must declare APP_ENV={$target['environment_class']}");
+        expect($source)->toMatch('/^SENTRY_ENVIRONMENT='.preg_quote($target['environment_class'], '/').'$/m',
+            "{$id}: Sentry's environment is the environment CLASS, not the target");
+
+        $checked++;
+    }
+
+    expect($checked)->toBeGreaterThan(1, 'the loop must actually have checked the registry, not skipped it');
+});
+
+it('declares the same operational keys for every target, so one is never configured with less than another', function () {
+    // Parity by key set, not by value: what each target sets is its own, but a
+    // key missing from one template is a setting nobody will remember to add
+    // when that target is configured.
+    $keys = static fn (string $path): array => collect(preg_split('/\R/', File::get(base_path($path))))
+        ->map(fn (string $line): string => (string) preg_replace('/=.*$/s', '', $line))
+        ->filter(fn (string $key): bool => $key !== '' && ! str_starts_with($key, '#'))
+        ->sort()
+        ->values()
+        ->all();
+
+    expect($keys('infrastructure/templates/environment/tits-guru.env.example'))
+        ->toBe($keys('infrastructure/templates/environment/staging.env.example'));
+});
+
+it('puts no secret in the tits-guru template', function (string $key) {
+    // Every value that is a credential is declared and left blank: the key is
+    // documentation, the value is the operator's.
+    expect(File::get(base_path('infrastructure/templates/environment/tits-guru.env.example')))
+        ->toMatch('/^'.$key.'=$/m', "{$key} must be present and empty");
+})->with([
+    'APP_KEY', 'DB_PASSWORD', 'REDIS_PASSWORD', 'MAIL_PASSWORD', 'SENTRY_DSN',
+    'NIGHTWATCH_TOKEN', 'GOOGLE_CLIENT_SECRET', 'FACEBOOK_CLIENT_SECRET',
+]);
 
 // --- CLI behaviour ----------------------------------------------------------
 

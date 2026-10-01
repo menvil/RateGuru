@@ -614,10 +614,42 @@ guard_operation_label() {
 # this orchestrator creates no directories to lock inside — that is the layout
 # installer's job.
 PREPARATION_LOCK_FD=""
+HOST_INFRASTRUCTURE_LOCK_FD=""
 
 gate_data_operation_locks() {
     [[ "${MODE}" == apply ]] || return 0
     [[ -d "${OPERATIONAL_RUN_ROOT}" ]] || return 0
+
+    # The machine first, and before anything that can return early. This
+    # orchestrator converges HOST-global infrastructure — the host roots, the
+    # shared namespace every target sits in, the base services, the operational
+    # bundle — and the namespace lock below does not protect any of it:
+    # "Prepare staging-main" and "Provision tits-guru" hold different namespace
+    # locks and would converge the same machine in parallel.
+    #
+    # Everything below this point can legitimately give up: jq may not be
+    # installed yet, and the registry may not be readable until the runtime
+    # slice has run. Those are reasons to skip the NAMESPACE lock, whose key
+    # cannot be computed without them — they are not reasons to converge a
+    # shared machine unserialized, and leaving the host lock below them meant a
+    # run that could not name its namespace mutated the host holding nothing at
+    # all. The run root is still the one exception, above: a host that has
+    # never run an operational script has nothing in flight, and this
+    # orchestrator creates no directory to lock inside.
+    #
+    # The file name is the contract, shared with provision-target,
+    # configure-target and repair-target, which take it through
+    # acquire_host_infrastructure_lock in `common`. This script deliberately
+    # cannot source `common` — it runs before the operational bundle is
+    # installed — so it opens the same path itself rather than growing a copy
+    # of the bundle it is about to install.
+    local host_lock="${OPERATIONAL_RUN_ROOT}/host-infrastructure.lock"
+
+    exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${host_lock}" \
+        || fail "could not open ${host_lock} to claim this host's shared infrastructure"
+
+    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
+        || fail "another operation is already mutating this host's shared infrastructure (${host_lock}); nothing was changed. Targets share one machine, so host-level operations run one at a time"
 
     command -v jq >/dev/null 2>&1 || return 0
 
@@ -627,8 +659,9 @@ gate_data_operation_locks() {
 
     [[ -n "${namespace}" ]] || return 0
 
-    # Ours first, and held: from here on, a restore or a recovery that starts
-    # will find it busy and refuse.
+    # Then this namespace's preparation, held for the same reason it always
+    # was: from here on, a restore or a recovery that starts will find it busy
+    # and refuse.
     local preparation_lock="${OPERATIONAL_RUN_ROOT}/prepare-host-${namespace}.lock"
 
     exec {PREPARATION_LOCK_FD}>>"${preparation_lock}" \

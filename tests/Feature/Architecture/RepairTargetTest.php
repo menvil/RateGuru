@@ -256,6 +256,10 @@ function repairFixture(string $scratch, array $options = []): array
         'RATEGURU_REPAIR_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
         'RATEGURU_REPAIR_CRON_D_ROOT' => $scratch.'/cron.d',
         'RATEGURU_RUN_ROOT' => $scratch.'/run',
+        // The machine's lock. A repair reloads host services every target on
+        // this machine shares, so it claims the machine before it claims the
+        // target.
+        'RATEGURU_HOST_LOCK_ROOT' => $options['lockRoot'] ?? $scratch.'/run',
         'RATEGURU_REPAIR_QUEUE_WAIT_ATTEMPTS' => '2',
         'RATEGURU_REPAIR_QUEUE_RETRY_DELAY' => '0',
     ];

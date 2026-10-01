@@ -1,12 +1,13 @@
-name: Prepare production host
+name: Prepare tits.guru host
 
 # The production counterpart of prepare-staging-host.yml. Same operator
 # semantics, same shared implementation, different fixed identity — an operator
 # picks the workflow that names their environment rather than selecting a target
 # from a dropdown.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
-# and unprovisioned. infrastructure/scripts/prepare-host refuses any target that
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
+# Its infrastructure exists, but a planned target may not be operated.
+# infrastructure/scripts/prepare-host refuses any target that
 # is not lifecycle=active, and it refuses BEFORE any target-specific mutation —
 # so a real run of this workflow fails closed on the server today. It exists now
 # to prove that production will be prepared by exactly the same mechanism once
@@ -14,7 +15,7 @@ name: Prepare production host
 # production-shaped procedure invented under pressure on launch day.
 #
 # Nothing here weakens that gate, nothing here edits the registry, and the
-# production GitHub Environment's own protection rules stay authoritative on top
+# production-tits-guru GitHub Environment's own protection rules stay authoritative
 # of it.
 on:
   workflow_dispatch:
@@ -32,7 +33,7 @@ jobs:
   prepare:
     name: Prepare the tits-guru host
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-tits-guru
     timeout-minutes: 45
 
     steps:
