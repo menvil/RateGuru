@@ -152,7 +152,7 @@ final class LanguagesPage extends Page implements HasTable
             ->visible(fn (array $record): bool => $record['enabled'] && ! $record['default'])
             ->requiresConfirmation()
             ->modalHeading(fn (array $record): string => "Disable {$record['label']}?")
-            ->modalDescription(fn (array $record): string => "Visitors currently using {$record['label']} will fall back to {$this->defaultLabel()}. Their {$record['label']} preference is kept and will apply again if {$record['label']} is enabled later.")
+            ->modalDescription(fn (array $record): string => "Visitors currently using {$record['label']} will get their browser's language if it is enabled, otherwise {$this->defaultLabel()}. Their {$record['label']} preference is kept and will apply again if {$record['label']} is enabled later.")
             ->action(function (array $record): void {
                 $locales = app(LocaleManager::class);
 

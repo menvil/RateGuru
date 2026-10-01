@@ -8,13 +8,13 @@ use App\Support\Settings\ProjectSettingsManager;
 use Livewire\Livewire;
 
 /**
- * Which language a public request is served in: a choice the visitor made —
- * account, then session, then cookie — and only when they made none, their
- * browser; English, the default, when nothing else applies.
+ * Which language a public request is served in: the account, then the session,
+ * then the cookie, then the browser — the first of them the project offers —
+ * and English, the default, only when none of them is.
  *
- * A choice that is no longer offered sends the visitor to English, not on to
- * an older choice or the browser, and stays stored for the day the language
- * is offered again.
+ * A stored choice the project no longer offers is skipped, not deleted: the
+ * search goes on to the next place, and the choice applies again once the
+ * language is offered again.
  *
  * Roles, not languages: the two languages besides English come from config,
  * so every case reads the same with any set of installed languages.
@@ -24,10 +24,10 @@ function servedLocale(): string
     return app()->getLocale();
 }
 
-/** Every installed language offered except this one. */
-function withhold(string $locale): void
+/** Every installed language offered except these. */
+function withhold(string ...$locales): void
 {
-    offerLocales(array_values(array_diff(supportedLocales(), [$locale])));
+    offerLocales(array_values(array_diff(supportedLocales(), $locales)));
 }
 
 // A choice that is offered -------------------------------------------------------
@@ -68,34 +68,33 @@ it('prefers the cookie to the browser', function () {
     expect(servedLocale())->toBe($cookie);
 });
 
-// A choice that is no longer offered ------------------------------------------------
+// A choice that is no longer offered is skipped ----------------------------------------
 
-it('serves English to an account whose language was disabled, not the browser language', function () {
+it('skips an account language the project no longer offers, to the browser, and keeps it on the account', function () {
     [$browser, $chosen] = twoTranslatedLocales();
     withhold($chosen);
     $user = User::factory()->create(['locale' => $chosen]);
 
-    $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="en"', false);
+    $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="'.$browser.'"', false);
 
-    expect(servedLocale())->toBe('en')
+    expect(servedLocale())->toBe($browser)
         ->and($user->fresh()->locale)->toBe($chosen);
 });
 
-it('serves English to a session whose language was disabled, not the cookie or the browser language', function () {
-    [$other, $chosen] = twoTranslatedLocales();
+it('skips a session language the project no longer offers, to the browser, and keeps it in the session', function () {
+    [$browser, $chosen] = twoTranslatedLocales();
     withhold($chosen);
 
     $this->withSession(['locale' => $chosen])
-        ->withCookie('locale', $other)
-        ->withHeaders(acceptLanguage($other))
+        ->withHeaders(acceptLanguage($browser))
         ->get(route('feed'))
         ->assertOk();
 
-    expect(servedLocale())->toBe('en')
+    expect(servedLocale())->toBe($browser)
         ->and(session('locale'))->toBe($chosen);
 });
 
-it('serves English to a cookie whose language was disabled, not the browser language', function () {
+it('skips a cookie language the project no longer offers, to the browser, and leaves the cookie alone', function () {
     [$browser, $chosen] = twoTranslatedLocales();
     withhold($chosen);
 
@@ -104,33 +103,54 @@ it('serves English to a cookie whose language was disabled, not the browser lang
         ->get(route('feed'))
         ->assertOk();
 
-    expect(servedLocale())->toBe('en')
+    expect(servedLocale())->toBe($browser)
         // Kept as the visitor left it: nothing rewrites or clears the cookie.
         ->and($response->headers->getCookies())->each(fn ($cookie) => $cookie->getName()->not->toBe('locale'));
 });
 
-it('does not look past an account language that was disabled to an older choice', function () {
-    // An account saved in one language, that language withdrawn, the session
-    // and cookie holding another: the account is the visitor's latest choice.
-    [$older, $chosen] = twoTranslatedLocales();
+it('passes over a withheld account language to the cookie, before the browser', function () {
+    // An account saved in one language, that language withdrawn, an English
+    // cookie and a browser asking for another: the cookie is the visitor's own
+    // choice, and comes before the browser.
+    [$browser, $chosen] = twoTranslatedLocales();
     withhold($chosen);
 
     $this->actingAs(User::factory()->create(['locale' => $chosen]))
-        ->withSession(['locale' => $older])
-        ->withCookie('locale', $older)
+        ->withCookie('locale', 'en')
+        ->withHeaders(acceptLanguage($browser))
         ->get(route('feed'))
         ->assertOk();
 
     expect(servedLocale())->toBe('en');
 });
 
-it('serves English for a stored value that is not a language at all', function () {
+it('skips a session value that is not a language at all', function () {
     [$browser] = twoTranslatedLocales();
 
     $this->withSession(['locale' => unsupportedLocale()])->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk();
 
-    expect(servedLocale())->toBe('en');
+    expect(servedLocale())->toBe($browser);
 });
+
+it('serves English to a stored choice no longer offered when the browser asks for nothing on offer', function (string $header) {
+    [$other, $chosen] = twoTranslatedLocales();
+    withhold($chosen, $other);
+    $user = User::factory()->create(['locale' => $chosen]);
+
+    $this->actingAs($user)
+        ->withHeaders(acceptLanguage(str_replace('{other}', $other, $header)))
+        ->get(route('feed'))
+        ->assertOk()
+        ->assertSee('lang="en"', false);
+
+    expect(servedLocale())->toBe('en')
+        ->and($user->fresh()->locale)->toBe($chosen);
+})->with([
+    'a disabled language' => '{other}-XX,{other};q=0.9',
+    'an unknown language' => fn () => unsupportedLocale().'-XX,'.unsupportedLocale().';q=0.9',
+    'English itself' => 'en-GB,en;q=0.9',
+    'nothing at all' => '',
+]);
 
 it('serves the stored choice again once its language is offered again', function () {
     [$browser, $chosen] = twoTranslatedLocales();
@@ -138,14 +158,14 @@ it('serves the stored choice again once its language is offered again', function
 
     withhold($chosen);
     $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk();
-    expect(servedLocale())->toBe('en');
+    expect(servedLocale())->toBe($browser);
 
     offerEveryInstalledLocale();
     $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk();
     expect(servedLocale())->toBe($chosen);
 });
 
-it('takes a visitor who chose a language that is then disabled to English, and back once it is enabled', function () {
+it('takes a visitor whose chosen language is disabled to their browser language, and back once it is enabled', function () {
     // End to end: the visitor picks a language with the switcher, an
     // administrator disables it on the Languages page, the visitor's browser
     // prefers a language that is still offered.
@@ -161,8 +181,8 @@ it('takes a visitor who chose a language that is then disabled to English, and b
     Livewire::test(LanguagesPage::class)->callTableAction('disable', $chosen);
     app(ProjectSettingsManager::class)->flush();
 
-    $this->actingAs($visitor)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="en"', false);
-    expect(servedLocale())->toBe('en')
+    $this->actingAs($visitor)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="'.$browser.'"', false);
+    expect(servedLocale())->toBe($browser)
         ->and($visitor->fresh()->locale)->toBe($chosen);
 
     $this->actingAs(User::factory()->admin()->create());

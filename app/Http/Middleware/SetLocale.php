@@ -11,24 +11,17 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * The language a public request is served in.
  *
- * A choice the visitor made comes first, from the first place it is stored:
+ * First match wins, and only a language the project offers can match:
  *
  *  1. the account's chosen language
  *  2. the session — a choice made earlier in this visit
  *  3. the `locale` cookie — a choice made on an earlier visit
- *
- * The first choice found decides. Offered, it is served; not offered — the
- * language was disabled after it was chosen — the visitor gets the default,
- * English. The search does not go on to an older choice or to the browser:
- * those would hand a visitor who chose Bulgarian some other language they
- * never picked. The choice itself is kept, never deleted, so it applies again
- * the day the language is offered again.
- *
- * Only a visitor who has chosen nothing is served by their browser:
- *
  *  4. the browser's Accept-Language, in its quality order
- *  5. the default, English
+ *  5. English, the default — only when nothing above matches
  *
+ * A stored value the project does not offer is skipped, never deleted: the
+ * search goes on to the next place, and the account, session and cookie keep
+ * the value, so it applies again the day the language is offered again.
  * Nothing here writes anything — a language guessed from the browser serves
  * this request only.
  *
@@ -48,33 +41,21 @@ class SetLocale
 
     private function resolveLocale(Request $request): string
     {
-        $chosen = $this->chosenLocale($request);
-
-        if ($chosen !== null) {
-            return $this->localeManager->enabledOrDefault($chosen);
-        }
-
-        return $this->localeManager->fromAcceptLanguage($request->header('Accept-Language'))
-            ?? $this->localeManager->default();
-    }
-
-    /** The first language the visitor chose, wherever it is stored, offered or not. */
-    private function chosenLocale(Request $request): ?string
-    {
         $user = $request->user();
 
-        $stored = [
+        $chosen = [
             $user instanceof User ? $user->locale : null,
             $request->session()->get('locale'),
             $request->cookie('locale'),
         ];
 
-        foreach ($stored as $locale) {
-            if (is_string($locale) && trim($locale) !== '') {
+        foreach ($chosen as $locale) {
+            if (is_string($locale) && $this->localeManager->isEnabled($locale)) {
                 return $locale;
             }
         }
 
-        return null;
+        return $this->localeManager->fromAcceptLanguage($request->header('Accept-Language'))
+            ?? $this->localeManager->default();
     }
 }

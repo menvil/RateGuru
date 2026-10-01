@@ -31,15 +31,15 @@ How completeness is measured, who owns which translation, and what the deploy's 
 
 ## Locale resolution order
 
-For public requests:
+For public requests the first **enabled** locale among:
 
 1. Authenticated user locale preference (`users.locale`)
 2. Session locale (`locale` key)
 3. Cookie locale (`locale` cookie)
 4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`)
-5. English, the default
+5. English, the default — only when nothing above matches
 
-The first of 1–3 that holds a value is the visitor's choice and decides: served when it is enabled, English when it is not — the search does not go on to an older choice or to the browser, which would hand a visitor who chose Bulgarian some other language they never picked. The stored choice is kept, never deleted, and applies again once the language is enabled again. Only a visitor who has chosen nothing is served by their browser, and English when the browser asks for nothing on offer. The browser's language is used for the current request only; nothing is written from it.
+A stored preference for a disabled locale is skipped, not deleted — the search goes on to the next source — and applies again once the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.
 
 The admin panel is always English (`SetAdminLocale`) and is not part of this order.
 

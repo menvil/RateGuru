@@ -60,22 +60,18 @@ seeder never change the languages of an existing project.
 
 ## Which language a visitor gets
 
-`SetLocale` looks for a choice the visitor made, in this order:
+`SetLocale` takes the first of these that is an **enabled** language:
 
 1. the account's chosen language (`users.locale`)
 2. the session — a choice made earlier in this visit
 3. the `locale` cookie — a choice made on an earlier visit
-
-The first one found decides: served when it is enabled, English when it is
-not. The search does not go on to an older choice or to the browser — a
-visitor who chose Bulgarian, after Bulgarian is disabled, reads English, not
-Russian because their browser prefers it. The choice is kept, never deleted,
-and counts again once the language is enabled again.
-
-Only a visitor who has chosen nothing is served by
-
 4. the browser's `Accept-Language`, in quality order; `ru-RU` matches `ru`
-5. English, the default.
+5. English, the default — only when nothing above matches
+
+A stored choice the project no longer offers is skipped, not deleted: a
+visitor who chose Bulgarian, after Bulgarian is disabled, gets their browser's
+language if that is enabled, and English otherwise. The choice counts again
+once Bulgarian is enabled again.
 
 Choosing a language (`POST /locale`) writes the session and a year-long
 `locale` cookie, and the account for a signed-in visitor; a language picked

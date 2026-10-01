@@ -170,7 +170,7 @@ it('refuses to enable a language whose application translations are broken', fun
 
 // Disable --------------------------------------------------------------------------
 
-it('says who falls back to English, and that their choice is kept, before disabling', function () {
+it('says where its visitors go, and that their choice is kept, before disabling', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();
     $label = config("locales.supported.{$other}.label");
@@ -179,7 +179,7 @@ it('says who falls back to English, and that their choice is kept, before disabl
         ->mountTableAction('disable', $other)
         ->assertMountedActionModalSee([
             "Disable {$label}?",
-            "Visitors currently using {$label} will fall back to English.",
+            "Visitors currently using {$label} will get their browser's language if it is enabled, otherwise English.",
             "Their {$label} preference is kept and will apply again if {$label} is enabled later.",
         ]);
 });

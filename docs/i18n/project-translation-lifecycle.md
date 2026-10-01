@@ -57,9 +57,9 @@ Enabling always asks first. A language whose project content is complete
 becomes available with a plain confirmation; one with missing project
 translations is enabled after a warning that visitors may see English where a
 translation is missing. A language whose application catalogs break the
-contract cannot be enabled. Disabling sends that language's visitors to
-English; their choice stays stored and applies again once the language is
-enabled again.
+contract cannot be enabled. Disabling a language sends its visitors to their
+browser's language when that is enabled, and to English otherwise; their
+choice stays stored and applies again once the language is enabled again.
 
 ### Enabled by default
 
