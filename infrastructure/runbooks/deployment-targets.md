@@ -504,7 +504,7 @@ select a target:
 | Workflow | Deployment target | GitHub Environment | Concurrency group |
 |---|---|---|---|
 | **Rollback staging** (`.github/workflows/rollback-staging.yml`) | `staging-main` | `staging` | `rateguru-staging-deployment` |
-| **Rollback tits.guru** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production` | `rateguru-production-release` |
+| **Rollback tits.guru** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production-tits-guru` | `rateguru-production-release` |
 
 Both are thin — a checkout and one action call each: the target and the
 environment are hard-coded in the workflow and cannot be chosen at dispatch
@@ -560,10 +560,12 @@ because another already holds that lock. `cancel-in-progress` is `false`
 everywhere: a deployment in flight is never cancelled.
 
 **Rollback tits.guru fails closed today.** `tits-guru` is still
-`lifecycle=planned` and unprovisioned. That gate is enforced server-side by
-the wrapper, and the `production` GitHub Environment has no `DEPLOY_*`
-configuration yet — so the workflow stops with an explicit diagnostic instead
-of touching anything. Neither the workflow nor the shared action weakens the
+`lifecycle=planned`. That gate is enforced server-side by the wrapper, so the
+workflow stops with an explicit diagnostic instead of touching anything —
+whatever its GitHub Environment happens to hold. Its credentials, approvals and
+protection rules live in `production-tits-guru`, the environment named per
+target rather than per class; the environment *class* that reaches the server
+stays `production`. Neither the workflow nor the shared action weakens the
 lifecycle gate to make itself pass.
 
 ## Local backup and restore-test

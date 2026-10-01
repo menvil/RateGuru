@@ -60,8 +60,8 @@ server *which operation*; the server decides *which commit*.
 
 ## Prerequisites
 
-Each GitHub Environment (`staging`, `production`) needs the variables the
-deploy and rollback workflows already use, plus one:
+Each GitHub Environment (`staging`, `production-tits-guru`) needs the variables
+the deploy and rollback workflows already use, plus one:
 
 | variable | value |
 |---|---|

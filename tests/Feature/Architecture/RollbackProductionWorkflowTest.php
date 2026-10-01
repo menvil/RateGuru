@@ -103,7 +103,7 @@ it('cannot mutate tits-guru concurrently with the workflow that deploys it', fun
 it('fails closed while production is unprovisioned, without weakening any gate', function () {
     // tits-guru is still lifecycle=planned. Nothing in this workflow tries to
     // work around that: the gate is server-side, the DEPLOY_* configuration
-    // comes from the production GitHub Environment, and the shared action
+    // comes from the production-tits-guru GitHub Environment, and the shared action
     // stops on the missing configuration before any SSH connection is made.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
 

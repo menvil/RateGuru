@@ -214,7 +214,7 @@ cover and these workflows cannot perform.
 
 A replacement machine is not the machine the environment already describes, so
 it gets its own privileged credential. Configure these in each GitHub
-Environment (`staging`, `production`) **before** the first recovery:
+Environment (`staging`, `production-tits-guru`) **before** the first recovery:
 
 | variable | meaning |
 |---|---|
@@ -660,8 +660,8 @@ over.
 ## 11. Production
 
 `Recover tits.guru host` exists now and is fixed to `tits-guru`, in the
-`production` environment, in the `rateguru-production-release` concurrency
-domain. It requires the exact confirmation `RECOVER tits-guru`.
+`production-tits-guru` GitHub Environment, in the `rateguru-production-release`
+concurrency domain. It requires the exact confirmation `RECOVER tits-guru`.
 
 **It fails closed today, and that is the point.** `tits-guru` is
 `lifecycle=planned`. The validation job reads that lifecycle out of the

@@ -74,7 +74,15 @@ This is not a new model. It is how staging already works.
 * no mail transport or gateway;
 * no deployment, no release, no `current`/`previous`, no migration;
 * no queue worker started;
-* no backup schedule, and no offsite credential rotation.
+* no backup schedule, and no offsite credential — not its rotation, and not its
+  creation either. `rclone-config` is root's own host-global Backblaze
+  credential, shared by every target on the machine; it is an ordinary
+  target-scope row for an active target whose backups need it, and under
+  `--provisioning` it is not derived at all. A target that is not operating yet
+  has no backup schedule to serve, and the narrowest operation on the host must
+  not be the one that can create its broadest secret. An absent credential stays
+  a prerequisite for the operation that owns it; an existing one is untouched
+  either way.
 
 Each appears in the operation's own report as a `DEFERRED` item, so a reader can
 tell "not yet, and here is who owns it" from "forgotten".

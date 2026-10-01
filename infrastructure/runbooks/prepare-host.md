@@ -256,8 +256,10 @@ password fallback anywhere in the path.
 
 ## GitHub Environment contract
 
-Configured per environment (`staging`, `production`). **No secret value
-belongs in this document or in any other repository file.**
+Configured per GitHub Environment (`staging`, `production-tits-guru` — named
+after the target it carries the credentials for, not after the environment
+class). **No secret value belongs in this document or in any other repository
+file.**
 
 ### Variables
 
@@ -447,8 +449,8 @@ real `tits-guru` target ID — so a real run fails closed on the server's
 lifecycle gate today. That is deliberate: it proves production will be
 prepared by exactly the same mechanism once Phase 8 activates and provisions
 the target, rather than by a separate production-shaped procedure invented
-under pressure on launch day. The production GitHub Environment's own
-protection rules stay authoritative on top of it.
+under pressure on launch day. The `production-tits-guru` GitHub Environment's
+own protection rules stay authoritative on top of it.
 
 ## Boundaries
 
