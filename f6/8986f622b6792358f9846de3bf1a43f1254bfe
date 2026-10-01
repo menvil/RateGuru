@@ -1,0 +1,25 @@
+app/Support/Settings/ResolvedProjectSettings.php
+  ai_agent 176
+app/Support/Translations/TranslatableField.php
+  ai_agent 17-21,28-32,39,41
+tests/Pest.php
+  s_c0fe1399ff286f::t_fd4ce252bc554b 3305-3319
+tests/Feature/I18n/TranslatableFieldTest.php
+  ai_agent 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f68986f622b6792358f9846de3bf1a43f1254bfe",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
