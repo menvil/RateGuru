@@ -1,0 +1,42 @@
+.github/workflows/rollback-production.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 15-19
+.github/workflows/recover-production.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 8-10
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_45b9dda7f77dd0 136-146,353-358
+  s_c7e782fafc9782::t_63d38bfcae3d62 783-787
+infrastructure/runbooks/github-restore.md
+  s_c7e782fafc9782::t_45b9dda7f77dd0 322-323
+.github/workflows/release.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 265-267,269
+tests/Feature/Architecture/HostInfrastructureLockTest.php
+  s_c7e782fafc9782::t_bef0513dcd71d4 122-132
+infrastructure/runbooks/target-perimeter.md
+  s_c7e782fafc9782::t_45b9dda7f77dd0 156-159
+infrastructure/runbooks/repair-target.md
+  s_c7e782fafc9782::t_63d38bfcae3d62 441-442
+.github/workflows/restore-production.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 14-16
+infrastructure/scripts/common
+  s_c7e782fafc9782::t_a747156df8e9e8 1110-1119
+.github/workflows/repair-production.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 7-9
+.github/workflows/prepare-production-host.yml
+  s_c7e782fafc9782::t_c50b9f391eac54 8-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e74474703fff747188a4ca61903b2b31eb25aeb8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
