@@ -474,7 +474,7 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
     ] as $dir) {
         expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create fixture directory: {$dir}");
     }
-    touch($root.'/shared/.env');
+    file_put_contents($root.'/shared/.env', contractSatisfyingEnvironment());
 
     $artifactSrc = $scratch.'/artifact-src-'.$id;
     mkdir($artifactSrc.'/public', 0o755, true);

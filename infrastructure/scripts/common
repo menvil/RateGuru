@@ -954,6 +954,11 @@ target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' 
 # into "target X is missing a valid .public_hostnames[0] (expected string)".
 target_primary_public_hostname()  { _target_property "${1-}" '.public_hostnames[0]' string; }
 
+# The repository-relative path of the template that declares which keys this
+# target's runtime environment file must carry. It is the ONLY declaration of
+# that key set — there is deliberately no second list anywhere.
+target_environment_template()     { _target_property "${1-}" '.environment_template' string; }
+
 # The Supervisor program running this target's Laravel Nightwatch
 # agent, or a non-zero return when the target does not run one.
 #
@@ -1909,3 +1914,220 @@ assert_recovery_alignment_operation() {
 }
 
 # --- deployment target registry (end) ---
+
+# --- environment contract (begin) ---
+#
+# A target's runtime environment file is CANONICAL on the host: an operator
+# creates it once, backups carry it, a recovery restores it, and no deploy,
+# configure or repair operation ever writes it. That is deliberate, and it has
+# one consequence this section exists to close — the host file can silently
+# fall behind the reviewed template, and nothing notices until the application
+# reads a key that is not there.
+#
+# So the committed template is the DECLARATION of which keys must exist, and
+# this compares it against the real file. KEY NAMES ONLY. No value is read,
+# printed, hashed, measured or compared: a validator that handled values would
+# be a second place a credential can leak from, and a drifted value is not the
+# failure being looked for.
+#
+# There is one list of keys and it lives in the template. Nothing here, and
+# nothing in any caller, restates it.
+
+ENVIRONMENT_TEMPLATE_INSTALLED_ROOT="/home/www/rateguru/config/environment"
+
+# environment_template_file TARGET_ID — the template to judge this target by,
+# resolved for BOTH worlds this runs in.
+#
+# Configure runs from a trusted repository bundle uploaded for that run, where
+# the registry's repo-relative path resolves directly. Deploy runs from the
+# installed operational bundle on a host that has no repository at all, where
+# the same templates were installed as flat files by install-target-operations.
+# The registry declares one path; this resolves it in whichever world is real,
+# and refuses rather than guessing when neither is.
+environment_template_file() {
+    local target_id="${1-}" declared basename_only own_source own_dir repo_root
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_ENVIRONMENT_TEMPLATE_FILE:-}" ]]; then
+        printf '%s\n' "${RATEGURU_ENVIRONMENT_TEMPLATE_FILE}"
+        return 0
+    fi
+
+    declared="$(target_environment_template "${target_id}")" || return 1
+
+    # A declaration that could escape its own directory is refused outright:
+    # this value selects a file that decides whether a deploy proceeds.
+    case "${declared}" in
+        /*|*..*) fail "target ${target_id} declares an unusable environment_template: ${declared}" ;;
+    esac
+
+    basename_only="${declared##*/}"
+
+    own_source="${BASH_SOURCE[0]:-}"
+
+    if [[ -n "${own_source}" ]]; then
+        own_dir="$(cd -- "$(dirname -- "${own_source}")" 2>/dev/null && pwd -P)" || own_dir=""
+
+        # In the repository bundle this file is infrastructure/scripts/common,
+        # so the repo root is two levels up and the declared path resolves as
+        # written.
+        if [[ -n "${own_dir}" ]]; then
+            repo_root="$(cd -- "${own_dir}/../.." 2>/dev/null && pwd -P)" || repo_root=""
+
+            if [[ -n "${repo_root}" ]] && [[ -f "${repo_root}/${declared}" ]]; then
+                printf '%s\n' "${repo_root}/${declared}"
+                return 0
+            fi
+        fi
+    fi
+
+    printf '%s/%s\n' "${ENVIRONMENT_TEMPLATE_INSTALLED_ROOT}" "${basename_only}"
+}
+
+# environment_declared_keys FILE — every key the file declares, one per line, in
+# file order.
+#
+# The file is READ, never sourced and never evaluated. It is operator-authored
+# root-owned secret material, so `source`ing it would hand a root shell to
+# whoever last edited it — the same rule install-target-database states for the
+# same file, for the same reason.
+#
+# What counts as a key, and why each rule is here:
+#   * a blank line, and a line whose first non-blank character is #, are not
+#     keys — which is what lets the templates carry section comments;
+#   * a trailing CR is stripped, so a file edited on Windows does not report
+#     every key as missing;
+#   * `export KEY=` is a key, because dotenv accepts it and an operator who
+#     wrote it supplied the key;
+#   * `KEY=` with nothing after it IS a declared key. Every secret in the
+#     templates is deliberately declared-and-blank, so treating empty as absent
+#     would report exactly the keys that matter most as missing.
+environment_declared_keys() {
+    local file="${1-}" line key
+
+    [[ -f "${file}" ]] || return 1
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+
+        [[ -n "${line}" ]] || continue
+        [[ "${line}" != '#'* ]] || continue
+        [[ "${line}" == *=* ]] || continue
+
+        key="${line%%=*}"
+        key="${key#export }"
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+        printf '%s\n' "${key}"
+    done < "${file}"
+}
+
+# assert_environment_contract TARGET_ID ENV_FILE CALLER — the gate itself.
+#
+# Returns 0 when every key the template declares exists exactly once in the
+# runtime file. Otherwise it fails, naming ONLY key names and the file path.
+#
+# Extra keys in the runtime file are reported and allowed. Turning a key an
+# operator added, or one a retired feature left behind, into a refused deploy
+# would be this check causing the outage it exists to prevent. Tightening that
+# is a separate, evidenced decision.
+assert_environment_contract() {
+    local target_id="${1-}" env_file="${2-}" caller="${3-this operation}"
+    local template key
+    local -a template_keys=() runtime_keys=() missing=() duplicate=() extra=()
+    declare -A runtime_count=()
+
+    template="$(environment_template_file "${target_id}")"
+
+    [[ -f "${template}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: its declared template is not present at ${template}. On a deployed host the templates are installed by install-target-operations; nothing was changed"
+
+    [[ -f "${env_file}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: ${env_file} does not exist. It is canonical on this host and is created once by an operator, never by this operation; nothing was changed"
+
+    [[ -r "${env_file}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: ${env_file} is not readable; nothing was changed"
+
+    mapfile -t template_keys < <(environment_declared_keys "${template}")
+    mapfile -t runtime_keys < <(environment_declared_keys "${env_file}")
+
+    (( ${#template_keys[@]} > 0 )) \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: the declared template ${template} contains no keys — refusing to treat an empty contract as satisfied; nothing was changed"
+
+    for key in ${runtime_keys[@]+"${runtime_keys[@]}"}; do
+        runtime_count["${key}"]=$(( ${runtime_count["${key}"]:-0} + 1 ))
+    done
+
+    for key in "${template_keys[@]}"; do
+        case "${runtime_count["${key}"]:-0}" in
+            0) missing+=("${key}") ;;
+            1) ;;
+            *) duplicate+=("${key}") ;;
+        esac
+    done
+
+    # A key declared twice is not a harmless extra: dotenv resolves one of them
+    # and which one is not obvious from reading the file, so the operator who
+    # edited it and the application can disagree about the value in force.
+    # Checked across the whole runtime file, not only the declared keys.
+    for key in "${!runtime_count[@]}"; do
+        if (( runtime_count["${key}"] > 1 )); then
+            case " ${duplicate[*]-} " in
+                *" ${key} "*) ;;
+                *) duplicate+=("${key}") ;;
+            esac
+        fi
+    done
+
+    for key in "${!runtime_count[@]}"; do
+        case " ${template_keys[*]} " in
+            *" ${key} "*) ;;
+            *) extra+=("${key}") ;;
+        esac
+    done
+
+    if (( ${#missing[@]} > 0 )) || (( ${#duplicate[@]} > 0 )); then
+        printf 'ENVIRONMENT CONTRACT: BROKEN\n' >&2
+        printf '  target:   %s\n' "${target_id}" >&2
+        printf '  declared: %s\n' "${template}" >&2
+        printf '  runtime:  %s\n' "${env_file}" >&2
+
+        if (( ${#missing[@]} > 0 )); then
+            printf '  MISSING (declared by the template, absent from the runtime file):\n' >&2
+            for key in $(printf '%s\n' "${missing[@]}" | sort); do
+                printf '    %s\n' "${key}" >&2
+            done
+        fi
+
+        if (( ${#duplicate[@]} > 0 )); then
+            printf '  DUPLICATE (declared more than once in the runtime file):\n' >&2
+            for key in $(printf '%s\n' "${duplicate[@]}" | sort); do
+                printf '    %s\n' "${key}" >&2
+            done
+        fi
+
+        printf '  No value was read, printed or compared — key names only.\n' >&2
+
+        local remedy=""
+
+        if (( ${#missing[@]} > 0 )) && (( ${#duplicate[@]} > 0 )); then
+            remedy="add the missing key(s) and remove the repeated declaration(s)"
+        elif (( ${#missing[@]} > 0 )); then
+            remedy="add the missing key(s)"
+        else
+            remedy="leave one declaration of the repeated key(s) and remove the rest"
+        fi
+
+        fail "${caller} refuses to continue: ${target_id}'s environment file does not satisfy its declared contract. Edit ${env_file} on this host to ${remedy}; this operation never writes it. Nothing was changed"
+    fi
+
+    if (( ${#extra[@]} > 0 )); then
+        log "environment contract: ${#template_keys[@]} declared key(s) present; ${#extra[@]} additional key(s) in ${env_file} are left as they are ($(printf '%s\n' "${extra[@]}" | sort | tr '\n' ' '))"
+    else
+        log "environment contract: all ${#template_keys[@]} declared key(s) present in ${env_file}"
+    fi
+}
+# --- environment contract (end) ---

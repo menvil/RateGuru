@@ -468,8 +468,29 @@ report_environment_precondition() {
     section "CANONICAL ENVIRONMENT (required to exist; never installed here)"
 
     if canonical_environment_present; then
-        item PASS "environment:canonical" \
-            "${TARGET_ROOT}/shared/.env exists on the host — its ownership, mode and contents are judged by install-target-prerequisites, and nothing here writes it"
+        # The same contract --apply refuses on, asked non-fatally: the shared
+        # implementation aborts on a broken contract, so it is run in a
+        # subshell where that abort ends the check rather than the report. One
+        # implementation, two ways of reacting to it.
+        local contract_output contract_status=0
+
+        set +e
+        contract_output="$( ( assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "configuring ${TARGET_ID}" ) 2>&1 )"
+        contract_status=$?
+        set -e
+
+        if (( contract_status == 0 )); then
+            item PASS "environment:canonical" \
+                "${TARGET_ROOT}/shared/.env exists and declares every key its template requires — its ownership, mode and values are judged by install-target-prerequisites, and nothing here writes it"
+
+            return 0
+        fi
+
+        item MISSING "environment:canonical" \
+            "${TARGET_ROOT}/shared/.env exists but does not declare every key its reviewed template requires" \
+            "add the key names the report below lists to ${TARGET_ROOT}/shared/.env on the host; configuring never writes it"
+
+        printf '%s\n' "${contract_output}" | sed 's/^/           | /'
 
         return 0
     fi
@@ -723,6 +744,17 @@ apply_gate() {
     if ! canonical_environment_present; then
         fail "refusing to configure ${TARGET_ID}: its canonical environment file $(canonical_environment_path) does not exist. Configuring requires it and never creates, seeds or overwrites it — create it on the host once, owned by the target's runtime user and group, mode 0640, then re-run. No material was installed and no database was created"
     fi
+
+    # Stage two and a half: the file exists, but does it declare what the
+    # reviewed template says it must? Ordered before the children because the
+    # database step reads credentials out of it — a key missing here surfaces
+    # there as an unrelated-looking database failure.
+    #
+    # Judged by the shared contract in `common`, not re-implemented: this file
+    # still never opens the environment file, and what it must CONTAIN beyond
+    # its key names, and who may own it at which mode, stay
+    # install-target-prerequisites' to judge.
+    assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "configuring ${TARGET_ID}"
 
     local -a args=()
     mapfile -t args < <(prerequisites_args)

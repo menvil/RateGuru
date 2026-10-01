@@ -1272,6 +1272,21 @@ perform_deploy() {
     fi
     # --- restore interlock (end) ---
 
+    # The environment contract, and the position is the point of it.
+    #
+    # The lock is held and the target is resolved, so this is a decision about
+    # the real target — and nothing has been written yet: no history row, no
+    # temporary release directory, no moved symlink. It also sits before the
+    # EXIT trap below arms the rollback machinery, so a refusal here has
+    # nothing to roll back.
+    #
+    # What it catches is the code arriving with a key the host has never been
+    # given. The release would extract, the symlink would switch, and the
+    # application would then read a key that is not there — on the request path,
+    # after the deploy reported success. shared/.env is canonical on the host
+    # and this never writes it; it refuses and names the keys to add.
+    assert_environment_contract "${TARGET_ID}" "${TARGET_ROOT}/shared/.env" "this deployment"
+
     ORIGINAL_CURRENT_PRESENT=false
     ORIGINAL_CURRENT_PATH=""
     ORIGINAL_PREVIOUS_PRESENT=false

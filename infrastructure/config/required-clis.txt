@@ -36,5 +36,6 @@ status
 status-mail-capture
 targets
 verify-backup
+verify-environment-contract
 verify-mail-capture
 verify-required-clis
