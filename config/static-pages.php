@@ -15,6 +15,10 @@ return [
                 'title' => 'За RateGuru',
                 'content' => 'RateGuru е общност за публикуване на постове, сравняване на мнения и откриване на оценките на други хора. Администратор може да замени този текст.',
             ],
+            'de' => [
+                'title' => 'Über RateGuru',
+                'content' => 'RateGuru ist eine Community, in der du Beiträge veröffentlichen, Meinungen vergleichen und entdecken kannst, wie andere die Dinge bewerten, die sie interessieren. Ein Administrator kann diesen Platzhaltertext ersetzen.',
+            ],
         ],
         'privacy' => [
             'en' => [
@@ -28,6 +32,10 @@ return [
             'bg' => [
                 'title' => 'Политика за поверителност',
                 'content' => 'Политиката за поверителност на RateGuru се подготвя за публикуване. Администратор може да замени този временен текст с одобрената политика за всеки поддържан език.',
+            ],
+            'de' => [
+                'title' => 'Datenschutzerklärung',
+                'content' => 'Die Datenschutzerklärung von RateGuru wird derzeit vorbereitet. Ein Administrator kann diesen vorläufigen Text für jede unterstützte Sprache durch die genehmigte Erklärung ersetzen.',
             ],
         ],
         'terms' => [
@@ -43,6 +51,10 @@ return [
                 'title' => 'Условия за ползване',
                 'content' => 'Условията за ползване на RateGuru се подготвят за публикуване. Администратор може да замени този временен текст с одобрените условия за всеки поддържан език.',
             ],
+            'de' => [
+                'title' => 'Nutzungsbedingungen',
+                'content' => 'Die Nutzungsbedingungen von RateGuru werden derzeit vorbereitet. Ein Administrator kann diesen vorläufigen Text für jede unterstützte Sprache durch die genehmigten Bedingungen ersetzen.',
+            ],
         ],
         'contact' => [
             'en' => [
@@ -56,6 +68,10 @@ return [
             'bg' => [
                 'title' => 'Контакти',
                 'content' => 'Използвайте формуляра по-долу, за да се свържете с администрацията на RateGuru.',
+            ],
+            'de' => [
+                'title' => 'Kontakt',
+                'content' => 'Nutze das folgende Formular, um die Administration von RateGuru zu kontaktieren.',
             ],
         ],
     ],

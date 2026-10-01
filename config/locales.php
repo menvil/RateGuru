@@ -22,5 +22,6 @@ return [
         'en' => ['label' => 'English', 'native' => 'English', 'flag' => '🇬🇧', 'enabled_by_default' => true],
         'ru' => ['label' => 'Russian', 'native' => 'Русский', 'flag' => '🇷🇺', 'enabled_by_default' => true],
         'bg' => ['label' => 'Bulgarian', 'native' => 'Български', 'flag' => '🇧🇬', 'enabled_by_default' => true],
+        'de' => ['label' => 'German', 'native' => 'Deutsch', 'flag' => '🇩🇪', 'enabled_by_default' => false],
     ],
 ];
