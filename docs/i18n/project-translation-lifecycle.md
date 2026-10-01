@@ -163,12 +163,13 @@ German as the example:
 3. Add a `de` value to every translatable value of every preset in
    `config/project_presets.php`.
 4. Add `de` to every page of `config/static-pages.php`.
-5. CI: application parity and repository content parity both green.
-6. Merge and deploy.
-7. The deploy's safe backfill fills in German for the content the project
+5. Map `de` to `de_DE` in `app/Support/Seo/PostOpenGraph.php`.
+6. CI: application parity and repository content parity both green.
+7. Merge and deploy.
+8. The deploy's safe backfill fills in German for the content the project
    still shows as the repository wrote it.
-8. Languages page: German is installed and disabled, with its project
+9. Languages page: German is installed and disabled, with its project
    completeness.
-9. Translate the remaining customized and administrator-created content in
-   the existing editors.
-10. An administrator enables German.
+10. Translate the remaining customized and administrator-created content in
+    the existing editors.
+11. An administrator enables German.

@@ -3287,6 +3287,19 @@ function offerLocales(array $enabled, string $default): void
     app(UpdateProjectLocaleSettingsAction::class)->handle($enabled, $default);
 }
 
+/**
+ * Makes the project offer every installed language, for a test that puts each
+ * one through what a visitor or a reader gets. A project that never chose
+ * offers only the languages enabled by default, and a language a release adds
+ * is not among them — but what such a test checks is that a language works
+ * once it is offered, which has to hold from the day the language is
+ * installed, before anyone enables it.
+ */
+function offerEveryInstalledLocale(): void
+{
+    offerLocales(supportedLocales(), config('locales.fallback'));
+}
+
 /** Request headers for a browser asking for these languages. */
 function acceptLanguage(string $header): array
 {

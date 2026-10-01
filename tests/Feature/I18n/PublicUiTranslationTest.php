@@ -27,6 +27,8 @@ it('renders feed interface in English by default', function () {
 });
 
 it('renders the sign-in screen in the visitor language through named keys', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->withSession(['locale' => $locale])
         ->get(route('login'))
         ->assertOk()
@@ -41,6 +43,8 @@ it('renders the sign-in screen in the visitor language through named keys', func
 })->with(translatedLocales());
 
 it('renders the registration and password screens in the visitor language', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->withSession(['locale' => $locale])
         ->get(route('register'))
         ->assertOk()
@@ -57,6 +61,7 @@ it('renders the registration and password screens in the visitor language', func
 })->with(translatedLocales());
 
 it('renders account settings in the account language', function (string $locale) {
+    offerEveryInstalledLocale();
     $user = User::factory()->create(['locale' => $locale]);
 
     $this->actingAs($user)
@@ -73,6 +78,8 @@ it('renders account settings in the account language', function (string $locale)
 })->with(translatedLocales());
 
 it('names the failing field in the visitor language', function (string $locale) {
+    offerEveryInstalledLocale();
+
     $this->withSession(['locale' => $locale])
         ->from(route('register'))
         ->post(route('register'), ['name' => 'Reader', 'email' => '', 'password' => 'long-enough-password', 'password_confirmation' => 'long-enough-password'])
@@ -82,6 +89,7 @@ it('names the failing field in the visitor language', function (string $locale) 
 })->with(supportedLocales());
 
 it('reports a password reset link in the visitor language', function (string $locale) {
+    offerEveryInstalledLocale();
     Notification::fake();
     User::factory()->create(['email' => "reader-{$locale}@example.test"]);
 

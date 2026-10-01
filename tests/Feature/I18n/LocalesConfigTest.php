@@ -25,18 +25,13 @@ it('says of every installed locale whether a new project offers it', function ()
     }
 });
 
-it('keeps today\'s languages offered to projects that never chose', function () {
-    // Every installed language offered before enabled_by_default existed has
-    // to stay offered, or an existing project would lose one on deploy.
-    foreach (config('locales.supported') as $locale => $info) {
-        expect($info['enabled_by_default'])->toBeTrue("{$locale} was offered by default before the flag existed");
-    }
-});
-
 it('offers the technical fallback by default, so a new project starts with a valid default', function () {
     // A new installation stores the fallback as its default and has chosen no
-    // languages, so the fallback has to be among the ones offered by default.
-    expect(config('locales.supported.'.config('locales.fallback').'.enabled_by_default'))->toBeTrue();
+    // languages, so the fallback has to be among the ones offered by default —
+    // which also means a project that never chose is offered at least one.
+    // Any other language may ship either way: one a release adds ships false.
+    expect(config('locales.supported.'.config('locales.fallback').'.enabled_by_default'))->toBeTrue()
+        ->and(array_filter(array_column(config('locales.supported'), 'enabled_by_default')))->not->toBeEmpty();
 });
 
 it('keeps the technical fallback installed', function () {

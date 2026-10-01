@@ -3,6 +3,7 @@
 use App\Models\User;
 
 it('renders language switcher with supported locales', function () {
+    offerEveryInstalledLocale();
     $response = $this->get(route('feed'))->assertOk();
 
     foreach (config('locales.supported') as $info) {
@@ -11,6 +12,7 @@ it('renders language switcher with supported locales', function () {
 });
 
 it('renders language switcher for authenticated user', function () {
+    offerEveryInstalledLocale();
     $response = $this->actingAs(User::factory()->create())
         ->get(route('feed'))
         ->assertOk();
@@ -21,6 +23,7 @@ it('renders language switcher for authenticated user', function () {
 });
 
 it('shows each language with the flag it is declared with', function () {
+    offerEveryInstalledLocale();
     $response = $this->get(route('feed'))->assertOk();
 
     foreach (config('locales.supported') as $code => $info) {

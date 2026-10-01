@@ -75,8 +75,9 @@ class ProjectSettingsManager
     public function defaults(): array
     {
         return array_merge(self::DEFAULTS, [
-            // Every installed language is offered (enabled_locales NULL), so
-            // the system fallback — installed by contract — is a valid default.
+            // No languages chosen yet (enabled_locales NULL) offers the ones
+            // enabled by default, and the system fallback is installed and
+            // enabled by default by contract — so it is a valid default.
             'default_locale' => config('locales.fallback', 'en'),
             'static_pages' => config('static-pages.defaults', []),
         ]);

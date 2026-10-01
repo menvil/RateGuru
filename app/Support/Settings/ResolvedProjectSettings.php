@@ -115,9 +115,9 @@ class ResolvedProjectSettings
 
     /**
      * The codes stored as offered, unvalidated: null when the project never
-     * narrowed them (every installed language), and an empty list for a value
-     * that is not a list at all. LocaleManager::enabled() decides what they
-     * mean.
+     * chose (the languages enabled by default are offered), and an empty list
+     * for a value that is not a list at all. LocaleManager::enabled() decides
+     * what they mean.
      *
      * @return array<mixed>|null
      */

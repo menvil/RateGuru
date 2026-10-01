@@ -48,6 +48,8 @@ beforeEach(function () {
 });
 
 it('prefers the language the account chose', function (string $locale) {
+    offerEveryInstalledLocale();
+
     expect(User::factory()->create(['locale' => $locale])->preferredLocale())->toBe($locale);
 })->with(supportedLocales());
 
@@ -68,6 +70,7 @@ it('has no preference when the stored language is no longer supported', function
 })->with(translatedLocales());
 
 it('renders mail in the account language, whatever the request locale is', function (string $locale) {
+    offerEveryInstalledLocale();
     $user = User::factory()->create(['locale' => $locale]);
 
     app()->setLocale('en');
@@ -100,6 +103,7 @@ it('reaches a password reset through that same preference', function (string $lo
     // The case this change exists for: the person is NOT logged in, so the
     // request locale is whatever their browser is set to — but we know exactly
     // who they are, because we just looked them up by email.
+    offerEveryInstalledLocale();
     $user = User::factory()->create(['email' => "reader-{$locale}@example.test", 'locale' => $locale]);
 
     app()->setLocale('en');
@@ -112,6 +116,7 @@ it('stores the site language on the account at registration', function (string $
     // Without this the column stays NULL for every new account, preferredLocale()
     // has nothing to prefer, and the contract above is inert for exactly the
     // people it was added for.
+    offerEveryInstalledLocale();
     app()->setLocale($locale);
 
     $user = app(RegisterUserAction::class)->execute([

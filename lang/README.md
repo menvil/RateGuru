@@ -88,9 +88,14 @@ the next language silently skips.
 3. Add its text to every translatable value of every preset in
    `config/project_presets.php` and to every page of
    `config/static-pages.php`.
-4. Run the suite. `TranslationParityTest` lists, by file and key, what the
+4. Map it to its Open Graph locale in `app/Support/Seo/PostOpenGraph.php`.
+5. Run the suite. `TranslationParityTest` lists, by file and key, what the
    catalogs still miss; `RepositoryTranslationParityTest` lists the preset and
-   static page values.
+   static page values; `PostShowMetaTagsTest` names a language still announced
+   to link previews as English. Tests that put every language through the
+   public site offer every installed one first
+   (`offerEveryInstalledLocale()`), so a language that ships disabled is held
+   to them from the start.
 
 Step 1 on its own turns CI red. That is deliberate: a language is either
 finished or not installed. Installing is not offering: after the deploy the
