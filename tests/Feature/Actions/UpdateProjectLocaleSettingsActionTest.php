@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Exceptions\Settings\IncompleteLocaleCatalogException;
 use App\Models\ProjectSettings;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
@@ -13,6 +14,8 @@ function updateProjectLocales(array $enabled, string $default): ProjectSettings
 beforeEach(function () {
     ProjectSettings::factory()->create(['site_name' => 'Kept']);
 });
+
+afterEach(fn () => removeCatalogScratchDirectory($this));
 
 it('stores the offered languages and the default together', function () {
     [$offered, $withheld] = twoTranslatedLocales();
@@ -67,6 +70,29 @@ it('refuses a default the project would not offer', function (string $default) {
     'installed but not offered' => fn () => twoTranslatedLocales()[1],
     'not installed' => fn () => unsupportedLocale(),
 ]);
+
+it('refuses to newly offer a language whose application catalogs break the contract', function () {
+    [$offered, $broken] = twoTranslatedLocales();
+    updateProjectLocales(['en', $offered], 'en');
+    breakCatalogsOf($broken);
+
+    expect(fn () => updateProjectLocales(['en', $offered, $broken], 'en'))
+        ->toThrow(IncompleteLocaleCatalogException::class, $broken);
+
+    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBe(array_values(array_intersect(supportedLocales(), ['en', $offered])));
+});
+
+it('leaves an offered language with broken catalogs alone, so the rest can still change', function () {
+    [$offered, $broken] = twoTranslatedLocales();
+    updateProjectLocales(['en', $offered, $broken], 'en');
+    breakCatalogsOf($broken);
+
+    updateProjectLocales(['en', $offered, $broken], $offered);
+
+    expect(ProjectSettings::findOrFail(1))
+        ->default_locale->toBe($offered)
+        ->enabled_locales->toContain($broken);
+});
 
 it('lets the technical fallback go unoffered', function () {
     [$only] = twoTranslatedLocales();

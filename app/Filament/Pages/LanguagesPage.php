@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Exceptions\Settings\IncompleteLocaleCatalogException;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Tags\TagResource;
@@ -38,8 +39,8 @@ use UnitEnum;
  *  - enabled: whether visitors are offered it.
  *
  * The page only reads; every change goes through
- * UpdateProjectLocaleSettingsAction. A language whose application catalogs
- * break the contract cannot be enabled. One whose project content is missing
+ * UpdateProjectLocaleSettingsAction, which also refuses to enable a language
+ * whose application catalogs break the contract. One whose project content is missing
  * translations can, after an explicit warning: visitors then see fallback
  * text where a translation is missing, which an administrator may accept.
  */
@@ -116,7 +117,8 @@ final class LanguagesPage extends Page implements HasTable
             ->color('success')
             ->visible(fn (array $record): bool => ! $record['enabled'])
             // A release with broken catalogs should never have passed CI; if one
-            // reaches a server anyway, its language stays off.
+            // reaches a server anyway, its language stays off. The action
+            // refuses it whoever asks; this only says so before the click.
             ->disabled(fn (array $record): bool => ! $record['application_complete'])
             ->tooltip(fn (array $record): ?string => $record['application_complete'] ? null : 'Its application translations break the catalog contract. Fix the release first.')
             ->requiresConfirmation(fn (array $record): bool => $record['project_missing'] > 0)
@@ -126,13 +128,13 @@ final class LanguagesPage extends Page implements HasTable
             ->action(function (array $record): void {
                 $locales = app(LocaleManager::class);
 
-                if (! app(TranslationCatalogInspector::class)->inspect($record['code'])->isComplete()) {
+                try {
+                    $this->updateLocales([...$locales->enabledCodes(), $record['code']], $locales->projectDefault());
+                } catch (IncompleteLocaleCatalogException) {
                     $this->refuse("{$record['label']} cannot be enabled: its application translations break the catalog contract.");
 
                     return;
                 }
-
-                $this->updateLocales([...$locales->enabledCodes(), $record['code']], $locales->projectDefault());
 
                 Notification::make()->title("{$record['label']} enabled")->success()->send();
             });
