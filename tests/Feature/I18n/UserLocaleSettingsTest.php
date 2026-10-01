@@ -17,6 +17,20 @@ it('allows authenticated user to update locale preference', function (string $lo
     expect($user->fresh()->locale)->toBe($locale);
 })->with(translatedLocales());
 
+it('reloads the page after saving, so all of it shows the new language at once', function () {
+    [$locale] = twoTranslatedLocales();
+    offerEveryInstalledLocale();
+    $user = User::factory()->create(['locale' => 'en']);
+
+    Livewire::actingAs($user)
+        ->test(UserLocaleSettings::class)
+        ->set('locale', $locale)
+        ->call('save')
+        ->assertRedirect(route('profile.edit'));
+
+    $this->actingAs($user->fresh())->get(route('profile.edit'))->assertOk()->assertSee('lang="'.$locale.'"', false);
+});
+
 it('rejects unsupported user locale preference', function () {
     $user = User::factory()->create(['locale' => 'en']);
 
@@ -24,7 +38,8 @@ it('rejects unsupported user locale preference', function () {
         ->test(UserLocaleSettings::class)
         ->set('locale', unsupportedLocale())
         ->call('save')
-        ->assertHasErrors('locale');
+        ->assertHasErrors('locale')
+        ->assertNoRedirect();
 });
 
 it('renders user locale settings on profile page', function () {

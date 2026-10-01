@@ -16,6 +16,40 @@
     display: none !important;
 }
 
+@layer base {
+    /*
+     * Tailwind 4 leaves buttons on the default arrow. Everything a visitor can
+     * press or toggle shows the pointer again — buttons (including ones styled
+     * as links), checkboxes and radios with the labels around them, file
+     * pickers, selects — and nothing that is disabled. A label beside a
+     * checkbox rather than around it says so with cursor-pointer itself.
+     */
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    input[type='checkbox']:not(:disabled),
+    input[type='radio']:not(:disabled),
+    input[type='file']:not(:disabled),
+    input[type='file']:not(:disabled)::file-selector-button,
+    select:not(:disabled),
+    summary,
+    label:has(input[type='checkbox']:not(:disabled)),
+    label:has(input[type='radio']:not(:disabled)) {
+        cursor: pointer;
+    }
+}
+
+/*
+ * A disabled control never shows the pointer, whatever utility classes it
+ * carries. Kept outside any layer on purpose: unlayered rules outrank the
+ * utilities layer, so a cursor-pointer on the element cannot win.
+ */
+button:disabled,
+[role='button'][aria-disabled='true'],
+input:disabled,
+select:disabled {
+    cursor: not-allowed;
+}
+
 .rg-search-input::-webkit-search-cancel-button {
     display: none;
 }
