@@ -69,6 +69,21 @@ function configureFixture(string $scratch, array $options = []): array
                 exit 1
             fi
 
+            # Faithful to the two real installers on the one point this
+            # orchestrator's ordering depends on: the database installer reads
+            # the target's environment file for its credentials and ABORTS when
+            # it is absent, in every mode including --check; and the material
+            # installer is what puts that file there.
+            if [[ "${me}" == install-target-database ]] && [[ ! -f "${STUB_SHARED_ENV}" ]]; then
+                echo "ERROR: target environment file is missing: ${STUB_SHARED_ENV} — external secret material, never generated here"
+                exit 1
+            fi
+
+            if [[ "${me}" == install-target-prerequisites ]] && [[ "$*" == *--apply* ]]; then
+                mkdir -p "$(dirname "${STUB_SHARED_ENV}")"
+                touch "${STUB_SHARED_ENV}"
+            fi
+
             if [[ -e "${STUB_TOGGLES}/${me}-hostreq" ]]; then
                 echo "  HOST-REQ something:${me} — a host prerequisite is not satisfied"
                 exit 1
@@ -98,6 +113,18 @@ function configureFixture(string $scratch, array $options = []): array
         touch($scratch.'/toggles/'.$child.'-satisfied');
     }
 
+    // The canonical environment file, where the installers compose its path:
+    // FS_ROOT + the registry's application_root + /shared/.env. The operator
+    // creates it on the host before configuring, so it is present by default
+    // here; 'noEnv' is the not-yet-created case. Its CONTENT is nothing —
+    // configure-target never opens it, and the installer that does is stubbed.
+    if (! ($options['noEnv'] ?? false)) {
+        $shared = $scratch.'/home/www/rateguru/production/tits-guru/shared';
+
+        @mkdir($shared, 0o755, true);
+        touch($shared.'/.env');
+    }
+
     foreach ($options['toggles'] ?? [] as $toggle) {
         touch($scratch.'/toggles/'.$toggle);
     }
@@ -108,12 +135,14 @@ function configureFixture(string $scratch, array $options = []): array
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
         'RATEGURU_CONFIGURE_EUID' => $options['euid'] ?? '0',
+        'RATEGURU_CONFIGURE_FS_ROOT' => $scratch,
         'RATEGURU_HOST_LOCK_ROOT' => $options['lockRoot'] ?? $scratch.'/run',
         'RATEGURU_CONFIGURE_PROVISION_BIN' => $scratch.'/bin/provision-target',
         'RATEGURU_CONFIGURE_PREREQUISITES_BIN' => $scratch.'/bin/install-target-prerequisites',
         'RATEGURU_CONFIGURE_DATABASE_BIN' => $scratch.'/bin/install-target-database',
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
+        'STUB_SHARED_ENV' => $scratch.'/home/www/rateguru/production/tits-guru/shared/.env',
     ];
 }
 
@@ -448,14 +477,19 @@ it('refuses while another operation holds the machine, and changes nothing', fun
 
         touch($lock);
 
-        // Hold it from another process, the way a concurrent operation would.
+        // Hold it from another process, the way a concurrent operation would,
+        // and wait for the holder to say it HAS the lock. A fixed sleep here
+        // would be a race on a loaded CI runner: too short and the lock is not
+        // held yet, so the run under test succeeds and the test passes for the
+        // wrong reason — proving nothing while looking green.
         $holder = proc_open(
-            ['bash', '-c', 'exec 9>>"$1"; flock -n 9 || exit 1; sleep 30', '_', $lock],
+            ['bash', '-c', 'exec 9>>"$1"; flock -n 9 || exit 1; echo held; sleep 30', '_', $lock],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
         );
 
-        usleep(300_000);
+        expect($holder)->not->toBeFalse();
+        expect(rtrim((string) fgets($pipes[1])))->toBe('held', 'the holder process never acquired the lock');
 
         [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
 
@@ -468,6 +502,85 @@ it('refuses while another operation holds the machine, and changes nothing', fun
             ->toContain('changed nothing');
 
         expect(configureLog($scratch))->toBe('');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('lets a read-only mode run while another operation holds the machine', function (string $mode) {
+    // The other half of one-owner-per-lock, and the reason it is proved by
+    // running rather than by reading: --apply asks provision-target --verify a
+    // question WHILE holding the machine. If a read-only mode took the lock,
+    // that child would wedge against its own orchestrator — a deadlock no
+    // source-level assertion about where the call sits would catch.
+    $scratch = configureScratchDir();
+
+    try {
+        // A fully configured target, so the read-only verdict is 0 and the
+        // only thing that could fail the run is the lock itself.
+        $env = configureFixture($scratch, [
+            'satisfied' => ['provision-target', 'install-target-prerequisites', 'install-target-database'],
+        ]);
+
+        $lock = $scratch.'/run/host-infrastructure.lock';
+
+        touch($lock);
+
+        $holder = proc_open(
+            ['bash', '-c', 'exec 9>>"$1"; flock -n 9 || exit 1; echo held; sleep 30', '_', $lock],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        expect($holder)->not->toBeFalse();
+        expect(rtrim((string) fgets($pipes[1])))->toBe('held', 'the holder process never acquired the lock');
+
+        [$exit, $output] = configureRun([$mode, '--target', 'tits-guru'], $env);
+
+        proc_terminate($holder);
+        proc_close($holder);
+
+        // It ran to a verdict instead of refusing, and never claimed the
+        // machine it had no business claiming.
+        expect($exit)->toBe(0, $output);
+        expect($output)->not->toContain('already mutating this host');
+        expect(configureLog($scratch))->toContain('provision-target --verify --target tits-guru');
+    } finally {
+        configureCleanup($scratch);
+    }
+})->with(['--check', '--verify']);
+
+it('installs a seeded environment file instead of blocking on its absence', function () {
+    // The database installer reads the target's environment file for its
+    // credentials and refuses outright when it is not there — in every mode,
+    // including --check. Asking it before the material step has run turned that
+    // refusal into a blocker, and the gate then refused to perform the very
+    // step that would have installed the file it was missing: a seeded .env
+    // could never be installed through this operation at all.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch, ['noEnv' => true]);
+
+        [$exit, $output] = configureRun(
+            ['--apply', '--target', 'tits-guru', '--material-dir', $scratch.'/material'],
+            $env,
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('database preflight deferred');
+
+        // The material step still ran first, and the database step still ran
+        // after it — the deferral changes which question is asked up front,
+        // never the order the two are converged in.
+        $children = configureLog($scratch);
+
+        expect(mb_strpos($children, 'install-target-prerequisites --apply'))
+            ->toBeLessThan(mb_strpos($children, 'install-target-database --apply'));
+
+        // And the supplied directory reached the installer that owns reading
+        // it, untouched by this orchestrator.
+        expect($children)->toContain('--material-dir '.$scratch.'/material');
     } finally {
         configureCleanup($scratch);
     }

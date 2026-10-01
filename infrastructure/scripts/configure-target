@@ -147,8 +147,13 @@ Usage:
             mutation, then installs this target's material and creates its
             database through their authoritative installers.
   --verify  Read-only. Exit 0 only when the target's material and database are
-            in place, the target is still planned, no application is deployed
-            and no deploy authorization exists.
+            in place and the target is still lifecycle=planned — which is what
+            keeps it undeployable, since every operational entry point and the
+            deploy wrapper refuse a target that is not active. It does not
+            inspect the deploy sudo grant or the release tree: those belong to
+            install-target-perimeter and to deploy, and a target-scoped
+            operation that judged host-wide state would fail on drift that is
+            not its own.
 
   --target        The target to configure. Required.
   --material-dir  Optional. Directory holding material to SEED an absent file,
@@ -445,8 +450,38 @@ report_material() {
     printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
 }
 
+# environment_file_present — a pure existence test, and deliberately nothing
+# more. The database installer resolves its credentials by READING the target's
+# environment file, and refuses outright when that file is not there: in every
+# mode, before it can report any database contract at all.
+#
+# That refusal is correct for the installer and wrong as an answer to "what
+# would configuring this target do?". Taken as a database verdict it says the
+# database is in CONFLICT when the truth is that the file the database contract
+# is read out of has not been installed yet — by the material step, which this
+# operation is about to run. On the one path where material is SEEDED from
+# --material-dir, treating it as a blocker was a deadlock: the gate refused
+# before the material step could install the very file the gate was missing.
+#
+# So the ordering dependency is tested directly, and the database question is
+# asked only once it can be answered. Nothing opens the file, and this is not a
+# second copy of any contract: the file's ownership, mode and content stay
+# entirely the installers' to judge, and the authoritative --verify after apply
+# is what proves the database either way.
+environment_file_present() {
+    [[ -f "$(physical "${TARGET_ROOT}")/shared/.env" ]]
+}
+
 report_database() {
     section "TARGET DATABASE (authoritative owner — never re-implemented)"
+
+    if ! environment_file_present; then
+        item MISSING "database:install-target-database" \
+            "the database contract cannot be read yet: ${TARGET_ROOT}/shared/.env is the file its credentials come from, and it is not there" \
+            "create ${TARGET_ROOT}/shared/.env on the host first — the database step reads it, and is evaluated once it exists"
+
+        return 0
+    fi
 
     child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
 
@@ -529,6 +564,19 @@ report_summary() {
 # just been given secrets and a database is the exact moment somebody is most
 # likely to believe it is ready, so the success message says what is still not
 # true rather than only what is.
+#
+# What the last four lines are, precisely: a statement of what THIS operation
+# grants, not a host audit. Configuring installs material and creates a
+# database, and it leaves the target lifecycle=planned — which is asserted,
+# immediately above, by re-reading the registry. Everything those lines deny
+# follows from that: a planned target is refused by every operational entry
+# point and by the deploy wrapper, and install-target-perimeter fails closed on
+# a sudoers file that grants a non-active target's deploy user at all.
+#
+# They are deliberately NOT re-derived by inspecting the host here. A
+# target-scoped operation that judged the sudoers file or the release tree would
+# report host-wide drift that is not its own as this target's failure, and the
+# owners of those surfaces already judge them.
 print_configured_state() {
     printf 'TARGET CONFIGURATION: CONFIGURED\n'
     printf 'LIFECYCLE: %s\n' "${LIFECYCLE}"
@@ -630,11 +678,15 @@ apply_gate() {
         printf '%s\n' "${CHILD_OUTPUT}" >&2
     fi
 
-    child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
+    if environment_file_present; then
+        child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
 
-    if blocker="$(child_blocker "install-target-database")"; then
-        blockers+=("${blocker}")
-        printf '%s\n' "${CHILD_OUTPUT}" >&2
+        if blocker="$(child_blocker "install-target-database")"; then
+            blockers+=("${blocker}")
+            printf '%s\n' "${CHILD_OUTPUT}" >&2
+        fi
+    else
+        action "database preflight deferred: ${TARGET_ID} has no environment file yet, and the database contract is read out of it"
     fi
 
     if (( ${#blockers[@]} > 0 )); then

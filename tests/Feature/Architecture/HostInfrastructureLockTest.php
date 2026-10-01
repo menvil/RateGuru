@@ -82,17 +82,18 @@ it('is taken only in a mutating mode, so a read-only child cannot deadlock its p
     foreach (['provision-target', 'configure-target', 'repair-target'] as $script) {
         $source = hostLockSource($script);
 
-        // Acquired on the apply path, which no read-only mode reaches. Proved
-        // by position: every acquisition sits after the point where --apply is
-        // the only mode still running.
-        $acquire = mb_strpos($source, 'acquire_host_infrastructure_lock');
-        $applyPath = mb_strpos($source, 'perform_apply');
+        // Exactly one acquisition, which is what makes the behavioural proof
+        // sufficient: there is no second call site a read-only path could reach
+        // instead. Position in the file proves nothing here and is deliberately
+        // not asserted — in two of these three scripts the acquisition is
+        // written ABOVE perform_apply and reached only from inside it, which is
+        // ordinary Bash and says nothing about which mode runs it.
+        //
+        // That the read-only modes genuinely do not take it is proved where it
+        // can be: by running them against a held lock, in ConfigureTargetTest.
+        expect(mb_strpos($source, 'acquire_host_infrastructure_lock'))
+            ->not->toBeFalse("{$script} must claim the machine");
 
-        expect($acquire)->not->toBeFalse("{$script} must claim the machine");
-        expect($applyPath)->not->toBeFalse();
-
-        // It appears in exactly one place, so no read-only path can reach a
-        // second one.
         expect(substr_count($source, 'acquire_host_infrastructure_lock'))
             ->toBe(1, "{$script} must claim the machine in exactly one place");
     }
