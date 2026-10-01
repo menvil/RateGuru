@@ -53,16 +53,47 @@ there once, as `runtime_user:runtime_group` mode `0640`. From that moment it is
 the sole runtime source of truth: backups carry it as `environment.env`, and a
 recovery restores it from the selected backup.
 
-GitHub is **not** a copy of it and is never asked to resend it. The Configure
-workflow therefore carries no material input at all — not an environment file,
-not `authorized_keys`, not a database password.
+GitHub is **not** a copy of it and is never asked to resend it, and Configure
+**requires it to already be there**. An absent `shared/.env` is a refusal naming
+the path to create — not something Configure seeds, installs or overwrites, on a
+first run or any other. A configure run that could bring the file into existence
+would be a second way for the most sensitive file on the host to be written,
+competing with the recovery path that restores it from a backup.
 
-An existing file is accepted as it stands and **never overwritten**. Supplied
-material can only ever *seed an absent file*; a file that already exists and
-differs is a refusal, because rotating a credential is a separate deliberate
-operation with its own review.
+So the order is: create the file on the host, then configure.
+
+```bash
+# on the host, once, as root
+install -o rateguru-tits-guru -g rateguru-tits-guru -m 0640 /dev/null \
+    /home/www/rateguru/production/tits-guru/shared/.env
+# then populate it from infrastructure/templates/environment/tits-guru.env.example
+```
+
+Its ownership, mode and metadata are then validated by
+`install-target-prerequisites`, which is the authority on what a correct one
+looks like. Configure only requires that there is something to validate.
 
 This is not a new model. It is how staging already works.
+
+## What Configure does send: the deploy public key
+
+Exactly one piece of material reaches the host, and it is not a secret: the
+target's deploy **public** key, installed as the deploy user's
+`authorized_keys`.
+
+It has to come from somewhere. Provisioning deliberately created the deploy
+account without an `authorized_keys`, and nothing else in the pipeline installs
+one — so without this step the target would stay permanently unreachable.
+
+It is **derived, not pasted**. The action runs `ssh-keygen -y` against
+`DEPLOY_SSH_KEY` on the GitHub runner and uploads only the public half; the
+private key never leaves the runner and is deleted as soon as the public half
+exists. Deriving it is what keeps the deploy identity single-sourced — a
+separately pasted public key is a second source of truth that silently stops
+matching the day the private key is rotated.
+
+`--material-dir` therefore carries `deploy-authorized-keys` and nothing else. A
+material directory containing `laravel-env` is refused by name.
 
 ## What it does not do
 
@@ -139,9 +170,15 @@ the narrow wrappers.
 
 It reads its credentials from the target's own GitHub Environment,
 `production-tits-guru`, which must hold `DEPLOY_HOST`, `DEPLOY_PORT` and
-`BOOTSTRAP_USER` as variables and `BOOTSTRAP_SSH_KEY` and
-`BOOTSTRAP_KNOWN_HOSTS` as secrets. That is a box of credentials, and it is not
+`BOOTSTRAP_USER` as variables and `BOOTSTRAP_SSH_KEY`, `BOOTSTRAP_KNOWN_HOSTS`
+and `DEPLOY_SSH_KEY` as secrets. That is a box of credentials, and it is not
 the same thing as the environment **class**, which stays `production`.
+
+`DEPLOY_SSH_KEY` is the one credential used for something other than connecting:
+it is read on the runner so `ssh-keygen -y` can derive the public half that
+becomes the target's `authorized_keys`. It is never used to connect from here
+and never uploaded. The two credentials stay separate — creating a role and a
+database needs root, and the deploy key reaches only the narrow wrappers.
 
 ## After configuring
 

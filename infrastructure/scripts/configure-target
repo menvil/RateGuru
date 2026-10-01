@@ -50,17 +50,25 @@
 # restores it from the selected backup. GitHub is not a copy of it and is never
 # asked to resend it.
 #
-# So this operation ACCEPTS and validates an environment file that is already
-# there — it never demands one be supplied, and it never overwrites one. The
-# only case where supplied material is installed is an absent file being seeded
-# for the first time, and even then a file that already exists and differs is a
-# refusal, not an update: rotating a credential is a separate deliberate
-# operation with its own review.
+# So this operation REQUIRES that file to be there already, and installs it
+# under no circumstances. Not from GitHub, not from supplied material, not on a
+# first run. An absent environment file is a refusal naming the path an operator
+# must create, because the alternative — a configure run that can bring one into
+# existence — is a second way for the most sensitive file on the host to be
+# written, competing with the one the recovery path restores. Its ownership,
+# mode and content remain install-target-prerequisites' to validate; what this
+# file adds is only the requirement that there is something to validate.
 #
-# The database step then reads that canonical file for its credentials, which
-# is why it is ordered after the material step and why nothing here ever parses
-# it: install-target-database owns that reading, and this file never sees a
-# credential at all.
+# The deploy user's authorized_keys is the opposite case and the only material
+# this operation causes to be installed: it is a PUBLIC key, derived on the
+# GitHub runner from the deploy credential that already exists, and the target
+# cannot be deployed to without it. That one logical name is what --material-dir
+# carries here, and the environment file is explicitly refused in it.
+#
+# The database step then reads the canonical environment file for its
+# credentials, which is why it is ordered after the material step and why
+# nothing here ever parses it: install-target-database owns that reading, and
+# this file never sees a credential at all.
 #
 # It is orchestration only. Every mutation is delegated to the installer that
 # already owns that contract, invoked under the explicit provisioning
@@ -156,12 +164,13 @@ Usage:
             not its own.
 
   --target        The target to configure. Required.
-  --material-dir  Optional. Directory holding material to SEED an absent file,
-                  by name. Read by install-target-prerequisites; never read by
-                  this file. An existing file is accepted as it stands and is
-                  never overwritten — the target's shared/.env is canonical on
-                  the host, created once by an operator, and carried to a
-                  replacement machine by its backups rather than resent.
+  --material-dir  Optional. Directory holding the target's deploy PUBLIC key as
+                  deploy-authorized-keys, and nothing else. Read by
+                  install-target-prerequisites; never read by this file. A
+                  directory carrying laravel-env is refused: the target's
+                  shared/.env is canonical on the host, must already exist
+                  before this runs, and is never installed, seeded or
+                  overwritten here.
 
 All modes require root, and every mode refuses a target that is not
 lifecycle=planned AND environment_class=production.
@@ -444,41 +453,77 @@ report_material() {
     fi
 
     item MISSING "material:install-target-prerequisites" \
-        "material this target does not have yet (its environment file, its deploy user's authorized_keys)" \
-        "create ${TARGET_ROOT}/shared/.env on the host as the target's runtime user, mode 0640 — it is canonical there and is never sent from anywhere; supply the deploy public key with --material-dir. Then re-run"
+        "material this target does not have yet (its deploy user's authorized_keys)" \
+        "supply the deploy public key as deploy-authorized-keys with --material-dir, then re-run. The environment file is never supplied: it is created on the host and required to be there already"
 
     printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
 }
 
-# environment_file_present — a pure existence test, and deliberately nothing
-# more. The database installer resolves its credentials by READING the target's
-# environment file, and refuses outright when that file is not there: in every
-# mode, before it can report any database contract at all.
+# The precondition, reported as its own line rather than folded into the
+# material step. An operator reading "MISSING material" cannot tell what they
+# are supposed to do about it from that alone, and the two halves have opposite
+# answers: the deploy key is supplied to this operation, the environment file
+# is never supplied to it at all.
+report_environment_precondition() {
+    section "CANONICAL ENVIRONMENT (required to exist; never installed here)"
+
+    if canonical_environment_present; then
+        item PASS "environment:canonical" \
+            "${TARGET_ROOT}/shared/.env exists on the host — its ownership, mode and contents are judged by install-target-prerequisites, and nothing here writes it"
+
+        return 0
+    fi
+
+    item MISSING "environment:canonical" \
+        "${TARGET_ROOT}/shared/.env does not exist, and configuring neither creates nor seeds it" \
+        "create it on the host once, owned by the target's runtime user and group, mode 0640. It is canonical there: backups carry it as environment.env and a recovery restores it from the selected backup"
+}
+
+# The material directory carries the deploy PUBLIC key and nothing else. An
+# environment file placed in it would be installed by the authoritative
+# installer, which is precisely the path this operation does not have — so it is
+# refused by name, before anything reads the directory, rather than left to
+# documentation.
+assert_material_dir_carries_no_environment() {
+    [[ "${MATERIAL_DIR_SEEN}" == true ]] || return 0
+
+    [[ ! -e "${MATERIAL_DIR}/laravel-env" ]] \
+        || fail "refusing to configure ${TARGET_ID}: the material directory carries laravel-env (${MATERIAL_DIR}/laravel-env). Configuring never installs the target's environment file — it is created once on the host, where it is canonical, and a recovery restores it from a backup. Remove it from the material directory; nothing was changed"
+}
+
+# canonical_environment_path / canonical_environment_present — a pure existence
+# test, and deliberately nothing more.
 #
-# That refusal is correct for the installer and wrong as an answer to "what
-# would configuring this target do?". Taken as a database verdict it says the
-# database is in CONFLICT when the truth is that the file the database contract
-# is read out of has not been installed yet — by the material step, which this
-# operation is about to run. On the one path where material is SEEDED from
-# --material-dir, treating it as a blocker was a deadlock: the gate refused
-# before the material step could install the very file the gate was missing.
+# The environment file is a PRECONDITION of this operation, not an outcome of
+# it. It is created once by an operator, directly on the host; from then on
+# backups carry it and a recovery restores it. Nothing here writes it.
 #
-# So the ordering dependency is tested directly, and the database question is
-# asked only once it can be answered. Nothing opens the file, and this is not a
-# second copy of any contract: the file's ownership, mode and content stay
-# entirely the installers' to judge, and the authoritative --verify after apply
-# is what proves the database either way.
-environment_file_present() {
-    [[ -f "$(physical "${TARGET_ROOT}")/shared/.env" ]]
+# Existence is tested here for two reasons, and neither is validation. The
+# database installer resolves its credentials by READING this file and aborts
+# when it is absent — in every mode, including --check, before it can report any
+# database contract at all. Read as a database verdict that abort says the
+# database is in CONFLICT, when the truth is simply that the operator has not
+# created the file yet. And a refusal that names the exact path to create is
+# worth more than a child's abort relayed through two layers.
+#
+# What the file must CONTAIN, and who may own it at which mode, stays
+# install-target-prerequisites' to judge. This is the requirement that there is
+# something for it to judge.
+canonical_environment_path() {
+    printf '%s/shared/.env\n' "$(physical "${TARGET_ROOT}")"
+}
+
+canonical_environment_present() {
+    [[ -f "$(canonical_environment_path)" ]]
 }
 
 report_database() {
     section "TARGET DATABASE (authoritative owner — never re-implemented)"
 
-    if ! environment_file_present; then
+    if ! canonical_environment_present; then
         item MISSING "database:install-target-database" \
             "the database contract cannot be read yet: ${TARGET_ROOT}/shared/.env is the file its credentials come from, and it is not there" \
-            "create ${TARGET_ROOT}/shared/.env on the host first — the database step reads it, and is evaluated once it exists"
+            "create ${TARGET_ROOT}/shared/.env on the host, as the target's runtime user, mode 0640 — configuring requires it and never creates it"
 
         return 0
     fi
@@ -594,6 +639,7 @@ run_report() {
 
     report_target
     report_structural_contract
+    report_environment_precondition
     report_material
     report_database
     report_deferred
@@ -668,6 +714,16 @@ apply_gate() {
         fail "refusing to configure ${TARGET_ID}: the target is not provisioned. No material was installed and no database was created"
     fi
 
+    # Stage two: the precondition this operation requires and never satisfies.
+    # Ordered here, before the children, for a reason that is not merely tidier
+    # — the database preflight below resolves its credentials out of this exact
+    # file and aborts without it, so a run that got past this point with no
+    # environment file could only report the database as broken when nothing
+    # about the database is wrong.
+    if ! canonical_environment_present; then
+        fail "refusing to configure ${TARGET_ID}: its canonical environment file $(canonical_environment_path) does not exist. Configuring requires it and never creates, seeds or overwrites it — create it on the host once, owned by the target's runtime user and group, mode 0640, then re-run. No material was installed and no database was created"
+    fi
+
     local -a args=()
     mapfile -t args < <(prerequisites_args)
 
@@ -678,15 +734,11 @@ apply_gate() {
         printf '%s\n' "${CHILD_OUTPUT}" >&2
     fi
 
-    if environment_file_present; then
-        child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
+    child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
 
-        if blocker="$(child_blocker "install-target-database")"; then
-            blockers+=("${blocker}")
-            printf '%s\n' "${CHILD_OUTPUT}" >&2
-        fi
-    else
-        action "database preflight deferred: ${TARGET_ID} has no environment file yet, and the database contract is read out of it"
+    if blocker="$(child_blocker "install-target-database")"; then
+        blockers+=("${blocker}")
+        printf '%s\n' "${CHILD_OUTPUT}" >&2
     fi
 
     if (( ${#blockers[@]} > 0 )); then
@@ -769,6 +821,7 @@ perform_apply() {
 main() {
     parse_args "$@"
     require_root_mode
+    assert_material_dir_carries_no_environment
     resolve_target
 
     case "${MODE}" in

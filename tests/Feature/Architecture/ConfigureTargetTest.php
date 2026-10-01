@@ -550,13 +550,12 @@ it('lets a read-only mode run while another operation holds the machine', functi
     }
 })->with(['--check', '--verify']);
 
-it('installs a seeded environment file instead of blocking on its absence', function () {
-    // The database installer reads the target's environment file for its
-    // credentials and refuses outright when it is not there — in every mode,
-    // including --check. Asking it before the material step has run turned that
-    // refusal into a blocker, and the gate then refused to perform the very
-    // step that would have installed the file it was missing: a seeded .env
-    // could never be installed through this operation at all.
+it('refuses before any mutation when the canonical environment file is absent', function () {
+    // The decision this encodes: shared/.env is a PRECONDITION of configuring,
+    // never an outcome of it. An operator creates it on the host once, backups
+    // carry it and a recovery restores it — so a configure run that could
+    // bring one into existence would be a second way for the most sensitive
+    // file on the host to be written.
     $scratch = configureScratchDir();
 
     try {
@@ -567,24 +566,99 @@ it('installs a seeded environment file instead of blocking on its absence', func
             $env,
         );
 
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('database preflight deferred');
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('its canonical environment file')
+            ->toContain('never creates, seeds or overwrites it')
+            ->toContain('No material was installed and no database was created');
 
-        // The material step still ran first, and the database step still ran
-        // after it — the deferral changes which question is asked up front,
-        // never the order the two are converged in.
-        $children = configureLog($scratch);
-
-        expect(mb_strpos($children, 'install-target-prerequisites --apply'))
-            ->toBeLessThan(mb_strpos($children, 'install-target-database --apply'));
-
-        // And the supplied directory reached the installer that owns reading
-        // it, untouched by this orchestrator.
-        expect($children)->toContain('--material-dir '.$scratch.'/material');
+        // Refused as a whole, before the installers ran at all — not after the
+        // deploy key was already in place.
+        expect(configureLog($scratch))->not->toContain('--apply');
     } finally {
         configureCleanup($scratch);
     }
 });
+
+it('refuses a material directory that carries an environment file', function () {
+    // The directory is built by the action and holds one public key. An
+    // environment file in it would be installed by the authoritative
+    // installer, which is exactly the path this operation does not have — so
+    // it is refused by name rather than left to documentation.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch);
+
+        @mkdir($scratch.'/material', 0o700, true);
+        file_put_contents($scratch.'/material/laravel-env', "APP_KEY=irrelevant\n");
+
+        [$exit, $output] = configureRun(
+            ['--apply', '--target', 'tits-guru', '--material-dir', $scratch.'/material'],
+            $env,
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('the material directory carries laravel-env')
+            ->toContain('nothing was changed');
+
+        // Refused before the registry was even consulted, so no child ran.
+        expect(configureLog($scratch))->toBe('');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('installs the deploy public key from the supplied material', function () {
+    // The one thing configuring does install. Provisioning deliberately left
+    // the deploy user without an authorized_keys, and nothing else in the
+    // pipeline creates one.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch);
+
+        @mkdir($scratch.'/material', 0o700, true);
+        file_put_contents($scratch.'/material/deploy-authorized-keys', "ssh-ed25519 AAAA deploy\n");
+
+        [$exit, $output] = configureRun(
+            ['--apply', '--target', 'tits-guru', '--material-dir', $scratch.'/material'],
+            $env,
+        );
+
+        expect($exit)->toBe(0, $output);
+
+        // Handed to the installer that owns reading it, untouched.
+        expect(configureLog($scratch))
+            ->toContain('--material-dir '.$scratch.'/material');
+
+        expect($output)->toContain('DEPLOY KEY: INSTALLED');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('reports the canonical environment file as its own precondition', function (bool $present, string $status) {
+    // Reported as a separate line rather than folded into the material step:
+    // an operator reading "MISSING material" cannot tell from that alone which
+    // half they must act on, and the two halves have opposite answers — the
+    // deploy key is supplied to this operation, the environment file never is.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch, ['noEnv' => ! $present]);
+
+        [, $output] = configureRun(['--check', '--target', 'tits-guru'], $env);
+
+        expect($output)->toMatch('/^\s+'.$status.'\s+environment:canonical /m');
+    } finally {
+        configureCleanup($scratch);
+    }
+})->with([
+    'present' => [true, 'PASS'],
+    'absent' => [false, 'MISSING'],
+]);
 
 it('is registered as a required CLI and ships executable', function () {
     expect(File::get(base_path('infrastructure/config/required-clis.txt')))
