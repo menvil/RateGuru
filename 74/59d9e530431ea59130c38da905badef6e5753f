@@ -1,0 +1,42 @@
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_c7e782fafc9782::t_d8c6f93a35de0f 391-392
+  s_c7e782fafc9782::t_555c2996ea0635 30-32,111,416-472
+infrastructure/scripts/install-target-perimeter
+  s_c7e782fafc9782::t_46a14b26d98c32 669-685
+  s_c7e782fafc9782::t_67cc70daa58527 522-565,586-590,592-593,595-608
+tests/Feature/Architecture/DeployPerimeterRegistryTest.php
+  s_c7e782fafc9782::t_02e7e744b69bac 110-115,118-128,130-134
+  s_c7e782fafc9782::t_df817d7a00992d 1-109,116-117,129,135-168
+tests/Feature/Architecture/RepairTargetTest.php
+  s_c7e782fafc9782::t_b76a0756575df2 259-262
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_7d3c36c0ee87fe 762-765
+  s_c7e782fafc9782::t_4d8225584b70e9 1351-1352,1354,1844-1862
+tests/Feature/Architecture/InstallTargetPerimeterTest.php
+  s_c7e782fafc9782::t_8161bcb339fd5b 437-442
+infrastructure/README.md
+  s_c7e782fafc9782::t_26dd75c53de28d 108
+infrastructure/runbooks/configure-target.md
+  s_c7e782fafc9782::t_26dd75c53de28d 1-145
+tests/Feature/Architecture/HostInfrastructureLockTest.php
+  s_c7e782fafc9782::t_6ac6bdac072231 42,48-52,55-56,85-97
+  s_c7e782fafc9782::t_d8c6f93a35de0f 43-46,108-109
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_d8c6f93a35de0f 61-62,162-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7459d9e530431ea59130c38da905badef6e5753f",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
