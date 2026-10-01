@@ -26,18 +26,8 @@
 
             <ul class="space-y-2 text-sm">
                 @foreach ($section['items'] as $item)
-                    <li class="flex items-start justify-between gap-4">
-                        <div class="space-y-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <span>✗ {{ $item['label'] }} → {{ $item['field'] }}</span>
-                                <x-filament::badge size="sm" :color="$item['reason_color']">{{ $item['reason'] }}</x-filament::badge>
-                            </div>
-
-                            @if ($item['explanation'] !== null)
-                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ $item['explanation'] }}</p>
-                            @endif
-                        </div>
-
+                    <li class="flex items-center justify-between gap-4">
+                        <span>✗ {{ $item['label'] }} → {{ $item['field'] }}</span>
                         <x-filament::link :href="$item['url']" size="sm">Edit</x-filament::link>
                     </li>
                 @endforeach

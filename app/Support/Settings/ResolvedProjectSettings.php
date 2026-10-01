@@ -70,46 +70,31 @@ class ResolvedProjectSettings
     }
 
     /**
-     * A static page in the current language, field by field.
+     * A static page in the current language, field by field: the stored text
+     * of that language, otherwise the stored English. Only what the project
+     * stores is shown — config/static-pages.php seeded it once and is not read
+     * here.
      *
-     * The page's English is the stored English, or the configured English
-     * where none is stored. Another language shows its own text — stored, or
-     * configured where none is stored — until the project rewrites that
-     * field's English. From then on the configured translation, and a stored
-     * copy of it, translate text the page no longer shows, so the visitor gets
-     * the current English instead; only a stored text of their own language
-     * that differs from the configured one is shown. This is the rule the
-     * Languages page counts missing translations by
-     * (ProjectTranslationCompleteness): what it lists as missing is what a
-     * visitor falls back from.
+     * The page itself must be one the application has (config keys name the
+     * built-in pages); its content may be missing until it is filled in, which
+     * shows as empty.
      *
      * @return array{title: string, content: string}
      */
     public function staticPage(string $pageKey): array
     {
-        $page = $this->data['static_pages'][$pageKey] ?? null;
-
-        if (! is_array($page)) {
+        if (! array_key_exists($pageKey, (array) config('static-pages.defaults', []))) {
             throw new \InvalidArgumentException("Unknown static page [{$pageKey}].");
         }
 
-        $configured = config("static-pages.defaults.{$pageKey}", []);
-        $configured = is_array($configured) ? $configured : [];
+        $page = $this->data['static_pages'][$pageKey] ?? [];
+        $page = is_array($page) ? $page : [];
         $locale = app()->getLocale();
 
         return [
-            'title' => $this->staticPageText($page, $configured, $locale, 'title'),
-            'content' => $this->staticPageText($page, $configured, $locale, 'content'),
+            'title' => $this->staticPageText($page, $locale, 'title'),
+            'content' => $this->staticPageText($page, $locale, 'content'),
         ];
-    }
-
-    /**
-     * The project default as stored. Not guaranteed to be offered: read
-     * LocaleManager::projectDefault() for the one to use.
-     */
-    public function defaultLocale(): string
-    {
-        return $this->data['default_locale'];
     }
 
     /**
@@ -164,27 +149,12 @@ class ResolvedProjectSettings
         return (bool) (is_array($providers) ? ($providers[$provider->value] ?? true) : true);
     }
 
-    /**
-     * @param  array<string, mixed>  $page  the page as served: configured, with each stored language in its place
-     * @param  array<string, mixed>  $configured  the page as config/static-pages.php ships it
-     */
-    private function staticPageText(array $page, array $configured, string $locale, string $field): string
+    /** @param  array<string, mixed>  $page  the page as the project stores it */
+    private function staticPageText(array $page, string $locale, string $field): string
     {
-        $reference = TranslatableField::REFERENCE_LOCALE;
-        $english = $this->staticPageField($page, $reference, $field);
-        $configuredEnglish = $this->staticPageField($configured, $reference, $field);
-        $current = $english ?? $configuredEnglish ?? '';
-
-        $text = $this->staticPageField($page, $locale, $field);
-        $configuredText = $this->staticPageField($configured, $locale, $field);
-
-        if ($english === null || $english === $configuredEnglish) {
-            return $text ?? $configuredText ?? $current;
-        }
-
-        // The English was rewritten: the configured translation, stored or
-        // not, is of the old English and does not count.
-        return $text !== null && $text !== $configuredText ? $text : $current;
+        return $this->staticPageField($page, $locale, $field)
+            ?? $this->staticPageField($page, TranslatableField::REFERENCE_LOCALE, $field)
+            ?? '';
     }
 
     /**

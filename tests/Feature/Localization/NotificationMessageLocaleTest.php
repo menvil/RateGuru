@@ -37,6 +37,19 @@ it('renders a stored key in the reader language', function (string $locale, stri
     ['bg', '@kate коментира вашия пост'],
 ]);
 
+it('renders a stored row with the catalog of the running release', function () {
+    // The row keeps the key and its parameters; the sentence is the catalog's,
+    // so a release that rewords it rewords every existing notification too.
+    app('translator')->addLines(['ui.notifications.messages.post_commented' => '@:username left a comment'], 'en');
+    app()->setLocale('en');
+
+    expect(NotificationMessage::for(notificationWith([
+        'type' => 'post_commented',
+        'message_key' => 'ui.notifications.messages.post_commented',
+        'message_params' => ['username' => 'kate'],
+    ])))->toBe('@kate left a comment');
+});
+
 it('substitutes every parameter a message declares', function () {
     app()->setLocale('ru');
 

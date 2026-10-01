@@ -11,11 +11,11 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Which installed languages the project offers, and which of them new visitors
- * get — written together, so the two can never disagree.
+ * Which installed languages the project offers. The default is not part of
+ * it: English is the default by system policy, and always offered.
  *
- * Refuses rather than repairs: a code that is not installed, an empty set and a
- * default outside the set are caller errors. Reading tolerates a bad row
+ * Refuses rather than repairs: a code that is not installed and a set without
+ * the default are caller errors. Reading tolerates a bad row
  * (LocaleManager::enabled()); writing never produces one.
  *
  * A language whose application catalogs break the contract is never newly
@@ -32,7 +32,7 @@ final class UpdateProjectLocaleSettingsAction
     ) {}
 
     /** @param  list<string>  $enabledLocales */
-    public function handle(array $enabledLocales, string $defaultLocale): ProjectSettings
+    public function handle(array $enabledLocales): ProjectSettings
     {
         $installed = array_keys($this->locales->supported());
 
@@ -42,16 +42,14 @@ final class UpdateProjectLocaleSettingsAction
             }
         }
 
+        $default = $this->locales->default();
+
+        if (! in_array($default, $enabledLocales, true)) {
+            throw new InvalidArgumentException("The default locale [{$default}] is always offered and cannot be left out.");
+        }
+
         // Config order and one entry per language, whatever the caller sent.
         $enabled = array_values(array_intersect($installed, $enabledLocales));
-
-        if ($enabled === []) {
-            throw new InvalidArgumentException('A project must offer at least one language.');
-        }
-
-        if (! in_array($defaultLocale, $enabled, true)) {
-            throw new InvalidArgumentException("The default locale [{$defaultLocale}] is not one of the offered languages.");
-        }
 
         foreach (array_diff($enabled, $this->locales->enabledCodes()) as $locale) {
             $catalog = $this->catalogs->inspect($locale);
@@ -61,14 +59,11 @@ final class UpdateProjectLocaleSettingsAction
             }
         }
 
-        $settings = DB::transaction(function () use ($enabled, $defaultLocale): ProjectSettings {
+        $settings = DB::transaction(function () use ($enabled): ProjectSettings {
             $settings = ProjectSettings::query()->lockForUpdate()->find(1)
                 ?? ProjectSettings::unguarded(fn (): ProjectSettings => new ProjectSettings(['id' => 1, ...$this->manager->defaults()]));
 
-            $settings->fill([
-                'enabled_locales' => $enabled,
-                'default_locale' => $defaultLocale,
-            ])->save();
+            $settings->fill(['enabled_locales' => $enabled])->save();
 
             return $settings;
         });

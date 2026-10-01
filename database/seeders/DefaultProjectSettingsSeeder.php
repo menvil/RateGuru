@@ -8,46 +8,44 @@ use Illuminate\Database\Seeder;
 
 class DefaultProjectSettingsSeeder extends Seeder
 {
+    /**
+     * Reseeded on an existing row that never had a preset applied; everything
+     * else a row holds is its own once it exists.
+     */
+    private const RESEEDED = [
+        'site_name',
+        'site_tagline',
+        'site_description',
+        'object_singular_name',
+        'object_plural_name',
+        'upload_cta_label',
+        'feed_title',
+        'default_theme',
+        'default_sort',
+        'active_preset_key',
+        'feature_flags',
+    ];
+
     public function run(): void
     {
         if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
             return;
         }
 
-        $settings = ProjectSettings::query()->firstOrNew(['id' => 1]);
-        $isNew = ! $settings->exists;
+        // The one bootstrap every writer that creates the row uses.
+        $defaults = app(ProjectSettingsManager::class)->defaults();
+        $settings = ProjectSettings::query()->find(1);
 
-        $settings->fill([
-            'site_name' => 'RateGuru',
-            'site_tagline' => 'Rate anything',
-            'site_description' => null,
-            'object_singular_name' => 'post',
-            'object_plural_name' => 'posts',
-            'upload_cta_label' => 'Upload post',
-            'feed_title' => 'Latest posts',
-            'default_theme' => 'system',
-            'default_sort' => 'hot',
-            'active_preset_key' => 'generic',
-            'feature_flags' => [
-                'show_comments' => true,
-                'show_share_buttons' => true,
-                'show_vote_breakdown' => true,
-                'show_follow_buttons' => true,
-                'post_detail_overlay_mode' => false,
-                'show_saved_posts' => false,
-                'allow_user_uploads' => true,
-                'allow_guest_viewing' => true,
-            ],
-        ]);
+        if ($settings === null) {
+            // A new row gets all of it: the static pages it will own from now
+            // on, and no chosen languages — the ones enabled by default.
+            ProjectSettings::unguarded(fn (): ProjectSettings => ProjectSettings::query()->create(['id' => 1, ...$defaults]));
 
-        if ($isNew) {
-            $settings->static_pages = config('static-pages.defaults');
-            // The language policy of an existing project — which languages it
-            // offers and its default — is never reseeded; only a new row gets
-            // the defaults, and it offers every installed language.
-            $settings->default_locale = app(ProjectSettingsManager::class)->defaults()['default_locale'];
+            return;
         }
 
-        $settings->save();
+        // The pages and the language policy of an existing project are never
+        // reseeded.
+        $settings->fill(array_intersect_key($defaults, array_flip(self::RESEEDED)))->save();
     }
 }

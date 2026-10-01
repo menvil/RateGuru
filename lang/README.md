@@ -9,15 +9,29 @@ returns the key itself when a line is missing, so a half-finished language
 looks fine in review and reaches readers as a mix of their language and raw
 `ui.notifications.messages.post_approved` strings. Nothing throws.
 
+## Who owns which text
+
+The catalogs here are the **application's** text: UI, auth, buttons, forms,
+validation, errors, mail and notification wording. They are read from these
+files at runtime and nowhere else — never copied into the database, never
+touched by the translation backfill — so a release that changes
+`lang/de/mail.php` changes the next mail.
+
+A project's own text — its settings, categories, tags, rating groups and
+options, static pages — lives in the **database**, which visitors are served
+from. `config/project_presets.php` and `config/static-pages.php` only seed a
+new project and lend the backfill missing translations; they are never a
+runtime fallback. See `docs/i18n/project-translation-lifecycle.md`.
+
 ## The words for languages
 
 | term | where it lives | what it means |
 |---|---|---|
 | **supported / installed** | `config/locales.php` + `lang/{code}/` | the application ships the language: a complete catalog, a label, a native name, a flag and `enabled_by_default` |
 | **complete** | computed on the Languages page | how much of the application catalogs and of this project's own content (database) the language translates |
-| **enabled** | `project_settings.enabled_locales` | the installed languages this project offers its visitors — `NULL` means the ones `enabled_by_default`, until the project chooses |
-| **project default** | `project_settings.default_locale` | what a visitor gets when nothing about them points elsewhere; always an enabled language |
-| **system fallback** | `config('locales.fallback')` | the technical emergency locale and the catalog Laravel falls back to; always installed, not necessarily enabled |
+| **enabled** | `project_settings.enabled_locales` | the installed languages this project offers its visitors — English always; `NULL` means English and the ones `enabled_by_default`, until the project chooses |
+| **default** | `config('locales.default')` | English, by system policy: what a visitor gets when nothing else applies; always enabled, never disabled, set by no project |
+| **system fallback** | `config('locales.fallback')` | the catalog Laravel falls back to for a missing line; English too, never used to choose a visitor's language |
 
 A disabled language stays installed: its catalogs are still checked, and its
 database translations (categories, tags, rating groups, project settings,
@@ -26,48 +40,47 @@ prepared before it is offered. Translation editors list every installed
 language; everything a visitor can pick or be served uses the enabled ones.
 
 `enabled_by_default` is bootstrap policy, not project state: while a project
-has never chosen its languages (`enabled_locales` is `NULL`) it is offered the
-installed languages declared `enabled_by_default`. Today's languages all are; a
-language a release adds ships with `false`, so installing it never offers it
-to an existing project.
+has never chosen its languages (`enabled_locales` is `NULL`) it is offered
+English and the installed languages declared `enabled_by_default`. A language
+a release adds ships with `false`, so installing it never offers it to an
+existing project.
 
 `App\Support\Locale\LocaleManager` is the one place these are read:
-`supported()`, `enabled()`, `isEnabled()`, `projectDefault()`, `fallback()`.
-Which languages are enabled is written only by
-`UpdateProjectLocaleSettingsAction`, which changes them and the project default
-atomically and refuses an empty set, an uninstalled code and a default outside
-the set — and always writes an explicit list, so a project that has chosen
-never consults `enabled_by_default` again. Admin → System → **Languages** is
-where an administrator enables, disables and picks the default; it refuses to
-disable the default or the last enabled language, refuses to enable a language
-whose application catalogs break the contract, and warns before enabling one
-whose project content is incomplete. `SaveProjectSettingsAction` still refuses
-`enabled_locales` and an unoffered default from any internal caller; presets
-and the default settings seeder never change the languages or the default of
-an existing project.
-
-Completeness and the safe backfill of project translations — what the
-repository fills in on deploy and what stays for an administrator — are in
-`docs/i18n/project-translation-lifecycle.md`.
+`supported()`, `default()`, `enabled()`, `isEnabled()`, `fallback()`. Which
+languages are enabled is written only by `UpdateProjectLocaleSettingsAction`,
+which takes the offered languages and nothing else, refuses a set without
+English and an uninstalled code, and always writes an explicit list — so a
+project that has chosen never consults `enabled_by_default` again. Admin →
+System → **Languages** is where an administrator enables and disables every
+language but English; it refuses to enable a language whose application
+catalogs break the contract, and always asks before enabling — warning when
+the project content is incomplete. `SaveProjectSettingsAction` refuses
+`enabled_locales` from any internal caller; presets and the default settings
+seeder never change the languages of an existing project.
 
 ## Which language a visitor gets
 
-`SetLocale` takes the first of these that is an **enabled** language:
+`SetLocale` looks for a choice the visitor made, in this order:
 
 1. the account's chosen language (`users.locale`)
 2. the session — a choice made earlier in this visit
 3. the `locale` cookie — a choice made on an earlier visit
-4. the browser's `Accept-Language`, in quality order; `ru-RU` matches `ru`
-5. the project default
-6. the system fallback — only when the project settings themselves resolve to
-   nothing usable
 
-A stored choice the project no longer offers is skipped, not deleted, and
-counts again if the language is offered again. Choosing a language
-(`POST /locale`) writes the session and a year-long `locale` cookie, and the
-account for a signed-in visitor; a language picked from the browser is used
-for the request and never written anywhere. The admin panel does not take part:
-it is always English (below).
+The first one found decides: served when it is enabled, English when it is
+not. The search does not go on to an older choice or to the browser — a
+visitor who chose Bulgarian, after Bulgarian is disabled, reads English, not
+Russian because their browser prefers it. The choice is kept, never deleted,
+and counts again once the language is enabled again.
+
+Only a visitor who has chosen nothing is served by
+
+4. the browser's `Accept-Language`, in quality order; `ru-RU` matches `ru`
+5. English, the default.
+
+Choosing a language (`POST /locale`) writes the session and a year-long
+`locale` cookie, and the account for a signed-in visitor; a language picked
+from the browser is used for the request and never written anywhere. The
+admin panel does not take part: it is always English (below).
 
 ## Where the languages are declared
 

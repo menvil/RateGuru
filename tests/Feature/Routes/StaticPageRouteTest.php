@@ -1,43 +1,33 @@
 <?php
 
 use App\Models\ProjectSettings;
-use App\Support\Translations\MissingProjectTranslation;
-use App\Support\Translations\MissingTranslationReason;
-use App\Support\Translations\ProjectContentSection;
-use App\Support\Translations\ProjectTranslationCompleteness;
+use App\Support\Settings\ProjectSettingsManager;
 
 /**
- * Stores the configured about page with its English title rewritten, the way
- * the Project Settings form stores it, and this language's stored text
- * replaced by the given one — or left out when null.
+ * A static page shows what the project stores: the visitor's language, field
+ * by field, otherwise the stored English. config/static-pages.php seeded the
+ * pages once and is never read for what they say.
  *
- * @param  array<string, string>|null  $localized
+ * Roles, not languages: the language besides English comes from config.
  */
-function aboutPageWithRewrittenEnglishTitle(string $locale, ?array $localized): void
+
+/** The configured pages, as a new project stores them, changed by the callback. */
+function storedPages(?Closure $change = null): array
 {
     $pages = config('static-pages.defaults');
-    $pages['about']['en']['title'] = 'About TitsGuru';
 
-    if ($localized === null) {
-        unset($pages['about'][$locale]);
-    } else {
-        $pages['about'][$locale] = $localized;
+    if ($change !== null) {
+        $change($pages);
     }
 
     ProjectSettings::factory()->create(['static_pages' => $pages]);
-    offerEveryInstalledLocale();
+    app(ProjectSettingsManager::class)->flush();
+
+    return $pages;
 }
 
-/** Why the Languages page counts the about page title as missing in this language, if it does. */
-function aboutTitleMissingReason(string $locale): ?MissingTranslationReason
-{
-    return collect(app(ProjectTranslationCompleteness::class)->report($locale)->missing)
-        ->first(fn (MissingProjectTranslation $item): bool => $item->section === ProjectContentSection::StaticPages && $item->key === 'about' && $item->field === 'title')
-        ?->reason;
-}
-
-it('serves the public about page with its default content', function () {
-    $page = config('static-pages.defaults.about.en');
+it('serves the public about page with its stored content', function () {
+    $page = storedPages()['about']['en'];
 
     $this->get(route('pages.about'))
         ->assertOk()
@@ -46,8 +36,8 @@ it('serves the public about page with its default content', function () {
         ->assertSee($page['content']);
 });
 
-it('serves legal and contact pages with editable default content', function (string $routeName, string $pageKey) {
-    $page = config("static-pages.defaults.{$pageKey}.en");
+it('serves legal and contact pages with their stored content', function (string $routeName, string $pageKey) {
+    $page = storedPages()[$pageKey]['en'];
 
     $response = $this->get(route($routeName))
         ->assertOk()
@@ -65,29 +55,10 @@ it('serves legal and contact pages with editable default content', function (str
     'contact' => ['pages.contact', 'contact'],
 ]);
 
-it('falls back to configured legal content for settings saved with the former blank defaults', function () {
-    $staticPages = config('static-pages.defaults');
-    $staticPages['privacy']['en']['content'] = '';
-    $staticPages['privacy']['ru']['content'] = '';
-    $configuredRussian = config('static-pages.defaults.privacy.ru');
-
-    ProjectSettings::factory()->create(['static_pages' => $staticPages]);
-
-    $this->withSession(['locale' => 'ru'])
-        ->get(route('pages.privacy'))
-        ->assertOk()
-        ->assertSee($configuredRussian['title'])
-        ->assertSee($configuredRussian['content']);
-});
-
 it('publishes a legal or contact page after an administrator supplies content', function (string $routeName, string $pageKey) {
-    $staticPages = config('static-pages.defaults');
-    $staticPages[$pageKey]['en'] = [
-        'title' => 'Administrator-managed title',
-        'content' => 'Administrator-managed content.',
-    ];
-
-    ProjectSettings::factory()->create(['static_pages' => $staticPages]);
+    storedPages(function (array &$pages) use ($pageKey): void {
+        $pages[$pageKey]['en'] = ['title' => 'Administrator-managed title', 'content' => 'Administrator-managed content.'];
+    });
 
     $this->get(route($routeName))
         ->assertOk()
@@ -113,114 +84,88 @@ it('renders static page content in the selected locale', function (string $local
 })->with(translatedLocales());
 
 it('renders admin-edited static page content for the current locale', function () {
-    ProjectSettings::factory()->create([
-        'static_pages' => [
-            'about' => [
-                'ru' => [
-                    'title' => 'О проекте после редактирования',
-                    'content' => 'Текст страницы, сохранённый администратором.',
-                ],
-            ],
-        ],
-    ]);
-
-    $this->withSession(['locale' => 'ru'])
-        ->get(route('pages.about'))
-        ->assertOk()
-        ->assertSee('О проекте после редактирования')
-        ->assertSee('Текст страницы, сохранённый администратором.');
-});
-
-it('shows the rewritten English to a language with no text of its own for it', function () {
     [$target] = twoTranslatedLocales();
-    aboutPageWithRewrittenEnglishTitle($target, null);
+    storedPages(function (array &$pages) use ($target): void {
+        $pages['about'][$target] = ['title' => 'Title an administrator wrote', 'content' => 'Content an administrator wrote.'];
+    });
 
     $this->withSession(['locale' => $target])
         ->get(route('pages.about'))
         ->assertOk()
-        ->assertSee('About TitsGuru')
-        ->assertDontSee(config("static-pages.defaults.about.{$target}.title"))
-        // Field by field: the content's English is unchanged, so its
-        // translation still applies.
-        ->assertSee(config("static-pages.defaults.about.{$target}.content"));
-
-    expect(aboutTitleMissingReason($target))->toBe(MissingTranslationReason::SourceCustomized);
+        ->assertSee('Title an administrator wrote')
+        ->assertSee('Content an administrator wrote.');
 });
 
-it('shows the rewritten English rather than a stored copy of the old translation', function () {
+it('shows the stored English, field by field, where the language has no text of its own', function (array $localized) {
     [$target] = twoTranslatedLocales();
-    aboutPageWithRewrittenEnglishTitle($target, config("static-pages.defaults.about.{$target}"));
+    $pages = storedPages(function (array &$pages) use ($target, $localized): void {
+        $pages['about'][$target] = $localized;
+    });
+
+    $title = $localized['title'] ?? null;
+    $content = $localized['content'] ?? null;
 
     $this->withSession(['locale' => $target])
         ->get(route('pages.about'))
         ->assertOk()
-        ->assertSee('About TitsGuru')
-        ->assertDontSee(config("static-pages.defaults.about.{$target}.title"))
-        ->assertSee(config("static-pages.defaults.about.{$target}.content"));
-
-    expect(aboutTitleMissingReason($target))->toBe(MissingTranslationReason::StaleRepositoryDefault);
-});
-
-it('shows a translation written for the rewritten English', function () {
-    [$target] = twoTranslatedLocales();
-    aboutPageWithRewrittenEnglishTitle($target, [
-        'title' => 'A translation of the new title',
-        'content' => config("static-pages.defaults.about.{$target}.content"),
-    ]);
-
-    $this->withSession(['locale' => $target])
-        ->get(route('pages.about'))
-        ->assertOk()
-        ->assertSee('A translation of the new title')
-        ->assertDontSee('About TitsGuru');
-
-    expect(aboutTitleMissingReason($target))->toBeNull();
-});
-
-it('merges each blank or absent Russian static page field with configured Russian defaults', function (
-    array $russian,
-    ?string $expectedTitle,
-    ?string $expectedContent,
-) {
-    $configuredRussian = config('static-pages.defaults.about.ru');
-    $expectedTitle ??= $configuredRussian['title'];
-    $expectedContent ??= $configuredRussian['content'];
-
-    ProjectSettings::factory()->create([
-        'static_pages' => [
-            'about' => [
-                'ru' => $russian,
-            ],
-        ],
-    ]);
-
-    $this->withSession(['locale' => 'ru'])
-        ->get(route('pages.about'))
-        ->assertOk()
-        ->assertSee($expectedTitle)
-        ->assertSee($expectedContent);
+        ->assertSee(is_string($title) && trim($title) !== '' ? $title : $pages['about']['en']['title'])
+        ->assertSee(is_string($content) && trim($content) !== '' ? $content : $pages['about']['en']['content']);
 })->with([
-    'missing content' => [
-        ['title' => 'Русский заголовок'],
-        'Русский заголовок',
-        null,
-    ],
-    'blank content' => [
-        ['title' => 'Другой русский заголовок', 'content' => '  '],
-        'Другой русский заголовок',
-        null,
-    ],
-    'missing title' => [
-        ['content' => 'Русское содержание'],
-        null,
-        'Русское содержание',
-    ],
-    'blank title' => [
-        ['title' => '', 'content' => 'Другое русское содержание'],
-        null,
-        'Другое русское содержание',
-    ],
+    'missing content' => [['title' => 'A title of its own']],
+    'blank content' => [['title' => 'Another title of its own', 'content' => '  ']],
+    'missing title' => [['content' => 'Content of its own']],
+    'blank title' => [['title' => '', 'content' => 'Other content of its own']],
+    'nothing at all' => [[]],
 ]);
+
+it('shows the stored English rather than the repository translation a language is missing', function () {
+    // The repository still ships this language; the project does not have it.
+    [$target] = twoTranslatedLocales();
+    $pages = storedPages(function (array &$pages) use ($target): void {
+        unset($pages['about'][$target]);
+    });
+
+    $this->withSession(['locale' => $target])
+        ->get(route('pages.about'))
+        ->assertOk()
+        ->assertSee($pages['about']['en']['title'])
+        ->assertDontSee(config("static-pages.defaults.about.{$target}.title"));
+});
+
+it('keeps showing the stored text after the repository text changes', function () {
+    [$target] = twoTranslatedLocales();
+    $pages = storedPages();
+
+    config([
+        'static-pages.defaults.about.en.title' => 'A new English title in a later release',
+        "static-pages.defaults.about.{$target}.title" => 'A new translation in a later release',
+    ]);
+
+    $this->get(route('pages.about'))->assertOk()
+        ->assertSee($pages['about']['en']['title'])
+        ->assertDontSee('A new English title in a later release');
+
+    $this->withSession(['locale' => $target])->get(route('pages.about'))->assertOk()
+        ->assertSee($pages['about'][$target]['title'])
+        ->assertDontSee('A new translation in a later release');
+});
+
+it('shows a built-in page the project stores nothing for as empty, not from config', function () {
+    storedPages(function (array &$pages): void {
+        unset($pages['about']);
+    });
+
+    $this->get(route('pages.about'))
+        ->assertOk()
+        ->assertDontSee(config('static-pages.defaults.about.en.title'));
+});
+
+it('refuses a page the application does not have', function () {
+    storedPages();
+
+    expect(fn () => app(ProjectSettingsManager::class)->current()->staticPage('imprint'))
+        ->toThrow(InvalidArgumentException::class, 'imprint');
+});
 
 it('links the sidebar footer to every static page', function () {
     $this->get(route('feed'))

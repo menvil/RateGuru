@@ -87,7 +87,6 @@ Each preset must define:
         'object_plural_name' => ['en' => 'items', 'ru' => '...', 'bg' => '...'],
         'upload_cta_label' => ['en' => 'Upload item', 'ru' => '...', 'bg' => '...'],
         'feed_title' => ['en' => 'Latest items', 'ru' => '...', 'bg' => '...'],
-        'default_locale' => 'en',
         'default_theme' => 'system',
         'default_sort' => 'hot',
     ],
@@ -121,6 +120,16 @@ Each preset must define:
     ],
 ],
 ```
+
+A preset does not decide languages: the offered languages are set on the
+Languages page, and English is always the default. A `default_locale` or
+`enabled_locales` key, left over in a custom preset, is ignored.
+
+A preset is a bootstrap source, not a runtime one: applying it copies its
+values into the database, which visitors are then served from. A later change
+to a preset does not reach a project that already applied it; the deploy's
+translation backfill only fills translations the project is missing (see
+`docs/i18n/project-translation-lifecycle.md`).
 
 Set `categories`, `rating_groups`, or `tags` to `null` to keep the corresponding
 records unchanged. Configured categories are activated or created and omitted

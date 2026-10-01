@@ -25,7 +25,6 @@ class ProjectSettings extends Model
         'feed_title',
         'feed_title_translations',
         'static_pages',
-        'default_locale',
         'enabled_locales',
         'default_theme',
         'default_sort',

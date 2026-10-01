@@ -110,6 +110,19 @@ it('never overwrites a translation that is already there', function () {
     expect($category->fresh()->name_translations[$this->target])->toBe('An administrator wrote this');
 });
 
+it('never updates a translation it filled when a later release ships a different one', function () {
+    // A repository change is not a command to change a project's content: once
+    // the database has the text, the database owns it.
+    backfill();
+    $filled = presetValue('categories.0.name', $this->target);
+
+    config(["project_presets.nature.categories.0.name.{$this->target}" => 'A better translation in a later release']);
+    $report = backfill();
+
+    expect(Category::query()->where('slug', 'landscape')->sole()->name_translations[$this->target])->toBe($filled)
+        ->and($report->filled)->toBe(0);
+});
+
 it('leaves a field alone once the project changed the text it translates', function () {
     Category::query()->where('slug', 'landscape')->update(['name' => 'Landscapes & seascapes']);
     ProjectSettings::query()->update(['site_name' => 'TitsGuru']);
@@ -147,14 +160,18 @@ it('never creates content the project does not have', function () {
         ->and($report->skippedUnknown)->toBeGreaterThanOrEqual(3);
 });
 
-it('leaves content an administrator created out of it', function () {
+it('leaves content an administrator created out of it, and counts it as unknown', function () {
     $own = Category::factory()->create(['slug' => 'georgian-food', 'name' => 'Georgian food', 'name_translations' => null]);
     $ownTag = Tag::factory()->create(['slug' => 'blonde', 'name' => 'Blonde', 'name_translations' => null]);
+    $ownGroup = RatingGroup::factory()->create(['key' => 'vintage', 'label' => 'Vintage', 'description' => null, 'label_translations' => null]);
 
-    backfill();
+    $report = backfill();
 
     expect($own->fresh()->name_translations)->toBeNull()
-        ->and($ownTag->fresh()->name_translations)->toBeNull();
+        ->and($ownTag->fresh()->name_translations)->toBeNull()
+        ->and($ownGroup->fresh()->label_translations)->toBeNull()
+        // One per missing language of each field it has English for.
+        ->and($report->skippedUnknown)->toBe(3 * count(translatedLocales()));
 });
 
 it('finds an option by its group and its key together', function () {
@@ -190,16 +207,62 @@ it('fills a static page the project saved but did not rewrite, and skips one it 
         ->and($report->skippedCustomized)->toBe(1);
 });
 
-it('writes nothing for a static page the project never saved', function () {
+it('never updates static page text it filled when a later release ships a different one', function () {
+    backfill();
+    $filled = config("static-pages.defaults.about.{$this->target}.title");
+
+    config(["static-pages.defaults.about.{$this->target}.title" => 'A better title in a later release']);
+    $report = backfill();
+
+    expect(ProjectSettings::findOrFail(1)->static_pages['about'][$this->target]['title'])->toBe($filled)
+        ->and($report->filled)->toBe(0);
+});
+
+it('creates a built-in page a release adds, in every language the repository ships, once', function () {
+    config(['static-pages.defaults.imprint' => [
+        'en' => ['title' => 'Imprint', 'content' => 'Who runs this site.'],
+        $this->target => ['title' => 'Imprint in another language', 'content' => 'Who runs this site, translated.'],
+    ]]);
+
+    backfill();
+    $created = ProjectSettings::findOrFail(1)->static_pages['imprint'];
+
+    expect($created['en'])->toBe(['title' => 'Imprint', 'content' => 'Who runs this site.'])
+        ->and($created[$this->target])->toBe(['title' => 'Imprint in another language', 'content' => 'Who runs this site, translated.']);
+
+    // From then on the page is the project's: a later release changes nothing.
+    config(['static-pages.defaults.imprint.en.title' => 'Legal notice']);
+    $after = storedTranslations();
+
+    expect(backfill()->filled)->toBe(0)
+        ->and(storedTranslations())->toBe($after);
+});
+
+it('creates every page for a row that has none', function () {
     ProjectSettings::query()->update(['static_pages' => null]);
 
     backfill();
 
-    expect(ProjectSettings::findOrFail(1)->static_pages)->toBeNull();
+    expect(ProjectSettings::findOrFail(1)->static_pages)->toBe(config('static-pages.defaults'));
+});
+
+it('fills a static page field the project left with no English at all, and then its translations', function () {
+    // A row saved before the pages had content: blank English is a gap, not
+    // the project's own text.
+    $pages = ProjectSettings::findOrFail(1)->static_pages;
+    $pages['privacy']['en']['content'] = '';
+    unset($pages['privacy'][$this->target]['content']);
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    backfill();
+    $stored = ProjectSettings::findOrFail(1)->static_pages['privacy'];
+
+    expect($stored['en']['content'])->toBe(config('static-pages.defaults.privacy.en.content'))
+        ->and($stored[$this->target]['content'])->toBe(config("static-pages.defaults.privacy.{$this->target}.content"));
 });
 
 it('fills a language the project does not offer yet', function () {
-    offerLocales(array_values(array_diff(supportedLocales(), [$this->target])), 'en');
+    offerLocales(array_values(array_diff(supportedLocales(), [$this->target])));
 
     backfill();
 

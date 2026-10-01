@@ -13,8 +13,9 @@ use Livewire\Livewire;
 /**
  * Admin sees two different sets of languages on purpose. Translation editors
  * list every INSTALLED language, so content can be prepared before a language
- * is offered; which languages are offered, and the default, are set on the
- * Languages page (LanguagesPageTest) and nowhere on Project Settings.
+ * is offered; which languages are offered is set on the Languages page
+ * (LanguagesPageTest) and nowhere on Project Settings. The default is English
+ * by system policy and set nowhere.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -24,7 +25,7 @@ beforeEach(function () {
 function withheldProject(): array
 {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
 
     return [$offered, $withheld];
 }
@@ -49,7 +50,7 @@ it('no longer sets the default language on the project settings page', function 
 });
 
 it('keeps the offered languages when the other settings are saved', function () {
-    [$offered] = withheldProject();
+    withheldProject();
     $enabled = ProjectSettings::findOrFail(1)->enabled_locales;
 
     Livewire::test(ProjectSettingsPage::class)
@@ -59,29 +60,19 @@ it('keeps the offered languages when the other settings are saved', function () 
 
     expect(ProjectSettings::findOrFail(1))
         ->site_name->toBe('Renamed')
-        ->enabled_locales->toBe($enabled)
-        ->default_locale->toBe($offered);
-});
-
-it('refuses a default outside the offered languages at the action as well', function () {
-    [, $withheld] = withheldProject();
-
-    expect(fn () => app(SaveProjectSettingsAction::class)->handle(['default_locale' => $withheld]))
-        ->toThrow(InvalidArgumentException::class, $withheld);
+        ->enabled_locales->toBe($enabled);
 });
 
 it('refuses to take the offered languages together with the other settings', function () {
-    // One payload could otherwise replace the set and pass its own default
-    // check against the set it is about to replace.
-    [$offered, $withheld] = withheldProject();
-    $before = ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales', 'default_locale']);
+    // Only UpdateProjectLocaleSettingsAction writes them: it keeps English
+    // among them and refuses a language with broken catalogs.
+    [, $withheld] = withheldProject();
+    $before = ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales']);
 
     expect(fn () => app(SaveProjectSettingsAction::class)->handle([
         'site_name' => 'Changed',
         'enabled_locales' => [$withheld],
-        'default_locale' => $withheld,
     ]))->toThrow(InvalidArgumentException::class, 'UpdateProjectLocaleSettingsAction');
 
-    expect(ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales', 'default_locale']))->toBe($before)
-        ->and(app(LocaleManager::class)->projectDefault())->toBe($offered);
+    expect(ProjectSettings::findOrFail(1)->only(['site_name', 'enabled_locales']))->toBe($before);
 });

@@ -129,9 +129,8 @@ it('stores the site language on the account at registration', function (string $
         ->and($user->preferredLocale())->toBe($locale);
 })->with(supportedLocales());
 
-it('stores the project default when the request locale is not an offered language', function (string $requestLocale) {
-    [$default] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [twoTranslatedLocales()[1]])), $default);
+it('stores English when the request locale is not an offered language', function (string $requestLocale) {
+    offerLocales(array_values(array_diff(supportedLocales(), [twoTranslatedLocales()[1]])));
     app()->setLocale($requestLocale);
 
     $user = app(RegisterUserAction::class)->execute([
@@ -140,7 +139,7 @@ it('stores the project default when the request locale is not an offered languag
         'password' => 'password-that-is-long-enough',
     ]);
 
-    expect($user->locale)->toBe($default);
+    expect($user->locale)->toBe('en');
 })->with([
     'not installed' => fn () => unsupportedLocale(),
     'installed but not offered' => fn () => twoTranslatedLocales()[1],
@@ -150,13 +149,13 @@ it('has no preference when the stored language is installed but not offered, and
     [$offered, $withheld] = twoTranslatedLocales();
     $user = User::factory()->create(['locale' => $withheld]);
 
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])), $offered);
+    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
 
     expect($user->fresh()->preferredLocale())->toBeNull()
         ->and($user->fresh()->locale)->toBe($withheld);
 
     // Offered again, the same stored choice counts again.
-    offerLocales(supportedLocales(), $offered);
+    offerLocales(supportedLocales());
 
     expect($user->fresh()->preferredLocale())->toBe($withheld);
 });
@@ -182,13 +181,12 @@ it('stores the language the browser asked for when that is offered', function ()
     expect($user->locale)->toBe($browser);
 });
 
-it('stores the project default when the visitor gave no language', function () {
-    [, $default] = twoTranslatedLocales();
-    offerLocales(supportedLocales(), $default);
+it('stores English when the visitor gave no language', function () {
+    offerLocales(supportedLocales());
 
     $user = registerThroughTheSite($this, 'default@example.test', noBrowserLanguage());
 
-    expect($user->locale)->toBe($default);
+    expect($user->locale)->toBe('en');
 });
 
 it('stores the language the visitor chose over the one the browser asks for', function () {

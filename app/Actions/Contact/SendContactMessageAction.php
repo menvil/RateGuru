@@ -37,7 +37,7 @@ final class SendContactMessageAction
         // reading your own admin mail in a language you did not pick.
         foreach ($admins as $admin) {
             Mail::to($admin->email)->queue(
-                $this->mailFor($message, $admin->preferredLocale() ?? $this->locales->fallback()),
+                $this->mailFor($message, $admin->preferredLocale() ?? $this->locales->default()),
             );
         }
 
@@ -47,11 +47,11 @@ final class SendContactMessageAction
 
         // No administrator to write to: fall back to the configured address,
         // which is a mailbox rather than an account, so there is no preference
-        // to honour and the fallback locale is the only honest choice.
+        // to honour and the default language is the only honest choice.
         $fallback = config('mail.contact_to') ?: config('mail.from.address');
 
         if (is_string($fallback) && $fallback !== '') {
-            Mail::to($fallback)->queue($this->mailFor($message, $this->locales->fallback()));
+            Mail::to($fallback)->queue($this->mailFor($message, $this->locales->default()));
         }
     }
 
