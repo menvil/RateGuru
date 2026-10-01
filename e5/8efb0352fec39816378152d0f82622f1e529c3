@@ -1,0 +1,11 @@
+app/Livewire/Settings/UserLocaleSettings.php
+  ai_agent 33-36
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  ai_agent 20-33,41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e58efb0352fec39816378152d0f82622f1e529c3",
+  "prompts": {}
+}
