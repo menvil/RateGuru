@@ -27,12 +27,6 @@ function offeredLocales(): array
     return app(LocaleManager::class)->enabledCodes();
 }
 
-/** Every installed language offered except this one. */
-function offerAllBut(string $locale): void
-{
-    offerLocales(array_values(array_diff(supportedLocales(), [$locale])));
-}
-
 /** Project settings with every translatable field translated into these languages. */
 function settingsTranslatedInto(array $locales): void
 {
@@ -126,7 +120,7 @@ it('follows the project choice over the default policy once there is one', funct
 
 it('asks before enabling a language whose project content is complete, without warning about it', function () {
     [, $withheld] = twoTranslatedLocales();
-    offerAllBut($withheld);
+    offerEveryInstalledLocaleExcept($withheld);
     settingsTranslatedInto(supportedLocales());
     $label = config("locales.supported.{$withheld}.label");
 
@@ -142,7 +136,7 @@ it('asks before enabling a language whose project content is complete, without w
 
 it('warns before enabling a language with missing project translations, then enables it', function () {
     [, $withheld] = twoTranslatedLocales();
-    offerAllBut($withheld);
+    offerEveryInstalledLocaleExcept($withheld);
     settingsTranslatedInto(supportedLocales());
     Category::factory()->create(['slug' => 'georgian-food', 'name' => 'Georgian food', 'name_translations' => null, 'is_active' => true]);
     $label = config("locales.supported.{$withheld}.label");
@@ -157,7 +151,7 @@ it('warns before enabling a language with missing project translations, then ena
 
 it('refuses to enable a language whose application translations are broken', function () {
     [, $withheld] = twoTranslatedLocales();
-    offerAllBut($withheld);
+    offerEveryInstalledLocaleExcept($withheld);
     breakCatalogsOf($withheld);
 
     languagesPage()
@@ -210,7 +204,7 @@ it('shows a disabled language as disabled, with Enable, in the same response', f
 
 it('shows an enabled language as enabled, with Disable, in the same response', function () {
     [$other] = twoTranslatedLocales();
-    offerAllBut($other);
+    offerEveryInstalledLocaleExcept($other);
 
     languagesPage()
         ->assertTableColumnStateSet('status', 'Disabled', $other)

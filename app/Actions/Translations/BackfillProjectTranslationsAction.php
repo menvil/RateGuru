@@ -43,9 +43,13 @@ use Illuminate\Support\Facades\DB;
  * repository's English, and with it the translations. That fills a gap and
  * replaces nothing.
  *
- * Content the repository does not know — created by an administrator — is
- * the project's alone: every language it lacks is counted as skipped as
- * unknown, never filled.
+ * Its scope is what the repository knows, and nothing else: it starts from
+ * each repository value and looks for the one row that holds it. Content the
+ * repository has no identity for — categories, tags, groups and options an
+ * administrator created — is the project's alone and never even read here.
+ * Skipped as unknown means a repository value it could not safely fill: no
+ * matching row in the database, a language the repository has no text for,
+ * or stored translations of an unexpected shape.
  *
  * The check is per field, under a lock on the row it writes, so an
  * administrator's edit cannot land between the comparison and the write.
@@ -98,25 +102,6 @@ final class BackfillProjectTranslationsAction
         foreach ($bySection->get(ProjectContentSection::Tags->value, collect()) as $entry) {
             $this->model($entry, $locales, fn (): Builder => Tag::query()->where('slug', $entry->identity['slug']));
         }
-
-        $known = fn (ProjectContentSection $section, string $part): array => $bySection->get($section->value, collect())
-            ->map(fn (RepositoryTranslation $entry): string => $entry->identity[$part])
-            ->unique()
-            ->values()
-            ->all();
-        $knownOptions = $bySection->get(ProjectContentSection::RatingOptions->value, collect())
-            ->map(fn (RepositoryTranslation $entry): string => "{$entry->identity['group']}.{$entry->identity['option']}")
-            ->all();
-
-        $this->unknownContent(Category::query()->whereNotIn('slug', $known(ProjectContentSection::Categories, 'slug'))->get(), ['name'], $locales);
-        $this->unknownContent(Tag::query()->whereNotIn('slug', $known(ProjectContentSection::Tags, 'slug'))->get(), ['name'], $locales);
-        $this->unknownContent(RatingGroup::query()->whereNotIn('key', $known(ProjectContentSection::RatingGroups, 'key'))->get(), ['label', 'description'], $locales);
-        $this->unknownContent(
-            RatingOption::query()->with('group')->get()
-                ->reject(fn (RatingOption $option): bool => in_array("{$option->group?->key}.{$option->key}", $knownOptions, true)),
-            ['label', 'description'],
-            $locales,
-        );
 
         $this->settings->flush();
 
@@ -239,33 +224,6 @@ final class BackfillProjectTranslationsAction
         }
 
         return $changed ? $pages : null;
-    }
-
-    /**
-     * Content the repository has nothing for: each language it lacks is
-     * counted, and nothing is written.
-     *
-     * @param  iterable<Model>  $rows
-     * @param  list<string>  $fields
-     * @param  list<string>  $locales
-     */
-    private function unknownContent(iterable $rows, array $fields, array $locales): void
-    {
-        foreach ($rows as $row) {
-            foreach ($fields as $field) {
-                if (! TranslatableField::isPresent($row->getAttribute($field))) {
-                    continue;
-                }
-
-                $translations = $row->getAttribute("{$field}_translations");
-
-                foreach ($locales as $locale) {
-                    if (! is_array($translations) || ! TranslatableField::isPresent($translations[$locale] ?? null)) {
-                        $this->tally('skipped_unknown');
-                    }
-                }
-            }
-        }
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Models\Tag;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Translations\TranslationBackfillReport;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 
 /**
@@ -160,18 +161,47 @@ it('never creates content the project does not have', function () {
         ->and($report->skippedUnknown)->toBeGreaterThanOrEqual(3);
 });
 
-it('leaves content an administrator created out of it, and counts it as unknown', function () {
+it('leaves content an administrator created alone, without counting it', function () {
+    // Content with no repository identity is not the backfill's at all: it is
+    // neither filled nor reported. Skipped as unknown is for what the
+    // repository expects and the database cannot match.
     $own = Category::factory()->create(['slug' => 'georgian-food', 'name' => 'Georgian food', 'name_translations' => null]);
     $ownTag = Tag::factory()->create(['slug' => 'blonde', 'name' => 'Blonde', 'name_translations' => null]);
     $ownGroup = RatingGroup::factory()->create(['key' => 'vintage', 'label' => 'Vintage', 'description' => null, 'label_translations' => null]);
+    $ownOption = RatingOption::factory()->for($ownGroup, 'group')->create(['key' => 'retro', 'label' => 'Retro', 'label_translations' => null]);
 
     $report = backfill();
 
     expect($own->fresh()->name_translations)->toBeNull()
         ->and($ownTag->fresh()->name_translations)->toBeNull()
         ->and($ownGroup->fresh()->label_translations)->toBeNull()
-        // One per missing language of each field it has English for.
-        ->and($report->skippedUnknown)->toBe(3 * count(translatedLocales()));
+        ->and($ownOption->fresh()->label_translations)->toBeNull()
+        ->and($report->skippedUnknown)->toBe(0);
+});
+
+it('never reads content the repository has no identity for', function () {
+    // However much an administrator has created, a deploy's backfill loads the
+    // same rows: it looks up repository values, it does not walk the tables.
+    backfill();
+    $loaded = function (): int {
+        $count = 0;
+        Event::listen('eloquent.retrieved: *', function () use (&$count): void {
+            $count++;
+        });
+        backfill();
+        Event::forget('eloquent.retrieved: *');
+
+        return $count;
+    };
+    $before = $loaded();
+
+    foreach (range(1, 25) as $n) {
+        Category::factory()->create(['slug' => "own-{$n}", 'name' => "Own {$n}", 'name_translations' => null]);
+        Tag::factory()->create(['slug' => "own-tag-{$n}", 'name' => "Own tag {$n}", 'name_translations' => null]);
+    }
+
+    expect($before)->toBeGreaterThan(0)
+        ->and($loaded())->toBe($before);
 });
 
 it('finds an option by its group and its key together', function () {
@@ -262,7 +292,7 @@ it('fills a static page field the project left with no English at all, and then 
 });
 
 it('fills a language the project does not offer yet', function () {
-    offerLocales(array_values(array_diff(supportedLocales(), [$this->target])));
+    offerEveryInstalledLocaleExcept($this->target);
 
     backfill();
 

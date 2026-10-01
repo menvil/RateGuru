@@ -3335,6 +3335,16 @@ function offerEveryInstalledLocale(): void
     offerLocales(supportedLocales());
 }
 
+/**
+ * Makes the project offer every installed language except these — the usual
+ * way a test withholds a language. English, the default, is offered whatever
+ * is passed.
+ */
+function offerEveryInstalledLocaleExcept(string ...$withheld): void
+{
+    offerLocales(array_values(array_diff(supportedLocales(), $withheld)));
+}
+
 /** Request headers for a browser asking for these languages. */
 function acceptLanguage(string $header): array
 {

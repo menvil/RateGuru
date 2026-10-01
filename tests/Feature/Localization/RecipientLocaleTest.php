@@ -130,7 +130,7 @@ it('stores the site language on the account at registration', function (string $
 })->with(supportedLocales());
 
 it('stores English when the request locale is not an offered language', function (string $requestLocale) {
-    offerLocales(array_values(array_diff(supportedLocales(), [twoTranslatedLocales()[1]])));
+    offerEveryInstalledLocaleExcept(twoTranslatedLocales()[1]);
     app()->setLocale($requestLocale);
 
     $user = app(RegisterUserAction::class)->execute([
@@ -149,7 +149,7 @@ it('has no preference when the stored language is installed but not offered, and
     [$offered, $withheld] = twoTranslatedLocales();
     $user = User::factory()->create(['locale' => $withheld]);
 
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
+    offerEveryInstalledLocaleExcept($withheld);
 
     expect($user->fresh()->preferredLocale())->toBeNull()
         ->and($user->fresh()->locale)->toBe($withheld);

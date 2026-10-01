@@ -35,7 +35,7 @@ it('updates a user locale preference', function () {
 
 it('rejects a language the project does not offer, even though it is installed', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
+    offerEveryInstalledLocaleExcept($withheld);
     $user = User::factory()->create(['locale' => $offered]);
 
     expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, $withheld))

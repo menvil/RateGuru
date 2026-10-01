@@ -143,9 +143,14 @@ anyone enables it. It writes a translation only when **all** of these hold:
 | the language has text | `already present` — kept as it is |
 | missing, English unchanged, repository has it | `filled` |
 | missing, the project rewrote the English | `skipped as customized` — the repository's text translates something the project no longer shows |
-| content the repository does not know (an administrator created it) | `skipped as unknown` — never filled |
+| the repository's content has no row in the database, the repository has no text for that language, or the stored translations are not a list | `skipped as unknown` |
 
-No category, tag, group or option is ever created. Static pages have one
+The backfill starts from what the repository ships and looks up the one row
+that holds each value; that is its whole scope. Content the repository has no
+identity for — categories, tags, groups and options an administrator created
+— is the project's alone: the backfill neither reads, fills nor counts it, so
+its cost does not grow with what administrators create. No category, tag,
+group or option is ever created. Static pages have one
 addition: a built-in page — or a field of one — with no English in the
 database at all (a page a later release adds, or a row saved before pages had
 content) gets the repository's English, and with it the translations. That

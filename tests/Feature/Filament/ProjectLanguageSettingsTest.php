@@ -25,7 +25,7 @@ beforeEach(function () {
 function withheldProject(): array
 {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
+    offerEveryInstalledLocaleExcept($withheld);
 
     return [$offered, $withheld];
 }

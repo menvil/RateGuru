@@ -34,7 +34,7 @@ it('shows each language with the flag it is declared with', function () {
 
 it('lists only the languages the project offers', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
+    offerEveryInstalledLocaleExcept($withheld);
 
     $response = $this->get(route('feed'))->assertOk();
 

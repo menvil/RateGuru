@@ -59,7 +59,7 @@ it('serves the next visit in the remembered language', function () {
 
 it('refuses a language the project does not offer, and changes nothing', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    offerLocales(array_values(array_diff(supportedLocales(), [$withheld])));
+    offerEveryInstalledLocaleExcept($withheld);
     $user = User::factory()->create(['locale' => $offered]);
 
     $response = $this->actingAs($user)

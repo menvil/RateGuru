@@ -24,12 +24,6 @@ function servedLocale(): string
     return app()->getLocale();
 }
 
-/** Every installed language offered except these. */
-function withhold(string ...$locales): void
-{
-    offerLocales(array_values(array_diff(supportedLocales(), $locales)));
-}
-
 // A choice that is offered -------------------------------------------------------
 
 it('serves the account language before anything else', function () {
@@ -72,7 +66,7 @@ it('prefers the cookie to the browser', function () {
 
 it('skips an account language the project no longer offers, to the browser, and keeps it on the account', function () {
     [$browser, $chosen] = twoTranslatedLocales();
-    withhold($chosen);
+    offerEveryInstalledLocaleExcept($chosen);
     $user = User::factory()->create(['locale' => $chosen]);
 
     $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="'.$browser.'"', false);
@@ -83,7 +77,7 @@ it('skips an account language the project no longer offers, to the browser, and 
 
 it('skips a session language the project no longer offers, to the browser, and keeps it in the session', function () {
     [$browser, $chosen] = twoTranslatedLocales();
-    withhold($chosen);
+    offerEveryInstalledLocaleExcept($chosen);
 
     $this->withSession(['locale' => $chosen])
         ->withHeaders(acceptLanguage($browser))
@@ -96,7 +90,7 @@ it('skips a session language the project no longer offers, to the browser, and k
 
 it('skips a cookie language the project no longer offers, to the browser, and leaves the cookie alone', function () {
     [$browser, $chosen] = twoTranslatedLocales();
-    withhold($chosen);
+    offerEveryInstalledLocaleExcept($chosen);
 
     $response = $this->withCookie('locale', $chosen)
         ->withHeaders(acceptLanguage($browser))
@@ -113,7 +107,7 @@ it('passes over a withheld account language to the cookie, before the browser', 
     // cookie and a browser asking for another: the cookie is the visitor's own
     // choice, and comes before the browser.
     [$browser, $chosen] = twoTranslatedLocales();
-    withhold($chosen);
+    offerEveryInstalledLocaleExcept($chosen);
 
     $this->actingAs(User::factory()->create(['locale' => $chosen]))
         ->withCookie('locale', 'en')
@@ -134,7 +128,7 @@ it('skips a session value that is not a language at all', function () {
 
 it('serves English to a stored choice no longer offered when the browser asks for nothing on offer', function (string $header) {
     [$other, $chosen] = twoTranslatedLocales();
-    withhold($chosen, $other);
+    offerEveryInstalledLocaleExcept($chosen, $other);
     $user = User::factory()->create(['locale' => $chosen]);
 
     $this->actingAs($user)
@@ -156,7 +150,7 @@ it('serves the stored choice again once its language is offered again', function
     [$browser, $chosen] = twoTranslatedLocales();
     $user = User::factory()->create(['locale' => $chosen]);
 
-    withhold($chosen);
+    offerEveryInstalledLocaleExcept($chosen);
     $this->actingAs($user)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk();
     expect(servedLocale())->toBe($browser);
 
@@ -223,7 +217,7 @@ it('follows the browser quality order', function () {
 
 it('skips a browser language the project does not offer', function () {
     [$offered, $withheld] = twoTranslatedLocales();
-    withhold($withheld);
+    offerEveryInstalledLocaleExcept($withheld);
 
     $this->withHeaders(acceptLanguage("{$withheld}-".strtoupper($withheld).",{$withheld};q=0.9,{$offered};q=0.8"))
         ->get(route('feed'))
@@ -234,7 +228,7 @@ it('skips a browser language the project does not offer', function () {
 
 it('serves English to a browser that asks only for languages not on offer', function (string $header) {
     [, $withheld] = twoTranslatedLocales();
-    withhold($withheld);
+    offerEveryInstalledLocaleExcept($withheld);
 
     $this->withHeaders(acceptLanguage(str_replace('{withheld}', $withheld, $header)))->get(route('feed'))->assertOk();
 
