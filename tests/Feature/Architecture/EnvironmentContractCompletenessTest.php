@@ -337,6 +337,49 @@ it('declares a reader only for a file that has one', function () {
     }
 });
 
+it('accounts for every environment variable read outside config/, too', function () {
+    // Laravel's rule is that env() belongs in config/ only, and the audit found
+    // three exceptions. None is read while serving a request — each is an input to
+    // a command somebody runs deliberately — so none is part of a target's .env
+    // contract. They are recorded anyway, because the invariant this file exists
+    // for is that there is no third, silent category.
+    $found = [];
+
+    foreach (['app', 'database', 'routes', 'bootstrap'] as $directory) {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(base_path($directory), FilesystemIterator::SKIP_DOTS),
+        );
+
+        foreach ($iterator as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            foreach (token_get_all(File::get($file->getPathname())) as $index => $token) {
+                if (! is_array($token) || $token[0] !== T_STRING || ! in_array($token[1], ['env', 'getenv'], true)) {
+                    continue;
+                }
+
+                $tokens = token_get_all(File::get($file->getPathname()));
+                $key = completenessFirstArgument($tokens, $index);
+
+                if ($key !== null) {
+                    $found[$key] = true;
+                }
+            }
+        }
+    }
+
+    $recorded = completenessPolicy()['read_outside_config'];
+    unset($recorded['$schema_note']);
+
+    $unaccounted = array_values(array_diff(array_keys($found), array_keys($recorded)));
+    $stale = array_values(array_diff(array_keys($recorded), array_keys($found)));
+
+    expect($unaccounted)->toBe([], 'read outside config/ and unaccounted for: '.implode(' ', $unaccounted));
+    expect($stale)->toBe([], 'recorded as read outside config/ but no longer read: '.implode(' ', $stale));
+});
+
 // =============================================================================
 // The policy file itself
 // =============================================================================

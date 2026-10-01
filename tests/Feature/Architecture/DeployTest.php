@@ -4080,7 +4080,7 @@ it('lets an ordinary deploy proceed when the candidate contract is satisfied', f
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
-            ->toContain('environment contract: all 70 declared key(s) present')
+            ->toContain('environment contract: all 97 declared key(s) present')
             ->toContain('switching current symlink');
     } finally {
         deployOpsCleanup($scratch);

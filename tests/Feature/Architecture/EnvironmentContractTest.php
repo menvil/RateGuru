@@ -124,7 +124,7 @@ it('passes when the runtime file declares every key the template does', function
         [$exit, $output] = envContractRun($scratch);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('all 70 declared key(s) present');
+        expect($output)->toContain('all 97 declared key(s) present');
     } finally {
         envContractCleanup($scratch);
     }

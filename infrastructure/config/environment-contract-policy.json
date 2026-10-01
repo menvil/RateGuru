@@ -3,8 +3,8 @@
     "categories": {
         "laravel-framework-default": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it.",
         "dormant-driver": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist \u2014 see the note below on why that is the wrong direction.",
-        "vendor-tuning-default": "A fine-grained Sentry or Nightwatch option. The target templates declare the handful that differ per environment class \u2014 DSN, environment, sample rates, the enable switches \u2014 and leave the rest at the vendor's default deliberately, so a vendor upgrade that adds options does not become 80 new required keys.",
-        "application-default": "One of RateGuru's own settings whose default lives in config/ and is correct for every target today. It is overridable per host but not required, so it is not part of the contract an operator must satisfy. A setting that ever needs to differ per target belongs in the templates instead \u2014 that is a deliberate move, and this category is where it moves FROM.",
+        "vendor-tuning-default": "A fine-grained option belonging to a vendor package \u2014 Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply.",
+        "application-default": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead \u2014 that is a deliberate move, and this category is what it moves out of.",
         "local-or-build-only": "Meaningful only for local development or a build step, never on a deployed target."
     },
     "not_in_deployment_contract": {
@@ -46,8 +46,7 @@
         "DYNAMODB_ENDPOINT": "dormant-driver",
         "FEED_DEFAULT_PER_PAGE": "application-default",
         "FEED_MAX_PER_PAGE": "application-default",
-        "IMPORT_FROM_URL_ENABLED": "application-default",
-        "LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK": "local-or-build-only",
+        "LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK": "vendor-tuning-default",
         "LOG_DAILY_DAYS": "laravel-framework-default",
         "LOG_DEPRECATIONS_CHANNEL": "laravel-framework-default",
         "LOG_DEPRECATIONS_TRACE": "laravel-framework-default",
@@ -82,14 +81,6 @@
         "PAPERTRAIL_URL": "dormant-driver",
         "POSTMARK_API_KEY": "dormant-driver",
         "QUEUE_FAILED_DRIVER": "laravel-framework-default",
-        "RATE_LIMIT_COMMENT_ATTEMPTS": "application-default",
-        "RATE_LIMIT_COMMENT_DECAY_SECONDS": "application-default",
-        "RATE_LIMIT_REPORT_ATTEMPTS": "application-default",
-        "RATE_LIMIT_REPORT_DECAY_SECONDS": "application-default",
-        "RATE_LIMIT_UPLOAD_ATTEMPTS": "application-default",
-        "RATE_LIMIT_UPLOAD_DECAY_SECONDS": "application-default",
-        "RATE_LIMIT_VOTE_ATTEMPTS": "application-default",
-        "RATE_LIMIT_VOTE_DECAY_SECONDS": "application-default",
         "REDIS_BACKOFF_ALGORITHM": "laravel-framework-default",
         "REDIS_BACKOFF_BASE": "laravel-framework-default",
         "REDIS_BACKOFF_CAP": "laravel-framework-default",
@@ -148,14 +139,7 @@
         "SQS_PREFIX": "dormant-driver",
         "SQS_QUEUE": "dormant-driver",
         "SQS_SUFFIX": "dormant-driver",
-        "THEME_DEFAULT": "application-default",
-        "UPLOAD_IMAGE_JPEG_QUALITY": "application-default",
-        "UPLOAD_IMAGE_MAX_HEIGHT": "application-default",
-        "UPLOAD_IMAGE_MAX_KB": "application-default",
-        "UPLOAD_IMAGE_MAX_PIXELS": "application-default",
-        "UPLOAD_IMAGE_MAX_WIDTH": "application-default",
-        "UPLOAD_IMAGE_PNG_COMPRESSION": "application-default",
-        "UPLOAD_IMAGE_WEBP_QUALITY": "application-default"
+        "THEME_DEFAULT": "application-default"
     },
     "config_env_readers": {
         "$schema_note": "config/*.php must name every environment variable it reads as a literal, so the inventory can see it. Two files legitimately read env() through a local closure that normalizes a blank value to unset; the KEY is still a literal at every call site, but the env() call itself is not. Those closures are declared here by name, so a NEW dynamic env() anywhere else fails the guard instead of quietly escaping the inventory.",
@@ -168,5 +152,12 @@
             "nightwatchFloat",
             "nightwatchString"
         ]
-    }
+    },
+    "read_outside_config": {
+        "$schema_note": "Laravel's rule is that env() is read in config/ only, and these are the exceptions the audit found. They are not part of a deployed target's .env contract because none of them is read while serving a request: each is an input to a command somebody runs deliberately. Recorded anyway so there is no third, silent category \u2014 a new env() read outside config/ fails the guard until it is accounted for here.",
+        "ADMIN_PASSWORD": "one-shot input to the create-admin-user command, supplied for that invocation and never stored in .env",
+        "DEMO_ADMIN_PASSWORD": "demo seeder only; never run on a deployed target",
+        "DEMO_MODERATOR_PASSWORD": "demo seeder only; never run on a deployed target"
+    },
+    "inventory_scope_note": "The inventory scans this application's own config/*.php. A key read only by a config file Laravel ships inside the framework \u2014 one this application has not published \u2014 is outside that scope and therefore invisible to the guard. Two such keys are in the target contract today: BCRYPT_ROUNDS (vendor/laravel/framework/config/hashing.php) and BROADCAST_CONNECTION (.../config/broadcasting.php). They are genuinely read at runtime, so they belong in the templates; they simply cannot be derived by scanning config/. Widening the scan to the framework's own configs would inventory every Laravel default in existence, which is the opposite of the judgement this policy records. Publishing either config file would bring its keys into scope automatically."
 }
