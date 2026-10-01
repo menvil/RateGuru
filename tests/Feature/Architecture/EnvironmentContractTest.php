@@ -97,6 +97,20 @@ function envContractRuntime(array $values = [], array $drop = [], array $repeat 
     return $contents;
 }
 
+/** The delimited gate deploy runs, so a test reads the call site and not the file. */
+function deployGateSection(): string
+{
+    $source = File::get(base_path('infrastructure/scripts/deploy'));
+
+    $start = mb_strpos($source, 'assert_candidate_environment_contract() {');
+    $end = mb_strpos($source, '# --- deployment recovery');
+
+    expect($start)->not->toBeFalse('deploy must define the candidate contract gate');
+    expect($end)->toBeGreaterThan($start);
+
+    return mb_substr($source, $start, $end - $start);
+}
+
 // =============================================================================
 // The contract itself
 // =============================================================================
@@ -294,32 +308,94 @@ it('reads the environment file and never sources or evaluates it', function () {
 // Where it is enforced
 // =============================================================================
 
-it('gates deploy before any release mutation', function () {
-    // Position is the property. The check must sit after the lock and target
-    // resolution, and before the first thing that changes the target: the
-    // history row, the extraction, the migration, the current switch.
+it('gates an ordinary deploy before any target mutation, from the candidate artifact', function () {
+    // Position AND source, because either alone would be the wrong guarantee.
+    //
+    // The call site is found through its own delimiters, not by the first
+    // mention of the function — the definition necessarily appears earlier in
+    // the file and says nothing about when it runs.
     $source = File::get(base_path('infrastructure/scripts/deploy'));
 
-    $check = mb_strpos($source, 'assert_environment_contract');
+    $call = mb_strpos($source, '# --- candidate environment contract (begin) ---');
 
-    expect($check)->not->toBeFalse('deploy must verify the environment contract');
+    expect($call)->not->toBeFalse('deploy must gate on the candidate artifact');
 
-    expect($check)->toBeGreaterThan(
-        mb_strpos($source, 'acquire_deployment_lock'),
-        'the contract is judged under the lock, on the real target',
-    );
+    // After the target is locked and the artifact is proved safe to read.
+    foreach ([
+        'the deployment lock' => 'acquire_deployment_lock',
+        'checksum verification' => 'verifying artifact checksum',
+        'unsafe tar path rejection' => 'artifact contains an unsafe path',
+    ] as $what => $needle) {
+        $position = mb_strpos($source, $needle);
 
+        expect($position)->not->toBeFalse("could not locate {$what}");
+        expect($call)->toBeGreaterThan($position, "the contract is judged after {$what}");
+    }
+
+    // And before the first thing that changes the target at all.
     foreach ([
         'the deployment history row' => 'DEPLOYMENT_STARTED=true',
-        'the rollback trap' => 'trap handle_deployment_exit EXIT',
+        'release extraction' => 'log "extracting ${RELEASE_ID}"',
         'the migration step' => 'running database migrations',
         'the current switch' => 'switching current symlink',
     ] as $what => $needle) {
         $position = mb_strpos($source, $needle);
 
         expect($position)->not->toBeFalse("could not locate {$what}");
-        expect($check)->toBeLessThan($position, "the contract must be judged before {$what}");
+        expect($call)->toBeLessThan($position, "the contract must be judged before {$what}");
     }
+});
+
+it('never lets an ordinary deploy decide compatibility from the installed template', function () {
+    // The defect this whole change exists to close. install-target-operations is
+    // not part of an application deployment, so the installed template describes
+    // whatever was installed last — not what the artifact being deployed needs.
+    $gate = deployGateSection();
+
+    foreach ([
+        'the installed template root' => 'ENVIRONMENT_TEMPLATE_INSTALLED_ROOT',
+        'the operational template resolver' => 'environment_template_file',
+    ] as $what => $forbidden) {
+        expect(str_contains($gate, $forbidden))
+            ->toBeFalse("an ordinary deploy must not consult {$what}");
+    }
+
+    // It reads the artifact instead.
+    expect($gate)->toContain('artifact_environment_template_stage');
+});
+
+it('exempts controlled restore and recovery alignment from the current contract', function () {
+    // A restore or a recovery puts an EXACT historical release beside historical
+    // state. A backup's environment belongs to the source SHA it was taken from
+    // and may legitimately predate keys that exist today; refusing that pair
+    // would make a valid disaster recovery impossible.
+    $gate = deployGateSection();
+
+    expect($gate)->toContain('if controlled_mode; then');
+
+    // The exemption is announced, not silent, and says where the contract is
+    // enforced instead.
+    expect($gate)
+        ->toContain('deliberately NOT applied')
+        ->toContain('the next ordinary deployment enforces the current contract');
+});
+
+it('skips the check explicitly on an artifact built before the feature existed', function () {
+    // RateGuru must keep deploying artifacts built before this feature. Refusing
+    // them for not carrying a declaration they could not have carried would make
+    // old releases undeployable — the opposite of what a recovery needs.
+    expect(deployGateSection())
+        ->toContain('release predates artifact-owned environment contract — skipping environment key validation');
+});
+
+it('removes its staging directory on every path, including a refusal', function () {
+    // The resolver refuses a broken artifact by failing, which would exit deploy
+    // before any cleanup — so it is run in a subshell and the directory is
+    // removed on each branch.
+    $gate = deployGateSection();
+
+    expect(substr_count($gate, 'rm -rf "${stage}"'))
+        ->toBeGreaterThanOrEqual(3, 'the staging directory must be removed on the pass, refuse and broken-artifact paths');
 });
 
 it('gates configure before the database and the deploy key', function () {

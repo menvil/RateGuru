@@ -1010,6 +1010,78 @@ finalize_restore_alignment() {
     TERMINAL_HISTORY_WRITTEN=true
 }
 
+# assert_candidate_environment_contract — does the live canonical .env declare
+# every key the CANDIDATE ARTIFACT requires?
+#
+# WHY THE ARTIFACT AND NOT THE INSTALLED TEMPLATE. install-target-operations is
+# not part of an ordinary application deployment, so this host's operational
+# bundle can legitimately be older than the application being deployed onto it.
+# Judged against the installed template, a host with 70 keys installed, an
+# artifact expecting 71 and a .env carrying 70 compares 70 against 70, passes,
+# and installs an application that cannot read the key it needs. This project has
+# already seen that class of drift for real: an installed deploy lagged
+# repository behaviour and silently skipped a step the release expected.
+#
+# WHY NOT IN A CONTROLLED ALIGNMENT. A restore or a recovery deliberately puts an
+# EXACT historical release beside historical, restored state — a backup's
+# environment.env belongs to the source SHA it was taken from, and that release
+# may legitimately predate keys that exist today. Refusing such a pair would make
+# a valid disaster recovery impossible, which is the opposite of what those modes
+# are for. They carry their own strict authorization and state guards, and the
+# next ORDINARY deployment enforces the current contract before that target is
+# moved forward again.
+#
+# Position: the lock is held, containment and the checksum are verified, and
+# unsafe tar paths are rejected — but no history row has been written, no release
+# directory exists and nothing about the target has changed. Two members are read
+# out of the archive and nothing is extracted into the target.
+assert_candidate_environment_contract() {
+    if controlled_mode; then
+        log "controlled alignment: the current operational environment contract is deliberately NOT applied — this installs an exact historical release beside historical state, and the next ordinary deployment enforces the current contract"
+
+        return 0
+    fi
+
+    local stage="" status=0 diagnosis=""
+
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-environment-contract.XXXXXX")" \
+        || fail "could not create a private directory to read the candidate artifact's environment contract"
+
+    chmod 0700 "${stage}"
+
+    # Run in a subshell so a refusal inside the resolver cannot exit this script
+    # before the staging directory is removed. Its verdict travels as an exit
+    # status, its diagnosis as output, and the template it staged as a known
+    # path.
+    diagnosis="$(
+        artifact_environment_template_stage "${ARTIFACT}" "${TARGET_ID}" "${stage}" 2>&1
+    )" || status=$?
+
+    case "${status}" in
+        0)
+            if ! assert_environment_contract \
+                "${TARGET_ID}" \
+                "${TARGET_ROOT}/shared/.env" \
+                "${stage}/${ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME}" \
+                "this deployment"
+            then
+                rm -rf "${stage}"
+                exit 1
+            fi
+            ;;
+        2)
+            log "release predates artifact-owned environment contract — skipping environment key validation"
+            ;;
+        *)
+            printf '%s\n' "${diagnosis}" >&2
+            rm -rf "${stage}"
+            fail "refusing to deploy ${RELEASE_ID} to ${TARGET_ID}: its artifact declares an environment contract it cannot produce. No history was written and nothing was extracted"
+            ;;
+    esac
+
+    rm -rf "${stage}"
+}
+
 # --- deployment recovery (unchanged internals; process-global trap, not
 # function-scoped, so moving the call site that arms it into perform_deploy
 # below changes nothing about when or how it fires) ---------------------------
@@ -1272,21 +1344,6 @@ perform_deploy() {
     fi
     # --- restore interlock (end) ---
 
-    # The environment contract, and the position is the point of it.
-    #
-    # The lock is held and the target is resolved, so this is a decision about
-    # the real target — and nothing has been written yet: no history row, no
-    # temporary release directory, no moved symlink. It also sits before the
-    # EXIT trap below arms the rollback machinery, so a refusal here has
-    # nothing to roll back.
-    #
-    # What it catches is the code arriving with a key the host has never been
-    # given. The release would extract, the symlink would switch, and the
-    # application would then read a key that is not there — on the request path,
-    # after the deploy reported success. shared/.env is canonical on the host
-    # and this never writes it; it refuses and names the keys to add.
-    assert_environment_contract "${TARGET_ID}" "${TARGET_ROOT}/shared/.env" "this deployment"
-
     ORIGINAL_CURRENT_PRESENT=false
     ORIGINAL_CURRENT_PATH=""
     ORIGINAL_PREVIOUS_PRESENT=false
@@ -1339,6 +1396,10 @@ perform_deploy() {
     then
         fail "artifact contains an unsafe path"
     fi
+
+    # --- candidate environment contract (begin) ---
+    assert_candidate_environment_contract
+    # --- candidate environment contract (end) ---
 
     AVAILABLE_KB="$(
         df --output=avail "${RELEASES_ROOT}" \

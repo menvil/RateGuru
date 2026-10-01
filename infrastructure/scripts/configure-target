@@ -475,7 +475,7 @@ report_environment_precondition() {
         local contract_output contract_status=0
 
         set +e
-        contract_output="$( ( assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "configuring ${TARGET_ID}" ) 2>&1 )"
+        contract_output="$( ( assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "$(environment_template_file "${TARGET_ID}")" "configuring ${TARGET_ID}" ) 2>&1 )"
         contract_status=$?
         set -e
 
@@ -754,7 +754,16 @@ apply_gate() {
     # still never opens the environment file, and what it must CONTAIN beyond
     # its key names, and who may own it at which mode, stay
     # install-target-prerequisites' to judge.
-    assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "configuring ${TARGET_ID}"
+    # This checkout's template, passed explicitly. Configuring prepares a host for
+    # the code this trusted bundle describes, so the bundle's own declaration is
+    # precisely its contract — deliberately not a release's, since no release has
+    # been deployed to this target yet, and deliberately not the host's installed
+    # copy, which describes whatever was installed last.
+    assert_environment_contract \
+        "${TARGET_ID}" \
+        "$(canonical_environment_path)" \
+        "$(environment_template_file "${TARGET_ID}")" \
+        "configuring ${TARGET_ID}"
 
     local -a args=()
     mapfile -t args < <(prerequisites_args)

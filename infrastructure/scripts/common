@@ -2029,6 +2029,120 @@ environment_declared_keys() {
     done < "${file}"
 }
 
+# Where the resolver below leaves the template it read out of the artifact,
+# relative to the staging directory the caller hands it.
+#
+# A fixed name rather than an output variable, so a caller can run the resolver
+# in a subshell — which is how a caller keeps a refusal from leaking the staging
+# directory: this resolver REFUSES a broken artifact, and a refusal that exits
+# the shell would run no cleanup.
+ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME="candidate-template"
+
+# artifact_environment_template_stage ARTIFACT TARGET_ID STAGE_DIR — the contract
+# the CANDIDATE ARTIFACT declares, read out of the artifact itself.
+#
+# WHY NOT THE INSTALLED TEMPLATE, which is the entire reason this function
+# exists. install-target-operations is not part of an ordinary application
+# deployment, so the operational bundle on a host can legitimately be older than
+# the application being deployed onto it. Judged against the installed template,
+# a host with 70 keys installed, an artifact expecting 71 and a .env carrying 70
+# compares 70 against 70, passes, and installs an application that cannot read
+# the key it needs. That is not hypothetical — an installed deploy on this
+# project's own staging host has already lagged repository behaviour and silently
+# skipped a step the release expected.
+#
+# So the artifact is asked what IT requires. Two members are read OUT of it,
+# never the whole tree and never into the target, so this runs before the
+# deployment history row, before any release directory exists and before anything
+# about the target has changed.
+#
+#   0  STAGE_DIR/candidate-template is a copy of the template the artifact declares
+#   2  this artifact predates the artifact-owned environment contract
+#   -  an artifact that DECLARES a contract it cannot produce fails outright
+#
+# The difference between 2 and a failure is the subtlety. RateGuru must keep
+# deploying artifacts built before this feature existed — refusing them for not
+# carrying a declaration they could not have carried would make old releases
+# undeployable. But feature detection must not become a way for a CORRUPT modern
+# artifact to be waved through: one that names a template and cannot produce it
+# is broken, and there is deliberately no fallback to the installed template.
+#
+# The caller has already rejected unsafe tar paths by the time this runs; what is
+# checked here is the DECLARATION, which is artifact-controlled metadata.
+artifact_environment_template_stage() {
+    local artifact="${1-}" target_id="${2-}" stage_dir="${3-}"
+    local members registry declared member matches staged
+
+    [[ -f "${artifact}" ]] \
+        || fail "cannot read the candidate artifact to establish ${target_id}'s environment contract: ${artifact}"
+
+    [[ -d "${stage_dir}" ]] \
+        || fail "internal: no staging directory for ${target_id}'s environment contract"
+
+    members="$(tar -tzf "${artifact}")" \
+        || fail "cannot list the candidate artifact to establish ${target_id}'s environment contract: ${artifact}"
+
+    # Case A, every branch below: the feature is genuinely absent from this
+    # artifact. Nothing is wrong; there is simply nothing to check.
+    if grep -qxF 'infrastructure/config/deployment-targets.json' <<<"${members}"; then
+        member='infrastructure/config/deployment-targets.json'
+    elif grep -qxF './infrastructure/config/deployment-targets.json' <<<"${members}"; then
+        member='./infrastructure/config/deployment-targets.json'
+    else
+        return 2
+    fi
+
+    registry="${stage_dir}/candidate-registry.json"
+
+    tar -xzOf "${artifact}" "${member}" > "${registry}" \
+        || fail "cannot read the candidate artifact's target registry to establish ${target_id}'s environment contract"
+
+    jq -e . "${registry}" >/dev/null 2>&1 \
+        || fail "the candidate artifact carries a target registry that is not valid JSON — this is a broken artifact, not an older release"
+
+    jq -e --arg id "${target_id}" '.targets | has($id)' "${registry}" >/dev/null 2>&1 || return 2
+    jq -e --arg id "${target_id}" '.targets[$id] | has("environment_template")' "${registry}" >/dev/null 2>&1 || return 2
+
+    declared="$(jq -r --arg id "${target_id}" '.targets[$id].environment_template' "${registry}")"
+
+    # Case B from here down: declared, so the artifact is held to it.
+    [[ -n "${declared}" ]] && [[ "${declared}" != null ]] \
+        || fail "the candidate artifact declares an empty environment_template for ${target_id} — this is a broken artifact, not an older release"
+
+    # Artifact-controlled metadata naming a member this function is about to
+    # read. Any `..` at all is refused rather than only a leading one: a blunt
+    # rule costs a legal-but-bizarre filename and buys certainty.
+    case "${declared}" in
+        /*)   fail "the candidate artifact declares an absolute environment_template for ${target_id} (${declared}) — an artifact may only describe its own tree" ;;
+        *..*) fail "the candidate artifact declares an environment_template containing '..' for ${target_id} (${declared}) — an artifact may only describe its own tree" ;;
+    esac
+
+    # Matched as a whole member name, so no part of the declaration is ever
+    # interpreted as a pattern.
+    if grep -qxF "${declared}" <<<"${members}"; then
+        member="${declared}"
+    elif grep -qxF "./${declared}" <<<"${members}"; then
+        member="./${declared}"
+    else
+        fail "the candidate artifact declares environment_template ${declared}, which it does not contain — this is a broken artifact, not an older release"
+    fi
+
+    # A member present twice would make "which content won?" unanswerable, in
+    # exactly the way a duplicated env key does.
+    matches="$(grep -cxF "${member}" <<<"${members}")"
+
+    (( matches == 1 )) \
+        || fail "the candidate artifact contains ${matches} entries named ${member} — refusing to read a deployment contract from an ambiguous archive"
+
+    staged="${stage_dir}/${ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME}"
+
+    tar -xzOf "${artifact}" "${member}" > "${staged}" \
+        || fail "cannot read environment_template ${declared} out of the candidate artifact"
+
+    [[ -s "${staged}" ]] \
+        || fail "the candidate artifact declares environment_template ${declared}, which is empty — refusing to treat an empty contract as satisfied"
+}
+
 # assert_environment_contract TARGET_ID ENV_FILE CALLER — the gate itself.
 #
 # Returns 0 when every key the template declares exists exactly once in the
@@ -2039,15 +2153,16 @@ environment_declared_keys() {
 # would be this check causing the outage it exists to prevent. Tightening that
 # is a separate, evidenced decision.
 assert_environment_contract() {
-    local target_id="${1-}" env_file="${2-}" caller="${3-this operation}"
-    local template key
+    local target_id="${1-}" env_file="${2-}" template="${3-}" caller="${4-this operation}"
+    local key
     local -a template_keys=() runtime_keys=() missing=() duplicate=() extra=()
     declare -A runtime_count=()
 
-    template="$(environment_template_file "${target_id}")"
+    [[ -n "${template}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: no template was given to compare against"
 
     [[ -f "${template}" ]] \
-        || fail "${caller} cannot verify ${target_id}'s environment contract: its declared template is not present at ${template}. On a deployed host the templates are installed by install-target-operations; nothing was changed"
+        || fail "${caller} cannot verify ${target_id}'s environment contract: the template to compare against is not present at ${template}"
 
     [[ -f "${env_file}" ]] \
         || fail "${caller} cannot verify ${target_id}'s environment contract: ${env_file} does not exist. It is canonical on this host and is created once by an operator, never by this operation; nothing was changed"
@@ -2059,7 +2174,7 @@ assert_environment_contract() {
     mapfile -t runtime_keys < <(environment_declared_keys "${env_file}")
 
     (( ${#template_keys[@]} > 0 )) \
-        || fail "${caller} cannot verify ${target_id}'s environment contract: the declared template ${template} contains no keys — refusing to treat an empty contract as satisfied; nothing was changed"
+        || fail "${caller} cannot verify ${target_id}'s environment contract: the template ${template} contains no keys — refusing to treat an empty contract as satisfied; nothing was changed"
 
     for key in ${runtime_keys[@]+"${runtime_keys[@]}"}; do
         runtime_count["${key}"]=$(( ${runtime_count["${key}"]:-0} + 1 ))
