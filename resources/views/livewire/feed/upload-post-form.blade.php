@@ -195,7 +195,7 @@
                         class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
                     >
                     <div>
-                        <label for="knows_correct_answer" class="text-sm font-medium text-rg-text">
+                        <label for="knows_correct_answer" class="cursor-pointer text-sm font-medium text-rg-text">
                             {{ __('ui.upload.knows_answer') }}
                         </label>
                         <p class="mt-0.5 text-xs text-rg-muted">{{ __('ui.upload.knows_answer_hint') }}</p>
