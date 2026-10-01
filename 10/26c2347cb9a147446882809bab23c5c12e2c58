@@ -1,0 +1,30 @@
+tests/Feature/Filament/PostResourceTest.php
+  s_c0fe1399ff286f::t_5258145ed4a582 9,64-65
+tests/Feature/Support/Media/PostImagePresenterThumbnailTest.php
+  s_c0fe1399ff286f::t_5258145ed4a582 30-39,41,45,51,54,59-69
+resources/css/app.css
+  s_c0fe1399ff286f::t_6387492587757b 41-52
+tests/Browser/AdminPaginationBrowserTest.php
+  s_c0fe1399ff286f::t_6c52a7304e8e26 8-11,17-18,23-36,38,43-49
+tests/Browser/PointerCursorBrowserTest.php
+  s_c0fe1399ff286f::t_73818b545b976d 75,96-99
+  s_c0fe1399ff286f::t_6387492587757b 67-71,73-74,76-95,100
+app/Support/Media/PostImagePresenter.php
+  s_c0fe1399ff286f::t_5258145ed4a582 76-81,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1026c2347cb9a147446882809bab23c5c12e2c58",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
