@@ -7,6 +7,7 @@ use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Translations\MissingProjectTranslation;
+use App\Support\Translations\MissingTranslationReason;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
@@ -28,6 +29,15 @@ function missingIn(ProjectTranslationReport $report, ProjectContentSection $sect
         fn (MissingProjectTranslation $item): string => "{$item->key}.{$item->field}",
         array_filter($report->missing, fn (MissingProjectTranslation $item): bool => $item->section === $section),
     ));
+}
+
+/** @return array<string, MissingTranslationReason> why each "key.field" a language is missing in one section is missing */
+function missingReasonsIn(ProjectTranslationReport $report, ProjectContentSection $section): array
+{
+    return collect($report->missing)
+        ->filter(fn (MissingProjectTranslation $item): bool => $item->section === $section)
+        ->mapWithKeys(fn (MissingProjectTranslation $item): array => ["{$item->key}.{$item->field}" => $item->reason])
+        ->all();
 }
 
 /** Project settings with every translatable field translated into these languages. */
@@ -62,7 +72,8 @@ it('counts a project setting as missing when its translation is not text', funct
     [$target] = twoTranslatedLocales();
     translatedProjectSettings([$target], ['site_name_translations' => [$target => $value]]);
 
-    expect(missingIn(projectCompleteness($target), ProjectContentSection::ProjectSettings))->toBe(['site_name.site_name']);
+    expect(missingReasonsIn(projectCompleteness($target), ProjectContentSection::ProjectSettings))
+        ->toBe(['site_name.site_name' => MissingTranslationReason::Untranslated]);
 })->with('not a translation');
 
 it('asks no translation of a project setting whose reference text is blank', function () {
@@ -102,7 +113,8 @@ it('asks for a new translation of a page whose English was rewritten', function 
     unset($pages['about'][$target]);
     ProjectSettings::factory()->create(['static_pages' => $pages]);
 
-    expect(missingIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe(['about.title']);
+    expect(missingReasonsIn(projectCompleteness($target), ProjectContentSection::StaticPages))
+        ->toBe(['about.title' => MissingTranslationReason::SourceCustomized]);
 });
 
 it('does not take the configured translation of the old text for the rewritten one', function () {
@@ -112,7 +124,21 @@ it('does not take the configured translation of the old text for the rewritten o
     ProjectSettings::factory()->create(['static_pages' => $pages]);
 
     expect($pages['about'][$target]['title'])->toBe(config("static-pages.defaults.about.{$target}.title"))
-        ->and(missingIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe(['about.title']);
+        ->and(missingReasonsIn(projectCompleteness($target), ProjectContentSection::StaticPages))
+        ->toBe(['about.title' => MissingTranslationReason::StaleRepositoryDefault]);
+});
+
+it('calls a rewritten page plainly untranslated where the repository never translated it', function () {
+    // No shipped translation of the old English, so there is nothing stale
+    // and nothing customized away — the language simply has no text.
+    [$target] = twoTranslatedLocales();
+    config(['static-pages.defaults.imprint' => ['en' => ['title' => 'Imprint', 'content' => 'Who runs this site.']]]);
+    ProjectSettings::factory()->create(['static_pages' => ['imprint' => ['en' => ['title' => 'Legal notice', 'content' => 'Who runs this site.']]]]);
+
+    expect(missingReasonsIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe([
+        'imprint.title' => MissingTranslationReason::Untranslated,
+        'imprint.content' => MissingTranslationReason::Untranslated,
+    ]);
 });
 
 it('counts a rewritten page once the language has its own text for it', function () {
@@ -130,7 +156,10 @@ it('reads every static page config declares', function () {
     config(['static-pages.defaults.imprint' => ['en' => ['title' => 'Imprint', 'content' => 'Who runs this site.']]]);
     ProjectSettings::factory()->create(['static_pages' => null]);
 
-    expect(missingIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe(['imprint.title', 'imprint.content']);
+    expect(missingReasonsIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe([
+        'imprint.title' => MissingTranslationReason::Untranslated,
+        'imprint.content' => MissingTranslationReason::Untranslated,
+    ]);
 });
 
 // Content -----------------------------------------------------------------------

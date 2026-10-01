@@ -217,6 +217,26 @@ it('lists what is missing, by section, with a link to the editor that manages it
         ->assertMountedActionModalSeeHtml(e(route('filament.admin.resources.categories.edit', ['record' => $category])));
 });
 
+it('says why a static page translation is flagged once the page English was rewritten', function () {
+    [$target] = twoTranslatedLocales();
+    $pages = config('static-pages.defaults');
+    $pages['about']['en']['title'] = 'About TitsGuru';
+    $pages['about']['en']['content'] = 'Everything about TitsGuru.';
+    $pages['about'][$target]['content'] = null;
+    ProjectSettings::query()->firstOrFail()->update(['static_pages' => $pages]);
+
+    languagesPage()
+        ->mountTableAction('missingTranslations', $target)
+        ->assertMountedActionModalSee([
+            'About → title',
+            'Stale repository default',
+            'the stored translation is still the shipped translation of the old English',
+            'About → content',
+            'Source customized',
+            'this language has no text of its own',
+        ]);
+});
+
 it('only reads the database when it is opened', function () {
     [$target] = twoTranslatedLocales();
     $category = Category::factory()->create(['slug' => 'landscape', 'name' => 'Landscape', 'name_translations' => null, 'is_active' => true]);

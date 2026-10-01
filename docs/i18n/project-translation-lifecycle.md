@@ -56,8 +56,8 @@ presence only; nothing judges quality. Content an administrator created
 counts exactly like preset content. Inactive and archived content does not,
 because no visitor sees it. Missing project translations do not block
 enabling: the page warns, and visitors see fallback text where a translation
-is missing. The page lists each missing translation with a link to the editor
-that already manages it.
+is missing. The page lists each missing translation with its reason and a link
+to the editor that already manages it.
 
 ### Static pages
 
@@ -70,6 +70,20 @@ text for that field. A stored copy of the configured translation does not
 count, because the Project Settings form stores the configured text of every
 language when it saves; the copy is the old text's translation, not the new
 one's.
+
+The missing list says which case it is:
+
+| reason | when |
+|---|---|
+| **Missing** | the language has no text for the field, and nothing was rewritten that would explain it |
+| **Source customized** | the English was rewritten and the language has no stored text of its own; the shipped translation is of the old English |
+| **Stale repository default** | the English was rewritten, but the language's stored text is still exactly the shipped translation of the old English |
+
+This is deliberately conservative. A stored text that equals the shipped
+translation may happen to suit the rewritten English as well, and is flagged
+anyway: completeness only advises and never blocks enabling a language, so a
+false positive costs an administrator a glance, while a stale translation
+costs visitors a page that says something else.
 
 ## Who owns which translation
 

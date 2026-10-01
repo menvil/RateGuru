@@ -9,6 +9,7 @@ use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Support\Locale\LocaleManager;
 use App\Support\Translations\MissingProjectTranslation;
+use App\Support\Translations\MissingTranslationReason;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
@@ -290,10 +291,10 @@ final class LanguagesPage extends Page implements HasTable
     }
 
     /**
-     * The missing translations by section, each with a link to the editor
-     * that already manages that content.
+     * The missing translations by section, each with why it counts as
+     * missing and a link to the editor that already manages that content.
      *
-     * @return list<array{label: string, items: list<array{label: string, field: string, url: string}>}>
+     * @return list<array{label: string, items: list<array{label: string, field: string, reason: string, reason_color: string, explanation: string|null, url: string}>}>
      */
     private function missingSections(ProjectTranslationReport $report): array
     {
@@ -305,6 +306,9 @@ final class LanguagesPage extends Page implements HasTable
                 'items' => array_map(fn (MissingProjectTranslation $item): array => [
                     'label' => $item->label,
                     'field' => $item->field,
+                    'reason' => $item->reason->label(),
+                    'reason_color' => $item->reason === MissingTranslationReason::Untranslated ? 'gray' : 'warning',
+                    'explanation' => $item->reason->explanation(),
                     'url' => $this->editUrl($item),
                 ], $items),
             ];
