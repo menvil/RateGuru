@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute muss akzeptiert werden.',
+    'required' => ':attribute muss ausgefüllt werden.',
+    'string' => ':attribute muss ein Text sein.',
+    'max' => [
+        'array' => ':attribute darf nicht mehr als :max Elemente haben.',
+        'file' => ':attribute darf nicht größer als :max Kilobyte sein.',
+        'string' => ':attribute darf nicht länger als :max Zeichen sein.',
+    ],
+    'min' => [
+        'string' => ':attribute muss mindestens :min Zeichen lang sein.',
+    ],
+    'in' => 'Der gewählte Wert für :attribute ist ungültig.',
+    'unique' => ':attribute ist bereits vergeben.',
+    'email' => ':attribute muss eine gültige E-Mail-Adresse sein.',
+    'confirmed' => 'Die Bestätigung von :attribute stimmt nicht überein.',
+    'array' => ':attribute muss eine Liste sein.',
+    'boolean' => ':attribute muss wahr oder falsch sein.',
+    'current_password' => 'Das Passwort ist falsch.',
+    'dimensions' => ':attribute hat ungültige Bildabmessungen.',
+    'enum' => 'Der gewählte Wert für :attribute ist ungültig.',
+    'exists' => 'Der gewählte Wert für :attribute ist ungültig.',
+    'image' => ':attribute muss ein Bild sein.',
+    'integer' => ':attribute muss eine ganze Zahl sein.',
+    'lowercase' => ':attribute darf nur Kleinbuchstaben enthalten.',
+    'mimes' => ':attribute muss eine Datei vom Typ :values sein.',
+    'not_regex' => 'Das Format von :attribute ist ungültig.',
+    'regex' => 'Das Format von :attribute ist ungültig.',
+    'uploaded' => ':attribute konnte nicht hochgeladen werden.',
+    'url' => ':attribute muss eine gültige URL sein.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'Über mich',
+        'categoryId' => 'Kategorie',
+        'current_password' => 'Aktuelles Passwort',
+        'description' => 'Beschreibung',
+        'display_name' => 'Anzeigename',
+        'email' => 'E-Mail-Adresse',
+        'image' => 'Bild',
+        'locale' => 'Sprache',
+        'message' => 'Nachricht',
+        'name' => 'Name',
+        'password' => 'Passwort',
+        'profile_website_url' => 'Website',
+        'reason' => 'Grund',
+        'sourceUrl' => 'Quell-URL',
+        'subject' => 'Betreff',
+        'tagIds' => 'Tags',
+        'title' => 'Titel',
+        'url' => 'URL',
+        'username' => 'Benutzername',
+    ],
+];
