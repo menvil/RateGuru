@@ -1,0 +1,28 @@
+.github/actions/configure-rateguru-target/action.yml
+  s_c7e782fafc9782::t_b8385c632ca65b 14-32
+  s_c7e782fafc9782::t_6310448fa459a6 539-542
+  s_c7e782fafc9782::t_a1a36ab3e5b835 389
+  s_c7e782fafc9782::t_37659d4a5520b8 219-267
+  s_c7e782fafc9782::t_810d1b83121939 326,344-362,364,367-368
+  s_c7e782fafc9782::t_3f016a70217441 82-93
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_721de2b6b891d0 45-49,58,70-74,88-92,97-128
+.github/workflows/configure-tits-guru.yml
+  ai_agent 17-28,63-67,111-117,134,136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6a53c335711867be578658170aae3123ccc5daef",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
