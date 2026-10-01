@@ -22,14 +22,40 @@ use Illuminate\Support\Facades\File;
  *
  *     config/*.php  ->  target template  or  explicit policy  ->  CI
  */
-function completenessPolicy(): array
+function completenessContract(): array
 {
     return json_decode(
-        File::get(base_path('infrastructure/config/environment-contract-policy.json')),
+        File::get(base_path('infrastructure/config/environment-contract.json')),
         true,
         512,
         JSON_THROW_ON_ERROR,
     );
+}
+
+/** Every schema entry, indexed by key — so "exactly one record per key" is checkable. */
+function completenessEntries(): array
+{
+    $entries = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        $entries[$entry['key']][] = $entry;
+    }
+
+    return $entries;
+}
+
+/** KEY => category, for the keys the contract classifies as excluded. */
+function completenessExcluded(): array
+{
+    $excluded = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (($entry['classification'] ?? null) === 'excluded') {
+            $excluded[$entry['key']] = $entry['category'] ?? '';
+        }
+    }
+
+    return $excluded;
 }
 
 function completenessConfigFiles(): array
@@ -60,7 +86,7 @@ function completenessInventory(): array
         // Local closures that read env() on a caller's behalf. Declared in the
         // policy file; their bodies are the only place a non-literal env() may
         // live, and their own call sites still name the key as a literal.
-        $readers = completenessPolicy()['config_env_readers'][$relative] ?? [];
+        $readers = completenessContract()['config_env_readers'][$relative] ?? [];
 
         // The token ranges those readers occupy. A non-literal env() is allowed
         // inside one of them and nowhere else, which is what keeps a dynamic
@@ -252,7 +278,7 @@ it('accounts for every environment variable config/*.php reads', function () {
     // explicitly recorded as not being in it. Deciding nothing is the failure.
     $inventory = completenessInventory()['keys'];
     $contract = completenessContractKeys();
-    $policy = completenessPolicy()['not_in_deployment_contract'];
+    $policy = completenessExcluded();
 
     expect($inventory)->not->toBeEmpty('the inventory found no env() at all — the scanner is broken, not config/');
 
@@ -271,7 +297,7 @@ it('accounts for every environment variable config/*.php reads', function () {
         ...array_map(fn ($files, $key): string => "  {$key}  ({$files})", $unaccounted, array_keys($unaccounted)),
         '',
         'Add each to infrastructure/templates/environment/*.env.example if a target must supply it,',
-        'or to infrastructure/config/environment-contract-policy.json with a category if it must not.',
+        'or to infrastructure/config/environment-contract.json with a category if it must not.',
     ]));
 });
 
@@ -279,7 +305,7 @@ it('carries no stale exception for a variable config/ no longer reads', function
     // The other direction, which is what keeps the file honest rather than
     // ever-growing: an exception nobody needs is a decision nobody is reviewing.
     $inventory = completenessInventory()['keys'];
-    $policy = completenessPolicy()['not_in_deployment_contract'];
+    $policy = completenessExcluded();
 
     $stale = array_values(array_filter(
         array_keys($policy),
@@ -293,7 +319,7 @@ it('refuses a variable that is both in the contract and exempted from it', funct
     // Two answers to one question is not a stricter rule, it is an unreadable
     // one: the next reader cannot tell which was intended.
     $contract = completenessContractKeys();
-    $policy = completenessPolicy()['not_in_deployment_contract'];
+    $policy = completenessExcluded();
 
     $both = array_values(array_filter(array_keys($policy), fn (string $key): bool => isset($contract[$key])));
 
@@ -312,14 +338,14 @@ it('reads every environment variable by a literal name', function () {
         ...array_map(fn (string $site): string => '  '.$site, $dynamic),
         '',
         'Name the key as a literal, or declare the reading closure in',
-        'infrastructure/config/environment-contract-policy.json under config_env_readers.',
+        'infrastructure/config/environment-contract.json under config_env_readers.',
     ]));
 });
 
 it('declares a reader only for a file that has one', function () {
     // A declared reader is permission for a dynamic env(); permission for a file
     // that no longer needs it is permission nobody is looking at.
-    $readers = completenessPolicy()['config_env_readers'];
+    $readers = completenessContract()['config_env_readers'];
 
     foreach ($readers as $relative => $names) {
         if ($relative === '$schema_note') {
@@ -370,7 +396,7 @@ it('accounts for every environment variable read outside config/, too', function
         }
     }
 
-    $recorded = completenessPolicy()['read_outside_config'];
+    $recorded = completenessContract()['read_outside_config'];
     unset($recorded['$schema_note']);
 
     $unaccounted = array_values(array_diff(array_keys($found), array_keys($recorded)));
@@ -385,34 +411,59 @@ it('accounts for every environment variable read outside config/, too', function
 // =============================================================================
 
 it('records a reason for every category, and uses every category it records', function () {
-    $policy = completenessPolicy();
-    $categories = array_keys($policy['categories']);
-    $used = array_values(array_unique(array_values($policy['not_in_deployment_contract'])));
+    $policy = completenessContract();
+    $categories = array_keys($policy['exclusion_categories']);
+    $used = array_values(array_unique(array_values(completenessExcluded())));
 
     sort($categories);
     sort($used);
 
     expect($used)->toBe($categories, 'every category must be used, and every category used must be described');
 
-    foreach ($policy['categories'] as $name => $reason) {
+    foreach ($policy['exclusion_categories'] as $name => $reason) {
         expect(mb_strlen($reason))->toBeGreaterThan(60, "category {$name} needs a reason, not a label");
     }
 });
 
-it('contains key names and reasons only, never a value', function () {
-    // The file is committed and names settings; it must not become a place a
-    // credential is recorded "just as an example".
-    $raw = File::get(base_path('infrastructure/config/environment-contract-policy.json'));
+it('names every excluded key as a variable and every category as a slug', function () {
+    foreach (completenessExcluded() as $key => $category) {
+        expect($key)->toMatch('/^[A-Z][A-Z0-9_]*$/', "contract key is not a variable name: {$key}");
+        expect($category)->toMatch('/^[a-z][a-z0-9-]*$/', "exclusion category is not a slug: {$category}");
+    }
+});
 
-    foreach (['not_in_deployment_contract' => null] as $block => $_) {
-        foreach (completenessPolicy()[$block] as $key => $category) {
-            expect($key)->toMatch('/^[A-Z][A-Z0-9_]*$/', "policy key is not a variable name: {$key}");
-            expect($category)->toMatch('/^[a-z][a-z0-9-]*$/', "policy category is not a slug: {$category}");
+it('leaves every sensitive value blank, so no secret enters the repository', function () {
+    // The contract IS the source of rendered values now, which makes this the
+    // claim that matters: a key carrying a credential is declared and left empty,
+    // and the operator supplies it on the host. An honest default would be a
+    // committed secret.
+    $sensitive = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (($entry['sensitive'] ?? false) !== true) {
+            continue;
         }
+
+        $sensitive[] = $entry['key'];
+
+        expect($entry['value'])->toBe('', "{$entry['key']} is marked sensitive and must render blank");
     }
 
-    // No KEY=VALUE anywhere in the file, which is the shape a leaked value takes.
-    expect($raw)->not->toMatch('/[A-Z][A-Z0-9_]*=\S/');
+    // Not a vacuous pass: the obvious credentials must actually be marked.
+    foreach (['APP_KEY', 'DB_PASSWORD', 'SENTRY_DSN', 'NIGHTWATCH_TOKEN', 'MAIL_PASSWORD',
+        'GOOGLE_CLIENT_SECRET', 'FACEBOOK_CLIENT_SECRET'] as $key) {
+        expect(in_array($key, $sensitive, true))->toBeTrue("{$key} must be marked sensitive in the contract");
+    }
+
+    // And the rendered templates carry no value for any of them.
+    foreach (['staging', 'tits-guru'] as $target) {
+        $rendered = File::get(base_path("infrastructure/templates/environment/{$target}.env.example"));
+
+        foreach ($sensitive as $key) {
+            expect(str_contains($rendered, "\n{$key}=\n"))
+                ->toBeTrue("{$target} renders a value for the sensitive {$key}");
+        }
+    }
 });
 
 it('does not promote a provider Laravel merely supports into the deployed contract', function (string $key) {
@@ -480,4 +531,288 @@ it('keeps the local .env.example coherent with config/media.php', function (stri
     'MEDIA_VARIANT_LOCK_WAIT_SECONDS',
     'MEDIA_VARIANT_LOCK_TTL_SECONDS',
     'MEDIA_PURGE_LOCK_TTL_SECONDS',
+]);
+
+// =============================================================================
+// One source of truth, and the templates generated from it
+// =============================================================================
+//
+// For as long as each target's template was hand-maintained, "every target
+// declares the same keys" was a rule somebody had to remember: add a key to
+// staging, remember production, remember the next brand. A rule enforced by
+// memory is a rule that fails the week it matters.
+//
+// So the key list, the sections, the descriptions, the values and the
+// classification of every key live in ONE reviewed file, and the templates are
+// GENERATED. The invariant below is stronger than the parity it replaces: both
+// committed templates are the output of the contract, so they agree by
+// construction rather than by anybody checking.
+
+function completenessRenderer(): string
+{
+    return base_path('infrastructure/scripts/render-environment-templates');
+}
+
+/** @return array{0: int, 1: string} */
+function completenessRender(string $mode): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+
+    $process = proc_open(['bash', completenessRenderer(), $mode], $descriptors, $pipes, base_path(), [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+    ]);
+
+    expect($process)->not->toBeFalse();
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+it('has exactly one schema record per environment variable', function () {
+    // "Exactly one" is the property that makes every other check here mean
+    // something: two records for a key is two answers to one question.
+    $duplicated = [];
+
+    foreach (completenessEntries() as $key => $records) {
+        if (count($records) > 1) {
+            $duplicated[] = $key.' ('.count($records).' records)';
+        }
+    }
+
+    expect($duplicated)->toBe([], 'these keys are declared more than once in the contract: '.implode(' ', $duplicated));
+});
+
+it('classifies every schema record as exactly target or excluded', function () {
+    $wrong = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (! in_array($entry['classification'] ?? null, ['target', 'excluded'], true)) {
+            $wrong[] = ($entry['key'] ?? '?').' => '.var_export($entry['classification'] ?? null, true);
+        }
+    }
+
+    expect($wrong)->toBe([], 'a key must be target or excluded, nothing else: '.implode(' ', $wrong));
+});
+
+it('gives every excluded key a category and a reason', function () {
+    // An exception without a reason is an exception nobody can review, which is
+    // the same as not having decided.
+    $categories = completenessContract()['exclusion_categories'];
+    $bad = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (($entry['classification'] ?? null) !== 'excluded') {
+            continue;
+        }
+
+        $category = $entry['category'] ?? '';
+        $reason = $entry['reason'] ?? '';
+
+        if ($category === '' || ! array_key_exists($category, $categories) || mb_strlen($reason) < 60) {
+            $bad[] = $entry['key'];
+        }
+    }
+
+    expect($bad)->toBe([], 'these excluded keys lack a known category or a reason: '.implode(' ', $bad));
+});
+
+it('can render every target key for every registered deployment target', function () {
+    // A target key whose value cannot be produced for some registered target is a
+    // contract that renders for staging and fails the day a brand is added.
+    $targets = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets'];
+    $unrenderable = [];
+
+    foreach (completenessContract()['keys'] as $entry) {
+        if (($entry['classification'] ?? null) !== 'target') {
+            continue;
+        }
+
+        $value = $entry['value'] ?? null;
+
+        foreach ($targets as $id => $target) {
+            if (is_string($value)) {
+                continue;
+            }
+
+            if (is_array($value) && isset($value['from'])) {
+                if (in_array($value['from'], ['target_id', 'environment_class'], true)) {
+                    continue;
+                }
+
+                $unrenderable[] = $entry['key'].' (unknown source '.$value['from'].')';
+
+                continue;
+            }
+
+            if (is_array($value) && isset($value['by_environment_class'])) {
+                if (array_key_exists($target['environment_class'], $value['by_environment_class'])) {
+                    continue;
+                }
+
+                $unrenderable[] = $entry['key'].' (no value for '.$id.'\'s class '.$target['environment_class'].')';
+
+                continue;
+            }
+
+            $unrenderable[] = $entry['key'].' (unsupported value shape)';
+        }
+    }
+
+    expect(array_values(array_unique($unrenderable)))->toBe([], implode(' | ', array_unique($unrenderable)));
+});
+
+it('has committed templates that are exactly the contract rendered', function () {
+    // The invariant that replaces hand-kept parity: a developer changes the
+    // contract once, and both templates follow. CI is what makes that true.
+    [$exit, $output] = completenessRender('--check');
+
+    expect($exit)->toBe(0, $output);
+    expect($output)->toContain('every committed target template matches');
+});
+
+it('renders the same bytes twice', function () {
+    // A renderer whose output depends on hash order, locale or the clock cannot be
+    // checked against a committed file at all.
+    //
+    // This is the one test that invokes --write, so it restores the files itself
+    // rather than trusting the run to be idempotent: proving idempotence is the
+    // point, and a test that leaves the working tree changed when its subject is
+    // broken is a test that breaks the next one too.
+    $targets = ['staging', 'tits-guru'];
+    $before = [];
+
+    foreach ($targets as $target) {
+        $path = base_path("infrastructure/templates/environment/{$target}.env.example");
+        $before[$path] = File::get($path);
+    }
+
+    try {
+        [$exit, $output] = completenessRender('--write');
+        expect($exit)->toBe(0, $output);
+
+        foreach ($before as $path => $content) {
+            expect(File::get($path))->toBe($content, basename($path).' changed when re-rendered from an unchanged contract');
+        }
+    } finally {
+        foreach ($before as $path => $content) {
+            file_put_contents($path, $content);
+        }
+    }
+});
+
+it('writes nothing at all in check mode', function () {
+    // --check is run in CI, where a renderer that quietly fixed the thing it is
+    // asked to judge would make the judgement meaningless.
+    $watched = [];
+
+    foreach (['staging', 'tits-guru'] as $target) {
+        $path = base_path("infrastructure/templates/environment/{$target}.env.example");
+        $watched[$path] = [File::get($path), filemtime($path)];
+    }
+
+    completenessRender('--check');
+    clearstatcache();
+
+    foreach ($watched as $path => [$content, $mtime]) {
+        expect(File::get($path))->toBe($content);
+        expect(filemtime($path))->toBe($mtime, basename($path).' was touched by --check');
+    }
+});
+
+it('can only ever write a repository template', function () {
+    // The hard boundary, and it has to be asserted as a PROPERTY rather than as
+    // banned words: this script legitimately explains the boundary in its usage
+    // text, and legitimately emits a template whose own header names the host
+    // path. Neither is the script acting on one.
+    //
+    // What matters is where it redirects output. Every write goes to one of two
+    // variables: the registry-derived destination, or a file inside the private
+    // staging directory --check renders into. A target's shared/.env is canonical
+    // on its host and operator-owned; a generator able to write one would be a way
+    // for tooling to invent a credential nobody chose.
+    $source = executableSourceLines(File::get(completenessRenderer()));
+
+    // Strip the usage heredoc: it is prose, not code.
+    $code = (string) preg_replace("/cat <<'USAGE'.*?\nUSAGE/s", '', $source);
+
+    preg_match_all('/>\s*"([^"]+)"/', $code, $matches);
+
+    expect($matches[1])->not->toBeEmpty('the renderer writes nothing at all — the scan is wrong');
+
+    expect(array_values(array_unique($matches[1])))
+        ->toBe(['${destination}', '${rendered}'], 'the renderer must write only its registry-derived destination and its own staging copy');
+
+    // The destination is composed from the repository root plus the registry's own
+    // declaration, and that declaration is required to be a repository template.
+    expect($code)
+        ->toContain('destination="${REPO_ROOT}/${declared}"')
+        ->toContain('infrastructure/templates/environment/*.env.example)');
+
+    // It takes no path from the caller at all.
+    expect($code)->not->toContain('--env-file');
+    expect($code)->not->toContain('--output');
+
+    // And it is not installed on a host, so it cannot be reached there.
+    expect(File::get(base_path('infrastructure/scripts/install-target-operations')))
+        ->not->toContain('render-environment-templates');
+
+    expect(File::get(base_path('infrastructure/config/required-clis.txt')))
+        ->not->toContain('render-environment-templates');
+});
+
+it('derives a target-specific value from the registry rather than repeating it', function (string $key, string $source) {
+    // The registry is where a target is defined. Writing its id or class into the
+    // contract as a literal per target would be a second definition, and the two
+    // would disagree the first time one was edited.
+    $entry = collect(completenessContract()['keys'])->firstWhere('key', $key);
+
+    expect($entry)->not->toBeNull();
+    expect($entry['value'])->toBe(['from' => $source]);
+})->with([
+    ['APP_DEPLOYMENT_TARGET', 'target_id'],
+    ['APP_ENV', 'environment_class'],
+    ['SENTRY_ENVIRONMENT', 'environment_class'],
+]);
+
+it('renders the environment-specific values each target actually needs', function () {
+    // The few settings that genuinely differ, proved against the rendered files
+    // rather than against the contract that produced them.
+    $staging = File::get(base_path('infrastructure/templates/environment/staging.env.example'));
+    $production = File::get(base_path('infrastructure/templates/environment/tits-guru.env.example'));
+
+    expect($staging)
+        ->toContain("\nAPP_DEPLOYMENT_TARGET=staging-main\n")
+        ->toContain("\nAPP_ENV=staging\n")
+        ->toContain("\nSENTRY_ENVIRONMENT=staging\n")
+        ->toContain("\nMAIL_HOST=127.0.0.1\n")
+        ->toContain("\nSENTRY_TRACES_SAMPLE_RATE=1.0\n");
+
+    expect($production)
+        ->toContain("\nAPP_DEPLOYMENT_TARGET=tits-guru\n")
+        ->toContain("\nAPP_ENV=production\n")
+        ->toContain("\nSENTRY_ENVIRONMENT=production\n")
+        ->toContain("\nMAIL_HOST=\n")
+        ->toContain("\nSENTRY_TRACES_SAMPLE_RATE=0.10\n");
+});
+
+it('says in the generated files that they are generated', function (string $target) {
+    expect(File::get(base_path("infrastructure/templates/environment/{$target}.env.example")))
+        ->toContain('# GENERATED FROM infrastructure/config/environment-contract.json')
+        ->toContain('# DO NOT EDIT THIS FILE DIRECTLY');
+})->with(['staging', 'tits-guru']);
+
+it('documents the first-party settings a local developer needs', function (string $key) {
+    // .env.example is deliberately NOT generated: it serves local development and
+    // legitimately carries local, build and provider settings a deployed target
+    // has no use for. What it must not do is omit a first-party setting.
+    expect(File::get(base_path('.env.example')))->toContain("\n{$key}=");
+})->with([
+    'MEDIA_VARIANT_LOCK_WAIT_SECONDS', 'MEDIA_VARIANT_LOCK_TTL_SECONDS', 'MEDIA_PURGE_LOCK_TTL_SECONDS',
+    'UPLOAD_IMAGE_MAX_KB', 'UPLOAD_IMAGE_MAX_PIXELS', 'UPLOAD_IMAGE_WEBP_QUALITY',
+    'IMPORT_FROM_URL_ENABLED',
+    'RATE_LIMIT_UPLOAD_ATTEMPTS', 'RATE_LIMIT_COMMENT_ATTEMPTS',
+    'RATE_LIMIT_REPORT_ATTEMPTS', 'RATE_LIMIT_VOTE_ATTEMPTS',
 ]);

@@ -276,27 +276,70 @@ host drift     candidate template  ->  live shared/.env  ->  deploy / configure
 
 **Completeness** is enforced in CI, by
 `tests/Feature/Architecture/EnvironmentContractCompletenessTest.php`. Every
-environment variable `config/*.php` reads must be accounted for: declared by the
-deployment target templates, or recorded in
-`infrastructure/config/environment-contract-policy.json` as deliberately outside
-the deployed contract, with a category explaining why. Adding an `env()` and
-deciding nothing is the failure — and the inventory is closed in both directions,
-so an exception nobody needs any more fails too.
+environment variable `config/*.php` reads must be accounted for by exactly one
+record in the canonical contract, classified `target` or `excluded`. Adding an
+`env()` and deciding nothing is the failure — and the inventory is closed in both
+directions, so an exception nobody needs any more fails too.
 
-The policy carries **key names and reasons only**, never a value. Its categories
-exist so that "completeness" cannot be read as a reason to require credentials
-for infrastructure this deployment does not use: Laravel's generic configuration
-references AWS, Postmark, Resend, Slack, Memcached, SQS and more, and none of
-those belong in a target's contract merely because the framework supports them.
-A setting of our own that carries a working default in `config/` is also outside
-the contract until it genuinely needs to differ per target — moving it in is a
-deliberate act, and the policy is what it moves out of.
+#### One source, and generated templates
+
+The target templates are **generated files**, not hand-maintained sources:
+
+```text
+infrastructure/config/environment-contract.json      the one reviewed source
+            + infrastructure/config/deployment-targets.json
+                          ↓
+      infrastructure/scripts/render-environment-templates --write
+                          ↓
+   infrastructure/templates/environment/{staging,tits-guru}.env.example
+```
+
+The contract holds every key, its section and order, its classification, the
+value each target renders it with, and the reason for every exclusion. Before
+this, "every target declares the same keys" was a rule somebody had to remember:
+add a key to staging, remember production, remember the next brand. A rule
+enforced by memory is a rule that fails the week it matters, so the templates
+agree by construction now.
+
+The developer flow is therefore:
+
+```text
+someone adds env('NEW_SETTING') to config/
+  -> CI fails: no record in the contract
+  -> add it once, classified target or excluded
+  -> if target: render-environment-templates --write
+  -> BOTH templates change; CI verifies the output byte for byte
+  -> the artifact carries the contract; the host deploy refuses until an
+     operator deliberately updates shared/.env
+```
+
+Values come in four forms deliberately — a contract, not a templating language:
+a literal shared by every target, `{"from": "target_id"}`,
+`{"from": "environment_class"}`, and `{"by_environment_class": {...}}` for the
+few settings that genuinely differ (staging's mail capture against production's
+placeholders). A target's id and class are never written twice: they come from
+the registry, which stays the single place a target is defined.
+
+**The renderer can only write repository templates.** It takes no destination,
+derives every path from the registry, and is deliberately absent from the
+operational bundle — a target's `shared/.env` is canonical on its host and
+operator-owned, and a generator able to write one would be a way for tooling to
+invent a credential nobody chose. `--check` writes nothing anywhere.
+
+Keys carrying a credential are declared and left **blank**, which CI asserts:
+an honest default would be a committed secret.
+
+The contract's categories exist so that "completeness" cannot be read as a reason
+to require credentials for infrastructure this deployment does not use: Laravel's
+generic configuration references AWS, Postmark, Resend, Slack, Memcached, SQS and
+more, and none belongs in a target's contract merely because the framework
+supports it. Each excluded key is classified individually — there are no wildcard
+exceptions, so a future key cannot hide under one.
 
 Two config files read `env()` through a local closure that normalizes a blank
 value to unset. The key is still a literal at every call site, but the `env()`
-call itself is not, so those closures are declared in the policy by name. Any
-*other* dynamic `env()` fails the guard rather than escaping the inventory
-silently.
+call itself is not, so those closures are declared in the contract by name. Any
+*other* dynamic `env()` fails the guard rather than escaping the inventory.
 
 `.env.example` is deliberately **not** held to the same list: it serves local
 development and legitimately carries local, build and provider settings a

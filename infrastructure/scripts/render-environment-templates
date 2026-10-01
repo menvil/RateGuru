@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+#
+# render-environment-templates — generate each deployment target's environment
+# template from the one canonical contract.
+#
+#   render-environment-templates --check
+#   render-environment-templates --write
+#
+# WHAT PROBLEM THIS SOLVES. Every target's template declares the same keys, and
+# for as long as they were hand-maintained that was a rule somebody had to
+# remember: add a key to staging, remember production, remember the next brand.
+# A rule enforced by memory is a rule that fails the week it matters. So the key
+# list, the section order, the descriptions, the values and the classification of
+# every key live in ONE reviewed file —
+#
+#   infrastructure/config/environment-contract.json
+#
+# — and the templates are generated from it. A developer changes the contract
+# once; every target's template follows.
+#
+# WHAT IT MUST NEVER BE. This renders COMMITTED REPOSITORY FILES and nothing
+# else. It does not know the path of any host's runtime environment file, cannot
+# be pointed at one, and is deliberately absent from the operational bundle
+# install-target-operations puts on a host: a target's shared/.env is canonical
+# there, operator-owned, and a generator that could write it would be a way for
+# a deploy to invent a credential nobody chose. The destinations below are the
+# only paths this script will write, and they are derived from the registry
+# rather than accepted as input.
+#
+#   --check  Read-only. Renders into a private temporary directory and compares
+#            byte for byte against what is committed. Exit 0 when every target's
+#            template is current; non-zero, naming the stale ones, otherwise.
+#            Writes nothing, anywhere, on any path.
+#   --write  Regenerates the committed templates in place. Nothing else.
+#
+# VALUES. Four forms, deliberately — this is a contract, not a templating
+# language:
+#
+#   "VALUE"                                 the same for every target
+#   {"from": "target_id"}                   the target's own id
+#   {"from": "environment_class"}           its environment class
+#   {"by_environment_class": {...}}         one value per class, for the few
+#                                           settings that genuinely differ
+#                                           (staging's mail capture against
+#                                           production's placeholders)
+#
+# A target-specific value is never written twice: APP_DEPLOYMENT_TARGET comes
+# from the registry's own target id, and APP_ENV and SENTRY_ENVIRONMENT from its
+# environment class, so the registry stays the single place a target is defined.
+
+set -Eeuo pipefail
+umask 022
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+CONTRACT_FILE="${REPO_ROOT}/infrastructure/config/environment-contract.json"
+REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+TEMPLATE_ROOT="${REPO_ROOT}/infrastructure/templates/environment"
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  render-environment-templates --check
+  render-environment-templates --write
+
+  --check  Read-only. Renders each target's template into a private temporary
+           directory and compares it byte for byte against the committed file.
+           Exit 0 only when every one is current. Writes nothing, anywhere.
+  --write  Regenerate the committed repository templates from
+           infrastructure/config/environment-contract.json.
+
+Generates only committed repository files under
+infrastructure/templates/environment/, named by the deployment target registry.
+
+It has no knowledge of any host's runtime environment file and cannot be used to
+create, repair or modify one: a target's shared/.env is canonical on its host and
+is the operator's to own.
+USAGE
+}
+
+MODE=""
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--write)
+                [[ -z "${MODE}" ]] || fail "give exactly one of --check or --write"
+                MODE="${1#--}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check or --write is required"; }
+}
+
+require_inputs() {
+    [[ -f "${CONTRACT_FILE}" ]] || fail "canonical contract is missing: ${CONTRACT_FILE}"
+    [[ -f "${REGISTRY_FILE}" ]] || fail "target registry is missing: ${REGISTRY_FILE}"
+    [[ -d "${TEMPLATE_ROOT}" ]] || fail "template directory is missing: ${TEMPLATE_ROOT}"
+
+    command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+    jq -e . "${CONTRACT_FILE}" >/dev/null 2>&1 || fail "canonical contract is not valid JSON: ${CONTRACT_FILE}"
+    jq -e . "${REGISTRY_FILE}" >/dev/null 2>&1 || fail "target registry is not valid JSON: ${REGISTRY_FILE}"
+
+    local version
+    version="$(jq -r '.schema_version' "${CONTRACT_FILE}")"
+
+    [[ "${version}" == "1" ]] \
+        || fail "canonical contract declares schema_version ${version}; this renderer understands 1"
+}
+
+# render_template TARGET_ID ENVIRONMENT_CLASS — the whole file, on stdout.
+#
+# One jq program rather than a shell loop over keys: the ordering of sections and
+# of the keys inside them is the contract's, and a shell loop would be a second
+# place that order is decided.
+render_template() {
+    local target_id="$1" environment_class="$2"
+
+    jq -r \
+        --arg target "${target_id}" \
+        --arg class "${environment_class}" \
+        --arg contract 'infrastructure/config/environment-contract.json' \
+        '
+        def rule($name): "# --- " + $name + " " + ("-" * (74 - ($name | length)));
+
+        def value($entry):
+            $entry.value as $v
+            | if ($v | type) == "string" then $v
+              elif ($v | has("from")) then
+                  (if $v.from == "target_id" then $target
+                   elif $v.from == "environment_class" then $class
+                   else error("unsupported value source: " + $v.from) end)
+              elif ($v | has("by_environment_class")) then
+                  ($v.by_environment_class[$class]
+                   // error("no value for environment class " + $class + " on key " + $entry.key))
+              else error("unsupported value shape on key " + $entry.key)
+              end;
+
+        def commented($text):
+            $text | split("\n") | map(if . == "" then "#" else "# " + . end) | join("\n");
+
+        [
+          "# RateGuru environment template — " + $target,
+          "#",
+          "# GENERATED FROM " + $contract,
+          "# DO NOT EDIT THIS FILE DIRECTLY — run",
+          "#   infrastructure/scripts/render-environment-templates --write",
+          "# and commit the result. CI compares this file against that output.",
+          "#",
+          "# The canonical runtime file lives on the host at",
+          "# <application_root>/shared/.env, is created once by an operator and is never",
+          "# written by any deploy, configure, recovery or rendering operation. This",
+          "# template is the reviewed declaration of WHICH KEYS that file must carry.",
+          "#",
+          "# Every target is rendered from the one contract, so the key list and its order",
+          "# are identical across targets by construction rather than by anybody",
+          "# remembering. This file also travels INSIDE every release artifact built from",
+          "# it, and that copy is what an ordinary deploy judges a host'"'"'s .env against —",
+          "# because the tooling installed on a host may be older than the application",
+          "# being deployed onto it. Configure Target uses the repository copy;",
+          "# verify-environment-contract uses the host'"'"'s installed copy for standalone",
+          "# inspection. Controlled restore and recovery alignment are exempt: they",
+          "# install an exact historical release beside historical state.",
+          "#",
+          "# Key names only, never values, and nothing ever writes the host'"'"'s file.",
+          "#",
+          "# Values here are defaults and placeholders. An empty value means \"the operator",
+          "# supplies it\"; it does not mean the key is optional.",
+          ""
+        ]
+        + (
+            [ .sections[]
+              | .name as $name
+              | [ rule($name), commented(.description), "" ]
+                + [ ($keys[] | select(.classification == "target" and .section == $name)
+                     | .key + "=" + value(.)) ]
+                + [ "" ]
+            ] | add
+          )
+        | .[]
+        ' --argjson keys "$(jq -c '.keys' "${CONTRACT_FILE}")" "${CONTRACT_FILE}" \
+        | sed -e '$ { /^$/d; }'
+}
+
+# The targets to render, and the file each one owns — both from the registry, so
+# a target cannot be rendered to a path somebody typed.
+target_rows() {
+    jq -r '.targets | to_entries[] | [.key, .value.environment_class, .value.environment_template] | @tsv' "${REGISTRY_FILE}"
+}
+
+main() {
+    parse_args "$@"
+    require_inputs
+
+    local stage=""
+
+    if [[ "${MODE}" == check ]]; then
+        stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-environment-render.XXXXXX")" \
+            || fail "could not create a temporary directory to render into"
+        chmod 0700 "${stage}"
+    fi
+
+    local target_id environment_class declared destination rendered
+    local -a stale=()
+    local written=0
+
+    while IFS=$'\t' read -r target_id environment_class declared; do
+        [[ -n "${target_id}" ]] || continue
+
+        # The destination is the registry's own declaration, and it must name a
+        # file inside the template directory — never an arbitrary path.
+        case "${declared}" in
+            infrastructure/templates/environment/*.env.example) ;;
+            *) fail "target ${target_id} declares environment_template ${declared}, which is not a repository environment template this renderer may write" ;;
+        esac
+
+        destination="${REPO_ROOT}/${declared}"
+
+        if [[ "${MODE}" == write ]]; then
+            render_template "${target_id}" "${environment_class}" > "${destination}"
+            printf 'WROTE %s\n' "${declared}"
+            written=$((written + 1))
+
+            continue
+        fi
+
+        rendered="${stage}/$(basename "${declared}")"
+        render_template "${target_id}" "${environment_class}" > "${rendered}"
+
+        if [[ ! -f "${destination}" ]]; then
+            stale+=("${declared} (missing)")
+
+            continue
+        fi
+
+        if ! cmp -s "${rendered}" "${destination}"; then
+            stale+=("${declared}")
+            printf 'STALE %s\n' "${declared}" >&2
+            diff -u "${destination}" "${rendered}" | sed 's/^/  /' >&2 || true
+        else
+            printf 'CURRENT %s\n' "${declared}"
+        fi
+    done < <(target_rows)
+
+    if [[ "${MODE}" == write ]]; then
+        printf 'rendered %d target template(s) from %s\n' "${written}" "infrastructure/config/environment-contract.json"
+
+        return 0
+    fi
+
+    rm -rf "${stage}"
+
+    if (( ${#stale[@]} > 0 )); then
+        printf '\n%d committed target template(s) do not match the canonical contract:\n' "${#stale[@]}" >&2
+
+        local entry
+        for entry in "${stale[@]}"; do
+            printf '  %s\n' "${entry}" >&2
+        done
+
+        fail "run infrastructure/scripts/render-environment-templates --write and commit the result"
+    fi
+
+    printf 'every committed target template matches infrastructure/config/environment-contract.json\n'
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

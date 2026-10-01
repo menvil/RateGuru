@@ -1,0 +1,1511 @@
+{
+    "schema_version": 1,
+    "sections": [
+        {
+            "name": "Application",
+            "description": "Identity, environment class and the target this file belongs to."
+        },
+        {
+            "name": "Database",
+            "description": "Credentials for the role and database the registry declares for this\ntarget. install-target-database reads them from here and never writes them."
+        },
+        {
+            "name": "Cache / Redis",
+            "description": "One Redis server per host, separated per target by REDIS_PREFIX and the\ndatabase numbers below."
+        },
+        {
+            "name": "Queue",
+            "description": "The queue connection and the Redis settings that back it. The queue NAME\nis a registry property; what is configured here is how to reach it."
+        },
+        {
+            "name": "Filesystem / Media",
+            "description": "Where uploaded media is written and which disk serves it publicly, and the\nlifecycle the stored originals and derived variants follow.\n\nThe lock settings are not tuning knobs to leave blank: variant generation and\nthe purge each take a lock so two workers cannot derive or delete the same\nobject at once, and a blank TTL is not a longer lock — it is an unreadable one.\nEvery value here is the current contract rather than a suggestion."
+        },
+        {
+            "name": "Upload policy",
+            "description": "The limits an upload is accepted or refused by, and the quality derived\nvariants are written at.\n\nThese are deliberately explicit rather than left to the application's defaults:\nthey are the operational policy of a brand — how large an image a visitor may\nsend, and how much the server will spend re-encoding it — and the values below\nARE those defaults, so making them visible changes nothing.\n\nMAX_PIXELS guards total area independently of the width and height limits: a\n6000x6000 image passes both and is still 36 megapixels to decode."
+        },
+        {
+            "name": "Content lifecycle",
+            "description": "How long content outlives the account, or the decision, that removed it.\n\nA retention of 0 would delete immediately, and a blank one is not \"forever\" —\nit is whatever the application's own default happens to be, which is the thing\na deployed target should not be left guessing at. The moderation retention is\ndeliberately blank: it is the one value here that is a policy decision per\nbrand rather than a platform default."
+        },
+        {
+            "name": "Import",
+            "description": "Whether a visitor may create a post from an external URL. Off by default, and\noff is a decision rather than an oversight: the importer fetches a\ncaller-supplied address from the server, so enabling it widens what the host\nwill connect to."
+        },
+        {
+            "name": "Rate limits",
+            "description": "Attempts per decay window, per action. The values below are the application's\ncurrent defaults, made explicit because they are abuse policy and belong where\nan operator can see them — not because they are being changed."
+        },
+        {
+            "name": "Sessions",
+            "description": "SESSION_SECURE_COOKIE stays true everywhere: every deployed target is\nserved over HTTPS."
+        },
+        {
+            "name": "Logging",
+            "description": "Channel, stack and verbosity. Nothing here enables a remote sink; see\nSentry and Nightwatch below."
+        },
+        {
+            "name": "Social login",
+            "description": "Per-provider OAuth credentials. A provider is offered only when its own\nswitch is enabled AND both of its keys are present."
+        },
+        {
+            "name": "Mail",
+            "description": "Transport only. Which addresses are allowed to receive mail is an\napplication concern, not an environment one."
+        },
+        {
+            "name": "Sentry",
+            "description": "One Sentry project serves every target; SENTRY_ENVIRONMENT carries the\nenvironment class and the target is distinguished by its own tag."
+        },
+        {
+            "name": "Nightwatch",
+            "description": "Disabled by default. The vendor default is enabled=true, so the key must\nbe present and explicit rather than omitted."
+        }
+    ],
+    "keys": [
+        {
+            "key": "APP_NAME",
+            "section": "Application",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "APP_ENV",
+            "section": "Application",
+            "classification": "target",
+            "value": {
+                "from": "environment_class"
+            }
+        },
+        {
+            "key": "APP_KEY",
+            "section": "Application",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "APP_DEBUG",
+            "section": "Application",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "APP_URL",
+            "section": "Application",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "APP_DEPLOYMENT_TARGET",
+            "section": "Application",
+            "classification": "target",
+            "value": {
+                "from": "target_id"
+            }
+        },
+        {
+            "key": "APP_LOCALE",
+            "section": "Application",
+            "classification": "target",
+            "value": "en"
+        },
+        {
+            "key": "APP_FALLBACK_LOCALE",
+            "section": "Application",
+            "classification": "target",
+            "value": "en"
+        },
+        {
+            "key": "APP_MAINTENANCE_DRIVER",
+            "section": "Application",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "BCRYPT_ROUNDS",
+            "section": "Application",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "BROADCAST_CONNECTION",
+            "section": "Application",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_CONNECTION",
+            "section": "Database",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_HOST",
+            "section": "Database",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_PORT",
+            "section": "Database",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_DATABASE",
+            "section": "Database",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_USERNAME",
+            "section": "Database",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "DB_PASSWORD",
+            "section": "Database",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "CACHE_STORE",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_CLIENT",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_HOST",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_PORT",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_PASSWORD",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "REDIS_DB",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_CACHE_DB",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_PREFIX",
+            "section": "Cache / Redis",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "QUEUE_CONNECTION",
+            "section": "Queue",
+            "classification": "target",
+            "value": "redis"
+        },
+        {
+            "key": "REDIS_QUEUE",
+            "section": "Queue",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_QUEUE_CONNECTION",
+            "section": "Queue",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "REDIS_QUEUE_RETRY_AFTER",
+            "section": "Queue",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "FILESYSTEM_DISK",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "MEDIA_PUBLIC_DISK",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "public"
+        },
+        {
+            "key": "MEDIA_VARIANT_LOCK_WAIT_SECONDS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "30"
+        },
+        {
+            "key": "MEDIA_VARIANT_LOCK_TTL_SECONDS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "60"
+        },
+        {
+            "key": "MEDIA_PURGE_GRACE_DAYS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "7"
+        },
+        {
+            "key": "MEDIA_ORPHAN_GRACE_HOURS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "24"
+        },
+        {
+            "key": "MEDIA_PURGE_LOCK_TTL_SECONDS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "60"
+        },
+        {
+            "key": "MEDIA_AUDIT_LOCK_TTL_SECONDS",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "3660"
+        },
+        {
+            "key": "MEDIA_AUDIT_RUN_RETENTION",
+            "section": "Filesystem / Media",
+            "classification": "target",
+            "value": "30"
+        },
+        {
+            "key": "UPLOAD_IMAGE_MAX_KB",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "5120"
+        },
+        {
+            "key": "UPLOAD_IMAGE_MAX_WIDTH",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "6000"
+        },
+        {
+            "key": "UPLOAD_IMAGE_MAX_HEIGHT",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "6000"
+        },
+        {
+            "key": "UPLOAD_IMAGE_MAX_PIXELS",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "16000000"
+        },
+        {
+            "key": "UPLOAD_IMAGE_JPEG_QUALITY",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "90"
+        },
+        {
+            "key": "UPLOAD_IMAGE_PNG_COMPRESSION",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "6"
+        },
+        {
+            "key": "UPLOAD_IMAGE_WEBP_QUALITY",
+            "section": "Upload policy",
+            "classification": "target",
+            "value": "90"
+        },
+        {
+            "key": "POST_AUTHOR_DELETE_RETENTION_DAYS",
+            "section": "Content lifecycle",
+            "classification": "target",
+            "value": "30"
+        },
+        {
+            "key": "COMMENT_AUTHOR_DELETE_RETENTION_DAYS",
+            "section": "Content lifecycle",
+            "classification": "target",
+            "value": "30"
+        },
+        {
+            "key": "MODERATION_CONTENT_RETENTION_DAYS",
+            "section": "Content lifecycle",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "IMPORT_FROM_URL_ENABLED",
+            "section": "Import",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "RATE_LIMIT_UPLOAD_ATTEMPTS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "5"
+        },
+        {
+            "key": "RATE_LIMIT_UPLOAD_DECAY_SECONDS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "600"
+        },
+        {
+            "key": "RATE_LIMIT_COMMENT_ATTEMPTS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "10"
+        },
+        {
+            "key": "RATE_LIMIT_COMMENT_DECAY_SECONDS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "60"
+        },
+        {
+            "key": "RATE_LIMIT_REPORT_ATTEMPTS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "10"
+        },
+        {
+            "key": "RATE_LIMIT_REPORT_DECAY_SECONDS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "600"
+        },
+        {
+            "key": "RATE_LIMIT_VOTE_ATTEMPTS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "60"
+        },
+        {
+            "key": "RATE_LIMIT_VOTE_DECAY_SECONDS",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "60"
+        },
+        {
+            "key": "SESSION_DRIVER",
+            "section": "Sessions",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SESSION_LIFETIME",
+            "section": "Sessions",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SESSION_ENCRYPT",
+            "section": "Sessions",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SESSION_PATH",
+            "section": "Sessions",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SESSION_DOMAIN",
+            "section": "Sessions",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SESSION_SECURE_COOKIE",
+            "section": "Sessions",
+            "classification": "target",
+            "value": "true"
+        },
+        {
+            "key": "LOG_CHANNEL",
+            "section": "Logging",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "LOG_STACK",
+            "section": "Logging",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "LOG_LEVEL",
+            "section": "Logging",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "GOOGLE_CLIENT_ID",
+            "section": "Social login",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "GOOGLE_CLIENT_SECRET",
+            "section": "Social login",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "FACEBOOK_CLIENT_ID",
+            "section": "Social login",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "FACEBOOK_CLIENT_SECRET",
+            "section": "Social login",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "MAIL_MAILER",
+            "section": "Mail",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "smtp",
+                    "production": ""
+                }
+            }
+        },
+        {
+            "key": "MAIL_SCHEME",
+            "section": "Mail",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "MAIL_HOST",
+            "section": "Mail",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "127.0.0.1",
+                    "production": ""
+                }
+            }
+        },
+        {
+            "key": "MAIL_PORT",
+            "section": "Mail",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "1025",
+                    "production": ""
+                }
+            }
+        },
+        {
+            "key": "MAIL_USERNAME",
+            "section": "Mail",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "MAIL_PASSWORD",
+            "section": "Mail",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "MAIL_FROM_ADDRESS",
+            "section": "Mail",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "noreply@staging.invalid",
+                    "production": ""
+                }
+            }
+        },
+        {
+            "key": "MAIL_FROM_NAME",
+            "section": "Mail",
+            "classification": "target",
+            "value": "\"${APP_NAME}\""
+        },
+        {
+            "key": "MAIL_CONTACT_TO",
+            "section": "Mail",
+            "classification": "target",
+            "value": ""
+        },
+        {
+            "key": "SENTRY_DSN",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "SENTRY_ENVIRONMENT",
+            "section": "Sentry",
+            "classification": "target",
+            "value": {
+                "from": "environment_class"
+            }
+        },
+        {
+            "key": "SENTRY_SAMPLE_RATE",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "1.0"
+        },
+        {
+            "key": "SENTRY_TRACES_SAMPLE_RATE",
+            "section": "Sentry",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "1.0",
+                    "production": "0.10"
+                }
+            }
+        },
+        {
+            "key": "SENTRY_PROFILES_SAMPLE_RATE",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "0"
+        },
+        {
+            "key": "SENTRY_SEND_DEFAULT_PII",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "SENTRY_ENABLE_LOGS",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "SENTRY_ENABLE_METRICS",
+            "section": "Sentry",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "NIGHTWATCH_ENABLED",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "NIGHTWATCH_TOKEN",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "NIGHTWATCH_INGEST_URI",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": {
+                "by_environment_class": {
+                    "staging": "127.0.0.1:2407",
+                    "production": ""
+                }
+            }
+        },
+        {
+            "key": "NIGHTWATCH_REQUEST_SAMPLE_RATE",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "0.10"
+        },
+        {
+            "key": "NIGHTWATCH_COMMAND_SAMPLE_RATE",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "1.0"
+        },
+        {
+            "key": "NIGHTWATCH_EXCEPTION_SAMPLE_RATE",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "1.0"
+        },
+        {
+            "key": "NIGHTWATCH_CAPTURE_REQUEST_PAYLOAD",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "NIGHTWATCH_IGNORE_MAIL",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "true"
+        },
+        {
+            "key": "NIGHTWATCH_IGNORE_NOTIFICATIONS",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "true"
+        },
+        {
+            "key": "NIGHTWATCH_LOG_LEVEL",
+            "section": "Nightwatch",
+            "classification": "target",
+            "value": "warning"
+        },
+        {
+            "key": "APP_FAKER_LOCALE",
+            "classification": "excluded",
+            "category": "local-or-build-only",
+            "reason": "Meaningful only for local development or a build step, never on a deployed target."
+        },
+        {
+            "key": "APP_MAINTENANCE_STORE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "APP_PREVIOUS_KEYS",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AUTH_GUARD",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AUTH_MODEL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AUTH_PASSWORD_BROKER",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AUTH_PASSWORD_RESET_TOKEN_TABLE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AUTH_PASSWORD_TIMEOUT",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "AWS_ACCESS_KEY_ID",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_BUCKET",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_DEFAULT_REGION",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_ENDPOINT",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_SECRET_ACCESS_KEY",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_URL",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "AWS_USE_PATH_STYLE_ENDPOINT",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "BEANSTALKD_QUEUE",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "BEANSTALKD_QUEUE_HOST",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "BEANSTALKD_QUEUE_RETRY_AFTER",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "CACHE_PREFIX",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_CACHE_CONNECTION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_CACHE_LOCK_CONNECTION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_CACHE_LOCK_TABLE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_CACHE_TABLE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_CHARSET",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_COLLATION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_FOREIGN_KEYS",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_QUEUE",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DB_QUEUE_CONNECTION",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DB_QUEUE_RETRY_AFTER",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DB_QUEUE_TABLE",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DB_SOCKET",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_SSLMODE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DB_URL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "DD_AGENT_HOST",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DYNAMODB_CACHE_TABLE",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "DYNAMODB_ENDPOINT",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "FEED_DEFAULT_PER_PAGE",
+            "classification": "excluded",
+            "category": "application-default",
+            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
+        },
+        {
+            "key": "FEED_MAX_PER_PAGE",
+            "classification": "excluded",
+            "category": "application-default",
+            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
+        },
+        {
+            "key": "LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "LOG_DAILY_DAYS",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "LOG_DEPRECATIONS_CHANNEL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "LOG_DEPRECATIONS_TRACE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "LOG_PAPERTRAIL_HANDLER",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "LOG_SLACK_EMOJI",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "LOG_SLACK_USERNAME",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "LOG_SLACK_WEBHOOK_URL",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "LOG_STDERR_FORMATTER",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "LOG_SYSLOG_FACILITY",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "MAIL_EHLO_DOMAIN",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "MAIL_LOG_CHANNEL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "MAIL_SENDMAIL_PATH",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MAIL_URL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "MEMCACHED_HOST",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MEMCACHED_PASSWORD",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MEMCACHED_PERSISTENT_ID",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MEMCACHED_PORT",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MEMCACHED_USERNAME",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "MYSQL_ATTR_SSL_CA",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_IGNORE_CACHE_EVENTS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_IGNORE_OUTGOING_REQUESTS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_IGNORE_QUERIES",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_INGEST_CONNECTION_TIMEOUT",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_INGEST_EVENT_BUFFER",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_INGEST_TIMEOUT",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_REDACT_HEADERS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_REDACT_PAYLOAD_FIELDS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_SCHEDULED_TASK_SAMPLE_RATE",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "NIGHTWATCH_SERVER",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "PAPERTRAIL_PORT",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "PAPERTRAIL_URL",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "POSTMARK_API_KEY",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "QUEUE_FAILED_DRIVER",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_BACKOFF_ALGORITHM",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_BACKOFF_BASE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_BACKOFF_CAP",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_CACHE_CONNECTION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_CACHE_LOCK_CONNECTION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_CLUSTER",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "REDIS_MAX_RETRIES",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_PERSISTENT",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_URL",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "REDIS_USERNAME",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "RESEND_API_KEY",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_CACHE_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_COMMAND_JOBS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_HTTP_CLIENT_REQUESTS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_LIVEWIRE_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_LOGS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_NOTIFICATIONS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_QUEUE_INFO_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_BREADCRUMBS_SQL_QUERIES_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_LARAVEL_DSN",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_LOGS_LEVEL",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_LOG_FLUSH_THRESHOLD",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_LOG_LEVEL",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_ORG_ID",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_STRICT_TRACE_CONTINUATION",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_CACHE_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_CONTINUE_AFTER_RESPONSE",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_DEFAULT_INTEGRATIONS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_GEN_AI_CHAT_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_GEN_AI_EMBEDDINGS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_GEN_AI_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_GEN_AI_EXECUTE_TOOL_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_GEN_AI_INVOKE_AGENT_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_HTTP_CLIENT_REQUESTS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_LIVEWIRE_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_MISSING_ROUTES_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_NOTIFICATIONS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_QUEUE_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_QUEUE_JOBS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_REDIS_COMMANDS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_REDIS_ORIGIN_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_SQL_ORIGIN_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_SQL_ORIGIN_THRESHOLD_MS",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_SQL_QUERIES_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SENTRY_TRACE_VIEWS_ENABLED",
+            "classification": "excluded",
+            "category": "vendor-tuning-default",
+            "reason": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply."
+        },
+        {
+            "key": "SESSION_CONNECTION",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_COOKIE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_EXPIRE_ON_CLOSE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_HTTP_ONLY",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_PARTITIONED_COOKIE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_SAME_SITE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_STORE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SESSION_TABLE",
+            "classification": "excluded",
+            "category": "laravel-framework-default",
+            "reason": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it."
+        },
+        {
+            "key": "SLACK_BOT_USER_DEFAULT_CHANNEL",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "SLACK_BOT_USER_OAUTH_TOKEN",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "SQS_PREFIX",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "SQS_QUEUE",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "SQS_SUFFIX",
+            "classification": "excluded",
+            "category": "dormant-driver",
+            "reason": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction."
+        },
+        {
+            "key": "THEME_DEFAULT",
+            "classification": "excluded",
+            "category": "application-default",
+            "reason": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of."
+        }
+    ],
+    "exclusion_categories": {
+        "laravel-framework-default": "Generic Laravel configuration the framework ships a working default for. Our deployed topology does not override it, and pinning it per target would mean maintaining a copy of a framework default with nothing to say about it.",
+        "dormant-driver": "A driver, queue backend, cache store, log handler or mail transport Laravel supports and this deployment does not use. Promoting these into the target contract would tell an operator to supply credentials for infrastructure that does not exist — see the note below on why that is the wrong direction.",
+        "vendor-tuning-default": "A fine-grained option belonging to a vendor package — Sentry, Nightwatch, Livewire. The target templates declare the handful RateGuru genuinely manages per environment class (DSN, environment, sample rates, the privacy and enable switches) and leave the rest at the vendor's own default deliberately, so a vendor upgrade that adds twenty options does not become twenty new keys an operator is told to supply.",
+        "application-default": "One of RateGuru's own settings whose default lives in config/ and has not needed to differ per target. It is overridable per host but not required. A setting that becomes operational policy belongs in the templates instead — that is a deliberate move, and this category is what it moves out of.",
+        "local-or-build-only": "Meaningful only for local development or a build step, never on a deployed target."
+    },
+    "config_env_readers": {
+        "$schema_note": "config/*.php must name every environment variable it reads as a literal, so the inventory can see it. Two files legitimately read env() through a local closure that normalizes a blank value to unset; the KEY is still a literal at every call site, but the env() call itself is not. Those closures are declared here by name, so a NEW dynamic env() anywhere else fails the guard instead of quietly escaping the inventory.",
+        "config/sentry.php": [
+            "sentryFloat",
+            "sentryString"
+        ],
+        "config/nightwatch.php": [
+            "nightwatchBool",
+            "nightwatchFloat",
+            "nightwatchString"
+        ]
+    },
+    "read_outside_config": {
+        "$schema_note": "Laravel's rule is that env() is read in config/ only, and these are the exceptions the audit found. They are not part of a deployed target's .env contract because none of them is read while serving a request: each is an input to a command somebody runs deliberately. Recorded anyway so there is no third, silent category — a new env() read outside config/ fails the guard until it is accounted for here.",
+        "ADMIN_PASSWORD": "one-shot input to the create-admin-user command, supplied for that invocation and never stored in .env",
+        "DEMO_ADMIN_PASSWORD": "demo seeder only; never run on a deployed target",
+        "DEMO_MODERATOR_PASSWORD": "demo seeder only; never run on a deployed target"
+    },
+    "inventory_scope_note": "The inventory scans this application's own config/*.php. A key read only by a config file Laravel ships inside the framework — one this application has not published — is outside that scope and therefore invisible to the guard. Two such keys are in the target contract today: BCRYPT_ROUNDS (vendor/laravel/framework/config/hashing.php) and BROADCAST_CONNECTION (.../config/broadcasting.php). They are genuinely read at runtime, so they belong in the templates; they simply cannot be derived by scanning config/. Widening the scan to the framework's own configs would inventory every Laravel default in existence, which is the opposite of the judgement this policy records. Publishing either config file would bring its keys into scope automatically."
+}
