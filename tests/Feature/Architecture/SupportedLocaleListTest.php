@@ -15,8 +15,8 @@ use Symfony\Component\Finder\Finder;
  *
  * A copy takes three shapes, all refused when two or more supported languages
  * sit in the same array: the codes as a list; rows of the registry keyed by
- * code — entries carrying the `label` / `native` / `flag` a language is
- * declared with, or its name or flag alone, which is what a test overriding config('locales.supported')
+ * code — entries carrying the `label` / `native` / `flag` /
+ * `enabled_by_default` a language is declared with, or its name or flag alone, which is what a test overriding config('locales.supported')
  * with its own set writes; and codes keyed to a bare `true` or `false`, which
  * is a list wearing keys (a hand-written "enabled languages" map).
  *
@@ -107,7 +107,7 @@ function handWrittenLocaleSets(string $source, array $registry): array
         if ($text($i + 1) === '=>') {
             $stack[$top]['key'] = isset($registry[$string]) ? $string : null;
 
-            if (in_array($string, ['label', 'native', 'flag'], true)) {
+            if (in_array($string, ['label', 'native', 'flag', 'enabled_by_default'], true)) {
                 $stack[$top]['row'] = true;
             }
 

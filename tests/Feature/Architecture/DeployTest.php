@@ -1337,12 +1337,15 @@ it('runs the Laravel artisan command sequence with the correct --expected-host',
         expect($exit)->toBe(0, $output);
 
         $artisanCalls = array_values(array_filter(explode("\n", trim(File::get($artisanLog)))));
-        expect($artisanCalls)->toHaveCount(5, 'config:cache, sharing:verify, view:cache, migrate, queue:restart');
+        // This fixture's php lists no commands, so the translation backfill is
+        // detected as absent and skipped, as for any release that predates it.
+        expect($artisanCalls)->toHaveCount(6, 'config:cache, sharing:verify, view:cache, migrate, list --raw, queue:restart');
         expect($artisanCalls[0])->toContain('artisan config:cache');
         expect($artisanCalls[1])->toContain('artisan rateguru:sharing:verify')->toContain("--expected-host={$expectedHost}");
         expect($artisanCalls[2])->toContain('artisan view:cache');
         expect($artisanCalls[3])->toContain('artisan migrate --force');
-        expect($artisanCalls[4])->toContain('artisan queue:restart');
+        expect($artisanCalls[4])->toContain('artisan list --raw');
+        expect($artisanCalls[5])->toContain('artisan queue:restart');
 
         $verifyLog = trim(File::get($verifyCliLog));
 
@@ -1862,7 +1865,7 @@ it('re-signals the queue against the restored release when a deployment fails af
  * @param  list<string>  $statusSequence  Supervisor states, one per status call.
  * @return array{exit:int, output:string, root:string, releaseId:string}
  */
-function deployOpsRunNormalLaravelDeployment(string $scratch, array $statusSequence, string $phpBin = ''): array
+function deployOpsRunNormalLaravelDeployment(string $scratch, array $statusSequence, string $phpBin = '', bool $migrate = false): array
 {
     $fixture = deployOpsBuildFixture($scratch, laravel: true);
     $confPath = deployOpsDeploymentConfForFixture($scratch);
@@ -1890,7 +1893,7 @@ function deployOpsRunNormalLaravelDeployment(string $scratch, array $statusSeque
 
     [$exit, $output] = deployOpsRunHarness(
         $scratch,
-        "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
+        'parse_deploy_args --target parity-target'.($migrate ? ' --migrate' : '')." --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
         deployOpsBaseEnv($scratch, [
             'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
@@ -2495,6 +2498,7 @@ function deployOpsAlignmentArtifact(
     string $releaseId = DEPLOY_OPS_ALIGNMENT_RELEASE,
     ?string $sourceSha = DEPLOY_OPS_REQUIRED_SHA,
     bool $withReleaseJson = true,
+    bool $laravel = false,
 ): array {
     $id = uniqid('', true);
     $source = $scratch.'/alignment-src-'.$id;
@@ -2502,6 +2506,20 @@ function deployOpsAlignmentArtifact(
     file_put_contents($source.'/public/index.php', "<?php // fixture\n");
 
     $entries = 'public';
+
+    // Opt-in, with the group shim, for the tests that assert what Laravel
+    // preparation does and does not run during an alignment.
+    if ($laravel) {
+        file_put_contents($source.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
+        mkdir($source.'/infrastructure/config', 0o755, true);
+        mkdir($source.'/infrastructure/scripts', 0o755, true);
+        file_put_contents($source.'/infrastructure/config/required-clis.txt', "targets\n");
+        file_put_contents($source.'/infrastructure/scripts/targets', "#!/usr/bin/env bash\nexit 0\n");
+        chmod($source.'/infrastructure/scripts/targets', 0o755);
+        file_put_contents($source.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+        chmod($source.'/infrastructure/scripts/common', 0o644);
+        $entries .= ' artisan infrastructure';
+    }
 
     if ($withReleaseJson) {
         file_put_contents($source.'/release.json', json_encode(array_filter([
@@ -2539,6 +2557,10 @@ function deployOpsAlignmentArtifact(
 function deployOpsRunDeployOn(string $scratch, array $fixture, string $arguments, array $options = []): array
 {
     $confPath = deployOpsDeploymentConfForFixture($scratch);
+
+    if (isset($options['php_bin'])) {
+        file_put_contents($confPath, preg_replace('/^PHP_BIN=.*$/m', 'PHP_BIN='.$options['php_bin'], File::get($confPath)));
+    }
     deployOpsInstallCoreStubs($scratch);
     [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
 
@@ -3721,3 +3743,181 @@ it('treats both guards at once as a hard failure, in every deployment mode', fun
     'restore alignment' => ['--restore-operation '.DEPLOY_OPS_RESTORE_OPERATION],
     'recovery deployment' => ['--recovery-operation '.DEPLOY_OPS_RECOVERY_OPERATION],
 ]);
+
+// =============================================================================
+// Project translation backfill
+// =============================================================================
+
+/**
+ * A php stub for a release that ships rateguru:translations:backfill: `artisan
+ * list --raw` names it, the way the real command list does. Every call is
+ * logged; the backfill itself, or the listing, can be made to fail.
+ */
+function deployOpsBackfillPhpBin(string $scratch, bool $failBackfill = false, bool $failList = false): string
+{
+    $path = $scratch.'/bin/fake-php-backfill';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "php $*" >> '.escapeshellarg($scratch.'/artisan.log')."\n"
+        ."if [[ \"\$2\" == 'list' ]]; then\n"
+        .($failList ? "    exit 1\n" : '')
+        ."    echo 'config:cache                     Create a cache file for faster configuration loading'\n"
+        ."    echo 'rateguru:translations:backfill   Fill missing project translations the repository ships'\n"
+        ."    exit 0\n"
+        ."fi\n"
+        ."if [[ \"\$2\" == 'rateguru:translations:backfill' ]]; then exit ".($failBackfill ? '1' : '0')."; fi\n"
+        ."exit 0\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/** @return list<string> the artisan commands a deployment ran, in order */
+function deployOpsArtisanCalls(string $scratch): array
+{
+    $log = $scratch.'/artisan.log';
+
+    return is_file($log)
+        ? array_values(array_filter(explode("\n", trim(File::get($log)))))
+        : [];
+}
+
+it('backfills project translations after the requested migrations of a normal deployment', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $result = deployOpsRunNormalLaravelDeployment($scratch, ['RUNNING'], deployOpsBackfillPhpBin($scratch), migrate: true);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('backfilling repository-known project translations');
+
+        $calls = deployOpsArtisanCalls($scratch);
+        $position = fn (string $command): int|false => array_search(true, array_map(fn (string $call): bool => str_contains($call, $command), $calls), true);
+
+        expect($position('artisan rateguru:translations:backfill'))->not->toBeFalse(implode("\n", $calls))
+            ->and($position('artisan migrate --force'))->toBeLessThan($position('artisan list --raw'))
+            ->and($position('artisan list --raw'))->toBeLessThan($position('artisan rateguru:translations:backfill'))
+            ->and($position('artisan rateguru:translations:backfill'))->toBeLessThan($position('artisan queue:restart'));
+
+        expect(basename(realpath($result['root'].'/current')))->toBe($result['releaseId']);
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('deploys a historical release that predates the translation backfill', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // The default php stub lists no commands: an older release.
+        $result = deployOpsRunNormalLaravelDeployment($scratch, ['RUNNING']);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('it predates the translation backfill, skipping it');
+
+        $calls = implode("\n", deployOpsArtisanCalls($scratch));
+
+        expect($calls)->toContain('artisan list --raw')
+            ->not->toContain('artisan rateguru:translations:backfill');
+
+        expect(basename(realpath($result['root'].'/current')))->toBe($result['releaseId']);
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('fails the deployment, before the switch, when the release has the backfill and it fails', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $result = deployOpsRunNormalLaravelDeployment($scratch, ['RUNNING'], deployOpsBackfillPhpBin($scratch, failBackfill: true));
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('rateguru:translations:backfill failed');
+        expect(basename((string) readlink($result['root'].'/current')))->toBe('previous-release');
+        expect(implode("\n", deployOpsArtisanCalls($scratch)))->not->toContain('artisan queue:restart');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('fails the deployment when it cannot tell whether the release has the backfill', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $result = deployOpsRunNormalLaravelDeployment($scratch, ['RUNNING'], deployOpsBackfillPhpBin($scratch, failList: true));
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('artisan list failed');
+        expect(implode("\n", deployOpsArtisanCalls($scratch)))->not->toContain('artisan rateguru:translations:backfill');
+        expect(basename((string) readlink($result['root'].'/current')))->toBe('previous-release');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('never backfills translations during a restore alignment', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture, laravel: true);
+        deployOpsWriteHeldRestore($scratch);
+        deployOpsInstallGroupShimStub($scratch);
+        @unlink($scratch.'/artisan.log');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            ['php_bin' => deployOpsBackfillPhpBin($scratch)],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $calls = implode("\n", deployOpsArtisanCalls($scratch));
+
+        // The release was prepared — and nothing beyond that touched the data.
+        expect($calls)->toContain('artisan config:cache')
+            ->not->toContain('artisan list')
+            ->not->toContain('artisan rateguru:translations:backfill');
+        expect($result['output'])->not->toContain('backfilling repository-known project translations');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('never backfills translations during a recovery deployment', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture, laravel: true);
+        deployOpsWriteAwaitingCodeRecovery($scratch);
+        deployOpsInstallGroupShimStub($scratch);
+        @unlink($scratch.'/artisan.log');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --recovery-operation '.DEPLOY_OPS_RECOVERY_OPERATION,
+            ['php_bin' => deployOpsBackfillPhpBin($scratch)],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $calls = implode("\n", deployOpsArtisanCalls($scratch));
+
+        expect($calls)->toContain('artisan config:cache')
+            ->not->toContain('artisan list')
+            ->not->toContain('artisan rateguru:translations:backfill');
+        expect($result['output'])->not->toContain('backfilling repository-known project translations');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});

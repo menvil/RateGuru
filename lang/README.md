@@ -9,12 +9,13 @@ returns the key itself when a line is missing, so a half-finished language
 looks fine in review and reaches readers as a mix of their language and raw
 `ui.notifications.messages.post_approved` strings. Nothing throws.
 
-## Four words for languages
+## The words for languages
 
 | term | where it lives | what it means |
 |---|---|---|
-| **supported / installed** | `config/locales.php` + `lang/{code}/` | the application ships the language: a complete catalog, a label, a native name and a flag |
-| **enabled** | `project_settings.enabled_locales` | the installed languages this project offers its visitors — `NULL` means all of them |
+| **supported / installed** | `config/locales.php` + `lang/{code}/` | the application ships the language: a complete catalog, a label, a native name, a flag and `enabled_by_default` |
+| **complete** | computed on the Languages page | how much of the application catalogs and of this project's own content (database) the language translates |
+| **enabled** | `project_settings.enabled_locales` | the installed languages this project offers its visitors — `NULL` means the ones `enabled_by_default`, until the project chooses |
 | **project default** | `project_settings.default_locale` | what a visitor gets when nothing about them points elsewhere; always an enabled language |
 | **system fallback** | `config('locales.fallback')` | the technical emergency locale and the catalog Laravel falls back to; always installed, not necessarily enabled |
 
@@ -24,14 +25,30 @@ static pages) can still be edited in admin — which is how a language is
 prepared before it is offered. Translation editors list every installed
 language; everything a visitor can pick or be served uses the enabled ones.
 
+`enabled_by_default` is bootstrap policy, not project state: while a project
+has never chosen its languages (`enabled_locales` is `NULL`) it is offered the
+installed languages declared `enabled_by_default`. Today's languages all are; a
+language a release adds ships with `false`, so installing it never offers it
+to an existing project.
+
 `App\Support\Locale\LocaleManager` is the one place these are read:
 `supported()`, `enabled()`, `isEnabled()`, `projectDefault()`, `fallback()`.
 Which languages are enabled is written only by
 `UpdateProjectLocaleSettingsAction`, which changes them and the project default
 atomically and refuses an empty set, an uninstalled code and a default outside
-the set. The Project Settings form may change the default on its own, but only
-to a language that is currently enabled; presets and the default settings
-seeder never change the languages or the default of an existing project.
+the set — and always writes an explicit list, so a project that has chosen
+never consults `enabled_by_default` again. Admin → System → **Languages** is
+where an administrator enables, disables and picks the default; it refuses to
+disable the default or the last enabled language, refuses to enable a language
+whose application catalogs break the contract, and warns before enabling one
+whose project content is incomplete. `SaveProjectSettingsAction` still refuses
+`enabled_locales` and an unoffered default from any internal caller; presets
+and the default settings seeder never change the languages or the default of
+an existing project.
+
+Completeness and the safe backfill of project translations — what the
+repository fills in on deploy and what stays for an administrator — are in
+`docs/i18n/project-translation-lifecycle.md`.
 
 ## Which language a visitor gets
 
@@ -65,15 +82,21 @@ the next language silently skips.
 ## Adding a language
 
 1. Add it to `config/locales.php` under `supported`, with its label, native
-   name and flag.
+   name, flag and `enabled_by_default => false`.
 2. Create `lang/{locale}/` and translate every file in `lang/en/` except the
    English-only catalogs listed below.
-3. Run the suite. It will list, by file and key, whatever is still missing.
+3. Add its text to every translatable value of every preset in
+   `config/project_presets.php` and to every page of
+   `config/static-pages.php`.
+4. Run the suite. `TranslationParityTest` lists, by file and key, what the
+   catalogs still miss; `RepositoryTranslationParityTest` lists the preset and
+   static page values.
 
 Step 1 on its own turns CI red. That is deliberate: a language is either
-finished or not installed. Installing is not offering: a project that narrowed
-its enabled languages keeps them until it enables the new one, while a project
-that never narrowed them (`enabled_locales` is `NULL`) offers it at once.
+finished or not installed. Installing is not offering: after the deploy the
+language is installed and disabled everywhere, the deploy's safe backfill has
+filled in what the repository knows, and an administrator enables it on the
+Languages page once the project's own content is translated.
 
 ## Keys, never sentences
 

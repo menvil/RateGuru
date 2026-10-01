@@ -10,18 +10,23 @@ The supported locales — every language the application is installed with — a
 
 The flag is chosen per language rather than derived from the code: a language is not a country.
 
-## Enabled locales, project default, system fallback
+## Installed, complete, enabled — and the default
 
 | term | source | meaning |
 |---|---|---|
 | Supported / installed | `config/locales.php` + `lang/{code}/` | present in config and in the translation catalogs |
-| Enabled | `project_settings.enabled_locales` | offered by this project to public users; `NULL` means every installed language |
+| Complete | computed live on Admin → System → Languages | application catalogs (the CI contract) and this project's own content as the database holds it |
+| Enabled | `project_settings.enabled_locales` | offered by this project to public users; `NULL` means the installed languages marked `enabled_by_default` |
 | Project default | `project_settings.default_locale` | the normal locale for a visitor with no preference and no browser match; always enabled |
 | System fallback | `config('locales.fallback')` | technical emergency locale; always installed, not necessarily enabled |
 
 A disabled locale remains installed and its DB/content translations may still be edited in admin: every translation editor (project settings, static pages, categories, tags, rating groups and options) lists all installed languages, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones.
 
-`enabled_locales` is written only by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which changes `enabled_locales` and `default_locale` atomically: installed codes only, in config order, never an empty set, and a default inside the set. The ordinary Project Settings form (`SaveProjectSettingsAction`) may change `default_locale` on its own, but only to a currently enabled locale, and it refuses a payload that carries `enabled_locales`. Presets and the default settings seeder never change the languages or the default of an existing project. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
+`enabled_by_default` (per installed language, in `config/locales.php`) is bootstrap policy only: it decides what a project offers while `enabled_locales` is `NULL`. Every language installed today is `true`; a language a release adds is `false`, so installing it never offers it to an existing project.
+
+`enabled_locales` is written only by `App\Actions\Settings\UpdateProjectLocaleSettingsAction`, which changes `enabled_locales` and `default_locale` atomically and always writes an explicit list: installed codes only, in config order, never an empty set, and a default inside the set. Its only interface is the **Languages** page (Admin → System), which enables, disables and sets the default — it will not disable the default or the last enabled language, will not enable a language whose application catalogs break the contract, and asks for confirmation before enabling one whose project content is incomplete. The Project Settings page no longer edits the default; `SaveProjectSettingsAction` still refuses `enabled_locales` and an unoffered `default_locale` from any internal caller. Presets and the default settings seeder never change the languages or the default of an existing project. Reading is defensive: unknown codes are ignored, and a row that leaves nothing usable resolves to the system fallback.
+
+How completeness is measured, and what the deploy's safe backfill fills in, is in `docs/i18n/project-translation-lifecycle.md`.
 
 ## Locale resolution order
 
@@ -126,7 +131,4 @@ Auto-translation requires external API integration, a UX for original/translated
 
 ## Adding a new locale
 
-1. Add the locale to `config/locales.php` under `supported`, with its `label`, `native` name and `flag`.
-2. Create `lang/{code}/` with a translation of every file in `lang/en/` except `admin.php`.
-3. `TranslationParityTest` will fail, listing what is missing, until the catalogs match.
-4. It is offered at once by projects that never narrowed their enabled languages (`enabled_locales` is `NULL`); a project with an explicit list offers it only once it is enabled there.
+See *Adding a language* in `docs/i18n/project-translation-lifecycle.md`: the locale is declared with `enabled_by_default => false`, its catalogs and repository content are complete before CI passes, the deploy backfills what it safely can, and an administrator enables it on the Languages page.

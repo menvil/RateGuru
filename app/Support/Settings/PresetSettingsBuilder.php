@@ -4,7 +4,8 @@ namespace App\Support\Settings;
 
 class PresetSettingsBuilder
 {
-    private const TRANSLATABLE = [
+    /** The project settings that carry a translation per language. */
+    public const TRANSLATABLE = [
         'site_name',
         'site_tagline',
         'site_description',

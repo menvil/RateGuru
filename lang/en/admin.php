@@ -34,7 +34,6 @@ return [
         'plural_name' => 'Plural name',
         'upload_cta_label' => 'Upload CTA label',
         'feed_title' => 'Feed title',
-        'default_locale' => 'Default locale',
         'default_theme' => 'Default theme',
         'default_sort' => 'Default sort',
         'show_comments' => 'Show comments',

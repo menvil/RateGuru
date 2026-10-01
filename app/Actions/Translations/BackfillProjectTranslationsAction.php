@@ -1,0 +1,274 @@
+<?php
+
+namespace App\Actions\Translations;
+
+use App\Models\Category;
+use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
+use App\Models\Tag;
+use App\Support\Locale\LocaleManager;
+use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\ProjectContentSection;
+use App\Support\Translations\RepositoryTranslation;
+use App\Support\Translations\RepositoryTranslations;
+use App\Support\Translations\TranslatableField;
+use App\Support\Translations\TranslationBackfillReport;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Fills in the translations the repository ships but the database does not
+ * have yet — for every installed language, enabled or not, so a language a
+ * release adds is filled in before anyone offers it.
+ *
+ * Deliberately narrow. A translation is written only when all of these hold:
+ *
+ *  - the content already exists, found by the identity preset application
+ *    uses — nothing is ever created;
+ *  - that language has no text for the field — nothing is ever overwritten;
+ *  - the repository has text for that language;
+ *  - the field's reference (English) text is exactly the repository's, so the
+ *    translation is of the text the project actually shows. Once a project
+ *    changes the text, the repository's translation of the old one is left
+ *    out, and the field is for an administrator to translate.
+ *
+ * The check is per field, under a lock on the row it writes, so an
+ * administrator's edit cannot land between the comparison and the write.
+ * Running it again finds nothing more to do.
+ *
+ * Project settings and categories, rating groups, options and tags come from
+ * the preset the project was set up with (active_preset_key); static pages
+ * from config/static-pages.php.
+ */
+final class BackfillProjectTranslationsAction
+{
+    private const REFERENCE = TranslatableField::REFERENCE_LOCALE;
+
+    /** @var array{filled: int, already_present: int, skipped_customized: int, skipped_unknown: int} */
+    private array $counts;
+
+    public function __construct(
+        private readonly RepositoryTranslations $repository,
+        private readonly LocaleManager $locales,
+        private readonly ProjectSettingsManager $settings,
+    ) {}
+
+    public function handle(): TranslationBackfillReport
+    {
+        $this->counts = ['filled' => 0, 'already_present' => 0, 'skipped_customized' => 0, 'skipped_unknown' => 0];
+        $locales = array_values(array_diff(array_keys($this->locales->supported()), [self::REFERENCE]));
+
+        $presetKey = ProjectSettings::query()->value('active_preset_key');
+        $preset = is_string($presetKey) ? $this->repository->forPreset($presetKey) : [];
+        $bySection = collect($preset)->groupBy(fn (RepositoryTranslation $entry): string => $entry->section->value);
+
+        $this->projectSettings($bySection->get(ProjectContentSection::ProjectSettings->value, collect())->all(), $locales);
+
+        foreach ($bySection->get(ProjectContentSection::Categories->value, collect()) as $entry) {
+            $this->model($entry, $locales, fn (): Builder => Category::query()->where('slug', $entry->identity['slug']));
+        }
+
+        foreach ($bySection->get(ProjectContentSection::RatingGroups->value, collect()) as $entry) {
+            $this->model($entry, $locales, fn (): Builder => RatingGroup::query()->where('key', $entry->identity['key']));
+        }
+
+        foreach ($bySection->get(ProjectContentSection::RatingOptions->value, collect()) as $entry) {
+            // An option key is unique within its group only.
+            $this->model($entry, $locales, fn (): Builder => RatingOption::query()
+                ->where('key', $entry->identity['option'])
+                ->whereHas('group', fn (Builder $group) => $group->where('key', $entry->identity['group'])));
+        }
+
+        foreach ($bySection->get(ProjectContentSection::Tags->value, collect()) as $entry) {
+            $this->model($entry, $locales, fn (): Builder => Tag::query()->where('slug', $entry->identity['slug']));
+        }
+
+        $this->settings->flush();
+
+        return new TranslationBackfillReport(
+            $this->counts['filled'],
+            $this->counts['already_present'],
+            $this->counts['skipped_customized'],
+            $this->counts['skipped_unknown'],
+        );
+    }
+
+    /**
+     * The project settings row, which carries both the translatable settings
+     * and the static pages — written once, under one lock.
+     *
+     * @param  list<RepositoryTranslation>  $settingsEntries
+     * @param  list<string>  $locales
+     */
+    private function projectSettings(array $settingsEntries, array $locales): void
+    {
+        DB::transaction(function () use ($settingsEntries, $locales): void {
+            $row = ProjectSettings::query()->lockForUpdate()->find(1);
+
+            if ($row === null) {
+                $this->tally('skipped_unknown', (count($settingsEntries) + count($this->repository->staticPages())) * count($locales));
+
+                return;
+            }
+
+            $changes = [];
+
+            foreach ($settingsEntries as $entry) {
+                $column = "{$entry->field}_translations";
+                $translations = $changes[$column] ?? $row->getAttribute($column);
+                $filled = $this->fill($entry, $row->getAttribute($entry->field), $translations, $locales);
+
+                if ($filled !== null) {
+                    $changes[$column] = $filled;
+                }
+            }
+
+            $pages = $this->staticPages($row->static_pages, $locales);
+
+            if ($pages !== null) {
+                $changes['static_pages'] = $pages;
+            }
+
+            if ($changes !== []) {
+                $row->forceFill($changes)->save();
+            }
+        });
+    }
+
+    /**
+     * A static page's configured text is what visitors already get until the
+     * project rewrites the page, so nothing needs writing for a page the
+     * project left alone. A stored copy whose English is still the configured
+     * English gets the configured text for a language it lacks — the case of a
+     * language added after the page was last saved.
+     *
+     * @param  list<string>  $locales
+     * @return array<string, mixed>|null the pages to store, or null when nothing changed
+     */
+    private function staticPages(mixed $stored, array $locales): ?array
+    {
+        if ($stored !== null && ! is_array($stored)) {
+            $this->tally('skipped_unknown', count($this->repository->staticPages()) * count($locales));
+
+            return null;
+        }
+
+        $pages = $stored ?? [];
+        $changed = false;
+
+        foreach ($this->repository->staticPages() as $entry) {
+            $page = $entry->identity['page'];
+            $configuredReference = $entry->reference();
+
+            if ($configuredReference === null) {
+                continue;
+            }
+
+            $storedReference = $pages[$page][self::REFERENCE][$entry->field] ?? null;
+
+            foreach ($locales as $locale) {
+                $storedText = $pages[$page][$locale][$entry->field] ?? null;
+                $configuredText = $entry->value($locale);
+
+                if (TranslatableField::isPresent($storedText)) {
+                    $this->tally('already_present');
+                } elseif ($configuredText === null) {
+                    $this->tally('skipped_unknown');
+                } elseif (! TranslatableField::isPresent($storedReference)) {
+                    // Untouched: the configured translation is already what is shown.
+                    $this->tally('already_present');
+                } elseif ($storedReference !== $configuredReference) {
+                    $this->tally('skipped_customized');
+                } else {
+                    $pages[$page][$locale][$entry->field] = $configuredText;
+                    $this->tally('filled');
+                    $changed = true;
+                }
+            }
+        }
+
+        return $changed ? $pages : null;
+    }
+
+    /**
+     * One repository value against the one row that holds it.
+     *
+     * @template TModel of Model
+     *
+     * @param  list<string>  $locales
+     * @param  \Closure(): Builder<TModel>  $query
+     */
+    private function model(RepositoryTranslation $entry, array $locales, \Closure $query): void
+    {
+        if ($entry->reference() === null) {
+            return;
+        }
+
+        DB::transaction(function () use ($entry, $locales, $query): void {
+            $model = $query()->lockForUpdate()->first();
+
+            if ($model === null) {
+                // Never created here: content the project does not have stays absent.
+                $this->tally('skipped_unknown', count($locales));
+
+                return;
+            }
+
+            $column = "{$entry->field}_translations";
+            $filled = $this->fill($entry, $model->getAttribute($entry->field), $model->getAttribute($column), $locales);
+
+            if ($filled !== null) {
+                $model->forceFill([$column => $filled])->save();
+            }
+        });
+    }
+
+    /**
+     * The rules for one field: the translations to store, or null when
+     * nothing changes.
+     *
+     * @param  list<string>  $locales
+     * @return array<string, mixed>|null
+     */
+    private function fill(RepositoryTranslation $entry, mixed $base, mixed $translations, array $locales): ?array
+    {
+        $reference = $entry->reference();
+
+        if ($reference === null) {
+            return null;
+        }
+
+        if ($translations !== null && ! is_array($translations)) {
+            // Not a list of translations at all: nothing here can be added safely.
+            $this->tally('skipped_unknown', count($locales));
+
+            return null;
+        }
+
+        $translations ??= [];
+        $changed = false;
+
+        foreach ($locales as $locale) {
+            if (TranslatableField::isPresent($translations[$locale] ?? null)) {
+                $this->tally('already_present');
+            } elseif ($entry->value($locale) === null) {
+                $this->tally('skipped_unknown');
+            } elseif ($base !== $reference) {
+                $this->tally('skipped_customized');
+            } else {
+                $translations[$locale] = $entry->value($locale);
+                $this->tally('filled');
+                $changed = true;
+            }
+        }
+
+        return $changed ? $translations : null;
+    }
+
+    private function tally(string $outcome, int $by = 1): void
+    {
+        $this->counts[$outcome] += $by;
+    }
+}
