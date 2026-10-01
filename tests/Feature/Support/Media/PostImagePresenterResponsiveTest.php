@@ -13,25 +13,6 @@ beforeEach(function () {
     Storage::fake('public');
 });
 
-/**
- * @param  array<string, array{0: int, 1: int}>  $variantDimensionsByName  keyed by MediaVariantName::value
- */
-function postWithVariants(array $variantDimensionsByName): Post
-{
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
-
-    foreach ($variantDimensionsByName as $name => $dimensions) {
-        MediaVariant::factory()->named(MediaVariantName::from($name))->create([
-            'media_asset_id' => $asset->id,
-            'width' => $dimensions[0],
-            'height' => $dimensions[1],
-        ]);
-    }
-
-    return Post::factory()->published()->create(['image_asset_id' => $asset->id])
-        ->load('imageAsset.variants');
-}
-
 it('returns null when the post has no image asset', function () {
     $post = Post::factory()->published()->create(['image_asset_id' => null])->load('imageAsset.variants');
 

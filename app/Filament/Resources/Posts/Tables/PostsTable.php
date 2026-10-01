@@ -9,6 +9,7 @@ use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
+use App\Support\Media\PostImagePresenter;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Textarea;
@@ -36,13 +37,20 @@ class PostsTable
                 ->where(fn (Builder $q) => $q
                     ->whereNull('deleted_at')
                     ->orWhere('status', PostStatus::Deleted))
-                ->with(['user', 'imageAsset']))
+                ->with(['user', 'imageAsset.variants']))
             ->columns([
+                // The thumbnail is the smallest generated variant, not the
+                // original upload; clicking it opens the original.
                 ImageColumn::make('public_image_url')
                     ->label('Image')
-                    ->getStateUsing(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
+                    ->getStateUsing(function (Post $record): ?string {
+                        $thumbnail = app(PostImagePresenter::class)->thumbnailUrl($record);
+
+                        return $thumbnail !== null ? url($thumbnail) : null;
+                    })
                     ->square()
                     ->defaultImageUrl(null)
+                    ->extraImgAttributes(['loading' => 'lazy'])
                     ->url(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
                     ->openUrlInNewTab(),
                 TextColumn::make('title')

@@ -67,6 +67,40 @@ final class PostImagePresenter
         return $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
     }
 
+    /**
+     * A small image for a place that shows the post at thumbnail size — the
+     * admin posts table: the smallest generated variant, otherwise the master.
+     * A list of posts must not make the browser fetch every original upload
+     * (up to 16 megapixels each) to draw a few dozen pixels.
+     *
+     * Like responsive(), it never lazy-loads `variants` and never resolves a
+     * variant for an asset that has no public URL: a caller that did not
+     * eager-load imageAsset.variants gets the master.
+     */
+    public function thumbnailUrl(Post $post): ?string
+    {
+        $asset = $post->imageAsset;
+
+        if ($asset === null) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
+            return $masterUrl;
+        }
+
+        $smallest = $this->firstExisting(
+            $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
+            [MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920],
+        );
+
+        return $smallest === null
+            ? $masterUrl
+            : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
+    }
+
     public function responsive(Post $post, PostImageContext $context): ?ResponsiveImage
     {
         $asset = $post->imageAsset;
