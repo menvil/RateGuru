@@ -319,7 +319,8 @@ ends before the production environment's approval is even requested and long
 before any SSH connection is made. That is *in addition to* the environment's
 own protection rules, not instead of them.
 
-`tits-guru` remains `lifecycle=planned` and unprovisioned. The workflow exists
+`tits-guru` remains `lifecycle=planned`; its infrastructure exists, but a
+planned target may not be operated. The workflow exists
 for architectural parity and fails closed on a real run — the wrapper and
 `restore-target` both reject a planned target before touching anything. Nothing
 in Phase 7.4 activates production.

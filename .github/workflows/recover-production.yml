@@ -5,8 +5,9 @@ name: Recover tits.guru host
 # recover-host — a different fixed identity, a different concurrency domain,
 # and one extra gate.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
-# and unprovisioned. The validation job below reads that lifecycle out of the
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
+# Its infrastructure exists, but a planned target may not be operated.
+# The validation job below reads that lifecycle out of the
 # committed target registry, in a job that holds no GitHub Environment, so a
 # real run of this workflow fails closed before production approval is
 # requested, before a production secret is loaded and before any connection is

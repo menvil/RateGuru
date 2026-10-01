@@ -119,9 +119,17 @@ it('is never taken by an installer a locking orchestrator invokes', function (st
 ]);
 
 it('leaves per-target operations keyed by their own target', function (string $script) {
-    // Deploy and rollback mutate one target's tree and nothing shared, so they
-    // must NOT serialize against another target's deployment. Widening them to
-    // the machine would turn every unrelated deploy into a queue.
+    // Deploy and rollback must NOT serialize against another target's
+    // deployment: widening them to an exclusive machine lock would turn every
+    // unrelated deploy into a queue.
+    //
+    // This is therefore a deliberate limit, not a closed race. A host-global
+    // mutator and a target-only one can still overlap — "Prepare tits-guru"
+    // against "Deploy staging-main" — and closing that needs a shared/exclusive
+    // model where these take the machine SHARED and the host-global operations
+    // take it exclusively. That change audits every target mutation and lands
+    // separately, before tits-guru is activated. What is asserted here is only
+    // that this work did not widen them in the meantime.
     $source = hostLockSource($script);
 
     expect($source)

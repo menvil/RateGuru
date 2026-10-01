@@ -133,14 +133,17 @@ its infrastructure genuinely exists.
 
 ### Why a planned target cannot be deployed
 
-`tits-guru` is a complete, valid declaration of a target that **does not exist
-yet**. Its directories, users, database, socket, queue worker, cron entry, Nginx
-site and TLS certificate have not been created.
+`tits-guru` is **structurally provisioned**: its directories, Linux identities,
+PHP-FPM pool, Supervisor program, scheduler entry and internal Nginx site now
+exist on the host. It is still `lifecycle=planned`, and that is not a
+contradiction — lifecycle is permission to OPERATE a target, not a description
+of how much of it exists.
 
-The declaration is intentionally written before provisioning so the plan is
-reviewable and collision-checked in advance. But a description is not an
-instance, and treating one as deployable would run a deploy against a root that
-does not exist, as a user that does not exist.
+What it still does not have is deliberate and separately owned: no deploy sudo
+authorization, no application release, no public hostname, no TLS certificate,
+no DNS record, and no mail transport. The declaration was written before
+provisioning so the plan could be reviewed and collision-checked in advance, and
+being provisioned is not what makes a target deployable — being activated is.
 
 Two independent things prevent that:
 
@@ -347,9 +350,12 @@ registry change.
 
 ### tits-guru is still not deployable
 
-`tits-guru` has no directories, users, database, socket, queue worker, cron
-entry, or Nginx site; rejecting it at `lifecycle=planned` is exactly what keeps
-a *declared* target from being mistaken for a *deployable* one.
+`tits-guru` now has its directories, users, socket, queue worker, cron entry and
+internal Nginx site, and it is still rejected at `lifecycle=planned`. That is
+the point: rejecting it on lifecycle rather than on whether its parts happen to
+exist is exactly what keeps a *provisioned* target from being mistaken for a
+*deployable* one. Nothing about provisioning, or about configuring, moves that
+gate — only a reviewed registry change does.
 
 ## Read-only operations: health-check and status
 
@@ -774,9 +780,11 @@ generic wrapper:
   string-built command.
 
 `infrastructure/config/sudoers/rateguru-deploy` grants
-`deploy-rateguru-staging` `NOPASSWD` access to the three generic wrappers, and
-nothing else — no rule exists for `tits-guru`'s own (unprovisioned) deploy
-user, since `tits-guru` stays `lifecycle=planned`.
+`deploy-rateguru-staging` `NOPASSWD` access to the four generic wrappers, and
+nothing else. No rule exists for `tits-guru`'s own deploy user: that account
+exists now, and what withholds its grant is `lifecycle=planned`, not the
+account being absent. The file is rendered from the registry, so a target's
+perimeter appears when it is activated and never before.
 
 `.github/actions/deploy-rateguru/action.yml` has a required
 `deployment-target` input, validated locally

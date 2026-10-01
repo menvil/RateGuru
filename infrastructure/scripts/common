@@ -1107,6 +1107,16 @@ require_provisionable_target() {
 # prepare-host cannot source this file (it runs before the operational bundle
 # is installed), so it opens the same path itself. The shared thing is the
 # FILE NAME, not the function.
+#
+# WHAT THIS DOES NOT CLOSE, stated here so nobody reads it as more than it is.
+# It serializes host-global mutators against EACH OTHER. It does not serialize a
+# host-global mutator against a target-only one: "Prepare tits-guru" and "Deploy
+# staging-main" still run concurrently, because deploy, rollback and the
+# restore-style operations take only their own target's lock and never this one.
+# Closing that needs a shared/exclusive model — target-only mutators taking this
+# lock shared, host-global mutators taking it exclusively — which is a separate
+# change with its own audit of every target mutation, and must land before
+# tits-guru is activated.
 HOST_INFRASTRUCTURE_LOCK_NAME="host-infrastructure.lock"
 
 HOST_INFRASTRUCTURE_LOCK_FD=""

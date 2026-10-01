@@ -5,8 +5,9 @@ name: Prepare tits.guru host
 # picks the workflow that names their environment rather than selecting a target
 # from a dropdown.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
-# and unprovisioned. infrastructure/scripts/prepare-host refuses any target that
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
+# Its infrastructure exists, but a planned target may not be operated.
+# infrastructure/scripts/prepare-host refuses any target that
 # is not lifecycle=active, and it refuses BEFORE any target-specific mutation —
 # so a real run of this workflow fails closed on the server today. It exists now
 # to prove that production will be prepared by exactly the same mechanism once

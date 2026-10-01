@@ -11,7 +11,9 @@ name: Restore tits.guru
 # staging" and "Restore tits.guru" are two buttons whose names say what they
 # do, sharing one implementation underneath.
 #
-# tits-guru is still lifecycle=planned and unprovisioned. That gate lives in
+# tits-guru is still lifecycle=planned. Its infrastructure now exists, but
+# lifecycle is permission to OPERATE a target rather than a description of how
+# much of it exists. That gate lives in
 # the target registry and is enforced server-side by the wrapper and by
 # restore-target itself, so this workflow fails closed on a real run until
 # production is provisioned and activated in a later phase. Nothing here

@@ -438,7 +438,8 @@ protection regardless.
 
 ## Repair tits.guru
 
-`tits-guru` is `lifecycle=planned` and unprovisioned. The action refuses a
+`tits-guru` is `lifecycle=planned`; its infrastructure exists, but a planned
+target may not be operated. The action refuses a
 non-active target before it uploads anything, and `repair-target` refuses it
 again server-side, so a real run of `repair-production.yml` fails closed today.
 

@@ -153,8 +153,10 @@ deploy-rateguru-staging ALL=(root) NOPASSWD: \
 ```
 
 This is the only grant in the file: the staging deploy user's access to the
-four generic wrappers, and nothing else. No rule for `tits-guru`'s
-(unprovisioned) deploy user, and no rule for any per-environment identity —
+four generic wrappers, and nothing else. No rule for `tits-guru`'s deploy user
+— that account now exists, and the absence of a grant for it follows from its
+target being `lifecycle=planned`, not from the account being missing — and no
+rule for any per-environment identity;
 those grants existed only temporarily, alongside the six obsolete wrapper
 files, and were removed together with them.
 
