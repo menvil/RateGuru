@@ -48,9 +48,13 @@ function restoreWorkflowStepsByName(array $workflow, string $job): array
         ->all();
 }
 
+// file, display name, target, environment CLASS, concurrency group, GitHub
+// Environment. The last two are separate on purpose: the class is what the
+// application is told it is, the GitHub Environment is the per-target box of
+// credentials, and for tits-guru they are deliberately not the same word.
 dataset('restore workflows', [
-    'staging' => ['restore-staging.yml', 'Restore staging', 'staging-main', 'staging', 'rateguru-staging-deployment'],
-    'production' => ['restore-production.yml', 'Restore production', 'tits-guru', 'production', 'rateguru-production-release'],
+    'staging' => ['restore-staging.yml', 'Restore staging', 'staging-main', 'staging', 'rateguru-staging-deployment', 'staging'],
+    'production' => ['restore-production.yml', 'Restore tits.guru', 'tits-guru', 'production', 'rateguru-production-release', 'production-tits-guru'],
 ]);
 
 it('is manual-only, fixes its own target, and offers no target selector', function (
@@ -201,11 +205,13 @@ it('runs the restore through the shared action and decides the rest from its res
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = restoreWorkflow($file);
     $steps = restoreWorkflowStepsByName($workflow, 'restore');
 
-    expect(data_get($workflow, 'jobs.restore.environment'))->toBe($environment);
+    expect(data_get($workflow, 'jobs.restore.environment'))->toBe($githubEnvironment);
 
     $apply = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'apply');
     $inspect = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'inspect');
@@ -293,12 +299,14 @@ it('deploys the alignment as a controlled deploy that never migrates and never r
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow] = restoreWorkflow($file);
     $align = data_get($workflow, 'jobs.align');
     $steps = restoreWorkflowStepsByName($workflow, 'align');
 
-    expect(data_get($align, 'environment'))->toBe($environment)
+    expect(data_get($align, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($align, 'if'))->toBe("\${{ needs.restore.outputs.build_required == 'yes' }}");
 
     // Deployment tooling always comes from develop, never from the historical
@@ -325,12 +333,14 @@ it('makes restore-target --resume the only thing that ends a hold', function (
     string $name,
     string $target,
     string $environment,
+    string $concurrency,
+    string $githubEnvironment,
 ) {
     [$workflow, $source] = restoreWorkflow($file);
     $resume = data_get($workflow, 'jobs.resume');
     $steps = restoreWorkflowStepsByName($workflow, 'resume');
 
-    expect(data_get($resume, 'environment'))->toBe($environment)
+    expect(data_get($resume, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($resume, 'needs'))->toBe(['validate', 'restore', 'build', 'align']);
 
     // Runs after a successful alignment AND on the continue-held path where

@@ -759,6 +759,10 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_TARGET_REGISTRY_FILE' => $repo.'/infrastructure/config/deployment-targets.json',
         'RATEGURU_TARGETS_CLI' => $repo.'/infrastructure/scripts/targets',
         'RATEGURU_PROVISION_EUID' => $options['euid'] ?? '0',
+        // The machine's lock. Targets share a host, so an apply claims it for
+        // the whole run; the fixture points it at the simulated host's own
+        // run root rather than the real one.
+        'RATEGURU_HOST_LOCK_ROOT' => $options['lockRoot'] ?? $fs.'/home/www/rateguru/run',
         'RATEGURU_PROVISION_FS_ROOT' => $fs,
         'RATEGURU_PROVISION_RUNTIME_BIN' => $scratch.'/bin/runtime-installer',
         'RATEGURU_PROVISION_HOSTLAYOUT_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-host-layout',
@@ -1344,8 +1348,10 @@ it('refuses a host that is not already a RateGuru host, and says whose job that 
         ['clearToggles' => ['runtime-installer-compliant']],
         'this is a host prerequisite, not this target',
     ],
+    // Deliberately not the run root: that one is the machine's lock directory,
+    // and its absence is refused earlier and by name (see the lock test below).
     'a missing host root' => [
-        ['fixture' => ['omitHostRoots' => ['/home/www/rateguru/run']]],
+        ['fixture' => ['omitHostRoots' => ['/home/www/rateguru/config']]],
         'host-level prerequisites are not satisfied',
     ],
 ]);
@@ -1830,6 +1836,30 @@ it('says a bundle missing the lifecycle gate is a broken bundle, never a missing
 
         expect(provisionLog($scratch, 'identity.log'))->toBe('');
         expect(provisionLog($scratch, 'chown.log'))->toBe('');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('claims the machine before anything, and refuses a host that has no lock directory', function () {
+    // Targets share a host. Provisioning converges service configuration and
+    // reloads services staging also uses, so it holds the machine for the whole
+    // run — and a host whose run root does not exist has never been
+    // bootstrapped, which is a refusal rather than something to create.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch, ['omitHostRoots' => ['/home/www/rateguru/run']]);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('the operational lock directory does not exist')
+            ->toContain('never creates it');
+
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionLog($scratch, 'install.log'))->toBe('');
     } finally {
         provisionCleanup($scratch);
     }

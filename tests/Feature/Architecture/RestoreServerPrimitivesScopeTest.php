@@ -549,6 +549,8 @@ it('confines every restore concern in the shared library to its own sections', f
     $formatEnd = mb_strpos($common, '# --- backup format contract (end) ---');
     $gatesStart = mb_strpos($common, '# --- registry lifecycle gates (begin) ---');
     $gatesEnd = mb_strpos($common, '# --- registry lifecycle gates (end) ---');
+    $lockStart = mb_strpos($common, '# --- host infrastructure lock (begin) ---');
+    $lockEnd = mb_strpos($common, '# --- host infrastructure lock (end) ---');
     $guardStart = mb_strpos($common, '# --- restore guard');
     $alignmentStart = mb_strpos($common, '# --- restore alignment authorization');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
@@ -558,8 +560,11 @@ it('confines every restore concern in the shared library to its own sections', f
     expect($gatesStart)->not->toBeFalse('the registry lifecycle gates section is missing from common');
     expect($gatesEnd)->toBeGreaterThan($gatesStart);
     expect($gatesStart)->toBeGreaterThan($formatEnd);
+    expect($lockStart)->not->toBeFalse('the host infrastructure lock section is missing from common');
+    expect($lockEnd)->toBeGreaterThan($lockStart);
+    expect($lockStart)->toBeGreaterThan($gatesEnd);
     expect($guardStart)->not->toBeFalse('the restore guard section is missing from common');
-    expect($guardStart)->toBeGreaterThan($gatesEnd);
+    expect($guardStart)->toBeGreaterThan($lockEnd);
     expect($alignmentStart)->toBeGreaterThan($guardStart);
     expect($end)->toBeGreaterThan($alignmentStart);
 
@@ -578,6 +583,13 @@ it('confines every restore concern in the shared library to its own sections', f
     // that mutates is still refused.
     $gatesSection = mb_substr($common, $gatesStart, $gatesEnd - $gatesStart);
 
+    // The fifth, and the reason it is separate from the gates: a lock is the
+    // one thing in this file that MUST touch the filesystem, so it could not
+    // live in a section pinned to "read the registry, decide, return or fail".
+    // What pins this one instead is below: it opens and flocks one path and
+    // does nothing else — no chmod, no install, no child, no registry.
+    $lockSection = mb_substr($common, $lockStart, $lockEnd - $lockStart);
+
     // Every line of CODE this branch added to common belongs to one of them.
     // Comments are excluded deliberately: `common` carries prose all over it,
     // and rewording a comment somewhere else in the file is not a restore
@@ -587,7 +599,16 @@ it('confines every restore concern in the shared library to its own sections', f
             str_contains($formatSection, $line)
             || str_contains($restoreSections, $line)
             || str_contains($gatesSection, $line)
+            || str_contains($lockSection, $line)
         )->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
+    }
+
+    // A lock opens a descriptor and flocks it. Anything else in that section
+    // would be an operation hiding behind a name that promises only mutual
+    // exclusion.
+    foreach (['install ', 'chmod', 'chown', 'rm ', 'mkdir', 'jq ', 'curl', 'psql', 'systemctl'] as $forbidden) {
+        expect(executableSourceLines($lockSection))
+            ->not->toContain($forbidden, "the host infrastructure lock section must only lock: {$forbidden}");
     }
 
     // A lifecycle gate reads and decides. It never writes the registry, never

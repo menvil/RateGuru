@@ -1,0 +1,542 @@
+name: Configure RateGuru target
+description: >-
+  Install the database of one already-provisioned, still-PLANNED production
+  target, and prove its environment file and deploy key are in place — without
+  activating the target, granting it deploy authorization, or deploying
+  anything.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/configure-target owns every decision: which lifecycle
+# may be configured, what counts as already provisioned, which installer owns
+# which contract, and what stays deferred. None of that is reimplemented here.
+#
+# WHAT IT CARRIES, AND WHAT IT REFUSES TO. Exactly one piece of material
+# reaches the host: the target's deploy PUBLIC key, as deploy-authorized-keys.
+# Provisioning deliberately left that file absent — a provisioned target has an
+# identity and a home but no way in — and nothing else in the pipeline installs
+# it, so a target would stay undeployable forever without this step.
+#
+# It is derived here rather than supplied: `ssh-keygen -y` reads the deployment
+# private key GitHub already holds and emits its public half. The private key
+# exists only in the runner's own temporary directory, is never uploaded, and is
+# deleted the moment the public half has been written. Deriving it is what keeps
+# the deploy identity single-sourced — a separately pasted public key is a
+# second source of truth that silently stops matching.
+#
+# The environment file is the opposite, and is NEVER carried. A target's
+# shared/.env is CANONICAL on the host: an operator creates it there once,
+# backups carry it as environment.env, and a recovery restores it from the
+# selected backup. GitHub is not a copy of it and is never asked to resend it.
+# The server-side operation REQUIRES it to be there already and refuses to run
+# without it, rather than accepting one from here.
+#
+# CREDENTIAL SEPARATION. This uses the privileged BOOTSTRAP credential, the
+# same one provisioning and host preparation use, and deliberately NOT the
+# deploy credential: creating a PostgreSQL role and database needs root, and
+# the deploy key reaches only the narrow sudo wrappers. There is no fallback
+# between them.
+#
+# CALLER REQUIREMENT: a Bash 4.4+ runner. Remote argv is quoted with
+# ${array[@]@Q}, exactly as the other operational actions in this repository
+# quote theirs, so a caller runs this on `runs-on: ubuntu-24.04`.
+
+inputs:
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. Must be
+      lifecycle=planned and environment_class=production; proved on the host.
+
+  environment:
+    required: true
+    description: >-
+      Environment class this run belongs to. Only `production` is accepted:
+      configuring exists for a new production brand ahead of its activation.
+
+  bootstrap-host:
+    required: true
+    description: SSH hostname or IP of the host the target lives on.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap user. Must be root, or hold passwordless
+      non-interactive sudo.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from any deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the host. Strict host key checking is
+      non-negotiable: no TOFU, no relaxed policy, no password fallback.
+
+  deploy-ssh-key:
+    required: true
+    description: >-
+      The target's deployment SSH PRIVATE key, used on the runner and nowhere
+      else: `ssh-keygen -y` derives its public half, and only that public half
+      is ever staged or uploaded. The private key never reaches the host, is
+      never written anywhere but the runner's own temporary directory, and is
+      deleted as soon as the public half exists. It is required because a
+      provisioned target has no authorized_keys yet, and deriving the public key
+      from the credential GitHub already holds is what avoids inventing a second
+      source of truth for the deploy identity.
+
+outputs:
+  configured:
+    description: "true when configure-target --verify confirmed the target is configured"
+    value: ${{ steps.verify.outputs.configured }}
+
+  lifecycle:
+    description: "The target's lifecycle afterwards — always `planned`, because configuring never activates a target"
+    value: ${{ steps.verify.outputs.lifecycle }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        if [[ "${ENVIRONMENT}" != "production" ]]; then
+          echo "Configuring is only ever run for a production target (got: ${ENVIRONMENT})." >&2
+          exit 1
+        fi
+
+        # 10# forces decimal: a leading-zero port read as octal would abort
+        # (( )) and be mistaken for a passing condition by the || chain.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for the ${ENVIRONMENT} environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "This environment has no bootstrap SSH credential." >&2
+          echo "Configuring creates a database and installs into root-owned trees; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
+          exit 1
+        fi
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_configure_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_configure_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Verify privileged access on the host
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "Configuring creates a database and reads root-owned material; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # The deploy identity, derived rather than supplied. The private key is
+    # written 0600 into the runner's own temporary directory, read exactly once
+    # by ssh-keygen, and shredded before the step ends — so the only artefact
+    # that outlives this step, and the only one that can reach the host, is the
+    # public half.
+    #
+    # ssh-keygen -y also authenticates the key as a key: a malformed or
+    # passphrase-protected credential fails here, on the runner, before anything
+    # is uploaded or any remote command runs.
+    - name: Stage the deploy public key
+      shell: bash
+      env:
+        DEPLOY_SSH_KEY: ${{ inputs.deploy-ssh-key }}
+      run: |
+        set -Eeuo pipefail
+
+        material_dir="${RUNNER_TEMP}/rateguru-configure-material"
+        private_path="${RUNNER_TEMP}/rateguru_configure_deploy_key"
+
+        rm -rf "${material_dir}"
+        install -d -m 0700 "${material_dir}"
+
+        install -m 0600 /dev/null "${private_path}"
+        printf '%s\n' "${DEPLOY_SSH_KEY}" > "${private_path}"
+
+        install -m 0600 /dev/null "${material_dir}/deploy-authorized-keys"
+
+        if ! ssh-keygen -y -f "${private_path}" > "${material_dir}/deploy-authorized-keys"; then
+          rm -f "${private_path}"
+          rm -rf "${material_dir}"
+          echo "The deployment key could not be read as an SSH private key, so its public half could not be derived." >&2
+          echo "Nothing was uploaded and nothing was changed. Check DEPLOY_SSH_KEY in this environment; a passphrase-protected key is not usable here." >&2
+          exit 1
+        fi
+
+        # The private key has no further use anywhere in this action.
+        rm -f "${private_path}"
+
+        test -s "${material_dir}/deploy-authorized-keys"
+
+        # The environment file is never staged, and the server-side operation
+        # refuses a material directory that carries one. Stated here as well
+        # because this is the step that would have to be edited to break it.
+        test ! -e "${material_dir}/laravel-env"
+
+        echo "RATEGURU_MATERIAL_DIR=${material_dir}" >> "${GITHUB_ENV}"
+
+        echo "Staged deploy-authorized-keys (public key only). The private key was used on this runner and removed."
+
+    # Only infrastructure/ — configure-target and the installers it delegates
+    # to resolve every file beneath that one directory. The application is
+    # emphatically not part of the bundle: this operation never touches code.
+    - name: Package trusted configuration bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-configure-bundle.tar.gz"
+
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/configure-target"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/provision-target"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-target-prerequisites"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-target-database"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+
+        tar --create --gzip --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+
+    - name: Upload the trusted configuration bundle
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-configure-${run_tag}"
+        remote_root="/root/rateguru-configure-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q/material' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        # The public deploy key, and only ever that one file: the staging
+        # directory is built by this action and holds nothing else.
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_MATERIAL_DIR}/deploy-authorized-keys" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/deploy-authorized-keys"
+
+        # scp can only ever write as the bootstrap user, so everything lands in
+        # that user's home first and is moved into the root-only tree before
+        # anything reads it. The material directory is 0700 root:root, which is
+        # the only shape install-target-prerequisites accepts.
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s cp -a %q/material %q/material && %s chown -R root:root %q && %s chmod -R go-rwx %q/material && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+    - name: Configure the target
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/configure-target"
+          --apply
+          --target "${DEPLOYMENT_TARGET}"
+          --material-dir "${RATEGURU_REMOTE_ROOT}/material"
+        )
+
+        # The status is captured explicitly rather than allowed to abort the
+        # step: under `set -e` a failing command substitution ends the step
+        # before the captured output is ever printed, and the server-side
+        # report is the whole diagnosis when this fails.
+        set +e
+        configure_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        configure_status=$?
+        set -e
+
+        printf '%s\n' "${configure_output}"
+
+        if (( configure_status != 0 )); then
+          echo "Configuring failed on the host with exit ${configure_status}. The complete server-side report is above; no result was read from it." >&2
+          exit "${configure_status}"
+        fi
+
+    - name: Verify the configured target
+      id: verify
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/configure-target"
+          --verify
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        set +e
+        verification_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        verification_status=$?
+        set -e
+
+        printf '%s\n' "${verification_output}"
+
+        if (( verification_status != 0 )); then
+          echo "Verification failed on the host with exit ${verification_status}. The complete server-side report is above; no result was read from it." >&2
+          exit "${verification_status}"
+        fi
+
+        # Counting the matches, not taking the first: the contract is EXACTLY
+        # one result line per terminal success, and `grep -m1` would accept two
+        # without a word — the shape a broken contract would take.
+        count="$(grep -c '^RATEGURU_CONFIGURE_RESULT=' <<<"${verification_output}" || true)"
+
+        if [[ "${count}" != "1" ]]; then
+          echo "Expected exactly one RATEGURU_CONFIGURE_RESULT line, got ${count}." >&2
+          exit 1
+        fi
+
+        json="$(grep '^RATEGURU_CONFIGURE_RESULT=' <<<"${verification_output}")"
+        json="${json#RATEGURU_CONFIGURE_RESULT=}"
+
+        jq -e '
+          type == "object"
+          and .status == "target-configured"
+          and .lifecycle == "planned"
+          and .environment_class == "production"
+          and .deploy_authorization == "not-granted"
+          and .application_state == "not-deployed"
+          and .public_state == "not-activated"
+        ' <<<"${json}" >/dev/null || {
+          echo "The machine-readable result is not a configured, still-planned, unauthorized, undeployed, unactivated result: ${json}" >&2
+          exit 1
+        }
+
+        {
+          echo "configured=true"
+          echo "lifecycle=$(jq -r '.lifecycle' <<<"${json}")"
+        } >> "${GITHUB_OUTPUT}"
+
+    # Runs on failure too. Uploaded tooling must never outlive the run.
+    - name: Remove the remote configuration bundle
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}" \
+          "${RUNNER_TEMP}/rateguru_configure_deploy_key"
+
+        rm -rf "${RATEGURU_MATERIAL_DIR:-}"

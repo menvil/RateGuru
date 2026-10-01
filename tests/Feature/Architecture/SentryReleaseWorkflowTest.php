@@ -263,7 +263,10 @@ it('is called only after a successful, health-checked deployment', function () {
     $release = Yaml::parse(File::get(base_path('.github/workflows/release.yml')));
 
     // Inside the deploy jobs, after the deployment action has already run.
-    foreach (['deploy-staging' => 'staging', 'deploy-production' => 'production'] as $job => $environment) {
+    // The GitHub Environment each job runs in — a per-target box of
+    // credentials, not the environment CLASS the events are tagged with.
+    // The class is asserted separately below, and stays `production`.
+    foreach (['deploy-staging' => 'staging', 'deploy-production' => 'production-tits-guru'] as $job => $environment) {
         $steps = collect(data_get($release, "jobs.{$job}.steps"));
         $deployIndex = $steps->search(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/deploy-rateguru');
         $recordIndex = $steps->search(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/record-rateguru-deployment');

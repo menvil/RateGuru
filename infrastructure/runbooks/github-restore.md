@@ -10,7 +10,7 @@ It is delivered by:
 | | |
 |---|---|
 | `.github/workflows/restore-staging.yml` | **Restore staging**, fixed to `staging-main` |
-| `.github/workflows/restore-production.yml` | **Restore production**, fixed to `tits-guru` |
+| `.github/workflows/restore-production.yml` | **Restore tits.guru**, fixed to `tits-guru` |
 | `.github/actions/restore-rateguru` | the one GitHub-side restore transport |
 | `infrastructure/config/wrappers/rateguru-restore` | the one server-side restore perimeter |
 | `infrastructure/scripts/restore-target` | all the restore logic ([`restore-target.md`](restore-target.md)) |
@@ -60,8 +60,8 @@ server *which operation*; the server decides *which commit*.
 
 ## Prerequisites
 
-Each GitHub Environment (`staging`, `production`) needs the variables the
-deploy and rollback workflows already use, plus one:
+Each GitHub Environment (`staging`, `production-tits-guru`) needs the variables
+the deploy and rollback workflows already use, plus one:
 
 | variable | value |
 |---|---|
@@ -319,7 +319,8 @@ ends before the production environment's approval is even requested and long
 before any SSH connection is made. That is *in addition to* the environment's
 own protection rules, not instead of them.
 
-`tits-guru` remains `lifecycle=planned` and unprovisioned. The workflow exists
+`tits-guru` remains `lifecycle=planned`; its infrastructure exists, but a
+planned target may not be operated. The workflow exists
 for architectural parity and fails closed on a real run — the wrapper and
 `restore-target` both reject a planned target before touching anything. Nothing
 in Phase 7.4 activates production.

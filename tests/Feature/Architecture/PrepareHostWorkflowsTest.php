@@ -71,7 +71,7 @@ function phwPrepareStep(string $workflow): array
 it('offers both prepare workflows to an operator by environment name', function () {
     foreach ([
         'prepare-staging-host.yml' => 'Prepare staging host',
-        'prepare-production-host.yml' => 'Prepare production host',
+        'prepare-production-host.yml' => 'Prepare tits.guru host',
     ] as $file => $name) {
         expect(File::exists(base_path('.github/workflows/'.$file)))->toBeTrue();
         expect(phwWorkflow($file)['name'])->toBe($name);
@@ -104,19 +104,24 @@ it('gives the operator no input at all — no target, no environment, no ref', f
     }
 });
 
-it('fixes the target and the environment structurally in each workflow', function () {
+it('fixes the target, its GitHub Environment and its environment class in each workflow', function () {
+    // Three values, and they are no longer the same word twice. The GitHub
+    // Environment is a per-target box of credentials and reviewers; the
+    // environment CLASS is what the application is told it is. Staging happens
+    // to spell both `staging`, which is exactly why production is the case
+    // that proves they are separate.
     foreach ([
-        'prepare-staging-host.yml' => ['staging-main', 'staging'],
-        'prepare-production-host.yml' => ['tits-guru', 'production'],
-    ] as $file => [$target, $environment]) {
+        'prepare-staging-host.yml' => ['staging-main', 'staging', 'staging'],
+        'prepare-production-host.yml' => ['tits-guru', 'production-tits-guru', 'production'],
+    ] as $file => [$target, $githubEnvironment, $environmentClass]) {
         $jobs = phwWorkflow($file)['jobs'];
         $job = reset($jobs);
 
-        expect($job['environment'])->toBe($environment, "{$file} must pin the GitHub Environment");
+        expect($job['environment'])->toBe($githubEnvironment, "{$file} must pin the GitHub Environment");
 
         $step = phwPrepareStep($file);
         expect($step['with']['deployment-target'])->toBe($target);
-        expect($step['with']['environment'])->toBe($environment);
+        expect($step['with']['environment'])->toBe($environmentClass, "{$file} must pass the environment CLASS, not the GitHub Environment name");
     }
 });
 

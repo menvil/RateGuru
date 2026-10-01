@@ -15,7 +15,7 @@ It is delivered by:
 | | |
 |---|---|
 | `.github/workflows/recover-staging.yml` | **Recover staging host**, fixed to `staging-main` |
-| `.github/workflows/recover-production.yml` | **Recover production host**, fixed to `tits-guru` |
+| `.github/workflows/recover-production.yml` | **Recover tits.guru host**, fixed to `tits-guru` |
 | `.github/actions/prepare-rateguru-host` | the one host-preparation transport ([`prepare-host.md`](prepare-host.md)) |
 | `.github/actions/recover-rateguru-host` | the one recovery transport |
 | `.github/actions/build-rateguru` | the one build implementation |
@@ -214,7 +214,7 @@ cover and these workflows cannot perform.
 
 A replacement machine is not the machine the environment already describes, so
 it gets its own privileged credential. Configure these in each GitHub
-Environment (`staging`, `production`) **before** the first recovery:
+Environment (`staging`, `production-tits-guru`) **before** the first recovery:
 
 | variable | meaning |
 |---|---|
@@ -659,9 +659,9 @@ over.
 
 ## 11. Production
 
-`Recover production host` exists now and is fixed to `tits-guru`, in the
-`production` environment, in the `rateguru-production-release` concurrency
-domain. It requires the exact confirmation `RECOVER tits-guru`.
+`Recover tits.guru host` exists now and is fixed to `tits-guru`, in the
+`production-tits-guru` GitHub Environment, in the `rateguru-production-release`
+concurrency domain. It requires the exact confirmation `RECOVER tits-guru`.
 
 **It fails closed today, and that is the point.** `tits-guru` is
 `lifecycle=planned`. The validation job reads that lifecycle out of the

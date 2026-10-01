@@ -1249,7 +1249,11 @@ it('leaves every other operational script and workflow byte-identical to develop
         // deliberately absent here — this is the final the target-aware migration cutover
         // slice, and all of them change. Only the genuinely static host
         // configs are asserted unchanged.
-        'infrastructure/config/ssh/70-rateguru-deploy.conf',
+        // The SSH restriction has since left this list: it named its deploy
+        // users literally, which meant every new target arrived outside the
+        // hardening block. What it must still be is asserted directly below
+        // rather than frozen, because "unchanged" stopped being the property
+        // worth proving about it.
         'infrastructure/config/nginx/rateguru-staging',
         'infrastructure/config/nginx/rateguru-production',
         'infrastructure/config/php-fpm/rateguru-staging.conf',
@@ -1279,5 +1283,47 @@ it('leaves every other operational script and workflow byte-identical to develop
             $developContent,
             "{$path} must be byte-identical to origin/develop in this slice",
         );
+    }
+});
+
+it('restricts every managed deploy identity by pattern, and grants none of them anything', function () {
+    // The policy used to name `deploy-rateguru-staging,deploy-rateguru-production`:
+    // one account that exists and one that never did, and no way for a new
+    // target's deploy user to be covered without editing this file for it. A
+    // pattern covers them the moment the registry declares them.
+    //
+    // Covering a planned target's user is safe precisely because this file only
+    // ever takes capability away. It grants no sudo, no command and no
+    // deployment permission — those live in the sudoers perimeter, which is
+    // active-only and asserted separately.
+    $policy = File::get(base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'));
+
+    expect($policy)->toContain("Match User deploy-rateguru-*\n");
+
+    // No literal account name survives: one would be a target the pattern was
+    // not trusted to cover, and a second policy is how the first drifts.
+    expect($policy)
+        ->not->toContain('deploy-rateguru-staging')
+        ->not->toContain('deploy-rateguru-production')
+        ->not->toContain('deploy-rateguru-tits-guru');
+
+    // Every restriction is still there, and every one of them is a denial.
+    foreach ([
+        'PasswordAuthentication no',
+        'KbdInteractiveAuthentication no',
+        'PubkeyAuthentication yes',
+        'AllowAgentForwarding no',
+        'AllowTcpForwarding no',
+        'X11Forwarding no',
+        'PermitTunnel no',
+        'PermitTTY no',
+    ] as $directive) {
+        expect($policy)->toContain($directive);
+    }
+
+    // Nothing that would grant, widen or redirect: this is a Match block that
+    // narrows, and it must stay one.
+    foreach (['AllowUsers', 'PermitRootLogin', 'ForceCommand', 'AuthorizedKeysCommand', 'PermitOpen'] as $forbidden) {
+        expect($policy)->not->toContain($forbidden, "the deploy SSH policy restricts; it must never grant: {$forbidden}");
     }
 });

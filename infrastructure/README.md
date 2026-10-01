@@ -81,7 +81,7 @@ infrastructure, and moves out once a second project exists.
 - target-scoped repair: `infrastructure/scripts/repair-target`, the optional
   `--target` mode both bootstrap installers gained, the
   `.github/actions/repair-rateguru-target` transport and the `Repair staging
-  target` / `Repair production target` workflows. When the host is healthy and
+  target` / `Repair tits.guru` workflows. When the host is healthy and
   only one target's own infrastructure has drifted, it converges that target
   back onto what is committed and proves afterwards that the release, the
   rollback pointer, `shared/.env` and the shared-storage structure are
@@ -105,13 +105,14 @@ infrastructure, and moves out once a second project exists.
   a later operation, and each is named as `DEFERRED` in the report rather than
   silently absent — see
   [`runbooks/provision-target.md`](runbooks/provision-target.md);
+  [`runbooks/configure-target.md`](runbooks/configure-target.md);
 - host recovery: `infrastructure/scripts/recover-host` rebuilds one lost target
   onto a prepared, empty replacement machine from one exact offsite backup, and
   leaves the machine deliberately not serving until the exact commit that
   backup names has been deployed — see
   [`runbooks/recover-host.md`](runbooks/recover-host.md);
 - operator-facing recovery from GitHub: the `Recover staging host` and
-  `Recover production host` workflows. The operator names the REPLACEMENT
+  `Recover tits.guru host` workflows. The operator names the REPLACEMENT
   machine and one exact offsite backup — a schema 3 backup, the format that
   carries the target's recovery material — and nothing else: no `PREPARE_*`
   secret is read and no file is copied by hand. The workflow derives the

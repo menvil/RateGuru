@@ -133,14 +133,17 @@ its infrastructure genuinely exists.
 
 ### Why a planned target cannot be deployed
 
-`tits-guru` is a complete, valid declaration of a target that **does not exist
-yet**. Its directories, users, database, socket, queue worker, cron entry, Nginx
-site and TLS certificate have not been created.
+`tits-guru` is **structurally provisioned**: its directories, Linux identities,
+PHP-FPM pool, Supervisor program, scheduler entry and internal Nginx site now
+exist on the host. It is still `lifecycle=planned`, and that is not a
+contradiction — lifecycle is permission to OPERATE a target, not a description
+of how much of it exists.
 
-The declaration is intentionally written before provisioning so the plan is
-reviewable and collision-checked in advance. But a description is not an
-instance, and treating one as deployable would run a deploy against a root that
-does not exist, as a user that does not exist.
+What it still does not have is deliberate and separately owned: no deploy sudo
+authorization, no application release, no public hostname, no TLS certificate,
+no DNS record, and no mail transport. The declaration was written before
+provisioning so the plan could be reviewed and collision-checked in advance, and
+being provisioned is not what makes a target deployable — being activated is.
 
 Two independent things prevent that:
 
@@ -347,9 +350,12 @@ registry change.
 
 ### tits-guru is still not deployable
 
-`tits-guru` has no directories, users, database, socket, queue worker, cron
-entry, or Nginx site; rejecting it at `lifecycle=planned` is exactly what keeps
-a *declared* target from being mistaken for a *deployable* one.
+`tits-guru` now has its directories, users, socket, queue worker, cron entry and
+internal Nginx site, and it is still rejected at `lifecycle=planned`. That is
+the point: rejecting it on lifecycle rather than on whether its parts happen to
+exist is exactly what keeps a *provisioned* target from being mistaken for a
+*deployable* one. Nothing about provisioning, or about configuring, moves that
+gate — only a reviewed registry change does.
 
 ## Read-only operations: health-check and status
 
@@ -530,7 +536,7 @@ select a target:
 | Workflow | Deployment target | GitHub Environment | Concurrency group |
 |---|---|---|---|
 | **Rollback staging** (`.github/workflows/rollback-staging.yml`) | `staging-main` | `staging` | `rateguru-staging-deployment` |
-| **Rollback production** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production` | `rateguru-production-release` |
+| **Rollback tits.guru** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production-tits-guru` | `rateguru-production-release` |
 
 Both are thin — a checkout and one action call each: the target and the
 environment are hard-coded in the workflow and cannot be chosen at dispatch
@@ -539,7 +545,7 @@ composite action, which owns input validation, SSH material, the wrapper
 invocation, the active-release read-back, the Sentry deployment marker and the
 run summary. No rollback business logic exists in GitHub.
 
-1. GitHub → **Actions** → **Rollback staging** (or **Rollback production**)
+1. GitHub → **Actions** → **Rollback staging** (or **Rollback tits.guru**)
    → **Run workflow**.
 2. Leave `mode` at `previous` (the default) to switch the target back to the
    previous release. `release-id` must stay empty in this mode.
@@ -585,11 +591,13 @@ integrity. GitHub concurrency exists so one workflow does not fail merely
 because another already holds that lock. `cancel-in-progress` is `false`
 everywhere: a deployment in flight is never cancelled.
 
-**Rollback production fails closed today.** `tits-guru` is still
-`lifecycle=planned` and unprovisioned. That gate is enforced server-side by
-the wrapper, and the `production` GitHub Environment has no `DEPLOY_*`
-configuration yet — so the workflow stops with an explicit diagnostic instead
-of touching anything. Neither the workflow nor the shared action weakens the
+**Rollback tits.guru fails closed today.** `tits-guru` is still
+`lifecycle=planned`. That gate is enforced server-side by the wrapper, so the
+workflow stops with an explicit diagnostic instead of touching anything —
+whatever its GitHub Environment happens to hold. Its credentials, approvals and
+protection rules live in `production-tits-guru`, the environment named per
+target rather than per class; the environment *class* that reaches the server
+stays `production`. Neither the workflow nor the shared action weakens the
 lifecycle gate to make itself pass.
 
 ## Local backup and restore-test
@@ -798,9 +806,11 @@ generic wrapper:
   string-built command.
 
 `infrastructure/config/sudoers/rateguru-deploy` grants
-`deploy-rateguru-staging` `NOPASSWD` access to the three generic wrappers, and
-nothing else — no rule exists for `tits-guru`'s own (unprovisioned) deploy
-user, since `tits-guru` stays `lifecycle=planned`.
+`deploy-rateguru-staging` `NOPASSWD` access to the four generic wrappers, and
+nothing else. No rule exists for `tits-guru`'s own deploy user: that account
+exists now, and what withholds its grant is `lifecycle=planned`, not the
+account being absent. The file is rendered from the registry, so a target's
+perimeter appears when it is activated and never before.
 
 `.github/actions/deploy-rateguru/action.yml` has a required
 `deployment-target` input, validated locally
