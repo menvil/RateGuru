@@ -149,19 +149,35 @@ it('installs every new primitive through the existing target-operations installe
         ->toContain($words[$installedFiles].' files')
         ->toContain('all '.$words[$installedFiles].' source files are present regular files');
 
-    // The registry and deployment.conf are data, and so are the committed
-    // vhost sources and the environment templates; everything else — the two
-    // sourced libraries included — is `bash -n`'d as a shell script.
+    // The registry, deployment.conf and the deployment protocol contract are
+    // data, and so are the committed vhost sources and the environment
+    // templates; everything else — the two sourced libraries included — is
+    // `bash -n`'d as a shell script.
     //
-    // Counted by prefix rather than by a literal, so a new file of an existing
-    // kind lands on the right side of the split without this derivation being
-    // edited — which is the whole reason the count is derived at all.
+    // The families are counted by prefix, so a new vhost source or environment
+    // template lands on the right side of the split without this derivation
+    // being edited — which is the whole reason the count is derived at all. The
+    // three one-off config files are named, because that is what they are: a
+    // bare `- 3` here would be the hardcoded number this guard exists to catch.
+    $namedDataFiles = ['DST_REGISTRY', 'DST_DEPLOYMENT_CONF', 'DST_DEPLOYMENT_PROTOCOL'];
+
     $dataFiles = count(array_filter(
         $destinations[1],
-        static fn (string $name): bool => str_starts_with($name, 'DST_NGINX_SOURCE_')
+        static fn (string $name): bool => in_array($name, $namedDataFiles, true)
+            || str_starts_with($name, 'DST_NGINX_SOURCE_')
             || str_starts_with($name, 'DST_ENV_TEMPLATE_'),
     ));
-    $scripts = $installedFiles - 2 - $dataFiles;
+
+    // Every named data file must actually be one of the installer's
+    // destinations: a renamed constant would otherwise silently stop being
+    // counted and quietly inflate the script total.
+    foreach ($namedDataFiles as $name) {
+        // toContain's second argument is another expected needle, not a message.
+        expect(in_array($name, $destinations[1], true))
+            ->toBeTrue("{$name} is no longer an install destination — fix this derivation");
+    }
+
+    $scripts = $installedFiles - $dataFiles;
 
     expect($installer)
         ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
