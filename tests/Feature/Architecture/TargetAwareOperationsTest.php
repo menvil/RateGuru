@@ -248,6 +248,7 @@ function targetOpsRegistryWithDisabledTarget(string $scratchDir): string
         .targets["disabled-test"] = (.targets["tits-guru"]
             | .id = "disabled-test"
             | .lifecycle = "disabled"
+            | .environment_template = "infrastructure/templates/environment/disabled-test.env.example"
             | .application_root = "/home/www/rateguru/production/disabled-test"
             | .runtime_user = "rateguru-disabled-test"
             | .runtime_group = "rateguru-disabled-test"
