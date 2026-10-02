@@ -1,0 +1,19 @@
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_c7e782fafc9782::t_6779cd20dfb98e 251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ea8fc32ed59b0d8bb6be4cf67f1fc242d51097d",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
