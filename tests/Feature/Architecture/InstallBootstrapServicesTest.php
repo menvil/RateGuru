@@ -495,7 +495,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         bsvcOwnerTableAdd($scratch, $staging.'/shared/storage/logs', 'rateguru-staging', 'rateguru-staging');
 
         foreach ([
-            'ssh', 'nginx', 'postgresql', 'redis-server', 'supervisor',
+            'ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor',
             'php8.5-fpm', 'staging-mailpit', 'staging-mailtrap-local',
         ] as $unit) {
             touch($scratch.'/svc/'.$unit.'.enabled');
@@ -791,7 +791,7 @@ it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, ch
 
         // Base services enabled and started.
         $systemctl = bsvcLog($scratch, 'systemctl.log');
-        foreach (['nginx', 'php8.5-fpm', 'supervisor', 'postgresql', 'redis-server'] as $unit) {
+        foreach (['cron', 'nginx', 'php8.5-fpm', 'supervisor', 'postgresql', 'redis-server'] as $unit) {
             expect($systemctl)->toContain("systemctl enable {$unit}");
             expect($systemctl)->toContain("systemctl start {$unit}");
         }
@@ -2901,3 +2901,143 @@ it('reads a staging target from its committed sources and never from a render', 
         bsvcCleanup($scratch);
     }
 })->group('bsvc-provisioning');
+
+// =============================================================================
+// cron is a host-global base service, not an accident of the base image
+// =============================================================================
+//
+// RateGuru installs and verifies /etc/cron.d entries — every target's Laravel
+// scheduler and the backup cycle — and until now nothing owned the daemon that
+// executes them. On the current VPS cron is present because the base image
+// shipped it, which is not a contract: a clean host could have had every
+// scheduler file installed correctly and nothing running them.
+
+it('refuses a host whose cron service is disabled', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/cron.enabled');
+
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('service:cron');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses a host whose cron service is stopped', function () {
+    // Enabled but not running is the state that leaves an operator certain the
+    // schedule works, because `systemctl is-enabled` says yes.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/cron.active');
+
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('service:cron — enabled but not active');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('enables and starts cron through the same mechanism as every other base service', function () {
+    // Not a special path: the same ensure_base_service every other base service
+    // goes through, so there is one definition of what claiming a host service
+    // means.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'clean']);
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+
+        $systemctl = bsvcLog($scratch, 'systemctl.log');
+
+        expect($systemctl)
+            ->toContain('systemctl enable cron')
+            ->toContain('systemctl start cron');
+
+        expect(file_exists($scratch.'/svc/cron.enabled'))->toBeTrue();
+        expect(file_exists($scratch.'/svc/cron.active'))->toBeTrue();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('never enables or starts cron from a target-scoped run', function () {
+    // A host-global daemon is not one target's to start. A target-scoped run
+    // checks it as a prerequisite and refuses, exactly as it does for every other
+    // base service.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/cron.active');
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('a target-scoped run never');
+
+        // It refused rather than fixing the host behind the operator's back.
+        expect(file_exists($scratch.'/svc/cron.active'))->toBeFalse('a target-scoped run started a host-global service');
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('systemctl start cron');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('never enables cron from a target-scoped run when it is running but disabled', function () {
+    // The other half of the same boundary, and the one a single `is-active`
+    // check would miss entirely: cron is running, so the target run has a
+    // working scheduler right now and would still be enabling a host-global
+    // unit on the operator's behalf to make it survive a reboot. The target
+    // scope refuses on enablement alone.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/cron.enabled');
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('cron is not enabled');
+        expect($output)->toContain('a target-scoped run never');
+
+        expect(file_exists($scratch.'/svc/cron.enabled'))->toBeFalse('a target-scoped run enabled a host-global service');
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('systemctl enable cron');
+
+        // Still running, because refusing is not the same as stopping it.
+        expect(file_exists($scratch.'/svc/cron.active'))->toBeTrue();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('keeps every scheduler in /etc/cron.d and never in a crontab', function () {
+    // The daemon is now owned; where the schedule lives is unchanged and
+    // deliberately so. /etc/cron.d is a managed file with an owner and a mode
+    // that install/verify can prove; a root or user crontab is mutable state with
+    // neither, which no installer can converge or diff.
+    $source = File::get(base_path('infrastructure/scripts/install-bootstrap-services'));
+
+    // The destination is a constant, not an inline path.
+    expect($source)->toContain('DST_CRON_DIR="/etc/cron.d"');
+
+    foreach (['crontab -', 'crontab -l', 'crontab -u', '/var/spool/cron'] as $forbidden) {
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("the scheduler must stay in /etc/cron.d, never a crontab: {$forbidden}");
+    }
+
+    // And no systemd timer was introduced as an alternative.
+    expect($source)->not->toContain('.timer');
+});

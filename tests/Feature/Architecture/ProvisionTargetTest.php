@@ -720,7 +720,7 @@ function provisionFixture(string $scratch, array $options = []): array
 
     // Every base host service is already enabled and running: provisioning
     // runs on a prepared host and never starts one.
-    foreach (['ssh', 'nginx', 'postgresql', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
+    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
         touch($scratch.'/svc/'.$unit.'.enabled');
         touch($scratch.'/svc/'.$unit.'.active');
     }
