@@ -229,6 +229,7 @@ BASE_PACKAGES=(
     ca-certificates
     certbot
     coreutils
+    cron
     curl
     diffutils
     findutils
@@ -282,6 +283,7 @@ REQUIRED_RUNTIME_TOOLS=(
     setfacl:acl
     getfacl:acl
     certbot:certbot
+    cron:cron
     curl:curl
     cmp:diffutils
     diff:diffutils

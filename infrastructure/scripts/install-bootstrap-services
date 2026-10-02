@@ -175,7 +175,19 @@ SERVICE_LOG_MODE="2770"
 # appended after the template-derived service name is known. PostgreSQL and
 # Redis only get service enablement — never databases, roles, passwords,
 # Pg_hba.conf or Redis auth/network changes (the production launch material).
-BASE_SERVICES_STATIC=(nginx postgresql redis-server supervisor)
+# The host-global base services, enabled and active before any target exists.
+#
+# cron is one of them for a reason that was an accident until now: RateGuru
+# installs and verifies /etc/cron.d entries — every target's Laravel scheduler and
+# the backup cycle — and nothing owned the daemon that executes them. On the
+# current VPS cron happens to be present because the base image shipped it, which
+# is not a contract. A clean host could have had every scheduler file installed
+# correctly and nothing running them.
+#
+# Host scope enables and starts these through the generic mechanism below; a
+# target-scoped or --provisioning run only CHECKS them and refuses, because a
+# host-global service is not a target's to start.
+BASE_SERVICES_STATIC=(cron nginx postgresql redis-server supervisor)
 
 # The Ubuntu 22.04 SSH service unit. Reloaded (never restarted) only when
 # the installed restriction actually changed and only after sshd's own
@@ -3255,7 +3267,20 @@ perform_apply() {
         converge_supervisor "${target_id}"
     done
 
-    # 12. Scheduler cron.
+    # 12. The host scheduler daemon, then each target's scheduler entry.
+    #
+    # The daemon first, and host scope only. Installing the cron package enables
+    # and starts the unit on Debian and Ubuntu, so this is normally already
+    # satisfied and ensure_base_service reports exactly that — but a host where
+    # somebody disabled or stopped it would otherwise carry every scheduler file
+    # correctly and run none of them, which is the gap this exists to close.
+    #
+    # A target-scoped run never reaches here: it only CHECKS the base services
+    # and refuses, because a host-global daemon is not one target's to start.
+    if ! target_scoped; then
+        ensure_base_service cron
+    fi
+
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         converge_cron "${target_id}"
     done

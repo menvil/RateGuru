@@ -256,7 +256,25 @@ generalized in Phase 8.
 11. Supervisor (base service enabled/started *before* the program config —
     see PRE_DEPLOY above; then install + reread validation; update/start
     the program only on a DEPLOYED target)
-12. scheduler cron
+12. the host scheduler daemon (`cron`), then each active target's scheduler
+    entry under `/etc/cron.d`
+
+    `cron` is a host-global base service like Nginx, PostgreSQL, Redis and
+    Supervisor. RateGuru installs and verifies `/etc/cron.d` entries — every
+    target's Laravel scheduler and the backup cycle — and until this was owned,
+    the daemon that executes them was present only because the base image
+    shipped it. A clean host could have carried every scheduler file correctly
+    and run none of them.
+
+    Installing the `cron` package enables and starts the unit on Ubuntu, so this
+    step is normally already satisfied; it exists for the host where somebody
+    disabled or stopped it. A **target-scoped** or `--provisioning` run only
+    checks it and refuses — a host-global daemon is not one target's to start.
+
+    Where the schedule lives is unchanged: `/etc/cron.d` files owned by service
+    and target provisioning, never a root or user crontab and never a systemd
+    timer. A `/etc/cron.d` file has an owner and a mode an installer can install,
+    diff and verify; a crontab is mutable state with neither.
 13. `install-public-storage-access --apply --target <active>` (active
     targets only — never `tits-guru`)
 14. mail capture (`verify-mail-capture --read-only` → skip |

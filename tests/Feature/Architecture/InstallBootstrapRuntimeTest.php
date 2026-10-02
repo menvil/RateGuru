@@ -102,7 +102,7 @@ function bootstrapRuntimeWriteStub(string $path, string $content): void
 function bootstrapRuntimeRequiredPackages(): array
 {
     $base = [
-        'acl', 'bash', 'ca-certificates', 'certbot', 'coreutils', 'curl',
+        'acl', 'bash', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
         'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
         'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server',
         'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
@@ -139,7 +139,7 @@ function bootstrapRuntimeAllTools(): array
 {
     return [
         'apt-get', 'dpkg',
-        'setfacl', 'getfacl', 'certbot', 'curl', 'cmp', 'diff', 'find',
+        'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'find',
         'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'getent',
         'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
@@ -1285,7 +1285,11 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
         expect($exit)->toBe(0, "second apply must converge trivially:\n{$output}");
         expect($output)->toContain('repo:php already configured by this installer — nothing to do');
         expect($output)->toContain('repo:pgdg already configured by this installer — nothing to do');
-        expect($output)->toContain('packages: all 42 required packages already installed');
+        // Derived from the same list the fixture installs, so adding a package to
+        // the runtime contract cannot leave a stale number here to fail on.
+        $expected = count(bootstrapRuntimeRequiredPackages());
+
+        expect($output)->toContain("packages: all {$expected} required packages already installed");
         expect($output)->toContain('rclone v'.bootstrapRuntimeFixtureRcloneVersion([]).' already installed');
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');
@@ -2417,5 +2421,71 @@ it('derives its required tool inventory from the clean-host bootstrap.1 canonica
 
         expect(in_array($package, $installerPackages, true))
             ->toBeTrue("preflight requires package {$package}, but the installer does not install it");
+    }
+});
+
+// =============================================================================
+// cron is part of the runtime contract, not an accident of the base image
+// =============================================================================
+
+it('treats a host without the cron package as not satisfying the runtime contract', function () {
+    // RateGuru installs and verifies /etc/cron.d entries — every target's Laravel
+    // scheduler and the backup cycle — and nothing owned the daemon that executes
+    // them. On the current VPS cron is present because the base image shipped it,
+    // which is not a contract: a clean host could have had every scheduler file
+    // installed correctly and nothing running them.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'packages' => array_values(array_diff(bootstrapRuntimeRequiredPackages(), ['cron'])),
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('cron');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('detects a missing cron binary even when the package looks installed', function () {
+    // The package list and the tool list are independent checks on purpose: a
+    // package can be marked installed and its binary still be absent or
+    // unreachable, and the scheduler daemon is exactly the thing where that would
+    // go unnoticed until a schedule silently stopped.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'tools' => array_values(array_diff(bootstrapRuntimeAllTools(), ['cron'])),
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('tool:cron');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('installs cron through the generic package mechanism', function () {
+    // No ad-hoc handling: cron is one entry in BASE_PACKAGES and one in the tool
+    // table, so there is a single definition of what installing and proving a
+    // runtime package means.
+    $source = File::get(base_path('infrastructure/scripts/install-bootstrap-runtime'));
+
+    expect($source)
+        ->toContain("\n    cron\n")
+        ->toContain("\n    cron:cron\n");
+
+    // And nothing cron-specific outside those lists.
+    $executable = executableSourceLines($source);
+
+    foreach (['systemctl enable cron', 'systemctl start cron', 'service cron'] as $adHoc) {
+        expect(str_contains($executable, $adHoc))
+            ->toBeFalse("the runtime installer must not manage the cron service itself: {$adHoc}");
     }
 });

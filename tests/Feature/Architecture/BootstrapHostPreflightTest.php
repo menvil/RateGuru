@@ -102,7 +102,7 @@ function bootstrapPreflightAllTools(): array
         'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl', 'pgrep',
         // runtime/service (rclone is probed as a managed external runtime
         // binary, never as an Ubuntu package requirement)
-        'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',
+        'cron', 'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',
         'dropdb', 'rclone', 'php8.5',
         // optional development/validation
         'shellcheck', 'actionlint', 'wget', 'journalctl',
@@ -298,6 +298,7 @@ function bootstrapPreflightWriteServiceFixture(string $scratch, array $options):
 
     if ($services === 'all-running') {
         $services = [
+            'cron.service' => 'running',
             'nginx.service' => 'running',
             'php8.5-fpm.service' => 'running',
             'postgresql.service' => 'running',
@@ -417,10 +418,21 @@ case "\$1" in
         exit 0
         ;;
     is-active)
-        if grep -q "^\${unit}=running\$" '{$servicesPath}' 2>/dev/null; then
+        if grep -qE "^\${unit}=running(-not-enabled)?\$" '{$servicesPath}' 2>/dev/null; then
             exit 0
         fi
         exit 3
+        ;;
+    is-enabled)
+        # A unit may be running and not enabled, which is a host one reboot away
+        # from having no scheduled work at all.
+        if grep -q "^\${unit}=running-not-enabled\$" '{$servicesPath}' 2>/dev/null; then
+            exit 1
+        fi
+        if grep -q "^\${unit}=running\$" '{$servicesPath}' 2>/dev/null; then
+            exit 0
+        fi
+        exit 1
         ;;
 esac
 exit 1
@@ -965,6 +977,7 @@ it('reports installed-stopped services as WARN and never starts them', function 
     try {
         $env = bootstrapPreflightFixture($scratch, [
             'services' => [
+                'cron.service' => 'running',
                 'nginx.service' => 'stopped',
                 'php8.5-fpm.service' => 'running',
                 'postgresql.service' => 'running',
@@ -1844,5 +1857,76 @@ it('keeps the public-storage ACL assertion independent of code-group membership'
         expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
     } finally {
         bootstrapPreflightCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The host scheduler daemon
+// =============================================================================
+
+it('reports the cron service and the binary that backs it', function () {
+    // Every /etc/cron.d entry RateGuru installs — each target's Laravel scheduler
+    // and the backup cycle — is executed by this daemon and nothing else. A
+    // preflight that proved the files and not the daemon would pass a host with a
+    // complete schedule and no scheduler.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        [$exit, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('PASS     tool:cron')
+            ->toContain('PASS     service:cron.service');
+
+        // Described as what it is: the thing the schedulers depend on.
+        expect($output)->toContain('host scheduler');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('reports a cron service that is missing, stopped, or running but not enabled', function (string $state, string $expected) {
+    // The third state is the one worth having. A unit that runs and is not enabled
+    // is a host one reboot away from no scheduled work at all, and `is-enabled`
+    // saying nothing is how that goes unnoticed.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $services = [
+            'nginx.service' => 'running',
+            'php8.5-fpm.service' => 'running',
+            'postgresql.service' => 'running',
+            'redis-server.service' => 'running',
+            'supervisor.service' => 'running',
+            'staging-mailpit.service' => 'running',
+            'staging-mailtrap-local.service' => 'running',
+        ];
+
+        if ($state !== 'absent') {
+            $services['cron.service'] = $state;
+        }
+
+        [, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch, ['services' => $services]));
+
+        expect($output)->toContain($expected);
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+})->with([
+    'missing' => ['absent', 'MISSING  service:cron.service — STATE: missing'],
+    'stopped' => ['stopped', 'WARN     service:cron.service — STATE: installed-stopped'],
+    'running but not enabled' => ['running-not-enabled', 'WARN     service:cron.service — STATE: installed-not-enabled'],
+]);
+
+it('never starts or enables a service from the preflight', function () {
+    // Read-only is the preflight's whole contract: it reports and remediation
+    // belongs to the installers. Adding a service to what it checks must not
+    // change that.
+    $executable = executableSourceLines(File::get(base_path('infrastructure/scripts/bootstrap-host-preflight')));
+
+    foreach (['systemctl enable', 'systemctl start', 'systemctl restart', 'apt-get install'] as $forbidden) {
+        expect(str_contains($executable, $forbidden))
+            ->toBeFalse("the preflight must never remediate: {$forbidden}");
     }
 });
