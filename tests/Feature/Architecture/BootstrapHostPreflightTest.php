@@ -288,7 +288,9 @@ function bootstrapPreflightWriteToolStubs(string $scratch, array $options): void
 }
 
 /**
- * The systemctl state table (unit=running|stopped) the systemctl stub reads.
+ * The systemctl state table the systemctl stub reads: unit=running (enabled and
+ * active), unit=running-not-enabled (active, not enabled) or unit=stopped. A
+ * unit absent from the table does not exist on the host at all.
  *
  * @param  array<string, mixed>  $options
  */
@@ -532,7 +534,8 @@ SH);
  *   os:              'ubuntu-22.04' | 'ubuntu-24.04' | 'debian' | 'absent'
  *   systemd:         bool
  *   tools:           'all' | list<string>
- *   services:        array<string,string> unit => running|stopped ('all-running' default)
+ *   services:        array<string,string> unit => running|running-not-enabled|stopped
+ *                    (omit a unit entirely to make it absent; 'all-running' default)
  *   passwd/group:    file content overrides
  *   statTable:       list<string> rows (default compliant)
  *   tcpPorts:        list<int> occupied TCP ports
@@ -971,7 +974,11 @@ it('reports missing systemd as MISSING and degrades every service to missing', f
 // Services and network
 // =============================================================================
 
-it('reports installed-stopped services as WARN and never starts them', function () {
+it('blocks readiness on an installed-stopped service and never starts it', function () {
+    // A mandatory service that exists and is not running is not a satisfied
+    // prerequisite, so `--check` must fail — the same judgement
+    // install-bootstrap-services makes. Blocking is not remediation: the
+    // preflight still starts nothing.
     $scratch = bootstrapPreflightScratchDir();
 
     try {
@@ -991,9 +998,107 @@ it('reports installed-stopped services as WARN and never starts them', function 
         ]);
         [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
 
-        expect($output)->toContain('WARN     service:nginx.service — STATE: installed-stopped');
+        expect($output)->toContain('MISSING  service:nginx.service — STATE: installed-stopped');
         expect($output)->toContain('PASS     port:80 — free');
-        expect($exit)->toBe(0, "installed-stopped is a WARN, not a blocker:\n{$output}");
+        expect($output)->toContain('HOST READY: NO');
+        expect($exit)->toBe(1, "installed-stopped must block readiness:\n{$output}");
+
+        // Still read-only: the report says who remediates, and it is not this script.
+        [$reportExit, $report] = bootstrapPreflightRun(['--report'], $env);
+
+        expect($report)->toContain('start/enable via install-bootstrap-services (never by preflight)');
+        expect($reportExit)->toBe(0, "--report is inventory and exits 0 regardless:\n{$report}");
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('blocks readiness on any mandatory service that is active but not enabled', function (string $unit) {
+    // The rule is the contract, not a cron special case: every mandatory unit
+    // must survive a reboot, so each one is checked the same way.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $services = [
+            'cron.service' => 'running',
+            'nginx.service' => 'running',
+            'php8.5-fpm.service' => 'running',
+            'postgresql.service' => 'running',
+            'redis-server.service' => 'running',
+            'supervisor.service' => 'running',
+            'staging-mailpit.service' => 'running',
+            'staging-mailtrap-local.service' => 'running',
+        ];
+        $services[$unit] = 'running-not-enabled';
+
+        [$exit, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch, ['services' => $services]));
+
+        expect($output)->toContain("MISSING  service:{$unit} — STATE: installed-not-enabled");
+        expect($output)->toContain('HOST READY: NO');
+        expect($exit)->toBe(1, "a disabled {$unit} must block readiness:\n{$output}");
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+})->with([
+    'cron' => 'cron.service',
+    'nginx' => 'nginx.service',
+    'php-fpm' => 'php8.5-fpm.service',
+    'postgresql' => 'postgresql.service',
+    'redis' => 'redis-server.service',
+    'supervisor' => 'supervisor.service',
+]);
+
+it('agrees with install-bootstrap-services about what a satisfied service is', function () {
+    // Two host contracts judging the same unit must not diverge: if the
+    // preflight called active-but-disabled acceptable, `--check` could answer
+    // HOST READY: YES for a host install-bootstrap-services then refuses.
+    // Both sides are read from source so the agreement cannot rot silently.
+    $preflight = executableSourceLines(File::get(base_path('infrastructure/scripts/bootstrap-host-preflight')));
+    $installer = executableSourceLines(File::get(base_path('infrastructure/scripts/install-bootstrap-services')));
+
+    // The installer side: both halves are MISSING, never PASS, never WARN.
+    expect(str_contains($installer, 'item MISSING "service:${unit}" "active but not enabled'))
+        ->toBeTrue('install-bootstrap-services must treat active-but-not-enabled as MISSING');
+    expect(str_contains($installer, 'item MISSING "service:${unit}" "enabled but not active'))
+        ->toBeTrue('install-bootstrap-services must treat enabled-but-not-active as MISSING');
+
+    // The preflight side: only installed-running passes, and no unhealthy
+    // service state is downgraded to the advisory WARN bucket.
+    expect(preg_match_all('/item PASS "service:\$\{unit\}"/', $preflight))
+        ->toBe(1, 'the preflight must report exactly one passing service state');
+    expect(preg_match_all('/item WARN "service:\$\{unit\}"/', $preflight))
+        ->toBe(0, 'no service state may be advisory — WARN never blocks readiness');
+});
+
+it('passes a port occupied by a service that is running but not enabled', function () {
+    // The port question is "does the expected service own this listener", and a
+    // running-but-disabled unit does. Its enablement is reported once, by the
+    // SERVICES section — restating it as a port CONFLICT would claim the
+    // expected service is not running, which is simply false.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        [$exit, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch, [
+            'services' => [
+                'cron.service' => 'running',
+                'nginx.service' => 'running-not-enabled',
+                'php8.5-fpm.service' => 'running',
+                'postgresql.service' => 'running',
+                'redis-server.service' => 'running',
+                'supervisor.service' => 'running',
+                'staging-mailpit.service' => 'running',
+                'staging-mailtrap-local.service' => 'running',
+            ],
+            'tcpPorts' => [80, 443, 5432, 6379, 1025, 8025, 3535, 3550],
+        ]));
+
+        expect($output)->toContain('PASS     port:80 — occupied by expected service nginx.service');
+        expect($output)->toContain('PASS     port:443 — occupied by expected service nginx.service');
+        expect($output)->not->toContain('CONFLICT port:80');
+
+        // The disabled unit is still the reason the host is not ready — once.
+        expect($output)->toContain('MISSING  service:nginx.service — STATE: installed-not-enabled');
+        expect($exit)->toBe(1, "a disabled nginx still blocks readiness:\n{$output}");
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
@@ -1886,10 +1991,12 @@ it('reports the cron service and the binary that backs it', function () {
     }
 });
 
-it('reports a cron service that is missing, stopped, or running but not enabled', function (string $state, string $expected) {
+it('blocks readiness on a cron service that is missing, stopped, or running but not enabled', function (string $state, string $expected) {
     // The third state is the one worth having. A unit that runs and is not enabled
     // is a host one reboot away from no scheduled work at all, and `is-enabled`
-    // saying nothing is how that goes unnoticed.
+    // saying nothing is how that goes unnoticed. All three are MISSING: the host
+    // either has a scheduler that survives a reboot or it does not, and this
+    // matches install-bootstrap-services, which also refuses on either half.
     $scratch = bootstrapPreflightScratchDir();
 
     try {
@@ -1907,17 +2014,37 @@ it('reports a cron service that is missing, stopped, or running but not enabled'
             $services['cron.service'] = $state;
         }
 
-        [, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch, ['services' => $services]));
+        [$exit, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch, ['services' => $services]));
 
         expect($output)->toContain($expected);
+        expect($output)->toContain('HOST READY: NO');
+        expect($output)->not->toContain('WARN     service:cron.service');
+        expect($exit)->toBe(1, "cron in state {$state} must block readiness:\n{$output}");
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
 })->with([
     'missing' => ['absent', 'MISSING  service:cron.service — STATE: missing'],
-    'stopped' => ['stopped', 'WARN     service:cron.service — STATE: installed-stopped'],
-    'running but not enabled' => ['running-not-enabled', 'WARN     service:cron.service — STATE: installed-not-enabled'],
+    'stopped' => ['stopped', 'MISSING  service:cron.service — STATE: installed-stopped'],
+    'running but not enabled' => ['running-not-enabled', 'MISSING  service:cron.service — STATE: installed-not-enabled'],
 ]);
+
+it('passes a cron service that is both enabled and active', function () {
+    // The positive half of the gate: only enabled-and-active is a satisfied
+    // scheduler, and the otherwise-compliant host then stays ready.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        [$exit, $output] = bootstrapPreflightRun(['--check'], bootstrapPreflightFixture($scratch));
+
+        expect($output)->toContain('PASS     service:cron.service — STATE: installed-running');
+        expect($output)->toContain('MISSING: 0');
+        expect($output)->toContain('HOST READY: YES');
+        expect($exit)->toBe(0, "enabled and active cron must pass:\n{$output}");
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
 
 it('never starts or enables a service from the preflight', function () {
     // Read-only is the preflight's whole contract: it reports and remediation

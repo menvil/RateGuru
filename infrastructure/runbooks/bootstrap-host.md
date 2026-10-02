@@ -316,9 +316,16 @@ values are never invented.
   package ownership is deliberately never required, and remediation is the
   slice 5.2 installer's verified-download path, never apt.
 - **SERVICES** — nginx, the PHP-FPM service named by the committed
-  `deployment.conf` template, PostgreSQL, Redis, Supervisor: each reported
-  `missing` / `installed-stopped` / `installed-running`, never started or
-  reloaded. The staging mail capture (`staging-mailpit`,
+  `deployment.conf` template, cron, PostgreSQL, Redis, Supervisor: each
+  reported `missing` / `installed-stopped` / `installed-not-enabled` /
+  `installed-running`, never started, enabled or reloaded. Only
+  `installed-running` — active *and* enabled — is `PASS`; each of the other
+  three is `MISSING` and therefore blocks readiness, which is the same
+  contract `install-bootstrap-services` enforces when it reports
+  "active but not enabled" and "enabled but not active" as `MISSING`. A unit
+  that is running and not enabled is a host one reboot away from losing that
+  service, and for cron that means losing every `/etc/cron.d` schedule at
+  once. The staging mail capture (`staging-mailpit`,
   `staging-mailtrap-local`) is detected separately and labeled
   `shared-host-service` — it belongs to the shared staging environment, not
   to a RateGuru target.

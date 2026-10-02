@@ -2995,6 +2995,34 @@ it('never enables or starts cron from a target-scoped run', function () {
     }
 });
 
+it('never enables cron from a target-scoped run when it is running but disabled', function () {
+    // The other half of the same boundary, and the one a single `is-active`
+    // check would miss entirely: cron is running, so the target run has a
+    // working scheduler right now and would still be enabling a host-global
+    // unit on the operator's behalf to make it survive a reboot. The target
+    // scope refuses on enablement alone.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/cron.enabled');
+
+        [$exit, $output] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('cron is not enabled');
+        expect($output)->toContain('a target-scoped run never');
+
+        expect(file_exists($scratch.'/svc/cron.enabled'))->toBeFalse('a target-scoped run enabled a host-global service');
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('systemctl enable cron');
+
+        // Still running, because refusing is not the same as stopping it.
+        expect(file_exists($scratch.'/svc/cron.active'))->toBeTrue();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
 it('keeps every scheduler in /etc/cron.d and never in a crontab', function () {
     // The daemon is now owned; where the schedule lives is unchanged and
     // deliberately so. /etc/cron.d is a managed file with an owner and a mode
