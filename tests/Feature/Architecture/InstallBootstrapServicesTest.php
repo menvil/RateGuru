@@ -1623,6 +1623,10 @@ function bsvcMultiTargetRepo(string $scratch, array $options = []): array
     $second['supervisor'] = ['program' => 'rateguru-second-queue', 'queue' => 'rateguru-second'];
     $second['scheduler'] = ['name' => 'rateguru-second-scheduler'];
     $second['nginx'] = ['site_name' => 'rateguru-second', 'internal_hostname' => 'rateguru-second.internal'];
+    // Its own generated environment template: two targets sharing one would have
+    // the renderer write the first target's identity and then overwrite it with
+    // the second's, so the registry rejects it.
+    $second['environment_template'] = 'infrastructure/templates/environment/second.env.example';
     $registry['targets']['staging-second'] = $second;
 
     file_put_contents(

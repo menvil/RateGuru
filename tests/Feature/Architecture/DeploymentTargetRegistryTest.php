@@ -436,25 +436,6 @@ it('gives every target an environment template that agrees with the registry abo
     expect($checked)->toBeGreaterThan(1, 'the loop must actually have checked the registry, not skipped it');
 });
 
-/**
- * The keys a template declares, in FILE ORDER.
- *
- * Section comments and the blank lines between them are layout, not content,
- * so they are dropped — a template may be grouped and annotated freely. What
- * survives is the ordered list of variables, which is the thing a reviewer
- * actually has to read.
- */
-function environmentTemplateKeys(string $path): array
-{
-    return collect(preg_split('/\R/', File::get(base_path($path))))
-        ->map(fn (string $line): string => ltrim($line))
-        ->reject(fn (string $line): bool => $line === '' || str_starts_with($line, '#'))
-        ->filter(fn (string $line): bool => str_contains($line, '='))
-        ->map(fn (string $line): string => rtrim((string) strstr($line, '=', true)))
-        ->values()
-        ->all();
-}
-
 it('declares the same operational keys in the same order for every target, so one is never configured with less than another', function () {
     // Parity by key set, not by value: what each target sets is its own, but a
     // key missing from one template is a setting nobody will remember to add
@@ -1208,6 +1189,11 @@ it('rejects collision-sensitive values shared between targets', function () {
         '.scheduler.name',
         '.nginx.site_name',
         '.nginx.internal_hostname',
+        // Two targets pointing at one generated template would have the renderer
+        // write one target's identity and environment class, then overwrite it
+        // with the other's — last one wins, and the target that lost is deployed
+        // against a contract describing somebody else.
+        '.environment_template',
     ];
 
     foreach ($fields as $field) {

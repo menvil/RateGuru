@@ -441,6 +441,29 @@ function sourcedLibraryNames(): array
 }
 
 /**
+ * Scripts under infrastructure/scripts/ that are REPOSITORY tooling: run from a
+ * checkout by a developer or by CI, and deliberately never installed onto a host.
+ *
+ * The third category, and it exists because the first two could not honestly hold
+ * one. A required CLI is installed on every host; a sourced library is installed
+ * and read by those CLIs. `render-environment-templates` is neither — and its
+ * absence from a host is a SAFETY property, not an omission: it generates the
+ * committed environment templates, and a generator reachable on a host would be a
+ * way for tooling to write a target's canonical shared/.env, which is the
+ * operator's to own.
+ *
+ * So a script listed here must stay out of required-clis.txt and out of the
+ * operational bundle, and the guards that inventory infrastructure/scripts/ know
+ * to expect exactly that rather than reporting it as unclassified.
+ *
+ * @return list<string>
+ */
+function repositoryOnlyScriptNames(): array
+{
+    return ['render-environment-templates'];
+}
+
+/**
  * A correctly normalized release-tree fixture: every manifested CLI present
  * and executable, every sourced library present, readable and non-executable,
  * the manifest itself copied verbatim from the real committed one. Shared by
@@ -1218,6 +1241,25 @@ function parityRegistryFixture(string $scratch, array $options = []): array
     expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
 
     return $cache[$key] = [$registryPath, $targetsPath];
+}
+
+/**
+ * The keys a template declares, in FILE ORDER.
+ *
+ * Section comments and the blank lines between them are layout, not content,
+ * so they are dropped — a template may be grouped and annotated freely. What
+ * survives is the ordered list of variables, which is the thing a reviewer
+ * actually has to read.
+ */
+function environmentTemplateKeys(string $path): array
+{
+    return collect(preg_split('/\R/', File::get(base_path($path))))
+        ->map(fn (string $line): string => ltrim($line))
+        ->reject(fn (string $line): bool => $line === '' || str_starts_with($line, '#'))
+        ->filter(fn (string $line): bool => str_contains($line, '='))
+        ->map(fn (string $line): string => rtrim((string) strstr($line, '=', true)))
+        ->values()
+        ->all();
 }
 
 /**
