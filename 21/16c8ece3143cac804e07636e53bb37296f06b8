@@ -1,0 +1,34 @@
+infrastructure/ROADMAP.md
+  s_c7e782fafc9782::t_3d7a4437fdb384 368-369
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_c7e782fafc9782::t_c772696a718587 2998-3025
+tests/Feature/Architecture/BootstrapHostPreflightTest.php
+  s_c7e782fafc9782::t_73522da708d30d 1067,1069
+  s_c7e782fafc9782::t_776d3e090319a5 1994,1997-1999,2017,2020-2022,2028-2029,2032-2047
+  s_c7e782fafc9782::t_5598f993af3c6a 1016-1066,1068,1070-1072
+  s_c7e782fafc9782::t_7a4780575aaba3 977-981,1001,1003-1015,1073-1101
+  s_c7e782fafc9782::t_2e22b205383db9 291-293,537-538
+infrastructure/scripts/bootstrap-host-preflight
+  s_c7e782fafc9782::t_0d172248dccc56 1582-1588
+  s_c7e782fafc9782::t_46016d2c34a8a4 858-866
+  s_c7e782fafc9782::t_511a9546cd5f36 897-906,921
+  s_c7e782fafc9782::t_e480d24c7d5277 917
+infrastructure/runbooks/bootstrap-host.md
+  s_c7e782fafc9782::t_35b8cf2d6a6c77 319-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2116c8ece3143cac804e07636e53bb37296f06b8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
