@@ -2,7 +2,8 @@
 
 This runbook covers `infrastructure/scripts/install-target-operations`, which
 installs the deployment target registry, the host-global `deployment.conf`,
-and the full set of target-aware operational scripts onto the staging VPS:
+the deployment protocol contract, and the full set of target-aware operational
+scripts onto the staging VPS:
 `targets`, `common`, `restore-common`, `health-check`, `status`, `cleanup`,
 `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
 `offsite-retention`, `offsite-restore-test`, `backup-cycle`, the Phase 7.3
@@ -16,12 +17,13 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly thirty-one files:
+Exactly thirty-two files:
 
 | Source (this repo) | Destination |
 |---|---|
 | `infrastructure/config/deployment-targets.json` | `/home/www/rateguru/config/deployment-targets.json` |
 | `infrastructure/templates/deployment.conf.example` | `/home/www/rateguru/config/deployment.conf` |
+| `infrastructure/config/deployment-protocol.json` | `/home/www/rateguru/config/deployment-protocol.json` |
 | `infrastructure/config/nginx/rateguru-staging` | `/home/www/rateguru/config/nginx/rateguru-staging` |
 | `infrastructure/config/nginx/rateguru-production` | `/home/www/rateguru/config/nginx/rateguru-production` |
 | `infrastructure/config/nginx/mailpit-staging` | `/home/www/rateguru/config/nginx/mailpit-staging` |
@@ -159,11 +161,14 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the thirty-one source files (exist, regular, not a symlink), runs
+Validates the thirty-two source files (exist, regular, not a symlink), runs
 `bash -n` on the twenty-three shell scripts (every source file except the
-registry, `deployment.conf` and the four Nginx vhost sources, none of which
+registry, `deployment.conf`, the deployment protocol contract and the four
+Nginx vhost sources, none of which
 is shell), confirms `jq`
-can parse the registry, runs the *committed* `targets` CLI against the
+can parse the registry, validates the deployment protocol contract's shape
+(schema, both versions integers of at least 1, and
+`artifact.minimum_required <= tooling.supported`), runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
 as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms
 every required host tool is present (`bash`, `jq`, `curl`, `install`, `stat`,
@@ -237,14 +242,18 @@ sudo infrastructure/scripts/install-target-operations --apply
    `recover-host`, the four Nginx vhost sources (into `config/nginx/`, which
    is created root-owned `0755` first when absent), then
    `install-target-prerequisites` (which reads those sources), then
-   `verify-required-clis`, then `deployment.conf` last — via
+   `verify-required-clis`, then `deployment.conf` and the deployment protocol
+   contract last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
    path. `common` precedes every script that sources it, and `restore-common`
    precedes the five restore primitives that source it in turn.
    `deployment.conf` is installed last so every script sourcing it
    either atomically sees the old config or the new one, never a
-   half-installed bundle in between. An existing destination that is anything
+   half-installed bundle in between. The protocol contract travels with it, for
+   the same reason in reverse: the contract and the engine that reads it move
+   together, and installing the contract before `deploy` would briefly promise a
+   protocol the engine does not yet implement. An existing destination that is anything
    other than absent or a plain regular file — a symlink, directory, FIFO,
    socket or device — is refused outright, never followed, entered or
    silently replaced; a rejected destination is left untouched and is never
@@ -310,6 +319,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
 | `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
+| `deployment-protocol.json` | `root:root` | `0644` | the protocol this engine supports — non-secret, and writable only by root, because a host that could be told it supports a protocol it does not would deploy a release its engine cannot honour |
 | `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `recover-host`, `install-target-prerequisites`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
 | `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts; `rateguru-production` is named by no registered target and is carried for this installer's own byte-verification alone |
