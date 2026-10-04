@@ -322,7 +322,9 @@ single credential.
 ## Trusted tooling bundle
 
 The bundle is `infrastructure/` only, built from whatever the calling workflow
-checked out, and every caller checks out `develop`.
+checked out, and every caller checks out its own control plane: `main` for
+`repair-production.yml`, `develop` for `repair-staging.yml`. See
+[Branches](deployment-targets.md#branches-which-ref-is-trusted-for-what).
 
 It is **never** taken from `/home/www/rateguru/<target>/current/infrastructure`.
 The release under `current` is the thing being repaired around; it may itself be

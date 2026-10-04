@@ -77,15 +77,16 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # develop, always. The repair tooling is operational code whose job is to
-      # define what "correct" means for this target; it must not be selectable
-      # by an application ref, and above all it is never taken from the release
-      # the target is currently serving — that release is the thing being
-      # repaired around, and it may itself be damaged.
+      # main, always — the production control plane, not develop. The repair
+      # tooling is operational code whose job is to define what "correct" means
+      # for this target; it must not be selectable by an application ref, and
+      # above all it is never taken from the release the target is currently
+      # serving — that release is the thing being repaired around, and it may
+      # itself be damaged.
       - name: Checkout trusted repair tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 

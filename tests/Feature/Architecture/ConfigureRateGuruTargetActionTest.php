@@ -265,11 +265,12 @@ it('is called by exactly one operator-facing workflow, for exactly one target', 
 
     expect($step['with']['deployment-target'])->toBe('tits-guru');
 
-    // Trusted tooling always comes from develop.
+    // Trusted tooling comes from this workflow's control plane — main for a
+    // production operation, which the production Environment is what allows.
     $checkout = collect($workflow['jobs']['configure']['steps'])
         ->first(fn (array $s): bool => str_starts_with($s['uses'] ?? '', 'actions/checkout@'));
 
-    expect($checkout['with']['ref'])->toBe('develop');
+    expect($checkout['with']['ref'])->toBe(trustedToolingRef('configure-tits-guru.yml'));
 });
 
 it('tells the operator what is still not true', function () {

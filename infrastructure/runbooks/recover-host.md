@@ -188,7 +188,8 @@ The recovery guarantee is instead:
 backup.release.json.source_sha
         + the Git repository
         + the lockfiles and build scripts of that historical commit
-        + the CURRENT trusted build tooling from develop
+        + the CURRENT trusted build tooling from the control plane
+          (main for production, develop for staging)
         = a new, short-lived recovery artifact
 ```
 

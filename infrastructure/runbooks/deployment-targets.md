@@ -35,6 +35,69 @@ The registry keeps them separate.
 `staging-main` rather than `staging` is deliberate: the name must not read as a
 class, because one day there may be a second staging instance.
 
+## Branches: which ref is trusted for what
+
+A target says *where*. A branch says *what is trusted to act there*, and the two
+are separate questions.
+
+```text
+feature/*
+    │ PR
+    ▼
+develop ──────────────► staging
+    │                   (verify here)
+    │ PR
+    ▼
+main  ────────────────► production control plane
+    │
+    │ v* tag on a commit contained in main
+    ▼
+Release to production
+```
+
+| Ref | What it is | What it may do |
+|---|---|---|
+| `develop` | the integration branch | staging: tooling and deployments |
+| `main` | production-ready, and the production **control plane** | run production operational workflows |
+| `v*` | a tag on a commit contained in `main` | the **only** way new application code reaches production |
+
+### Why main is allowed in the production Environment
+
+The `production-tits-guru` GitHub Environment permits `main` and `v*`, and
+deliberately **not** `develop`. That is not a convenience: the emergency and
+onboarding operations have to be runnable against production, and each of them
+is privileged infrastructure code rather than application code —
+
+* **Prepare** — bootstrap or re-converge the host;
+* **Repair** — re-converge a target's own surface;
+* **Restore** — put back data and align code to it;
+* **Recover** — rebuild a lost host;
+* **Rollback** — step back one release;
+* **Configure** / **Provision** — onboarding, while the target is still planned.
+
+Each takes its tooling from `main`, so privileged code must pass a
+`develop → main` pull request before it can act on production. Taking it from
+`develop` would mean anything merged for staging could immediately touch
+production, which is exactly the gap this model closes.
+
+### Allowing main is not a deploy path
+
+`main` being allowed does **not** mean `main`'s HEAD can be deployed. A new
+application release reaches production only as a `v*` tag, and
+`Release to production` proves, fail-closed, that the tagged commit is contained
+in `main` before it builds anything. The artifact verified on staging in that run
+is the byte-identical artifact promoted to production — there is no second build.
+
+Two checkouts deliberately stay off the control-plane branch, and must:
+
+* a **restore** or **recovery** builds the exact historical commit its backup
+  names, because the whole point is putting back the release the data belongs to;
+* a **release** builds the exact tagged commit, not a branch head.
+
+Replacing either with `main` would silently install different code than the
+operation promised. `tests/Feature/Architecture/ProductionControlPlaneTest.php`
+enforces all of the above, including those two exceptions.
+
 ## Why staging-main and tits-guru are separate targets
 
 They share the RateGuru codebase and nothing else. Each has its own application

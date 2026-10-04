@@ -55,13 +55,14 @@ jobs:
 
     steps:
       # Rollback business logic stays entirely server-side; nothing from this
-      # checkout is deployed. It is taken from develop rather than any release
-      # ref, because the shared rollback action — and the observability action
-      # it calls — are privileged deployment tooling.
+      # checkout is deployed. It is taken from main — the production control
+      # plane — rather than from develop or any release ref, because the shared
+      # rollback action, and the observability action it calls, are privileged
+      # deployment tooling.
       - name: Checkout rollback and observability actions
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 

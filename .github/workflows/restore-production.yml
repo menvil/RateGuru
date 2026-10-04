@@ -229,13 +229,13 @@ jobs:
 
     steps:
       # Restore business logic stays entirely server-side; nothing from this
-      # checkout is deployed. It comes from develop rather than any release
-      # ref, because the shared restore action is privileged operational
-      # tooling.
+      # checkout is deployed. It comes from main — the production control
+      # plane — rather than from develop or any release ref, because the shared
+      # restore action is privileged operational tooling.
       - name: Checkout restore action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -415,14 +415,16 @@ jobs:
     steps:
       # Two checkouts, deliberately, and the separation is the whole trust
       # boundary. The build tooling is operational code and always comes from
-      # develop; the application is a historical commit that may predate every
+      # main; the application is a historical commit that may predate every
       # part of the current pipeline. Loading the build action out of the
       # historical commit would let restored data decide what the operational
-      # tooling does — so it never happens.
+      # tooling does — so it never happens. The historical ref below is the one
+      # checkout that must NOT become main: it is the exact source the backup
+      # names, and replacing it would silently restore different code.
       - name: Checkout trusted build tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -476,9 +478,10 @@ jobs:
       - name: Checkout deployment action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Deployment code is always taken from the trusted develop branch,
-          # never from the historical application ref being deployed.
-          ref: develop
+          # Deployment code is always taken from main, the production control
+          # plane — never from develop, and never from the historical
+          # application ref being deployed.
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -548,7 +551,7 @@ jobs:
       - name: Checkout restore action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -600,7 +603,7 @@ jobs:
       - name: Checkout observability action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 

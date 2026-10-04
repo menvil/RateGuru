@@ -164,7 +164,9 @@ a repair of the same machine would be two operations converging one host.
 
 `Configure tits.guru` (`.github/workflows/configure-tits-guru.yml`) is the
 operator surface: manual, no inputs, pinned to one target, tooling always from
-`develop`. It uses the privileged **bootstrap** credential, never a deployment
+`main` — the production control plane; see
+[Branches](deployment-targets.md#branches-which-ref-is-trusted-for-what). It
+uses the privileged **bootstrap** credential, never a deployment
 key — creating a role and a database needs root, and the deploy key reaches only
 the narrow wrappers.
 

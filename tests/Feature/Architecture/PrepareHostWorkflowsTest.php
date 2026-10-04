@@ -163,7 +163,7 @@ it('always prepares with tooling from develop, never from an application ref', f
             ->values();
 
         expect($checkouts)->toHaveCount(1, "{$file} must check out exactly one tree");
-        expect($checkouts[0]['with']['ref'])->toBe('develop');
+        expect($checkouts[0]['with']['ref'])->toBe(trustedToolingRef($file));
         expect($checkouts[0]['with']['persist-credentials'])->toBeFalse();
     }
 });

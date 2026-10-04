@@ -270,11 +270,13 @@ it('builds the exact required commit with trusted tooling and no privilege whats
     }
 
     // Two checkouts, and which is which is the whole point: the operational
-    // tooling always comes from develop, the application from the exact commit.
+    // tooling always comes from the control plane, the application from the
+    // exact commit the server named. The application ref must NEVER become the
+    // control-plane branch — that would silently restore different code.
     $tooling = $steps['Checkout trusted build tooling'];
     $application = $steps['Checkout the required historical application source'];
 
-    expect(data_get($tooling, 'with.ref'))->toBe('develop')
+    expect(data_get($tooling, 'with.ref'))->toBe(trustedToolingRef($file))
         ->and(data_get($tooling, 'with.persist-credentials'))->toBeFalse()
         ->and(data_get($tooling, 'with.path'))->toBeNull();
 
@@ -309,9 +311,9 @@ it('deploys the alignment as a controlled deploy that never migrates and never r
     expect(data_get($align, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($align, 'if'))->toBe("\${{ needs.restore.outputs.build_required == 'yes' }}");
 
-    // Deployment tooling always comes from develop, never from the historical
-    // ref that is about to be installed.
-    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe('develop');
+    // Deployment tooling always comes from the control plane, never from the
+    // historical ref that is about to be installed.
+    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     $deploy = $steps['Deploy the alignment release'];
 

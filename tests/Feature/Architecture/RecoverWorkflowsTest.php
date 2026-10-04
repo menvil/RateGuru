@@ -345,7 +345,7 @@ it('refuses a target that is not active before any GitHub Environment is entered
     // and it is asked of the repository's own registry through its own CLI —
     // no lifecycle rule is reimplemented in YAML.
     expect($names[0])->toBe('Validate the recovery request')
-        ->and(data_get($steps['Checkout the trusted target registry'], 'with.ref'))->toBe('develop')
+        ->and(data_get($steps['Checkout the trusted target registry'], 'with.ref'))->toBe(trustedToolingRef($file))
         ->and(data_get($steps['Checkout the trusted target registry'], 'with.persist-credentials'))->toBeFalse();
 
     expect($source)
@@ -847,7 +847,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
 
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
 
-    expect(data_get($steps['Checkout trusted bootstrap tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted bootstrap tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     // A continuation must not prepare: preparation reconverges the target's
     // Supervisor program and scheduler entry, which is exactly what a recovery
@@ -873,7 +873,7 @@ it('recovers through the shared action and decides the rest from its result alon
     $steps = recoverWorkflowStepsByName($workflow, 'recover');
 
     expect(data_get($workflow, 'jobs.recover.environment'))->toBe($githubEnvironment);
-    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     $apply = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'apply');
     $inspect = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'inspect');
@@ -987,11 +987,13 @@ it('builds the exact required commit with trusted tooling and no privilege whats
     }
 
     // Two checkouts, and which is which is the whole point: the operational
-    // tooling always comes from develop, the application from the exact commit.
+    // tooling always comes from the control plane, the application from the
+    // exact commit the server named. The application ref must NEVER become the
+    // control-plane branch — that would silently recover different code.
     $tooling = $steps['Checkout trusted build tooling'];
     $application = $steps['Checkout the required historical application source'];
 
-    expect(data_get($tooling, 'with.ref'))->toBe('develop')
+    expect(data_get($tooling, 'with.ref'))->toBe(trustedToolingRef($file))
         ->and(data_get($tooling, 'with.persist-credentials'))->toBeFalse()
         ->and(data_get($tooling, 'with.path'))->toBeNull();
 
@@ -1023,7 +1025,10 @@ it('builds the exact required commit with trusted tooling and no privilege whats
         ->values()
         ->all();
 
-    expect($checkoutRefs)->toBe(['develop', '${{ needs.recover.outputs.required_source_sha }}']);
+    expect($checkoutRefs)->toBe([
+        trustedToolingRef($file),
+        '${{ needs.recover.outputs.required_source_sha }}',
+    ]);
 })->with('recover workflows');
 
 it('adds recovery provenance to the artifact without redefining its identity', function (
@@ -1075,9 +1080,9 @@ it('deploys through the one deploy action, to the replacement machine, without m
     expect(data_get($deploy, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($deploy, 'if'))->toBe("\${{ needs.recover.outputs.deploy_required == 'yes' }}");
 
-    // Deployment tooling always comes from develop, never from the historical
-    // ref that is about to be installed.
-    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe('develop');
+    // Deployment tooling always comes from the control plane, never from the
+    // historical ref that is about to be installed.
+    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     // Checked on this side before anything is uploaded — and deliberately NOT
     // the authorization: the server reads the required commit from the
@@ -1954,7 +1959,7 @@ it('proves the replacement host is a clean, supported machine before it prepares
     expect(array_search('preflight', $jobs, true))->toBeLessThan(array_search('prepare', $jobs, true));
 
     $steps = recoverWorkflowStepsByName($workflow, 'preflight');
-    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     $step = collect($steps)->first(static fn (array $step): bool => data_get($step, 'uses') === './.github/actions/recovery-host-preflight');
 

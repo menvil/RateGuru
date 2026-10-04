@@ -125,11 +125,11 @@ it('fails closed while production is unprovisioned, without weakening any gate',
     }
 });
 
-it('takes deployment tooling from develop and keeps the same closed secret set', function () {
+it('takes deployment tooling from the production control plane and keeps the same closed secret set', function () {
     $checkout = $this->stepsByName->get('Checkout rollback and observability actions');
 
     expect(data_get($checkout, 'uses'))->toMatch('/^actions\/checkout@[0-9a-f]{40}$/')
-        ->and(data_get($checkout, 'with.ref'))->toBe('develop')
+        ->and(data_get($checkout, 'with.ref'))->toBe(trustedToolingRef('rollback-production.yml'))
         ->and(data_get($checkout, 'with.persist-credentials'))->toBeFalse();
 
     expect($this->steps->filter(fn (array $step): bool => isset($step['run']))->all())->toBe([]);

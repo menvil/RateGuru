@@ -293,7 +293,9 @@ it('runs the exact commit the recovered data belongs to, without a migration', f
                     continue;
                 }
 
-                expect($ref)->toBe('develop', "{$file}: {$jobName} takes its tooling from {$ref}, not develop");
+                $trusted = trustedToolingRef($file);
+
+                expect($ref)->toBe($trusted, "{$file}: {$jobName} takes its tooling from {$ref}, not {$trusted}");
             }
         }
     }
