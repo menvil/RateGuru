@@ -317,7 +317,7 @@ jobs:
           retention-days: 5
 
   tests-architecture:
-    name: Architecture tests (Pest)
+    name: Architecture tests (Pest, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     runs-on: ubuntu-24.04
     # Its own job, because the Architecture suite is its own kind of test: it
     # reads committed files and drives real shell subprocesses against a
@@ -330,9 +330,20 @@ jobs:
     # built assets, and this is the longest job of the run, so waiting for the
     # frontend build would only push the whole run's finish out by that much.
     #
+    # Four legs, each running a quarter of the test FILES, balanced by the
+    # per-file timings committed in tests/.pest/shards.json. Pest hands whole
+    # files to its workers in alphabetical order, so inside one job the heavy
+    # files that sort late set the finish time however many workers there are;
+    # legs are the only lever that moves them. A red leg must not cancel the
+    # others: one push should report every failure it has.
+    #
     # The cap exists so a hung external download can never occupy a runner for
     # the 6-hour default — it is not meant to bound a healthy run.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
       DB_CONNECTION: pgsql
       DB_HOST: 127.0.0.1
@@ -343,8 +354,6 @@ jobs:
       # The commit this branch is measured against, for the architecture scope
       # guards. Empty on a push event, where those guards correctly skip.
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
-    outputs:
-      tests: ${{ steps.architecture-results.outputs.tests }}
     services:
       # No Architecture test queries the database, but every test in
       # tests/Feature is bound to RefreshDatabase by tests/Pest.php, so the
@@ -421,39 +430,42 @@ jobs:
           lscpu | grep -E '^(Model name|CPU\(s\)|Thread\(s\) per core)'
           nproc
 
+      # Pest is called directly, not through `php artisan test`: the shard
+      # planner lists the suite in a child process that rejects the options
+      # artisan adds, and `--processes` for the same reason, so the worker count
+      # is ParaTest's default of one per vCPU. Every leg reads the same checkout
+      # and the same tests/.pest/shards.json, so every leg computes the same
+      # partition. The output is kept for the check that follows.
       - name: Run Architecture tests
         id: architecture
-        run: php artisan test --parallel --testsuite=Architecture --log-junit architecture-junit.xml
+        run: |
+          set -o pipefail
+          php vendor/bin/pest --parallel --testsuite=Architecture \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
+            --log-junit architecture-junit.xml | tee architecture-pest.log
+
+      # The planner decides what a leg runs from Pest's own test listing. If
+      # that listing ever stopped matching what the planner expects, every leg
+      # would silently run the whole suite — green, and four times as slow —
+      # so the leg has to say how many files it took out of a real total. A
+      # stale timings file costs balance, not coverage; it is a warning.
+      - name: Check the shard ran its share
+        run: |
+          grep -E 'files? ran, out of [1-9][0-9]*' architecture-pest.log
+          if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
+            echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
+          fi
 
       # Per-file durations are the only way to tell a slow runner from a slow
-      # change, to see which files form the tail of the run, and to balance the
-      # suite across workers — so the report is kept, red runs included.
+      # change, to see which files form the tail of a leg, and to rebalance the
+      # legs — so every leg keeps its report, red runs included.
       - name: Upload Architecture JUnit report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: architecture-junit
+          name: architecture-junit-${{ matrix.shard }}
           path: architecture-junit.xml
           retention-days: 30
-
-      - name: Collect architecture results
-        id: architecture-results
-        if: always()
-        run: |
-          php -r '
-              $tests = "n/a";
-              if (is_file("architecture-junit.xml")) {
-                  $junit = simplexml_load_file("architecture-junit.xml");
-                  if ($junit !== false) {
-                      $total = 0;
-                      foreach ($junit->testsuite as $suite) {
-                          $total += (int) ($suite["tests"] ?? 0);
-                      }
-                      $tests = (string) $total;
-                  }
-              }
-              file_put_contents(getenv("GITHUB_OUTPUT"), sprintf("tests=%s\n", $tests), FILE_APPEND);
-          '
 
   migrations-mariadb:
     name: Compatibility (MariaDB)
@@ -730,6 +742,18 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      # The Architecture suite runs as several legs, and a matrix job has no
+      # usable aggregate output, so the test count is read back from the legs'
+      # JUnit reports. Missing reports (a cancelled leg) leave the count n/a and
+      # the summary is still published.
+      - name: Download Architecture JUnit reports
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: architecture-junit-*
+          path: architecture-junit
+
       - name: Publish CI results
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
@@ -748,7 +772,6 @@ jobs:
           ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
           POSTGRES_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
           ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
-          ARCHITECTURE_TESTS: ${{ needs['tests-architecture'].outputs.tests }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
           MARIADB_ROLLBACK: ${{ needs['migrations-mariadb'].outputs.rollback }}
@@ -775,6 +798,23 @@ jobs:
             const details = (result, successText) =>
               result === 'success' ? successText : `${icon(result)} ${result} · see workflow log`;
             const value = (name) => process.env[name] || 'n/a';
+            // Every <testcase> in every downloaded Architecture report, one
+            // report per leg; counted without an XML parser on purpose.
+            const architectureTests = (() => {
+              const path = require('path');
+              const reports = [];
+              const walk = (dir) => {
+                for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                  const full = path.join(dir, entry.name);
+                  if (entry.isDirectory()) walk(full);
+                  else if (entry.name.endsWith('.xml')) reports.push(full);
+                }
+              };
+              try { walk('architecture-junit'); } catch { return 'n/a'; }
+              if (reports.length === 0) return 'n/a';
+              return String(reports.reduce((sum, report) =>
+                sum + (fs.readFileSync(report, 'utf8').match(/<testcase\b/g) || []).length, 0));
+            })();
             const tests = process.env.TEST_COUNT || 'n/a';
             const assertions = process.env.ASSERTION_COUNT || 'n/a';
             const baselineFindings = value('BASELINE_FINDINGS');
@@ -797,7 +837,7 @@ jobs:
               `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & PostgreSQL | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('POSTGRES_MIGRATIONS')} migrations · seed passed`)} |`,
-              `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${value('ARCHITECTURE_TESTS')} tests passed`)} |`,
+              `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${architectureTests} tests · 4 shards`)} |`,
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
