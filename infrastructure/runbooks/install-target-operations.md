@@ -167,7 +167,7 @@ registry, `deployment.conf`, the deployment protocol contract and the four
 Nginx vhost sources, none of which
 is shell), confirms `jq`
 can parse the registry, validates the deployment protocol contract's shape
-(schema, both versions integers of at least 1, and
+(schema, both versions integers in `1..2147483647`, and
 `artifact.minimum_required <= tooling.supported`), runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
 as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms

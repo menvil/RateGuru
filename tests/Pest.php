@@ -3497,3 +3497,59 @@ dataset('not a translation', [
     'a boolean' => [true],
     'a list' => [['Desserts']],
 ]);
+
+/**
+ * The inclusive upper bound each protocol-accepting site declares for a
+ * deployment protocol version.
+ *
+ * Three files accept a protocol version and none can share a runtime constant
+ * with the others: `deploy` and `install-target-operations` are separate bash
+ * programs (the installer deliberately never sources `common`), and the build is
+ * YAML. So the literal is written three times and read back here, because three
+ * independent ceilings would be three different contracts — and the one that
+ * matters is whichever is lowest, silently.
+ *
+ * @return array<string, int|null> null where the declaration could not be found
+ */
+function deploymentProtocolMaxDeclarations(): array
+{
+    $sites = [
+        'deploy' => [
+            'infrastructure/scripts/deploy',
+            '/^DEPLOYMENT_PROTOCOL_MAX=([0-9]+)$/m',
+        ],
+        'install-target-operations' => [
+            'infrastructure/scripts/install-target-operations',
+            '/^DEPLOYMENT_PROTOCOL_MAX=([0-9]+)$/m',
+        ],
+        'build-rateguru' => [
+            '.github/actions/build-rateguru/action.yml',
+            '/^\s*protocol_max=([0-9]+)$/m',
+        ],
+    ];
+
+    $found = [];
+
+    foreach ($sites as $name => [$path, $pattern]) {
+        $found[$name] = preg_match($pattern, File::get(base_path($path)), $matches) === 1
+            ? (int) $matches[1]
+            : null;
+    }
+
+    return $found;
+}
+
+/**
+ * The committed deployment protocol contract, decoded.
+ *
+ * @return array<string, mixed>
+ */
+function deploymentProtocolContract(): array
+{
+    return json_decode(
+        File::get(base_path('infrastructure/config/deployment-protocol.json')),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+}

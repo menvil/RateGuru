@@ -1058,6 +1058,40 @@ finalize_restore_alignment() {
 ARTIFACT_RELEASE_METADATA_BASENAME="candidate-release.json"
 ARTIFACT_DEPLOYMENT_PROTOCOL_BASENAME="candidate-protocol"
 
+# The inclusive upper bound on any protocol version, anywhere it is accepted.
+#
+# A protocol version is a small monotonic counter, so the ceiling is arbitrary in
+# the sense that nothing will ever approach it — and load-bearing in the sense
+# that WITHOUT one, the comparison below is a fail-open. JSON has no integer
+# limit, so a contract could state 9223372036854775808; Bash signed arithmetic
+# wraps that to -9223372036854775808, `(( required > supported ))` answers "no",
+# and an artifact requiring a protocol nothing implements would deploy.
+#
+# 2147483647 is the signed 32-bit maximum: unmistakably a bound rather than a
+# magic number, and far enough below the 64-bit range that every intermediate
+# value here is exact. The same number bounds all four places a protocol is
+# accepted — this file's two (the candidate's declaration and the installed
+# tooling's), install-target-operations' validation of the committed contract,
+# and build-rateguru's validation of the application source's copy — and a
+# parity test reads the literal out of all three files so they cannot drift.
+DEPLOYMENT_PROTOCOL_MAX=2147483647
+
+# protocol_version_within_bounds VALUE — is VALUE a protocol version this engine
+# may compare arithmetically?
+#
+# The shape check comes first and is what makes the range check safe: capping the
+# input at ten digits means the numeric comparison itself cannot overflow, so
+# this never has to trust arithmetic on a value it has not already bounded. jq
+# has normally validated the same value before this runs; that redundancy is the
+# point, because the comparison is the step that fails open.
+protocol_version_within_bounds() {
+    local value="${1-}"
+
+    [[ "${value}" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+
+    (( value <= DEPLOYMENT_PROTOCOL_MAX ))
+}
+
 # read_installed_deployment_protocol_supported — the host's own declaration,
 # assigned to INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED.
 #
@@ -1098,11 +1132,17 @@ read_installed_deployment_protocol_supported() {
             elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
             elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
             elif .tooling.supported < 1 then error("tooling.supported is below 1")
+            elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
             else .tooling.supported
             end
-        ' "${DEPLOYMENT_PROTOCOL_FILE}" 2>/dev/null
+        ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${DEPLOYMENT_PROTOCOL_FILE}" 2>/dev/null
     )" \
         || fail "the installed deployment protocol contract is not usable: ${DEPLOYMENT_PROTOCOL_FILE}. Run Prepare Host to reinstall the trusted operational bundle"
+
+    # Proven again on this side of jq, because this is the value the arithmetic
+    # comparison will be handed.
+    protocol_version_within_bounds "${INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED}" \
+        || fail "the installed deployment protocol contract states an unusable tooling.supported — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}: ${DEPLOYMENT_PROTOCOL_FILE}"
 }
 
 # candidate_deployment_protocol_required ARTIFACT STAGE_DIR — the artifact's own
@@ -1113,19 +1153,24 @@ read_installed_deployment_protocol_supported() {
 # before any history row, any release directory and any change to the target.
 #
 #   0  STAGE_DIR/candidate-protocol holds the integer the artifact declares
-#   2  the artifact carries a release.json with no deployment_protocol_min
-#   3  the artifact carries no release.json at all
-#   -  an artifact that DECLARES a protocol it cannot state validly fails
+#   2  the artifact's release.json is an OBJECT with no deployment_protocol_min
+#   -  anything else fails
 #
-# 2 and 3 are the LEGACY cases, and the caller resolves both to protocol 1 with
-# an explicit log line: releases built before this contract existed must stay
+# 2 is the one LEGACY case, and the caller resolves it to protocol 1 with an
+# explicit log line: releases built before this contract existed must stay
 # deployable, and a silent default would be indistinguishable from a value that
-# was actually read. Everything else is a broken artifact — a present field that
-# is a string, a float, a boolean, null or below 1, or a release.json that is not
-# valid JSON — and refuses rather than being waved through as "old".
+# was actually read.
+#
+# Everything else is a broken artifact and refuses rather than being waved
+# through as "old" — including, deliberately, an artifact with no release.json at
+# all. That is not a legacy shape here: the build has written release.json since
+# the first real deployment workflow, and assert_controlled_artifact_identity
+# above already refuses an artifact without one, in this same file, for the
+# neighbouring reason that it cannot confirm which commit it is installing. A
+# fallback for a class of artifact that has never existed would only be a way in.
 candidate_deployment_protocol_required() {
     local artifact="${1-}" stage_dir="${2-}"
-    local members member matches member_type staged required
+    local members member plain_entries dotted_entries root_entries member_type staged required
 
     [[ -f "${artifact}" ]] \
         || fail "cannot read the candidate artifact to establish its deployment protocol: ${artifact}"
@@ -1138,19 +1183,28 @@ candidate_deployment_protocol_required() {
 
     # Whole-line matches only, tolerating the leading ./ the build's own tar
     # produces, so no part of a member name is ever treated as a pattern.
-    if grep -qxF 'release.json' <<<"${members}"; then
+    #
+    # BOTH spellings are counted together, because `release.json` and
+    # `./release.json` are the same path once extracted. Picking one and counting
+    # only that name let an archive carrying both pass as unambiguous while
+    # extraction would leave the OTHER one on disk — this gate would have read a
+    # declaration the deployed release does not contain. There is no answer to
+    # "which one is the contract?", so there is no attempt at one.
+    plain_entries="$(grep -cxF 'release.json' <<<"${members}" || true)"
+    dotted_entries="$(grep -cxF './release.json' <<<"${members}" || true)"
+    root_entries=$(( plain_entries + dotted_entries ))
+
+    (( root_entries > 0 )) \
+        || fail "the candidate artifact contains no release.json — a RateGuru release artifact always carries one, so this cannot be read as an older release"
+
+    (( root_entries == 1 )) \
+        || fail "the candidate artifact contains ${root_entries} root release.json entries (release.json / ./release.json) — refusing to read a deployment contract from an ambiguous archive, because extraction would leave a different one on disk than this gate read"
+
+    if (( plain_entries == 1 )); then
         member='release.json'
-    elif grep -qxF './release.json' <<<"${members}"; then
-        member='./release.json'
     else
-        return 3
+        member='./release.json'
     fi
-
-    # A member present twice makes "which content won?" unanswerable.
-    matches="$(grep -cxF "${member}" <<<"${members}")"
-
-    (( matches == 1 )) \
-        || fail "the candidate artifact contains ${matches} entries named ${member} — refusing to read a deployment contract from an ambiguous archive"
 
     # The declaration must come from a regular file. A symlink member would
     # extract as empty content through -O rather than following anything, but
@@ -1165,23 +1219,42 @@ candidate_deployment_protocol_required() {
     tar -xzOf "${artifact}" "${member}" > "${staged}" \
         || fail "cannot read ${member} out of the candidate artifact"
 
-    jq -e . "${staged}" >/dev/null 2>&1 \
-        || fail "the candidate artifact carries a ${member} that is not valid JSON — this is a broken artifact, not an older release"
+    # Valid JSON, EXACTLY ONE top-level value, and that value an OBJECT — all
+    # proven before has() is asked anything.
+    #
+    # jq's has() ERRORS on an array, string, number or boolean, and an error is
+    # not the same answer as "the key is absent". Treating the two alike
+    # classified every non-object release.json — `[]`, `"foo"`, `123`, `true` —
+    # as a legacy artifact and deployed it as protocol 1, which is the opposite
+    # of what a release.json nobody can read should mean.
+    #
+    # Slurping is what makes "exactly one" provable: jq reads a concatenated
+    # stream of values quite happily, and a release.json holding `{}{}` would
+    # otherwise reach the field read and yield two numbers.
+    jq -e -s 'length == 1 and (.[0] | type) == "object"' "${staged}" >/dev/null 2>&1 \
+        || fail "the candidate artifact's ${member} is not a single JSON object — this is a broken artifact, not an older release"
 
-    # Absent is the legacy case; present is held to its shape.
-    jq -e 'has("deployment_protocol_min")' "${staged}" >/dev/null 2>&1 \
+    # Only an object WITHOUT the key is the legacy case.
+    jq -e -s '.[0] | has("deployment_protocol_min")' "${staged}" >/dev/null 2>&1 \
         || return 2
 
     required="$(
-        jq -e '
-            if (.deployment_protocol_min | type) != "number" then error("deployment_protocol_min is not a number")
-            elif (.deployment_protocol_min | floor) != .deployment_protocol_min then error("deployment_protocol_min is not an integer")
-            elif .deployment_protocol_min < 1 then error("deployment_protocol_min is below 1")
-            else .deployment_protocol_min
-            end
-        ' "${staged}" 2>/dev/null
+        jq -e -s '
+            .[0].deployment_protocol_min as $value
+            | if ($value | type) != "number" then error("deployment_protocol_min is not a number")
+              elif ($value | floor) != $value then error("deployment_protocol_min is not an integer")
+              elif $value < 1 then error("deployment_protocol_min is below 1")
+              elif $value > $max then error("deployment_protocol_min is above the supported maximum")
+              else $value
+              end
+        ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${staged}" 2>/dev/null
     )" \
-        || fail "the candidate artifact declares an unusable deployment_protocol_min — it must be an integer of at least 1. This is a broken artifact, not an older release"
+        || fail "the candidate artifact declares an unusable deployment_protocol_min — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}. This is a broken artifact, not an older release"
+
+    # Proven again on this side of jq, because this is the value the arithmetic
+    # comparison will be handed.
+    protocol_version_within_bounds "${required}" \
+        || fail "the candidate artifact declares an unusable deployment_protocol_min — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}. This is a broken artifact, not an older release"
 
     printf '%s\n' "${required}" > "${stage_dir}/${ARTIFACT_DEPLOYMENT_PROTOCOL_BASENAME}"
 }
@@ -1232,10 +1305,6 @@ assert_deployment_protocol_compatible() {
             log "candidate release has no deployment_protocol_min; treating legacy artifact as protocol 1"
             required=1
             ;;
-        3)
-            log "candidate release carries no release.json, so it has no deployment_protocol_min; treating legacy artifact as protocol 1"
-            required=1
-            ;;
         *)
             printf '%s\n' "${diagnosis}" >&2
             rm -rf "${stage}"
@@ -1245,8 +1314,15 @@ assert_deployment_protocol_compatible() {
 
     rm -rf "${stage}"
 
-    [[ "${required}" =~ ^[0-9]+$ ]] \
-        || fail "internal: could not determine the candidate release's required deployment protocol"
+    # Both sides are bounded before they are compared, so the arithmetic below
+    # operates on two integers in 1..DEPLOYMENT_PROTOCOL_MAX and cannot overflow.
+    # Asserted here rather than assumed: this is the step that decides whether a
+    # deployment proceeds, and the one an out-of-range value would fail open on.
+    protocol_version_within_bounds "${required}" \
+        || fail "internal: could not determine the candidate release's required deployment protocol as an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}"
+
+    protocol_version_within_bounds "${supported}" \
+        || fail "internal: could not determine the installed tooling's supported deployment protocol as an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}"
 
     if (( required > supported )); then
         fail "refusing to deploy ${RELEASE_ID} to ${TARGET_ID}: candidate requires deployment protocol ${required}, installed tooling supports ${supported}; run Prepare Host to update the trusted operational bundle, then retry deployment. No history was written and nothing was extracted"

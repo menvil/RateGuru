@@ -347,14 +347,23 @@ runs:
         # --- candidate deployment protocol (begin) ---
         protocol_contract="infrastructure/config/deployment-protocol.json"
 
+        # The inclusive upper bound on a protocol version, identical to deploy's
+        # DEPLOYMENT_PROTOCOL_MAX and install-target-operations' own — a parity
+        # test reads the literal out of all three files. Without it a source
+        # could declare a value that overflows the arithmetic comparison deploy
+        # makes, and an artifact requiring a protocol nothing implements would
+        # deploy. 2147483647 is the signed 32-bit maximum.
+        protocol_max=2147483647
+
         if [[ -f "${protocol_contract}" ]]; then
           if ! deployment_protocol_min="$(
-            jq -e '
+            jq -e --argjson max "${protocol_max}" '
               if type != "object" then error("contract is not a JSON object")
               elif .schema != 1 then error("unsupported contract schema")
               elif (.artifact.minimum_required | type) != "number" then error("artifact.minimum_required is not a number")
               elif (.artifact.minimum_required | floor) != .artifact.minimum_required then error("artifact.minimum_required is not an integer")
               elif .artifact.minimum_required < 1 then error("artifact.minimum_required is below 1")
+              elif .artifact.minimum_required > $max then error("artifact.minimum_required is above the supported maximum")
               else .artifact.minimum_required
               end
             ' "${protocol_contract}"

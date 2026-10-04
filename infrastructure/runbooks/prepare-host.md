@@ -265,16 +265,36 @@ artifact it is being asked to trust would make the artifact the authority on
 its own trustworthiness. An artifact may state what it requires; only this
 runbook's operation may state what a host supports.
 
+A protocol version is an integer in `1..2147483647`, and every place a version
+is accepted enforces the same range: the committed contract, the application
+source's copy at build time, the candidate's `deployment_protocol_min`, and the
+installed `tooling.supported`. The ceiling is not decoration. JSON has no
+integer limit, so an unbounded contract could state `9223372036854775808`;
+Bash signed arithmetic wraps that to `-9223372036854775808`, the comparison
+answers "not greater", and an artifact requiring a protocol nothing implements
+would deploy. A version outside the range is refused where it is read, before
+anything is compared.
+
 Two deliberate asymmetries:
 
-* **An artifact with no `deployment_protocol_min` is protocol 1.** Releases
-  built before this contract existed must stay deployable — a clean-host
-  recovery installs exactly such a historical release — and `deploy` logs that
-  it drew the legacy conclusion rather than defaulting silently.
+* **An artifact whose `release.json` is an object with no
+  `deployment_protocol_min` is protocol 1.** Releases built before this contract
+  existed must stay deployable — a clean-host recovery installs exactly such a
+  historical release — and `deploy` logs that it drew the legacy conclusion
+  rather than defaulting silently. That is the *only* legacy shape: a
+  `release.json` that is an array, string, number or boolean, or that is missing
+  entirely, is a broken artifact and refuses. An artifact has always carried a
+  `release.json`, and `assert_controlled_artifact_identity` already refuses one
+  without it.
 * **A missing or malformed contract on the HOST refuses the deployment, with no
   fallback.** That file is installed by the same operation that installs the
   engine reading it, so a broken one means the bundle is not in a state to
   deploy onto. Run Prepare Host.
+
+An archive carrying both `release.json` and `./release.json` is refused outright:
+the two are the same path once extracted, so the gate would be reading one
+declaration while extraction left the other on disk, and there is no answer to
+which is the contract.
 
 The compatibility gate applies to a controlled restore or recovery alignment
 exactly as it does to an ordinary deployment, deliberately unlike the

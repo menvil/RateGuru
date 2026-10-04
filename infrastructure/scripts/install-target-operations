@@ -425,6 +425,15 @@ validate_source_files() {
     log "all thirty-two source files are present regular files"
 }
 
+# The inclusive upper bound on any protocol version, matching deploy's own
+# DEPLOYMENT_PROTOCOL_MAX and build-rateguru's protocol_max exactly — a parity
+# test reads the literal out of all three files, because three independent
+# ceilings would be three different contracts. 2147483647 is the signed 32-bit
+# maximum: a protocol version is a small monotonic counter that will never
+# approach it, and bounding it is what stops a contract stating a value that
+# overflows the arithmetic comparison deploy makes.
+DEPLOYMENT_PROTOCOL_MAX=2147483647
+
 # The deployment protocol contract decides whether a release may be deployed at
 # all, so a malformed one is refused here — during --check and during the apply
 # preflight — rather than installed and discovered by the first deploy that
@@ -438,13 +447,15 @@ validate_source_deployment_protocol() {
         elif (.artifact.minimum_required | type) != "number" then error("artifact.minimum_required is not a number")
         elif (.artifact.minimum_required | floor) != .artifact.minimum_required then error("artifact.minimum_required is not an integer")
         elif .artifact.minimum_required < 1 then error("artifact.minimum_required is below 1")
+        elif .artifact.minimum_required > $max then error("artifact.minimum_required is above the supported maximum")
         elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
         elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
         elif .tooling.supported < 1 then error("tooling.supported is below 1")
+        elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
         elif .artifact.minimum_required > .tooling.supported then error("artifact.minimum_required exceeds tooling.supported")
         else true
         end
-    ' "${SRC_DEPLOYMENT_PROTOCOL}" >/dev/null 2>&1 \
+    ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${SRC_DEPLOYMENT_PROTOCOL}" >/dev/null 2>&1 \
         || fail "source deployment protocol contract is invalid: ${SRC_DEPLOYMENT_PROTOCOL}"
 
     local minimum supported
@@ -1226,7 +1237,13 @@ verify_installed_files() {
     # with the source is already proven above; this asserts the property deploy
     # actually depends on — that the installed copy is a contract it can read —
     # the same way the installed registry is handed to its own validator.
-    jq -e '.schema == 1 and (.tooling.supported | type) == "number" and (.tooling.supported | floor) == .tooling.supported and .tooling.supported >= 1' \
+    #
+    # Defence in depth, and deliberately so: with byte parity proven above and
+    # the source validated before any of this runs, nothing should be able to
+    # reach here with an unusable installed contract. The check costs one jq
+    # invocation and stops that remaining true by accident if either of those two
+    # guards is ever reordered or relaxed.
+    jq -e --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" '.schema == 1 and (.tooling.supported | type) == "number" and (.tooling.supported | floor) == .tooling.supported and .tooling.supported >= 1 and .tooling.supported <= $max' \
         "${DST_DEPLOYMENT_PROTOCOL}" >/dev/null 2>&1 \
         || fail "installed deployment protocol contract is not usable: ${DST_DEPLOYMENT_PROTOCOL}"
     log "  installed deployment protocol contract: OK (tooling supports up to $(jq -r '.tooling.supported' "${DST_DEPLOYMENT_PROTOCOL}"))"

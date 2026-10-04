@@ -802,3 +802,61 @@ it('reads the required protocol from the source contract and never from a litera
     // to state, and install-target-operations is what states it.
     expect($run)->not->toContain('tooling.supported');
 });
+
+it('declares the same protocol ceiling deploy and the installer declare', function () {
+    $declared = deploymentProtocolMaxDeclarations();
+
+    expect($declared['build-rateguru'])->toBe($declared['deploy']);
+    expect($declared['build-rateguru'])->toBe($declared['install-target-operations']);
+    expect($declared['build-rateguru'])->toBe(2147483647);
+
+    // And the bound is applied, not merely declared.
+    $run = data_get(buildRateGuruStep('Build release archive'), 'run');
+    expect($run)->toContain('--argjson max "${protocol_max}"')
+        ->toContain('.artifact.minimum_required > $max');
+});
+
+it('fails the build when the application source declares a protocol above the ceiling', function (string $contract) {
+    // An unbounded declaration is the fail-open: Bash signed arithmetic wraps
+    // 9223372036854775808 to a negative, so a release requiring a protocol
+    // nothing implements would have compared as "no bigger than 1" and deployed.
+    // Refused at the build, so such an artifact is never produced.
+    $scratch = sys_get_temp_dir().'/build-protocol-ceiling-'.uniqid('', true);
+    mkdir($scratch, 0o755, true);
+
+    try {
+        [$exit, $output, $metadata] = buildRateGuruArchiveWithContract($scratch, $contract);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain(
+            'infrastructure/config/deployment-protocol.json is not a valid deployment protocol contract'
+        );
+        expect($metadata)->toBeNull('a refused contract must never produce an artifact');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+})->with([
+    'one above the ceiling' => ['{"schema": 1, "artifact": {"minimum_required": 2147483648}, "tooling": {"supported": 2147483648}}'],
+    'the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 9223372036854775807}, "tooling": {"supported": 9223372036854775807}}'],
+    'one above the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 9223372036854775808}, "tooling": {"supported": 9223372036854775808}}'],
+]);
+
+it('builds an artifact declaring the ceiling itself', function () {
+    // Inclusive on this side too, so the bound is a limit rather than an
+    // off-by-one that quietly forbids its own maximum.
+    $scratch = sys_get_temp_dir().'/build-protocol-at-ceiling-'.uniqid('', true);
+    mkdir($scratch, 0o755, true);
+
+    try {
+        [$exit, $output, $metadata] = buildRateGuruArchiveWithContract(
+            $scratch,
+            '{"schema": 1, "artifact": {"minimum_required": 2147483647}, "tooling": {"supported": 2147483647}}',
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($metadata['deployment_protocol_min'] ?? null)->toBe(2147483647);
+        expect($metadata['deployment_protocol_min'])->toBeInt();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});

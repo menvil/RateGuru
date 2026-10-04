@@ -4265,3 +4265,63 @@ it('removes an installed protocol contract that did not exist before a failed ap
         installOpsCleanup($scratch);
     }
 });
+
+it('declares the same protocol ceiling deploy and the build declare', function () {
+    // This installer deliberately never sources common, and the build is YAML, so
+    // the ceiling is written three times. Three independent ceilings would be
+    // three different contracts, with the effective one silently the lowest.
+    $declared = deploymentProtocolMaxDeclarations();
+
+    expect($declared['install-target-operations'])->toBe($declared['deploy']);
+    expect($declared['install-target-operations'])->toBe($declared['build-rateguru']);
+    expect($declared['install-target-operations'])->toBe(2147483647);
+});
+
+it('refuses a source protocol contract whose versions exceed the ceiling', function (string $contents) {
+    // JSON has no integer limit; the comparison deploy makes does. A contract
+    // stating a version that cannot be compared is refused where it is validated,
+    // not discovered by the deployment that tries to use it.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $broken = $scratch.'/huge-protocol.json';
+        file_put_contents($broken, $contents);
+        $vars['SRC_DEPLOYMENT_PROTOCOL'] = $broken;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_deployment_protocol');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('source deployment protocol contract is invalid');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+})->with([
+    'a minimum one above the ceiling' => ['{"schema": 1, "artifact": {"minimum_required": 2147483648}, "tooling": {"supported": 2147483648}}'],
+    'a supported one above the ceiling' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 2147483648}}'],
+    'the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 9223372036854775807}}'],
+    // Wraps to a negative in Bash arithmetic, which is the whole reason for a bound.
+    'one above the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 9223372036854775808}}'],
+]);
+
+it('accepts a source protocol contract exactly at the ceiling', function () {
+    // Inclusive: the bound is a limit, not an off-by-one.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $atCeiling = $scratch.'/ceiling-protocol.json';
+        file_put_contents(
+            $atCeiling,
+            '{"schema": 1, "artifact": {"minimum_required": 2147483647}, "tooling": {"supported": 2147483647}}',
+        );
+        $vars['SRC_DEPLOYMENT_PROTOCOL'] = $atCeiling;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_deployment_protocol');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('artifacts require 2147483647, this tooling supports up to 2147483647');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
