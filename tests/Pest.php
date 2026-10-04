@@ -3872,16 +3872,20 @@ function recoveryFixture(string $scratch, array $options = []): void
     recoveryOffsiteBackupFixture($scratch, $options['backup'] ?? '20260115-023000', $options['backup_options'] ?? []);
 }
 
-/** Runs a full --apply and returns the operation ID it generated. */
+/**
+ * Runs a full --apply against the parity target. The operation ID the run
+ * generated is in its output: see recoveryOperationIdIn().
+ *
+ * @return array{exit: int, output: string}
+ */
 function recoveryApply(string $scratch, array $envOverrides = [], string $backupId = '20260115-023000'): array
 {
-    $result = recoverHostRun($scratch, [
+    return recoverHostRun($scratch, [
         '--apply', '--target', 'parity-target', '--backup', $backupId,
     ], $envOverrides);
-
-    return $result;
 }
 
+/** The operation ID from a run's machine-readable RATEGURU_RECOVER_RESULT line. */
 function recoveryOperationIdIn(string $output): string
 {
     expect(preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $output, $matches))
