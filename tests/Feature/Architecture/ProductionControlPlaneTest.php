@@ -649,11 +649,189 @@ it('introduces no second GitHub Environment', function () {
     expect($environments)->toBe(['production-tits-guru', 'staging']);
 });
 
-it('never gives a staging workflow the main-only gate', function (string $file) {
-    // Staging runs from develop and from any ref an operator selects. A gate
-    // there would break the thing develop exists for.
+it('gates a staging operation on develop, never on main', function (string $file) {
+    // Staging has the same exposure for the same reason — the `staging`
+    // Environment restricts no refs, so a dispatch from an arbitrary branch would
+    // run THAT branch's YAML with staging's credentials — so it has the same
+    // shape of gate. What differs is the ref it admits: develop, never main.
+    //
+    // `deploy-staging.yml` is the one exception and is excluded below: it takes a
+    // ref input, and deploying an operator-selected ref to staging is the whole
+    // point of it.
     $workflow = controlPlaneWorkflow($file);
+    $gate = data_get($workflow, 'jobs.validate-ref');
+
+    expect($gate)->not->toBeNull("{$file} has no control-plane gate");
+    expect(data_get($gate, 'environment'))
+        ->toBeNull("{$file}: the gate must hold no GitHub Environment");
+
+    // EXECUTED, not grepped. Substring checks on the gate's text pass just as
+    // happily against a gate that rejects develop and admits everything else —
+    // the one mistake a develop-only gate can actually make. So each staging
+    // gate runs, the same way the production ones do.
+    $run = (string) data_get($gate, 'steps.0.run');
+    $script = tempnam(sys_get_temp_dir(), 'staging-gate-');
+    file_put_contents($script, "#!/usr/bin/env bash\n".$run);
+
+    try {
+        foreach ([
+            'refs/heads/develop' => true,
+            'refs/heads/main' => false,
+            'refs/tags/v1.2.3' => false,
+            'refs/heads/feature/anything' => false,
+            'refs/heads/not-develop' => false,
+            'refs/tags/develop' => false,
+            '' => false,
+        ] as $ref => $allowed) {
+            $output = [];
+            exec('env RUN_REF='.escapeshellarg($ref).' bash '.escapeshellarg($script).' 2>&1', $output, $exit);
+
+            expect($exit === 0)->toBe(
+                $allowed,
+                "{$file}: ".($allowed ? "{$ref} must be allowed" : "{$ref} must be refused").":\n".implode("\n", $output),
+            );
+        }
+    } finally {
+        @unlink($script);
+    }
+
+    // Every Environment-bearing job downstream of it, at any depth.
+    $environmentJobs = collect(data_get($workflow, 'jobs'))
+        ->filter(static fn (array $job): bool => isset($job['environment']))
+        ->keys()
+        ->all();
+
+    expect($environmentJobs)->not->toBeEmpty("{$file} has no Environment job at all");
+
+    foreach ($environmentJobs as $job) {
+        expect(controlPlaneJobIsDownstreamOf($workflow, $job, 'validate-ref'))
+            ->toBeTrue("{$file}: job '{$job}' holds an Environment without being downstream of validate-ref");
+    }
+})->with(collect(controlPlaneWorkflowsByRef()['develop'])
+    // Excluded deliberately: it takes a ref input, so an arbitrary ref IS its
+    // purpose. Named here rather than filtered by a property, so removing the
+    // input would not silently exempt it.
+    ->reject(static fn (string $file): bool => $file === 'deploy-staging.yml')
+    ->values()
+    ->all());
+
+it('uses a byte-identical gate in every gated staging workflow', function () {
+    // Five copies is five chances for one to drift, and the production side
+    // already learned that lesson: a behavioural check against one workflow let a
+    // relaxed gate elsewhere pass. Each copy is executed above; here they are
+    // pinned to each other, which is what makes a single divergent edit visible.
+    $gates = [];
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        if ($file === 'deploy-staging.yml') {
+            continue;
+        }
+
+        $gates[$file] = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+    }
+
+    expect($gates)->toHaveCount(5);
+    expect(array_unique(array_values($gates)))
+        ->toHaveCount(1, 'the develop-only gate has drifted between workflows: '.implode(', ', array_keys($gates)));
+});
+
+it('leaves staging deployment ungated, because selecting a ref is its purpose', function () {
+    // The exception, asserted as a property rather than left as an absence: if
+    // this ever gained a gate, the one workflow whose job is to deploy an
+    // operator-chosen ref would stop being able to.
+    $workflow = controlPlaneWorkflow('deploy-staging.yml');
 
     expect(data_get($workflow, 'jobs.validate-ref'))
-        ->toBeNull("{$file} must not be main-only: staging is where develop is verified");
-})->with(controlPlaneWorkflowsByRef()['develop']);
+        ->toBeNull('deploy-staging takes a ref input, so it must not be gated to one branch');
+    expect(data_get($workflow, 'on.workflow_dispatch.inputs.ref.required'))->toBeTrue();
+});
+
+it('never admits main into a staging gate, nor develop into a production one', function () {
+    // The two gates must not drift into each other. Read from source, both ways.
+    foreach (mainOnlyProductionWorkflows() as $file) {
+        $run = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+
+        expect($run)->toContain('refs/heads/main');
+        expect($run)->not->toContain('refs/heads/develop');
+    }
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        $run = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+
+        if ($run === '') {
+            continue;
+        }
+
+        expect($run)->toContain('refs/heads/develop');
+        expect($run)->not->toContain('refs/heads/main');
+    }
+});
+
+it('requires the staging Environment to admit the release tag as well as develop', function () {
+    // A near-miss worth a guard of its own. Restricting the `staging` Environment
+    // to `develop` looks like the obvious hardening and would refuse EVERY
+    // release: release.yml triggers on `v*`, and its staging verification job
+    // runs with `environment: staging`, so the artifact could never be verified
+    // and production could never be reached.
+    //
+    // The premise is asserted rather than assumed, so if release.yml ever stopped
+    // verifying on staging this guard would stop demanding the tag rule.
+    $release = controlPlaneWorkflow('release.yml');
+
+    expect($release['on'])->toBe(['push' => ['tags' => ['v*']]]);
+    expect(data_get($release, 'jobs.deploy-staging.environment'))->toBe('staging');
+
+    // So every place that tells an operator what to allow must say both.
+    $sources = ['infrastructure/runbooks/deployment-targets.md'];
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        if ($file === 'deploy-staging.yml') {
+            continue;
+        }
+
+        $sources[] = '.github/workflows/'.$file;
+    }
+
+    foreach ($sources as $source) {
+        $text = File::get(base_path($source));
+
+        // Asserted, never skipped. A `continue` here would let a listed source
+        // drop out of every check below by rewording one phrase — and the thing
+        // being checked is wording, so that is exactly how it would go.
+        expect($text)->toContain(
+            'staging` Environment',
+            // Pest's toContain is variadic, so this second string is a second
+            // needle rather than a message: both are required, which is what the
+            // guidance has to name to be guidance at all.
+            'allowed refs',
+        );
+
+        // Scoped to the passage that actually discusses the staging restriction.
+        // Searching the whole runbook for `v*` proves nothing — the production
+        // section mentions it for its own reasons, so a develop-only staging
+        // instruction would pass while the file still "contained" the tag. That
+        // is exactly what a first version of this guard did.
+        if (str_ends_with($source, '.md')) {
+            $heading = '### Staging has the same gate, and the same gap';
+            $start = strpos($text, $heading);
+
+            expect($start)->not->toBeFalse("{$source} no longer has the staging Environment section this guard reads");
+
+            $next = strpos($text, "\n### ", $start + strlen($heading));
+            $passage = substr($text, $start, $next === false ? null : $next - $start);
+        } else {
+            $passage = $text;
+        }
+
+        // Whatever the wording, a develop-only instruction must not survive where
+        // someone is being told how to restrict this Environment.
+        expect(preg_match('/(deployment branches|allowed refs) to `develop`(?! `| and)/i', $passage))
+            ->toBe(0, "{$source} tells an operator to allow develop alone, which would refuse every release");
+
+        // The INSTRUCTION, not a mention. `v*` appears in this passage twice —
+        // once telling the operator what to add, once explaining why — and a
+        // guard satisfied by either would pass with the instruction deleted and
+        // only the explanation left. So the thing to add is what is required.
+        expect($passage)->toContain('the tag pattern `v*`');
+    }
+});

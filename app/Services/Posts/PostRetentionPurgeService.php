@@ -17,7 +17,7 @@ use InvalidArgumentException;
 /**
  * The single sanctioned boundary allowed to permanently remove an
  * author-deleted post and its graph (docs/architecture/post-lifecycle.md).
- * PR-C RESTRICT FKs make any other physical deletion path fail by design;
+ * The RESTRICT FKs make any other physical deletion path fail by design;
  * this service deletes the child graph explicitly, bottom-up, in one
  * transaction, then releases the post's media asset reference — DB-only,
  * physical files stay for the media grace period.

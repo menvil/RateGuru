@@ -7,7 +7,7 @@ use App\Models\User;
 class ModerationPolicy
 {
     /**
-     * Content moderation requires role AND lifecycle eligibility (PR-F): a
+     * Content moderation requires role AND lifecycle eligibility: a
      * sanctioned moderator keeps role=Moderator but loses every privileged
      * capability until restored to Active.
      */

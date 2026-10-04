@@ -34,7 +34,7 @@ final class SavePostAction
         $postSave = DB::transaction(function () use ($user, $post): PostSave {
             // Lock order: Actor User -> Post -> PostSave. Saved posts are
             // private state: every living account (sanctions included) may
-            // manage them, a Deleted tombstone may not — PR-B removed its
+            // manage them, a Deleted tombstone may not — tombstoning removed its
             // rows and a stale request must never recreate them.
             $lockedActor = $this->lockActor($user);
 

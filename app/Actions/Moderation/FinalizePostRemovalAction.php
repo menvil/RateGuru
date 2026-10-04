@@ -43,7 +43,7 @@ final class FinalizePostRemovalAction
         }
 
         DB::transaction(function () use ($admin, $post, $reason): void {
-            // Lock order: Actor User -> Post (PR-F).
+            // Lock order: Actor User -> Post.
             $lockedActor = $this->lockActor($admin);
 
             $locked = Post::withTrashed()

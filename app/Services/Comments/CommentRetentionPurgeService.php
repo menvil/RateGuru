@@ -20,7 +20,7 @@ use InvalidArgumentException;
  * a purely author-deleted leaf comment is physically removed after its
  * retention window, but every hold wins over the clock — structural
  * anchors (any child row, trashed included), parent-post author retention
- * (PR-E restore must recover the untouched discussion graph), parent-post
+ * (a restore must recover the untouched discussion graph), parent-post
  * moderation states (post-level cleanup owns the graph), moderation
  * evidence (a comment still Hidden or finalized never enters ordinary
  * author cleanup) and open reports.

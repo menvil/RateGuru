@@ -22,8 +22,9 @@ final class StoredMediaCleaner
      * Skips deletion when another MediaAsset — active or soft-deleted —
      * already legitimately owns this exact (disk, path). A soft-deleted
      * avatar asset deliberately keeps its physical file on disk (orphan
-     * cleanup is deferred to PR-07), so excluding trashed rows here could
-     * delete that retained file out from under it on a path collision.
+     * cleanup is a separate, still-outstanding decision), so excluding trashed
+     * rows here could delete that retained file out from under it on a path
+     * collision.
      */
     public function deleteIfUnclaimed(StoredMedia $media): void
     {

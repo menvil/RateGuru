@@ -18,12 +18,12 @@ use Illuminate\Support\Facades\DB;
  *
  * Race semantics — exactly two outcomes:
  * - notifier wins: the row is written under lock; anonymization waits,
- *   then its PR-B cleanup removes the identity-bearing row (actor_id/
+ *   then its cleanup removes the identity-bearing row (actor_id/
  *   author_id keys) — no old PII remains;
  * - anonymization wins: the locked re-read sees Deleted and nothing is
  *   created.
  *
- * Recipient rule mirrors PR-F: every living account (sanctions included)
+ * Recipient rule mirrors the lifecycle policy: every living account (sanctions included)
  * keeps its inbox; only a Deleted tombstone receives nothing. This is not
  * a general notification bus — notifications without identity snapshots
  * do not need it.

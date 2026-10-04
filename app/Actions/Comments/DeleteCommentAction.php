@@ -50,7 +50,7 @@ final class DeleteCommentAction
             // A finalized moderation removal must never cross into ordinary
             // author cleanup: the row is moderation evidence under the
             // moderation retention policy. Hidden-but-not-finalized keeps
-            // its PR-D author-delete behavior.
+            // its author-delete behavior.
             if ($locked->isModerationRemovalFinalized()) {
                 throw CannotDeleteCommentException::becauseUserIsNotAllowed();
             }
@@ -66,7 +66,7 @@ final class DeleteCommentAction
 
             // Author rule: the child discussion is frozen while the parent
             // post is not a live public surface (author-deleted, Hidden or
-            // gone) — PR-E restore must recover the exact untouched graph.
+            // gone) — a restore must recover the exact untouched graph.
             // Moderation actions are deliberately not subject to this rule.
             if ($lockedPost === null || ! $lockedPost->canReceiveComments()) {
                 throw CannotDeleteCommentException::becauseUserIsNotAllowed();

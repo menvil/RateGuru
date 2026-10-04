@@ -81,7 +81,7 @@ enum UserStatus: string
     }
 
     /**
-     * Public profile/identity mutation is Active-only (PR-F): a sanctioned
+     * Public profile/identity mutation is Active-only: a sanctioned
      * account keeps its existing identity and avatar visible but may not
      * change them. The separate password-security flow and account
      * self-deletion are deliberately NOT gated by this capability.

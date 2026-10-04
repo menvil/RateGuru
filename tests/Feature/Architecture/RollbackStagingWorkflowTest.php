@@ -34,9 +34,14 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
     expect(array_keys((array) data_get($workflow, 'on.workflow_dispatch.inputs')))
         ->toBe(['mode', 'release-id']);
 
-    // Minimal permissions, the staging environment boundary, one job.
+    // Minimal permissions, the staging environment boundary, and two jobs: the
+    // develop-only control-plane gate, then the rollback that depends on it. The
+    // gate holds no Environment, so a run from the wrong ref never reaches the
+    // credentials — see ProductionControlPlaneTest for what it admits.
     expect($workflow['permissions'])->toBe(['contents' => 'read'])
-        ->and(array_keys($workflow['jobs']))->toBe(['rollback'])
+        ->and(array_keys($workflow['jobs']))->toBe(['validate-ref', 'rollback'])
+        ->and(data_get($workflow, 'jobs.validate-ref.environment'))->toBeNull()
+        ->and((array) data_get($workflow, 'jobs.rollback.needs'))->toBe(['validate-ref'])
         ->and(data_get($workflow, 'jobs.rollback.environment'))->toBe('staging')
         ->and(data_get($workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-24.04');
 

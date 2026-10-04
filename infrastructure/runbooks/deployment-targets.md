@@ -138,6 +138,41 @@ graph below inherits the gate without any other `needs` edge changing.
 tagged commit must be contained in `main`, checked fail-closed before anything is
 built — which is what keeps `v*` from being an independent entrance to production.
 
+### Staging has the same gate, and the same gap
+
+The `staging` Environment restricts no refs, so the exposure is the same shape:
+dispatching a staging operation from an arbitrary branch would run **that
+branch's** YAML with staging's bootstrap and deploy credentials. Five workflows
+therefore carry the same gate admitting `refs/heads/develop` —
+`prepare-staging-host`, `repair-staging`, `rollback-staging`, `restore-staging`
+and `recover-staging`.
+
+`deploy-staging` deliberately has none: it takes a `ref` input, and deploying an
+operator-selected ref to staging is the entire point of it.
+
+**And the same limitation applies, more plainly here.** A gate written in a
+workflow binds only refs whose workflow contains it, so dispatching a ref from
+*before* the gate existed runs that ref's unguarded job with the Environment. No
+check inside the YAML can prevent that — a job condition, a first failing step, a
+reusable workflow called with `uses:` all live at the selected ref.
+
+What closes it is the same thing that closes it for production: restricting the
+Environment's allowed refs, so GitHub refuses the run before any job starts
+whatever the selected ref says. In *Settings → Environments → staging →
+Deployment branches and tags*, choose **Selected branches and tags** and add two
+rules — the branch `develop`, and the tag pattern `v*`.
+
+**Both rules, and the tag one is not optional.** `release.yml` triggers on `v*`,
+and its staging verification job runs with `environment: staging` — so a
+`develop`-only restriction would refuse every release at the point where the
+artifact is verified on staging, before it could ever reach production. This is
+the same shape as the production Environment, and for the same reason: the
+operational workflows run from a branch, the release path runs from a tag, and
+both need to reach their Environment.
+
+Until the restriction is set, treat the staging gates as guard rails — they make
+the ordinary mistake impossible, and they are not a boundary.
+
 ### What the gate is, and is not
 
 Worth stating precisely, because an in-workflow check is easy to over-read.

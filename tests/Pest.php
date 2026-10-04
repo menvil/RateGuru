@@ -234,11 +234,35 @@ function operationalFiles(): array
 }
 
 /**
+ * Is this run measuring a `develop → main` promotion?
+ *
+ * Every diff-based scope guard asks "what did THIS change touch", and answers it
+ * by diffing against the base. That question only has a meaning when the base is
+ * the branch the work was cut from. A promotion into `main` compares against a
+ * branch hundreds of commits behind, so the "change" becomes the whole history
+ * of develop and the guards report everything as newly touched — which is a
+ * property of the comparison, not a defect in the code.
+ *
+ * Those guards already skip when there is no base at all (a push event). A
+ * promotion is the same situation for the same reason, so it resolves to no base
+ * and they skip identically, rather than each guard needing to know about it.
+ */
+function branchIsPromotionToMain(): bool
+{
+    return getenv('GITHUB_BASE_REF') === 'main';
+}
+
+/**
  * The revision this branch is measured against: the pull request's own base
- * commit in CI, `origin/develop` locally, or null when neither is available.
+ * commit in CI, `origin/develop` locally, or null when neither is available —
+ * which a promotion into `main` also resolves to, see above.
  */
 function branchBaseRevision(): ?string
 {
+    if (branchIsPromotionToMain()) {
+        return null;
+    }
+
     $baseSha = getenv('BASE_SHA');
 
     if (is_string($baseSha) && $baseSha !== '' && gitSucceeds(['cat-file', '-e', $baseSha.'^{commit}'])) {

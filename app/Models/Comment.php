@@ -79,7 +79,7 @@ class Comment extends Model
 
     /**
      * Finalized moderation removal: Hidden + moderation_removed_at set.
-     * Deliberately trashed-agnostic — PR-D allows Hide -> author Delete,
+     * Deliberately trashed-agnostic — the lifecycle allows Hide -> author Delete,
      * and a finalized row stays moderation evidence either way
      * (docs/architecture/moderation-content-lifecycle.md).
      */
