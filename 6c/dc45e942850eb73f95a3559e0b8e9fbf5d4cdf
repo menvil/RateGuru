@@ -1,0 +1,108 @@
+resources/views/filament/pages/admin-ui-kit/navigation.blade.php
+  s_68bd935861719d::t_9118393c1e41b8 1-47,51-61,64-127,129-140
+  s_68bd935861719d::t_acc767510f3167 48-50,62-63,128
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_68bd935861719d::t_4f47754578c3bf 1-116,118-120,122-123,129-165
+  s_68bd935861719d::t_c15b7393e46787 117,121,124-128
+app/Providers/Filament/AdminPanelProvider.php
+  s_68bd935861719d::t_236b287c57ccce 36
+resources/views/components/admin/ui/badge.blade.php
+  s_68bd935861719d::t_fbf7d51f7037a7 1-26
+resources/views/components/admin/ui/search-field.blade.php
+  s_68bd935861719d::t_94d0c820a21836 1-34
+resources/views/filament/pages/admin-ui-kit.blade.php
+  s_68bd935861719d::t_8db60bf1baca57 1-103
+tests/Feature/Admin/AdminThemeTest.php
+  s_68bd935861719d::t_0de7f9ff5c1cab 1-75,78-86
+  s_68bd935861719d::t_b402089fc787b0 76-77
+resources/views/filament/pages/admin-ui-kit/tables.blade.php
+  s_68bd935861719d::t_c9055856d537af 1-91,93-157,159-214
+  s_68bd935861719d::t_db9224a951030b 92,158
+tests/Feature/Admin/AdminDesignSystemSeparationTest.php
+  s_68bd935861719d::t_c2ff685c84643a 24-25
+  s_68bd935861719d::t_f153aca699d17c 1-23,26-121
+resources/views/components/admin/ui/icon.blade.php
+  s_68bd935861719d::t_5a11171a564693 1-48,51-77
+  s_68bd935861719d::t_01d66be6b2d88c 49-50
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_68bd935861719d::t_e4afb85aa5e980 1-57
+resources/views/components/admin/ui/inline-notice.blade.php
+  s_68bd935861719d::t_caba8aa5d592bb 1-31
+vite.config.js
+  s_68bd935861719d::t_e10d7cf79b26b6 9
+resources/views/components/admin/ui/text-field.blade.php
+  s_68bd935861719d::t_d26751bf43e15b 1-58
+resources/views/components/admin/ui/button.blade.php
+  s_68bd935861719d::t_8c8c97630c76e8 1-46
+resources/views/components/admin/ui/card.blade.php
+  s_68bd935861719d::t_a1b8a12068a5eb 1-32
+resources/views/filament/pages/admin-ui-kit/feedback.blade.php
+  s_68bd935861719d::t_a6ca6e48f6fbcb 1-51
+docs/design/admin/migration-plan.md
+  s_68bd935861719d::t_6e1e3835a97460 1-89
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_68bd935861719d::t_530085fbd2917b 1-174
+resources/css/filament/admin/theme.css
+  s_68bd935861719d::t_e10d7cf79b26b6 1-2,4-48
+  s_68bd935861719d::t_389a6f19e35ced 3
+resources/css/filament/admin/tokens.css
+  s_68bd935861719d::t_eede8b433a543a 26,156,174-176
+  s_68bd935861719d::t_4953c68d5ed306 1-25,27-155,157-173,177-180
+resources/views/components/admin/ui/tabs.blade.php
+  s_68bd935861719d::t_9b99c707e11fd4 1-38
+resources/views/components/admin/ui/skeleton.blade.php
+  s_68bd935861719d::t_58145739e8fa03 1-32
+docs/design/design-contract.md
+  s_68bd935861719d::t_a12e155dade975 67-82
+resources/views/filament/pages/admin-ui-kit/layout.blade.php
+  s_68bd935861719d::t_dbe0d9c9e2226a 1-56
+resources/css/filament/admin/components.css
+  s_68bd935861719d::t_26f6169fd71e61 1-469,471-734,740-1443,1446-1457,1459-2011,2017-2331
+  s_68bd935861719d::t_389a6f19e35ced 470
+  s_68bd935861719d::t_acc767510f3167 1444-1445,1458
+  s_68bd935861719d::t_01d66be6b2d88c 735-739,2012-2016
+resources/views/components/admin/ui/icon-button.blade.php
+  s_68bd935861719d::t_f943f9bdee7992 1-34
+resources/views/filament/pages/admin-ui-kit/spec.blade.php
+  s_68bd935861719d::t_317930768a0556 1-57
+app/Filament/Pages/AdminUiKit.php
+  s_68bd935861719d::t_acc767510f3167 497-508
+  s_68bd935861719d::t_97071b8b3ff01b 1-496,509-848
+resources/views/components/admin/ui/textarea.blade.php
+  s_68bd935861719d::t_b61197c858d752 1-87
+resources/views/filament/pages/admin-ui-kit/actions.blade.php
+  s_68bd935861719d::t_5e2328c37a1895 1-91
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_74f5cc1d3e24f2 1-419
+resources/views/filament/pages/admin-ui-kit/foundations.blade.php
+  s_68bd935861719d::t_91f69fb48a57e6 1-116
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_68bd935861719d::t_976fa74280c4bd 27-31,47-48
+  s_68bd935861719d::t_da5f6e1e3c6d70 1-26,32-46,49-59
+resources/views/filament/pages/admin-ui-kit/status.blade.php
+  s_68bd935861719d::t_db9224a951030b 70
+  s_68bd935861719d::t_80e10df01f2c66 1-43,45-69,71-111
+  s_68bd935861719d::t_acc767510f3167 44
+resources/views/filament/pages/admin-ui-kit/localization.blade.php
+  s_68bd935861719d::t_dd92b275f4154f 1-95
+docs/design/admin/ui-review-checklist.md
+  s_68bd935861719d::t_83807180b12dec 1-86
+resources/views/components/admin/ui/empty-state.blade.php
+  s_68bd935861719d::t_8841801b53c590 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6cdc45e942850eb73f95a3559e0b8e9fbf5d4cdf",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
