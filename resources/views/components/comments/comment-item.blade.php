@@ -1,3 +1,18 @@
+@if($isTombstone)
+    {{-- Structural tombstone: a removed parent that still anchors surviving
+         replies. Renders only a neutral placeholder — no body, identity,
+         avatar, votes or actions may reach the HTML in any form. --}}
+    <article
+        id="comment-{{ $comment->id }}"
+        data-testid="comment-tombstone"
+        class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
+    >
+        <div aria-hidden="true"></div>
+        <p class="italic leading-5 text-rg-muted">
+            {{ $comment->isAuthorDeleted() ? __('ui.comments.tombstone_deleted') : __('ui.comments.tombstone_hidden') }}
+        </p>
+    </article>
+@else
 <article
     id="comment-{{ $comment->id }}"
     data-testid="comment-item"
@@ -6,20 +21,20 @@
     x-on:keydown.escape.window="actionsOpen = false"
     x-on:dropdown-opened.window="if ($event.detail !== menuId) actionsOpen = false"
 >
-    @if($comment->user?->username)
-        <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-            <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user->name" size="md" />
+    @if($comment->user?->public_username)
+        <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+            <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user->name" size="md" />
         </a>
     @else
-        <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
+        <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
     @endif
 
     <div class="min-w-0">
         <div class="flex min-w-0 items-start justify-between gap-2">
             <p class="min-w-0">
-                @if($comment->user?->username)
-                    <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
-                        {{ '@'.$comment->user->username }}
+                @if($comment->user?->public_username)
+                    <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
+                        {{ '@'.$comment->user->public_username }}
                     </a>
                 @else
                     <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? __('ui.user.unknown') }}</span>
@@ -68,7 +83,7 @@
                             <button
                                 type="button"
                                 wire:click="hideComment({{ $comment->id }})"
-                                wire:confirm="{{ __('ui.comments.hide') }}?"
+                                wire:confirm="{{ __('ui.comments.hide_confirm') }}"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
@@ -80,7 +95,7 @@
                             <button
                                 type="button"
                                 wire:click="deleteComment({{ $comment->id }})"
-                                wire:confirm="{{ __('ui.comments.delete') }}?"
+                                wire:confirm="{{ __('ui.comments.delete_confirm') }}"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
@@ -135,3 +150,4 @@
         </div>
     </div>
 </article>
+@endif

@@ -1,0 +1,246 @@
+name: Deploy to staging
+
+# Manual-only by design: staging deployment is an operator decision, never an
+# automatic reaction to a green build. The target is fixed to staging-main by
+# this workflow — an operator selects what to deploy, never where.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to deploy
+        required: true
+        default: develop
+        type: string
+
+      run-migrations:
+        description: Run Laravel migrations before switching current
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # Staging source and release policy — the only part of the build that is
+  # staging-specific. The mechanical build itself lives in the shared
+  # .github/actions/build-rateguru action.
+  resolve:
+    name: Resolve staging source
+    runs-on: ubuntu-24.04
+
+    outputs:
+      checkout_ref: ${{ steps.source.outputs.checkout_ref }}
+      source_ref: ${{ steps.source.outputs.source_ref }}
+      release_version: ${{ steps.source.outputs.release_version }}
+      run_migrations: ${{ steps.source.outputs.run_migrations }}
+
+    steps:
+      - name: Resolve exact source revision
+        id: source
+        shell: bash
+        env:
+          DISPATCH_REF: ${{ inputs.ref }}
+          DISPATCH_RUN_MIGRATIONS: ${{ inputs.run-migrations }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "${DISPATCH_REF}"
+
+          checkout_ref="${DISPATCH_REF}"
+          source_ref="${DISPATCH_REF}"
+
+          case "${DISPATCH_RUN_MIGRATIONS}" in
+            true|false)
+              run_migrations="${DISPATCH_RUN_MIGRATIONS}"
+              ;;
+            *)
+              echo "Invalid run-migrations value" >&2
+              exit 1
+              ;;
+          esac
+
+          # Staging release policy: deploying a version-shaped ref keeps that
+          # version in the release ID, anything else (a branch, a bare SHA) is
+          # v0.0.0. Production's version policy is the validated tag instead —
+          # the two never share a version rule, only the ID format.
+          normalized_source_ref="${source_ref#refs/tags/}"
+          release_version="v0.0.0"
+
+          if [[ "${normalized_source_ref}" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]]; then
+            release_version="${BASH_REMATCH[1]}"
+          fi
+
+          {
+            echo "checkout_ref=${checkout_ref}"
+            echo "source_ref=${source_ref}"
+            echo "release_version=${release_version}"
+            echo "run_migrations=${run_migrations}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Source: ${source_ref}"
+          echo "Checkout ref: ${checkout_ref}"
+          echo "Release version: ${release_version}"
+          echo "Run migrations: ${run_migrations}"
+
+  build:
+    name: Build immutable Laravel artifact
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    outputs:
+      source-sha: ${{ steps.build.outputs.source-sha }}
+      release-id: ${{ steps.build.outputs.release-id }}
+      artifact-name: ${{ steps.build.outputs.artifact-name }}
+      workflow-artifact-name: ${{ steps.build.outputs.workflow-artifact-name }}
+
+    steps:
+      # Two checkouts, deliberately. The build tooling is operational code and
+      # always comes from develop; the application is whatever the operator
+      # asked for. Keeping them apart is what lets a ref older than this
+      # workflow's own build action still be built and deployed — the selected
+      # application source is never required to contain the deployment tooling.
+      - name: Checkout trusted build tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout requested application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          path: application
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The one shared build implementation, loaded from the tooling checkout
+      # above and pointed at the application checkout beside it. This job holds
+      # no deployment secret and no GitHub Environment, so the arbitrary ref it
+      # builds can never reach the privileged deployment tooling below.
+      - name: Build immutable release artifact
+        id: build
+        uses: ./.github/actions/build-rateguru
+        with:
+          source-root: ${{ github.workspace }}/application
+
+          source-ref: ${{ needs.resolve.outputs.source_ref }}
+          release-version: ${{ needs.resolve.outputs.release_version }}
+
+          workflow-artifact-prefix: rateguru-release
+
+          # Staging artifacts are consumed by the deploy job in the same run;
+          # they are kept only briefly for manual re-download afterwards.
+          artifact-retention-days: "3"
+
+          node-cache: npm
+
+          release-metadata: '{"environment": "staging"}'
+
+  deploy:
+    name: Deploy Laravel application to staging
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve
+      - build
+    environment: staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Deployment code is always taken from the trusted develop branch,
+          # not from the arbitrary application ref being deployed.
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-release
+
+      - name: Deploy to staging
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deployment-target: staging-main
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.build.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
+
+          run-migrations: ${{ needs.resolve.outputs.run_migrations }}
+
+  # Deliberately a separate job that `needs: deploy`, so it can only start once
+  # the deploy job finished successfully — which means the artifact was
+  # extracted, current was switched, PHP-FPM reloaded, the HTTP health check
+  # passed, the queue worker transitioned and the active release was verified
+  # against release.json. A failed RateGuru deployment therefore never produces
+  # a deployment marker in Sentry or in Nightwatch, and this job never
+  # influences whether the deployment itself is considered successful.
+  observability:
+    name: Record deployment in Sentry and Nightwatch
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+      - deploy
+    environment: staging
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout observability action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Same rule as the deploy job: this is deployment tooling, so it comes
+          # from the trusted develop branch and never from the arbitrary
+          # application ref that was just deployed.
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      # One shared implementation for both observability systems. The
+      # Nightwatch marker is produced server-side, through the ordinary
+      # restricted deploy credential and the generic target-aware wrapper —
+      # the arbitrary application ref this run deployed never executes on the
+      # runner, and no observability credential is ever handed to it.
+      - name: Record deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
+        with:
+          deployment-target: staging-main
+          environment: staging
+
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-sha: ${{ needs.build.outputs.source-sha }}
+
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}

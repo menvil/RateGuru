@@ -40,13 +40,13 @@
     --rg-danger-muted: rgba(254, 202, 202, 0.82);
     --rg-danger-glow: rgba(252, 165, 165, 0.45);
 
-    --rg-food-carbonara-1: #3a1d10;
-    --rg-food-carbonara-2: #7a3a14;
-    --rg-food-carbonara-3: #c97a3a;
+    --rg-palette-warm-1: #3a1d10;
+    --rg-palette-warm-2: #7a3a14;
+    --rg-palette-warm-3: #c97a3a;
 
-    --rg-food-matcha-1: #0e3a2c;
-    --rg-food-matcha-2: #1d6e54;
-    --rg-food-matcha-3: #5fd1a6;
+    --rg-palette-green-1: #0e3a2c;
+    --rg-palette-green-2: #1d6e54;
+    --rg-palette-green-3: #5fd1a6;
 
     --rg-radius-sm: 8px;
     --rg-radius-control: 10px;

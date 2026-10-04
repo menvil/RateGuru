@@ -1,7 +1,5 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
 use App\Models\Tag;
@@ -46,12 +44,7 @@ it('opens upload modal with generic labels', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Title')
-        ->assertSee('Image')
-        ->assertDontSee('Dish title')
-        ->assertDontSee('Origin')
-        ->assertDontSee('Cuisine')
-        ->assertDontSee('Homemade')
-        ->assertDontSee('Restaurant');
+        ->assertSee('Image');
 });
 
 it('blocks guest users', function () {
@@ -73,8 +66,8 @@ it('updates title property', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade pasta')
-        ->assertSet('title', 'Homemade pasta');
+        ->set('title', 'Sample entry')
+        ->assertSet('title', 'Sample entry');
 });
 
 it('has description textarea', function () {
@@ -146,7 +139,7 @@ it('dispatches successful upload event', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->set('image', $file)
         ->call('submit')
         ->assertDispatched('post-uploaded')
@@ -183,7 +176,7 @@ it('does not dispatch event on validation failure', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->call('submit')
         ->assertNotDispatched('post-uploaded');
 });
@@ -217,7 +210,7 @@ it('shows validation error when image is missing', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->call('submit')
         ->assertHasErrors(['image' => 'required']);
 
@@ -275,12 +268,12 @@ it('creates post on successful upload', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->set('description', 'Fresh dinner')
         ->set('image', $file)
         ->call('submit');
 
-    expect(Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
+    expect(Post::query()->where('user_id', $user->id)->where('title', 'Sample Entry')->exists())->toBeTrue();
 });
 
 it('renders selectable tags', function () {
@@ -456,40 +449,6 @@ it('refreshes selectable tags when the upload modal opens again', function () {
         ->dispatch('upload-modal-opened')
         ->assertSee('NewTagAfterMount')
         ->assertSee('data-testid="upload-tag-'.$newTag->id.'"', false);
-});
-
-it('has cuisine truth default value', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSet('cuisineTruth', CuisineType::Unknown->value);
-});
-
-it('updates cuisineTruth property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('cuisineTruth', CuisineType::Italian->value)
-        ->assertSet('cuisineTruth', CuisineType::Italian->value);
-});
-
-it('has origin truth default value', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSet('originTruth', OriginType::Unknown->value);
-});
-
-it('updates originTruth property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('originTruth', OriginType::Homemade->value)
-        ->assertSet('originTruth', OriginType::Homemade->value);
 });
 
 it('has source url input', function () {

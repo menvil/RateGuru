@@ -3,6 +3,7 @@
 namespace App\Livewire\Posts;
 
 use App\Models\Post;
+use App\Queries\Posts\PublishedPostDetailsQuery;
 use App\Services\Feed\FeedPostDeletionService;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
@@ -15,9 +16,16 @@ use Livewire\Component;
 /** @property-read Post $post */
 final class PostShow extends Component
 {
+    private PublishedPostDetailsQuery $publishedPostDetails;
+
     public int $postId;
 
     public ?string $deleteError = null;
+
+    public function boot(PublishedPostDetailsQuery $publishedPostDetails): void
+    {
+        $this->publishedPostDetails = $publishedPostDetails;
+    }
 
     public function mount(Post $post): void
     {
@@ -26,10 +34,7 @@ final class PostShow extends Component
 
     public function getPostProperty(): Post
     {
-        return Post::query()
-            ->published()
-            ->with(['user', 'tags'])
-            ->findOrFail($this->postId);
+        return $this->publishedPostDetails->findOrFail($this->postId);
     }
 
     #[On('post-voted')]
@@ -73,13 +78,16 @@ final class PostShow extends Component
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
+        $ogImage = $openGraph->image($post);
         $user = auth()->user();
 
         return view('livewire.posts.post-show', [
             'ogDescription' => $openGraph->description($post),
-            'ogImage' => $openGraph->image($post),
+            'ogImage' => $ogImage,
+            'ogLocale' => $openGraph->locale(),
+            'ogSiteName' => $openGraph->siteName(),
             'ogTitle' => $openGraph->title($post),
-            'ogHasImage' => trim((string) $post->public_image_url) !== '',
+            'pageTitle' => $openGraph->title($post).' · '.$openGraph->siteName(),
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
             'projectSettings' => $projectSettings,

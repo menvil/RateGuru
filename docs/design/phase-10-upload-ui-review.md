@@ -23,8 +23,8 @@
 - [x] Image input exists (`type="file"`, `wire:model="image"`, `accept="image/*"`)
 - [x] Image preview exists (Alpine `x-data="{ previewUrl: null }"` with FileReader)
 - [x] Source URL input exists (`type="url"`, `wire:model.defer="sourceUrl"`)
-- [x] Origin selector exists (select with Unknown/Homemade/Restaurant options)
-- [x] Cuisine selector exists (select with all CuisineType enum values)
+- [x] Optional category selector exists and uses configured options.
+- [x] Optional author answers render for all active rating groups.
 - [x] Tags placeholder exists ("Tag selection coming soon")
 
 ## States

@@ -1,9 +1,12 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\PostResource;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('allows admin to access post resource index', function () {
@@ -44,13 +47,11 @@ it('does not expose create or edit pages in this phase', function () {
 
 it('renders an image column in the post resource table', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create([
-        'image_path' => 'posts/demo.jpg',
-        'image_url' => null,
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/demo.jpg')->create();
 
     $this->actingAs($admin);
 
+    // No variant generated yet: the original is all there is.
     Livewire::test(ListPosts::class)
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('public_image_url')
@@ -59,9 +60,42 @@ it('renders an image column in the post resource table', function () {
         ->assertSee(url('/storage/posts/demo.jpg'), false);
 });
 
+it('shows the smallest variant as the thumbnail, lazily, and links the original', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('posts/variants/thumb-640.jpg', 'image');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = Post::factory()->published()->withImage(path: 'posts/original.jpg', width: 4000, height: 3000)->create();
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
+        'media_asset_id' => $post->fresh()->image_asset_id,
+        'path' => 'posts/variants/thumb-640.jpg',
+    ]);
+
+    $html = Livewire::test(ListPosts::class)
+        ->assertTableColumnStateSet('public_image_url', url('/storage/posts/variants/thumb-640.jpg'), $post)
+        ->html();
+
+    expect($html)->toMatch('#<img[^>]*src="'.preg_quote(url('/storage/posts/variants/thumb-640.jpg'), '#').'"[^>]*loading="lazy"|<img[^>]*loading="lazy"[^>]*src="'.preg_quote(url('/storage/posts/variants/thumb-640.jpg'), '#').'"#')
+        ->and($html)->toContain('href="'.url('/storage/posts/original.jpg').'"')
+        ->and($html)->not->toContain('src="'.url('/storage/posts/original.jpg').'"');
+});
+
+it('loads the image variants with the posts, not once per row', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    Post::factory()->count(3)->published()->withImage()->create();
+
+    DB::enableQueryLog();
+    Livewire::test(ListPosts::class)->assertSuccessful();
+
+    $variantLookups = collect(DB::getQueryLog())
+        ->filter(fn ($q) => str_contains($q['query'], 'from "media_variants"') || str_contains($q['query'], 'from `media_variants`'))
+        ->count();
+
+    expect($variantLookups)->toBe(1);
+});
+
 it('renders a searchable, sortable title column', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    $post = Post::factory()->published()->create(['title' => 'Sample Entry']);
 
     $this->actingAs($admin);
 
@@ -69,7 +103,7 @@ it('renders a searchable, sortable title column', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('title')
         ->assertCanRenderTableColumn('title')
-        ->assertSee('Homemade Pasta')
+        ->assertSee('Sample Entry')
         ->assertSee(route('posts.show', $post), false);
 });
 

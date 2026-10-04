@@ -8,9 +8,11 @@ use App\Enums\CommentStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
+use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,7 @@ use Throwable;
 
 final class AddCommentAction
 {
+    use LocksActorForWrite;
     use RefreshesPostCommentsCount;
 
     private const MAX_BODY_LENGTH = 1000;
@@ -26,6 +29,7 @@ final class AddCommentAction
     public function __construct(
         private readonly RecalculatePostScoreAction $recalculatePostScore,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
     public function handle(?User $user, Post $post, string $body, ?Comment $parent = null): Comment
@@ -47,7 +51,7 @@ final class AddCommentAction
                 key: RateLimitKey::userAction('comment', $user),
                 maxAttempts: (int) config('rate_limits.comment.max_attempts'),
                 decaySeconds: (int) config('rate_limits.comment.decay_seconds'),
-                message: 'You are commenting too quickly. Please try again later.',
+                message: __('ui.rate_limit.commenting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotCommentException::becauseRateLimited($e->getMessage());
@@ -56,24 +60,64 @@ final class AddCommentAction
         $body = trim($body);
 
         if ($body === '') {
-            throw CannotCommentException::becauseBodyIsInvalid('Comment body is required.');
+            throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_required'));
         }
 
         if (mb_strlen($body) > self::MAX_BODY_LENGTH) {
-            throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
+            throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_too_long'));
         }
 
         if ($parent !== null) {
             if (! $parent->exists) {
-                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
             }
 
             if ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null) {
-                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
             }
         }
 
         $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
+            // Lock order: Actor User -> Post -> parent Comment -> insert
+            // (docs/architecture/user-lifecycle.md). Every pre-check above
+            // ran on possibly stale instances: an admin sanction, an author
+            // delete or a moderation hide may have landed since.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canComment()) {
+                throw CannotCommentException::becauseUserIsNotAllowed();
+            }
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveComments()) {
+                throw CannotCommentException::becausePostIsNotPublic();
+            }
+
+            // The pre-transaction parent checks above are only a fast path:
+            // the parent may be deleted or hidden between validation and
+            // insert. Re-read it under lock and revalidate every reply-target
+            // condition (same post, top-level, not author-deleted, Visible)
+            // so a reply can never be created beneath a parent that became a
+            // tombstone during this request — the losing side of that race
+            // must fail, not silently attach to removed content.
+            if ($parent !== null) {
+                $lockedParent = Comment::query()
+                    ->whereKey($parent->id)
+                    ->where('post_id', $post->id)
+                    ->whereNull('parent_id')
+                    ->where('status', CommentStatus::Visible)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($lockedParent === null) {
+                    throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
+                }
+            }
+
             $comment = Comment::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
@@ -82,21 +126,25 @@ final class AddCommentAction
                 'status' => CommentStatus::Visible,
             ]);
 
-            $this->refreshCommentsCount($post);
+            $this->refreshCommentsCount($lockedPost);
             $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;
         });
 
         if ($post->user_id !== $user->id) {
-            $post->loadMissing('user');
-
             try {
-                $post->user?->notify(new PostCommentedNotification(
-                    post: $post,
-                    comment: $comment,
-                    actor: $user,
-                ));
+                // Identity-bearing DB notification: serialized against
+                // anonymization, constructed from the FRESH locked actor.
+                $this->safeNotifier->send(
+                    recipientId: (int) $post->user_id,
+                    identitySourceId: (int) $user->id,
+                    notification: fn (User $freshActor) => new PostCommentedNotification(
+                        post: $post,
+                        comment: $comment,
+                        actor: $freshActor,
+                    ),
+                );
             } catch (Throwable $exception) {
                 report($exception);
 

@@ -13,16 +13,22 @@
                 <x-ui.empty-state
                     :title="__('ui.feed.following_empty_title')"
                     :description="__('ui.feed.following_empty_description')"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
+                    data-testid="feed-empty-state"
                 />
             @elseif(filled($search))
                 <x-ui.empty-state
                     :title="__('ui.feed.no_results_title')"
                     :description="__('ui.feed.no_results_description', ['search' => $search])"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
+                    data-testid="feed-empty-state"
                 />
             @else
                 <x-ui.empty-state
                     :title="__('ui.feed.no_posts_title')"
                     :description="__('ui.feed.no_posts_description')"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
+                    data-testid="feed-empty-state"
                 />
             @endif
         @else
@@ -30,10 +36,12 @@
                 <x-feed.post-card
                     :post="$post"
                     :selected="$selectedPostId === $post->id"
+                    :rating-groups="$ratingGroups"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"
                     :can-moderate-post="$moderationPermissions[$post->id] ?? false"
+                    :eager-image="$loop->first"
                     wire:key="{{ $post->id }}"
                 />
             @endforeach

@@ -37,7 +37,8 @@ final class PostCommentedNotification extends Notification
             'actor_id' => $this->actor->id,
             'actor_name' => $this->actor->name,
             'actor_username' => $this->actor->username,
-            'message' => '@'.$this->actor->username.' commented on your post',
+            'message_key' => 'ui.notifications.messages.post_commented',
+            'message_params' => ['username' => $this->actor->username],
             'url' => $this->postUrl(),
         ];
     }

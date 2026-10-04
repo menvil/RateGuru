@@ -33,10 +33,21 @@ it('updates a user locale preference', function () {
     expect($user->fresh()->locale)->toBe('ru');
 });
 
+it('rejects a language the project does not offer, even though it is installed', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($withheld);
+    $user = User::factory()->create(['locale' => $offered]);
+
+    expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, $withheld))
+        ->toThrow(InvalidArgumentException::class, $withheld);
+
+    expect($user->fresh()->locale)->toBe($offered);
+});
+
 it('rejects unsupported locales at the action boundary', function () {
     $user = User::factory()->create(['locale' => 'en']);
 
-    expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, 'de'))
+    expect(fn () => app(UpdateUserLocaleAction::class)->handle($user, unsupportedLocale()))
         ->toThrow(InvalidArgumentException::class);
 
     expect($user->fresh()->locale)->toBe('en');

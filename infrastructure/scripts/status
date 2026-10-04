@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Unlike RATEGURU_COMMON_FILE above, this runs after common is sourced, so it
+# is gated by the same rateguru_test_overrides_allowed() check common's own
+# deployment.conf loading uses — a stray environment variable in a real root
+# shell can never silently redirect which health-check binary runs.
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_HEALTH_CHECK_CLI:-}" ]]; then
+    HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_CLI}"
+else
+    HEALTH_CHECK_BIN="/home/www/rateguru/bin/health-check"
+fi
+
+parse_target_args status "$@"
+
+# require_active_target validates the target ID, the whole registry, that the
+# target exists, and that it is lifecycle=active — all before ROOT is computed
+# below and any application path is inspected. A planned target (e.g.
+# tits-guru today), a disabled one, or an unknown ID is rejected here, before
+# any symlink is resolved or history file is read.
+require_active_target "${TARGET_ID}"
+
+ROOT="$(target_root "${TARGET_ID}")"
+LIFECYCLE="$(target_lifecycle "${TARGET_ID}")"
+ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+
+CURRENT_LINK="${ROOT}/current"
+PREVIOUS_LINK="${ROOT}/previous"
+HISTORY_FILE="${ROOT}/deployments/history.jsonl"
+
+print_link() {
+    local label="$1"
+    local link="$2"
+
+    if [[ -L "${link}" ]]; then
+        local path
+        local release
+
+        path="$(readlink -f "${link}")"
+        release="$(basename "${path}")"
+
+        printf '%-12s %s\n' "${label}:" "${release}"
+        printf '%-12s %s\n' "${label} path:" "${path}"
+    else
+        printf '%-12s %s\n' "${label}:" "not configured"
+    fi
+}
+
+echo "========================================"
+echo "RateGuru deployment status"
+echo "========================================"
+
+printf '%-12s %s\n' "Target:" "${TARGET_ID}"
+printf '%-12s %s\n' "Lifecycle:" "${LIFECYCLE}"
+printf '%-12s %s\n' "Environment class:" "${ENVIRONMENT_CLASS}"
+
+printf '%-12s %s\n' "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+echo
+echo "Releases"
+echo "----------------------------------------"
+
+print_link "Current" "${CURRENT_LINK}"
+print_link "Previous" "${PREVIOUS_LINK}"
+
+echo
+echo "Current release metadata"
+echo "----------------------------------------"
+
+if [[ -L "${CURRENT_LINK}" ]] \
+    && [[ -r "${CURRENT_LINK}/release.json" ]]
+then
+    if RELEASE_METADATA="$(jq . "${CURRENT_LINK}/release.json" 2>/dev/null)"
+    then
+        printf '%s\n' "${RELEASE_METADATA}"
+    else
+        echo "release.json is malformed"
+    fi
+else
+    echo "release.json is unavailable"
+fi
+
+echo
+echo "Health"
+echo "----------------------------------------"
+
+if "${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"; then
+    echo "Status: healthy"
+else
+    echo "Status: unhealthy"
+fi
+
+echo
+echo "Recent deployment history"
+echo "----------------------------------------"
+
+if [[ -r "${HISTORY_FILE}" ]]; then
+    while IFS= read -r history_entry; do
+        if ! jq . <<<"${history_entry}"; then
+            printf 'Malformed history entry: %s\n' "${history_entry}"
+        fi
+    done < <(tail -6 "${HISTORY_FILE}")
+else
+    echo "No deployment history"
+fi

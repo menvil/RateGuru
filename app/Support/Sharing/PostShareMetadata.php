@@ -15,35 +15,16 @@ final class PostShareMetadata
 
     public function forPost(Post $post): ShareMetadata
     {
-        $imageUrl = $this->resolveImageUrl($post);
+        $image = $this->openGraph->image($post);
+        $title = $this->openGraph->title($post);
 
         return new ShareMetadata(
-            title: $this->openGraph->title($post),
+            title: $title,
+            shareText: $title,
             description: $this->openGraph->description($post),
             url: $this->postUrl->canonical($post),
-            imageUrl: $imageUrl,
-            siteName: config('app.name', 'RateGuru'),
+            imageUrl: $image->url,
+            siteName: $this->openGraph->siteName(),
         );
-    }
-
-    private function resolveImageUrl(Post $post): ?string
-    {
-        $url = trim((string) $post->public_image_url);
-
-        if ($url === '') {
-            return null;
-        }
-
-        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
-            return $url;
-        }
-
-        if (str_starts_with($url, '//')) {
-            $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'https';
-
-            return $scheme.':'.$url;
-        }
-
-        return rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
     }
 }

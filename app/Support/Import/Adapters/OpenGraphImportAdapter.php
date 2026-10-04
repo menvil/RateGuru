@@ -21,7 +21,7 @@ class OpenGraphImportAdapter
     {
         $response = $this->client->get($url);
 
-        $metadata = $this->parser->parse($response->body(), $url);
+        $metadata = $this->parser->parse($response->body, $response->finalUrl);
 
         $imageUrl = null;
 

@@ -53,8 +53,8 @@
 </div>
 
 <div class="mt-auto border-t border-rg-border pt-4 flex flex-wrap gap-x-3 gap-y-2 px-3 text-xs text-rg-muted">
-    <span aria-disabled="true" class="cursor-not-allowed opacity-70">{{ __('ui.nav.about') }}</span>
-    <span aria-disabled="true" class="cursor-not-allowed opacity-70">{{ __('ui.nav.terms') }}</span>
-    <span aria-disabled="true" class="cursor-not-allowed opacity-70">{{ __('ui.nav.privacy') }}</span>
-    <span aria-disabled="true" class="cursor-not-allowed opacity-70">{{ __('ui.nav.contact') }}</span>
+    <a href="{{ route('pages.about') }}" class="transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">{{ __('ui.nav.about') }}</a>
+    <a href="{{ route('pages.terms') }}" class="transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">{{ __('ui.nav.terms') }}</a>
+    <a href="{{ route('pages.privacy') }}" class="transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">{{ __('ui.nav.privacy') }}</a>
+    <a href="{{ route('pages.contact') }}" class="transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">{{ __('ui.nav.contact') }}</a>
 </div>

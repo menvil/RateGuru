@@ -1,0 +1,196 @@
+name: Configure tits.guru
+
+# One button, one target, nothing to choose.
+#
+# Provisioning built tits-guru's identities, directories and service
+# configuration and deliberately left it empty. This is the operation that
+# gives it the two things it still lacks to be able to RUN — its database, and
+# the proof that its environment file and deploy key are in place — and
+# nothing else.
+#
+# It does NOT activate the target. tits-guru stays lifecycle=planned
+# afterwards, because lifecycle is permission to OPERATE a target, not a
+# description of how much of it exists. It grants no deploy sudo authorization,
+# deploys no application, configures no TLS, DNS or mail, and never writes the
+# registry. A green run is NOT "production is ready".
+#
+# WHAT IT SENDS. Exactly one thing: the target's deploy PUBLIC key, derived on
+# the runner from DEPLOY_SSH_KEY with `ssh-keygen -y`. Provisioning deliberately
+# left the deploy user's authorized_keys absent, and nothing else installs it,
+# so a target would stay permanently unreachable without this. The private key
+# is used on the runner and never uploaded.
+#
+# IT NEVER SENDS THE ENVIRONMENT FILE. The target's shared/.env is CANONICAL on
+# the host: an operator creates it there once as
+# rateguru-tits-guru:rateguru-tits-guru mode 0640, backups carry it as
+# environment.env, and a recovery restores it from the selected backup. GitHub
+# is not a copy of it and is never asked to resend it. The server-side operation
+# REQUIRES it to already exist and refuses to run without it. This is exactly
+# how staging already works.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Configuring creates a PostgreSQL role and database on the machine staging
+# also lives on, so it must not overlap a staging deploy, a rollback, a Prepare
+# Host run or any other mutation of the same host.
+#
+# The staging group is the right one BECAUSE both logical targets currently sit
+# on the same physical host. That is a fact about today's topology, not about
+# the targets.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  configure:
+    name: Configure the tits-guru target
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+
+    # READ THIS BEFORE CHANGING IT.
+    #
+    # This is the GitHub Environment — a box of credentials and protection
+    # rules. It is NOT the target's environment class. tits-guru is a
+    # production target, and `environment: production` is passed to the action
+    # below: that is what says so.
+    #
+    # The box is this target's own, which is the point: one GitHub Environment
+    # per target, so the credentials, reviewers and protection rules that reach
+    # tits-guru are not the ones that reach staging-main.
+    #
+    # What it must hold is small and exact: DEPLOY_HOST, DEPLOY_PORT and
+    # BOOTSTRAP_USER as variables, and BOOTSTRAP_SSH_KEY, BOOTSTRAP_KNOWN_HOSTS
+    # and DEPLOY_SSH_KEY as secrets. DEPLOY_SSH_KEY is read on the runner only,
+    # to derive the public half that becomes this target's authorized_keys;
+    # it is never uploaded. Today
+    # those name the machine staging also lives on — tits-guru has no separate
+    # server yet, and it does not need one to be configured. When it gets one,
+    # only these values change; nothing in this workflow does.
+    #
+    # A box that is not populated yet fails this run at its first step, with
+    # the action naming the missing value. That is a safe failure: nothing is
+    # uploaded and nothing on the host is touched.
+    environment: production-tits-guru
+
+    # Creating a role and a database, and verifying the target's material, on
+    # an already-provisioned host.
+    timeout-minutes: 20
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane. develop is the integration branch and staging's source; it is
+      # deliberately NOT allowed by the production-tits-guru Environment, so a
+      # production operation may only ever run privileged tooling that has been
+      # promoted through a develop -> main pull request. There is no second
+      # checkout, because there is no application source in this operation at
+      # all.
+      - name: Checkout trusted configuration tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure tits-guru
+        id: configure
+        uses: ./.github/actions/configure-rateguru-target
+        with:
+          deployment-target: tits-guru
+
+          # The TARGET's environment class, not the GitHub Environment above.
+          environment: production
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # Creating a database and reading root-owned material needs root. The
+          # restricted deploy credential reaches only the narrow wrappers and
+          # cannot do this; there is deliberately no fallback between them.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+          # Read on the runner and nowhere else: the action derives the public
+          # half with `ssh-keygen -y` and uploads only that. A provisioned
+          # target has no authorized_keys yet, and deriving it from the
+          # credential GitHub already holds is what keeps the deploy identity
+          # single-sourced.
+          deploy-ssh-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      # Phrased so a green run cannot be read as more than it is.
+      - name: Report what this run did and did not do
+        shell: bash
+        env:
+          CONFIGURED: ${{ steps.configure.outputs.configured }}
+          LIFECYCLE: ${{ steps.configure.outputs.lifecycle }}
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru configured"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Target | \`tits-guru\` |"
+            echo "| Lifecycle | \`${LIFECYCLE}\` — unchanged, because configuring never writes the registry |"
+            echo "| Environment file | required to pre-exist on the host; validated, never sent from here and never written |"
+            echo "| Database | ready |"
+            echo "| Deploy SSH key | public half installed from \`DEPLOY_SSH_KEY\`; the private key never left the runner |"
+            echo "| Deploy operational sudo access | **NOT enabled** |"
+            echo "| Application | **NOT deployed** |"
+            echo "| Public traffic | **NOT activated** |"
+            echo
+            echo "The next step is **not** \"deploy\". Mail, backups, TLS and public routing"
+            echo "are still owned by later phases, and activating the target is a separate"
+            echo "reviewed registry change."
+          } >> "${GITHUB_STEP_SUMMARY}"

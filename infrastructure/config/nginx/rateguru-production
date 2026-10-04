@@ -1,0 +1,31 @@
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name rateguru-production.internal;
+
+    root /home/www/rateguru/production/current/public;
+    index index.php;
+
+    access_log /var/log/nginx/rateguru-production-access.log;
+    error_log /var/log/nginx/rateguru-production-error.log;
+
+    client_max_body_size 64m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+
+        fastcgi_pass unix:/run/php/rateguru-production.sock;
+
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}

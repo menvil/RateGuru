@@ -22,7 +22,7 @@
 - Text tokens: `--rg-text`, `--rg-text-2`, `--rg-muted`, `--rg-muted-2`.
 - Accent tokens: `--rg-accent`, `--rg-accent-2`, `--rg-accent-soft`, `--rg-accent-border`.
 - Success/vote tokens: `--rg-good`, `--rg-good-soft`, `--rg-good-border`.
-- Food placeholder palettes: carbonara and matcha are first-class Phase 1 palettes.
+- Image placeholder palettes use neutral `warm`, `green`, `red`, `lime`, and `neutral` names.
 
 ## Typography
 
@@ -42,9 +42,9 @@
 - Feed tabs
 - Post card
 - Vote rail
-- Dish placeholder
+- Image placeholder
 - Binary choice
-- Cuisine chips
+- Rating option chips
 - Detail post
 - Results panel
 - Comments panel

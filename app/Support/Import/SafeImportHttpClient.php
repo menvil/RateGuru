@@ -3,101 +3,99 @@
 namespace App\Support\Import;
 
 use App\Exceptions\Import\ImportFetchException;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
+use App\Exceptions\Import\UnsafeImportUrlException;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
+use Throwable;
 
+/**
+ * The single application boundary for fetching a user-controlled import URL.
+ * Every hop — the initial request and every redirect — is independently
+ * resolved, validated, and pinned via UrlImportValidator before
+ * ImportHttpTransport ever opens a connection for it. Nothing here (or
+ * anywhere downstream) is allowed to hand a raw URL string to a generic HTTP
+ * client instead.
+ */
 class SafeImportHttpClient
 {
-    public function __construct(private readonly UrlImportValidator $validator) {}
+    private const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
-    public function get(string $url, ?int $maxBytes = null): Response
+    public function __construct(
+        private readonly UrlImportValidator $validator,
+        private readonly ImportHttpTransport $transport,
+    ) {}
+
+    public function get(string $url, ?int $maxBytes = null): SafeImportResponse
     {
-        $this->validator->validate($url);
+        $policy = new ImportFetchPolicy(
+            maxBytes: $maxBytes ?? (int) config('import.max_html_bytes'),
+            timeoutSeconds: (int) config('import.timeout_seconds'),
+            connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
+        );
 
-        $timeout = (int) config('import.timeout_seconds');
-        $connectTimeout = (int) config('import.connect_timeout_seconds');
         $maxRedirects = (int) config('import.max_redirects');
-        $maxBytes = $maxBytes ?? (int) config('import.max_html_bytes');
 
-        $hops = 0;
-        $currentUrl = $url;
+        $target = $this->validator->validate($url);
+        $hop = 0;
 
-        try {
-            $response = Http::timeout($timeout)
-                ->connectTimeout($connectTimeout)
-                ->withoutRedirecting()
-                ->get($currentUrl);
-        } catch (ConnectionException $e) {
-            throw ImportFetchException::connectionError($url, $e->getMessage());
-        }
+        while (true) {
+            $response = $this->transport->get($target, $policy);
 
-        while (in_array($response->status(), [301, 302, 303, 307, 308], true)) {
-            if ($hops >= $maxRedirects) {
-                throw ImportFetchException::connectionError($url, 'Too many redirects');
+            if (! in_array($response->status, self::REDIRECT_STATUSES, true)) {
+                break;
+            }
+
+            if ($hop >= $maxRedirects) {
+                throw ImportFetchException::tooManyRedirects($url);
             }
 
             $location = $response->header('Location');
 
-            if (empty($location)) {
-                throw ImportFetchException::connectionError($url, 'Redirect without Location header');
+            if ($location === null || $location === '') {
+                throw ImportFetchException::missingRedirectLocation($target->url);
             }
 
-            $currentUrl = $this->resolveRedirectUrl($location, $currentUrl);
-            $this->validator->validate($currentUrl);
+            $nextUrl = $this->resolveRedirectUrl($target->url, $location);
+            $hop++;
 
-            try {
-                $response = Http::timeout($timeout)
-                    ->connectTimeout($connectTimeout)
-                    ->withoutRedirecting()
-                    ->get($currentUrl);
-            } catch (ConnectionException $e) {
-                throw ImportFetchException::connectionError($url, $e->getMessage());
-            }
-
-            $hops++;
+            // Independently resolved, validated, and pinned for this exact
+            // hop — a redirect to a private address is rejected here before
+            // any connection to it is attempted, exactly like the initial
+            // URL is.
+            $target = $this->validator->validate($nextUrl, $hop);
         }
 
-        if ($response->failed()) {
-            throw ImportFetchException::requestFailed($url, $response->status());
-        }
+        $this->assertAcceptableStatus($response, $target->url);
 
-        $contentLength = (int) $response->header('Content-Length');
-
-        if ($contentLength > 0 && $contentLength > $maxBytes) {
-            throw ImportFetchException::responseTooLarge($url, $maxBytes);
-        }
-
-        if (strlen($response->body()) > $maxBytes) {
-            throw ImportFetchException::responseTooLarge($url, $maxBytes);
-        }
-
-        return $response;
+        return new SafeImportResponse(
+            status: $response->status,
+            headers: $response->headers,
+            body: $response->body,
+            finalUrl: $target->url,
+        );
     }
 
-    private function resolveRedirectUrl(string $location, string $currentUrl): string
+    private function resolveRedirectUrl(string $currentUrl, string $location): string
     {
-        if (str_starts_with($location, 'http://') || str_starts_with($location, 'https://')) {
-            return $location;
+        try {
+            $resolved = UriResolver::resolve(new Uri($currentUrl), new Uri($location));
+        } catch (Throwable) {
+            throw UnsafeImportUrlException::invalidUrl($location);
         }
 
-        $parsed = parse_url($currentUrl);
-        $base = ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? '');
+        // A fragment never travels to the server and has no business
+        // surviving into a URL that gets re-validated and fetched.
+        return (string) $resolved->withFragment('');
+    }
 
-        if (isset($parsed['port'])) {
-            $base .= ':'.$parsed['port'];
+    private function assertAcceptableStatus(ImportTransportResponse $response, string $url): void
+    {
+        // 204 has no body to work with; 206 is an unrequested, untrusted
+        // partial response — this pipeline never sends Range and has no
+        // support for reassembling partial content. Both are rejected
+        // rather than silently treated as a normal 2xx.
+        if ($response->status < 200 || $response->status >= 300 || $response->status === 204 || $response->status === 206) {
+            throw ImportFetchException::requestFailed($url, $response->status);
         }
-
-        if (str_starts_with($location, '//')) {
-            return ($parsed['scheme'] ?? 'https').':'.$location;
-        }
-
-        if (str_starts_with($location, '/')) {
-            return $base.$location;
-        }
-
-        $path = rtrim(dirname($parsed['path'] ?? ''), '/');
-
-        return $base.$path.'/'.$location;
     }
 }

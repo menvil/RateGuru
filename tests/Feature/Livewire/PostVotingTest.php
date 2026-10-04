@@ -209,6 +209,21 @@ it('can render post voting component', function () {
         ->assertSee('Down');
 });
 
+it('asks a guest to sign in only after a vote attempt', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id])
+        ->assertDontSee('Sign in to vote.')
+        ->assertSee('wire:click.stop="vote(\'up\')"', false)
+        ->assertSee('wire:click.stop="vote(\'down\')"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', 'Sign in to vote.')
+        ->assertSee('Sign in to vote.')
+        ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.');
+
+    $this->assertDatabaseCount('post_votes', 0);
+});
+
 it('calls vote action when up button is clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

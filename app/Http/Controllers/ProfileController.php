@@ -7,6 +7,8 @@ use App\Actions\Profile\UpdateUserIdentityAction;
 use App\Http\Requests\DeleteUserRequest;
 use App\Http\Requests\ProfileUpdateRequest;
 use App\Models\User;
+use App\Queries\UserConnectedAccountsQuery;
+use App\Support\Auth\SocialProviderAvailability;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -17,10 +19,18 @@ class ProfileController extends Controller
     /**
      * Display the user's profile form.
      */
-    public function edit(Request $request): View
-    {
+    public function edit(
+        Request $request,
+        UserConnectedAccountsQuery $connectedAccounts,
+        SocialProviderAvailability $socialProviders,
+    ): View {
+        $user = $request->user();
+
+        assert($user instanceof User);
+
         return view('profile.edit', [
-            'user' => $request->user(),
+            'user' => $user,
+            'connectedAccounts' => $connectedAccounts->forUser($user, $socialProviders->available()),
         ]);
     }
 

@@ -19,7 +19,7 @@ final class CommentForm extends Component
         $post = Post::query()->published()->find($this->postId);
 
         if ($post === null) {
-            $this->addError('body', 'This post is no longer available.');
+            $this->addError('body', __('ui.post.unavailable'));
 
             return;
         }
@@ -34,7 +34,7 @@ final class CommentForm extends Component
             $this->addError(
                 'body',
                 $e->isGuest()
-                    ? 'You must be signed in to comment.'
+                    ? __('ui.comments.sign_in_to_comment')
                     : $e->getMessage(),
             );
 

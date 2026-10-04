@@ -6,6 +6,7 @@ use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
+use App\Queries\Posts\PublishedPostDetailsQuery;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
@@ -24,6 +25,10 @@ final class PostDrawer extends Component
 
     // Only meaningful when $asOverlay is true.
     public bool $isOpen = false;
+
+    // Split mode keeps its inline detail column on desktop, but uses this
+    // dedicated overlay below the desktop breakpoint.
+    public bool $mobileOnly = false;
 
     // Vote events are handled by the nested post-voting / rating-voting
     // components, which self-update in place. The drawer intentionally does
@@ -50,6 +55,7 @@ final class PostDrawer extends Component
     public function closeOverlay(): void
     {
         $this->isOpen = false;
+        $this->postId = null;
     }
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
@@ -82,15 +88,19 @@ final class PostDrawer extends Component
         $this->dispatch('clear-selected-post');
     }
 
-    public function render(RatingConfigurationManager $configuration): View
+    public function placeholder(): View
     {
+        return view('livewire.feed.post-drawer-placeholder');
+    }
+
+    public function render(
+        RatingConfigurationManager $configuration,
+        PublishedPostDetailsQuery $publishedPostDetails,
+    ): View {
         $post = null;
 
         if ($this->postId !== null) {
-            $post = Post::query()
-                ->published()
-                ->with(['user', 'tags'])
-                ->find($this->postId);
+            $post = $publishedPostDetails->find($this->postId);
         }
 
         return view('livewire.feed.post-drawer', [

@@ -1,0 +1,890 @@
+#!/usr/bin/env bash
+#
+# configure-target — install the external material and the database of ONE
+# already-provisioned, still-planned production target.
+#
+#   configure-target --check  --target TARGET_ID [--material-dir DIR]
+#   configure-target --apply  --target TARGET_ID [--material-dir DIR]
+#   configure-target --verify --target TARGET_ID
+#
+# The situation this exists for: provisioning built the target's identities,
+# directories and service configuration, and left it deliberately empty. It has
+# no environment file, no database and no deploy key, so it cannot run and
+# cannot be deployed to. This is the one operation that gives it those three
+# things — and nothing else.
+#
+#   PROVISIONED PLANNED PRODUCTION TARGET
+#     -> its own shared/.env installed
+#     -> its own deploy user's authorized_keys installed
+#     -> its own PostgreSQL role and database created
+#     -> the target is STILL lifecycle=planned
+#     -> no application is deployed
+#     -> no deploy authorization is granted
+#     -> no public traffic is accepted
+#
+# THE BOUNDARY, which is the whole reason this is a separate operation:
+#
+#   Provision Target    structural, non-secret infrastructure
+#   Configure Target    that target's external material and its database
+#   Activate Target     a separate, reviewed registry change
+#
+# Lifecycle is permission to OPERATE a target, not a description of how much of
+# it exists. So a target that has been configured is still planned: it now has
+# secrets and data, and it still cannot be deployed to, because the deploy sudo
+# grant and the registry entry that would allow that are both somebody else's
+# decision. Configuring is emphatically not activation, and this file never
+# writes the registry.
+#
+# What it deliberately does NOT do, because each belongs to a later, separately
+# reviewed operation: no host bootstrap, no TLS certificate, no public Nginx
+# server_name, no DNS record, no mail transport, no deployment, no release, no
+# current/previous, no migration, no queue worker, no backup schedule, no
+# offsite credential rotation, no deploy sudo authorization and no lifecycle
+# change. Every one of them is DEFERRED in this operation's own report rather
+# than silently absent.
+#
+# WHERE THE ENVIRONMENT FILE LIVES, and who owns it. The target's
+# shared/.env is CANONICAL on the host. An operator creates it once, as
+# runtime_user:runtime_group mode 0640, and from that moment it is the sole
+# runtime source of truth: backups carry it as environment.env, and a recovery
+# restores it from the selected backup. GitHub is not a copy of it and is never
+# asked to resend it.
+#
+# So this operation REQUIRES that file to be there already, and installs it
+# under no circumstances. Not from GitHub, not from supplied material, not on a
+# first run. An absent environment file is a refusal naming the path an operator
+# must create, because the alternative — a configure run that can bring one into
+# existence — is a second way for the most sensitive file on the host to be
+# written, competing with the one the recovery path restores. Its ownership,
+# mode and content remain install-target-prerequisites' to validate; what this
+# file adds is only the requirement that there is something to validate.
+#
+# The deploy user's authorized_keys is the opposite case and the only material
+# this operation causes to be installed: it is a PUBLIC key, derived on the
+# GitHub runner from the deploy credential that already exists, and the target
+# cannot be deployed to without it. That one logical name is what --material-dir
+# carries here, and the environment file is explicitly refused in it.
+#
+# The database step then reads the canonical environment file for its
+# credentials, which is why it is ordered after the material step and why
+# nothing here ever parses it: install-target-database owns that reading, and
+# this file never sees a credential at all.
+#
+# It is orchestration only. Every mutation is delegated to the installer that
+# already owns that contract, invoked under the explicit provisioning
+# authorization:
+#
+#   install-target-prerequisites --apply --scope target --provisioning --target T
+#   install-target-database      --apply --provisioning --target T
+#
+# There is no second implementation of any material, permission or database
+# check in this file, and no credential is ever read, printed, hashed or
+# measured by it.
+
+set -Eeuo pipefail
+umask 022
+
+# --- One authority for the whole run ------------------------------------------
+#
+# THIS bundle is the implementation, all of it: the library below, the registry
+# every decision is read out of, and the installers that perform every
+# mutation are resolved relative to this file. A run can never gate on one
+# registry revision and install into a path named by another. The reasoning is
+# the same as provision-target's, and so is the mechanism.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+BUNDLE_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
+
+COMMON_FILE="${SCRIPT_DIR}/common"
+
+[[ -r "${COMMON_FILE}" ]] || {
+    printf 'ERROR: this infrastructure bundle is incomplete: %s is missing.\n' "${COMMON_FILE}" >&2
+    printf 'Run configure-target from a full trusted infrastructure bundle; nothing was changed.\n' >&2
+    exit 1
+}
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+if ! declare -F require_provisionable_target >/dev/null 2>&1; then
+    printf 'ERROR: this infrastructure bundle is inconsistent: %s has no require_provisionable_target.\n' \
+        "${COMMON_FILE}" >&2
+    printf 'Run configure-target from a full trusted infrastructure bundle; nothing was changed.\n' >&2
+    exit 1
+fi
+
+# --- Gated test seams ---------------------------------------------------------
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+PROVISION_BIN="$(gated_default RATEGURU_CONFIGURE_PROVISION_BIN "${SCRIPT_DIR}/provision-target")"
+PREREQUISITES_BIN="$(gated_default RATEGURU_CONFIGURE_PREREQUISITES_BIN "${SCRIPT_DIR}/install-target-prerequisites")"
+DATABASE_BIN="$(gated_default RATEGURU_CONFIGURE_DATABASE_BIN "${SCRIPT_DIR}/install-target-database")"
+EFFECTIVE_UID="$(gated_default RATEGURU_CONFIGURE_EUID "${EUID}")"
+
+TRUSTED_REGISTRY="$(gated_default RATEGURU_CONFIGURE_TRUSTED_REGISTRY "${BUNDLE_ROOT}/config/deployment-targets.json")"
+
+# shellcheck disable=SC2034  # read by common, not by this file
+TARGET_REGISTRY_FILE="${TRUSTED_REGISTRY}"
+
+FS_ROOT="$(gated_default RATEGURU_CONFIGURE_FS_ROOT '')"
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  configure-target --check  --target TARGET_ID [--material-dir DIR]
+  configure-target --apply  --target TARGET_ID [--material-dir DIR]
+  configure-target --verify --target TARGET_ID
+
+  --check   Read-only. Reports the target's identity and lifecycle, proves the
+            structural provisioning contract, and reports what an --apply would
+            install. Creates nothing. Exit 0 only when the target is already
+            configured.
+  --apply   Builds the whole plan first and refuses as a whole before the first
+            mutation, then installs this target's material and creates its
+            database through their authoritative installers.
+  --verify  Read-only. Exit 0 only when the target's material and database are
+            in place and the target is still lifecycle=planned — which is what
+            keeps it undeployable, since every operational entry point and the
+            deploy wrapper refuse a target that is not active. It does not
+            inspect the deploy sudo grant or the release tree: those belong to
+            install-target-perimeter and to deploy, and a target-scoped
+            operation that judged host-wide state would fail on drift that is
+            not its own.
+
+  --target        The target to configure. Required.
+  --material-dir  Optional. Directory holding the target's deploy PUBLIC key as
+                  deploy-authorized-keys, and nothing else. Read by
+                  install-target-prerequisites; never read by this file. A
+                  directory carrying laravel-env is refused: the target's
+                  shared/.env is canonical on the host, must already exist
+                  before this runs, and is never installed, seeded or
+                  overwritten here.
+
+All modes require root, and every mode refuses a target that is not
+lifecycle=planned AND environment_class=production.
+
+A terminal success additionally prints one machine-readable line:
+
+  RATEGURU_CONFIGURE_RESULT={"status":"target-configured", ...}
+
+Configuring is not activating. It grants no deploy authorization, deploys no
+application, configures no TLS, DNS or mail, and never writes the registry.
+USAGE
+}
+
+# --- Report vocabulary --------------------------------------------------------
+
+PASS_COUNT=0
+MISSING_COUNT=0
+CONFLICT_COUNT=0
+HOSTREQ_COUNT=0
+DEFERRED_COUNT=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3" hint="${4-}"
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ -n "${hint}" ]] && [[ "${MODE}" != verify ]]; then
+        printf '           -> apply: %s\n' "${hint}"
+    fi
+
+    case "${status}" in
+        PASS)     PASS_COUNT=$((PASS_COUNT + 1)) ;;
+        MISSING)  MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
+        CONFLICT) CONFLICT_COUNT=$((CONFLICT_COUNT + 1)) ;;
+        HOST-REQ) HOSTREQ_COUNT=$((HOSTREQ_COUNT + 1)) ;;
+        DEFERRED) DEFERRED_COUNT=$((DEFERRED_COUNT + 1)) ;;
+    esac
+}
+
+action() {
+    printf 'CONFIGURE %s\n' "$1"
+}
+
+configuration_required() {
+    (( MISSING_COUNT > 0 ))
+}
+
+configuration_blocked() {
+    (( CONFLICT_COUNT > 0 || HOSTREQ_COUNT > 0 ))
+}
+
+contract_satisfied() {
+    ! configuration_required && ! configuration_blocked
+}
+
+# --- Argument parsing ---------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+MATERIAL_DIR=""
+MATERIAL_DIR_SEEN=false
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ "${MODE_SEEN}" != true ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] && [[ -n "${2-}" ]] || fail "--target requires a value"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --material-dir)
+                [[ "${MATERIAL_DIR_SEEN}" != true ]] || fail "--material-dir given more than once"
+                [[ $# -ge 2 ]] && [[ -n "${2-}" ]] || fail "--material-dir requires a value"
+                MATERIAL_DIR="$2"
+                MATERIAL_DIR_SEEN=true
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "one of --check, --apply or --verify is required"; }
+    [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+
+    if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+        fail "--verify never consults supplied material; it inspects the installed result only"
+    fi
+}
+
+# --- Target resolution --------------------------------------------------------
+
+TARGET_ROOT=""
+ENVIRONMENT_CLASS=""
+LIFECYCLE=""
+
+resolve_target() {
+    # The single lifecycle gate, shared with provisioning: planned AND
+    # production, refusing an active target, a disabled one, an unknown one and
+    # a planned staging one, each by name. Nothing below runs until it passes.
+    require_provisionable_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LIFECYCLE="$(target_lifecycle "${TARGET_ID}")"
+}
+
+report_target() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" \
+        "lifecycle=${LIFECYCLE}, environment_class=${ENVIRONMENT_CLASS}, root ${TARGET_ROOT}"
+
+    item PASS "target:lifecycle" \
+        "configuring never writes the registry: ${TARGET_ID} is lifecycle=${LIFECYCLE} before this operation and stays lifecycle=${LIFECYCLE} after it"
+}
+
+# --- The structural contract this operation builds on --------------------------
+#
+# Material is installed INTO directories and accounts provisioning created, and
+# a database is created FOR a runtime user provisioning created. So the
+# structural contract is proved first, by the operation that owns it, and a
+# target that is not fully provisioned is refused rather than half-configured.
+# There is no second copy of that contract here.
+
+PROVISION_OUTPUT=""
+PROVISION_STATUS=0
+
+report_structural_contract() {
+    section "STRUCTURAL CONTRACT (proved by its owner)"
+
+    if [[ ! -x "${PROVISION_BIN}" ]]; then
+        item CONFLICT "structure:provision-target" \
+            "provision-target is not executable: ${PROVISION_BIN}" \
+            "run configure-target from a full trusted infrastructure bundle"
+
+        return 0
+    fi
+
+    set +e
+    PROVISION_OUTPUT="$("${PROVISION_BIN}" --verify --target "${TARGET_ID}" 2>&1)"
+    PROVISION_STATUS=$?
+    set -e
+
+    if (( PROVISION_STATUS == 0 )); then
+        item PASS "structure:provision-target" \
+            "provision-target --verify passes: identities, directories and service configuration are in place"
+
+        return 0
+    fi
+
+    item HOST-REQ "structure:provision-target" \
+        "provision-target --verify does not pass, so this target's directories and identities are not proved to exist" \
+        "provision the target first — configure-target installs material INTO what provisioning creates and never creates it"
+
+    # Its own report, under the refusal. A refusal that does not say what is
+    # missing sends an operator back to run the same command again to find out.
+    printf '%s\n' "${PROVISION_OUTPUT}" | sed 's/^/           | /'
+}
+
+structural_blocker() {
+    [[ -x "${PROVISION_BIN}" ]] \
+        || { printf 'provision-target is not executable: %s — run configure-target from a full trusted infrastructure bundle' "${PROVISION_BIN}"; return 0; }
+
+    if "${PROVISION_BIN}" --verify --target "${TARGET_ID}" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    printf 'provision-target --verify does not pass for %s: this operation installs material into directories and accounts provisioning creates, and never creates them itself. Provision the target first' "${TARGET_ID}"
+}
+
+# --- Delegated material and database -------------------------------------------
+
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+child_report() {
+    local bin="$1"
+    shift
+
+    set +e
+    CHILD_OUTPUT="$("${bin}" "$@" 2>&1)"
+    CHILD_STATUS=$?
+    set -e
+}
+
+child_blocker() {
+    local label="$1"
+
+    if (( CHILD_STATUS == 127 )); then
+        printf '%s: installer is not executable — run configure-target from a full trusted infrastructure bundle' "${label}"
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS > 1 )); then
+        printf '%s: contract report exited %d, so this target'"'"'s state could not even be established' "${label}" "${CHILD_STATUS}"
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+        printf '%s: the installer aborted rather than reporting a contract, so what this target needs is not established' "${label}"
+
+        return 0
+    fi
+
+    # A host prerequisite is not this operation's to fix, and it is not a
+    # contract this target can satisfy by being configured. Told apart from
+    # CONFLICT because the remedy differs: one is a host operation, the other
+    # is something already in the way.
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+        printf '%s: host-level prerequisites are not satisfied. This is a host prerequisite, not this target'"'"'s — prepare or repair the host first; configuring never creates or re-owns host infrastructure' "${label}"
+
+        return 0
+    fi
+
+    if printf '%s' "${CHILD_OUTPUT}" | grep -qE '^(CONFLICT|  CONFLICT )'; then
+        printf '%s: state that is never resolved automatically, because resolving it would mean replacing something already there' "${label}"
+
+        return 0
+    fi
+
+    return 1
+}
+
+prerequisites_args() {
+    local -a args=(--scope target --provisioning --target "${TARGET_ID}")
+
+    if [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+        args+=(--material-dir "${MATERIAL_DIR}")
+    fi
+
+    printf '%s\n' "${args[@]}"
+}
+
+report_material() {
+    section "TARGET MATERIAL (authoritative owner — never re-implemented)"
+
+    local -a args=()
+    mapfile -t args < <(prerequisites_args)
+
+    child_report "${PREREQUISITES_BIN}" --check "${args[@]}"
+
+    local blocker
+    if blocker="$(child_blocker "material:install-target-prerequisites")"; then
+        item CONFLICT "material:install-target-prerequisites" "${blocker}" \
+            "resolve the failure the installer reported"
+
+        printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "material:install-target-prerequisites" \
+            "this target's own material is in place (environment file, deploy authorized_keys) — accepted as it stands on the host and never overwritten"
+
+        return 0
+    fi
+
+    item MISSING "material:install-target-prerequisites" \
+        "material this target does not have yet (its deploy user's authorized_keys)" \
+        "supply the deploy public key as deploy-authorized-keys with --material-dir, then re-run. The environment file is never supplied: it is created on the host and required to be there already"
+
+    printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
+}
+
+# The precondition, reported as its own line rather than folded into the
+# material step. An operator reading "MISSING material" cannot tell what they
+# are supposed to do about it from that alone, and the two halves have opposite
+# answers: the deploy key is supplied to this operation, the environment file
+# is never supplied to it at all.
+report_environment_precondition() {
+    section "CANONICAL ENVIRONMENT (required to exist; never installed here)"
+
+    if canonical_environment_present; then
+        # The same contract --apply refuses on, asked non-fatally: the shared
+        # implementation aborts on a broken contract, so it is run in a
+        # subshell where that abort ends the check rather than the report. One
+        # implementation, two ways of reacting to it.
+        local contract_output contract_status=0
+
+        set +e
+        contract_output="$( ( assert_environment_contract "${TARGET_ID}" "$(canonical_environment_path)" "$(environment_template_file "${TARGET_ID}")" "configuring ${TARGET_ID}" ) 2>&1 )"
+        contract_status=$?
+        set -e
+
+        if (( contract_status == 0 )); then
+            item PASS "environment:canonical" \
+                "${TARGET_ROOT}/shared/.env exists and declares every key its template requires — its ownership, mode and values are judged by install-target-prerequisites, and nothing here writes it"
+
+            return 0
+        fi
+
+        item MISSING "environment:canonical" \
+            "${TARGET_ROOT}/shared/.env exists but does not declare every key its reviewed template requires" \
+            "add the key names the report below lists to ${TARGET_ROOT}/shared/.env on the host; configuring never writes it"
+
+        printf '%s\n' "${contract_output}" | sed 's/^/           | /'
+
+        return 0
+    fi
+
+    item MISSING "environment:canonical" \
+        "${TARGET_ROOT}/shared/.env does not exist, and configuring neither creates nor seeds it" \
+        "create it on the host once, owned by the target's runtime user and group, mode 0640. It is canonical there: backups carry it as environment.env and a recovery restores it from the selected backup"
+}
+
+# The material directory carries the deploy PUBLIC key and nothing else. An
+# environment file placed in it would be installed by the authoritative
+# installer, which is precisely the path this operation does not have — so it is
+# refused by name, before anything reads the directory, rather than left to
+# documentation.
+assert_material_dir_carries_no_environment() {
+    [[ "${MATERIAL_DIR_SEEN}" == true ]] || return 0
+
+    [[ ! -e "${MATERIAL_DIR}/laravel-env" ]] \
+        || fail "refusing to configure ${TARGET_ID}: the material directory carries laravel-env (${MATERIAL_DIR}/laravel-env). Configuring never installs the target's environment file — it is created once on the host, where it is canonical, and a recovery restores it from a backup. Remove it from the material directory; nothing was changed"
+}
+
+# canonical_environment_path / canonical_environment_present — a pure existence
+# test, and deliberately nothing more.
+#
+# The environment file is a PRECONDITION of this operation, not an outcome of
+# it. It is created once by an operator, directly on the host; from then on
+# backups carry it and a recovery restores it. Nothing here writes it.
+#
+# Existence is tested here for two reasons, and neither is validation. The
+# database installer resolves its credentials by READING this file and aborts
+# when it is absent — in every mode, including --check, before it can report any
+# database contract at all. Read as a database verdict that abort says the
+# database is in CONFLICT, when the truth is simply that the operator has not
+# created the file yet. And a refusal that names the exact path to create is
+# worth more than a child's abort relayed through two layers.
+#
+# What the file must CONTAIN, and who may own it at which mode, stays
+# install-target-prerequisites' to judge. This is the requirement that there is
+# something for it to judge.
+canonical_environment_path() {
+    printf '%s/shared/.env\n' "$(physical "${TARGET_ROOT}")"
+}
+
+canonical_environment_present() {
+    [[ -f "$(canonical_environment_path)" ]]
+}
+
+report_database() {
+    section "TARGET DATABASE (authoritative owner — never re-implemented)"
+
+    if ! canonical_environment_present; then
+        item MISSING "database:install-target-database" \
+            "the database contract cannot be read yet: ${TARGET_ROOT}/shared/.env is the file its credentials come from, and it is not there" \
+            "create ${TARGET_ROOT}/shared/.env on the host, as the target's runtime user, mode 0640 — configuring requires it and never creates it"
+
+        return 0
+    fi
+
+    child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
+
+    local blocker
+    if blocker="$(child_blocker "database:install-target-database")"; then
+        item CONFLICT "database:install-target-database" "${blocker}" \
+            "resolve the failure the installer reported"
+
+        printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/           | /'
+
+        return 0
+    fi
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "database:install-target-database" \
+            "the registry's role and database exist and the target's own credentials connect"
+
+        return 0
+    fi
+
+    item MISSING "database:install-target-database" \
+        "the registry's role and database for this target do not exist yet" \
+        "install-target-database --apply --provisioning --target ${TARGET_ID}"
+}
+
+# --- Deferred later-phase items ------------------------------------------------
+
+report_deferred() {
+    section "DEFERRED (owned by later, separately reviewed operations)"
+
+    item DEFERRED "deferred:deploy-authorization" \
+        "the deploy user's sudo grant is not installed here, so this target stays undeployable through the existing wrappers even with its key in place"
+    item DEFERRED "deferred:lifecycle" \
+        "activation is a reviewed registry change: configuring a target is not permission to operate it"
+    item DEFERRED "deferred:application" \
+        "no artifact is deployed, no release is created, no migration runs, and current/previous are never fabricated"
+    item DEFERRED "deferred:public-routing" \
+        "no public hostname, TLS certificate, redirect or DNS record — the target answers only on its internal hostname over loopback"
+    item DEFERRED "deferred:mail" \
+        "no mail transport, gateway or domain authentication is configured or changed here"
+    item DEFERRED "deferred:environment-rotation" \
+        "the environment file is canonical on the host and is never overwritten here — changing a credential in it is a separate deliberate operation, and a backup is what carries it to a recovered machine"
+    item DEFERRED "deferred:backups" \
+        "no backup schedule and no offsite namespace — the host-global offsite credential is an existing prerequisite, never rotated here"
+    item DEFERRED "deferred:queue-runtime" \
+        "the queue worker is not started: there is no release for it to run in yet"
+}
+
+# --- Report -------------------------------------------------------------------
+
+report_summary() {
+    section "SUMMARY"
+
+    printf 'Configure target (%s, %s):\n' "${MODE}" "${TARGET_ID}"
+    printf 'PASS: %d\n' "${PASS_COUNT}"
+    printf 'MISSING: %d\n' "${MISSING_COUNT}"
+    printf 'CONFLICT: %d\n' "${CONFLICT_COUNT}"
+    printf 'HOST-REQ: %d\n' "${HOSTREQ_COUNT}"
+    printf 'DEFERRED: %d\n' "${DEFERRED_COUNT}"
+    printf '\n'
+
+    if configuration_blocked; then
+        printf 'TARGET CONFIGURATION: BLOCKED\n'
+
+        return 1
+    fi
+
+    if configuration_required; then
+        printf 'TARGET CONFIGURATION: INCOMPLETE\n'
+
+        return 1
+    fi
+
+    print_configured_state
+
+    return 0
+}
+
+# The success vocabulary, and every line of it is deliberate. A target that has
+# just been given secrets and a database is the exact moment somebody is most
+# likely to believe it is ready, so the success message says what is still not
+# true rather than only what is.
+#
+# What the last four lines are, precisely: a statement of what THIS operation
+# grants, not a host audit. Configuring installs material and creates a
+# database, and it leaves the target lifecycle=planned — which is asserted,
+# immediately above, by re-reading the registry. Everything those lines deny
+# follows from that: a planned target is refused by every operational entry
+# point and by the deploy wrapper, and install-target-perimeter fails closed on
+# a sudoers file that grants a non-active target's deploy user at all.
+#
+# They are deliberately NOT re-derived by inspecting the host here. A
+# target-scoped operation that judged the sudoers file or the release tree would
+# report host-wide drift that is not its own as this target's failure, and the
+# owners of those surfaces already judge them.
+print_configured_state() {
+    printf 'TARGET CONFIGURATION: CONFIGURED\n'
+    printf 'LIFECYCLE: %s\n' "${LIFECYCLE}"
+    printf 'ENVIRONMENT: INSTALLED\n'
+    printf 'DATABASE: READY\n'
+    printf 'DEPLOY KEY: INSTALLED\n'
+    printf 'DEPLOY AUTHORIZATION: NOT GRANTED\n'
+    printf 'APPLICATION: NOT DEPLOYED\n'
+    printf 'PUBLIC TRAFFIC: NOT ACTIVATED\n'
+}
+
+run_report() {
+    printf 'RateGuru configure target (%s mode, %s)\n' "${MODE}" "${TARGET_ID}"
+    printf 'Scope: one planned production target'"'"'s own material and database — no host infrastructure, no deploy authorization, no activation\n'
+
+    report_target
+    report_structural_contract
+    report_environment_precondition
+    report_material
+    report_database
+    report_deferred
+
+    printf '\n========================================================\n'
+    printf 'CONFIGURE TARGET: %s\n' "${TARGET_ID}"
+
+    local status=0
+    report_summary || status=$?
+
+    printf '========================================================\n'
+
+    return "${status}"
+}
+
+# --- Machine-readable result ---------------------------------------------------
+#
+# Identity and state only. No credential, no path inside a private tree, no
+# hash of anything, and nothing derived from the contents of a secret.
+
+emit_configure_result() {
+    jq -cn \
+        --arg status 'target-configured' \
+        --arg target "${TARGET_ID}" \
+        --arg lifecycle "${LIFECYCLE}" \
+        --arg environment_class "${ENVIRONMENT_CLASS}" \
+        --arg environment_state 'installed' \
+        --arg database_state 'ready' \
+        --arg deploy_authorization 'not-granted' \
+        --arg application_state 'not-deployed' \
+        --arg public_state 'not-activated' \
+        '{
+            status: $status,
+            target: $target,
+            lifecycle: $lifecycle,
+            environment_class: $environment_class,
+            environment_state: $environment_state,
+            database_state: $database_state,
+            deploy_authorization: $deploy_authorization,
+            application_state: $application_state,
+            public_state: $public_state
+        }' \
+        | sed 's/^/RATEGURU_CONFIGURE_RESULT=/'
+}
+
+# --- Apply ---------------------------------------------------------------------
+
+require_root_mode() {
+    [[ "${EFFECTIVE_UID}" -eq 0 ]] \
+        || fail "this command must be executed as root"
+}
+
+CHANGED=false
+
+apply_gate() {
+    # Claimed for the whole run. The structural check below asks
+    # provision-target --verify, which is read-only and therefore takes no lock
+    # of its own — a child re-acquiring what its parent holds would deadlock
+    # against its own orchestrator.
+    acquire_host_infrastructure_lock "configure-target --apply --target ${TARGET_ID}"
+
+    action "building the configuration plan before any mutation"
+
+    local blockers=() blocker
+
+    # Stage one, on its own: the structure. Installing material into a target
+    # whose directories and accounts are not proved to exist would create the
+    # first half of a target nobody asked for.
+    if blocker="$(structural_blocker)"; then
+        printf 'BLOCKED %s\n' "${blocker}" >&2
+
+        fail "refusing to configure ${TARGET_ID}: the target is not provisioned. No material was installed and no database was created"
+    fi
+
+    # Stage two: the precondition this operation requires and never satisfies.
+    # Ordered here, before the children, for a reason that is not merely tidier
+    # — the database preflight below resolves its credentials out of this exact
+    # file and aborts without it, so a run that got past this point with no
+    # environment file could only report the database as broken when nothing
+    # about the database is wrong.
+    if ! canonical_environment_present; then
+        fail "refusing to configure ${TARGET_ID}: its canonical environment file $(canonical_environment_path) does not exist. Configuring requires it and never creates, seeds or overwrites it — create it on the host once, owned by the target's runtime user and group, mode 0640, then re-run. No material was installed and no database was created"
+    fi
+
+    # Stage two and a half: the file exists, but does it declare what the
+    # reviewed template says it must? Ordered before the children because the
+    # database step reads credentials out of it — a key missing here surfaces
+    # there as an unrelated-looking database failure.
+    #
+    # Judged by the shared contract in `common`, not re-implemented: this file
+    # still never opens the environment file, and what it must CONTAIN beyond
+    # its key names, and who may own it at which mode, stay
+    # install-target-prerequisites' to judge.
+    # This checkout's template, passed explicitly. Configuring prepares a host for
+    # the code this trusted bundle describes, so the bundle's own declaration is
+    # precisely its contract — deliberately not a release's, since no release has
+    # been deployed to this target yet, and deliberately not the host's installed
+    # copy, which describes whatever was installed last.
+    assert_environment_contract \
+        "${TARGET_ID}" \
+        "$(canonical_environment_path)" \
+        "$(environment_template_file "${TARGET_ID}")" \
+        "configuring ${TARGET_ID}"
+
+    local -a args=()
+    mapfile -t args < <(prerequisites_args)
+
+    child_report "${PREREQUISITES_BIN}" --check "${args[@]}"
+
+    if blocker="$(child_blocker "install-target-prerequisites")"; then
+        blockers+=("${blocker}")
+        printf '%s\n' "${CHILD_OUTPUT}" >&2
+    fi
+
+    child_report "${DATABASE_BIN}" --check --provisioning --target "${TARGET_ID}"
+
+    if blocker="$(child_blocker "install-target-database")"; then
+        blockers+=("${blocker}")
+        printf '%s\n' "${CHILD_OUTPUT}" >&2
+    fi
+
+    if (( ${#blockers[@]} > 0 )); then
+        for blocker in "${blockers[@]}"; do
+            printf 'BLOCKED %s\n' "${blocker}" >&2
+        done
+
+        fail "refusing to configure ${TARGET_ID}: ${#blockers[@]} blocker(s). No mutation was performed"
+    fi
+}
+
+converge_material() {
+    local -a args=()
+    mapfile -t args < <(prerequisites_args)
+
+    action "install-target-prerequisites --apply --scope target --provisioning --target ${TARGET_ID}"
+
+    "${PREREQUISITES_BIN}" --apply "${args[@]}" \
+        || fail "install-target-prerequisites --apply --scope target --provisioning --target ${TARGET_ID} failed — no database step ran"
+
+    CHANGED=true
+}
+
+converge_database() {
+    action "install-target-database --apply --provisioning --target ${TARGET_ID}"
+
+    "${DATABASE_BIN}" --apply --provisioning --target "${TARGET_ID}" \
+        || fail "install-target-database --apply --provisioning --target ${TARGET_ID} failed"
+
+    CHANGED=true
+}
+
+# The registry is never written by this operation, and proving it afterwards is
+# cheaper than trusting it: the case worth catching is a target that became
+# deployable while this run was in flight.
+assert_target_still_planned() {
+    local lifecycle
+    lifecycle="$(target_lifecycle "${TARGET_ID}")"
+
+    [[ "${lifecycle}" == planned ]] \
+        || fail "${TARGET_ID} is lifecycle=${lifecycle} after configuration — configuring never writes the registry, so something else did; refusing to report success"
+
+    action "lifecycle unchanged: ${TARGET_ID} is still lifecycle=${lifecycle}"
+}
+
+perform_apply() {
+    printf 'RateGuru configure target (apply mode, %s)\n' "${TARGET_ID}"
+
+    apply_gate
+
+    converge_material
+    converge_database
+
+    action "final authoritative verification"
+
+    local -a args=()
+    mapfile -t args < <(prerequisites_args)
+
+    "${PREREQUISITES_BIN}" --verify --scope target --provisioning --target "${TARGET_ID}" >/dev/null \
+        || fail "install-target-prerequisites --verify does not pass after apply"
+
+    "${DATABASE_BIN}" --verify --provisioning --target "${TARGET_ID}" >/dev/null \
+        || fail "install-target-database --verify does not pass after apply"
+
+    assert_target_still_planned
+
+    action "configuration complete"
+
+    printf '\n========================================================\n'
+    printf 'CONFIGURE TARGET: %s\n' "${TARGET_ID}"
+    printf 'CHANGED: %s\n' "$(printf '%s' "${CHANGED}" | tr '[:lower:]' '[:upper:]')"
+    print_configured_state
+    printf '========================================================\n'
+
+    emit_configure_result
+}
+
+# --- Dispatch ------------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+    require_root_mode
+    assert_material_dir_carries_no_environment
+    resolve_target
+
+    case "${MODE}" in
+        apply)
+            perform_apply
+            ;;
+        check)
+            run_report
+            ;;
+        verify)
+            local status=0
+            run_report || status=$?
+
+            if (( status == 0 )); then
+                emit_configure_result
+            fi
+
+            return "${status}"
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

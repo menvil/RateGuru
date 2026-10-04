@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "artifact": {
+    "minimum_required": 1
+  },
+  "tooling": {
+    "supported": 1
+  }
+}

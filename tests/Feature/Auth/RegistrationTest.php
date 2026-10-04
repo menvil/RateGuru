@@ -3,6 +3,7 @@
 use App\Actions\Auth\RegisterUserAction;
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 
 test('registration screen can be rendered', function () {
@@ -93,6 +94,25 @@ test('registration does not retry non-username query exceptions', function () {
     ]))->toThrow(UniqueConstraintViolationException::class);
 });
 
+test('registration lets a database failure inside the username generator propagate', function () {
+    $action = Mockery::mock(GenerateUniqueUsernameAction::class);
+    $action->shouldReceive('handle')
+        ->once()
+        ->andThrow(new QueryException('pgsql', 'select exists(...)', [], new RuntimeException('connection lost')));
+    app()->instance(GenerateUniqueUsernameAction::class, $action);
+
+    $this->withoutExceptionHandling();
+
+    expect(fn () => $this->post('/register', [
+        'name' => 'Test User',
+        'email' => 'db-failure@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ]))->toThrow(QueryException::class, 'connection lost');
+
+    $this->assertGuest();
+});
+
 test('registration converts username generation exhaustion into a validation error', function () {
     $action = Mockery::mock(GenerateUniqueUsernameAction::class);
     $action->shouldReceive('handle')
@@ -106,6 +126,7 @@ test('registration converts username generation exhaustion into a validation err
         'password' => 'password',
         'password_confirmation' => 'password',
     ])->assertSessionHasErrors([
-        'name' => 'Unable to generate a unique username.',
+        // The generator's own message is for logs; the reader gets ours.
+        'name' => __('auth.username_unavailable'),
     ]);
 });

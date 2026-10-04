@@ -3,20 +3,20 @@
 use Illuminate\Support\Facades\Blade;
 
 it('renders binary choice state through data attributes without stale static state classes', function () {
-    $html = Blade::render('<x-ui.binary-choice selected="homemade" />');
+    $html = Blade::render('<x-ui.binary-choice selected="option_a" />');
 
-    preg_match('/<button\s+([^>]*)>\s*Homemade/s', $html, $homemadeMatches);
-    preg_match('/<button\s+([^>]*)>\s*Restaurant/s', $html, $restaurantMatches);
-    preg_match('/class="([^"]*)"/', $homemadeMatches[1], $classMatches);
+    preg_match('/<button\s+([^>]*)>\s*Option A/s', $html, $firstOptionMatches);
+    preg_match('/<button\s+([^>]*)>\s*Option B/s', $html, $secondOptionMatches);
+    preg_match('/class="([^"]*)"/', $firstOptionMatches[1], $classMatches);
     $classTokens = preg_split('/\s+/', $classMatches[1]);
 
-    expect($homemadeMatches[1])
+    expect($firstOptionMatches[1])
         ->toContain('data-state="active"')
         ->toContain('aria-pressed="true"')
         ->toContain('x-bind:data-state')
         ->toContain('x-bind:aria-pressed')
         ->not->toContain('x-bind:class')
-        ->and($restaurantMatches[1])
+        ->and($secondOptionMatches[1])
         ->toContain('data-state="inactive"');
 
     expect($classTokens)

@@ -2,9 +2,11 @@
 
 use App\Livewire\Profile\ProfilePage;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\User;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('can render profile page component', function () {
@@ -17,8 +19,7 @@ it('can render profile page component', function () {
 });
 
 it('fails profile page component for missing username', function () {
-    expect(fn () => Livewire::test(ProfilePage::class, ['username' => 'missing_user']))
-        ->toThrow(ModelNotFoundException::class);
+    expectLivewireModelNotFound(ProfilePage::class, ['username' => 'missing_user']);
 });
 
 it('renders selected user in profile page component', function () {
@@ -42,20 +43,23 @@ it('renders profile header section', function () {
 });
 
 it('renders user avatar on profile page', function () {
-    User::factory()->create([
+    Storage::fake('public');
+
+    User::factory()->withAvatar(path: 'avatars/chef_ivan.jpg')->create([
         'username' => 'chef_ivan',
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
-    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertSee('data-testid="profile-avatar"', false)
-        ->assertSee('https://example.test/avatar.jpg', false);
+    $html = Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])->html();
+
+    expect($html)
+        ->toContain('data-testid="profile-avatar"')
+        ->toContain(Storage::disk('public')->url('avatars/chef_ivan.jpg'));
 });
 
-it('renders avatar fallback when user has no avatar url', function () {
+it('renders avatar fallback when user has no avatar asset', function () {
     User::factory()->create([
         'username' => 'chef_ivan',
-        'avatar_url' => null,
+        'avatar_asset_id' => null,
     ]);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
@@ -144,6 +148,16 @@ it('renders profile posts as full feed post cards with the same controls as the 
         ->assertSee('data-testid="post-card-voting"', false);
 });
 
+it('renders active rating groups on profile post cards', function () {
+    $user = User::factory()->create(['username' => 'profile_author']);
+    Post::factory()->for($user)->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'confidence', 'label' => 'Confidence']);
+    RatingOption::factory()->count(2)->for($group, 'group')->create();
+
+    Livewire::test(ProfilePage::class, ['username' => $user->username])
+        ->assertSee('data-testid="post-card-rating-confidence"', false);
+});
+
 it('renders generic profile copy', function () {
     $user = User::factory()->create([
         'username' => 'alice',
@@ -151,8 +165,7 @@ it('renders generic profile copy', function () {
 
     Post::factory()->for($user)->published()->create([
         'title' => 'Generic profile post',
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('profile.show', $user->username))

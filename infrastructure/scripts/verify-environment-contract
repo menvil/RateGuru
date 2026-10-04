@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+#
+# verify-environment-contract — does this target's canonical environment file
+# still declare every key its reviewed template says it must?
+#
+#   verify-environment-contract --target TARGET_ID
+#
+# Strictly read-only, for any deployment target, in any lifecycle. It opens two
+# files and writes none.
+#
+# THE PROBLEM IT EXISTS FOR. A target's shared/.env is canonical on the host:
+# an operator creates it once, backups carry it, a recovery restores it, and no
+# deploy, configure or repair operation ever writes it. That is the right model
+# — but it means the host file can quietly fall behind the template a reviewed
+# change added a key to, and nothing notices until the application reads a key
+# that is not there. In production that is a 500 on a path nobody exercised.
+#
+# So a new key now travels a closed route:
+#
+#   a key is added to one template
+#     -> CI fails until every target's template declares it too
+#     -> this refuses on any host whose operator has not added it
+#     -> deploy and configure refuse before mutating anything
+#
+# KEY NAMES ONLY. No value is read, printed, hashed, measured or compared. A
+# validator that touched values would be one more place a credential can leak
+# from, and a drifted value is not the failure this looks for. The file is read,
+# never sourced and never evaluated: it is operator-authored root-owned secret
+# material, and sourcing it would hand a root shell to whoever last edited it.
+#
+# IT NEVER FIXES ANYTHING. There is deliberately no --apply. A deploy that
+# quietly added a missing key would be inventing a value for something an
+# operator is supposed to decide — most often a credential — and would make the
+# drift this detects permanent and invisible.
+#
+# Extra keys in the runtime file are reported and allowed: refusing a deploy
+# over a key an operator added, or one a retired feature left behind, would be
+# this check causing the outage it exists to prevent.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+COMMON_FILE="${SCRIPT_DIR}/common"
+
+[[ -r "${COMMON_FILE}" ]] || {
+    printf 'ERROR: this infrastructure bundle is incomplete: %s is missing.\n' "${COMMON_FILE}" >&2
+    exit 1
+}
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+if ! declare -F assert_environment_contract >/dev/null 2>&1; then
+    printf 'ERROR: this infrastructure bundle is inconsistent: %s has no assert_environment_contract.\n' \
+        "${COMMON_FILE}" >&2
+    exit 1
+fi
+
+# The gated filesystem prefix every target-aware installer carries, honoured
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray variable in a
+# real root shell can never redirect this at another file.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+FS_ROOT="$(gated_default RATEGURU_ENVCONTRACT_FS_ROOT '')"
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-environment-contract --target TARGET_ID
+
+  --target  The deployment target to judge. Required.
+
+Compares the KEY NAMES declared by the target's registry-declared environment
+template against the keys present in its canonical
+<application_root>/shared/.env.
+
+Exit 0 when every declared key is present exactly once. Otherwise it names the
+missing and duplicated KEY NAMES and the file to edit, and exits non-zero.
+
+No value is ever read, printed, hashed, measured or compared. Nothing is
+written: this never creates, edits or repairs an environment file, because the
+value of a key an operator has not supplied is the operator's to decide.
+
+Extra keys present in the runtime file are reported and allowed.
+USAGE
+}
+
+TARGET_ID=""
+TARGET_SEEN=false
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] && [[ -n "${2-}" ]] || fail "--target requires a value"
+                case "$2" in
+                    -*) fail "--target requires a value, not another option: $2" ;;
+                esac
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+}
+
+main() {
+    parse_args "$@"
+
+    # Deliberately NOT require_active_target: configuring runs this against a
+    # planned target, which is exactly when the contract is least likely to be
+    # satisfied. The registry must know the target; its lifecycle is the
+    # caller's business, not this check's.
+    #
+    # Resolving the root is itself the existence gate — every registry accessor
+    # validates the ID, validates the whole registry and fails "unknown target"
+    # before returning, so an unknown target is refused here without a second
+    # copy of that check.
+    local target_root
+    target_root="$(target_root "${TARGET_ID}")"
+
+    # The OPERATIONAL template — the one installed on this host, or the one in the
+    # bundle this is running from. That is this tool's question: does the host
+    # satisfy the contract its installed tooling declares?
+    #
+    # It is NOT the question a deployment asks. An ordinary deployment's contract
+    # belongs to the artifact being installed, which deploy reads out of that
+    # artifact; this tool has no candidate artifact and does not pretend to.
+    assert_environment_contract \
+        "${TARGET_ID}" \
+        "$(physical "${target_root}")/shared/.env" \
+        "$(environment_template_file "${TARGET_ID}")" \
+        "verify-environment-contract"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

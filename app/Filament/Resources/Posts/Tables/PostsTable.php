@@ -3,12 +3,13 @@
 namespace App\Filament\Resources\Posts\Tables;
 
 use App\Actions\Moderation\ApprovePostAction;
+use App\Actions\Moderation\FinalizePostRemovalAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
-use App\Actions\Posts\DeletePostInAdminAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
+use App\Support\Media\PostImagePresenter;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Textarea;
@@ -17,6 +18,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Collection;
 
 class PostsTable
@@ -24,13 +26,31 @@ class PostsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('user'))
+            // withTrashed: author-deleted posts stay reviewable as audit
+            // history during retention. Only the well-formed author-deleted
+            // shape (trashed + status Deleted) is listed among trashed rows
+            // — a malformed legacy soft-deleted row would otherwise render
+            // with status-matched moderation actions. Author restore is
+            // never available in admin.
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->withoutGlobalScope(SoftDeletingScope::class)
+                ->where(fn (Builder $q) => $q
+                    ->whereNull('deleted_at')
+                    ->orWhere('status', PostStatus::Deleted))
+                ->with(['user', 'imageAsset.variants']))
             ->columns([
+                // The thumbnail is the smallest generated variant, not the
+                // original upload; clicking it opens the original.
                 ImageColumn::make('public_image_url')
                     ->label('Image')
-                    ->getStateUsing(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
+                    ->getStateUsing(function (Post $record): ?string {
+                        $thumbnail = app(PostImagePresenter::class)->thumbnailUrl($record);
+
+                        return $thumbnail !== null ? url($thumbnail) : null;
+                    })
                     ->square()
                     ->defaultImageUrl(null)
+                    ->extraImgAttributes(['loading' => 'lazy'])
                     ->url(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
                     ->openUrlInNewTab(),
                 TextColumn::make('title')
@@ -51,13 +71,20 @@ class PostsTable
                     ->label('Status')
                     ->badge()
                     ->sortable()
+                    // Author deletion reads as its own derived label, not
+                    // as the raw Deleted enum value.
+                    ->formatStateUsing(fn (PostStatus $state, Post $record): string => match (true) {
+                        $record->isAuthorDeleted() => 'Deleted by author',
+                        $record->isModerationRemovalFinalized() => 'Removal finalized',
+                        default => ucfirst($state->value),
+                    })
                     ->color(fn (PostStatus $state): string => match ($state) {
                         PostStatus::Pending => 'warning',
                         PostStatus::Published => 'success',
                         PostStatus::Hidden => 'gray',
                         PostStatus::Rejected => 'danger',
                         PostStatus::Draft => 'gray',
-                        PostStatus::Deleted => 'danger',
+                        PostStatus::Deleted => 'gray',
                     }),
                 TextColumn::make('reports_count')
                     ->label('Reports')
@@ -84,6 +111,11 @@ class PostsTable
                 Filter::make('reported')
                     ->label('Reported')
                     ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
+                Filter::make('author_deleted')
+                    ->label('Deleted by author')
+                    ->query(fn (Builder $query) => $query
+                        ->whereNotNull('deleted_at')
+                        ->where('status', PostStatus::Deleted)),
             ])
             ->recordActions([
                 Action::make('approve')
@@ -138,7 +170,10 @@ class PostsTable
                     ->label('Restore')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
-                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden)
+                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden
+                        && $record->moderation_removed_at === null
+                        && auth()->user()?->can('restore', $record) === true
+                    )
                     ->schema([
                         Textarea::make('reason')
                             ->label('Reason')
@@ -152,18 +187,29 @@ class PostsTable
                             $data['reason'] ?? null,
                         );
                     }),
-                Action::make('delete')
-                    ->label('Delete')
-                    ->icon('heroicon-o-trash')
+                Action::make('finalizeRemoval')
+                    ->label('Finalize removal')
+                    ->icon('heroicon-o-lock-closed')
                     ->color('danger')
-                    ->visible(fn (Post $record): bool => auth()->user()?->can('delete', $record) ?? false)
+                    ->visible(fn (Post $record): bool => auth()->user()?->can('finalizeRemoval', $record) === true
+                        && $record->status === PostStatus::Hidden
+                        && ! $record->trashed()
+                        && $record->moderation_removed_at === null
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Internal reason (required)')
+                            ->required()
+                            ->maxLength(1000),
+                    ])
                     ->requiresConfirmation()
-                    ->modalHeading('Delete post')
-                    ->modalDescription('Soft-deletes the post. It can be restored from the database if needed.')
-                    ->action(function (Post $record): void {
-                        app(DeletePostInAdminAction::class)->handle(
+                    ->modalHeading('Finalize moderation removal')
+                    ->modalDescription('Irreversible: this hidden post will never be restorable. It stays retained internally under the moderation retention policy.')
+                    ->action(function (Post $record, array $data): void {
+                        app(FinalizePostRemovalAction::class)->handle(
                             auth()->user(),
                             $record,
+                            (string) $data['reason'],
                         );
                     }),
             ])

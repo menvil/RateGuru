@@ -17,7 +17,7 @@ concurrency:
 jobs:
   code-style:
     name: Code style (Pint)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -25,8 +25,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring
+          php-version: '8.5'
+          extensions: mbstring, gd, exif
           coverage: none
 
       - name: Cache Composer packages
@@ -46,7 +46,7 @@ jobs:
 
   static-analysis:
     name: Architecture & static analysis (PHPStan)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       architecture-suppressions: ${{ steps.baseline-report.outputs.architecture-suppressions }}
       baseline-delta: ${{ steps.baseline-report.outputs.baseline-delta }}
@@ -62,8 +62,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring
+          php-version: '8.5'
+          extensions: mbstring, gd, exif
           coverage: none
 
       - name: Cache Composer packages
@@ -113,7 +113,7 @@ jobs:
 
   frontend-build:
     name: Frontend build (Vite)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       files: ${{ steps.build-metrics.outputs.files }}
       size: ${{ steps.build-metrics.outputs.size }}
@@ -147,22 +147,60 @@ jobs:
           retention-days: 1
 
   tests:
-    name: Tests (Pest)
-    runs-on: ubuntu-latest
+    name: Tests (Pest + PostgreSQL)
+    runs-on: ubuntu-24.04
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~12 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
     needs: frontend-build
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
+      # The commit this branch is measured against, for the architecture scope
+      # guards. Empty on a push event, where those guards correctly skip.
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
     outputs:
       assertions: ${{ steps.test-results.outputs.assertions }}
-      migrations: ${{ steps.sqlite-migrations.outputs.migrations }}
+      migrations: ${{ steps.postgres-migrations.outputs.migrations }}
       tests: ${{ steps.test-results.outputs.tests }}
+    services:
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
+      # Depth 2, not the default 1. On a pull_request event the checkout is a
+      # merge commit whose first parent is the base branch tip, so two commits
+      # is exactly enough for the architecture scope guards to diff this branch
+      # against its base — and a scope guard that silently skips on every pull
+      # request protects nothing.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql, gd, exif
           coverage: none
 
       - name: Cache Composer packages
@@ -175,7 +213,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Download built assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: public-build
           path: public/build
@@ -188,22 +226,44 @@ jobs:
 
       # The Browser test suite (Pest v4 browser tests) drives a real Chromium
       # through Playwright; without it `php artisan test` aborts at startup.
+      # Browser binaries are cached by lockfile hash: on a cache hit
+      # `npx playwright install` skips the CDN download entirely, so a flaky
+      # CDN only ever hurts the first run after a Playwright version bump.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright
+        timeout-minutes: 10
         run: |
           npm ci --ignore-scripts
-          npx playwright install chromium --with-deps
+          npx playwright install chromium
+
+      # Split out of the browser install and made best-effort on purpose:
+      # on the ubuntu-24.04 image every job is pinned to, every hard Chromium library is
+      # already present, and `install-deps` only adds optional international
+      # font packages — via apt, whose Azure mirror proved capable of
+      # trickling for hours. A down mirror must not block the DOM-based
+      # browser tests; if a future runner image ever drops a hard library,
+      # the test step itself fails loudly with a Chromium launch error, so
+      # nothing is silently masked.
+      - name: Install Playwright system dependencies (best effort)
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
+          sudo npx playwright install-deps chromium
 
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
-          touch database/database.sqlite
 
-      - name: Run SQLite migration and seed smoke check
-        id: sqlite-migrations
-        env:
-          DB_CONNECTION: sqlite
-          DB_DATABASE: database/database.sqlite
+      - name: Run PostgreSQL migration and seed smoke check
+        id: postgres-migrations
         run: |
           set -o pipefail
           php artisan migrate:fresh --seed --force
@@ -211,9 +271,9 @@ jobs:
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Run tests
+      - name: Run PostgreSQL tests
         id: pest
-        run: php artisan test --parallel --log-junit junit.xml
+        run: php artisan test --parallel --exclude-testsuite=Architecture --log-junit junit.xml
 
       - name: Collect test results
         id: test-results
@@ -256,9 +316,163 @@ jobs:
           path: storage/logs
           retention-days: 5
 
+  tests-architecture:
+    name: Architecture tests (Pest)
+    runs-on: ubuntu-24.04
+    # Its own job, because the Architecture suite is its own kind of test: it
+    # reads committed files and drives real shell subprocesses against a
+    # simulated host, and not one of its tests touches the database. Run
+    # inside Feature it was re-executed by both compatibility jobs, where it
+    # could not discover anything a database engine might disagree about, and a
+    # failure there said "MariaDB" when it meant "a shell script changed".
+    #
+    # No `needs`: the suite reads the checkout only and never downloads the
+    # built assets, and this is the longest job of the run, so waiting for the
+    # frontend build would only push the whole run's finish out by that much.
+    #
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run.
+    timeout-minutes: 60
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
+      # The commit this branch is measured against, for the architecture scope
+      # guards. Empty on a push event, where those guards correctly skip.
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    outputs:
+      tests: ${{ steps.architecture-results.outputs.tests }}
+    services:
+      # No Architecture test queries the database, but every test in
+      # tests/Feature is bound to RefreshDatabase by tests/Pest.php, so the
+      # connection has to be real for setUp to succeed.
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      # Depth 2, not the default 1. On a pull_request event the checkout is a
+      # merge commit whose first parent is the base branch tip, so two commits
+      # is exactly enough for the architecture scope guards to diff this branch
+      # against its base — and a scope guard that silently skips on every pull
+      # request protects nothing.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql, gd, exif
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
+      - name: Install rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      # The same suite takes anywhere between 11 and 18 minutes depending on
+      # which hardware GitHub hands out, so a duration means nothing without
+      # the CPU it ran on. Recorded in the log, next to the timings.
+      - name: Record runner hardware
+        run: |
+          lscpu | grep -E '^(Model name|CPU\(s\)|Thread\(s\) per core)'
+          nproc
+
+      - name: Run Architecture tests
+        id: architecture
+        run: php artisan test --parallel --testsuite=Architecture --log-junit architecture-junit.xml
+
+      # Per-file durations are the only way to tell a slow runner from a slow
+      # change, to see which files form the tail of the run, and to balance the
+      # suite across workers — so the report is kept, red runs included.
+      - name: Upload Architecture JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: architecture-junit
+          path: architecture-junit.xml
+          retention-days: 30
+
+      - name: Collect architecture results
+        id: architecture-results
+        if: always()
+        run: |
+          php -r '
+              $tests = "n/a";
+              if (is_file("architecture-junit.xml")) {
+                  $junit = simplexml_load_file("architecture-junit.xml");
+                  if ($junit !== false) {
+                      $total = 0;
+                      foreach ($junit->testsuite as $suite) {
+                          $total += (int) ($suite["tests"] ?? 0);
+                      }
+                      $tests = (string) $total;
+                  }
+              }
+              file_put_contents(getenv("GITHUB_OUTPUT"), sprintf("tests=%s\n", $tests), FILE_APPEND);
+          '
+
   migrations-mariadb:
-    name: Migrations (MariaDB)
-    runs-on: ubuntu-latest
+    name: Compatibility (MariaDB)
+    runs-on: ubuntu-24.04
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~24 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
+    needs: frontend-build
+    env:
+      DB_CONNECTION: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
       rollback: ${{ steps.rollback.outcome }}
@@ -266,7 +480,7 @@ jobs:
       mariadb:
         image: mariadb:11.4
         env:
-          MARIADB_DATABASE: rateguru
+          MARIADB_DATABASE: rateguru_test
           MARIADB_USER: rateguru
           MARIADB_PASSWORD: rateguru
           MARIADB_ROOT_PASSWORD: rateguru-root
@@ -284,8 +498,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_mysql
+          php-version: '8.5'
+          extensions: mbstring, pdo_mysql, gd, exif
           coverage: none
 
       - name: Cache Composer packages
@@ -297,70 +511,66 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Download built assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: public-build
+          path: public/build
+
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
 
+      # A parallel run gives every worker its own database: Laravel creates
+      # `rateguru_test_test_<token>` the first time a worker connects. The
+      # MariaDB image grants the test user rights on exactly one database, so
+      # the grant is widened to the family those workers use — and to nothing
+      # else. Run through the service container's own client, so the job does
+      # not depend on which MySQL/MariaDB client the runner image happens to
+      # ship.
+      - name: Allow per-worker test databases
+        run: |
+          set -Eeuo pipefail
+          container="$(docker ps --filter "ancestor=mariadb:11.4" --format '{{.ID}}' | head -1)"
+          test -n "${container}"
+          docker exec "${container}" mariadb -uroot -prateguru-root \
+            -e "GRANT ALL PRIVILEGES ON \`rateguru\\_test%\`.* TO 'rateguru'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Run MariaDB compatibility tests
+        run: composer test:mariadb
+
       - name: Run MariaDB migration smoke
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: php artisan migrate:fresh --seed --force
 
       - name: Collect MariaDB migration metrics
         id: migration-metrics
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: |
           set -o pipefail
           php artisan migrate:status --no-ansi \
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: |
           php artisan migrate:reset --force
           php artisan migrate --force
 
-  migrations-postgres:
-    name: Migrations (PostgreSQL)
-    runs-on: ubuntu-latest
+  tests-sqlite:
+    name: Compatibility (SQLite)
+    runs-on: ubuntu-24.04
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~28 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
+    needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
       rollback: ${{ steps.rollback.outcome }}
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: rateguru
-          POSTGRES_USER: rateguru
-          POSTGRES_PASSWORD: rateguru
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U rateguru -d rateguru"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -368,8 +578,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_pgsql
+          php-version: '8.5'
+          extensions: mbstring, pdo_sqlite, gd, exif
           coverage: none
 
       - name: Cache Composer packages
@@ -381,53 +591,50 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Download built assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: public-build
+          path: public/build
+
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
+          touch database/database.sqlite
 
-      - name: Run PostgreSQL migration smoke
+      - name: Run SQLite compatibility tests
+        run: composer test:sqlite
+
+      - name: Run SQLite migration smoke
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: php artisan migrate:fresh --seed --force
 
-      - name: Collect PostgreSQL migration metrics
+      - name: Collect SQLite migration metrics
         id: migration-metrics
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: |
           set -o pipefail
           php artisan migrate:status --no-ansi \
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: |
           php artisan migrate:reset --force
           php artisan migrate --force
 
   dependency-audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       composer-advisories: ${{ steps.dependency-metrics.outputs.composer-advisories }}
       composer-packages: ${{ steps.dependency-metrics.outputs.composer-packages }}
@@ -442,7 +649,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: mbstring
           coverage: none
 
@@ -508,14 +715,15 @@ jobs:
   ci-summary:
     name: Summary
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - code-style
       - static-analysis
       - frontend-build
       - tests
+      - tests-architecture
       - migrations-mariadb
-      - migrations-postgres
+      - tests-sqlite
       - dependency-audit
     permissions:
       contents: read
@@ -538,13 +746,15 @@ jobs:
           TESTS_RESULT: ${{ needs.tests.result }}
           TEST_COUNT: ${{ needs.tests.outputs.tests }}
           ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
-          SQLITE_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          POSTGRES_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
+          ARCHITECTURE_TESTS: ${{ needs['tests-architecture'].outputs.tests }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
           MARIADB_ROLLBACK: ${{ needs['migrations-mariadb'].outputs.rollback }}
-          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
-          POSTGRES_MIGRATIONS: ${{ needs['migrations-postgres'].outputs.migrations }}
-          POSTGRES_ROLLBACK: ${{ needs['migrations-postgres'].outputs.rollback }}
+          SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
+          SQLITE_MIGRATIONS: ${{ needs['tests-sqlite'].outputs.migrations }}
+          SQLITE_ROLLBACK: ${{ needs['tests-sqlite'].outputs.rollback }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
           COMPOSER_PACKAGES: ${{ needs['dependency-audit'].outputs.composer-packages }}
           COMPOSER_ADVISORIES: ${{ needs['dependency-audit'].outputs.composer-advisories }}
@@ -571,10 +781,13 @@ jobs:
             const baselinePatterns = value('BASELINE_PATTERNS');
             const baselineFiles = value('BASELINE_FILES');
             const baselineDelta = value('BASELINE_DELTA');
+            const generatedAt = new Date().toISOString();
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const lines = [
               marker,
               '## RateGuru CI',
+              '',
+              `_Updated: ${generatedAt}_`,
               '',
               '| Check | Summary |',
               '|---|---|',
@@ -583,9 +796,10 @@ jobs:
               `| PHPStan suppressions | ${baselineFindings} findings · ${baselinePatterns} patterns · ${baselineFiles} files · delta ${baselineDelta} |`,
               `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
-              `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
-              `| MariaDB migration smoke | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
-              `| PostgreSQL migration smoke | ${details(process.env.POSTGRES_RESULT, `${value('POSTGRES_MIGRATIONS')} migrations · seed passed · rollback ${value('POSTGRES_ROLLBACK')}`)} |`,
+              `| Tests & PostgreSQL | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('POSTGRES_MIGRATIONS')} migrations · seed passed`)} |`,
+              `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${value('ARCHITECTURE_TESTS')} tests passed`)} |`,
+              `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
+              `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,
@@ -640,8 +854,9 @@ jobs:
           STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
           FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
-          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
+          SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
         run: |
           for result in \
@@ -649,8 +864,9 @@ jobs:
             "$STATIC_ANALYSIS_RESULT" \
             "$FRONTEND_BUILD_RESULT" \
             "$TESTS_RESULT" \
+            "$ARCHITECTURE_RESULT" \
             "$MARIADB_RESULT" \
-            "$POSTGRES_RESULT" \
+            "$SQLITE_RESULT" \
             "$DEPENDENCY_AUDIT_RESULT"
           do
             if [ "$result" != 'success' ]; then

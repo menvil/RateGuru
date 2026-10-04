@@ -6,27 +6,42 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
+use App\Models\Category;
 use App\Models\Comment;
+use App\Models\CommentVote;
+use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
+use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaVariantGenerator;
+use App\Support\Media\ImageOrientationClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use RuntimeException;
+use Throwable;
 
 class DemoFillSeeder extends Seeder
 {
     private const USER_COUNT = 500;
 
-    private const POST_COUNT = 100;
+    private const IMAGE_WIDTH = 800;
+
+    private const IMAGE_HEIGHT = 600;
 
     private const VOTE_RATIO = 0.85;  // 85% of users vote per post
 
@@ -49,7 +64,7 @@ class DemoFillSeeder extends Seeder
         'Steel Suspension Bridge', 'Skyscraper Window View', 'Train Station Vault',
         'Baroque Cathedral Nave', 'Modern Art Museum Atrium', 'Night Market Crowd',
         'Floating Village River', 'Foggy Hilltop Town',
-        // Food / Still Life
+        // Objects / Still Life
         'Rustic Barn in Meadow', 'Farm Table Harvest', 'Wood Fire Pizza',
         'Artisan Bread Loaves', 'Morning Coffee Pour', 'Colorful Spice Market',
         'Sushi Platter Display', 'Fresh Pasta Dough', 'Street Taco Stand',
@@ -130,7 +145,7 @@ class DemoFillSeeder extends Seeder
         [0x3B82F6, 0xF97316],
     ];
 
-    public function run(): void
+    public function run(MediaStorage $mediaStorage, MediaVariantGenerator $mediaVariantGenerator): void
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->command->warn('DemoFillSeeder only runs in local/testing environment.');
@@ -138,19 +153,25 @@ class DemoFillSeeder extends Seeder
             return;
         }
 
-        $this->command->info('Creating '.self::USER_COUNT.' users...');
+        $this->command->info('Creating '.$this->userCount().' users...');
         $users = $this->createUsers();
 
-        $this->command->info('Creating '.self::POST_COUNT.' posts with images...');
-        $posts = $this->createPosts($users);
+        $this->command->info('Removing previously generated media...');
+        $this->clearGeneratedMedia();
 
-        $this->command->info('Seeding post votes (85% participation)...');
+        $this->command->info('Creating '.count($this->postTitles()).' posts with images...');
+        $posts = $this->createPosts($users, $mediaStorage, $mediaVariantGenerator);
+
+        $this->command->info('Removing previously generated interactions...');
+        $this->clearGeneratedInteractions($users, $posts);
+
+        $this->command->info('Seeding post votes ('.$this->percentage($this->voteRatio()).'% participation)...');
         $this->seedPostVotes($users, $posts);
 
         $this->command->info('Seeding comments (2-3 levels deep)...');
         $comments = $this->seedComments($users, $posts);
 
-        $this->command->info('Seeding comment votes (50% participation)...');
+        $this->command->info('Seeding comment votes ('.$this->percentage($this->commentVoteRatio()).'% participation)...');
         $this->seedCommentVotes($users, $comments);
 
         $this->command->info('Recalculating post counters and scores...');
@@ -167,13 +188,14 @@ class DemoFillSeeder extends Seeder
     {
         $rows = [];
         $now = now()->toDateTimeString();
+        $password = Hash::make('password');
 
-        for ($i = 1; $i <= self::USER_COUNT; $i++) {
+        for ($i = 1; $i <= $this->userCount(); $i++) {
             $rows[] = [
                 'name' => fake()->name(),
                 'username' => 'user_fill_'.str_pad((string) $i, 3, '0', STR_PAD_LEFT),
                 'email' => "fill{$i}@demo.test",
-                'password' => Hash::make('password'),
+                'password' => $password,
                 'email_verified_at' => $now,
                 'role' => UserRole::User->value,
                 'status' => UserStatus::Active->value,
@@ -189,6 +211,7 @@ class DemoFillSeeder extends Seeder
 
         return User::query()
             ->where('email', 'like', 'fill%@demo.test')
+            ->orderBy('id')
             ->get();
     }
 
@@ -196,41 +219,97 @@ class DemoFillSeeder extends Seeder
     // Posts
     // -------------------------------------------------------------------------
 
-    private function createPosts(Collection $users): Collection
+    private function createPosts(Collection $users, MediaStorage $mediaStorage, MediaVariantGenerator $mediaVariantGenerator): Collection
     {
-        $originTypes = OriginType::cases();
-        $cuisineTypes = CuisineType::cases();
-        $shuffled = $users->shuffle();
+        $titles = $this->postTitles();
+        $categoryIds = Category::query()->active()->ordered()->pluck('id')->all();
+        $authors = $users->values();
         $baseTime = CarbonImmutable::now()->subDays(60);
         $now = now()->toDateTimeString();
 
-        foreach (self::POST_TITLES as $index => $title) {
-            $author = $shuffled[$index % $shuffled->count()];
-            $imagePath = $this->generatePostImage($author->id, $index + 1);
+        $disk = (string) config('media.disks.public');
 
-            DB::table('posts')->updateOrInsert(
-                ['title' => $title],
-                [
-                    'user_id' => $author->id,
-                    'description' => fake()->paragraph(3),
-                    'image_path' => $imagePath,
-                    'image_url' => null,
-                    'thumbnail_url' => null,
-                    'source_url' => null,
-                    'status' => PostStatus::Published->value,
-                    'origin_truth' => $originTypes[array_rand($originTypes)]->value,
-                    'cuisine_truth' => $cuisineTypes[array_rand($cuisineTypes)]->value,
-                    // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
-                    'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
-                    'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
-                    'upvotes_count' => 0,
-                    'downvotes_count' => 0,
-                    'comments_count' => 0,
-                    'hot_score' => 0,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-            );
+        foreach ($titles as $index => $title) {
+            $author = $authors[$index % $authors->count()];
+
+            // This seeder regenerates the same deterministic path on every
+            // rerun, so on a failure below the file may belong to an
+            // already-seeded, still-referenced post rather than to this
+            // attempt. Look up before writing: only a path with no existing
+            // media_assets row is "new" and safe to delete on failure —
+            // otherwise compensating would break an existing post's image.
+            // The id found here is passed into ensurePostImageMediaAsset()
+            // below so it doesn't have to repeat the same lookup.
+            $imagePath = $this->postImagePath($author->id, $index + 1);
+            $existingImageAssetId = MediaAsset::withTrashed()
+                ->where(['disk' => $disk, 'path' => $imagePath])
+                ->value('id');
+            $isNewImage = $existingImageAssetId === null;
+
+            // The image file is written to disk first (slow, external I/O
+            // that doesn't belong inside a DB transaction). If the DB work
+            // below then fails, a newly-created file is removed as
+            // compensation — it isn't covered by the transaction rollback.
+            $this->generatePostImage($author->id, $index + 1, $mediaStorage);
+            $categoryId = $categoryIds === [] || $index % 3 === 2
+                ? null
+                : $categoryIds[$index % count($categoryIds)];
+
+            $imageAssetId = null;
+
+            try {
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now, $mediaStorage, &$imageAssetId): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId, $mediaStorage);
+
+                    // Raw query builder (not Eloquent) is intentional here:
+                    // this loop runs once per demo post title (up to ~99) on
+                    // every re-seed, and updateOrInsert() keeps that bulk
+                    // upsert fast without instantiating/hydrating a model per
+                    // row.
+                    DB::table('posts')->updateOrInsert(
+                        ['title' => $title],
+                        [
+                            'user_id' => $author->id,
+                            'description' => fake()->paragraph(3),
+                            'image_asset_id' => $imageAssetId,
+                            'source_url' => null,
+                            'category_id' => $categoryId,
+                            'status' => PostStatus::Published->value,
+                            // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
+                            'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
+                            'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
+                            'upvotes_count' => 0,
+                            'downvotes_count' => 0,
+                            'comments_count' => 0,
+                            'hot_score' => 0,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ],
+                    );
+                });
+            } catch (Throwable $exception) {
+                // Best-effort: a cleanup failure here is reported but must
+                // never replace the original database exception being
+                // propagated below.
+                if ($isNewImage) {
+                    try {
+                        $mediaStorage->delete(new MediaLocation($disk, $imagePath));
+                    } catch (Throwable $cleanupException) {
+                        report($cleanupException);
+                    }
+                }
+
+                throw $exception;
+            }
+
+            // Synchronous, not queued: this seeder needs every post's
+            // variants to exist by the time it finishes, and QUEUE_CONNECTION
+            // is sync locally anyway — dispatching would just add indirection.
+            $imageAsset = MediaAsset::find($imageAssetId);
+
+            if ($imageAsset !== null) {
+                $mediaVariantGenerator->generateAll($imageAsset);
+            }
 
             $this->command->getOutput()->write('.');
         }
@@ -238,7 +317,7 @@ class DemoFillSeeder extends Seeder
         $this->command->getOutput()->writeln('');
 
         return Post::query()
-            ->whereIn('title', self::POST_TITLES)
+            ->whereIn('title', $titles)
             ->get();
     }
 
@@ -246,14 +325,23 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
-    private function generatePostImage(int $userId, int $index): string
+    /**
+     * Raw GD, not Illuminate\Support\Facades\Image: procedurally drawing
+     * shapes/gradients onto a blank canvas has no equivalent in Laravel's
+     * Image component (or in Intervention/Image, which it wraps) — that API
+     * only transforms an existing image (resize/crop/rotate/etc). Even the
+     * final encode step below can't move to it either, since encoding a raw
+     * \GdImage through the facade requires its driver, and
+     * intervention/image isn't installed in this project.
+     */
+    private function generatePostImage(int $userId, int $index, MediaStorage $mediaStorage): string
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
         $style = ($index - 1) % 5;
         [$r1,$g1,$b1] = $this->hexToRgb($palette[0]);
         [$r2,$g2,$b2] = $this->hexToRgb($palette[1]);
-        $w = 800;
-        $h = 600;
+        $w = self::IMAGE_WIDTH;
+        $h = self::IMAGE_HEIGHT;
         $im = imagecreatetruecolor($w, $h);
         imagealphablending($im, true);
 
@@ -267,16 +355,92 @@ class DemoFillSeeder extends Seeder
 
         $this->drawVignette($im, $w, $h);
 
-        $dir = storage_path("app/public/posts/{$userId}");
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
-        imagejpeg($im, "{$dir}/{$filename}", 85);
+        $path = $this->postImagePath($userId, $index);
+        ob_start();
+        $encoded = imagejpeg($im, null, 85);
+        $contents = ob_get_clean();
         imagedestroy($im);
 
+        if (! $encoded || ! is_string($contents)) {
+            throw new RuntimeException("Unable to create demo fill image at [{$path}].");
+        }
+
+        $mediaStorage->putContents(
+            new MediaLocation((string) config('media.disks.public'), $path),
+            $contents,
+            MediaVisibility::Public,
+        );
+
+        return $path;
+    }
+
+    private function postImagePath(int $userId, int $index): string
+    {
+        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
+
         return "posts/{$userId}/{$filename}";
+    }
+
+    /**
+     * Reuses the media_assets row already at this (disk, path) instead of
+     * inserting a new one on every re-seed — otherwise each rerun would leave
+     * the previous run's row behind, active but no longer referenced by any
+     * post. generatePostImage() always writes an IMAGE_WIDTH x IMAGE_HEIGHT
+     * JPEG, so dimensions are fixed rather than re-derived from the file.
+     *
+     * $existingId is looked up once by the caller (which also needs it to
+     * decide whether the file is safe to delete on failure) rather than
+     * being re-queried here.
+     */
+    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId, MediaStorage $mediaStorage): int
+    {
+        $disk = (string) config('media.disks.public');
+        $location = new MediaLocation($disk, $path);
+
+        if ($existingId !== null) {
+            // The row may have been previously soft-deleted — the caller's
+            // withTrashed() lookup finds it regardless. Restore it
+            // unconditionally (a no-op when it wasn't trashed) — otherwise a
+            // post would point at a soft-deleted asset that its imageAsset
+            // relation excludes, leaving it with no resolvable image. The
+            // file was just regenerated above, so refresh
+            // byte_size/owner/updated_at too, not only deleted_at —
+            // otherwise a restored row can carry stale metadata from
+            // whichever run first created it.
+            DB::table('media_assets')
+                ->where('id', $existingId)
+                ->update([
+                    'deleted_at' => null,
+                    'owner_user_id' => $userId,
+                    'byte_size' => $mediaStorage->size($location),
+                    'updated_at' => now()->toDateTimeString(),
+                ]);
+
+            return $existingId;
+        }
+
+        $width = self::IMAGE_WIDTH;
+        $height = self::IMAGE_HEIGHT;
+        $now = now()->toDateTimeString();
+
+        return DB::table('media_assets')->insertGetId([
+            'owner_user_id' => $userId,
+            'kind' => MediaKind::PostImage->value,
+            'disk' => $disk,
+            'path' => $path,
+            'original_filename' => basename($path),
+            'mime_type' => 'image/jpeg',
+            'extension' => 'jpg',
+            'byte_size' => $mediaStorage->size($location),
+            'width' => $width,
+            'height' => $height,
+            'aspect_ratio' => round($width / $height, 6),
+            'orientation' => app(ImageOrientationClassifier::class)->classify($width, $height)->value,
+            'status' => MediaStatus::Ready->value,
+            'visibility' => MediaVisibility::Public->value,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 
     private function hexToRgb(int $hex): array
@@ -454,42 +618,22 @@ class DemoFillSeeder extends Seeder
             $g->id => $g->options->pluck('id')->all(),
         ])->all();
 
-        $originValues = [OriginType::Homemade->value, OriginType::Restaurant->value];
-        $cuisineValues = array_map(fn ($c) => $c->value, CuisineType::cases());
         $now = now()->toDateTimeString();
 
         $postVotes = [];
-        $originVotes = [];
-        $cuisineVotes = [];
         $ratingVotes = [];
 
         foreach ($posts as $post) {
             $voters = $users
                 ->where('id', '!=', $post->user_id)
                 ->shuffle()
-                ->take((int) round($users->count() * self::VOTE_RATIO));
+                ->take((int) round($users->count() * $this->voteRatio()));
 
             foreach ($voters as $user) {
                 $postVotes[] = [
                     'post_id' => $post->id,
                     'user_id' => $user->id,
                     'type' => fake()->boolean(70) ? VoteType::Up->value : VoteType::Down->value,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $originVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'origin' => $originValues[array_rand($originValues)],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $cuisineVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'cuisine' => $cuisineValues[array_rand($cuisineValues)],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -519,14 +663,6 @@ class DemoFillSeeder extends Seeder
             DB::table('post_votes')->upsert($chunk, ['post_id', 'user_id'], ['type', 'updated_at']);
         }
 
-        foreach (array_chunk($originVotes, 500) as $chunk) {
-            DB::table('origin_votes')->upsert($chunk, ['post_id', 'user_id'], ['origin', 'updated_at']);
-        }
-
-        foreach (array_chunk($cuisineVotes, 500) as $chunk) {
-            DB::table('cuisine_votes')->upsert($chunk, ['post_id', 'user_id'], ['cuisine', 'updated_at']);
-        }
-
         foreach (array_chunk($ratingVotes, 500) as $chunk) {
             DB::table('rating_votes')->upsert($chunk, ['post_id', 'user_id', 'rating_group_id'], ['rating_option_id', 'updated_at']);
         }
@@ -547,7 +683,7 @@ class DemoFillSeeder extends Seeder
             $commenters = $users
                 ->where('id', '!=', $post->user_id)
                 ->shuffle()
-                ->take(fake()->numberBetween(6, 12));
+                ->take($this->topLevelCommentCount());
 
             $topLevel = collect();
             foreach ($commenters as $user) {
@@ -566,7 +702,10 @@ class DemoFillSeeder extends Seeder
 
             $level2 = collect();
             foreach ($topLevel as $parent) {
-                $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(2, 5));
+                $replyUsers = $users
+                    ->where('id', '!=', $post->user_id)
+                    ->shuffle()
+                    ->take($this->replyCount());
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
                         'post_id' => $post->id,
@@ -582,9 +721,12 @@ class DemoFillSeeder extends Seeder
                 }
             }
 
-            $deepCount = min($level2->count(), fake()->numberBetween(3, 8));
+            $deepCount = min($level2->count(), $this->deepReplyParentCount());
             foreach ($level2->random($deepCount) as $parent) {
-                $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(1, 3));
+                $replyUsers = $users
+                    ->where('id', '!=', $post->user_id)
+                    ->shuffle()
+                    ->take($this->deepReplyCount());
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
                         'post_id' => $post->id,
@@ -629,7 +771,7 @@ class DemoFillSeeder extends Seeder
             $voters = $users
                 ->where('id', '!=', $comment->user_id)
                 ->shuffle()
-                ->take((int) round($users->count() * self::COMMENT_VOTE_RATIO));
+                ->take((int) round($users->count() * $this->commentVoteRatio()));
 
             foreach ($voters as $user) {
                 $commentVotes[] = [
@@ -657,6 +799,7 @@ class DemoFillSeeder extends Seeder
         $counters = app(RecalculateCommentCountersAction::class);
 
         Comment::query()
+            ->whereIn('id', $comments->pluck('id'))
             ->select('id')
             ->lazyById()
             ->each(fn (Comment $comment) => $counters->handle($comment));
@@ -677,6 +820,123 @@ class DemoFillSeeder extends Seeder
             $post->refresh();
             $score->handle($post);
         }
+    }
+
+    private function clearGeneratedInteractions(Collection $users, Collection $posts): void
+    {
+        $userIds = $users->modelKeys();
+        $postIds = $posts->modelKeys();
+
+        // Community FKs restrict instead of cascading (PR-C), so this
+        // dev-only reseed cleanup must delete the child graph explicitly
+        // and in dependency order: votes on the generated comments first,
+        // then the comments themselves leaves-first — reply chains can be
+        // arbitrarily deep here, and MariaDB/SQLite enforce the
+        // self-referencing parent_id RESTRICT row by row, so a parent must
+        // only be deleted once none of its children remain.
+        $remainingIds = Comment::withTrashed()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->pluck('id')
+            ->all();
+
+        CommentVote::query()
+            ->whereIn('comment_id', $remainingIds)
+            ->delete();
+
+        while ($remainingIds !== []) {
+            $idsWithChildren = Comment::withTrashed()
+                ->whereIn('parent_id', $remainingIds)
+                ->pluck('parent_id')
+                ->unique()
+                ->all();
+
+            $leafIds = array_values(array_diff($remainingIds, $idsWithChildren));
+
+            if ($leafIds === []) {
+                // Remaining comments have replies outside the generated
+                // set; deleting them would (correctly) hit the FK anyway.
+                break;
+            }
+
+            Comment::withTrashed()->whereIn('id', $leafIds)->forceDelete();
+
+            $remainingIds = array_values(array_intersect($remainingIds, $idsWithChildren));
+        }
+
+        PostVote::query()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->delete();
+
+        RatingVote::query()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->delete();
+    }
+
+    /**
+     * Bulk directory enumeration + deletion by filename pattern — outside
+     * MediaStorage's narrow, single-location contract (store/exists/size/
+     * read/delete), so this stays a direct Storage:: call.
+     */
+    private function clearGeneratedMedia(): void
+    {
+        $disk = Storage::disk((string) config('media.disks.public'));
+        $paths = array_values(array_filter(
+            $disk->allFiles('posts'),
+            fn (string $path): bool => preg_match('#/fill_post_\d+\.jpg$#', $path) === 1,
+        ));
+
+        if ($paths !== []) {
+            $disk->delete($paths);
+        }
+    }
+
+    protected function userCount(): int
+    {
+        return self::USER_COUNT;
+    }
+
+    /** @return list<string> */
+    protected function postTitles(): array
+    {
+        return self::POST_TITLES;
+    }
+
+    protected function voteRatio(): float
+    {
+        return self::VOTE_RATIO;
+    }
+
+    protected function commentVoteRatio(): float
+    {
+        return self::COMMENT_VOTE_RATIO;
+    }
+
+    protected function topLevelCommentCount(): int
+    {
+        return fake()->numberBetween(6, 12);
+    }
+
+    protected function replyCount(): int
+    {
+        return fake()->numberBetween(2, 5);
+    }
+
+    protected function deepReplyParentCount(): int
+    {
+        return fake()->numberBetween(3, 8);
+    }
+
+    protected function deepReplyCount(): int
+    {
+        return fake()->numberBetween(1, 3);
+    }
+
+    private function percentage(float $ratio): int
+    {
+        return (int) round($ratio * 100);
     }
 
     private function randomBody(array $pool): string

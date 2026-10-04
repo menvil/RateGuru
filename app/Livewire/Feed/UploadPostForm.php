@@ -5,11 +5,12 @@ namespace App\Livewire\Feed;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
+use App\Enums\ImageInputSource;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\RatingGroup;
 use App\Models\Tag;
+use App\Queries\Categories\ActiveCategoriesQuery;
+use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -28,16 +29,11 @@ final class UploadPostForm extends Component
 
     public ?string $sourceUrl = null;
 
-    public string $originTruth = 'unknown';
-
-    public string $cuisineTruth = 'unknown';
-
     public array $tagIds = [];
 
-    // Author-chosen feed category: option id of the first active rating group
-    // (the sidebar "Categories" group), kept as a string because it is bound to
-    // a native <select> ('' = not selected).
-    public string $categoryOptionId = '';
+    // Standalone category id, kept as a string because it is bound to a native
+    // <select> ('' = not selected).
+    public string $categoryId = '';
 
     // "From the author" section: toggle + one optional answer per active rating
     // group, keyed by group id ('' = not selected).
@@ -68,11 +64,9 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
-        $this->originTruth = OriginType::Unknown->value;
-        $this->cuisineTruth = CuisineType::Unknown->value;
         $this->resetValidation();
     }
 
@@ -83,10 +77,19 @@ final class UploadPostForm extends Component
         $createPostAction = app(CreatePostAction::class);
 
         $this->submitError = null;
+        $imageSource = ImageInputSource::Upload;
+
+        // Captured separately from $this->image: a successful submission
+        // below resets $this->image to null, but this local reference must
+        // still point at the temp file so the finally block can clean it up
+        // either way.
+        $importedTempFile = null;
 
         if ($this->importedImageUrl !== null && $this->image === null) {
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
+                $importedTempFile = $this->image;
+                $imageSource = ImageInputSource::UrlImport;
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('import.errors.fetch_failed');
@@ -95,35 +98,56 @@ final class UploadPostForm extends Component
             }
         }
 
-        $this->validate();
-
         try {
-            $post = $createPostAction->handle(auth()->user(), new CreatePostData(
-                title: $this->title,
-                description: $this->description,
-                sourceUrl: $this->sourceUrl,
-                originTruth: OriginType::from($this->originTruth),
-                cuisineTruth: CuisineType::from($this->cuisineTruth),
-                tagIds: $this->tagIds,
-                image: $this->image,
-                categoryOptionId: $this->categoryOptionId !== '' ? (int) $this->categoryOptionId : null,
-                authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
-            ));
+            $this->validate();
 
-            $this->dispatch('post-uploaded', postId: $post->id);
-            $this->dispatch('toast', message: __('ui.upload.success_pending'));
+            try {
+                $post = $createPostAction->handle(auth()->user(), new CreatePostData(
+                    title: $this->title,
+                    description: $this->description,
+                    sourceUrl: $this->sourceUrl,
+                    tagIds: $this->tagIds,
+                    image: $this->image,
+                    imageSource: $imageSource,
+                    categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
+                    authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
+                ));
 
-            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
-            $this->importedImageUrl = null;
-            $this->activeTab = 'upload';
-            $this->tagSearch = '';
-            $this->originTruth = OriginType::Unknown->value;
-            $this->cuisineTruth = CuisineType::Unknown->value;
-        } catch (RateLimitExceededException $e) {
-            $this->submitError = $e->getMessage();
-        } catch (\Throwable $e) {
-            report($e);
-            $this->submitError = __('ui.upload.error_generic');
+                $this->dispatch('post-uploaded', postId: $post->id);
+                $this->dispatch('toast', message: __('ui.upload.success_pending'));
+
+                $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+                $this->importedImageUrl = null;
+                $this->activeTab = 'upload';
+                $this->tagSearch = '';
+            } catch (RateLimitExceededException $e) {
+                $this->submitError = $e->getMessage();
+            } catch (ImageIngestException $e) {
+                report($e);
+                $this->submitError = __('ui.upload.error_invalid_image');
+            } catch (\Throwable $e) {
+                report($e);
+                $this->submitError = __('ui.upload.error_generic');
+            }
+        } finally {
+            // Runs whether validation itself failed (still propagating past
+            // this block for Livewire's normal field-error handling),
+            // createPostAction failed, or the submission succeeded — the
+            // one thing that's never appropriate is leaving this temp file
+            // behind.
+            if ($importedTempFile !== null) {
+                app(StoreImportedImageAction::class)->cleanup($importedTempFile);
+
+                // On a failure path the success branch's own reset() above
+                // never ran, so $this->image would otherwise keep pointing
+                // at the file cleanup() just deleted — a retry would try to
+                // reuse a now-missing file instead of re-downloading.
+                // importedImageUrl is deliberately left untouched so that
+                // retry has something to download from.
+                if ($this->image === $importedTempFile) {
+                    $this->image = null;
+                }
+            }
         }
     }
 
@@ -145,31 +169,17 @@ final class UploadPostForm extends Component
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:2048'],
-            'originTruth' => ['nullable', Rule::enum(OriginType::class)],
-            'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
-            'categoryOptionId' => [Rule::in($this->categoryOptionChoices($ratingGroups))],
+            'categoryId' => [
+                'nullable',
+                'bail',
+                'integer',
+                Rule::exists('categories', 'id')
+                    ->where(fn ($query) => $query->where('is_active', true)),
+            ],
             'authorAnswers' => ['array'],
             'authorAnswers.*' => [Rule::in($this->authorAnswerChoices($ratingGroups))],
-        ];
-    }
-
-    /**
-     * Valid <select> values for the category field: '' (not selected) plus the
-     * active option ids of the sidebar category group.
-     *
-     * @param  Collection<int, RatingGroup>  $ratingGroups
-     * @return list<string>
-     */
-    private function categoryOptionChoices(Collection $ratingGroups): array
-    {
-        return [
-            '',
-            ...array_map(
-                fn (int $optionId): string => (string) $optionId,
-                app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups),
-            ),
         ];
     }
 
@@ -219,13 +229,13 @@ final class UploadPostForm extends Component
         $this->activeTab = 'upload';
     }
 
-    public function render(): View
+    public function render(ActiveCategoriesQuery $activeCategories): View
     {
         $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return view('livewire.feed.upload-post-form', [
             'ratingGroups' => $ratingGroups,
-            'categoryGroup' => $ratingGroups->first(),
+            'categories' => $activeCategories->get(),
             'tags' => $this->tags,
             'selectedTags' => $this->selectedTags(),
             'popularTags' => $this->popularTags(),

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 it('preloads rating distributions and selected options for multiple posts', function () {
     $user = User::factory()->create();
     $posts = Post::factory()->count(2)->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     $first = RatingOption::factory()->for($group, 'group')->create();
     $second = RatingOption::factory()->for($group, 'group')->create();
 
@@ -20,16 +20,16 @@ it('preloads rating distributions and selected options for multiple posts', func
 
     $states = app(RatingVotingStateLoader::class)->forPosts($posts, $user);
 
-    expect($states[$posts[0]->id]['source']['selected_option_id'])->toBe($first->id)
-        ->and($states[$posts[0]->id]['source']['distribution'][$first->id]['count'])->toBe(1)
-        ->and($states[$posts[1]->id]['source']['selected_option_id'])->toBeNull()
-        ->and($states[$posts[1]->id]['source']['distribution'][$second->id]['count'])->toBe(1);
+    expect($states[$posts[0]->id]['type']['selected_option_id'])->toBe($first->id)
+        ->and($states[$posts[0]->id]['type']['distribution'][$first->id]['count'])->toBe(1)
+        ->and($states[$posts[1]->id]['type']['selected_option_id'])->toBeNull()
+        ->and($states[$posts[1]->id]['type']['distribution'][$second->id]['count'])->toBe(1);
 });
 
 it('preloads feed rating state with a fixed number of queries', function () {
     $posts = Post::factory()->count(5)->published()->create();
     $user = User::factory()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     RatingOption::factory()->count(2)->for($group, 'group')->create();
 
     DB::flushQueryLog();

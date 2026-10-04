@@ -81,8 +81,8 @@ it('only mass assigns public rating group configuration fields', function () {
     $group = new RatingGroup;
     $group->fill([
         'id' => 999,
-        'key' => 'source',
-        'label' => 'Source',
+        'key' => 'type',
+        'label' => 'Type',
         'description' => 'Description',
         'min_options' => 2,
         'max_options' => 10,
@@ -91,7 +91,7 @@ it('only mass assigns public rating group configuration fields', function () {
     ]);
 
     expect($group->getAttributes())->not->toHaveKey('id')
-        ->and($group->key)->toBe('source');
+        ->and($group->key)->toBe('type');
 });
 
 it('does not mass assign rating vote ownership fields', function () {

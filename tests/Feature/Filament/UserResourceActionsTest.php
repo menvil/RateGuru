@@ -75,62 +75,81 @@ it('hides the ban action for already banned users', function () {
         ->assertTableActionHidden('ban', $banned);
 });
 
-it('allows admin to unban a user via the unban table action', function () {
+it('allows admin to restore access via the restore table action', function () {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->banned()->create();
 
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
-        ->callTableAction('unban', $target, data: ['reason' => 'Appeal accepted.']);
+        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Appeal accepted.']);
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
-        'action' => ModerationActionType::UnbanUser->value,
+        'action' => ModerationActionType::RestoreUserAccess->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);
 });
 
-it('allows admin to unban a shadowbanned user via the unban table action', function () {
+it('allows admin to restore a limited user via the restore table action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->limited()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Limit lifted.']);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Active);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => ModerationActionType::RestoreUserAccess->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('allows admin to restore a shadowbanned user via the restore table action', function () {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create(['status' => UserStatus::Shadowbanned]);
 
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
-        ->callTableAction('unban', $target, data: ['reason' => 'Appeal accepted.']);
+        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Appeal accepted.']);
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
-        'action' => ModerationActionType::UnbanUser->value,
+        'action' => ModerationActionType::RestoreUserAccess->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);
 });
 
-it('hides the unban action from moderators', function () {
+it('hides the restore access action from moderators', function () {
     $moderator = User::factory()->moderator()->create();
     $target = User::factory()->banned()->create();
 
     $this->actingAs($moderator);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('unban', $target);
+        ->assertTableActionHidden('restoreAccess', $target);
 });
 
-it('hides the unban action for users who are not banned or shadowbanned', function () {
+it('hides the restore access action for active users', function () {
     $admin = User::factory()->admin()->create();
     $active = User::factory()->create(['status' => UserStatus::Active]);
 
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('unban', $active);
+        ->assertTableActionHidden('restoreAccess', $active);
 });
 
 it('hides the unban action for the acting admin themselves', function () {
@@ -145,7 +164,7 @@ it('hides the unban action for the acting admin themselves', function () {
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('unban', $admin);
+        ->assertTableActionHidden('restoreAccess', $admin);
 });
 
 it('hides the unban action for admin targets', function () {
@@ -157,7 +176,7 @@ it('hides the unban action for admin targets', function () {
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('unban', $adminTarget);
+        ->assertTableActionHidden('restoreAccess', $adminTarget);
 });
 
 it('allows admin to mark a user trusted via the mark trusted action', function () {

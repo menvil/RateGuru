@@ -31,27 +31,27 @@ it('allows authenticated user to upvote a post', function () {
     ]);
 });
 
-it('allows authenticated user to vote on post source option', function () {
+it('allows authenticated user to vote on a post type option', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
-        'title' => 'Browser Source Vote Test Post',
+        'title' => 'Browser Type Vote Test Post',
     ]);
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $option = $source->options()->active()->firstOrFail();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    $option = $type->options()->active()->firstOrFail();
 
     actingAs($user);
 
     visit(route('feed'))
-        ->assertSee('Browser Source Vote Test Post')
+        ->assertSee('Browser Type Vote Test Post')
         ->click("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]")
         ->assertPresent("[data-testid=\"rating-option-{$post->id}-results\"]");
 
     $this->assertDatabaseHas('rating_votes', [
         'post_id' => $post->id,
         'user_id' => $user->id,
-        'rating_group_id' => $source->id,
+        'rating_group_id' => $type->id,
         'rating_option_id' => $option->id,
     ]);
 });

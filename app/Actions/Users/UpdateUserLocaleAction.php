@@ -12,8 +12,9 @@ final class UpdateUserLocaleAction
 
     public function handle(User $user, string $locale): void
     {
-        if (! $this->locales->isSupported($locale)) {
-            throw new InvalidArgumentException("Unsupported locale: [{$locale}].");
+        // A preference can only be set to a language the project offers.
+        if (! $this->locales->isEnabled($locale)) {
+            throw new InvalidArgumentException("Locale [{$locale}] is not offered by this project.");
         }
 
         $user->update(['locale' => $locale]);

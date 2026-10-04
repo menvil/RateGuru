@@ -13,17 +13,11 @@ it('creates posts table with required columns', function () {
         'user_id',
         'title',
         'description',
-        'image_path',
-        'image_url',
-        'thumbnail_url',
+        'image_asset_id',
         'source_url',
         'status',
-        'origin_truth',
-        'cuisine_truth',
         'upvotes_count',
         'downvotes_count',
-        'homemade_votes_count',
-        'restaurant_votes_count',
         'comments_count',
         'reports_count',
         'hot_score',
@@ -31,5 +25,15 @@ it('creates posts table with required columns', function () {
         'created_at',
         'updated_at',
         'deleted_at',
+        'category_id',
     ]))->toBeTrue();
+
+    expect(Schema::hasColumn('posts', 'category_option_id'))->toBeFalse();
+});
+
+it('does not have the legacy image columns', function () {
+    expect(Schema::hasColumn('posts', 'image_path'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'image_url'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'thumbnail_url'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'og_image_path'))->toBeFalse();
 });

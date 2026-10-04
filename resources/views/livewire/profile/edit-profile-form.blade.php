@@ -74,11 +74,18 @@
             <x-input-error class="mt-2" :messages="$errors->get('rating_activity_visibility')" />
         </div>
 
+        @if($submitError)
+            <x-ui.error-message
+                :title="__('profile.error_generic')"
+                :message="$submitError"
+            />
+        @endif
+
         <div class="flex items-center gap-4">
-            <x-ui.button type="submit">{{ __('Save') }}</x-ui.button>
+            <x-ui.button type="submit">{{ __('ui.actions.save') }}</x-ui.button>
 
             @if(session('status') === 'profile-updated')
-                <p class="text-sm text-rg-muted">{{ __('Saved.') }}</p>
+                <p class="text-sm text-rg-muted">{{ __('ui.actions.saved') }}</p>
             @endif
         </div>
     </form>

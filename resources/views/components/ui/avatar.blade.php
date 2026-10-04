@@ -1,5 +1,6 @@
 @props([
     'src' => null,
+    'srcset' => null,
     'name' => '',
     'size' => 'md',
     'color' => 'purple',
@@ -41,7 +42,12 @@
     @endif
 >
     @if (filled($src))
-        <img src="{{ $src }}" alt="{{ $displayName }}" class="size-full object-cover">
+        <img
+            src="{{ $src }}"
+            @if($srcset) srcset="{{ $srcset }}" @endif
+            alt="{{ $displayName }}"
+            class="size-full object-cover"
+        >
     @else
         <span aria-hidden="true">{{ $initials }}</span>
     @endif

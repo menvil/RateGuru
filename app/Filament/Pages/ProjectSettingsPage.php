@@ -2,11 +2,16 @@
 
 namespace App\Filament\Pages;
 
-use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Actions\Settings\SaveProjectSettingsAction;
-use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Enums\SocialProvider;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
+use App\Queries\SocialProvidersInUseQuery;
+use App\Services\Settings\ProjectPresetStatusService;
+use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\TranslatableField;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -53,15 +58,33 @@ class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
+        // What the project stores, as it stores it: a page or a language with
+        // no text shows empty, not filled in from config. An installation
+        // without a row shows the bootstrap it would be created from.
         $settings = ProjectSettings::find(1);
+        $data = $settings ? $settings->toArray() : app(ProjectSettingsManager::class)->defaults();
+        // Every provider is on until it is switched off; an unsaved row or
+        // a provider added later must not render as an unticked box.
+        $data['sign_in_providers'] = array_merge(
+            array_fill_keys(SocialProvider::values(), true),
+            array_intersect_key($data['sign_in_providers'] ?? [], array_flip(SocialProvider::values())),
+        );
 
-        $this->form->fill($settings ? $settings->toArray() : []);
+        $this->form->fill($data);
     }
 
     public function form(Schema $form): Schema
     {
         return $form
             ->schema([
+                Section::make(__('admin.project_settings.preset_status_title'))
+                    ->description(__('admin.project_settings.preset_status_description'))
+                    ->schema([
+                        Placeholder::make('preset_status')
+                            ->label(__('admin.project_settings.preset_status_label'))
+                            ->content(fn (): string => $this->presetStatus()),
+                    ]),
+
                 Section::make(__('admin.project_settings.site_identity'))
                     ->schema([
                         TextInput::make('site_name')
@@ -99,10 +122,6 @@ class ProjectSettingsPage extends Page
 
                 Section::make(__('admin.project_settings.defaults'))
                     ->schema([
-                        TextInput::make('default_locale')
-                            ->label(__('admin.fields.default_locale'))
-                            ->required()
-                            ->maxLength(12),
                         Select::make('default_theme')
                             ->label(__('admin.fields.default_theme'))
                             ->options([
@@ -134,6 +153,10 @@ class ProjectSettingsPage extends Page
                         Toggle::make('feature_flags.allow_user_uploads')->label(__('admin.fields.allow_user_uploads')),
                         Toggle::make('feature_flags.allow_guest_viewing')->label(__('admin.fields.allow_guest_viewing')),
                     ]),
+
+                Section::make(__('admin.project_settings.sign_in_title'))
+                    ->description(__('admin.project_settings.sign_in_description'))
+                    ->schema($this->signInProviderToggles()),
 
                 Section::make('Translations')
                     ->schema([
@@ -169,6 +192,19 @@ class ProjectSettingsPage extends Page
                             )),
                     ])
                     ->collapsible(),
+
+                Section::make(__('admin.project_settings.static_pages'))
+                    ->description(__('admin.project_settings.static_pages_description'))
+                    ->schema([
+                        Tabs::make('StaticPages')
+                            ->tabs(array_map(
+                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
+                                    ->schema($this->staticPageSections($locale)),
+                                array_keys(config('locales.supported', [])),
+                                config('locales.supported', []),
+                            )),
+                    ])
+                    ->collapsible(),
             ])
             ->statePath('data');
     }
@@ -185,32 +221,55 @@ class ProjectSettingsPage extends Page
             ->send();
     }
 
-    public function applyPreset(string $presetKey): void
+    private function presetStatus(): string
     {
-        try {
-            app(ApplyProjectPresetAction::class)->handle($presetKey);
-        } catch (UnknownProjectPresetException $e) {
-            Notification::make()
-                ->title($e->getMessage())
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $settings = ProjectSettings::find(1);
-        $this->form->fill($settings ? $settings->toArray() : []);
-
-        Notification::make()
-            ->title("Preset '{$presetKey}' applied")
-            ->success()
-            ->send();
+        return app(ProjectPresetStatusService::class)->display();
     }
 
-    public static function presetOptions(): array
+    /** @return list<Toggle> */
+    private function signInProviderToggles(): array
     {
-        return collect(config('project_presets', []))
-            ->mapWithKeys(fn (array $preset, string $key): array => [$key => $preset['label']])
-            ->all();
+        $availability = app(SocialProviderAvailability::class);
+        $accounts = app(SocialProvidersInUseQuery::class)->counts();
+
+        return array_map(
+            function (SocialProvider $provider) use ($availability, $accounts): Toggle {
+                $help = [__('admin.project_settings.sign_in_accounts', ['count' => $accounts[$provider->value] ?? 0])];
+
+                if (! $availability->isConfigured($provider)) {
+                    $prefix = strtoupper($provider->value);
+                    $help[] = __('admin.project_settings.sign_in_not_configured', [
+                        'keys' => "{$prefix}_CLIENT_ID, {$prefix}_CLIENT_SECRET",
+                    ]);
+                }
+
+                return Toggle::make("sign_in_providers.{$provider->value}")
+                    ->label(__('admin.fields.sign_in_provider', ['provider' => $provider->label()]))
+                    ->helperText(implode(' ', $help));
+            },
+            SocialProvider::cases(),
+        );
+    }
+
+    /** @return array<int, Section> */
+    private function staticPageSections(string $locale): array
+    {
+        return array_map(
+            fn (string $pageKey): Section => Section::make(__('admin.static_pages.'.$pageKey))
+                ->schema([
+                    // English is what every other language falls back to, and
+                    // nothing falls back for English: it cannot be left blank.
+                    TextInput::make("static_pages.{$pageKey}.{$locale}.title")
+                        ->label(__('admin.fields.title'))
+                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
+                        ->maxLength(160),
+                    Textarea::make("static_pages.{$pageKey}.{$locale}.content")
+                        ->label(__('admin.fields.content'))
+                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
+                        ->rows(6)
+                        ->maxLength(20000),
+                ]),
+            array_keys(config('static-pages.defaults', [])),
+        );
     }
 }

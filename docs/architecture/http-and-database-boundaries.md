@@ -53,9 +53,7 @@ the preferred explicit query entry point.
 `DB::transaction()` remains allowed for atomic application work. Direct Query
 Builder access and direct SQL execution are rejected by the architecture guard.
 
-The only current Query Builder exception is the dynamic source-table read in
-`LegacyRatingVoteMigrator`. Those legacy table names are selected by trusted
-application code and do not have useful long-lived Eloquent models.
+There are currently no reviewed low-level Query Builder exceptions.
 
 ## Raw expressions
 

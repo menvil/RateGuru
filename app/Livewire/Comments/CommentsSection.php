@@ -46,9 +46,9 @@ final class CommentsSection extends Component
     }
 
     #[Computed]
-    public function totalTopLevelComments(): int
+    public function totalRenderableTopLevel(): int
     {
-        return app(CommentListQuery::class)->countVisibleTopLevel($this->postId);
+        return app(CommentListQuery::class)->countRenderableTopLevel($this->postId);
     }
 
     public function loadMore(): void
@@ -105,7 +105,7 @@ final class CommentsSection extends Component
             $this->addError(
                 'replyBody',
                 $e->isGuest()
-                    ? 'You must be signed in to reply.'
+                    ? __('ui.comments.sign_in_to_reply')
                     : $e->getMessage(),
             );
 
@@ -116,7 +116,7 @@ final class CommentsSection extends Component
 
         unset($this->comments);
         unset($this->totalComments);
-        unset($this->totalTopLevelComments);
+        unset($this->totalRenderableTopLevel);
 
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);
     }
@@ -153,7 +153,7 @@ final class CommentsSection extends Component
 
         unset($this->comments);
         unset($this->totalComments);
-        unset($this->totalTopLevelComments);
+        unset($this->totalRenderableTopLevel);
     }
 
     public function deleteComment(int $commentId, DeleteCommentAction $deleteCommentAction): void
@@ -174,7 +174,7 @@ final class CommentsSection extends Component
 
         unset($this->comments);
         unset($this->totalComments);
-        unset($this->totalTopLevelComments);
+        unset($this->totalRenderableTopLevel);
 
         $this->dispatch('comment-deleted', postId: $this->postId, commentId: $commentId);
     }
@@ -196,7 +196,7 @@ final class CommentsSection extends Component
 
         unset($this->comments);
         unset($this->totalComments);
-        unset($this->totalTopLevelComments);
+        unset($this->totalRenderableTopLevel);
 
         $this->dispatch('comment-hidden', postId: $this->postId, commentId: $commentId);
     }

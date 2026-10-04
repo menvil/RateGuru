@@ -1,0 +1,3431 @@
+#!/usr/bin/env bash
+#
+# Install-bootstrap-services — : services and committed host
+# configuration for a prepared RateGuru host.
+#
+# bootstrap-host-preflight defined what a valid host looks like;
+# install-bootstrap-runtime installed the runtime; install-bootstrap-host-layout
+# created the identities and filesystem boundaries. This installer turns that
+# prepared host into the configured RateGuru service host required for
+# deployment: the installed operational bundle, the target perimeter, the
+# committed SSH restriction, the active-target Nginx/PHP-FPM/Supervisor/cron
+# configuration, the public-storage ACL, the shared staging mail capture, and
+# the enablement of the required host services.
+#
+# Modes (all root-only — the prerequisite gates run other root-only verifies,
+# and even the read-only inspection must see root-owned state exactly as the
+# mutating path would):
+#   --check   Strictly read-only. Verifies the 5.2/5.3 prerequisites through
+#             their authoritative --verify gates, validates the committed
+#             service configuration and the source registry, inspects the
+#             currently installed service/config state and the external
+#             prerequisites (presence only), and reports the intended
+#             --apply action for every unsatisfied item. Performs no
+#             mutation, no reload/restart, no downloads.
+#   --apply   Validates the entire plan before the first mutation, then
+#             converges in dependency order: service-support directory,
+#             target operations bundle, perimeter, SSH restriction, PHP-FPM
+#             pool, active-target Nginx, Supervisor, scheduler cron,
+#             public-storage ACL, mail capture, base services — validating
+#             every configuration family before its service is ever
+#             reloaded, and ending with the authoritative --verify report.
+#   --verify  Read-only. The authoritative install-bootstrap-services contract gate: exits 0
+#             only when every installed file matches its committed source,
+#             every owner/mode/symlink is exact, every required service is
+#             enabled/running, every child installer's own contract holds,
+#             and the current host state (PRE_DEPLOY or DEPLOYED) satisfies
+#             the service/configuration contract.
+#   --help    Usage.
+#
+# Ownership boundaries (this installer coordinates; it never absorbs):
+#   install-target-operations    owns the runtime registry, deployment.conf
+#                                and the installed operational bundle under
+#                                /home/www/rateguru/bin;
+#   install-nightwatch-agent     owns the deployment-marker wrapper, its
+#                                sudoers grant and the primitive behind it,
+#                                converged here through its marker-only modes
+#                                — never the agent itself, which stays opt-in
+#   install-target-perimeter     owns the generic sudo wrappers, sudoers and
+#                                the backup cron;
+#   install-public-storage-access owns the narrow www-data POSIX ACL on
+#                                shared and shared/storage;
+#   install-mail-capture         owns Mailpit/Mailtrap Local end to end
+#                                (users, state, units, pinned binaries,
+#                                their Nginx vhosts), verified through
+#                                `verify-mail-capture --read-only` — never
+#                                its mutating --e2e acceptance mode, which
+#                                sends mail and bounces the mirror service
+#                                and stays an explicit operator command.
+# This installer directly owns only the service files that have committed
+# sources but no dedicated installer: the active-target Nginx site (plus its
+# enabled symlink), the PHP-FPM pool, the Supervisor queue program, the
+# scheduler cron, the host-global SSH deploy restriction, and the exact
+# service-support log directory the committed PHP-FPM/Supervisor configs
+# write into (TARGET_ROOT/shared/storage/logs).
+#
+# PRE_DEPLOY vs DEPLOYED: a genuine clean host legitimately has no `current`
+# symlink before the first application deployment. Infrastructure bootstrap
+# readiness and application runtime readiness are distinct states:
+#   PRE_DEPLOY  no `current` exists — service configuration is installed and
+#               validated, but application-runtime probes (queue program
+#               activation, HTTP health) are DEFERRED, clearly logged, and
+#               never reported as PASS. No fake current, release or artifact
+#               is ever fabricated to satisfy them.
+#   DEPLOYED    `current` resolves to a valid immutable release directly
+#               under releases/ — full runtime verification runs, including
+#               the running queue worker.
+# A dangling current, a current outside releases, a current that is not a
+# symlink, or one resolving to a non-directory is BROKEN — a hard failure in
+# every mode, never silently treated as PRE_DEPLOY.
+#
+# External secret material is NEVER generated, copied, rewritten or read:
+# TLS certificates/keys, the Basic Auth htpasswd, shared/.env, the deploy
+# authorized_keys and rclone.conf are inspected by presence only. A committed
+# Nginx vhost that references missing external material fails closed with
+# `EXTERNAL PREREQUISITE MISSING` naming only the path/category. The actual
+# Clean-VPS secret/DNS/TLS seeding procedure is exercised in the deployment acceptance.
+#
+# Application-release safety: current/previous/releases are never modified,
+# no artifact is deployed, no migration/composer/npm/asset step runs, and
+# planned targets (tits-guru) receive zero service configuration — committed
+# production config sources are ignored while the target stays planned.
+#
+# The one exception has to be asked for in argv: `--target TARGET_ID
+# --provisioning` narrows the same contract to ONE lifecycle=planned,
+# environment_class=production target, so a new production target's service
+# configuration can exist before it is activated. It never activates the
+# target, never writes the registry, never starts the queue worker (the target
+# is PRE_DEPLOY by definition, so queue activation stays DEFERRED) and never
+# adds a public hostname or a TLS listener. Any other lifecycle, and a planned
+# staging target, is refused; so is `--provisioning` without `--target`.
+#
+# Where a production target's service configuration comes from: it is RENDERED
+# generically from the registry, never read from a committed per-brand file.
+# Nginx internal vhost, PHP-FPM pool, Supervisor queue program and scheduler
+# cron are produced by one canonical rendering path from
+# deployment-targets.json, so a second, third or tenth production brand needs
+# no new committed file and no list of known brands anywhere in this
+# installer. environment_class=staging keeps its existing committed sources
+# byte for byte: the staging service configuration is accepted on a real host
+# and is deliberately not migrated here.
+#
+# Registry values are DATA in that rendering, never shell. Nothing is eval'd,
+# nothing is sourced, no envsubst runs, and every value that reaches a
+# rendered file has already been proved to match a closed format — by `targets
+# validate` at the registry boundary, and again by this installer immediately
+# before it renders.
+#
+# Test overrides: every RATEGURU_BOOTSTRAPSVC_* override below is honored
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate
+# every other installer uses — so a stray variable in a real shell can never
+# redirect probes or mutation at attacker- or operator-controlled paths.
+# Production execution ignores all of them. RATEGURU_BOOTSTRAPSVC_FS_ROOT
+# prefixes every filesystem path with a fixture root so tests exercise the
+# real mutation code against a simulated host.
+
+set -Eeuo pipefail
+
+# --- Locations ----------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+SOURCE_REGISTRY_DEFAULT="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+SOURCE_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+
+SRC_NGINX_DIR="${REPO_ROOT}/infrastructure/config/nginx"
+SRC_PHP_FPM_DIR="${REPO_ROOT}/infrastructure/config/php-fpm"
+SRC_SUPERVISOR_DIR="${REPO_ROOT}/infrastructure/config/supervisor"
+SRC_CRON_DIR="${REPO_ROOT}/infrastructure/config/cron"
+SRC_SSH_RESTRICTION="${REPO_ROOT}/infrastructure/config/ssh/70-rateguru-deploy.conf"
+
+# The two shared mail-capture vhost sources — installed and owned by
+# install-mail-capture, but their external TLS/Basic Auth prerequisites are
+# validated here before that child's mutating apply is ever invoked.
+SRC_MAIL_NGINX_SOURCES=(
+    "${REPO_ROOT}/infrastructure/config/nginx/mailpit-staging"
+    "${REPO_ROOT}/infrastructure/config/nginx/mailtrap-local-staging"
+)
+
+# --- Slice 5.4 contract -------------------------------------------------------
+
+RATEGURU_ROOT="/home/www/rateguru"
+
+DST_NGINX_AVAILABLE_DIR="/etc/nginx/sites-available"
+DST_NGINX_ENABLED_DIR="/etc/nginx/sites-enabled"
+DST_SUPERVISOR_DIR="/etc/supervisor/conf.d"
+DST_CRON_DIR="/etc/cron.d"
+DST_SSHD_DIR="/etc/ssh/sshd_config.d"
+DST_SSH_RESTRICTION="${DST_SSHD_DIR}/70-rateguru-deploy.conf"
+
+# Every directly-owned service file is non-secret host configuration:
+SERVICE_FILE_OWNER="root"
+SERVICE_FILE_GROUP="root"
+SERVICE_FILE_MODE="0644"
+
+# The exact service-support directory the committed PHP-FPM and Supervisor
+# configs write logs into. 5.3 deliberately created only shared and
+# shared/storage; this one extra descendant exists because committed service
+# configuration references it — no other Laravel storage descendant is ever
+# manufactured here.
+SERVICE_LOG_SUBPATH="shared/storage/logs"
+SERVICE_LOG_MODE="2770"
+
+# Base host services this slice ensures are enabled and running. PHP-FPM is
+# appended after the template-derived service name is known. PostgreSQL and
+# Redis only get service enablement — never databases, roles, passwords,
+# Pg_hba.conf or Redis auth/network changes (the production launch material).
+# The host-global base services, enabled and active before any target exists.
+#
+# cron is one of them for a reason that was an accident until now: RateGuru
+# installs and verifies /etc/cron.d entries — every target's Laravel scheduler and
+# the backup cycle — and nothing owned the daemon that executes them. On the
+# current VPS cron happens to be present because the base image shipped it, which
+# is not a contract. A clean host could have had every scheduler file installed
+# correctly and nothing running them.
+#
+# Host scope enables and starts these through the generic mechanism below; a
+# target-scoped or --provisioning run only CHECKS them and refuses, because a
+# host-global service is not a target's to start.
+BASE_SERVICES_STATIC=(cron nginx postgresql redis-server supervisor)
+
+# The Ubuntu 22.04 SSH service unit. Reloaded (never restarted) only when
+# the installed restriction actually changed and only after sshd's own
+# configuration test passed.
+SSH_SERVICE="ssh"
+
+MAIL_SERVICES=(staging-mailpit.service staging-mailtrap-local.service)
+
+# The account Nginx workers run as. It must be a member of every active
+# target's code group so workers can traverse and read the immutable
+# release tree — see the worker-group section below.
+NGINX_WORKER_USER="www-data"
+
+
+BACKUP_ROOT="/var/backups/rateguru-bootstrap-services"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — echoes the gated override when allowed and
+# set, the default otherwise.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_BOOTSTRAPSVC_EUID "${EUID}")"
+
+SOURCE_REGISTRY="$(gated_default RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY "${SOURCE_REGISTRY_DEFAULT}")"
+TARGETS_CLI="$(gated_default RATEGURU_TARGETS_CLI "${SCRIPT_DIR}/targets")"
+PASSWD_FILE="$(gated_default RATEGURU_BOOTSTRAPSVC_PASSWD_FILE /etc/passwd)"
+GROUP_FILE="$(gated_default RATEGURU_BOOTSTRAPSVC_GROUP_FILE /etc/group)"
+
+# Fixture filesystem prefix: '' in production. Every stat/install/chown/
+# chmod/symlink below operates on physical(LOGICAL) = FS_ROOT + LOGICAL.
+FS_ROOT="$(gated_default RATEGURU_BOOTSTRAPSVC_FS_ROOT '')"
+
+# Child installers — authoritative owners this slice coordinates.
+RUNTIME_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_RUNTIME_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-runtime")"
+HOSTLAYOUT_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-host-layout")"
+OPERATIONS_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN "${SCRIPT_DIR}/install-target-operations")"
+PERIMETER_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN "${SCRIPT_DIR}/install-target-perimeter")"
+PUBLIC_STORAGE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN "${SCRIPT_DIR}/install-public-storage-access")"
+# The deployment-marker half of the Nightwatch installer, and only that half:
+# the sudo wrapper the GitHub deploy channel invokes after a deployment, its
+# sudoers grant and the primitive behind it. The AGENT stays what it always
+# was — opt-in, Supervisor-managed, removable in one step, and not part of any
+# host contract.
+NIGHTWATCH_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN "${SCRIPT_DIR}/install-nightwatch-agent")"
+MAIL_CAPTURE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-capture")"
+VERIFY_MAIL_CAPTURE_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
+
+# Host tools.
+SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN systemctl)"
+NGINX_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NGINX_BIN nginx)"
+SSHD_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SSHD_BIN /usr/sbin/sshd)"
+SUPERVISORCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN supervisorctl)"
+PGREP_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PGREP_BIN pgrep)"
+STAT_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_STAT_BIN stat)"
+INSTALL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_INSTALL_BIN install)"
+CHOWN_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_CHOWN_BIN chown)"
+CHMOD_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_CHMOD_BIN chmod)"
+
+# PHP_FPM_TEST_BIN is derived from the template PHP series after
+# load_source_contract runs; the gated override replaces the derived value.
+PHP_FPM_TEST_BIN_OVERRIDE="$(gated_default RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN '')"
+
+# Runtime wait tuning (seconds/attempts), shrunk by tests only.
+SOCKET_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_SOCKET_WAIT_ATTEMPTS 10)"
+# Bounded wait for replacement Nginx workers to appear carrying the
+# required supplementary groups after a reload.
+NGINX_WORKER_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_NGINX_WORKER_WAIT_ATTEMPTS 10)"
+QUEUE_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_QUEUE_WAIT_ATTEMPTS 10)"
+STABILITY_WAIT_SECONDS="$(gated_default RATEGURU_BOOTSTRAPSVC_STABILITY_WAIT 3)"
+RETRY_DELAY_SECONDS="$(gated_default RATEGURU_BOOTSTRAPSVC_RETRY_DELAY 1)"
+
+# --- Output -------------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+
+# --- Target scope -------------------------------------------------------------
+#
+# Empty is the host service bootstrap this installer has always been: every
+# active target, plus the host-wide families it owns — the operations bundle,
+# the perimeter, the SSH restriction, mail capture and base service enablement.
+#
+# Set by --target, it narrows the SAME contract to the service configuration
+# that belongs to one target: its support log directory, its Nginx site and
+# enabled link, its PHP-FPM pool, its Supervisor program, its scheduler cron and
+# its public-storage ACL. Repairing one target must never silently rewrite the
+# host's SSH policy, its perimeter, its operational bundle or its mail capture,
+# so those are out of scope: not reported, not verified and not touched.
+#
+# Not verified matters as much as not touched, and the reason only becomes
+# visible from inside a repair: install-target-operations --verify runs the
+# application health check on a deployed target. A broken vhost or pool is
+# exactly the damage a target repair fixes, so checking that family here would
+# mean the site has to be healthy before it can be made healthy.
+#
+# What IS asked, and at the same scope, is this target's own layout — see
+# apply_gate_prerequisites — plus the base services, which are checked and
+# never started.
+#
+# Nothing about the contract itself changes. There is no second renderer, no
+# second transaction mechanism and no second convergence path for target mode.
+TARGET_SCOPE=""
+
+# Explicit, argv-only authorization to converge the service configuration of a
+# planned production target. There is deliberately no environment variable for
+# it: an authorization that can arrive through an exported variable is one
+# nobody can see in the command that was run.
+PROVISIONING=false
+
+target_scoped() {
+    [[ -n "${TARGET_SCOPE}" ]]
+}
+
+provisioning() {
+    [[ "${PROVISIONING}" == true ]]
+}
+
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_DRIFT=0
+COUNT_WARN=0
+COUNT_CONFLICT=0
+COUNT_DEFERRED=0
+
+# HOST-REQ ("host prerequisite") is only ever non-zero in target mode: a base
+# host service that is not running. It blocks like a CONFLICT — a target cannot
+# serve on a host whose nginx, PHP-FPM or Supervisor is down — but it says
+# plainly that starting one is a host operation, not this one.
+#
+# Eight characters on purpose: the report is a fixed-width table whose exact
+# spacing is part of this installer's asserted output contract.
+COUNT_HOST_REQ=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# item STATUS NAME DETAIL [ACTION]
+#
+# One report line, identical in shape to the other bootstrap installers, with
+# Two install-bootstrap-services additions to the status vocabulary:
+#   DRIFT     a safe regular installed file differs from its committed
+#             source (or holds the wrong owner/mode) and --apply can replace
+#             it transactionally;
+#   DEFERRED  a runtime application probe that cannot run because the target
+#             is PRE_DEPLOY — never PASS, never a failure, and never used to
+#             hide a genuine host/config conflict.
+# ACTION is the intended --apply action, printed only by --check for
+# non-PASS items.
+item() {
+    local status="$1" name="$2" detail="$3" action="${4:-}"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        DRIFT)    COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+        WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
+        HOST-REQ) COUNT_HOST_REQ=$((COUNT_HOST_REQ + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ "${MODE}" == check ]] && [[ "${status}" != PASS ]] && [[ -n "${action}" ]]; then
+        printf '           -> apply: %s\n' "${action}"
+    fi
+}
+
+# action MESSAGE — one --apply progress line. Deterministic, no timestamps.
+action() {
+    printf 'APPLY    %s\n' "$*"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-bootstrap-services --check
+  install-bootstrap-services --apply
+  install-bootstrap-services --verify
+
+  install-bootstrap-services --check  --target TARGET_ID
+  install-bootstrap-services --apply  --target TARGET_ID
+  install-bootstrap-services --verify --target TARGET_ID
+
+  install-bootstrap-services --check  --target TARGET_ID --provisioning
+  install-bootstrap-services --apply  --target TARGET_ID --provisioning
+  install-bootstrap-services --verify --target TARGET_ID --provisioning
+
+  install-bootstrap-services --help
+
+All modes require root.
+
+  --target  Narrow the SAME contract to one active target's service
+            configuration: its support log directory, Nginx site and enabled
+            link, PHP-FPM pool, Supervisor program, scheduler cron and
+            public-storage ACL. This target's own layout is verified at the
+            same scope, and the base services are checked but never started.
+            Everything host-wide — the operations bundle, the sudo perimeter,
+            the SSH restriction, mail capture and the material their vhosts
+            reference — is out of scope entirely: not reported, not verified,
+            not touched. Without it, this installer is exactly the host
+            service bootstrap it has always been.
+
+  --provisioning
+            Only valid with --target, and only for a lifecycle=planned,
+            environment_class=production target. It authorizes the same
+            target-scoped service contract to run for a target that is not
+            active yet. The target stays planned, the registry is never
+            written, the queue worker is never started, and no public
+            hostname or TLS listener is ever configured.
+
+  --check   Read-only install-bootstrap-services contract validation plus the intended
+            --apply action for every unsatisfied item. Runs the runtime and
+            host-layout prerequisite verifies, validates committed service
+            configuration and the source registry, and inspects installed
+            state and external prerequisites (presence only). Performs no
+            mutation, no service reload/restart, no downloads.
+  --apply   Validates the entire plan before the first mutation, then
+            converges the service configuration in dependency
+            order, invoking the existing child installers as authoritative
+            owners, validating every configuration family before its
+            service is reloaded, and ending with the full --verify report.
+  --verify  Read-only install-bootstrap-services contract gate: exit 0 only when installed
+            files match committed sources, services are enabled/running,
+            every child installer contract holds, and the current host
+            state (PRE_DEPLOY or DEPLOYED) satisfies the contract.
+
+Service configuration scope only: packages belong to install-bootstrap-runtime;
+users/groups/filesystem roots belong to install-bootstrap-host-layout. Application .env,
+authorized_keys, rclone.conf, Basic Auth and TLS material are external
+prerequisites — never created here. Only lifecycle=active targets receive
+service configuration, and --provisioning extends that to one named
+lifecycle=planned production target; every other target stays physically
+inactive.
+USAGE
+}
+
+# --- Filesystem probes --------------------------------------------------------
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# stat_probe LOGICAL — prints "TYPE|OWNER|GROUP|MODE"; fails when absent.
+# Never dereferences symlinks, never recurses, never modifies.
+stat_probe() {
+    local phys
+    phys="$(physical "$1")"
+
+    "${STAT_BIN}" -c '%F|%U|%G|%a' -- "${phys}" 2>/dev/null
+}
+
+mode_equals() {
+    (( 8#$1 == 8#$2 ))
+}
+
+require_real_directory() {
+    local logical="$1" why="$2" phys
+    phys="$(physical "${logical}")"
+
+    [[ -L "${phys}" ]] && fail "path:${logical} is a symlink where a real directory is required (${why}) — refusing to follow it"
+    [[ -d "${phys}" ]] || fail "path:${logical} is missing or not a directory (${why})"
+}
+
+# --- Nginx worker supplementary groups (clean-VPS blocker) ---
+#
+# Adding www-data to a target's code group in /etc/group does NOT change the
+# supplementary groups of Nginx worker processes that are already running:
+# credentials are established when a process is created. So a host can have a
+# perfectly correct account database and still serve HTTP 404 for every
+# request, because the live workers predate the membership. The two states
+# must therefore be inspected separately — `id www-data` answers the account
+# question, /proc/<pid>/status answers the runtime one — and only a reload
+# (never a restart) fixes the second.
+#
+# Everything here is read-only. Remediation lives in converge_nginx.
+
+# group_gid GROUP — numeric GID from the group database, empty when absent.
+group_gid() {
+    local group="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v g="${group}" '$1 == g { print $3; found = 1; exit } END { exit !found }' "${GROUP_FILE}"
+}
+
+# nginx_worker_pids — PIDs of the www-data Nginx workers. The master runs as
+# root and is deliberately excluded: it is the workers that open files in the
+# release tree.
+nginx_worker_pids() {
+    "${PGREP_BIN}" -u "${NGINX_WORKER_USER}" -x nginx 2>/dev/null || true
+}
+
+# process_supplementary_gids PID — the GIDs from /proc/<pid>/status's Groups
+# line, one per line. Read through physical() so a fixture root can supply a
+# simulated /proc.
+process_supplementary_gids() {
+    local status_file
+    status_file="$(physical "/proc/$1/status")"
+
+    [[ -r "${status_file}" ]] || return 1
+
+    awk '$1 == "Groups:" { for (i = 2; i <= NF; i++) print $i; found = 1 } END { exit !found }' "${status_file}"
+}
+
+# nginx_workers_missing_group GROUP — prints a human-readable reason when at
+# least one running worker lacks GROUP's GID (or when the state cannot be
+# established at all), and prints nothing when every worker carries it.
+# Never mutates, never reloads.
+nginx_workers_missing_group() {
+    local group="$1" gid pids pid gids stale=()
+
+    if ! gid="$(group_gid "${group}")" || [[ -z "${gid}" ]]; then
+        printf 'group %s does not exist in %s\n' "${group}" "${GROUP_FILE}"
+        return 0
+    fi
+
+    pids="$(nginx_worker_pids)"
+
+    if [[ -z "${pids}" ]]; then
+        printf 'no %s nginx worker process found to inspect\n' "${NGINX_WORKER_USER}"
+        return 0
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "${pid}" ]] || continue
+
+        if ! gids="$(process_supplementary_gids "${pid}")"; then
+            stale+=("pid ${pid} (supplementary groups unreadable)")
+            continue
+        fi
+
+        grep -Fxq "${gid}" <<<"${gids}" || stale+=("pid ${pid}")
+    done <<<"${pids}"
+
+    (( ${#stale[@]} == 0 )) && return 0
+
+    printf 'worker(s) without gid %s (%s): %s\n' "${gid}" "${group}" "${stale[*]}"
+}
+
+passwd_user_exists() {
+    local user="$1"
+
+    [[ -r "${PASSWD_FILE}" ]] || return 1
+
+    awk -F: -v user="${user}" '$1 == user { found = 1 } END { exit !found }' "${PASSWD_FILE}"
+}
+
+# --- Source-registry contract -------------------------------------------------
+
+ACTIVE_TARGETS=()
+INACTIVE_TARGETS=()
+declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER TGT_CODE_GROUP
+declare -A TGT_NGINX_SITE TGT_FPM_POOL TGT_FPM_SOCKET TGT_SUPERVISOR_PROGRAM
+declare -A TGT_SCHEDULER TGT_STATE
+declare -A TGT_LIFECYCLE TGT_ENVIRONMENT_CLASS TGT_QUEUE TGT_INTERNAL_HOSTNAME
+
+PHP_SERIES=""
+PHP_FPM_SERVICE=""
+PHP_BIN_EXPECTED=""
+PHP_FPM_TEST_BIN=""
+DST_PHP_FPM_POOL_DIR=""
+BASE_SERVICES=()
+
+# template_value KEY — reads deployment.conf.example as plain KEY=VALUE text
+# (never sourced, never eval'd), exactly like bootstrap-host-preflight.
+template_value() {
+    local key="$1"
+
+    sed -n "s/^${key}=//p" "${SOURCE_DEPLOYMENT_CONF}" | head -n 1
+}
+
+# load_source_contract — fail-closed source-of-truth loading. This installer
+# runs strictly after the runtime and host-layout installers, so jq and the targets CLI are hard
+# prerequisites. The registry is validated through the standalone `targets`
+# CLI — never re-implemented — and only then parsed.
+load_source_contract() {
+    command -v jq >/dev/null 2>&1 \
+        || fail "jq is not available — the runtime prerequisite is incomplete (run install-bootstrap-runtime --apply first)"
+
+    [[ -r "${SOURCE_REGISTRY}" ]] \
+        || fail "source registry not readable: ${SOURCE_REGISTRY}"
+
+    [[ -x "${TARGETS_CLI}" ]] \
+        || fail "targets validator not executable: ${TARGETS_CLI} — run from a full repository checkout"
+
+    "${TARGETS_CLI}" validate --file "${SOURCE_REGISTRY}" >/dev/null 2>&1 \
+        || fail "source registry fails targets validate: ${SOURCE_REGISTRY} — fix the committed registry before any bootstrap step"
+
+    [[ -r "${SOURCE_DEPLOYMENT_CONF}" ]] \
+        || fail "deployment.conf template not readable: ${SOURCE_DEPLOYMENT_CONF}"
+
+    PHP_FPM_SERVICE="$(template_value PHP_FPM_SERVICE)"
+    PHP_BIN_EXPECTED="$(template_value PHP_BIN)"
+
+    [[ "${PHP_FPM_SERVICE}" == php*-fpm ]] \
+        || fail "cannot derive the PHP-FPM service from ${SOURCE_DEPLOYMENT_CONF} (PHP_FPM_SERVICE=${PHP_FPM_SERVICE:-unset})"
+    [[ -n "${PHP_BIN_EXPECTED}" ]] \
+        || fail "cannot derive PHP_BIN from ${SOURCE_DEPLOYMENT_CONF}"
+
+    PHP_SERIES="${PHP_FPM_SERVICE#php}"
+    PHP_SERIES="${PHP_SERIES%-fpm}"
+    DST_PHP_FPM_POOL_DIR="/etc/php/${PHP_SERIES}/fpm/pool.d"
+    BASE_SERVICES=("${BASE_SERVICES_STATIC[@]}" "${PHP_FPM_SERVICE}")
+
+    if [[ -n "${PHP_FPM_TEST_BIN_OVERRIDE}" ]]; then
+        PHP_FPM_TEST_BIN="${PHP_FPM_TEST_BIN_OVERRIDE}"
+    else
+        PHP_FPM_TEST_BIN="/usr/sbin/php-fpm${PHP_SERIES}"
+    fi
+
+    local target_id lifecycle
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+
+        lifecycle="$(jq -r --arg id "${target_id}" '.targets[$id].lifecycle' "${SOURCE_REGISTRY}")"
+
+        # Every target's fields are read, planned ones included. Which targets
+        # this run is RESPONSIBLE for is decided below, by lifecycle and by
+        # --provisioning; reading a field is not configuring a target.
+        TGT_LIFECYCLE[${target_id}]="${lifecycle}"
+        TGT_ENVIRONMENT_CLASS[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].environment_class' "${SOURCE_REGISTRY}")"
+        TGT_ROOT[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].application_root' "${SOURCE_REGISTRY}")"
+        TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
+        TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
+        TGT_DEPLOY_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].deploy_user' "${SOURCE_REGISTRY}")"
+        TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
+        TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+        TGT_INTERNAL_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.internal_hostname' "${SOURCE_REGISTRY}")"
+        TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
+        TGT_FPM_SOCKET[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.socket' "${SOURCE_REGISTRY}")"
+        TGT_SUPERVISOR_PROGRAM[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.program' "${SOURCE_REGISTRY}")"
+        TGT_QUEUE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.queue' "${SOURCE_REGISTRY}")"
+        TGT_SCHEDULER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].scheduler.name' "${SOURCE_REGISTRY}")"
+
+        # Everything this run is not responsible for. Planned and disabled
+        # targets are held in ONE list because the handling is identical —
+        # nothing is ever configured for either — and the list is named for
+        # that fact rather than for one of the lifecycles in it, because a
+        # list called "planned" is how a disabled target ends up described
+        # as planned in a report an operator then acts on. Every message
+        # below reads the lifecycle each target actually has.
+        if [[ "${lifecycle}" != active ]]; then
+            INACTIVE_TARGETS+=("${target_id}")
+            continue
+        fi
+
+        ACTIVE_TARGETS+=("${target_id}")
+    done < <(jq -r '.targets | keys[]' "${SOURCE_REGISTRY}" | sort)
+
+    local id
+    for id in "${ACTIVE_TARGETS[@]}"; do
+        assert_target_inside_namespace "${id}"
+    done
+
+    if [[ -n "${FS_ROOT}" ]] && [[ "${FS_ROOT}" != /* ]]; then
+        fail "fixture filesystem root must be an absolute path: ${FS_ROOT}"
+    fi
+
+    narrow_to_target_scope
+    render_service_sources
+}
+
+assert_target_inside_namespace() {
+    local id="$1"
+
+    [[ "${TGT_ROOT[${id}]}" == "${RATEGURU_ROOT}"/* ]] \
+        || fail "target ${id}: application_root ${TGT_ROOT[${id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to configure it"
+}
+
+# narrow_to_target_scope — in target mode, reduce the loaded contract to the one
+# requested target after the WHOLE registry has been validated.
+#
+# The registry is validated in full first, so a target-scoped run still refuses a
+# registry that is inconsistent anywhere. Only then is the scope narrowed, and
+# every per-target report and convergence below runs unchanged over the shorter
+# list.
+narrow_to_target_scope() {
+    target_scoped || return 0
+
+    if provisioning; then
+        narrow_to_provisioning_scope
+
+        return 0
+    fi
+
+    local known=false target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
+    done
+
+    if [[ "${known}" != true ]]; then
+        local inactive_lifecycle
+        for target_id in "${INACTIVE_TARGETS[@]}"; do
+            if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
+                inactive_lifecycle="${TGT_LIFECYCLE[${TARGET_SCOPE}]}"
+
+                [[ "${inactive_lifecycle}" == planned ]] \
+                    || fail "target ${TARGET_SCOPE} is lifecycle=${inactive_lifecycle} — this installer configures an active target, and --provisioning authorizes a planned one. A ${inactive_lifecycle} target is a deliberate registry state, and the way out of it is a reviewed registry change rather than a flag"
+
+                fail "target ${TARGET_SCOPE} is lifecycle=planned — this installer never configures a planned target, in host mode or target mode (a new production target is configured explicitly, with --target ${TARGET_SCOPE} --provisioning)"
+            fi
+        done
+
+        fail "unknown target: ${TARGET_SCOPE} — not present in ${SOURCE_REGISTRY}"
+    fi
+
+    ACTIVE_TARGETS=("${TARGET_SCOPE}")
+    INACTIVE_TARGETS=()
+}
+
+# narrow_to_provisioning_scope — the only lifecycle besides active this
+# installer will configure, and only when argv named it.
+#
+# The refusals stay separate rather than collapsing into one "not
+# provisionable" message: the right next action differs for each.
+narrow_to_provisioning_scope() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if [[ "${target_id}" == "${TARGET_SCOPE}" ]]; then
+            fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=active. An active target is already in the operational lifecycle — use install-bootstrap-services --apply --target ${TARGET_SCOPE} (or Repair Target) instead"
+        fi
+    done
+
+    local known=false
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        [[ "${target_id}" == "${TARGET_SCOPE}" ]] && known=true
+    done
+
+    [[ "${known}" == true ]] \
+        || fail "unknown target: ${TARGET_SCOPE} — not present in ${SOURCE_REGISTRY}"
+
+    [[ "${TGT_LIFECYCLE[${TARGET_SCOPE}]}" == planned ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is lifecycle=${TGT_LIFECYCLE[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a lifecycle=planned target"
+
+    [[ "${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}" == production ]] \
+        || fail "--provisioning refuses target ${TARGET_SCOPE}: it is environment_class=${TGT_ENVIRONMENT_CLASS[${TARGET_SCOPE}]}, and provisioning is only ever authorized for a production target"
+
+    ACTIVE_TARGETS=("${TARGET_SCOPE}")
+    INACTIVE_TARGETS=()
+
+    assert_target_inside_namespace "${TARGET_SCOPE}"
+}
+
+# --- Generic production service rendering -------------------------------------
+#
+# The architectural gap this closes: a production target's service
+# configuration used to have to exist as a committed per-brand file. That does
+# not scale past one brand, and the file that did exist
+# (config/nginx/rateguru-production) describes the OLD shared production-root
+# model — a single /home/www/rateguru/production tree — which the target
+# registry replaced. It is never the service authority for a production target
+# here: sources are resolved by the target's own registry names, and a
+# production target's four service files are rendered rather than read.
+#
+# It is not deleted here because install-target-operations installs it as part
+# of the operational bundle and verifies it byte for byte, so removing the
+# source would fail that installer's own contract. That is the whole reason,
+# and it is worth stating precisely: install-target-prerequisites does NOT
+# read it. That installer resolves a target's vhost by the registry's own
+# nginx.site_name, plus the two committed mail vhosts, and no registered
+# target names rateguru-production — so nothing parses this file for any
+# target that exists. Its final public/TLS role is settled when a real public
+# vhost is defined.
+#
+# What is rendered, from deployment-targets.json and nothing else:
+#   Nginx internal vhost   loopback-only, server_name = nginx.internal_hostname
+#   PHP-FPM pool           php_fpm.pool on php_fpm.socket as runtime_user
+#   Supervisor program     supervisor.program consuming supervisor.queue
+#   scheduler cron         scheduler.name running as runtime_user
+#
+# What is deliberately NOT rendered: public_hostnames, any TLS listener, any
+# certificate path, any Certbot path, any redirect. Provisioning a target must
+# not be able to put it on the public internet, and the way to guarantee that
+# is for the renderer to have no notion of a public hostname at all.
+#
+# environment_class=staging keeps its committed sources untouched: they are
+# accepted on a real host and migrating them for symmetry would buy nothing
+# and cost a second staging acceptance.
+
+RENDER_ROOT=""
+declare -A TGT_RENDERED_NGINX TGT_RENDERED_FPM TGT_RENDERED_SUPERVISOR TGT_RENDERED_CRON
+
+target_renders_service_config() {
+    [[ "${TGT_ENVIRONMENT_CLASS[$1]:-}" == production ]]
+}
+
+ensure_render_root() {
+    [[ -z "${RENDER_ROOT}" ]] || return 0
+
+    RENDER_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-service-render-XXXXXX")" \
+        || fail "cannot create the temporary directory the generic production service configuration is rendered into"
+
+    chmod 0700 "${RENDER_ROOT}"
+}
+
+# cleanup_render_root — the rendered candidates never outlive the run that
+# produced them. Guarded on BASHPID because `set -E` and command substitution
+# put this shell's traps in reach of subshells, and a subshell deleting the
+# candidates the main process is still installing from would be a
+# spectacularly confusing failure.
+cleanup_render_root() {
+    if [[ -n "${RENDER_ROOT}" ]] \
+        && { [[ -z "${MAIN_BASHPID:-}" ]] || [[ "${BASHPID}" == "${MAIN_BASHPID}" ]]; }
+    then
+        rm -rf -- "${RENDER_ROOT}"
+        RENDER_ROOT=""
+    fi
+
+    return 0
+}
+
+# assert_renderable_registry_values — defense in depth, immediately before the
+# only place registry strings become configuration text.
+#
+# `targets validate` already proved every one of these formats at the registry
+# boundary, and this installer refuses a registry that fails it. This asserts
+# them again anyway, because "the value that gets written into an Nginx or
+# Supervisor file is closed-format" is the property the whole no-eval,
+# no-envsubst, data-not-code design rests on, and a property that load-bearing
+# should not be provable only somewhere else.
+assert_renderable_registry_values() {
+    local target_id="$1"
+
+    local field value
+    for field in php_fpm.pool supervisor.program supervisor.queue scheduler.name nginx.site_name; do
+        case "${field}" in
+            php_fpm.pool)        value="${TGT_FPM_POOL[${target_id}]}" ;;
+            supervisor.program)  value="${TGT_SUPERVISOR_PROGRAM[${target_id}]}" ;;
+            supervisor.queue)    value="${TGT_QUEUE[${target_id}]}" ;;
+            scheduler.name)      value="${TGT_SCHEDULER[${target_id}]}" ;;
+            nginx.site_name)     value="${TGT_NGINX_SITE[${target_id}]}" ;;
+        esac
+
+        [[ "${value}" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] \
+            || fail "target ${target_id}: ${field} '${value}' is not a renderable service name — refusing to render service configuration around it"
+    done
+
+    [[ "${TGT_INTERNAL_HOSTNAME[${target_id}]}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]] \
+        || fail "target ${target_id}: nginx.internal_hostname '${TGT_INTERNAL_HOSTNAME[${target_id}]}' is not a bare hostname — refusing to render an Nginx server_name around it"
+
+    [[ "${TGT_ROOT[${target_id}]}" =~ ^/home/www/rateguru(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || fail "target ${target_id}: application_root '${TGT_ROOT[${target_id}]}' is not a renderable path below ${RATEGURU_ROOT}"
+
+    [[ "${TGT_FPM_SOCKET[${target_id}]}" =~ ^/run/php/[a-z0-9][a-z0-9_-]{0,63}\.sock$ ]] \
+        || fail "target ${target_id}: php_fpm.socket '${TGT_FPM_SOCKET[${target_id}]}' is not a renderable pool socket path"
+
+    for value in "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}"; do
+        [[ "${value}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
+            || fail "target ${target_id}: '${value}' is not a renderable Linux account name"
+    done
+
+    [[ "${PHP_BIN_EXPECTED}" =~ ^(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || fail "the template PHP binary '${PHP_BIN_EXPECTED}' is not a renderable absolute path"
+}
+
+# render_service_sources — one canonical rendering path, run once per
+# invocation, for every production-class target this run is responsible for.
+# Called after the scope is narrowed, so a target-scoped run renders exactly
+# one target's configuration and reads nothing about any other.
+render_service_sources() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        target_renders_service_config "${target_id}" || continue
+
+        assert_renderable_registry_values "${target_id}"
+        ensure_render_root
+
+        local dir="${RENDER_ROOT}/${target_id}"
+        mkdir -p -- "${dir}"
+        chmod 0700 "${dir}"
+
+        TGT_RENDERED_NGINX[${target_id}]="${dir}/${TGT_NGINX_SITE[${target_id}]}"
+        TGT_RENDERED_FPM[${target_id}]="${dir}/${TGT_FPM_POOL[${target_id}]}.conf"
+        TGT_RENDERED_SUPERVISOR[${target_id}]="${dir}/${TGT_SUPERVISOR_PROGRAM[${target_id}]}.conf"
+        TGT_RENDERED_CRON[${target_id}]="${dir}/${TGT_SCHEDULER[${target_id}]}"
+
+        render_nginx_site "${target_id}" >"${TGT_RENDERED_NGINX[${target_id}]}"
+        render_fpm_pool "${target_id}" >"${TGT_RENDERED_FPM[${target_id}]}"
+        render_supervisor_program "${target_id}" >"${TGT_RENDERED_SUPERVISOR[${target_id}]}"
+        render_scheduler_cron "${target_id}" >"${TGT_RENDERED_CRON[${target_id}]}"
+
+        chmod 0600 \
+            "${TGT_RENDERED_NGINX[${target_id}]}" \
+            "${TGT_RENDERED_FPM[${target_id}]}" \
+            "${TGT_RENDERED_SUPERVISOR[${target_id}]}" \
+            "${TGT_RENDERED_CRON[${target_id}]}"
+    done
+}
+
+# Every renderer below is a single printf with positional arguments. No value
+# is ever concatenated into a command, and no rendered byte comes from
+# anywhere but the registry, the deployment.conf template and this file.
+#
+# Determinism matters as much as safety: the same registry must render the
+# same bytes on every host and in every mode, because provisioning a planned
+# target and later verifying the same target once it is active are two runs of
+# this same path — and a byte of difference between them would make a
+# correctly provisioned target report as drift the moment it was activated.
+
+render_nginx_site() {
+    local target_id="$1"
+
+    printf '%s\n' \
+        "# RateGuru target ${target_id} — internal endpoint." \
+        "#" \
+        "# Rendered from infrastructure/config/deployment-targets.json by" \
+        "# install-bootstrap-services. Do not edit on the host: the installer" \
+        "# compares this file against the render and replaces any difference." \
+        "#" \
+        "# Internal only, by construction. There is no public server_name, no TLS" \
+        "# listener and no certificate path here, because provisioning a target" \
+        "# must not be able to put it on the public internet. Public routing is a" \
+        "# separate, deliberate operation." \
+        "server {" \
+        "    listen 80;" \
+        "    listen [::]:80;" \
+        "" \
+        "    server_name ${TGT_INTERNAL_HOSTNAME[${target_id}]};" \
+        "" \
+        "    allow 127.0.0.1;" \
+        "    allow ::1;" \
+        "    deny all;" \
+        "" \
+        "    root ${TGT_ROOT[${target_id}]}/current/public;" \
+        "    index index.php;" \
+        "" \
+        "    access_log /var/log/nginx/${TGT_NGINX_SITE[${target_id}]}-internal-access.log;" \
+        "    error_log /var/log/nginx/${TGT_NGINX_SITE[${target_id}]}-internal-error.log;" \
+        "" \
+        "    client_max_body_size 64m;" \
+        "" \
+        "    location / {" \
+        "        try_files \$uri \$uri/ /index.php?\$query_string;" \
+        "    }" \
+        "" \
+        "    location ~ \.php\$ {" \
+        "        include snippets/fastcgi-php.conf;" \
+        "" \
+        "        fastcgi_pass unix:${TGT_FPM_SOCKET[${target_id}]};" \
+        "" \
+        "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;" \
+        "        fastcgi_param DOCUMENT_ROOT \$realpath_root;" \
+        "    }" \
+        "" \
+        "    location ~ /\.(?!well-known).* {" \
+        "        deny all;" \
+        "    }" \
+        "}"
+}
+
+render_fpm_pool() {
+    local target_id="$1"
+    local logs="${TGT_ROOT[${target_id}]}/${SERVICE_LOG_SUBPATH}"
+
+    printf '%s\n' \
+        "; RateGuru target ${target_id} — PHP-FPM pool." \
+        ";" \
+        "; Rendered from infrastructure/config/deployment-targets.json by" \
+        "; install-bootstrap-services. Do not edit on the host." \
+        "[${TGT_FPM_POOL[${target_id}]}]" \
+        "" \
+        "user = ${TGT_RUNTIME_USER[${target_id}]}" \
+        "group = ${TGT_RUNTIME_GROUP[${target_id}]}" \
+        "" \
+        "listen = ${TGT_FPM_SOCKET[${target_id}]}" \
+        "listen.owner = ${NGINX_WORKER_USER}" \
+        "listen.group = ${NGINX_WORKER_USER}" \
+        "listen.mode = 0660" \
+        "" \
+        "pm = ondemand" \
+        "pm.max_children = 6" \
+        "pm.process_idle_timeout = 30s" \
+        "pm.max_requests = 500" \
+        "" \
+        "request_terminate_timeout = 120s" \
+        "request_slowlog_timeout = 5s" \
+        "slowlog = ${logs}/php-fpm-slow.log" \
+        "" \
+        "catch_workers_output = yes" \
+        "decorate_workers_output = no" \
+        "clear_env = yes" \
+        "" \
+        "php_admin_flag[log_errors] = on" \
+        "php_admin_value[error_log] = ${logs}/php-fpm-error.log" \
+        "" \
+        "php_admin_value[memory_limit] = 256M" \
+        "php_admin_value[max_execution_time] = 120" \
+        "php_admin_value[max_input_time] = 120" \
+        "php_admin_value[upload_max_filesize] = 64M" \
+        "php_admin_value[post_max_size] = 64M"
+}
+
+# The exit code a rendered production queue program uses to say "there is no
+# release to work in yet". It is deliberately not 0: 0 is what the worker
+# returns on its normal --max-time turnover, and the two must stay
+# distinguishable for autorestart=unexpected to mean the right thing in both
+# states. 99 is outside every exit code Laravel's queue:work produces.
+QUEUE_NOTHING_TO_RUN_EXIT=99
+
+# Longer than startsecs, so the guard reaches RUNNING before exiting and
+# supervisord records a clean EXITED rather than a failed start.
+QUEUE_PRE_DEPLOY_SETTLE_SECONDS=5
+
+render_supervisor_program() {
+    local target_id="$1"
+    local logs="${TGT_ROOT[${target_id}]}/${SERVICE_LOG_SUBPATH}"
+
+    local root="${TGT_ROOT[${target_id}]}"
+
+    # PRE_DEPLOY safety, which is a property of the CONFIGURATION rather than
+    # of who happens to run supervisorctl.
+    #
+    # Provisioning installs this file for a target that has no release yet,
+    # and deliberately does not add the program to the running supervisor. But
+    # a supervisord restart or a host reboot before the first deployment reads
+    # it anyway, and an unguarded worker would then be started into a
+    # directory that does not exist and fail-loop until somebody deployed.
+    # A planned production target can sit in exactly that state for weeks, so
+    # the configuration itself has to survive being loaded:
+    #
+    #   directory      the application root, which provisioning creates and
+    #                  which always exists — never current/, which does not
+    #   command        a guard that runs the worker only when current/ is a
+    #                  real directory, and otherwise exits with a code that
+    #                  says "nothing to do" instead of crashing
+    #   exitcodes=99   makes that code the ONLY expected exit. Every other
+    #                  exit is unexpected, including the 0 the worker returns
+    #                  when --max-time or --max-jobs is reached, which is why
+    #                  autorestart=unexpected still restarts a deployed worker
+    #                  on its normal hourly turnover
+    #   the settle     supervisord treats any exit before startsecs as a
+    #                  failed start and backs off regardless of exit code, so
+    #                  the guard outlives startsecs and reaches a clean EXITED
+    #                  instead of BACKOFF -> FATAL
+    #
+    # One file, before and after the target is activated: nothing here is
+    # rewritten when planned becomes active, and a deployed target keeps the
+    # startsecs/startretries backstop that turns a genuinely crash-looping
+    # worker into FATAL rather than an endless restart.
+    #
+    # exec matters: it replaces the guard shell with PHP, so stopwaitsecs and
+    # the stop signal reach the worker itself.
+    #
+    # Every value interpolated into the command has already been proved to
+    # match a closed format by assert_renderable_registry_values — no quote,
+    # space or metacharacter can reach it — so the single-quoted guard cannot
+    # be broken out of. It is data inside a fixed program, never a rendered
+    # shell fragment.
+    local guarded_command
+    guarded_command="/bin/bash -c 'if [ ! -d ${root}/current ]; then sleep ${QUEUE_PRE_DEPLOY_SETTLE_SECONDS}; exit ${QUEUE_NOTHING_TO_RUN_EXIT}; fi; cd ${root}/current && exec ${PHP_BIN_EXPECTED} artisan queue:work redis --queue=${TGT_QUEUE[${target_id}]} --sleep=3 --tries=3 --timeout=120 --max-time=3600 --max-jobs=1000'"
+
+    printf '%s\n' \
+        "; RateGuru target ${target_id} — queue worker." \
+        ";" \
+        "; Rendered from infrastructure/config/deployment-targets.json by" \
+        "; install-bootstrap-services. Do not edit on the host." \
+        ";" \
+        "; Safe to load before the first deployment: with no current/ the" \
+        "; worker is never started, the program exits ${QUEUE_NOTHING_TO_RUN_EXIT} and stays EXITED." \
+        "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" \
+        "process_name=%(program_name)s_%(process_num)02d" \
+        "" \
+        "directory=${root}" \
+        "" \
+        "command=${guarded_command}" \
+        "" \
+        "user=${TGT_RUNTIME_USER[${target_id}]}" \
+        "numprocs=1" \
+        "" \
+        "autostart=true" \
+        "autorestart=unexpected" \
+        "exitcodes=${QUEUE_NOTHING_TO_RUN_EXIT}" \
+        "startsecs=3" \
+        "startretries=5" \
+        "" \
+        "stopasgroup=true" \
+        "killasgroup=true" \
+        "stopwaitsecs=130" \
+        "" \
+        "redirect_stderr=true" \
+        "stdout_logfile=${logs}/queue-worker.log" \
+        "stdout_logfile_maxbytes=10MB" \
+        "stdout_logfile_backups=5" \
+        "" \
+        "environment=APP_ENV=\"${TGT_ENVIRONMENT_CLASS[${target_id}]}\""
+}
+
+render_scheduler_cron() {
+    local target_id="$1"
+
+    printf '%s\n' \
+        "# RateGuru target ${target_id} — Laravel scheduler." \
+        "#" \
+        "# Rendered from infrastructure/config/deployment-targets.json by" \
+        "# install-bootstrap-services. Do not edit on the host." \
+        "#" \
+        "# Until the first release exists there is no current/ to run in, so the" \
+        "# leading guard exits before anything else runs. It is what makes a" \
+        "# provisioned-but-undeployed target silent: cron mails root whatever a" \
+        "# job writes, and a bare cd into a missing current/ would send a" \
+        "# failure every minute from provisioning until the first deployment." \
+        "# No release is ever fabricated to avoid that." \
+        "SHELL=/bin/bash" \
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        "" \
+        "* * * * * ${TGT_RUNTIME_USER[${target_id}]} [ -d ${TGT_ROOT[${target_id}]}/current ] || exit 0; cd ${TGT_ROOT[${target_id}]}/current && ${PHP_BIN_EXPECTED} artisan schedule:run >> /dev/null 2>&1"
+}
+
+# --- Source service configuration paths ---------------------------------------
+#
+# One resolution point for every consumer: a staging target reads its committed
+# file, a production target reads the render. Nothing below this line knows
+# which is which.
+
+src_nginx_site() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_NGINX[$1]}"; else printf '%s/%s\n' "${SRC_NGINX_DIR}" "${TGT_NGINX_SITE[$1]}"; fi
+}
+
+src_fpm_pool() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_FPM[$1]}"; else printf '%s/%s.conf\n' "${SRC_PHP_FPM_DIR}" "${TGT_FPM_POOL[$1]}"; fi
+}
+
+src_supervisor() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_SUPERVISOR[$1]}"; else printf '%s/%s.conf\n' "${SRC_SUPERVISOR_DIR}" "${TGT_SUPERVISOR_PROGRAM[$1]}"; fi
+}
+
+src_cron() {
+    if target_renders_service_config "$1"; then printf '%s\n' "${TGT_RENDERED_CRON[$1]}"; else printf '%s/%s\n' "${SRC_CRON_DIR}" "${TGT_SCHEDULER[$1]}"; fi
+}
+
+# source_label SRC — the stable operator-facing name of a service source.
+#
+# A rendered candidate lives in a per-run temporary directory whose name is
+# random, and this installer's output is a deterministic, asserted contract:
+# printing that path would make every report differ from the last for no
+# reason. What matters to a reader is that the file came from the registry
+# rather than from the tree.
+source_label() {
+    local src="$1"
+
+    if [[ -n "${RENDER_ROOT}" ]] && [[ "${src}" == "${RENDER_ROOT}/"* ]]; then
+        printf 'the target registry (generic production rendering of %s)\n' "${src##*/}"
+
+        return 0
+    fi
+
+    printf '%s\n' "${src#"${REPO_ROOT}"/}"
+}
+
+dst_nginx_site() { printf '%s/%s\n' "${DST_NGINX_AVAILABLE_DIR}" "${TGT_NGINX_SITE[$1]}"; }
+dst_nginx_enabled() { printf '%s/%s\n' "${DST_NGINX_ENABLED_DIR}" "${TGT_NGINX_SITE[$1]}"; }
+dst_fpm_pool() { printf '%s/%s.conf\n' "${DST_PHP_FPM_POOL_DIR}" "${TGT_FPM_POOL[$1]}"; }
+dst_supervisor() { printf '%s/%s.conf\n' "${DST_SUPERVISOR_DIR}" "${TGT_SUPERVISOR_PROGRAM[$1]}"; }
+dst_cron() { printf '%s/%s\n' "${DST_CRON_DIR}" "${TGT_SCHEDULER[$1]}"; }
+
+target_log_dir() { printf '%s/%s\n' "${TGT_ROOT[$1]}" "${SERVICE_LOG_SUBPATH}"; }
+
+# --- Deployment-state classification ------------------------------------------
+
+# classify_target_state TARGET_ID — sets TGT_STATE[id] to PRE_DEPLOY or
+# DEPLOYED (returning 0), or to BROKEN with the reason in CLASSIFY_REASON
+# (returning 1). Never a command substitution — the assignments must land in
+# this process, not a subshell. `current` absent is the only legitimate
+# PRE_DEPLOY signal; every present-but-broken shape is a hard conflict,
+# never silently downgraded.
+CLASSIFY_REASON=""
+
+classify_target_state() {
+    local target_id="$1"
+    local root="${TGT_ROOT[${target_id}]}"
+    local current_phys releases_phys resolved resolved_releases
+    current_phys="$(physical "${root}/current")"
+    releases_phys="$(physical "${root}/releases")"
+
+    CLASSIFY_REASON=""
+    TGT_STATE[${target_id}]=BROKEN
+
+    if [[ ! -e "${current_phys}" ]] && [[ ! -L "${current_phys}" ]]; then
+        TGT_STATE[${target_id}]=PRE_DEPLOY
+        return 0
+    fi
+
+    if [[ ! -L "${current_phys}" ]]; then
+        CLASSIFY_REASON='current exists but is not a symlink (deployment-owned path in a broken shape)'
+        return 1
+    fi
+
+    if ! resolved="$(readlink -f -- "${current_phys}")" || [[ ! -e "${resolved}" ]]; then
+        CLASSIFY_REASON='current is a dangling symlink'
+        return 1
+    fi
+
+    if ! resolved_releases="$(readlink -f -- "${releases_phys}")"; then
+        CLASSIFY_REASON='releases directory is missing while current exists'
+        return 1
+    fi
+
+    if [[ "$(dirname -- "${resolved}")" != "${resolved_releases}" ]]; then
+        CLASSIFY_REASON="current resolves outside the releases directory (${resolved})"
+        return 1
+    fi
+
+    if [[ ! -d "${resolved}" ]]; then
+        CLASSIFY_REASON='current resolves to a non-directory release'
+        return 1
+    fi
+
+    TGT_STATE[${target_id}]=DEPLOYED
+}
+
+# classify_all_target_states MODE — "report" records broken targets and
+# carries on (check/verify report them as CONFLICT); "gate" fails closed
+# before any mutation (apply's plan validation).
+classify_all_target_states() {
+    local behavior="$1" target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if classify_target_state "${target_id}"; then
+            continue
+        fi
+
+        if [[ "${behavior}" == gate ]]; then
+            fail "target ${target_id}: ${CLASSIFY_REASON} — broken release state is never treated as PRE_DEPLOY; resolve it manually before --apply (no mutation was performed)"
+        fi
+    done
+}
+
+# --- Committed service-source validation --------------------------------------
+
+validate_source_file() {
+    local path="$1" label="$2"
+
+    [[ -e "${path}" ]] || fail "missing required committed source: ${path} (${label})"
+    [[ ! -L "${path}" ]] || fail "committed source must not be a symlink: ${path} (${label})"
+    [[ -f "${path}" ]] || fail "committed source must be a regular file: ${path} (${label})"
+    [[ -r "${path}" ]] || fail "committed source is not readable: ${path} (${label})"
+}
+
+# validate_service_sources — static, read-only validation of every committed
+# service file this slice installs, including registry↔config consistency:
+# the committed configs must agree with the registry-declared pool name,
+# socket, program, runtime user, application root and the service-support
+# log directory, so a drifted commit fails here rather than on the host.
+validate_service_sources() {
+    validate_source_file "${SRC_SSH_RESTRICTION}" "SSH deploy restriction"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local nginx_src fpm_src supervisor_src cron_src
+        nginx_src="$(src_nginx_site "${target_id}")"
+        fpm_src="$(src_fpm_pool "${target_id}")"
+        supervisor_src="$(src_supervisor "${target_id}")"
+        cron_src="$(src_cron "${target_id}")"
+
+        validate_source_file "${nginx_src}" "Nginx site for ${target_id}"
+        validate_source_file "${fpm_src}" "PHP-FPM pool for ${target_id}"
+        validate_source_file "${supervisor_src}" "Supervisor program for ${target_id}"
+        validate_source_file "${cron_src}" "scheduler cron for ${target_id}"
+
+        local root="${TGT_ROOT[${target_id}]}"
+        local runtime_user="${TGT_RUNTIME_USER[${target_id}]}"
+        local log_dir
+        log_dir="$(target_log_dir "${target_id}")"
+
+        grep -Fq "root ${root}/current/public;" "${nginx_src}" \
+            || fail "committed Nginx site ${nginx_src} does not serve ${root}/current/public — registry/config drift"
+
+        grep -Fxq "[${TGT_FPM_POOL[${target_id}]}]" "${fpm_src}" \
+            || fail "committed PHP-FPM pool ${fpm_src} does not declare pool [${TGT_FPM_POOL[${target_id}]}] — registry/config drift"
+        grep -Eq "^listen *= *${TGT_FPM_SOCKET[${target_id}]}$" "${fpm_src}" \
+            || fail "committed PHP-FPM pool ${fpm_src} does not listen on the registry socket ${TGT_FPM_SOCKET[${target_id}]} — registry/config drift"
+        grep -Eq "^user *= *${runtime_user}$" "${fpm_src}" \
+            || fail "committed PHP-FPM pool ${fpm_src} does not run as the registry runtime user ${runtime_user} — registry/config drift"
+        grep -Fq "${log_dir}/" "${fpm_src}" \
+            || fail "committed PHP-FPM pool ${fpm_src} does not log under ${log_dir} — the service-support directory contract would be pointless"
+
+        grep -Fxq "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" "${supervisor_src}" \
+            || fail "committed Supervisor config ${supervisor_src} does not declare [program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}] — registry/config drift"
+        assert_supervisor_runs_in_current "${supervisor_src}" "${root}"
+        grep -Eq "^user *= *${runtime_user}$" "${supervisor_src}" \
+            || fail "committed Supervisor config ${supervisor_src} does not run as ${runtime_user} — registry/config drift"
+        grep -Fq "${log_dir}/" "${supervisor_src}" \
+            || fail "committed Supervisor config ${supervisor_src} does not log under ${log_dir}"
+
+        validate_cron_source "${cron_src}" "${target_id}"
+    done
+
+    local mail_src
+    for mail_src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
+        validate_source_file "${mail_src}" "shared mail-capture Nginx vhost"
+    done
+}
+
+# assert_supervisor_runs_in_current PATH ROOT — the worker runs inside
+# ROOT/current, by whichever of the two accepted mechanisms the file uses.
+#
+# The committed staging program says so with `directory=`, and supervisord
+# chdirs there before spawning. That shape cannot be loaded safely before a
+# release exists, which is fine for a target that has one and wrong for a
+# target that is waiting to be deployed.
+#
+# A rendered production program therefore says it in the command instead:
+# `directory=` is the application root, which always exists, and the command
+# enters current/ only once it is really there. That shape has to prove the
+# rest of its PRE_DEPLOY contract too — a guard without the exit-code
+# agreement would still crash-loop, which is the failure this whole shape
+# exists to prevent.
+assert_supervisor_runs_in_current() {
+    local path="$1" root="$2"
+
+    if grep -Eq "^directory *= *${root}/current$" "${path}"; then
+        return 0
+    fi
+
+    grep -Eq "^directory *= *${root}$" "${path}" \
+        || fail "committed Supervisor config ${path} does not run in ${root}/current, and does not use ${root} as a stable working directory either — registry/config drift"
+
+    grep -Fq "cd ${root}/current" "${path}" \
+        || fail "committed Supervisor config ${path} sets directory=${root} but its command never enters ${root}/current — registry/config drift"
+
+    grep -Fq "[ ! -d ${root}/current ]" "${path}" \
+        || fail "committed Supervisor config ${path} runs in ${root}/current without proving it exists first — a supervisord restart before the first deployment would crash-loop the worker"
+
+    grep -Eq "^autorestart *= *unexpected$" "${path}" \
+        || fail "committed Supervisor config ${path} guards a missing ${root}/current but keeps an unconditional autorestart — the guard would be restarted forever"
+
+    grep -Eq "^exitcodes *= *${QUEUE_NOTHING_TO_RUN_EXIT}$" "${path}" \
+        || fail "committed Supervisor config ${path} does not declare exitcodes=${QUEUE_NOTHING_TO_RUN_EXIT} — without it the worker's own successful exit would be read as expected and never restarted"
+}
+
+# validate_cron_source PATH TARGET_ID — structural cron.d validation: only
+# comments, VAR=VALUE lines and 5-field cron lines running as the registry
+# runtime user via the template PHP binary inside the canonical current
+# path. Functional scheduler execution is only testable once a release
+# exists — the file itself is valid earlier because its output is discarded
+# and no release is ever fabricated for it.
+validate_cron_source() {
+    local path="$1" target_id="$2"
+    local root="${TGT_ROOT[${target_id}]}"
+    local runtime_user="${TGT_RUNTIME_USER[${target_id}]}"
+    local line cron_lines=0
+    local f1 f2 f3 f4 f5 cron_user cron_command
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        [[ "${line}" != \#* ]] || continue
+
+        if [[ "${line}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            continue
+        fi
+
+        read -r f1 f2 f3 f4 f5 cron_user cron_command <<<"${line}"
+
+        local field
+        for field in "${f1}" "${f2}" "${f3}" "${f4}" "${f5}"; do
+            [[ "${field}" =~ ^[-0-9*/,]+$ ]] \
+                || fail "cron source ${path}: malformed schedule field '${field}' in line: ${line}"
+        done
+
+        [[ "${cron_user}" == "${runtime_user}" ]] \
+            || fail "cron source ${path}: scheduler must run as ${runtime_user}, runs as ${cron_user}"
+
+        [[ "${cron_command}" == *"cd ${root}/current"* ]] \
+            || fail "cron source ${path}: scheduler command does not run inside the canonical ${root}/current path: ${cron_command}"
+
+        [[ "${cron_command}" == *"${PHP_BIN_EXPECTED}"* ]] \
+            || fail "cron source ${path}: scheduler command does not use the template PHP binary ${PHP_BIN_EXPECTED}: ${cron_command}"
+
+        cron_lines=$((cron_lines + 1))
+    done <"${path}"
+
+    (( cron_lines >= 1 )) \
+        || fail "cron source ${path}: no cron line found"
+}
+
+# --- External prerequisites ---------------------------------------------------
+
+# nginx_external_prerequisites SRC_FILE — prints "CATEGORY|PATH" for every
+# external file the committed vhost references. Only absolute paths are
+# external; relative includes ship with the nginx package. An absolute
+# include carrying a glob pattern is a directory sweep, not a single
+# external file — nginx treats an unmatched include glob as valid, so a
+# literal pattern is never handed to a presence probe (which would
+# misreport it as MISSING forever). Content is never read — categories
+# only.
+nginx_external_prerequisites() {
+    local src="$1" directive value
+
+    while read -r directive value; do
+        value="${value%;}"
+        [[ "${value}" == /* ]] || continue
+
+        case "${directive}" in
+            auth_basic_user_file) printf 'basic-auth|%s\n' "${value}" ;;
+            ssl_certificate)      printf 'tls-certificate|%s\n' "${value}" ;;
+            ssl_certificate_key)  printf 'tls-private-key|%s\n' "${value}" ;;
+            ssl_dhparam)          printf 'tls-dhparams|%s\n' "${value}" ;;
+            include)
+                case "${value}" in
+                    *'*'*|*'?'*|*'['*) ;;
+                    *) printf 'nginx-include|%s\n' "${value}" ;;
+                esac
+                ;;
+        esac
+    done < <(awk '$1 ~ /^(auth_basic_user_file|ssl_certificate|ssl_certificate_key|ssl_dhparam|include)$/ { print $1, $2 }' "${src}")
+}
+
+# all_external_prerequisites — the deduplicated CATEGORY|PATH set for every
+# Nginx vhost install-bootstrap-services activates: each active target's site plus the two
+# shared mail-capture vhosts (whose mutating installer is only invoked after
+# these exist).
+all_external_prerequisites() {
+    local target_id src
+    {
+        for target_id in "${ACTIVE_TARGETS[@]}"; do
+            nginx_external_prerequisites "$(src_nginx_site "${target_id}")"
+        done
+
+        # The shared mail-capture vhosts have no per-target component, so a
+        # target-scoped run has nothing to say about their TLS material. It
+        # matters more than tidiness: a missing mail certificate would
+        # otherwise block the repair of a perfectly healthy target on secret
+        # material that belongs to the host bootstrap and that this run can
+        # never provide.
+        if ! target_scoped; then
+            for src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
+                nginx_external_prerequisites "${src}"
+            done
+        fi
+    } | sort -u
+}
+
+report_external_prerequisites() {
+    section "EXTERNAL PREREQUISITES"
+
+    local entry category path
+    while IFS='|' read -r category path; do
+        [[ -n "${category}" ]] || continue
+
+        if stat_probe "${path}" >/dev/null; then
+            item PASS "external-prerequisite:${category}" "present at ${path} (content never read or validated)"
+        elif target_scoped; then
+            # CONFLICT, not MISSING, and the difference is load-bearing.
+            #
+            # MISSING means "--apply converges this". --apply never converges
+            # an external prerequisite in any mode — it refuses, because the
+            # material is operator-supplied and is never generated here. An
+            # orchestrator reading this report treats MISSING as repairable
+            # and proceeds, and would then discover the refusal only after
+            # converging something else. Saying CONFLICT stops it beforehand.
+            item CONFLICT "external-prerequisite:${category}" "absent: ${path}" \
+                "provide it through host preparation — a target-scoped run never generates, copies or fakes external secret material, and --apply refuses while it is absent"
+        else
+            item MISSING "external-prerequisite:${category}" "absent: ${path}" \
+                "provide manually before --apply — external secret material is never generated, copied or faked by this installer"
+        fi
+    done < <(all_external_prerequisites)
+}
+
+# gate_external_prerequisites — apply's fail-closed variant: every external
+# file referenced by a vhost being activated must exist before the first
+# mutation.
+gate_external_prerequisites() {
+    local category path missing=0
+    while IFS='|' read -r category path; do
+        [[ -n "${category}" ]] || continue
+
+        if ! stat_probe "${path}" >/dev/null; then
+            printf 'EXTERNAL PREREQUISITE MISSING: %s (%s)\n' "${category}" "${path}" >&2
+            missing=$((missing + 1))
+        fi
+    done < <(all_external_prerequisites)
+
+    (( missing == 0 )) \
+        || fail "refusing to apply: ${missing} external prerequisite(s) missing — provide them manually (never generated here), then re-run; no mutation was performed"
+}
+
+# report_secret_readiness — the external secret material the complete
+# Operational system needs but install-bootstrap-services never creates, modifies or reads:
+# reported by presence only, WARN (never MISSING) when absent, because a
+# pre-deploy host legitimately lacks them and no service-config install may
+# ever rewrite them.
+report_secret_readiness() {
+    section "SECRET READINESS (external material — never created, modified or read here)"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_secret_presence "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "Laravel environment for ${target_id}"
+        report_secret_presence "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
+            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}"
+    done
+
+    report_secret_presence "rclone-credentials" "/root/.config/rclone/rclone.conf" \
+        "Backblaze B2 credentials for offsite backups"
+}
+
+report_secret_presence() {
+    local name="$1" path="$2" label="$3"
+
+    if stat_probe "${path}" >/dev/null; then
+        item PASS "secret:${name}" "present at ${path} (${label}; content never read)"
+    else
+        item WARN "secret:${name}" "absent: ${path} (${label})" \
+            "provide manually — external secret material is never generated here, and its absence never blocks service configuration"
+    fi
+}
+
+# --- Report sections (shared by --check and --verify) -------------------------
+
+# child_target_args — the flags a child installer needs to be asked about THIS
+# target in THIS run's authorization. Built in one place so no call site can
+# forget the provisioning half and quietly ask a child about an active target
+# that does not exist yet.
+child_target_args() {
+    printf '%s\n' --target "${TARGET_SCOPE}"
+
+    provisioning && printf '%s\n' --provisioning
+
+    return 0
+}
+
+report_prerequisite_slices() {
+    section "PREREQUISITES (authoritative child verifies — never re-implemented here)"
+
+    report_child_gate "slice-5.2:install-bootstrap-runtime" "${RUNTIME_INSTALLER_BIN}" --verify
+
+    # In target mode the layout prerequisite is asked at the SAME scope, for
+    # the same reason apply_gate_prerequisites does: demanding the WHOLE host
+    # layout here would make repairing one target fail because a DIFFERENT
+    # active target had drifted, and would report this target's own layout
+    # drift — the thing a repair exists to fix — as an unfixable conflict.
+    if target_scoped; then
+        # DRIFT, not CONFLICT. This target's layout being unconverged is not an
+        # unsafe condition — it is a repairable one with a named owner, and
+        # reporting it as a conflict makes an orchestrator refuse the very case
+        # it exists for. --apply still refuses outright: see
+        # apply_gate_prerequisites, which is the gate that actually protects
+        # this installer's own mutations.
+        local -a scope_args=()
+        mapfile -t scope_args < <(child_target_args)
+
+        report_prerequisite_drift "prerequisite:install-bootstrap-host-layout" \
+            "${HOSTLAYOUT_INSTALLER_BIN}" --verify "${scope_args[@]}"
+    else
+        report_child_gate "slice-5.3:install-bootstrap-host-layout" "${HOSTLAYOUT_INSTALLER_BIN}" --verify
+    fi
+}
+
+# report_child_gate NAME BIN ARGS... — runs a read-only child verify and
+# reports it. A failing prerequisite is CONFLICT in every mode: --apply must
+# not run until the earlier slice converges, and that convergence belongs to
+# the earlier slice's own --apply, never to this installer.
+# report_prerequisite_drift NAME BIN ARGS... — a prerequisite that some other
+# installer owns and can converge. Same probe as report_child_gate, different
+# verdict: DRIFT says "repairable, by that installer", where CONFLICT says
+# "nobody may fix this automatically".
+report_prerequisite_drift() {
+    local name="$1" bin="$2"
+    shift 2
+
+    if [[ ! -x "${bin}" ]]; then
+        item CONFLICT "${name}" "installer not executable: ${bin}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${bin}" "$@" >/dev/null 2>&1; then
+        item PASS "${name}" "verify passed (${bin} $*)"
+        return 0
+    fi
+
+    item DRIFT "${name}" "verify failed (${bin} $*)" \
+        "${bin##*/} --apply $(child_target_args | tr '\n' ' ')— this installer never converges the layout itself, and refuses to mutate until it is correct"
+}
+
+report_child_gate() {
+    local name="$1" bin="$2"
+    shift 2
+
+    if [[ ! -x "${bin}" ]]; then
+        item CONFLICT "${name}" "installer not executable: ${bin}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${bin}" "$@" >/dev/null 2>&1; then
+        item PASS "${name}" "verify passed (${bin} $*)"
+    else
+        item CONFLICT "${name}" "verify failed (${bin} $*)" \
+            "converge the earlier slice first (its own --apply), then re-run"
+    fi
+}
+
+report_targets() {
+    section "TARGETS"
+
+    if provisioning; then
+        item PASS "registry:source" "valid (provisioning scope: ${ACTIVE_TARGETS[*]:-none})"
+    else
+        item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    fi
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if provisioning; then
+            item PASS "target:${target_id}" "lifecycle=planned, environment_class=production — service configuration provisioned under the explicit --provisioning authorization; the target stays planned and the registry is never written"
+        else
+            item PASS "target:${target_id}" "lifecycle=active — service configuration managed by this slice"
+        fi
+
+        if target_renders_service_config "${target_id}"; then
+            item PASS "rendering:${target_id}" "Nginx internal vhost, PHP-FPM pool, Supervisor program and scheduler cron rendered generically from the registry — no committed per-brand source, no public hostname, no TLS listener"
+        fi
+    done
+
+    for target_id in "${INACTIVE_TARGETS[@]}"; do
+        if [[ "${TGT_LIFECYCLE[${target_id}]}" == planned ]]; then
+            item PASS "target:${target_id}" "lifecycle=planned — zero service configuration (committed production config sources are ignored while the target stays planned)"
+        else
+            item PASS "target:${target_id}" "lifecycle=${TGT_LIFECYCLE[${target_id}]} — zero service configuration (only an active target is configured here)"
+        fi
+    done
+}
+
+report_target_states() {
+    section "TARGET STATE"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if ! classify_target_state "${target_id}"; then
+            item CONFLICT "state:${target_id}" "${CLASSIFY_REASON}" \
+                "resolve the broken release state manually — never treated as PRE_DEPLOY, never repaired by this installer"
+            continue
+        fi
+
+        if [[ "${TGT_STATE[${target_id}]}" == PRE_DEPLOY ]]; then
+            item PASS "state:${target_id}" "PRE_DEPLOY — no current release exists yet; application-runtime probes are deferred until the first deployment (never fabricated)"
+        else
+            item PASS "state:${target_id}" "DEPLOYED — current resolves to a valid immutable release; full runtime verification applies"
+        fi
+    done
+}
+
+report_support_directory() {
+    section "SERVICE-SUPPORT DIRECTORY"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local log_dir probe
+        log_dir="$(target_log_dir "${target_id}")"
+
+        if ! probe="$(stat_probe "${log_dir}")"; then
+            item MISSING "path:${log_dir}" "absent (committed PHP-FPM/Supervisor configs log here)" \
+                "install -d mode ${SERVICE_LOG_MODE}, chown ${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]} — this directory entry only, existing log files never touched"
+            continue
+        fi
+
+        local actual_type actual_owner actual_group actual_mode
+        IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+        if [[ "${actual_type}" != directory ]]; then
+            item CONFLICT "path:${log_dir}" "is a ${actual_type}, expected directory" \
+                "resolve manually — this installer never deletes or replaces a conflicting path"
+        elif [[ "${actual_owner}" != "${TGT_RUNTIME_USER[${target_id}]}" ]] || [[ "${actual_group}" != "${TGT_RUNTIME_GROUP[${target_id}]}" ]]; then
+            item DRIFT "path:${log_dir}" "owned ${actual_owner}:${actual_group}, required ${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]}" \
+                "chown this directory entry only (never recursive; existing log files keep their ownership)"
+        elif ! mode_equals "${actual_mode}" "${SERVICE_LOG_MODE}"; then
+            item DRIFT "path:${log_dir}" "mode ${actual_mode}, required ${SERVICE_LOG_MODE}" \
+                "chmod =${SERVICE_LOG_MODE} on this directory entry only"
+        else
+            item PASS "path:${log_dir}" "directory, ${actual_owner}:${actual_group}, mode ${actual_mode}"
+        fi
+    done
+}
+
+# report_managed_file NAME SRC DST — byte-parity plus owner/mode against the
+# committed source. DRIFT (safe regular file differing) is distinguishable
+# from CONFLICT (wrong type/symlink) and MISSING.
+report_managed_file() {
+    local name="$1" src="$2" dst="$3"
+
+    local probe
+    if ! probe="$(stat_probe "${dst}")"; then
+        item MISSING "file:${dst}" "absent (${name})" \
+            "install from $(source_label "${src}") (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE}), transactionally, validating before any reload"
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    if [[ "${actual_type}" != "regular file" ]]; then
+        item CONFLICT "file:${dst}" "is a ${actual_type}, expected regular file (${name})" \
+            "resolve manually — this installer never installs over a symlink or non-regular destination"
+        return 0
+    fi
+
+    if ! cmp -s "${src}" "$(physical "${dst}")"; then
+        item DRIFT "file:${dst}" "content differs from its source (${name})" \
+            "replace transactionally from $(source_label "${src}"), validating before any reload"
+        return 0
+    fi
+
+    if [[ "${actual_owner}" != "${SERVICE_FILE_OWNER}" ]] || [[ "${actual_group}" != "${SERVICE_FILE_GROUP}" ]]; then
+        item DRIFT "file:${dst}" "owned ${actual_owner}:${actual_group}, required ${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} (${name})" \
+            "reinstall transactionally with the contract ownership"
+        return 0
+    fi
+
+    if ! mode_equals "${actual_mode}" "${SERVICE_FILE_MODE}"; then
+        item DRIFT "file:${dst}" "mode ${actual_mode}, required ${SERVICE_FILE_MODE} (${name})" \
+            "reinstall transactionally with the contract mode"
+        return 0
+    fi
+
+    item PASS "file:${dst}" "byte-identical to its source, ${actual_owner}:${actual_group}, mode ${actual_mode} (${name})"
+}
+
+# enabled_link_state TARGET_ID — prints ok|missing|wrong-target:<target>|conflict:<type>
+enabled_link_state() {
+    local target_id="$1"
+    local link expected phys content
+    link="$(dst_nginx_enabled "${target_id}")"
+    expected="$(dst_nginx_site "${target_id}")"
+    phys="$(physical "${link}")"
+
+    if [[ -L "${phys}" ]]; then
+        content="$(readlink -- "${phys}")"
+        # Absolute canonical form, or the conventional relative form pointing
+        # at the same sites-available entry — both are the expected symlink.
+        if [[ "${content}" == "${expected}" ]] \
+            || [[ "${content}" == "../sites-available/${TGT_NGINX_SITE[${target_id}]}" ]]; then
+            printf 'ok\n'
+        else
+            printf 'wrong-target:%s\n' "${content}"
+        fi
+    elif [[ -e "${phys}" ]]; then
+        printf 'conflict:not-a-symlink\n'
+    else
+        printf 'missing\n'
+    fi
+}
+
+report_managed_files() {
+    section "MANAGED SERVICE FILES (directly owned by this slice)"
+
+    # Host-wide: one file governing every deploy account on the machine. A
+    # target-scoped run neither reports it as its own nor rewrites it.
+    if ! target_scoped; then
+        report_managed_file "SSH deploy restriction" "${SRC_SSH_RESTRICTION}" "${DST_SSH_RESTRICTION}"
+    fi
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_managed_file "Nginx site for ${target_id}" "$(src_nginx_site "${target_id}")" "$(dst_nginx_site "${target_id}")"
+
+        local link_state
+        link_state="$(enabled_link_state "${target_id}")"
+        case "${link_state}" in
+            ok)
+                item PASS "link:$(dst_nginx_enabled "${target_id}")" "symlink to the sites-available entry (Nginx site enabled for ${target_id})"
+                ;;
+            missing)
+                item MISSING "link:$(dst_nginx_enabled "${target_id}")" "absent — site not enabled for ${target_id}" \
+                    "create the enabled symlink to $(dst_nginx_site "${target_id}")"
+                ;;
+            wrong-target:*)
+                item DRIFT "link:$(dst_nginx_enabled "${target_id}")" "symlink points at ${link_state#wrong-target:}, expected $(dst_nginx_site "${target_id}")" \
+                    "repoint the enabled symlink at the sites-available entry"
+                ;;
+            *)
+                item CONFLICT "link:$(dst_nginx_enabled "${target_id}")" "exists but is not a symlink" \
+                    "resolve manually — this installer never replaces a non-symlink destination"
+                ;;
+        esac
+
+        report_managed_file "PHP-FPM pool for ${target_id}" "$(src_fpm_pool "${target_id}")" "$(dst_fpm_pool "${target_id}")"
+        report_managed_file "Supervisor queue program for ${target_id}" "$(src_supervisor "${target_id}")" "$(dst_supervisor "${target_id}")"
+        report_managed_file "scheduler cron for ${target_id}" "$(src_cron "${target_id}")" "$(dst_cron "${target_id}")"
+    done
+}
+
+# report_service_sources — the committed-source validation as one report
+# section. A defective committed source is a repository problem, not host
+# state: it fails closed (aborting the report) exactly like an invalid
+# source registry does, in every mode.
+report_service_sources() {
+    section "COMMITTED SERVICE SOURCES"
+
+    validate_service_sources
+
+    item PASS "sources:service-config" "every service source is a readable regular file, structurally valid, and consistent with the registry (${#ACTIVE_TARGETS[@]} target(s) in scope)"
+}
+
+# --- Runtime configuration validation (read-only in check/verify) -------------
+
+nginx_config_test() {
+    "${NGINX_BIN}" -t >/dev/null 2>&1
+}
+
+sshd_config_test() {
+    "${SSHD_BIN}" -t >/dev/null 2>&1
+}
+
+php_fpm_config_test() {
+    "${PHP_FPM_TEST_BIN}" -t >/dev/null 2>&1
+}
+
+# supervisor_reread_validation — `supervisorctl reread` parses every config
+# file without applying anything (add/remove happens only on update), which
+# makes it the authoritative, side-effect-free Supervisor validation. A
+# non-zero exit or an ERROR line both mean invalid configuration.
+supervisor_reread_validation() {
+    local output
+    output="$("${SUPERVISORCTL_BIN}" reread 2>&1)" || return 1
+    ! grep -q 'ERROR' <<<"${output}"
+}
+
+service_enabled() {
+    "${SYSTEMCTL_BIN}" is-enabled --quiet "$1" >/dev/null 2>&1
+}
+
+service_active() {
+    "${SYSTEMCTL_BIN}" is-active --quiet "$1" >/dev/null 2>&1
+}
+
+# target_file_drifted DST SRC — the selected target's own copy of one managed
+# file is absent, not a regular file, or differs from what is committed.
+target_file_drifted() {
+    local dst="$1" src="$2" phys
+    phys="$(physical "${dst}")"
+
+    [[ -f "${phys}" ]] || return 0
+    cmp -s "${src}" "${phys}" || return 0
+
+    return 1
+}
+
+# report_parser_result NAME DETAIL DRIFTED — one authoritative parser's verdict.
+#
+# A failing parser is normally a CONFLICT: nothing may be reloaded until a human
+# fixes the configuration. In target mode there is one case where that is the
+# wrong answer, and it is a case this operation exists for — the selected
+# target's OWN managed file is drifted or damaged, and the parser is failing
+# BECAUSE of it. Replacing that file with the committed one is the repair, and
+# the parser is re-run against the candidate before anything is reloaded, so
+# nothing is installed on the strength of this guess.
+#
+# When the selected target's files are already byte-identical to what is
+# committed, a parser failure is somewhere else on the host and stays a
+# CONFLICT: converging this target would change nothing and fix nothing.
+report_parser_result() {
+    local name="$1" detail="$2" drifted="$3"
+
+    if ! target_scoped || [[ "${drifted}" != true ]]; then
+        item CONFLICT "${name}" "${detail}" \
+            "fix the installed configuration (apply installs candidates transactionally, validates them, and restores on a failed test)"
+        return 0
+    fi
+
+    item DRIFT "${name}" "${detail}; this target's own configuration is drifted, which is the likely cause" \
+        "replace this target's committed configuration transactionally — the parser is re-run against the candidate before any reload, and a candidate that does not parse is restored"
+}
+
+report_config_validation() {
+    section "CONFIG VALIDATION (authoritative parsers, read-only)"
+
+    local nginx_drift=false fpm_drift=false supervisor_drift=false
+
+    if target_scoped; then
+        target_file_drifted "$(dst_nginx_site "${TARGET_SCOPE}")" "$(src_nginx_site "${TARGET_SCOPE}")" && nginx_drift=true
+        [[ "$(enabled_link_state "${TARGET_SCOPE}")" == ok ]] || nginx_drift=true
+        target_file_drifted "$(dst_fpm_pool "${TARGET_SCOPE}")" "$(src_fpm_pool "${TARGET_SCOPE}")" && fpm_drift=true
+        target_file_drifted "$(dst_supervisor "${TARGET_SCOPE}")" "$(src_supervisor "${TARGET_SCOPE}")" && supervisor_drift=true
+    fi
+
+    if nginx_config_test; then
+        item PASS "config-test:nginx" "nginx -t passed against the installed configuration"
+    else
+        report_parser_result "config-test:nginx" \
+            "nginx -t failed against the installed configuration" "${nginx_drift}"
+    fi
+
+    # SSH belongs to the host run. A target-scoped repair never installs or
+    # reloads it, so validating it here would report a problem this run has no
+    # business fixing.
+    if ! target_scoped; then
+        if sshd_config_test; then
+            item PASS "config-test:sshd" "sshd -t passed against the installed configuration"
+        else
+            item CONFLICT "config-test:sshd" "sshd -t failed against the installed configuration" \
+                "fix the installed SSH configuration before any reload"
+        fi
+    fi
+
+    if php_fpm_config_test; then
+        item PASS "config-test:php-fpm" "${PHP_FPM_TEST_BIN##*/} -t passed against the installed configuration"
+    else
+        report_parser_result "config-test:php-fpm" \
+            "${PHP_FPM_TEST_BIN##*/} -t failed against the installed configuration" "${fpm_drift}"
+    fi
+
+    if ! service_active supervisor; then
+        item MISSING "config-test:supervisor" "cannot validate via supervisorctl reread — supervisor is not running" \
+            "enable/start supervisor, then validation runs"
+    elif supervisor_reread_validation; then
+        item PASS "config-test:supervisor" "supervisorctl reread parsed the installed configuration cleanly (validation only — nothing applied)"
+    else
+        report_parser_result "config-test:supervisor" \
+            "supervisorctl reread reported a configuration error" "${supervisor_drift}"
+    fi
+}
+
+# --- Child installer contracts ------------------------------------------------
+
+report_child_contracts() {
+    section "CHILD INSTALLER CONTRACTS (authoritative owners — never absorbed)"
+
+    # Host-wide children, converged here through their own --apply.
+    #
+    # A target-scoped run reports NEITHER of them, and the reason is a
+    # dependency that only becomes visible from inside a repair:
+    # install-target-operations --verify runs the application health check on
+    # a DEPLOYED target and fails when the site does not answer. A broken
+    # Nginx vhost or PHP-FPM pool is exactly the damage a target repair exists
+    # to fix, so gating that repair on this verify would mean the site has to
+    # be healthy before it can be made healthy.
+    #
+    # Neither family is a prerequisite of converging one target's service
+    # configuration in the first place — they install the host's operational
+    # CLI bundle and its sudo perimeter — so they belong to the host bootstrap
+    # exactly like mail capture and the SSH restriction below.
+    if ! target_scoped; then
+        report_child_state "operations:install-target-operations" \
+            "runtime registry, deployment.conf and the installed operational bundle" \
+            "${OPERATIONS_INSTALLER_BIN}" --verify
+
+        report_child_state "perimeter:install-target-perimeter" \
+            "generic sudo wrappers, sudoers, backup cron, legacy-wrapper absence" \
+            "${PERIMETER_INSTALLER_BIN}" --verify
+    fi
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local -a acl_args=(--target "${target_id}")
+        provisioning && acl_args+=(--provisioning)
+
+        report_child_state "public-storage-acl:${target_id}" \
+            "narrow www-data traversal ACL on shared and shared/storage" \
+            "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify "${acl_args[@]}"
+    done
+
+    # The deploy channel's own authorization: read-only, and only for the
+    # targets that record a deployment marker at all.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        records_deployment_marker "${target_id}" || continue
+
+        report_child_state "deployment-marker:${target_id}" \
+            "the deployment-marker sudo wrapper and the sudoers grant its deploy user invokes it through" \
+            "${NIGHTWATCH_INSTALLER_BIN}" --verify-deployment-marker --target "${target_id}"
+    done
+
+    # --read-only is mandatory here: verify-mail-capture's default (--e2e)
+    # sends SMTP, deletes messages and stops/starts the mirror service, which
+    # would make this installer's --check/--verify — and bootstrap-host's,
+    # which delegates to them — mutating. The full acceptance run is an
+    # explicit operator command, never ordinary bootstrap verification.
+    # Mail capture is a shared host service with no per-target component at
+    # all. A target-scoped run has nothing to say about it.
+    if ! target_scoped; then
+        report_child_state "mail-capture:verify-mail-capture" \
+            "shared-host-service Mailpit/Mailtrap Local (never per-target; read-only probe)" \
+            "${VERIFY_MAIL_CAPTURE_BIN}" --read-only
+    fi
+}
+
+# report_child_state NAME LABEL BIN ARGS... — a failing child contract is
+# MISSING in --check (apply converges it via the child's own --apply) and
+# CONFLICT in --verify (the install-bootstrap-services contract is not satisfied).
+report_child_state() {
+    local name="$1" label="$2" bin="$3"
+    shift 3
+
+    if [[ ! -x "${bin}" ]]; then
+        item CONFLICT "${name}" "not executable: ${bin} (${label})" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${bin}" "$@" >/dev/null 2>&1; then
+        item PASS "${name}" "child verify passed (${label})"
+        return 0
+    fi
+
+    if [[ "${MODE}" == check ]]; then
+        item MISSING "${name}" "child verify does not pass yet (${label})" \
+            "invoke the child's own --apply (its transaction, its rollback) in dependency order"
+    else
+        item CONFLICT "${name}" "child verify failed (${label})" \
+            "re-run install-bootstrap-services --apply, or the child's own --apply, after review"
+    fi
+}
+
+# --- Service state ------------------------------------------------------------
+
+# parse_pool_socket_contract TARGET_ID — echoes "OWNER|GROUP|MODE" from the
+# committed pool source's listen.* directives ('' fields when undeclared).
+parse_pool_socket_contract() {
+    local src owner group mode
+    src="$(src_fpm_pool "$1")"
+
+    owner="$(sed -n 's/^listen\.owner *= *//p' "${src}" | head -n 1)"
+    group="$(sed -n 's/^listen\.group *= *//p' "${src}" | head -n 1)"
+    mode="$(sed -n 's/^listen\.mode *= *//p' "${src}" | head -n 1)"
+
+    printf '%s|%s|%s\n' "${owner}" "${group}" "${mode}"
+}
+
+report_php_fpm_socket() {
+    local target_id="$1"
+    local socket="${TGT_FPM_SOCKET[${target_id}]}"
+
+    if ! service_active "${PHP_FPM_SERVICE}"; then
+        item MISSING "socket:${socket}" "PHP-FPM is not running — the pool socket cannot exist yet" \
+            "enable/start ${PHP_FPM_SERVICE} after the pool configuration is installed and validated"
+        return 0
+    fi
+
+    local probe
+    if ! probe="$(stat_probe "${socket}")"; then
+        item MISSING "socket:${socket}" "absent while ${PHP_FPM_SERVICE} is running — pool ${TGT_FPM_POOL[${target_id}]} did not start" \
+            "reload ${PHP_FPM_SERVICE} after the validated pool install"
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    if [[ "${actual_type}" != socket ]]; then
+        item CONFLICT "socket:${socket}" "is a ${actual_type}, expected socket" \
+            "resolve manually — something else occupies the pool socket path"
+        return 0
+    fi
+
+    local expected_owner expected_group expected_mode
+    IFS='|' read -r expected_owner expected_group expected_mode <<<"$(parse_pool_socket_contract "${target_id}")"
+
+    if [[ -n "${expected_owner}" ]] && [[ "${actual_owner}" != "${expected_owner}" ]]; then
+        item CONFLICT "socket:${socket}" "owned by ${actual_owner}, committed pool declares listen.owner ${expected_owner}" \
+            "reload ${PHP_FPM_SERVICE} with the committed pool configuration"
+        return 0
+    fi
+
+    if [[ -n "${expected_group}" ]] && [[ "${actual_group}" != "${expected_group}" ]]; then
+        item CONFLICT "socket:${socket}" "group ${actual_group}, committed pool declares listen.group ${expected_group}" \
+            "reload ${PHP_FPM_SERVICE} with the committed pool configuration"
+        return 0
+    fi
+
+    if [[ -n "${expected_mode}" ]] && ! mode_equals "${actual_mode}" "${expected_mode}"; then
+        item CONFLICT "socket:${socket}" "mode ${actual_mode}, committed pool declares listen.mode ${expected_mode}" \
+            "reload ${PHP_FPM_SERVICE} with the committed pool configuration"
+        return 0
+    fi
+
+    item PASS "socket:${socket}" "socket, ${actual_owner}:${actual_group}, mode ${actual_mode} (consistent with the committed pool)"
+}
+
+# queue_program_running TARGET_ID — every process of the program group is
+# RUNNING according to supervisorctl.
+queue_program_running() {
+    local program="${TGT_SUPERVISOR_PROGRAM[$1]}"
+    local output
+
+    output="$("${SUPERVISORCTL_BIN}" status "${program}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+report_queue_program() {
+    local target_id="$1"
+    local program="${TGT_SUPERVISOR_PROGRAM[${target_id}]}"
+
+    if [[ "${TGT_STATE[${target_id}]:-}" == PRE_DEPLOY ]]; then
+        item DEFERRED "queue:${program}" "target queue activation DEFERRED until the first release exists (PRE_DEPLOY — the program works in current/, which does not exist yet; never force-started, never pointed at a fake directory)" \
+            "activated after the first real deployment (see the 5.5/5.6 first-deploy activation note in the runbook)"
+        return 0
+    fi
+
+    if ! service_active supervisor; then
+        item MISSING "queue:${program}" "supervisor is not running" \
+            "enable/start supervisor, then update/start the program"
+        return 0
+    fi
+
+    if queue_program_running "${target_id}"; then
+        item PASS "queue:${program}" "RUNNING under supervisor (DEPLOYED target)"
+    else
+        item MISSING "queue:${program}" "not RUNNING under supervisor while the target is DEPLOYED" \
+            "supervisorctl update/start the program after the validated config install"
+    fi
+}
+
+report_services() {
+    section "SERVICES"
+
+    local unit
+    for unit in "${BASE_SERVICES[@]}"; do
+        if target_scoped; then
+            report_service_prerequisite "${unit}"
+        else
+            report_service_state "${unit}" "base host service"
+        fi
+    done
+
+    # Shared mail capture has no per-target component.
+    if ! target_scoped; then
+        for unit in "${MAIL_SERVICES[@]}"; do
+            report_service_state "${unit}" "shared-host-service (owned by install-mail-capture)"
+        done
+    fi
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_php_fpm_socket "${target_id}"
+        report_nginx_worker_groups "${target_id}"
+        report_queue_program "${target_id}"
+    done
+}
+
+# report_nginx_worker_groups TARGET_ID — the RUNTIME half of the code-group
+# Contract. Account membership (www-data in the code group) is install-bootstrap-host-layout's
+# contract and is gated by its own --verify; this asserts that the Nginx
+# workers actually running right now carry that group, because supplementary
+# groups are fixed at process creation and a live worker that predates the
+# membership still cannot read the release tree.
+#
+# Strictly read-only: nothing here reloads, restarts or otherwise touches a
+# service. Stale workers are DRIFT — safely remediable by --apply through a
+# validated reload — never CONFLICT.
+report_nginx_worker_groups() {
+    local target_id="$1"
+    local group="${TGT_CODE_GROUP[${target_id}]}"
+
+    if ! service_active nginx; then
+        item MISSING "nginx-workers:${group}" "nginx is not running — worker supplementary groups cannot be inspected" \
+            "enable/start nginx after its configuration is validated, then re-check"
+        return 0
+    fi
+
+    local reason
+    reason="$(nginx_workers_missing_group "${group}")"
+
+    if [[ -z "${reason}" ]]; then
+        item PASS "nginx-workers:${group}" "every running ${NGINX_WORKER_USER} nginx worker carries the ${group} GID (can traverse and read ${TGT_ROOT[${target_id}]}/current/public)"
+        return 0
+    fi
+
+    item DRIFT "nginx-workers:${group}" "${reason} — running workers predate the ${group} membership, so Nginx cannot read the immutable release tree (every request would 404 with a permission-denied stat)" \
+        "reload nginx (never restart) after nginx -t passes, so replacement workers pick up the group"
+}
+
+# report_service_prerequisite UNIT — the target-mode view of a base host
+# service. A target cannot be healthy while nginx, PHP-FPM, Supervisor,
+# PostgreSQL or Redis is down, so this still blocks; enabling or starting one is
+# a host decision and never happens here.
+report_service_prerequisite() {
+    local unit="$1"
+
+    # BOTH halves, deliberately. Checking only `is-active` let an
+    # active-but-disabled unit report PASS, and the convergence below would
+    # then quietly `systemctl enable` it — a host-level mutation a
+    # target-scoped run must never make. A prerequisite that is not checked is
+    # not a boundary, it is a comment.
+    local active=false enabled=false
+    service_active "${unit}" && active=true
+    service_enabled "${unit}" && enabled=true
+
+    if [[ "${active}" == true ]] && [[ "${enabled}" == true ]]; then
+        item PASS "service:${unit}" "active and enabled (base host service; host-owned, never enabled or started by a target-scoped run)"
+        return 0
+    fi
+
+    local state="not active"
+    [[ "${active}" == true ]] && state="active but not enabled"
+    [[ "${enabled}" == true ]] && [[ "${active}" != true ]] && state="enabled but not active"
+
+    item HOST-REQ "service:${unit}" "${state} (base host service)" \
+        "enable and start it as a host operation — a target-scoped run never enables or starts a base service"
+}
+
+report_service_state() {
+    local unit="$1" label="$2"
+    local enabled=false active=false
+
+    service_enabled "${unit}" && enabled=true
+    service_active "${unit}" && active=true
+
+    if [[ "${enabled}" == true ]] && [[ "${active}" == true ]]; then
+        item PASS "service:${unit}" "enabled and active (${label})"
+    elif [[ "${active}" == true ]]; then
+        item MISSING "service:${unit}" "active but not enabled (${label})" \
+            "systemctl enable ${unit}"
+    elif [[ "${enabled}" == true ]]; then
+        item MISSING "service:${unit}" "enabled but not active (${label})" \
+            "start ${unit} after its configuration is validated"
+    else
+        item MISSING "service:${unit}" "neither enabled nor active (${label})" \
+            "enable and start ${unit} after its configuration is validated"
+    fi
+}
+
+report_summary() {
+    section "SUMMARY"
+
+    if provisioning; then
+        printf 'Bootstrap services installer (%s, provisioning target %s):\n' "${MODE}" "${TARGET_SCOPE}"
+    elif target_scoped; then
+        printf 'Bootstrap services installer (%s, target %s):\n' "${MODE}" "${TARGET_SCOPE}"
+    else
+        printf 'Bootstrap services installer (%s):\n' "${MODE}"
+    fi
+
+    printf 'PASS: %d\n' "${COUNT_PASS}"
+    printf 'MISSING: %d\n' "${COUNT_MISSING}"
+    printf 'DRIFT: %d\n' "${COUNT_DRIFT}"
+    printf 'WARN: %d\n' "${COUNT_WARN}"
+    printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf 'DEFERRED: %d\n' "${COUNT_DEFERRED}"
+
+    if target_scoped; then
+        printf 'HOST-REQ: %d\n' "${COUNT_HOST_REQ}"
+    fi
+
+    printf '\n'
+
+    if contract_satisfied; then
+        if target_scoped; then
+            printf 'TARGET SERVICES CONTRACT (%s): SATISFIED\n' "${TARGET_SCOPE}"
+        else
+            printf 'HOST SERVICES CONTRACT: SATISFIED\n'
+        fi
+    else
+        if target_scoped; then
+            printf 'TARGET SERVICES CONTRACT (%s): NOT SATISFIED\n' "${TARGET_SCOPE}"
+        else
+            printf 'HOST SERVICES CONTRACT: NOT SATISFIED\n'
+        fi
+    fi
+}
+
+# WARN (informational secret readiness) and DEFERRED (legitimate pre-deploy
+# application probes) never block the contract; MISSING, DRIFT and CONFLICT
+# always do — DEFERRED is never used to hide a genuine conflict, which keeps
+# its own status.
+contract_satisfied() {
+    (( COUNT_MISSING == 0 )) && (( COUNT_CONFLICT == 0 )) && (( COUNT_DRIFT == 0 )) \
+        && (( COUNT_HOST_REQ == 0 ))
+}
+
+run_contract_report() {
+    printf 'RateGuru bootstrap services installer (%s mode)\n' "${MODE}"
+    printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture; directly owns the active-target service files\n'
+
+    if provisioning; then
+        printf 'Scope: planned production target %s only — host-wide families are out of scope entirely, base services are inspected and never started, and this run never activates the target\n' "${TARGET_SCOPE}"
+    elif target_scoped; then
+        printf 'Scope: target %s only — host-wide families are out of scope entirely; base services are inspected and never started\n' "${TARGET_SCOPE}"
+    fi
+
+    report_prerequisite_slices
+    report_targets
+    report_target_states
+    report_service_sources
+    report_external_prerequisites
+    report_secret_readiness
+    report_support_directory
+    report_managed_files
+    report_config_validation
+    report_child_contracts
+    report_services
+    report_summary
+
+    contract_satisfied
+}
+
+# --- Apply: transaction state -------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--${MODE} must run as root"
+}
+
+TXN_BACKUP_DIR=""
+TXN_FILE_RESTORE=()      # logical destinations that existed and were backed up
+TXN_FILE_REMOVE=()       # logical destinations created by this run
+TXN_LINK_RESTORE=()      # "logical|previous-link-target"
+TXN_LINK_REMOVE=()       # logical links created by this run
+TXN_DIR_REMOVE=()        # logical directories created by this run (removed only if empty)
+TXN_SERVICE_STARTED=()   # units started by this run
+TXN_SERVICE_ENABLED=()   # units enabled by this run
+TXN_RELOADED_UNITS=()    # units reloaded/restarted with new config by this run
+TXN_SUPERVISOR_UPDATED=() # program groups pushed into the running supervisor by this run
+APPLY_COMMITTED=false
+MAIN_BASHPID=""
+
+txn_record_file() {
+    local logical="$1" phys
+    phys="$(physical "${logical}")"
+
+    if [[ -e "${phys}" ]] || [[ -L "${phys}" ]]; then
+        local backup_path="${TXN_BACKUP_DIR}${logical}"
+        install -d -m 0700 "$(dirname -- "${backup_path}")"
+        cp -a "${phys}" "${backup_path}"
+        TXN_FILE_RESTORE+=("${logical}")
+    else
+        TXN_FILE_REMOVE+=("${logical}")
+    fi
+}
+
+# rollback_transaction — restores every directly-owned resource this failed
+# apply touched: files, symlinks, created directories (only when empty),
+# and the enable/start service state changes, in reverse. Child-installer-
+# owned files are never touched here — each child already performed its own
+# transaction and rollback. Returns non-zero when any restoration failed.
+rollback_transaction() {
+    local status=0 logical phys backup_path
+
+    for logical in "${TXN_FILE_REMOVE[@]:-}"; do
+        [[ -n "${logical}" ]] || continue
+        phys="$(physical "${logical}")"
+        rm -f -- "${phys}" || { printf 'ROLLBACK ERROR: could not remove %s\n' "${logical}" >&2; status=1; }
+    done
+
+    for logical in "${TXN_FILE_RESTORE[@]:-}"; do
+        [[ -n "${logical}" ]] || continue
+        phys="$(physical "${logical}")"
+        backup_path="${TXN_BACKUP_DIR}${logical}"
+        if [[ -e "${backup_path}" ]] || [[ -L "${backup_path}" ]]; then
+            rm -f -- "${phys}"
+            cp -a -- "${backup_path}" "${phys}" \
+                || { printf 'ROLLBACK ERROR: could not restore %s\n' "${logical}" >&2; status=1; }
+        else
+            printf 'ROLLBACK ERROR: no backup found for %s\n' "${logical}" >&2
+            status=1
+        fi
+    done
+
+    for logical in "${TXN_LINK_REMOVE[@]:-}"; do
+        [[ -n "${logical}" ]] || continue
+        phys="$(physical "${logical}")"
+        rm -f -- "${phys}" || { printf 'ROLLBACK ERROR: could not remove link %s\n' "${logical}" >&2; status=1; }
+    done
+
+    local entry previous
+    for entry in "${TXN_LINK_RESTORE[@]:-}"; do
+        [[ -n "${entry}" ]] || continue
+        logical="${entry%%|*}"
+        previous="${entry#*|}"
+        phys="$(physical "${logical}")"
+        rm -f -- "${phys}"
+        ln -s -- "${previous}" "${phys}" \
+            || { printf 'ROLLBACK ERROR: could not restore link %s -> %s\n' "${logical}" "${previous}" >&2; status=1; }
+    done
+
+    for logical in "${TXN_DIR_REMOVE[@]:-}"; do
+        [[ -n "${logical}" ]] || continue
+        phys="$(physical "${logical}")"
+        rmdir -- "${phys}" 2>/dev/null || true
+    done
+
+    local unit
+    for unit in "${TXN_SERVICE_STARTED[@]:-}"; do
+        [[ -n "${unit}" ]] || continue
+        "${SYSTEMCTL_BIN}" stop "${unit}" >/dev/null 2>&1 \
+            || { printf 'ROLLBACK ERROR: could not stop %s (started by this run)\n' "${unit}" >&2; status=1; }
+    done
+
+    for unit in "${TXN_SERVICE_ENABLED[@]:-}"; do
+        [[ -n "${unit}" ]] || continue
+        "${SYSTEMCTL_BIN}" disable "${unit}" >/dev/null 2>&1 \
+            || { printf 'ROLLBACK ERROR: could not disable %s (enabled by this run)\n' "${unit}" >&2; status=1; }
+    done
+
+    return "${status}"
+}
+
+# restore_runtime_after_rollback — for every unit this run had already
+# reloaded with new configuration, best-effort re-validation and reload of
+# the *restored* configuration, so a running service never keeps serving a
+# config whose file was just rolled back. Validation always precedes the
+# reload — a service is never reloaded onto a config its parser rejected.
+restore_runtime_after_rollback() {
+    local unit
+    for unit in "${TXN_RELOADED_UNITS[@]:-}"; do
+        [[ -n "${unit}" ]] || continue
+        case "${unit}" in
+            nginx)
+                if service_active nginx && nginx_config_test; then
+                    "${SYSTEMCTL_BIN}" reload nginx >/dev/null 2>&1 \
+                        && action "rollback: nginx reloaded with the restored configuration" \
+                        || printf 'ROLLBACK ERROR: nginx reload with the restored configuration failed\n' >&2
+                fi
+                ;;
+            "${SSH_SERVICE}")
+                if service_active "${SSH_SERVICE}" && sshd_config_test; then
+                    "${SYSTEMCTL_BIN}" reload "${SSH_SERVICE}" >/dev/null 2>&1 \
+                        && action "rollback: ${SSH_SERVICE} reloaded with the restored configuration" \
+                        || printf 'ROLLBACK ERROR: %s reload with the restored configuration failed\n' "${SSH_SERVICE}" >&2
+                fi
+                ;;
+            "${PHP_FPM_SERVICE}")
+                if service_active "${PHP_FPM_SERVICE}" && php_fpm_config_test; then
+                    "${SYSTEMCTL_BIN}" reload "${PHP_FPM_SERVICE}" >/dev/null 2>&1 \
+                        && action "rollback: ${PHP_FPM_SERVICE} reloaded with the restored configuration" \
+                        || printf 'ROLLBACK ERROR: %s reload with the restored configuration failed\n' "${PHP_FPM_SERVICE}" >&2
+                fi
+                ;;
+        esac
+    done
+
+    # Program groups this run pushed into the running supervisor: the
+    # restored configuration is validated first (a program is never
+    # re-updated onto a config the parser rejected), then re-applied so the
+    # running supervisor matches the rolled-back file again.
+    local program
+    for program in "${TXN_SUPERVISOR_UPDATED[@]:-}"; do
+        [[ -n "${program}" ]] || continue
+        if service_active supervisor && supervisor_reread_validation; then
+            "${SUPERVISORCTL_BIN}" update "${program}" >/dev/null 2>&1 \
+                && action "rollback: supervisor program ${program} re-applied from the restored configuration" \
+                || printf 'ROLLBACK ERROR: supervisorctl update %s with the restored configuration failed\n' "${program}" >&2
+        else
+            printf 'ROLLBACK ERROR: cannot re-apply supervisor program %s (supervisor inactive or restored configuration invalid)\n' "${program}" >&2
+        fi
+    done
+}
+
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E propagates this trap into $(...) subshells; only the main
+    # process ever performs the real rollback — the identical guard
+    # install-target-operations and install-public-storage-access use.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    printf 'APPLY FAILED (exit %d)\n' "${code}" >&2
+
+    if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${TXN_BACKUP_DIR}" ]]; then
+        if rollback_transaction; then
+            action "rollback complete: directly-owned files, links and service state restored (child installers already rolled back their own resources)"
+        else
+            printf 'ROLLBACK INCOMPLETE — backups remain in %s for manual recovery\n' "${TXN_BACKUP_DIR}" >&2
+        fi
+
+        restore_runtime_after_rollback
+    fi
+
+    cleanup_render_root
+
+    exit "${code}"
+}
+
+# --- Apply: directly-owned convergence ----------------------------------------
+
+FILE_CHANGED=false
+
+# install_managed_file_if_needed SRC LOGICAL_DST — transactional replace of
+# one directly-owned service file. Sets FILE_CHANGED. Byte-identical files
+# with correct owner/mode are never rewritten (idempotency); any drift is a
+# full transactional reinstall.
+install_managed_file_if_needed() {
+    local src="$1" logical="$2" phys
+    phys="$(physical "${logical}")"
+    FILE_CHANGED=false
+
+    [[ -L "${phys}" ]] && fail "refusing to install over an existing symlink: ${logical}"
+    if [[ -e "${phys}" ]] && [[ ! -f "${phys}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${logical}"
+    fi
+
+    local probe up_to_date=false
+    if probe="$(stat_probe "${logical}")"; then
+        local actual_type actual_owner actual_group actual_mode
+        IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+        if [[ "${actual_type}" == "regular file" ]] \
+            && cmp -s "${src}" "${phys}" \
+            && [[ "${actual_owner}" == "${SERVICE_FILE_OWNER}" ]] \
+            && [[ "${actual_group}" == "${SERVICE_FILE_GROUP}" ]] \
+            && mode_equals "${actual_mode}" "${SERVICE_FILE_MODE}"; then
+            up_to_date=true
+        fi
+    fi
+
+    if [[ "${up_to_date}" == true ]]; then
+        return 0
+    fi
+
+    txn_record_file "${logical}"
+
+    action "file:${logical} installing from $(source_label "${src}") (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE})"
+
+    local tmp
+    tmp="$(mktemp "${phys}.XXXXXX")"
+
+    if ! "${INSTALL_BIN}" -m "${SERVICE_FILE_MODE}" -- "${src}" "${tmp}"; then
+        rm -f -- "${tmp}"
+        fail "failed to stage ${logical}"
+    fi
+
+    if ! mv -f -- "${tmp}" "${phys}"; then
+        rm -f -- "${tmp}"
+        fail "failed to rename the staged file into place: ${logical}"
+    fi
+
+    "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${phys}" \
+        || fail "cannot set ownership on ${logical}"
+    "${CHMOD_BIN}" "=${SERVICE_FILE_MODE}" "${phys}" \
+        || fail "cannot pin mode ${SERVICE_FILE_MODE} on ${logical}"
+
+    FILE_CHANGED=true
+}
+
+# ensure_enabled_link TARGET_ID — converges the sites-enabled symlink. Sets
+# FILE_CHANGED. An existing correct link (absolute or the conventional
+# relative form) is never rewritten.
+ensure_enabled_link() {
+    local target_id="$1"
+    local link expected phys state
+    link="$(dst_nginx_enabled "${target_id}")"
+    expected="$(dst_nginx_site "${target_id}")"
+    phys="$(physical "${link}")"
+    FILE_CHANGED=false
+
+    state="$(enabled_link_state "${target_id}")"
+
+    case "${state}" in
+        ok)
+            return 0
+            ;;
+        missing)
+            action "link:${link} enabling site (symlink -> ${expected})"
+            TXN_LINK_REMOVE+=("${link}")
+            ln -s -- "${expected}" "${phys}" \
+                || fail "cannot create the enabled symlink: ${link}"
+            ;;
+        wrong-target:*)
+            action "link:${link} repointing at ${expected} (was ${state#wrong-target:})"
+            TXN_LINK_RESTORE+=("${link}|$(readlink -- "${phys}")")
+            ln -sfn -- "${expected}" "${phys}" \
+                || fail "cannot repoint the enabled symlink: ${link}"
+            ;;
+        *)
+            fail "enabled site path exists but is not a symlink: ${link} — resolve manually"
+            ;;
+    esac
+
+    FILE_CHANGED=true
+}
+
+ensure_support_directory() {
+    local target_id="$1"
+    local log_dir phys probe
+    log_dir="$(target_log_dir "${target_id}")"
+    phys="$(physical "${log_dir}")"
+
+    require_real_directory "$(dirname -- "${log_dir}")" "parent of the service-support log directory (install-bootstrap-host-layout contract)"
+
+    if ! probe="$(stat_probe "${log_dir}")"; then
+        action "path:${log_dir} creating service-support log directory (${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]}, mode ${SERVICE_LOG_MODE})"
+
+        TXN_DIR_REMOVE+=("${log_dir}")
+        "${INSTALL_BIN}" -d -m "${SERVICE_LOG_MODE}" -- "${phys}" \
+            || fail "cannot create ${log_dir}"
+        "${CHOWN_BIN}" -- "${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]}" "${phys}" \
+            || fail "cannot set ownership on ${log_dir}"
+        "${CHMOD_BIN}" "=${SERVICE_LOG_MODE}" "${phys}" \
+            || fail "cannot pin mode ${SERVICE_LOG_MODE} on ${log_dir}"
+
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    [[ "${actual_type}" == directory ]] \
+        || fail "path:${log_dir} is a ${actual_type} where the service-support directory is required — never deleted or replaced by this installer"
+
+    # Reconciliation touches exactly this directory entry — existing log
+    # files beneath it are never recursively re-owned or re-moded.
+    if [[ "${actual_owner}" != "${TGT_RUNTIME_USER[${target_id}]}" ]] || [[ "${actual_group}" != "${TGT_RUNTIME_GROUP[${target_id}]}" ]]; then
+        action "path:${log_dir} reconciling ownership ${actual_owner}:${actual_group} -> ${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]} (this entry only, never recursive)"
+        "${CHOWN_BIN}" -- "${TGT_RUNTIME_USER[${target_id}]}:${TGT_RUNTIME_GROUP[${target_id}]}" "${phys}" \
+            || fail "cannot set ownership on ${log_dir}"
+    fi
+
+    if ! mode_equals "${actual_mode}" "${SERVICE_LOG_MODE}"; then
+        action "path:${log_dir} reconciling mode ${actual_mode} -> ${SERVICE_LOG_MODE} (this entry only, never recursive)"
+        "${CHMOD_BIN}" "=${SERVICE_LOG_MODE}" "${phys}" \
+            || fail "cannot set mode ${SERVICE_LOG_MODE} on ${log_dir}"
+    fi
+}
+
+# --- Apply: service management ------------------------------------------------
+
+# Set by ensure_service_enabled_active: true when the last call actually
+# started the unit — a freshly started service already read the new
+# configuration, so a follow-up reload would be exactly the unnecessary
+# restart the idempotency contract forbids.
+SERVICE_STARTED_NOW=false
+
+# assert_base_service_available UNIT — the target-mode counterpart of
+# ensure_service_enabled_active.
+#
+# Same question, no answer of its own: a base service that is not already
+# enabled and active fails the run rather than being enabled or started.
+# apply_gate_base_services proves this before the first mutation, so reaching a
+# failure here means the unit changed underneath a held lock.
+assert_base_service_available() {
+    local unit="$1"
+    SERVICE_STARTED_NOW=false
+
+    service_enabled "${unit}" \
+        || fail "base host service ${unit} is not enabled — a target-scoped run never enables one; enable it as a host operation"
+
+    service_active "${unit}" \
+        || fail "base host service ${unit} is not active — a target-scoped run never starts one; start it as a host operation"
+}
+
+# ensure_base_service UNIT — the one call site vocabulary. Host mode converges
+# the unit; target mode asserts it and never touches it.
+ensure_base_service() {
+    if target_scoped; then
+        assert_base_service_available "$1"
+        return 0
+    fi
+
+    ensure_service_enabled_active "$1"
+}
+
+ensure_service_enabled_active() {
+    local unit="$1"
+    SERVICE_STARTED_NOW=false
+
+    if ! service_enabled "${unit}"; then
+        action "service:${unit} enabling"
+        "${SYSTEMCTL_BIN}" enable "${unit}" >/dev/null 2>&1 \
+            || fail "systemctl enable ${unit} failed"
+        TXN_SERVICE_ENABLED+=("${unit}")
+    fi
+
+    if ! service_active "${unit}"; then
+        action "service:${unit} starting"
+        "${SYSTEMCTL_BIN}" start "${unit}" >/dev/null 2>&1 \
+            || fail "systemctl start ${unit} failed"
+        TXN_SERVICE_STARTED+=("${unit}")
+        SERVICE_STARTED_NOW=true
+
+        service_active "${unit}" \
+            || fail "service ${unit} did not stay active after start"
+    fi
+}
+
+reload_service() {
+    local unit="$1"
+
+    action "service:${unit} reloading (validated configuration changed)"
+    "${SYSTEMCTL_BIN}" reload "${unit}" >/dev/null 2>&1 \
+        || fail "systemctl reload ${unit} failed"
+    TXN_RELOADED_UNITS+=("${unit}")
+}
+
+# --- Apply: per-family convergence --------------------------------------------
+
+converge_ssh_restriction() {
+    install_managed_file_if_needed "${SRC_SSH_RESTRICTION}" "${DST_SSH_RESTRICTION}"
+    local changed="${FILE_CHANGED}"
+
+    # The full daemon configuration (base sshd_config plus every
+    # sshd_config.d drop-in, including the candidate) is validated before
+    # any reload; a failed test aborts, and the trap restores the previous
+    # file before any daemon reload could ever see the bad candidate. The
+    # active SSH session is never touched — reload, never restart.
+    sshd_config_test \
+        || fail "sshd configuration test failed with the candidate restriction installed — restoring the previous configuration (no SSH reload was performed)"
+
+    if [[ "${changed}" == true ]] && service_active "${SSH_SERVICE}"; then
+        reload_service "${SSH_SERVICE}"
+    elif [[ "${changed}" == true ]]; then
+        action "service:${SSH_SERVICE} not running — validated configuration is picked up when the service starts"
+    else
+        action "ssh restriction already byte-identical — no reload needed"
+    fi
+}
+
+converge_php_fpm() {
+    local target_id="$1"
+    install_managed_file_if_needed "$(src_fpm_pool "${target_id}")" "$(dst_fpm_pool "${target_id}")"
+    local changed="${FILE_CHANGED}"
+
+    php_fpm_config_test \
+        || fail "PHP-FPM configuration test failed with the candidate pool installed — restoring the previous configuration (no reload was performed)"
+
+    ensure_base_service "${PHP_FPM_SERVICE}"
+
+    if [[ "${changed}" == true ]] && [[ "${SERVICE_STARTED_NOW}" != true ]]; then
+        reload_service "${PHP_FPM_SERVICE}"
+    elif [[ "${changed}" == true ]]; then
+        action "service:${PHP_FPM_SERVICE} freshly started — already running the new pool configuration, no reload needed"
+    else
+        action "PHP-FPM pool already byte-identical — no reload needed"
+    fi
+
+    verify_php_fpm_socket_after_activation "${target_id}"
+}
+
+verify_php_fpm_socket_after_activation() {
+    local target_id="$1"
+    local socket="${TGT_FPM_SOCKET[${target_id}]}"
+    local attempt
+
+    for ((attempt = 1; attempt <= SOCKET_WAIT_ATTEMPTS; attempt++)); do
+        if stat_probe "${socket}" >/dev/null; then
+            break
+        fi
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    local probe
+    probe="$(stat_probe "${socket}")" \
+        || fail "PHP-FPM pool socket did not appear after activation: ${socket}"
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    [[ "${actual_type}" == socket ]] \
+        || fail "PHP-FPM pool socket path is a ${actual_type}, expected socket: ${socket}"
+
+    local expected_owner expected_group expected_mode
+    IFS='|' read -r expected_owner expected_group expected_mode <<<"$(parse_pool_socket_contract "${target_id}")"
+
+    if [[ -n "${expected_owner}" ]]; then
+        [[ "${actual_owner}" == "${expected_owner}" ]] \
+            || fail "PHP-FPM pool socket owner ${actual_owner} differs from the committed listen.owner ${expected_owner}: ${socket}"
+    fi
+    if [[ -n "${expected_group}" ]]; then
+        [[ "${actual_group}" == "${expected_group}" ]] \
+            || fail "PHP-FPM pool socket group ${actual_group} differs from the committed listen.group ${expected_group}: ${socket}"
+    fi
+    if [[ -n "${expected_mode}" ]]; then
+        mode_equals "${actual_mode}" "${expected_mode}" \
+            || fail "PHP-FPM pool socket mode ${actual_mode} differs from the committed listen.mode ${expected_mode}: ${socket}"
+    fi
+
+    action "socket:${socket} present (socket, ${actual_owner}:${actual_group}, mode ${actual_mode})"
+}
+
+# Nginx convergence is split in two on purpose. Site files are per-target,
+# but nginx itself is one host-wide service: validating and reloading it once
+# per active target would mean N validated reloads on an N-target host, and
+# would contradict the "at most one reload" contract this slice documents.
+# So every active target's files are installed first, then the service is
+# validated, reloaded (or not) and verified exactly once for the whole apply.
+
+# NGINX_FILES_CHANGED accumulates across the per-target file phase; it is
+# reset once, before that phase begins.
+NGINX_FILES_CHANGED=false
+
+converge_nginx_files() {
+    local target_id="$1"
+
+    install_managed_file_if_needed "$(src_nginx_site "${target_id}")" "$(dst_nginx_site "${target_id}")"
+    [[ "${FILE_CHANGED}" == true ]] && NGINX_FILES_CHANGED=true
+
+    ensure_enabled_link "${target_id}"
+    [[ "${FILE_CHANGED}" == true ]] && NGINX_FILES_CHANGED=true
+
+    return 0
+}
+
+# nginx_stale_worker_reasons — one line per active target whose code group is
+# missing from at least one running worker. Empty output means every worker
+# already carries every required GID.
+nginx_stale_worker_reasons() {
+    local target_id group reason
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        group="${TGT_CODE_GROUP[${target_id}]}"
+        reason="$(nginx_workers_missing_group "${group}")"
+
+        [[ -n "${reason}" ]] && printf '%s: %s\n' "${group}" "${reason}"
+    done
+
+    return 0
+}
+
+# converge_nginx_service — the single host-wide phase: one nginx -t, at most
+# one reload for the entire apply, then one verification pass covering every
+# active target's code group.
+converge_nginx_service() {
+    # nginx -t validates the complete installed configuration including every
+    # candidate site; a failure aborts before any reload, and the trap
+    # restores the previous files/symlinks, after which the restored
+    # configuration is re-validated before any rollback reload.
+    nginx_config_test \
+        || fail "nginx -t failed with the candidate site(s) installed — restoring the previous configuration (no reload was performed)"
+
+    if service_active nginx; then
+        # Exactly two reasons to reload, evaluated once for the whole apply:
+        # committed configuration changed, or at least one active target's
+        # workers are stale. Neither holding means no reload at all — that is
+        # what keeps a second --apply on a converged host mutation-free.
+        local stale_reasons
+        stale_reasons="$(nginx_stale_worker_reasons)"
+
+        if [[ "${NGINX_FILES_CHANGED}" == true ]]; then
+            reload_service nginx
+        elif [[ -n "${stale_reasons}" ]]; then
+            # nginx_config_test above already validated the installed
+            # configuration, so this reload is never applied to a config the
+            # parser rejected. Reload, never restart: workers are replaced
+            # gracefully and in-flight requests are not dropped.
+            action "service:nginx workers are stale — reloading once so replacements pick up every required code group"
+            while IFS= read -r stale_reason; do
+                [[ -n "${stale_reason}" ]] && action "  stale: ${stale_reason}"
+            done <<<"${stale_reasons}"
+            reload_service nginx
+        else
+            action "Nginx sites already byte-identical and enabled, and workers already carry every active code group — no reload needed"
+        fi
+
+        ensure_base_service nginx
+    else
+        # A clean host: enable and start only after the configuration
+        # validated. Unrelated sites (including the distro default) are
+        # never removed or disabled — a real conflict surfaces via nginx -t
+        # or the start itself and is reported, not resolved by inventing
+        # cleanup policy here. A freshly started master spawns workers that
+        # already carry the current group set.
+        ensure_base_service nginx
+    fi
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        verify_nginx_worker_groups_after_activation \
+            "${TGT_CODE_GROUP[${target_id}]}" "${TGT_ROOT[${target_id}]}"
+    done
+}
+
+# verify_nginx_worker_groups_after_activation GROUP TARGET_ROOT — fail closed
+# unless the workers now genuinely carry GROUP. Bounded, because a reload
+# replaces workers asynchronously: the old ones finish in flight while the
+# new ones spawn, so the expected state appears shortly after the reload
+# returns rather than instantly.
+verify_nginx_worker_groups_after_activation() {
+    local group="$1" target_root="$2" attempt reason
+
+    for ((attempt = 1; attempt <= NGINX_WORKER_WAIT_ATTEMPTS; attempt++)); do
+        reason="$(nginx_workers_missing_group "${group}")"
+
+        [[ -z "${reason}" ]] && break
+
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    reason="$(nginx_workers_missing_group "${group}")"
+
+    [[ -z "${reason}" ]] \
+        || fail "nginx workers still do not carry the ${group} GID after activation: ${reason} — Nginx cannot read ${target_root}/current/public, so the target cannot serve its release"
+
+    action "nginx-workers:${group} every running worker carries the code-group GID"
+}
+
+converge_supervisor() {
+    local target_id="$1"
+
+    # Base-service ordering (deliberate adjustment of the conceptual order):
+    # supervisor itself is enabled/started BEFORE the target program config
+    # is installed, so a clean host's supervisord never boots with an
+    # autostart=true program whose directory=current does not exist yet —
+    # the exact restart/failure loop the PRE_DEPLOY contract exists to
+    # prevent. Reread/update below never runs in PRE_DEPLOY state.
+    ensure_base_service supervisor
+
+    install_managed_file_if_needed "$(src_supervisor "${target_id}")" "$(dst_supervisor "${target_id}")"
+    local changed="${FILE_CHANGED}"
+
+    supervisor_reread_validation \
+        || fail "supervisorctl reread reported a configuration error with the candidate installed — restoring the previous configuration (nothing was applied to the running supervisor)"
+
+    if [[ "${TGT_STATE[${target_id}]}" == PRE_DEPLOY ]]; then
+        # The residual window, and which targets still have it: a rendered
+        # production program is safe for supervisord to load with no release
+        # (see render_supervisor_program — the guarded command, exitcodes and
+        # autorestart=unexpected exist for exactly this), so a restart before
+        # the first deployment leaves it cleanly EXITED. A committed staging
+        # program keeps the older directory=current shape and therefore keeps
+        # the documented window: a supervisord restart/host reboot BEFORE the
+        # first deployment would read it and fail-loop the program until a
+        # release exists. That target has a release, and its window closes
+        # with the first-deploy activation path (see
+        # runbooks/bootstrap-services.md).
+        action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} activation DEFERRED until the first release exists (PRE_DEPLOY — config installed and validated; the program is not added to the running supervisor, and there is no current/ for the worker to run in)"
+        return 0
+    fi
+
+    if [[ "${changed}" == true ]]; then
+        action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} applying updated program configuration (supervisorctl update)"
+        "${SUPERVISORCTL_BIN}" update "${TGT_SUPERVISOR_PROGRAM[${target_id}]}" >/dev/null 2>&1 \
+            || fail "supervisorctl update ${TGT_SUPERVISOR_PROGRAM[${target_id}]} failed"
+        # Recorded so a later-step failure re-runs update against the
+        # RESTORED configuration — the running supervisor must never be
+        # left on a program config whose file was just rolled back.
+        TXN_SUPERVISOR_UPDATED+=("${TGT_SUPERVISOR_PROGRAM[${target_id}]}")
+    fi
+
+    local attempt
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running "${target_id}"; then
+            break
+        fi
+
+        if (( attempt == 1 )) && [[ "${changed}" != true ]]; then
+            action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} not running on a DEPLOYED target — starting it"
+            "${SUPERVISORCTL_BIN}" update "${TGT_SUPERVISOR_PROGRAM[${target_id}]}" >/dev/null 2>&1 || true
+            "${SUPERVISORCTL_BIN}" start "${TGT_SUPERVISOR_PROGRAM[${target_id}]}:*" >/dev/null 2>&1 || true
+            TXN_SUPERVISOR_UPDATED+=("${TGT_SUPERVISOR_PROGRAM[${target_id}]}")
+        fi
+
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    queue_program_running "${target_id}" \
+        || fail "queue program ${TGT_SUPERVISOR_PROGRAM[${target_id}]} is not RUNNING on the DEPLOYED target"
+
+    sleep "${STABILITY_WAIT_SECONDS}"
+
+    queue_program_running "${target_id}" \
+        || fail "queue program ${TGT_SUPERVISOR_PROGRAM[${target_id}]} did not remain stably RUNNING"
+
+    action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} RUNNING (stable)"
+}
+
+converge_cron() {
+    local target_id="$1"
+
+    passwd_user_exists "${TGT_RUNTIME_USER[${target_id}]}" \
+        || fail "scheduler cron user ${TGT_RUNTIME_USER[${target_id}]} does not exist — the install-bootstrap-host-layout prerequisite is incomplete"
+
+    [[ -e "$(physical "${PHP_BIN_EXPECTED}")" ]] \
+        || fail "scheduler PHP binary ${PHP_BIN_EXPECTED} does not exist — the install-bootstrap-runtime prerequisite is incomplete"
+
+    install_managed_file_if_needed "$(src_cron "${target_id}")" "$(dst_cron "${target_id}")"
+
+    if [[ "${FILE_CHANGED}" == true ]]; then
+        action "cron:$(dst_cron "${target_id}") installed (cron picks up /etc/cron.d changes automatically; functional scheduler execution becomes testable only after a release exists)"
+    else
+        action "scheduler cron already byte-identical — nothing to do"
+    fi
+}
+
+# --- Apply: child installers --------------------------------------------------
+
+# converge_child NAME VERIFY_ARGS... -- APPLY_ARGS... would be awkward in
+# bash; each child gets its own explicit function instead. The pattern is
+# identical everywhere: an already-satisfied child contract (its own
+# authoritative --verify) is skipped — that is what makes a second top-level
+# --apply produce zero repeated child mutations — and a child apply failure
+# aborts immediately, before any later component, relying on the child's own
+# transaction for its resources.
+
+converge_target_operations() {
+    if "${OPERATIONS_INSTALLER_BIN}" --verify >/dev/null 2>&1; then
+        action "child:install-target-operations already compliant (its own --verify passes) — skipped"
+        return 0
+    fi
+
+    action "child:install-target-operations --apply (owns the runtime registry, deployment.conf and the operational bundle)"
+    "${OPERATIONS_INSTALLER_BIN}" --apply \
+        || fail "install-target-operations --apply failed — aborting before any later component (its own transaction restored its files)"
+}
+
+converge_target_perimeter() {
+    if "${PERIMETER_INSTALLER_BIN}" --verify >/dev/null 2>&1; then
+        action "child:install-target-perimeter already compliant (its own --verify passes) — skipped"
+        return 0
+    fi
+
+    action "child:install-target-perimeter --apply (owns wrappers, sudoers, backup cron, legacy-wrapper absence)"
+    "${PERIMETER_INSTALLER_BIN}" --apply \
+        || fail "install-target-perimeter --apply failed — aborting before any later component (its own transaction restored its files)"
+}
+
+converge_public_storage_access() {
+    local target_id="$1"
+
+    local -a acl_args=(--target "${target_id}")
+    provisioning && acl_args+=(--provisioning)
+
+    if "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify "${acl_args[@]}" >/dev/null 2>&1; then
+        action "child:install-public-storage-access ${acl_args[*]} already compliant — skipped"
+        return 0
+    fi
+
+    action "child:install-public-storage-access --apply ${acl_args[*]} (owns the narrow www-data ACL)"
+    "${PUBLIC_STORAGE_INSTALLER_BIN}" --apply "${acl_args[@]}" \
+        || fail "install-public-storage-access --apply ${acl_args[*]} failed — aborting before any later component"
+}
+
+# converge_deployment_marker — the authorization the deploy channel needs, on
+# every host that has a target which records deployment markers at all.
+#
+# The channel is ordinary: after a deployment, GitHub connects as the target's
+# own deploy user and runs `sudo -n /usr/local/sbin/rateguru-nightwatch-deployment`.
+# Nothing in that path is privileged beyond that one wrapper, and nothing about
+# it depends on whether an operator has installed the Nightwatch agent — so the
+# grant belongs to host convergence, exactly like the operational wrappers and
+# their sudoers do.
+#
+# Which targets get it is not this installer's decision: the marker installer
+# refuses any target that has no Nightwatch program in the closed allowlist in
+# common, so a planned production target is passed over here and would be
+# refused there too.
+# records_deployment_marker TARGET — asked of the installer that owns the
+# closed allowlist, never answered from a copy of it here. This installer reads
+# the registry directly and deliberately does not source `common`, so the one
+# place that knows which targets record a marker is the one that installs it.
+records_deployment_marker() {
+    "${NIGHTWATCH_INSTALLER_BIN}" --supports-deployment-marker --target "$1" >/dev/null 2>&1
+}
+
+converge_deployment_marker() {
+    local target_id="$1"
+
+    records_deployment_marker "${target_id}" || return 0
+
+    if "${NIGHTWATCH_INSTALLER_BIN}" --verify-deployment-marker --target "${target_id}" >/dev/null 2>&1; then
+        action "child:install-nightwatch-agent --verify-deployment-marker --target ${target_id} already compliant — skipped"
+        return 0
+    fi
+
+    action "child:install-nightwatch-agent --apply-deployment-marker --target ${target_id} (owns the deployment-marker wrapper, its sudoers grant and the primitive behind it)"
+    "${NIGHTWATCH_INSTALLER_BIN}" --apply-deployment-marker --target "${target_id}" \
+        || fail "install-nightwatch-agent --apply-deployment-marker --target ${target_id} failed — aborting before any later component (its own transaction restored its files)"
+}
+
+# converge_mail_capture — both probes use --read-only on purpose. The skip
+# decision must not itself mutate (otherwise a fully compliant host would
+# send mail and bounce the mirror service on every idempotent --apply), and
+# the post-apply confirmation must not either. The mutating end-to-end
+# acceptance run (`verify-mail-capture --e2e`) is a deliberate operator
+# command documented in runbooks/mail-capture.md — never something an
+# automated convergence pass performs behind the operator's back.
+converge_mail_capture() {
+    if "${VERIFY_MAIL_CAPTURE_BIN}" --read-only >/dev/null 2>&1; then
+        action "child:mail-capture already compliant (verify-mail-capture --read-only passes) — skipped, no service restarted"
+        return 0
+    fi
+
+    action "child:install-mail-capture --apply (shared-host-service; owns users, state, units, pinned binaries, mail vhosts)"
+    "${MAIL_CAPTURE_INSTALLER_BIN}" --apply \
+        || fail "install-mail-capture --apply failed — aborting before any later component (its own transaction restored files and runtime state)"
+
+    "${VERIFY_MAIL_CAPTURE_BIN}" --read-only >/dev/null 2>&1 \
+        || fail "verify-mail-capture --read-only still fails after install-mail-capture --apply"
+}
+
+# --- Apply --------------------------------------------------------------------
+
+# apply_gate_prerequisites — the authoritative earlier-slice verifies, never
+# re-implemented. bootstrap-host-preflight is deliberately NOT a
+# prerequisite: 5.4 is exactly the slice that creates much of what preflight
+# expects, so preflight gating here would deadlock a clean host.
+# apply_gate_base_services — target mode only. Every base host service this run
+# may not enable or start must already be enabled and active, proven BEFORE the
+# first mutation.
+#
+# The report already says so, but a report is a read at one instant and an apply
+# is a sequence of writes after it. Without this gate a unit stopped between the
+# two would be met by a convergence function that starts it, which is exactly
+# the host-level mutation a target-scoped run must never make.
+apply_gate_base_services() {
+    target_scoped || return 0
+
+    local failures=() unit
+    for unit in "${BASE_SERVICES[@]}"; do
+        service_enabled "${unit}" \
+            || { failures+=("${unit} is not enabled"); continue; }
+
+        service_active "${unit}" \
+            || failures+=("${unit} is not active")
+    done
+
+    if (( ${#failures[@]} > 0 )); then
+        local failure
+        for failure in "${failures[@]}"; do
+            printf 'HOST-REQ %s\n' "${failure}" >&2
+        done
+
+        fail "refusing to apply --target ${TARGET_SCOPE}: ${#failures[@]} base host service(s) are not enabled and active, and a target-scoped run never enables or starts one. Enable and start them as a host operation. No mutation was performed"
+    fi
+}
+
+apply_gate_prerequisites() {
+    action "prerequisite gate: install-bootstrap-runtime --verify"
+    "${RUNTIME_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
+        || fail "install-bootstrap-runtime --verify failed — converge install-bootstrap-runtime first (no service/config mutation was performed)"
+
+    # In target mode the layout gate is asked the same question at the same
+    # scope. Demanding the WHOLE host layout here would make repairing one
+    # target fail because a different active target had drifted — which is
+    # both wrong and the opposite of what target scoping is for.
+    if target_scoped; then
+        local -a scope_args=()
+        mapfile -t scope_args < <(child_target_args)
+
+        action "prerequisite gate: install-bootstrap-host-layout --verify ${scope_args[*]}"
+        "${HOSTLAYOUT_INSTALLER_BIN}" --verify "${scope_args[@]}" >/dev/null 2>&1 \
+            || fail "install-bootstrap-host-layout --verify ${scope_args[*]} failed — converge this target's layout first (no service/config mutation was performed)"
+    else
+        action "prerequisite gate: install-bootstrap-host-layout --verify"
+        "${HOSTLAYOUT_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
+            || fail "install-bootstrap-host-layout --verify failed — converge install-bootstrap-host-layout first (no service/config mutation was performed)"
+    fi
+}
+
+
+apply_gate_destinations() {
+    require_real_directory "${DST_NGINX_AVAILABLE_DIR}" "Nginx sites-available (installed by install-bootstrap-runtime packages)"
+    require_real_directory "${DST_NGINX_ENABLED_DIR}" "Nginx sites-enabled (installed by install-bootstrap-runtime packages)"
+    require_real_directory "${DST_PHP_FPM_POOL_DIR}" "PHP-FPM pool directory (installed by install-bootstrap-runtime packages)"
+    require_real_directory "${DST_SUPERVISOR_DIR}" "Supervisor conf.d (installed by install-bootstrap-runtime packages)"
+    require_real_directory "${DST_CRON_DIR}" "cron.d"
+
+    local target_id logical phys
+
+    # The SSH deploy restriction, and the directory it lives in, are gated only
+    # in host mode — the one mode that installs them.
+    #
+    # A target-scoped run neither reports, verifies nor converges that file, so
+    # demanding a well-formed destination for it made a target repair depend on
+    # host configuration it never touches: a damaged sshd_config.d entry,
+    # invisible in the target-mode report, would abort the apply. In
+    # combination with layout drift that is worse than an unhelpful error, it
+    # breaks the contract this whole gate exists for — every blocker known
+    # before the first mutation — because the layout would already have been
+    # converged by then.
+    if ! target_scoped; then
+        require_real_directory "${DST_SSHD_DIR}" "sshd_config.d"
+
+        phys="$(physical "${DST_SSH_RESTRICTION}")"
+        [[ -L "${phys}" ]] && fail "destination is a symlink: ${DST_SSH_RESTRICTION} — resolve manually before --apply"
+        if [[ -e "${phys}" ]] && [[ ! -f "${phys}" ]]; then
+            fail "destination exists but is not a regular file: ${DST_SSH_RESTRICTION} — resolve manually before --apply"
+        fi
+    fi
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        for logical in "$(dst_nginx_site "${target_id}")" "$(dst_fpm_pool "${target_id}")" "$(dst_supervisor "${target_id}")" "$(dst_cron "${target_id}")"; do
+            phys="$(physical "${logical}")"
+            [[ -L "${phys}" ]] && fail "destination is a symlink: ${logical} — resolve manually before --apply"
+            if [[ -e "${phys}" ]] && [[ ! -f "${phys}" ]]; then
+                fail "destination exists but is not a regular file: ${logical} — resolve manually before --apply"
+            fi
+        done
+
+        phys="$(physical "$(dst_nginx_enabled "${target_id}")")"
+        if [[ -e "${phys}" ]] && [[ ! -L "${phys}" ]]; then
+            fail "enabled site path exists but is not a symlink: $(dst_nginx_enabled "${target_id}") — resolve manually before --apply"
+        fi
+    done
+}
+
+perform_apply() {
+    TXN_BACKUP_DIR=""
+    TXN_FILE_RESTORE=()
+    TXN_FILE_REMOVE=()
+    TXN_LINK_RESTORE=()
+    TXN_LINK_REMOVE=()
+    TXN_DIR_REMOVE=()
+    TXN_SERVICE_STARTED=()
+    TXN_SERVICE_ENABLED=()
+    TXN_RELOADED_UNITS=()
+    TXN_SUPERVISOR_UPDATED=()
+    APPLY_COMMITTED=false
+
+    action "validating the entire plan before any mutation"
+
+    # 1-2. Authoritative earlier-slice gates.
+    apply_gate_prerequisites
+    apply_gate_base_services
+
+    # 3. Source registry / lifecycle boundary + committed service sources.
+    classify_all_target_states gate
+    validate_service_sources
+
+    # 4. External prerequisites — before the first mutation, because the
+    # committed vhosts being activated reference them.
+    gate_external_prerequisites
+
+    # Destination safety.
+    apply_gate_destinations
+
+    TXN_BACKUP_DIR="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-$$"
+    install -d -m 0700 "$(physical "${BACKUP_ROOT}")"
+    install -d -m 0700 "${TXN_BACKUP_DIR}"
+    action "backups for this run: ${TXN_BACKUP_DIR}"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    local target_id
+
+    # 5. Exact service-support log directory (committed configs write here).
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        ensure_support_directory "${target_id}"
+    done
+
+    # 6-8. Host-wide families: the operations bundle, the perimeter and the
+    # SSH restriction. Owned by the host run only.
+    #
+    # A target-scoped repair must never rewrite the host's operational bundle,
+    # its sudo perimeter or its SSH policy — those belong to every target at
+    # once, and "one target drifted" is never a reason to reinstall them. In
+    # target mode they are neither reported nor verified nor touched: see the
+    # note in report_child_contracts on why verifying the operations bundle
+    # from inside a repair is circular.
+    if ! target_scoped; then
+        converge_target_operations
+        converge_target_perimeter
+        converge_ssh_restriction
+    fi
+
+    # 9. PHP-FPM pool (validated, enabled, socket verified) — healthy before
+    # Nginx runtime verification ever depends on it.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_php_fpm "${target_id}"
+    done
+
+    # 10. Active-target Nginx. Site files per target, then ONE validated
+    # nginx -t / reload / worker-group verification for the whole apply —
+    # never one reload per target.
+    NGINX_FILES_CHANGED=false
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_nginx_files "${target_id}"
+    done
+    converge_nginx_service
+
+    # 11. Supervisor (base service first, then the validated program config;
+    # activation deferred on PRE_DEPLOY).
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_supervisor "${target_id}"
+    done
+
+    # 12. The host scheduler daemon, then each target's scheduler entry.
+    #
+    # The daemon first, and host scope only. Installing the cron package enables
+    # and starts the unit on Debian and Ubuntu, so this is normally already
+    # satisfied and ensure_base_service reports exactly that — but a host where
+    # somebody disabled or stopped it would otherwise carry every scheduler file
+    # correctly and run none of them, which is the gap this exists to close.
+    #
+    # A target-scoped run never reaches here: it only CHECKS the base services
+    # and refuses, because a host-global daemon is not one target's to start.
+    if ! target_scoped; then
+        ensure_base_service cron
+    fi
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_cron "${target_id}"
+    done
+
+    # 13. Public-storage ACL — active targets only.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_public_storage_access "${target_id}"
+    done
+
+    # 13b. The deployment-marker authorization, for the active targets that
+    # record one. Nothing here installs, starts or requires the Nightwatch
+    # agent.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        converge_deployment_marker "${target_id}"
+    done
+
+    # 14-15. Shared mail capture and base service enablement. Host-wide, and
+    # for the same reason: mail capture is shared by every target, and
+    # enabling PostgreSQL or Redis is a host decision. A target-scoped run
+    # verifies them as prerequisites and changes neither.
+    if ! target_scoped; then
+        converge_mail_capture
+
+        ensure_service_enabled_active postgresql
+        ensure_service_enabled_active redis-server
+    fi
+
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+    trap cleanup_render_root EXIT
+
+    # 16-17. Authoritative closing verification.
+    if target_scoped; then
+        action "apply finished — running the full verification for target ${TARGET_SCOPE}"
+    else
+        action "apply finished — running the full install-bootstrap-services verification"
+    fi
+
+    MODE=verify
+    run_contract_report
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# --- Entry point --------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ -n "${TARGET_SCOPE}" ]]; then
+                    usage >&2
+                    fail "--target given more than once"
+                fi
+
+                if [[ $# -lt 2 ]] || [[ -z "${2-}" ]] || [[ "${2-}" == -* ]]; then
+                    usage >&2
+                    fail "--target requires a target ID"
+                fi
+
+                TARGET_SCOPE="$2"
+                shift 2
+                ;;
+            --provisioning)
+                if [[ "${PROVISIONING}" == true ]]; then
+                    usage >&2
+                    fail "--provisioning given more than once"
+                fi
+
+                PROVISIONING=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+
+    # --provisioning authorizes ONE named target. Without --target there is
+    # nothing it could authorize, and interpreting it generously would be the
+    # one reading that turns it into a host-wide flag.
+    if provisioning && ! target_scoped; then
+        usage >&2
+        fail "--provisioning requires --target: it authorizes provisioning for exactly one planned production target, never for the host"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    require_root
+
+    # Recorded before anything can render, so the rendered candidates are only
+    # ever removed by the process that created them — see cleanup_render_root.
+    MAIN_BASHPID="${BASHPID}"
+    trap cleanup_render_root EXIT
+
+    load_source_contract
+
+    case "${MODE}" in
+        check|verify)
+            classify_all_target_states report
+            run_contract_report || exit 1
+            ;;
+        apply)
+            if provisioning; then
+                printf 'RateGuru bootstrap services installer (apply mode, provisioning target %s)\n' "${TARGET_SCOPE}"
+            elif target_scoped; then
+                printf 'RateGuru bootstrap services installer (apply mode, target %s)\n' "${TARGET_SCOPE}"
+            else
+                printf 'RateGuru bootstrap services installer (apply mode)\n'
+            fi
+
+            perform_apply || exit 1
+            ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern the other installers use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

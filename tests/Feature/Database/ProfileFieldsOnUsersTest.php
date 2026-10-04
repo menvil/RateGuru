@@ -8,10 +8,12 @@ it('has profile fields on users table', function () {
     expect(Schema::hasColumns('users', [
         'display_name',
         'bio',
-        'avatar_path',
+        'avatar_asset_id',
         'profile_website_url',
         'rating_activity_visibility',
     ]))->toBeTrue();
+
+    expect(Schema::hasColumn('users', 'avatar_path'))->toBeFalse();
 });
 
 it('defaults rating_activity_visibility to private', function () {

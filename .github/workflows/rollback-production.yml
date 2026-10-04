@@ -1,0 +1,145 @@
+name: Rollback tits.guru
+
+# The production counterpart of rollback-staging.yml. Same operator
+# semantics, same shared implementation, different fixed identity — an
+# operator picks the workflow that names their environment rather than
+# selecting a target from a dropdown.
+#
+# Manual-only: rollback is an operator decision, never an automatic
+# reaction. The server-side wrapper owns all business logic (deployment
+# lock, target lifecycle, release validation, atomic current/previous
+# switch, PHP-FPM reload, health check with automatic restore on failure,
+# rollback history) and .github/actions/rollback-rateguru owns the GitHub
+# transport — this workflow only fixes the identity of what is rolled back.
+#
+# tits-guru is still lifecycle=planned. Its infrastructure now exists — it is
+# structurally provisioned — but lifecycle is permission to OPERATE a target,
+# not a description of how much of it exists. That gate lives in the target
+# registry and is enforced server-side by the wrapper, so this
+# workflow fails closed on a real run until production is
+# activated in a later phase. Nothing here weakens it, and the production
+# GitHub Environment's own protection rules stay authoritative on top.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Roll back to the previous release, or to an explicit release ID
+        required: true
+        default: previous
+        type: choice
+        options:
+          - previous
+          - release
+
+      release-id:
+        description: Release ID (required when mode=release, must be empty when mode=previous)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Same logical deployment domain as release.yml, the only workflow that
+# deploys to a production target: a production rollback must never run
+# concurrently with a production release.
+concurrency:
+  group: rateguru-production-release
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  rollback:
+    name: Roll back tits-guru
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    environment: production-tits-guru
+    timeout-minutes: 10
+
+    steps:
+      # Rollback business logic stays entirely server-side; nothing from this
+      # checkout is deployed. It is taken from main — the production control
+      # plane — rather than from develop or any release ref, because the shared
+      # rollback action, and the observability action it calls, are privileged
+      # deployment tooling.
+      - name: Checkout rollback and observability actions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The target and the environment are structural properties of this
+      # workflow, never operator input: an operator chooses what to roll back
+      # to, never which target gets rolled back.
+      - name: Roll back tits-guru
+        id: rollback
+        uses: ./.github/actions/rollback-rateguru
+        with:
+          deployment-target: tits-guru
+          environment: production
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          mode: ${{ inputs.mode }}
+          release-id: ${{ inputs.release-id }}
+
+          # The shared action records the deployment marker for whatever
+          # immutable release the target ended up serving. It is fail-open:
+          # an unreachable Sentry never turns a healthy rollback into a
+          # failed run, and no marker is recorded at all when the release
+          # could not be read back.
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}

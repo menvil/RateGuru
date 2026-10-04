@@ -16,16 +16,62 @@
     display: none !important;
 }
 
+@layer base {
+    /*
+     * Tailwind 4 leaves buttons on the default arrow. Everything a visitor can
+     * press or toggle shows the pointer again — buttons (including ones styled
+     * as links), checkboxes and radios with the labels around them, file
+     * pickers, selects — and nothing that is disabled. A label beside a
+     * checkbox rather than around it says so with cursor-pointer itself.
+     */
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    input[type='checkbox']:not(:disabled),
+    input[type='radio']:not(:disabled),
+    input[type='file']:not(:disabled),
+    input[type='file']:not(:disabled)::file-selector-button,
+    select:not(:disabled),
+    summary,
+    label:has(input[type='checkbox']:not(:disabled)),
+    label:has(input[type='radio']:not(:disabled)) {
+        cursor: pointer;
+    }
+}
+
+/*
+ * A disabled control never shows the pointer, whatever utility classes it
+ * carries. Kept outside any layer on purpose: unlayered rules outrank the
+ * utilities layer, so a cursor-pointer on the element cannot win.
+ */
+button:disabled,
+[role='button'][aria-disabled='true'],
+input:disabled,
+select:disabled {
+    cursor: not-allowed;
+}
+
 .rg-search-input::-webkit-search-cancel-button {
-    cursor: pointer;
+    display: none;
 }
 
 /* Feed split layout: feed 40% / post-detail 60% on large screens */
 .rg-feed-split-grid {
-    display: grid;
+    display: block;
 }
 @media (min-width: 1024px) {
+    .rg-app-header-layout {
+        display: grid;
+        grid-template-columns: 1fr minmax(0, 480px) auto;
+        gap: 1rem;
+        padding-inline: 1.25rem;
+    }
+
+    .rg-desktop-post-detail-overlay {
+        width: min(70vw, 1008px);
+    }
+
     .rg-feed-split-grid {
+        display: grid;
         grid-template-columns: 2fr 3fr;
         gap: 0;
     }

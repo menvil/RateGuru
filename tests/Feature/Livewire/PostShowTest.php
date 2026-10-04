@@ -3,26 +3,36 @@
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Livewire\Posts\PostShow;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\User;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
 
 it('can render post show component for published post', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
     ]);
 
     Livewire::test(PostShow::class, ['post' => $post])
         ->assertStatus(200)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
+});
+
+it('renders the standalone post category on the public page', function () {
+    $category = Category::factory()->create(['name' => 'Desserts', 'slug' => 'desserts']);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="post-show-category"', false)
+        ->assertSee('Desserts');
 });
 
 it('renders generic post show copy', function () {
-    RatingGroup::factory()->create(['key' => 'source',   'label' => 'Source',   'sort_order' => 10]);
-    RatingGroup::factory()->create(['key' => 'category', 'label' => 'Category', 'sort_order' => 20]);
+    RatingGroup::factory()->create(['key' => 'type', 'label' => 'Type', 'sort_order' => 10]);
+    RatingGroup::factory()->create(['key' => 'attribute', 'label' => 'Attribute', 'sort_order' => 20]);
 
     $post = Post::factory()->published()->create([
         'title' => 'Generic Test Post',
@@ -31,18 +41,14 @@ it('renders generic post show copy', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Generic Test Post')
-        ->assertSee('Source')
-        ->assertSee('Category')
-        ->assertDontSee('Cuisine guess')
-        ->assertDontSee('Homemade')
-        ->assertDontSee('Restaurant');
+        ->assertSee('Type')
+        ->assertSee('Attribute');
 });
 
 it('does not resolve an unpublished post', function () {
     $post = Post::factory()->hidden()->create();
 
-    expect(fn () => Livewire::test(PostShow::class, ['post' => $post]))
-        ->toThrow(ModelNotFoundException::class);
+    expectLivewireModelNotFound(PostShow::class, ['post' => $post]);
 });
 
 it('renders post show page without share side panel', function () {
@@ -96,9 +102,7 @@ it('refreshes the score panel on post votes but not on rating votes', function (
 
     expect($component)
         ->toContain("#[On('post-voted')]")
-        ->not->toContain("#[On('rating-voted')]")
-        ->not->toContain("#[On('source-voted')]")
-        ->not->toContain("#[On('category-voted')]");
+        ->not->toContain("#[On('rating-voted')]");
 });
 
 it('renders save button on post show page when feature is enabled', function () {

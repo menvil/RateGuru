@@ -3,12 +3,18 @@
 ## Phase 42 status
 
 This began as a strategy note. Migration was not implemented in Phase 42 and
-remains unimplemented. PostgreSQL is not a supported runtime database. See the
+no existing production data was moved in that phase. PostgreSQL is now the
+primary runtime database, while this document remains the data-migration runbook
+for installations that already contain SQLite data. See the
 [database support contract](../architecture/database-support.md).
 
-## When to migrate
+## When migration is needed
 
-Consider PostgreSQL when:
+No conversion is needed for a disposable development or staging environment:
+point the application at PostgreSQL and run fresh migrations and seeders.
+
+Use the data-migration path when SQLite contains data that must be retained.
+Typical reasons include:
 
 - concurrent writes grow;
 - SQLite write locks become visible;
@@ -55,9 +61,8 @@ Keep the SQLite backup untouched until PostgreSQL is verified.
 
 Rollback must restore application config and the SQLite database file.
 
-## Not implemented in Phase 42
+## Historical Phase 42 boundary
 
-- no automated conversion script;
-- no production cutover;
-- no PostgreSQL requirement;
-- no Docker/Postgres service setup.
+The conversion itself was not implemented in Phase 42. RG-896 adds the local
+PostgreSQL service and automated PostgreSQL-first test contract, but it does not
+silently convert or delete an existing SQLite database.

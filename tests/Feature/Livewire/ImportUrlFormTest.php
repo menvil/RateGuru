@@ -6,6 +6,10 @@ use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('renders import url form when feature is enabled', function () {
     app(ProjectSettingsManager::class)->flush();
 

@@ -55,13 +55,21 @@ class RatingVoting extends Component
     ): void {
         $this->error = '';
 
-        if ($this->post === null) {
-            $this->error = 'This post is no longer available.';
+        $user = auth()->user();
+
+        if ($user === null) {
+            $this->error = __('ui.voting.sign_in_to_vote');
 
             return;
         }
 
-        if (auth()->check() && (int) $this->post->user_id === (int) auth()->id()) {
+        if ($this->post === null) {
+            $this->error = __('ui.post.unavailable');
+
+            return;
+        }
+
+        if (! $user->can('vote', $this->post)) {
             return;
         }
 
@@ -69,13 +77,13 @@ class RatingVoting extends Component
         $option = $group?->options->firstWhere('id', $optionId);
 
         if ($option === null) {
-            $this->error = 'Rating option is not available for this group.';
+            $this->error = __('ui.voting.option_unavailable');
 
             return;
         }
 
         try {
-            $voteRatingOption->handle(auth()->user(), $this->post, $option);
+            $voteRatingOption->handle($user, $this->post, $option);
         } catch (CannotVoteForRatingOptionException $e) {
             $this->error = $e->getMessage();
 
@@ -92,9 +100,13 @@ class RatingVoting extends Component
     ): View {
         $group = $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
-        $isOwnPost = $this->post !== null
-            && auth()->check()
-            && (int) $this->post->user_id === (int) auth()->id();
+        $user = auth()->user();
+        $canVote = $this->post !== null && ($user === null || $user->can('vote', $this->post));
+        // Ownership must be derived from the post itself: since the vote
+        // policy also fails for restricted lifecycle states, "! $canVote"
+        // no longer implies "own post".
+        $isOwnPost = $this->post !== null && $user !== null
+            && (int) $this->post->user_id === (int) $user->id;
         $distribution = $this->hasPreloadedState
             ? $this->preloadedDistribution
             : ($group === null || $this->post === null
@@ -114,7 +126,7 @@ class RatingVoting extends Component
             'group' => $group,
             'isOwnPost' => $isOwnPost,
             'selectedOptionId' => $selectedOptionId,
-            'votingDisabled' => $this->post === null || ! auth()->check() || $isOwnPost,
+            'votingDisabled' => ! $canVote,
         ]);
     }
 }

@@ -9,9 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 /**
  * @property CommentStatus $status
+ * @property Carbon|null $deleted_at
+ * @property Carbon|null $moderation_removed_at
  * @property-read int $score
  */
 class Comment extends Model
@@ -24,6 +27,7 @@ class Comment extends Model
     {
         return [
             'status' => CommentStatus::class,
+            'moderation_removed_at' => 'datetime',
         ];
     }
 
@@ -57,9 +61,57 @@ class Comment extends Model
         return $this->hasMany(CommentVote::class);
     }
 
+    // Lifecycle presentation helpers (docs/architecture/comment-lifecycle.md).
+    // Author deletion and moderation hide are orthogonal states expressed by
+    // existing storage: deleted_at = the author removed it, status Hidden =
+    // moderation removed it. These helpers are the single place Blade,
+    // components and queries derive tombstone semantics from.
+
+    public function isAuthorDeleted(): bool
+    {
+        return $this->trashed();
+    }
+
+    public function isModeratorHidden(): bool
+    {
+        return ! $this->trashed() && $this->status === CommentStatus::Hidden;
+    }
+
+    /**
+     * Finalized moderation removal: Hidden + moderation_removed_at set.
+     * Deliberately trashed-agnostic — the lifecycle allows Hide -> author Delete,
+     * and a finalized row stays moderation evidence either way
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function isModerationRemovalFinalized(): bool
+    {
+        return $this->status === CommentStatus::Hidden
+            && $this->moderation_removed_at !== null;
+    }
+
+    /**
+     * A structural tombstone: publicly removed content whose row must still
+     * render as a neutral placeholder when surviving replies need their
+     * thread anchor. Author deletion wins over a pre-existing hide.
+     */
+    public function isStructuralTombstone(): bool
+    {
+        return $this->isAuthorDeleted() || $this->isModeratorHidden();
+    }
+
     public function canReceiveVotes(): bool
     {
-        return $this->status === CommentStatus::Visible;
+        // Explicitly trashed-aware: a withTrashed() structural instance may
+        // still carry status Visible, but an author-deleted comment can
+        // never receive votes again.
+        return ! $this->trashed() && $this->status === CommentStatus::Visible;
+    }
+
+    public function canReceiveReports(): bool
+    {
+        // Same rule as votes: a tombstoned comment is no longer an
+        // interactive object and must not accumulate new reports.
+        return ! $this->trashed() && $this->status === CommentStatus::Visible;
     }
 
     protected function score(): Attribute

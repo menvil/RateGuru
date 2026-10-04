@@ -1,31 +1,51 @@
 # External Observability Integrations
 
-Phase 54 — Version 1.0
+Phase 54 — Version 1.1
 
-External monitoring tools are **not required** for Phase 54. The observability foundation works without any SaaS vendor.
+The observability foundation works without any SaaS vendor. Of the vendors
+below, **Sentry and Nightwatch are installed** — Sentry on every configured
+target, Nightwatch only on `staging-main` and only for the Phase 6B
+side-by-side evaluation, which Phase 6C will resolve. Every other vendor is
+**not required**, is not present, and nothing in the codebase is shaped around
+it.
 
 ---
 
-## Sentry
+## Sentry — installed
 
-**When to install:** When you need real-time error alerting and stack trace grouping in production.
+`sentry/sentry-laravel` is a real dependency and the project's one error and
+performance monitoring provider.
 
-**Package:** `composer require sentry/sentry-laravel`
+Everything operational — the metadata model, the secret model, the deployment
+and rollback correlation, the staging setup steps and the verification
+procedure — lives in
+[`infrastructure/runbooks/sentry-observability.md`](../../infrastructure/runbooks/sentry-observability.md).
+That runbook is the source of truth; this section only records how it meets the
+foundation described here.
 
-**Environment:**
+**Configuration:** `config/sentry.php` (published from the package) and
+`config/deployment.php` (the canonical release identity). Environment:
+
 ```env
-SENTRY_LARAVEL_DSN=https://xxx@oXXX.ingest.sentry.io/XXX
+APP_DEPLOYMENT_TARGET=staging-main
+SENTRY_DSN=<per target, never committed>
+SENTRY_ENVIRONMENT=staging
 ```
 
-**What context will be attached:**
-- `request_id` (from `LogContext`)
-- `user_id` (from `LogContext`)
-- `app_env`, `locale`, `route_name`
-- `exception_class` (from `ExceptionContextBuilder`)
+`SENTRY_RELEASE` is deliberately unused: the release comes from the deployed
+artifact's own `release.json`, so it can never drift from what is running.
 
-Sentry reads the `context()` callback registered in `bootstrap/app.php` — Phase 54 already sets this up.
+**What the Phase 54 foundation contributes to a Sentry event:**
 
-**Not required** for local development or Phase 54 completion.
+- `request_id`, `user_id`, `app_env`, `locale`, `route_name` and
+  `exception_class` — via the `context()` callback in `bootstrap/app.php`,
+  which `ExceptionContextBuilder` builds and `SensitiveDataRedactor` redacts,
+  and which the SDK attaches as `exception_context`;
+- `user_id` again as the Sentry user ID — the maximum identity ever sent, with
+  `send_default_pii` off so the SDK collects no email, username or IP itself.
+
+**Local development and CI:** no DSN, so Sentry is inert and the application
+behaves identically. Tests never reach the network.
 
 ---
 
@@ -49,18 +69,33 @@ DD_TRACE_AGENT_PORT=8126
 
 ## Laravel Nightwatch
 
-**When to install:** When you want Laravel-native monitoring with request tracing, slow query detection, and error grouping.
+**Status: installed since Phase 6B, and disabled everywhere except staging-main.**
 
-**Requirements:** Nightwatch subscription and token.
+Laravel-native monitoring with request tracing, query timelines, job visibility
+and error grouping, installed alongside Sentry as a time-boxed side-by-side
+evaluation. Phase 6C decides whether RateGuru keeps Sentry only, Nightwatch
+only, or both — this phase deliberately does not.
+
+**Requirements:** a Nightwatch environment token, plus a long-running local
+agent process. The agent is Supervisor-managed and runs on `staging-main`
+alone.
 
 **Environment:**
 ```env
-NIGHTWATCH_TOKEN=xxx
+NIGHTWATCH_ENABLED=false
+NIGHTWATCH_TOKEN=
 ```
 
-**What Nightwatch instruments:** Requests, queries, jobs, exceptions — automatically, using the existing Laravel tap points.
+`NIGHTWATCH_ENABLED` defaults to `false` in `config/nightwatch.php` (the vendor
+default is `true`), and `phpunit.xml` pins it to `false` on top of that, so
+neither a developer checkout nor CI can transmit.
 
-**Not required** for Phase 54 completion or local development.
+**Not required** for local development: with Nightwatch disabled the package
+registers nothing, needs no token, and the application behaves identically.
+
+**See:** `infrastructure/runbooks/nightwatch-evaluation.md` for the account
+setup, the privacy posture, the agent installer, the acceptance matrix and the
+removal procedure.
 
 ---
 
@@ -78,11 +113,23 @@ Neither is a replacement for Sentry or Datadog in production, but both are usefu
 
 ## Integration Readiness Checklist (Phase 54)
 
-When you're ready to add an external vendor, Phase 54 already provides:
+The foundation Phase 54 built, and how Sentry now uses it:
 
-- [x] `request_id` on every request (can be sent to Sentry/Datadog as tag)
-- [x] `user_id` in context (Sentry user scope)
+- [x] `request_id` on every request (reaches Sentry inside `exception_context`)
+- [x] `user_id` in context (also the Sentry user scope ID — and the only identity field sent)
 - [x] Exception context via `bootstrap/app.php` `context()` callback
 - [x] Structured domain event names for log filtering
 - [x] Sensitive data redacted before logging
-- [x] `rateguru:observability:health` command to verify config
+- [x] `rateguru:observability:health` command to verify config — now also reports
+      the deployment target, release, commit and Sentry posture, and never the DSN
+
+## Deliberately not installed
+
+Datadog, PostHog, Prometheus, Grafana, OpenTelemetry collectors and Elastic APM
+are **not** installed, and there is no provider abstraction waiting for them.
+
+There are now two monitoring providers — Sentry and, for the Phase 6B
+evaluation, Nightwatch — and each is used directly through its own official
+SDK. There is deliberately still no `ObservabilityProviderInterface`, no
+`APMManager` and no vendor-agnostic tracer: one of the two is expected to be
+removed in Phase 6C, and permanent architecture is not built around a trial.

@@ -5,6 +5,7 @@ namespace App\Livewire\Notifications;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Support\Str;
 use Livewire\Component;
 
 final class NotificationBell extends Component
@@ -38,7 +39,7 @@ final class NotificationBell extends Component
 
     public function markAsRead(string $notificationId): void
     {
-        if (! auth()->check()) {
+        if (! auth()->check() || ! Str::isUuid($notificationId)) {
             return;
         }
 

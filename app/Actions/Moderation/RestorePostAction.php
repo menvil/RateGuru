@@ -2,6 +2,7 @@
 
 namespace App\Actions\Moderation;
 
+use App\Actions\Moderation\Concerns\LocksAndAuthorizesPostModeration;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 
 final class RestorePostAction
 {
+    use LocksAndAuthorizesPostModeration;
+
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
     ) {}
@@ -25,9 +28,11 @@ final class RestorePostAction
         // transaction with a row lock on the post so a concurrent moderation
         // cannot bypass the state guard between the check and the write.
         DB::transaction(function () use ($moderator, $post, $reason) {
-            $locked = $post->newQuery()->lockForUpdate()->find($post->getKey());
+            [$lockedActor, $locked] = $this->lockAndAuthorizePostModeration($moderator, $post, 'restore', PostStatus::Hidden);
 
-            if ($locked === null || $locked->status !== PostStatus::Hidden) {
+            // A finalized moderation removal never returns through the
+            // normal lifecycle (docs/architecture/moderation-content-lifecycle.md).
+            if ($locked->moderation_removed_at !== null) {
                 throw CannotModeratePostException::becausePostStatusIsInvalid();
             }
 
@@ -44,7 +49,7 @@ final class RestorePostAction
             }
 
             $this->createModerationLog->handle(
-                moderator: $moderator,
+                moderator: $lockedActor,
                 action: ModerationActionType::RestorePost,
                 target: $locked,
                 reason: $reason,

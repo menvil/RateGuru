@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             DefaultProjectSettingsSeeder::class,
+            DefaultCategorySeeder::class,
             DefaultRatingConfigurationSeeder::class,
             DemoDatabaseSeeder::class,
         ]);

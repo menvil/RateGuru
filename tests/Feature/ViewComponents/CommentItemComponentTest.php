@@ -4,6 +4,7 @@ use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\User;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
 it('renders report button in comment item for persisted comment', function () {
     $user = User::factory()->create();
@@ -20,6 +21,21 @@ it('renders report button in comment item for persisted comment', function () {
     expect($html)
         ->toContain('data-testid="comment-report"')
         ->toContain('Report');
+});
+
+it('resolves comment author avatar via the resolved avatar accessor', function () {
+    Storage::fake('public');
+
+    $author = User::factory()->withAvatar(path: 'avatars/comment-author.jpg')->create();
+    $comment = Comment::factory()->for($author, 'user')->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)->toContain('avatars/comment-author.jpg');
 });
 
 it('renders comment actions menu in the comment header', function () {

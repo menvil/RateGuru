@@ -27,4 +27,53 @@ return [
     'comments' => ':count comments',
     'post_image' => 'Post image',
     'username_url_hint' => 'Your public profile URL is /u/:username.',
+    'error_generic' => 'Something went wrong while updating your profile.',
+
+    'information' => [
+        'title' => 'Profile Information',
+        'description' => "Update your account's profile information and email address.",
+        'email_unverified' => 'Your email address is unverified.',
+        'resend_verification' => 'Click here to re-send the verification email.',
+        'verification_sent' => 'A new verification link has been sent to your email address.',
+    ],
+
+    'password' => [
+        'update_title' => 'Update Password',
+        'update_description' => 'Ensure your account is using a long, random password to stay secure.',
+        'current' => 'Current Password',
+        'new' => 'New Password',
+        'set_title' => 'Set a password',
+        'set_description' => 'You sign in with Google or Facebook, so your account has no password yet. We\'ll email you a link to set one; after that you can also sign in with your email and password.',
+        'set_send' => 'Email me a link',
+        'set_sent' => 'We sent a link to set your password to :email.',
+        'set_done' => 'Your password is set. You can now also sign in with your email and password.',
+    ],
+
+    'delete' => [
+        'title' => 'Delete Account',
+        'description' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.',
+        'action' => 'Delete Account',
+        'confirm_title' => 'Are you sure you want to delete your account?',
+        'confirm_with_password' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.',
+        'confirm_with_email' => 'Once your account is deleted, all of its resources and data will be permanently deleted. Your account has no password, so type your email address (:email) to confirm.',
+        'email_mismatch' => 'This is not the email address of your account.',
+    ],
+
+    'connected' => [
+        'title' => 'Connected accounts',
+        'description' => 'Connect Google or Facebook to sign in with them. A connected account may use a different email address than your RateGuru account.',
+        'connect' => 'Connect',
+        'disconnect' => 'Disconnect',
+        'not_connected' => 'Not connected',
+        'no_email' => 'No email address shared',
+        'since' => 'Connected :date',
+        'last_method' => 'This is the only way to sign in to your account. Set a password or connect another account to disconnect it.',
+        'connected' => ':provider is connected. You can now sign in with it.',
+        'disconnected' => ':provider is disconnected.',
+        'confirm_title' => 'Disconnect :provider?',
+        'confirm_body' => 'You will no longer be able to sign in with this :provider account. You can connect it again at any time.',
+        'unavailable' => 'Sign-in with :provider is currently turned off.',
+        'not_connected_error' => ':provider is not connected to your account.',
+        'last_method_error' => ':provider is the only way to sign in to your account. Set a password or connect another account first.',
+    ],
 ];

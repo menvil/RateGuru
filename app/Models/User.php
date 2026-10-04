@@ -6,31 +6,46 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Support\Locale\LocaleManager;
+use App\Support\Media\AvatarUrlResolver;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Carbon;
 
 /**
  * @property UserRole|null $role
  * @property UserStatus|null $status
  * @property int|null $trust_level
  * @property ProfileActivityVisibility|null $rating_activity_visibility
+ * @property Carbon|null $anonymized_at
+ * @property string|null $session_generation
  */
-#[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_url', 'avatar_path', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
-#[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable implements FilamentUser, MustVerifyEmail
+#[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
+#[Hidden(['password', 'remember_token', 'session_generation'])]
+class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * What AnonymizeUserAccountAction stores into `name`, so nothing personal
+     * survives in the column. Public UI shows the reader's own translation of
+     * it (`ui.user.deleted`) through resolved_display_name instead.
+     */
+    public const TOMBSTONE_DISPLAY_NAME = 'Deleted user';
 
     protected static function booted(): void
     {
@@ -50,6 +65,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'anonymized_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
@@ -59,6 +75,39 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         ];
     }
 
+    // Lifecycle capability conveniences. Every method delegates to the
+    // central contract on UserStatus and fails closed when status is null —
+    // no lifecycle meaning may live here (docs/architecture/user-lifecycle.md).
+
+    /**
+     * The language this user is written to in, for anything that leaves the
+     * application — mail today, anything queued tomorrow.
+     *
+     * Returning NULL rather than the fallback is deliberate, and is what makes
+     * this safe to add. Laravel's NotificationSender treats a null preference
+     * as "no preference" and renders in the CURRENT application locale, which
+     * inside a web request is the language the visitor is looking at. So a
+     * user who has never chosen a language keeps exactly today's behaviour,
+     * while a user who has one stops depending on which browser happens to be
+     * asking — which is the whole point for a password reset, where the person
+     * is not logged in and the request locale is not theirs.
+     *
+     * A stored locale the project does not offer — uninstalled, or installed
+     * but not enabled — is treated the same way as none at all. The column is
+     * left as it is, so the preference comes back if the language is offered
+     * again.
+     */
+    public function preferredLocale(): ?string
+    {
+        $locale = $this->locale;
+
+        if (! is_string($locale) || $locale === '') {
+            return null;
+        }
+
+        return app(LocaleManager::class)->isEnabled($locale) ? $locale : null;
+    }
+
     public function canCreateContent(): bool
     {
         return $this->status?->canCreateContent() ?? false;
@@ -66,17 +115,92 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 
     public function canVote(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canVote() ?? false;
     }
 
     public function canComment(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canComment() ?? false;
     }
 
     public function canReport(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canReport() ?? false;
+    }
+
+    public function canFollow(): bool
+    {
+        return $this->status?->canFollow() ?? false;
+    }
+
+    public function canBeFollowed(): bool
+    {
+        return $this->status?->canBeFollowed() ?? false;
+    }
+
+    public function canManageContent(): bool
+    {
+        return $this->status?->canManageContent() ?? false;
+    }
+
+    public function canUpdateProfile(): bool
+    {
+        return $this->status?->canUpdateProfile() ?? false;
+    }
+
+    public function canAuthenticate(): bool
+    {
+        return $this->status?->canAuthenticate() ?? false;
+    }
+
+    /**
+     * Whether the account has a password at all. An account created through
+     * Google or Facebook has none until its owner sets one through the
+     * emailed password link; the password flows ask for one only then.
+     */
+    public function hasPassword(): bool
+    {
+        return filled($this->getAuthPassword());
+    }
+
+    public function canAccessPrivilegedPanel(): bool
+    {
+        return $this->status?->canAccessPrivilegedPanel() ?? false;
+    }
+
+    /**
+     * Irreversible deleted-account tombstone (see
+     * docs/architecture/user-lifecycle.md). Not a capability — a state
+     * check used by the presentation boundary (accessors below), query
+     * scopes and moderation guards.
+     */
+    public function isTombstoned(): bool
+    {
+        return $this->status === UserStatus::Deleted;
+    }
+
+    /**
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    public function scopeWithoutTombstoned(Builder $query): Builder
+    {
+        return $query->where('status', '!=', UserStatus::Deleted);
+    }
+
+    /**
+     * A tombstone never receives notifications again: its inbox was purged
+     * at anonymization and every channel address is scrambled/invalid.
+     * Overriding the Notifiable entry point keeps this rule in one place
+     * instead of at every ->notify() call site.
+     */
+    public function notify($instance): void
+    {
+        if ($this->isTombstoned()) {
+            return;
+        }
+
+        app(NotificationDispatcher::class)->send($this, $instance);
     }
 
     public function isModerator(): bool
@@ -137,18 +261,65 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         return $this->belongsToMany(User::class, 'follows', 'author_id', 'follower_id')->withTimestamps();
     }
 
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function avatarAsset(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'avatar_asset_id');
+    }
+
+    /**
+     * The external sign-in identities (Google, Facebook) attached to this
+     * account: at most one per provider, deleted by anonymization.
+     *
+     * @return HasMany<SocialAccount, $this>
+     */
+    public function socialAccounts(): HasMany
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
+
     public function getResolvedDisplayNameAttribute(): string
     {
+        if ($this->isTombstoned()) {
+            return __('ui.user.deleted');
+        }
+
         return $this->display_name ?: ($this->name ?: $this->username);
     }
 
+    /**
+     * The username as it may be shown/linked in public UI. Tombstoned
+     * accounts have no public handle: views that guard on this accessor
+     * render plain "Deleted user" text with no @handle and no profile
+     * link, exactly like a user without a username.
+     */
+    public function getPublicUsernameAttribute(): ?string
+    {
+        return $this->isTombstoned() ? null : $this->username;
+    }
+
+    /**
+     * Temporary compatibility accessor kept only because Blade views and API
+     * resources already call it in many places — removing it would ripple
+     * across the presentation layer for no behavioral gain. It carries no
+     * filesystem knowledge of its own: it just delegates to
+     * AvatarUrlResolver, which delegates to MediaUrlResolver. New code
+     * should prefer injecting AvatarUrlResolver directly.
+     */
     public function getResolvedAvatarUrlAttribute(): ?string
     {
-        if ($this->avatar_path) {
-            return Storage::disk('public')->url($this->avatar_path);
-        }
+        return app(AvatarUrlResolver::class)->url($this);
+    }
 
-        return $this->avatar_url;
+    /**
+     * Same compatibility-accessor shape as getResolvedAvatarUrlAttribute()
+     * above, for the srcset half of AvatarUrlResolver::responsive(). Reads
+     * the already-loaded avatarAsset.variants relation — no query here
+     * beyond what resolved_avatar_url already risks lazy-loading.
+     */
+    public function getResolvedAvatarSrcsetAttribute(): ?string
+    {
+        return app(AvatarUrlResolver::class)->responsive($this)?->srcset;
     }
 
     public function canAccessPanel(Panel $panel): bool
@@ -157,7 +328,10 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             return false;
         }
 
-        return $this->status === UserStatus::Active
+        // Two independent dimensions: lifecycle eligibility (status) AND
+        // role. A banned/limited/shadowbanned admin fails closed; an active
+        // regular user is lifecycle-eligible but lacks the role.
+        return ($this->status?->canAccessPrivilegedPanel() ?? false)
             && ($this->isAdmin() || $this->isModerator());
     }
 }

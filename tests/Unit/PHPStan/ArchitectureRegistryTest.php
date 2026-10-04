@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Unit\PHPStan;
 
-use App\Contracts\Persistence\LowLevelDatabaseBoundary;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
 use PHPStan\Testing\PHPStanTestCase;
@@ -62,14 +61,9 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
         }
     }
 
-    public function test_low_level_database_entries_are_exact_and_tested(): void
+    public function test_there_are_no_low_level_database_exceptions(): void
     {
-        foreach ($this->entries('lowLevelDatabaseExceptions') as $entry) {
-            $this->assertSame('approved', $entry['status'] ?? null);
-            $this->assertNotSame('', trim((string) ($entry['reason'] ?? '')));
-            $this->assertRegisteredClassUsesBoundary($entry, LowLevelDatabaseBoundary::class, 'App\\');
-            $this->assertBehaviorTestsExist($entry);
-        }
+        $this->assertSame([], self::$architecture['lowLevelDatabaseExceptions'] ?? null);
     }
 
     public function test_pagination_boundaries_are_registered_and_behavior_tested(): void
@@ -93,11 +87,9 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
         $databaseSuite = $this->scriptCommand($scripts['test:database-boundaries'] ?? null);
         $paginationSuite = $this->scriptCommand($scripts['test:pagination-boundaries'] ?? null);
 
-        foreach (['rawSqlExceptions', 'lowLevelDatabaseExceptions'] as $registry) {
-            foreach ($this->entries($registry) as $entry) {
-                foreach ($entry['behaviorTests'] ?? [] as $test) {
-                    $this->assertStringContainsString((string) $test, $databaseSuite);
-                }
+        foreach ($this->entries('rawSqlExceptions') as $entry) {
+            foreach ($entry['behaviorTests'] ?? [] as $test) {
+                $this->assertStringContainsString((string) $test, $databaseSuite);
             }
         }
 

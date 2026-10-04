@@ -11,7 +11,7 @@ final class CannotCreatePostException extends DomainException
         return new self('User is not allowed to create posts.');
     }
 
-    public static function becauseCategoryOptionIsInvalid(): self
+    public static function becauseCategoryIsInvalid(): self
     {
         return new self('The selected category is not available.');
     }

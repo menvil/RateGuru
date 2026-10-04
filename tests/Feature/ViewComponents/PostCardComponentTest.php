@@ -1,13 +1,16 @@
 <?php
 
 use App\Livewire\Feed\PostFeed;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
 it('renders post voting component in post card', function () {
     $post = Post::factory()->published()->create();
@@ -18,40 +21,26 @@ it('renders post voting component in post card', function () {
 });
 
 it('renders post card title', function () {
-    $post = Post::factory()->published()->make(['title' => 'Homemade Carbonara']);
+    $post = Post::factory()->published()->make(['title' => 'Sample Post']);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Homemade Carbonara');
+    expect($html)->toContain('Sample Post');
 });
 
-it('renders post image when image url exists', function () {
-    $post = Post::factory()->published()->make([
+it('renders post image when an image asset exists', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('/storage/posts/1/dish.jpg');
+    expect($html)->toContain(Storage::disk('public')->url('posts/1/dish.jpg'));
 });
 
-it('renders post image from image path when image url is missing', function () {
+it('renders image placeholder when there is no image asset', function () {
     $post = Post::factory()->published()->make([
-        'title' => 'Dish',
-        'image_path' => 'posts/1/dish.jpg',
-        'image_url' => null,
-    ]);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
-
-    expect($html)->toContain('/storage/posts/1/dish.jpg');
-});
-
-it('renders image placeholder when image url is missing', function () {
-    $post = Post::factory()->published()->make([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -61,29 +50,62 @@ it('renders image placeholder when image url is missing', function () {
 
 it('renders post title and description', function () {
     $post = Post::factory()->published()->make([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('Homemade Carbonara')
+        ->toContain('Sample Post')
         ->toContain('Creamy pasta with pepper');
 });
 
+it('renders the standalone category as linked post metadata', function () {
+    $category = Category::factory()->create([
+        'name' => 'Desserts',
+        'slug' => 'desserts',
+    ]);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post->load('category')]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Desserts')
+        ->toContain('wire:navigate')
+        ->toContain('category%5B0%5D=desserts');
+});
+
+it('renders an inactive category as non-navigable post metadata', function () {
+    $category = Category::factory()->inactive()->create([
+        'name' => 'Archived',
+        'slug' => 'archived',
+    ]);
+
+    $html = Blade::render(
+        '<x-posts.category-link :category="$category" test-id="post-card-category" />',
+        ['category' => $category],
+    );
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Archived')
+        ->not->toContain('category%5B0%5D=archived')
+        ->not->toContain('wire:navigate');
+});
+
 it('renders post description under the title before the image', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/tacos.jpg')->create([
         'title' => 'Street Tacos',
         'description' => 'Corn tortillas, salsa, cilantro, and a street-food presentation',
-        'image_url' => '/storage/posts/1/tacos.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     $titlePosition = strpos($html, 'Street Tacos');
     $descriptionPosition = strpos($html, 'Corn tortillas, salsa, cilantro, and a street-food presentation');
-    $imagePosition = strpos($html, '/storage/posts/1/tacos.jpg');
+    $imagePosition = strpos($html, Storage::disk('public')->url('posts/1/tacos.jpg'));
 
     expect($titlePosition)->not->toBeFalse()
         ->and($descriptionPosition)->not->toBeFalse()
@@ -275,15 +297,27 @@ it('does not render delete action in the post card menu for another user', funct
     expect($html)->not->toContain('data-testid="post-card-delete"');
 });
 
-it('renders source voting component in post card for persisted posts', function () {
+it('renders every supplied rating group in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create([
+        'key' => 'confidence',
+        'label' => 'Confidence',
+    ]);
+    $group->options()->createMany([
+        ['key' => 'low', 'label' => 'Low', 'sort_order' => 10],
+        ['key' => 'high', 'label' => 'High', 'sort_order' => 20],
+    ]);
+    $ratingGroups = new Collection([$group->load('options')]);
 
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render(
+        '<x-feed.post-card :post="$post" :rating-groups="$ratingGroups" />',
+        compact('post', 'ratingGroups'),
+    );
 
     expect($html)
-        ->toContain('post-card-source-voting')
-        ->toContain('Source')
-        ->not->toContain('What do you think?');
+        ->toContain('post-card-rating-confidence')
+        ->toContain('rating-voting-confidence-'.$post->id)
+        ->toContain('Confidence');
 });
 
 it('renders feed card rating histogram via preloaded state after the current user votes', function () {
@@ -291,12 +325,12 @@ it('renders feed card rating histogram via preloaded state after the current use
 
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
 
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
-    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
+    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
 
     $this->actingAs($user);
 
@@ -304,7 +338,7 @@ it('renders feed card rating histogram via preloaded state after the current use
         ->test(PostFeed::class)
         ->html();
 
-    // binary source group → 60% (3) / 40% (2)
+    // binary type group → 60% (3) / 40% (2)
     expect($html)
         ->toContain('60% (3)')
         ->toContain('40% (2)');
@@ -318,7 +352,7 @@ it('does not render rating histogram before the current user votes', function ()
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     // No selected option → buttons shown, not the results block
-    expect($html)->not->toContain('post-card-origin-results');
+    expect($html)->not->toContain('rating-option-'.$post->id.'-results');
 });
 
 it('does not break rendering on an unsaved post', function () {
@@ -327,8 +361,8 @@ it('does not break rendering on an unsaved post', function () {
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)->toContain('post-card');
-    // Unsaved posts must not render the interactive Livewire source component.
-    expect($html)->not->toContain('post-card-source-voting');
+    // Unsaved posts must not render interactive Livewire rating components.
+    expect($html)->not->toContain('post-card-rating-');
 });
 
 it('keeps post card free of service locator vote and authorization queries', function () {
@@ -351,10 +385,8 @@ it('delegates result rendering to the rating voting components', function () {
     // Post card no longer renders its own distribution blocks; the rating
     // voting Livewire components (and their rating-options view) own that.
     expect($view)
-        ->not->toContain('post-card-origin-results')
-        ->not->toContain('post-card-cuisine-results')
-        ->toContain('posts.source-voting')
-        ->toContain('posts.category-voting');
+        ->toContain('voting.rating-voting')
+        ->toContain('@foreach($ratingGroups as $ratingGroup)');
 });
 
 it('renders save button on post card when feature is enabled', function () {
@@ -381,4 +413,60 @@ it('hides save button on post card when feature is disabled', function () {
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)->not->toContain('data-testid="save-post-button"');
+});
+
+it('does not crop the feed post image to a fixed aspect ratio', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Dish',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[16/10]')
+        ->not->toContain('object-cover');
+});
+
+it('renders the feed fullscreen image with contain behavior', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Dish',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-fullscreen-image"')
+        // Capped at 80vh, and at the room the viewer measured below the app header.
+        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]')
+        ->toContain('object-contain');
+});
+
+it('lazy loads the feed image by default and eager loads it when marked as the first card', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Dish',
+    ]);
+
+    $lazyHtml = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $eagerHtml = Blade::render('<x-feed.post-card :post="$post" :eager-image="true" />', ['post' => $post]);
+
+    // The fullscreen modal image is always lazy (it stays hidden until opened),
+    // so compare counts rather than presence to isolate the visible feed image.
+    expect(substr_count($lazyHtml, 'loading="lazy"'))->toBe(2);
+    expect(substr_count($eagerHtml, 'loading="lazy"'))->toBe(1);
+});
+
+it('resolves post author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->withAvatar()->create([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+    ]);
+
+    $post = Post::factory()->published()->make(['title' => 'Dish']);
+    $post->setRelation('user', $author);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain($author->resolved_avatar_url);
 });

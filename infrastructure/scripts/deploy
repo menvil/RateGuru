@@ -1,0 +1,2077 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Gated test overrides for the two external binaries deploy
+# invokes by absolute path, mirroring status's own RATEGURU_HEALTH_CHECK_CLI/
+# HEALTH_CHECK_BIN pattern exactly (unlike PHP_BIN/PHP_FPM_SERVICE, which
+# already come from deployment.conf, these two were previously hardcoded
+# literals with no test seam at all). Production values are unchanged; this
+# exists purely so tests can run deploy's real pipeline end to end against
+# self-contained stub health-check/verify-required-clis binaries instead of
+# the real installed ones. Gated the same way every other RATEGURU_* override
+# is: a stray environment variable in a real root shell can never silently
+# redirect either binary without the explicit opt-in flag.
+HEALTH_CHECK_BIN_DEFAULT="/home/www/rateguru/bin/health-check"
+VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"
+
+HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
+VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
+
+# The two values the controlled restore alignment path needs, and
+# nothing a normal deployment ever reads.
+#
+# RUN_ROOT is where the restore guard and every restore operation's own state
+# document live — the same root backup, backup-cycle and the restore
+# primitives already resolve, named here so `deploy` can consult them without
+# sourcing the restore library.
+#
+# RESTORE_TARGET_BIN and RECOVER_HOST_BIN are the two orchestrators
+# themselves. A controlled deployment must prove the target is genuinely still
+# held — for a restore: nothing serving, no queue worker, no scheduler entry;
+# for a recovery: no code at all, no queue worker, no scheduler entry — and
+# reading Supervisor correctly is subtle enough that a second implementation of
+# either proof would eventually disagree with the first. So deploy re-derives
+# neither: it runs `restore-target --inspect` or `recover-host --inspect`, both
+# read-only, each the one place its own proof exists. See
+# assert_restore_alignment_authorized and assert_recovery_alignment_authorized.
+#
+# The window that makes this load-bearing for a recovery is long: a recovery
+# routinely outlives the workflow that started it, and between `--apply` and
+# the historical build landing, a queue can be started or a scheduler cron
+# entry can reappear. Installing code into that would let Laravel run against
+# recovered data before anything had verified it.
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RESTORE_TARGET_BIN_DEFAULT="/home/www/rateguru/bin/restore-target"
+RECOVER_HOST_BIN_DEFAULT="/home/www/rateguru/bin/recover-host"
+
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+RESTORE_TARGET_BIN="${RESTORE_TARGET_BIN_DEFAULT}"
+RECOVER_HOST_BIN="${RECOVER_HOST_BIN_DEFAULT}"
+
+# The one place this engine learns which deployment protocols it supports.
+#
+# It is deliberately the INSTALLED contract, put here by
+# install-target-operations from the trusted checkout — never the copy inside the
+# candidate artifact, and never a literal in this file. An artifact says what it
+# requires; only the host says what it supports. Reading `tooling.supported` out
+# of a candidate would let a release declare itself compatible with an engine
+# that cannot honour it, which is the entire failure this handshake prevents.
+DEPLOYMENT_PROTOCOL_FILE_DEFAULT="/home/www/rateguru/config/deployment-protocol.json"
+
+DEPLOYMENT_PROTOCOL_FILE="${DEPLOYMENT_PROTOCOL_FILE_DEFAULT}"
+
+# How long the first-deploy Supervisor activation waits
+# for the target queue program to reach RUNNING. supervisorctl itself is
+# resolved through PATH — the same way this script already resolves
+# systemctl and runuser, and the same way tests already PATH-shadow both —
+# so only the wait tuning needs gated value overrides (shrunk by tests,
+# never by production).
+QUEUE_WAIT_ATTEMPTS=10
+QUEUE_RETRY_DELAY_SECONDS=1
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
+        HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_VERIFY_REQUIRED_CLIS_BIN:-}" ]]; then
+        VERIFY_REQUIRED_CLIS_BIN="${RATEGURU_VERIFY_REQUIRED_CLIS_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS:-}" ]]; then
+        QUEUE_WAIT_ATTEMPTS="${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY:-}" ]]; then
+        QUEUE_RETRY_DELAY_SECONDS="${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_TARGET_BIN:-}" ]]; then
+        RESTORE_TARGET_BIN="${RATEGURU_RESTORE_TARGET_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_RECOVER_HOST_BIN:-}" ]]; then
+        RECOVER_HOST_BIN="${RATEGURU_RECOVER_HOST_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOYMENT_PROTOCOL_FILE:-}" ]]; then
+        DEPLOYMENT_PROTOCOL_FILE="${RATEGURU_DEPLOYMENT_PROTOCOL_FILE}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+
+  deploy \
+    --target TARGET_ID \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    [--checksum /path/to/release.tar.gz.sha256] \
+    [--migrate]
+
+  deploy \
+    --target TARGET_ID \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    --checksum /path/to/release.tar.gz.sha256 \
+    --restore-operation OPERATION_ID
+
+  deploy \
+    --target TARGET_ID \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    --checksum /path/to/release.tar.gz.sha256 \
+    --recovery-operation OPERATION_ID
+
+  --restore-operation   Controlled code alignment for a target held by that
+                        restore operation: the SAME deployment mechanics, with
+                        a different runtime policy. The target stays in
+                        maintenance, its queue stays stopped, its scheduler
+                        stays held and its restore guard stays in place;
+                        `restore-target --resume` is the only thing that ends
+                        the hold. Migrations are refused in this mode.
+
+  --recovery-operation  Controlled recovery deployment for a replacement host
+                        rebuilt by that recovery operation: again the SAME
+                        deployment mechanics, and again a different runtime
+                        policy. The host has no code at all yet; this installs
+                        the exact commit its recovered data belongs to, leaves
+                        its queue stopped, its scheduler held and its recovery
+                        guard in place, and leaves `previous` absent.
+                        `recover-host --resume` is the only thing that ends
+                        the hold. Migrations are refused in this mode.
+
+  The two operation flags are mutually exclusive: a target cannot be both a
+  live restore awaiting its code and a replacement host being rebuilt.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. This is what lets tests source this whole section standalone
+# (BASH_SOURCE[0] != $0 when sourced, so the guard never calls main on its
+# own), call parse_deploy_args/resolve_target/perform_deploy directly for
+# parsing- and resolution-only coverage, or call main explicitly for tests
+# that legitimately need the full root-gated flow — the same technique
+# already established for infrastructure/scripts/install-target-operations
+# and infrastructure/scripts/cleanup, adapted here as a source guard instead
+# of a thin run_*() wrapper specifically so require_root can stay the very
+# first thing a real invocation does, unchanged from today.
+
+# --- target and deployment-flag parsing --------------------------------------
+#
+# deploy cannot reuse common's parse_target_args directly — it has extra
+# flags (--release, --artifact, --checksum, --migrate) that function doesn't
+# know about — so it runs its own loop for --target plus those. Every
+# value-taking flag below (--target, --release, --artifact, --checksum)
+# validates its value through require_flag_value before assignment or
+# shifting, so a missing, empty, or flag-shaped value (e.g.
+# `--release --migrate`, which used to silently take the literal string
+# "--migrate" as the release ID and leave --migrate itself unparsed) fails
+# closed with a message naming the specific flag, rather than surfacing
+# later as an unrelated error or, for --checksum, silently substituting a
+# default the caller never asked for.
+
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+#
+# <remaining-arg-count> is "$#" from the caller's while loop, taken *before*
+# any shift — i.e. it counts the flag itself plus everything after it, so
+# "at least 2" means a following token genuinely exists. <next-token> is
+# "${2-}" from the same call site (nounset-safe whether or not $2 exists).
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+parse_deploy_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    RELEASE_ID=""
+    ARTIFACT=""
+    CHECKSUM_FILE=""
+    RUN_MIGRATIONS=false
+    RESTORE_OPERATION_ID=""
+    RESTORE_OPERATION_SEEN=false
+    RECOVERY_OPERATION_ID=""
+    RECOVERY_OPERATION_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --release)
+                require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
+                shift 2
+                ;;
+            --artifact)
+                require_flag_value "--artifact" "$#" "${2-}"
+                ARTIFACT="$2"
+                shift 2
+                ;;
+            --checksum)
+                require_flag_value "--checksum" "$#" "${2-}"
+                CHECKSUM_FILE="$2"
+                shift 2
+                ;;
+            --migrate)
+                RUN_MIGRATIONS=true
+                shift
+                ;;
+            --restore-operation)
+                [[ "${RESTORE_OPERATION_SEEN}" != true ]] || fail "--restore-operation given more than once"
+                require_flag_value "--restore-operation" "$#" "${2-}"
+                RESTORE_OPERATION_ID="$2"
+                RESTORE_OPERATION_SEEN=true
+                shift 2
+                ;;
+            --recovery-operation)
+                [[ "${RECOVERY_OPERATION_SEEN}" != true ]] || fail "--recovery-operation given more than once"
+                require_flag_value "--recovery-operation" "$#" "${2-}"
+                RECOVERY_OPERATION_ID="$2"
+                RECOVERY_OPERATION_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+
+    [[ -n "${RELEASE_ID}" ]] \
+        || fail "--release is required"
+
+    [[ -n "${ARTIFACT}" ]] \
+        || fail "--artifact is required"
+
+    # Rejected here, in parsing, so it can never depend on anything the rest of
+    # the pipeline observed. A target is either a live one whose restored data
+    # is waiting for its code, or a replacement machine being rebuilt — never
+    # both, and the safe reading of a claim that it is both is neither.
+    [[ "${RESTORE_OPERATION_SEEN}" != true ]] || [[ "${RECOVERY_OPERATION_SEEN}" != true ]] \
+        || fail "--restore-operation and --recovery-operation are mutually exclusive: a live restore awaiting code alignment and a host recovery awaiting its first code are different operations on different targets, and no deployment serves both"
+
+    if [[ "${RESTORE_OPERATION_SEEN}" == true ]]; then
+        # An alignment installs the exact code a backup's data was taken under,
+        # and a migration is by definition a change to that data's shape. The
+        # two requests contradict each other, and the safe reading of a
+        # contradiction is neither of them.
+        [[ "${RUN_MIGRATIONS}" != true ]] \
+            || fail "--migrate and --restore-operation are mutually exclusive: a controlled code alignment installs the exact commit the restored data belongs to and never migrates it"
+
+        validate_operation_id "${RESTORE_OPERATION_ID}"
+    fi
+
+    if [[ "${RECOVERY_OPERATION_SEEN}" == true ]]; then
+        # Identical reasoning, and identically refused before a single byte
+        # moves: a recovery deployment installs the exact commit the RECOVERED
+        # data belongs to, so migrating it would change the shape of the very
+        # data the commit was chosen to match.
+        [[ "${RUN_MIGRATIONS}" != true ]] \
+            || fail "--migrate and --recovery-operation are mutually exclusive: a controlled recovery deployment installs the exact commit the recovered data belongs to and never migrates it"
+
+        validate_operation_id "${RECOVERY_OPERATION_ID}" recovery
+    fi
+}
+
+# --- target resolution (mirrors health-check/status/cleanup) -----------------
+
+resolve_target() {
+    # require_active_target validates the target ID, the whole registry, that
+    # the target exists, and that it is lifecycle=active — all before
+    # artifact/checksum canonicalization, the target filesystem root, the
+    # deployment lock, or any mutation. main() already called require_root
+    # before this function runs, so the full ordering is: root authorization
+    # -> lifecycle=planned rejection -> (only if active) artifact/filesystem
+    # validation.
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    CODE_GROUP="$(target_code_group "${TARGET_ID}")"
+    DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
+    PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
+    INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+    # Empty for every target that does not run a Nightwatch agent,
+    # which is every target but staging-main. A non-zero return from the
+    # allowlist is "no agent here", never an error, so it must not trip set -e.
+    NIGHTWATCH_PROGRAM="$(target_nightwatch_program "${TARGET_ID}" || true)"
+    LABEL="${TARGET_ID}"
+    HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+}
+
+# --- target Supervisor worker ------------------------------------------------
+#
+# Closes the documented the service bootstrap first-deploy gap: on a PRE_DEPLOY host the
+# bootstrap installs the committed Supervisor program config but defers its
+# activation (directory=current does not exist yet), so the first deployment
+# must be the step that makes the target worker RUNNING. The program
+# identity comes exclusively from the target registry
+# (target_supervisor_program) — never hard-coded — and only the target's own
+# program group is ever touched: no global reread-and-update-everything, no
+# global restart of every program, no unrelated program.
+
+# queue_program_running — every process of the target program group is
+# RUNNING according to supervisorctl (the identical classification
+# install-bootstrap-services uses). Deliberately strict: STARTING, BACKOFF,
+# FATAL, EXITED and STOPPED are all "not running". The committed program sets
+# startsecs=3, so Supervisor only promotes a process to RUNNING once it has
+# survived that window — accepting STARTING as success would accept a worker
+# that is about to crash-loop.
+queue_program_running() {
+    local output
+
+    output="$(supervisorctl status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+# wait_for_queue_program_running — bounded observation of the target program
+# reaching RUNNING, spending the existing production budget
+# (QUEUE_WAIT_ATTEMPTS × QUEUE_RETRY_DELAY_SECONDS) rather than introducing a
+# second timeout constant.
+#
+# This exists because a single immediate status check after Laravel's restart
+# signal is racy. The committed program carries autorestart=true and
+# startsecs=3: an idle worker may exit the moment it is signalled, and the
+# replacement Supervisor spawns legitimately sits in STARTING until it has
+# survived startsecs. Checking once can therefore observe STARTING and roll
+# back a perfectly healthy deployment. A worker still finishing a job simply
+# stays RUNNING and the wait returns on the first attempt.
+#
+# Strictly an observer: it never rereads, updates, starts, restarts or stops
+# anything, and only ever looks at the registry-declared target program.
+wait_for_queue_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    # One final observation, so the last sleep is not wasted.
+    queue_program_running
+}
+
+# activate_supervisor_worker — the CASE A path: the target program is not
+# active, so this deployment must make it RUNNING. reread parses the
+# installed config, update registers/refreshes exactly the target program
+# group, start covers a program registered but stopped, and the wait loop
+# requires RUNNING. Activation failure is a deployment failure — a DEPLOYED
+# target without its required queue worker is not a successful deployment.
+activate_supervisor_worker() {
+    log "activating supervisor worker ${SUPERVISOR_PROGRAM} (not active — first deployment after a PRE_DEPLOY bootstrap, or a stopped worker)"
+
+    # reread only parses the installed configuration into supervisord's
+    # memory — add/remove/start happens exclusively on update, which is why
+    # install-bootstrap-services uses reread as its side-effect-free
+    # validation. So the
+    # "this deploy may have started the worker" flag is armed after reread
+    # and before update: a failed reread genuinely activated nothing, and
+    # recovery must not then try to stop a program that was never added.
+    if ! supervisorctl reread >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl reread failed"
+    fi
+
+    SUPERVISOR_ACTIVATED_NOW=true
+
+    if ! supervisorctl update "${SUPERVISOR_PROGRAM}" >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl update ${SUPERVISOR_PROGRAM} failed"
+    fi
+
+    if ! queue_program_running; then
+        # Registered but not started (e.g. the program group already existed
+        # in a stopped state, where update alone changes nothing).
+        supervisorctl start "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    # A freshly started process is STARTING until it survives startsecs, so
+    # the same bounded wait applies here as after a restart signal.
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING"
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} RUNNING"
+}
+
+# issue_queue_restart RELEASE_DIR — writes Laravel's queue restart signal
+# from RELEASE_DIR, as the runtime user. Returns the artisan exit status; the
+# caller decides whether a failure is fatal (deploy) or a recovery warning.
+issue_queue_restart() {
+    local release_dir="$1"
+
+    (
+        cd "${release_dir}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan queue:restart
+    )
+}
+
+# backfill_project_translations — fills in the project translations a release
+# ships but the database does not have yet (rateguru:translations:backfill),
+# only where the project still shows the text the repository translated. It
+# only ever adds a missing language entry — never overwrites one, never deletes
+# one — so it is safe while the previous release is still serving, and nothing
+# needs undoing if this deployment is rolled back: older code simply never
+# reads a language it does not know.
+#
+# Feature-detected rather than assumed: this script deploys historical
+# releases too, which predate the command, and skipping it for them is the
+# correct behaviour. A release that has the command and fails it fails the
+# deployment, like any other preparation step.
+#
+# Normal deployments only — the caller does not run it in a controlled restore
+# or recovery alignment, which installs the exact code the restored data
+# belongs to and changes nothing else.
+backfill_project_translations() {
+    local commands
+
+    if ! commands="$(
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan list --raw
+    )"; then
+        FAILURE_STATUS="failed-preparation"
+        fail "artisan list failed — cannot tell whether this release has the translation backfill"
+    fi
+
+    if ! grep -Eq '^rateguru:translations:backfill([[:space:]]|$)' <<<"${commands}"; then
+        log "release has no rateguru:translations:backfill — it predates the translation backfill, skipping it"
+
+        return 0
+    fi
+
+    log "backfilling repository-known project translations"
+
+    if ! (
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan rateguru:translations:backfill
+    ); then
+        FAILURE_STATUS="failed-preparation"
+        fail "rateguru:translations:backfill failed"
+    fi
+}
+
+# perform_queue_transition — the single place the queue is handled, after the
+# atomic current switch and the HTTP health check, and before the success
+# record. Which action is correct depends entirely on the worker's state
+# BEFORE this deployment, captured in ORIGINAL_QUEUE_RUNNING:
+#
+#   CASE A — the worker was not running (first deploy after a PRE_DEPLOY
+#   bootstrap, or a worker an operator stopped). Activate the
+#   registry-declared program and require RUNNING. Deliberately NO
+#   queue:restart afterwards: the process was just started against the new
+#   current, so it already booted the new release — signalling a restart
+#   would only ask a fresh worker to exit for nothing.
+#
+#   CASE B — the worker was already running (every normal deployment on a
+#   DEPLOYED target). No reread/update/start churn merely because a
+#   deployment happened. Instead queue:restart is MANDATORY: Laravel workers
+#   are long-lived and keep the application code they booted with, so a
+#   worker that never receives the signal keeps serving the OLD release
+#   indefinitely. A restart signal that cannot be written is therefore a
+#   failed deployment, not a warning.
+#
+# PID turnover is deliberately not a deployment condition. Laravel's restart
+# is graceful: the worker finishes its current job and exits afterwards, and
+# Supervisor then replaces the process. Requiring immediate turnover would
+# fail deployments for a worker that is simply mid-job. What is required is
+# that the signal was written and the program remains operational.
+perform_queue_transition() {
+    if [[ "${ORIGINAL_QUEUE_RUNNING}" != true ]]; then
+        activate_supervisor_worker
+
+        log "worker ${SUPERVISOR_PROGRAM} was freshly started against the new release — no queue:restart signal needed"
+
+        return 0
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor registration/start churn"
+
+    # A release with no artisan is not a Laravel application and has no queue
+    # to signal; deploy already gates its whole Laravel preparation on the
+    # same condition.
+    if [[ ! -f "${RELEASE_ROOT}/artisan" ]]; then
+        log "release contains no artisan — no queue restart signal applicable"
+    else
+        if ! issue_queue_restart "${RELEASE_ROOT}"; then
+            FAILURE_STATUS="failed-queue-restart"
+            fail "artisan queue:restart failed — the running worker would keep serving the previous release"
+        fi
+
+        QUEUE_RESTART_ISSUED=true
+
+        log "queue restart signal issued; Supervisor performs the eventual worker process replacement"
+    fi
+
+    # The program must be operational after signalling — observed through the
+    # bounded wait, never a single immediate check. Laravel's restart makes an
+    # idle worker exit at once, and Supervisor's replacement is STARTING until
+    # it survives startsecs; a worker still finishing a job just stays RUNNING
+    # and this returns on the first attempt. Neither a PID change nor proof
+    # that the old process already exited is required — only that the signal
+    # was issued and the program becomes/continues operational in the window.
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget after the queue restart signal"
+    fi
+}
+
+# --- target Nightwatch agent -------------------------------------------------
+#
+# The Nightwatch agent is a long-running Supervisor process whose
+# `directory=` is the target's `current` symlink. Supervisor resolves that
+# symlink when it spawns the process, so a running agent keeps the release it
+# was started in until it is restarted — after a deployment it would go on
+# working out of the previous release directory, which `cleanup` eventually
+# deletes. Restarting it here is what makes the agent follow `current`.
+#
+# Fail-open, deliberately, and in exactly the same spirit as the Sentry
+# deployment marker: this is observability, and a healthy RateGuru release is
+# never rolled back because a third-party monitoring agent had a bad minute.
+# The failure that *does* need to be loud — a Supervisor program that is
+# misconfigured or cannot start at all — is surfaced by
+# install-nightwatch-agent --apply/--verify, which is where the integration is
+# installed and where a human is already looking.
+#
+# Only the target's own program is ever touched: no global reread, no global
+# update, no restart of anything else.
+
+# --- nightwatch agent transition (begin) ---
+nightwatch_program_known() {
+    supervisorctl status "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1
+}
+
+nightwatch_program_running() {
+    local output
+
+    output="$(supervisorctl status "${NIGHTWATCH_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+wait_for_nightwatch_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if nightwatch_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    nightwatch_program_running
+}
+
+perform_nightwatch_transition() {
+    # Not an evaluation target: nothing installed, nothing to say.
+    if [[ -z "${NIGHTWATCH_PROGRAM}" ]]; then
+        return 0
+    fi
+
+    if ! nightwatch_program_known; then
+        log "nightwatch agent ${NIGHTWATCH_PROGRAM} is not registered with supervisor — nothing to transition (install it with install-nightwatch-agent --apply)"
+
+        return 0
+    fi
+
+    # Stopped is an operator decision — someone disabled the evaluation, or
+    # --remove is half-done. A deployment is not the place to overrule it.
+    if ! nightwatch_program_running; then
+        log "nightwatch agent ${NIGHTWATCH_PROGRAM} is registered but not running — left as it is"
+
+        return 0
+    fi
+
+    log "restarting nightwatch agent ${NIGHTWATCH_PROGRAM} so it follows the new current"
+
+    if ! supervisorctl restart "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1; then
+        log "WARNING: could not restart the nightwatch agent ${NIGHTWATCH_PROGRAM} — the deployment stands; the agent may still be running from the previous release. Run install-nightwatch-agent --verify --target ${TARGET_ID}."
+
+        return 0
+    fi
+
+    if ! wait_for_nightwatch_program_running; then
+        log "WARNING: the nightwatch agent ${NIGHTWATCH_PROGRAM} did not return to RUNNING within the wait budget — the deployment stands; observability may be degraded. Run install-nightwatch-agent --verify --target ${TARGET_ID}."
+
+        return 0
+    fi
+
+    log "nightwatch agent ${NIGHTWATCH_PROGRAM} RUNNING against the new release"
+}
+# --- nightwatch agent transition (end) ---
+
+# --- controlled restore alignment --------------------------------------------
+#
+# A target whose data was restored from a backup taken under a DIFFERENT commit
+# than `current` serves is left deliberately held by restore-target: in
+# maintenance, queue stopped, scheduler entry moved aside, and a root-only
+# restore guard on disk saying so. Exactly one operation may end that hold — a
+# deployment of the exact commit the data belongs to, followed by
+# `restore-target --resume`.
+#
+# That deployment is THIS script. There is no restore-deploy, no
+# historical-deploy and no recovery-deploy: duplicating the deployment
+# algorithm is how the copy quietly stops matching the original. What changes
+# under --restore-operation is not the mechanics — artifact verification, path
+# safety, extraction, permissions, shared links, the CLI mode check, Laravel
+# cache preparation, the immutable release, the atomic current switch and the
+# PHP-FPM reload are all the same code — but the RUNTIME POLICY afterwards:
+#
+#   normal      switch -> HTTP health check -> queue transition -> serving
+#   alignment   switch -> nothing that resumes the target
+#
+# No `artisan up`, no queue start or restart, no scheduler restoration, no
+# health check treated as a success contract, and above all no removal of the
+# restore guard. The target must still be held when this script exits, because
+# the data is only proven to match the code once `restore-target --resume` has
+# said so.
+#
+# And the caller never says which commit is required. GitHub hands the server
+# an operation ID; the commit is read from the server's own restore documents
+# by common's assert_restore_alignment_operation, and the artifact is checked
+# against THAT.
+
+# Set by assert_restore_alignment_authorized. Empty in every normal deployment.
+RESTORE_OPERATION_ID=""
+RECOVERY_OPERATION_ID=""
+DEPLOY_HISTORY_START_EVENT="deployment-started"
+DEPLOY_HISTORY_FINISH_EVENT="deployment-finished"
+
+restore_alignment_mode() {
+    [[ -n "${RESTORE_OPERATION_ID}" ]]
+}
+
+recovery_alignment_mode() {
+    [[ -n "${RECOVERY_OPERATION_ID}" ]]
+}
+
+# Either controlled mode. Both share every mechanic above the atomic switch and
+# both refuse the entire normal post-switch runtime transition; only the report
+# and the link policy afterwards differ.
+controlled_mode() {
+    restore_alignment_mode || recovery_alignment_mode
+}
+
+# assert_restore_alignment_authorized — everything that must be true before a
+# single byte moves, in two halves that are deliberately independent.
+#
+# The first half is read directly from the two persisted restore documents
+# (the guard and the operation's state.json) by the shared helper in common,
+# which is also what yields the required commit. The second half is the proof
+# that the target is STILL held right now — nothing serving, no queue worker,
+# no scheduler entry — and that is not re-derived here: `restore-target
+# --inspect` is read-only and is the single implementation of it. Its
+# machine-readable result is then required to name the same operation, the
+# same target and the same commit the documents did, so the two halves have to
+# agree before this deployment may behave differently from a normal one.
+assert_restore_alignment_authorized() {
+    log "controlled restore alignment requested for operation ${RESTORE_OPERATION_ID}"
+
+    assert_restore_alignment_operation "${TARGET_ID}" "${RUN_ROOT}" "${RESTORE_OPERATION_ID}"
+
+    # A controlled alignment is a code/data reconciliation, never a release
+    # promotion, and it therefore CLEARS `previous` rather than pointing it at
+    # the release being replaced (see finalize_restore_alignment). Refusing a
+    # non-symlink `previous` here — before anything is touched — is what keeps
+    # that removal a safe unlink later, on a path where failing would already
+    # have switched current.
+    if [[ -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]]; then
+        fail "${PREVIOUS_LINK} exists but is not a symlink — refusing a controlled alignment against a target whose release pointers are not in a state this script understands"
+    fi
+
+    local inspect_output
+    if ! inspect_output="$(
+        "${RESTORE_TARGET_BIN}" \
+            --inspect \
+            --target "${TARGET_ID}" \
+            --operation "${RESTORE_OPERATION_ID}" 2>&1
+    )"; then
+        printf '%s\n' "${inspect_output}" >&2
+
+        fail "restore-target --inspect refused restore operation ${RESTORE_OPERATION_ID} — the target is not in a state a controlled alignment may deploy into, and nothing was touched"
+    fi
+
+    printf '%s\n' "${inspect_output}"
+
+    # Exactly one result line, or the answer is not trustworthy enough to
+    # deploy on. Two would mean an ambiguity somebody has to resolve; zero
+    # would mean an --inspect that exited 0 without saying anything.
+    local -a result_lines=()
+    mapfile -t result_lines < <(printf '%s\n' "${inspect_output}" | grep '^RATEGURU_RESTORE_RESULT=' || true)
+
+    (( ${#result_lines[@]} == 1 )) \
+        || fail "restore-target --inspect produced ${#result_lines[@]} machine-readable results for operation ${RESTORE_OPERATION_ID}, expected exactly one"
+
+    local result
+    result="${result_lines[0]#RATEGURU_RESTORE_RESULT=}"
+
+    jq -e 'type == "object"' <<<"${result}" >/dev/null 2>&1 \
+        || fail "restore-target --inspect produced a malformed machine-readable result for operation ${RESTORE_OPERATION_ID}"
+
+    local inspect_status inspect_operation inspect_target inspect_alignment inspect_required inspect_resumed
+    inspect_status="$(jq -r '.status // empty' <<<"${result}")"
+    inspect_operation="$(jq -r '.operation_id // empty' <<<"${result}")"
+    inspect_target="$(jq -r '.target // empty' <<<"${result}")"
+    inspect_alignment="$(jq -r '.code_alignment // empty' <<<"${result}")"
+    inspect_required="$(jq -r '.required_source_sha // empty' <<<"${result}")"
+    inspect_resumed="$(jq -r '.runtime_resumed // empty' <<<"${result}")"
+
+    [[ "${inspect_operation}" == "${RESTORE_OPERATION_ID}" ]] \
+        || fail "restore-target --inspect reported operation ${inspect_operation:-<unset>}, not ${RESTORE_OPERATION_ID}"
+    [[ "${inspect_target}" == "${TARGET_ID}" ]] \
+        || fail "restore-target --inspect reported target ${inspect_target:-<unset>}, not ${TARGET_ID}"
+    [[ "${inspect_status}" == "held" ]] \
+        || fail "restore-target --inspect reported status ${inspect_status:-<unset>}, not held"
+    [[ "${inspect_alignment}" == "REQUIRED" ]] \
+        || fail "restore-target --inspect reported code alignment ${inspect_alignment:-<unset>}, not REQUIRED"
+    [[ "${inspect_resumed}" == "no" ]] \
+        || fail "restore-target --inspect reported the runtime as resumed — a controlled alignment only deploys into a held target"
+    [[ "${inspect_required}" == "${RESTORE_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "restore-target --inspect requires ${inspect_required:-<unset>}, but this target's restore documents require ${RESTORE_ALIGNMENT_REQUIRED_SHA} — refusing to deploy into a target whose own restore state is inconsistent"
+
+    log "controlled alignment authorized: ${TARGET_ID} is held by ${RESTORE_OPERATION_ID} and requires ${RESTORE_ALIGNMENT_REQUIRED_SHA}"
+}
+
+# assert_controlled_artifact_identity REQUIRED_SHA DESCRIPTION — the artifact
+# really is the required commit, checked against the extracted tree BEFORE
+# current is switched.
+#
+# The commit is the one the server read out of its own operation documents,
+# never one this invocation was told. An artifact built from anything else — a
+# branch, a near-miss commit, a rebuild of the wrong tree — is rejected while
+# the only thing on disk is a staged release directory the failure handler
+# removes.
+#
+# One implementation for both controlled modes: "the artifact must be exactly
+# this commit" is the same proof whether the target is a held live one or a
+# replacement host, and two copies of it would be two places to weaken.
+assert_controlled_artifact_identity() {
+    local required_sha="$1" description="$2"
+    local metadata="${TEMP_RELEASE_ROOT}/release.json"
+    local artifact_sha artifact_release
+
+    [[ ! -L "${metadata}" ]] \
+        || fail "artifact release.json is a symlink — refusing ${description} against it"
+    [[ -f "${metadata}" ]] \
+        || fail "artifact contains no release.json — ${description} cannot confirm which commit it is installing"
+
+    jq -e 'type == "object"' "${metadata}" >/dev/null 2>&1 \
+        || fail "artifact release.json is not a JSON object — ${description} cannot confirm which commit it is installing"
+
+    artifact_sha="$(jq -r '.source_sha // empty' "${metadata}" 2>/dev/null || printf '')"
+    artifact_release="$(jq -r '.release // empty' "${metadata}" 2>/dev/null || printf '')"
+
+    [[ "${artifact_sha}" == "${required_sha}" ]] \
+        || fail "artifact was built from ${artifact_sha:-<unset>}, but ${description} requires ${required_sha} — refusing to install code the data on this target does not belong to"
+
+    [[ "${artifact_release}" == "${RELEASE_ID}" ]] \
+        || fail "artifact release.json names release ${artifact_release:-<unset>}, but this deployment is ${RELEASE_ID}"
+
+    log "artifact identity confirmed: ${RELEASE_ID} built from ${artifact_sha}"
+}
+
+# --- controlled recovery deployment ------------------------------------------
+#
+# A replacement host rebuilt by recover-host holds the recovered data of a lost
+# machine and no code at all: `current` is absent, `previous` is absent, its
+# queue is stopped, its scheduler cron entry is held aside and a root-only
+# recovery guard says so. Exactly one operation may give it code — a deployment
+# of the exact commit that data belongs to, followed by `recover-host --resume`.
+#
+# That deployment is THIS script, for the same reason the restore alignment is:
+# duplicating the deployment algorithm is how the copy quietly stops matching
+# the original. What changes is the runtime policy afterwards.
+#
+#   normal      switch -> HTTP health check -> queue transition -> serving
+#   recovery    switch -> nothing that starts the target
+#
+# No health check treated as a success contract (the target has no runtime yet
+# and `recover-host --resume` is what health-checks it), no queue start, no
+# scheduler restoration, no `previous` written, and above all no removal of the
+# recovery guard.
+#
+# And the caller never says which commit is required. GitHub hands the server
+# an operation ID; the commit is read from the server's own recovery documents
+# by common's assert_recovery_alignment_operation, and the artifact is checked
+# against THAT.
+#
+# Structured in the same two independent halves as the restore alignment. The
+# first is read directly from the two persisted recovery documents (the guard
+# and the operation's state.json) by the shared helper in common, which is also
+# what yields the required commit. The second is the proof that the host is
+# STILL held right now — no code, no queue worker, no scheduler entry — and
+# that is not re-derived here: `recover-host --inspect` is read-only and is the
+# single implementation of it. Its machine-readable result is then required to
+# name the same operation, the same target and the same commit the documents
+# did, so the two halves have to agree before this deployment may behave
+# differently from a normal one.
+assert_recovery_alignment_authorized() {
+    log "controlled recovery deployment requested for operation ${RECOVERY_OPERATION_ID}"
+
+    assert_recovery_alignment_operation "${TARGET_ID}" "${RUN_ROOT}" "${RECOVERY_OPERATION_ID}"
+
+    local inspect_output
+    if ! inspect_output="$(
+        "${RECOVER_HOST_BIN}" \
+            --inspect \
+            --target "${TARGET_ID}" \
+            --operation "${RECOVERY_OPERATION_ID}" 2>&1
+    )"; then
+        printf '%s\n' "${inspect_output}" >&2
+
+        fail "recover-host --inspect refused recovery operation ${RECOVERY_OPERATION_ID} — the host is not in a state a controlled recovery deployment may install into, and nothing was touched"
+    fi
+
+    printf '%s\n' "${inspect_output}"
+
+    # Exactly one result line, or the answer is not trustworthy enough to
+    # deploy on. Two would mean an ambiguity somebody has to resolve; zero
+    # would mean an --inspect that exited 0 without saying anything.
+    local -a result_lines=()
+    mapfile -t result_lines < <(printf '%s\n' "${inspect_output}" | grep '^RATEGURU_RECOVER_RESULT=' || true)
+
+    (( ${#result_lines[@]} == 1 )) \
+        || fail "recover-host --inspect produced ${#result_lines[@]} machine-readable results for operation ${RECOVERY_OPERATION_ID}, expected exactly one"
+
+    local result
+    result="${result_lines[0]#RATEGURU_RECOVER_RESULT=}"
+
+    jq -e 'type == "object"' <<<"${result}" >/dev/null 2>&1 \
+        || fail "recover-host --inspect produced a malformed machine-readable result for operation ${RECOVERY_OPERATION_ID}"
+
+    local inspect_status inspect_operation inspect_target inspect_required
+    local inspect_queue inspect_scheduler inspect_current
+    inspect_status="$(jq -r '.status // empty' <<<"${result}")"
+    inspect_operation="$(jq -r '.operation // empty' <<<"${result}")"
+    inspect_target="$(jq -r '.target // empty' <<<"${result}")"
+    inspect_required="$(jq -r '.required_source_sha // empty' <<<"${result}")"
+    inspect_queue="$(jq -r '.queue // empty' <<<"${result}")"
+    inspect_scheduler="$(jq -r '.scheduler // empty' <<<"${result}")"
+    inspect_current="$(jq -r '.current_release // empty' <<<"${result}")"
+
+    [[ "${inspect_operation}" == "${RECOVERY_OPERATION_ID}" ]] \
+        || fail "recover-host --inspect reported operation ${inspect_operation:-<unset>}, not ${RECOVERY_OPERATION_ID}"
+    [[ "${inspect_target}" == "${TARGET_ID}" ]] \
+        || fail "recover-host --inspect reported target ${inspect_target:-<unset>}, not ${TARGET_ID}"
+    [[ "${inspect_status}" == "awaiting-code" ]] \
+        || fail "recover-host --inspect reported status ${inspect_status:-<unset>}, not awaiting-code"
+
+    # The observed runtime, not a claim: --inspect fails outright unless the
+    # queue is provably fully STOPPED and the scheduler cron entry is still
+    # held aside, and reports these two only once it has proven them.
+    [[ "${inspect_queue}" == "stopped" ]] \
+        || fail "recover-host --inspect reported queue ${inspect_queue:-<unset>}, not stopped — a controlled recovery deployment only installs into a host whose workers are provably down"
+    [[ "${inspect_scheduler}" == "held" ]] \
+        || fail "recover-host --inspect reported scheduler ${inspect_scheduler:-<unset>}, not held — a controlled recovery deployment only installs into a host whose scheduler cannot fire"
+    [[ -z "${inspect_current}" ]] \
+        || fail "recover-host --inspect reports ${TARGET_ID} already serving ${inspect_current} — a controlled recovery deployment installs the FIRST code a rebuilt host receives"
+
+    [[ "${inspect_required}" == "${RECOVERY_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "recover-host --inspect requires ${inspect_required:-<unset>}, but this host's recovery documents require ${RECOVERY_ALIGNMENT_REQUIRED_SHA} — refusing to deploy into a host whose own recovery state is inconsistent"
+
+    # Read again HERE, after the proof, and not only through it: this is the
+    # filesystem `deploy` itself is about to write into, and the atomic switch
+    # below assumes both links are absent.
+    if [[ -e "${CURRENT_LINK}" ]] || [[ -L "${CURRENT_LINK}" ]]; then
+        fail "${TARGET_ID} already has ${CURRENT_LINK}: a controlled recovery deployment installs the FIRST code a rebuilt host receives, and this target is already serving something. Its recovery documents and its filesystem disagree; resolve that by hand"
+    fi
+
+    if [[ -e "${PREVIOUS_LINK}" ]] || [[ -L "${PREVIOUS_LINK}" ]]; then
+        fail "${TARGET_ID} has ${PREVIOUS_LINK} but no current: a rebuilt host has no release history at all, so a previous link here means something other than this recovery touched it"
+    fi
+
+    log "controlled recovery deployment authorized: ${TARGET_ID} is still held by ${RECOVERY_OPERATION_ID} and requires ${RECOVERY_ALIGNMENT_REQUIRED_SHA} (backup ${RECOVERY_ALIGNMENT_BACKUP})"
+}
+
+# finalize_recovery_alignment — everything a controlled recovery deployment
+# does AFTER the atomic current switch and the PHP-FPM reload, and nothing else.
+#
+# What is deliberately absent is the entire normal post-switch sequence: no HTTP
+# health check (the target's queue and scheduler are still held, and
+# `recover-host --resume` is what proves it healthy), no queue transition, no
+# scheduler restoration, no Nightwatch transition (an observability sidecar
+# following a target that is not serving yet has nothing to observe, and
+# `--resume` is where the target actually comes up), and no touch of the
+# recovery guard.
+finalize_recovery_alignment() {
+    # `previous` is not written, and this is the whole of that decision: a
+    # rebuilt host has exactly one release, so there is no earlier one to roll
+    # back to. Synthesising a `previous` would point it at the release that was
+    # just installed, arming an ordinary rollback to "undo" the only code the
+    # recovered data belongs to. It stays absent until a normal deployment
+    # establishes a real one.
+    log "${LABEL} recovered host aligned to ${RELEASE_ID} (${RECOVERY_ALIGNMENT_REQUIRED_SHA}) and is STILL HELD"
+    log "previous is deliberately absent: a rebuilt host has no earlier release to roll back to"
+    log "recovery guard, queue and scheduler are unchanged — finish with: recover-host --resume --target ${TARGET_ID} --operation ${RECOVERY_OPERATION_ID}"
+
+    # Never "deployment-finished success": at this instant the target has code
+    # but is not serving, and a history that claims otherwise would be false for
+    # as long as the hold lasts. `recover-host --resume` writes the record that
+    # says the host came back.
+    append_history \
+        "${TARGET_ROOT}" \
+        "${DEPLOY_HISTORY_FINISH_EVENT}" \
+        "${RELEASE_ID}" \
+        "held"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
+# finalize_restore_alignment — everything a controlled alignment does AFTER the
+# atomic current switch and the PHP-FPM reload, and nothing else.
+#
+# What is deliberately absent is the entire normal post-switch sequence: no
+# HTTP health check (a held target is in maintenance and must not pass one), no
+# queue transition (its workers must stay stopped), no scheduler restoration,
+# no `artisan up`, and no touch of the restore guard.
+finalize_restore_alignment() {
+    # The one exception, and only because it is an exception by contract: the
+    # Nightwatch agent is an observability sidecar that follows `current`, and
+    # its transition is fail-open — it warns, it never decides whether an
+    # operation succeeded. Leaving it pointed at a release that no longer
+    # exists would be a worse outcome than restarting a sidecar that writes no
+    # application data.
+    perform_nightwatch_transition
+
+    # `previous` is cleared, not repointed. A controlled alignment is a
+    # code/data reconciliation, not a release promotion: the release that WAS
+    # current is precisely the code the restored data does not match, so making
+    # it the target's "one step back" would arm an ordinary rollback to undo
+    # the alignment and leave data and code disagreeing again — silently, and
+    # after the guard is gone. Clearing it makes `rollback --previous` fail
+    # closed until a normal deployment establishes a real previous, while
+    # `rollback --release <id>` remains available to an operator who names a
+    # release deliberately. Every release directory is untouched.
+    if [[ -L "${PREVIOUS_LINK}" ]]; then
+        rm -f "${PREVIOUS_LINK}" \
+            || fail "could not clear ${PREVIOUS_LINK} after the controlled alignment"
+
+        log "cleared previous: a controlled alignment leaves no implicit rollback target"
+    fi
+
+    log "${LABEL} aligned to ${RELEASE_ID} (${RESTORE_ALIGNMENT_REQUIRED_SHA}) and is STILL HELD"
+    log "restore guard, maintenance, queue and scheduler are unchanged — finish with: restore-target --resume --target ${TARGET_ID} --operation ${RESTORE_OPERATION_ID}"
+
+    # Never "deployment-finished success": at this instant the target is in
+    # maintenance with its workers stopped, and a history that claims it is
+    # serving would be false for as long as the hold lasts. The alignment
+    # events say exactly what happened, and `restore-target --resume` writes
+    # the record that says the target came back.
+    append_history \
+        "${TARGET_ROOT}" \
+        "${DEPLOY_HISTORY_FINISH_EVENT}" \
+        "${RELEASE_ID}" \
+        "held"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
+# --- deployment protocol compatibility (begin) ---
+#
+# Can THIS engine deploy THAT release?
+#
+# An application artifact can be newer than the privileged operational bundle
+# installed beside it: install-target-operations is not part of an ordinary
+# deployment, so a host can legitimately be running an older `deploy` than the
+# release it is handed. The environment contract closed one half of that gap —
+# the keys a release needs — but the engine itself can still simply not
+# implement behaviour the release was built expecting, and this project has seen
+# that for real: an installed deploy lagged repository behaviour and silently
+# skipped a step the release expected. Silently is the problem.
+#
+# So the two sides declare themselves and are compared:
+#
+#   the artifact   release.json's deployment_protocol_min — the minimum protocol
+#                  it requires of whatever deploys it
+#   the host       the installed contract's tooling.supported — the highest
+#                  protocol this engine implements, meaning 1..N
+#
+# Required > supported refuses before anything is touched and tells the operator
+# to run Prepare Host. The bundle is NEVER updated from here: self-updating a
+# privileged engine out of the artifact it is being asked to trust would make
+# the artifact the authority on its own trustworthiness.
+#
+# Protocol 1 is the bootstrap baseline: both numbers are 1 today, so no artifact
+# depends on anything new. artifact.minimum_required must not be raised above 1
+# until every host that may deploy such an artifact has installed the
+# protocol-aware bundle through Prepare Host.
+ARTIFACT_RELEASE_METADATA_BASENAME="candidate-release.json"
+ARTIFACT_DEPLOYMENT_PROTOCOL_BASENAME="candidate-protocol"
+
+# The inclusive upper bound on any protocol version, anywhere it is accepted.
+#
+# A protocol version is a small monotonic counter, so the ceiling is arbitrary in
+# the sense that nothing will ever approach it — and load-bearing in the sense
+# that WITHOUT one, the comparison below is a fail-open. JSON has no integer
+# limit, so a contract could state 9223372036854775808; Bash signed arithmetic
+# wraps that to -9223372036854775808, `(( required > supported ))` answers "no",
+# and an artifact requiring a protocol nothing implements would deploy.
+#
+# 2147483647 is the signed 32-bit maximum: unmistakably a bound rather than a
+# magic number, and far enough below the 64-bit range that every intermediate
+# value here is exact. The same number bounds all four places a protocol is
+# accepted — this file's two (the candidate's declaration and the installed
+# tooling's), install-target-operations' validation of the committed contract,
+# and build-rateguru's validation of the application source's copy — and a
+# parity test reads the literal out of all three files so they cannot drift.
+DEPLOYMENT_PROTOCOL_MAX=2147483647
+
+# protocol_version_within_bounds VALUE — is VALUE a protocol version this engine
+# may compare arithmetically?
+#
+# The shape check comes first and is what makes the range check safe: capping the
+# input at ten digits means the numeric comparison itself cannot overflow, so
+# this never has to trust arithmetic on a value it has not already bounded. jq
+# has normally validated the same value before this runs; that redundancy is the
+# point, because the comparison is the step that fails open.
+protocol_version_within_bounds() {
+    local value="${1-}"
+
+    [[ "${value}" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+
+    (( value <= DEPLOYMENT_PROTOCOL_MAX ))
+}
+
+# read_installed_deployment_protocol_supported — the host's own declaration,
+# assigned to INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED.
+#
+# Mandatory trusted configuration with NO fallback. Absent, a symlink, not a
+# regular file, unreadable, malformed, or carrying a `tooling.supported` that is
+# not an integer >= 1 all refuse the deployment. The legacy allowance below
+# exists for ARTIFACTS, which were genuinely built before this contract and
+# cannot be changed retroactively; this file is installed by the same operation
+# that installs the engine reading it, so a missing or broken one means the
+# bundle is not in a state anything should be deployed onto.
+#
+# Deliberately assigns a global rather than printing its answer, because every
+# branch here ends in `fail`. Called as `x="$(this)"` those failures would exit
+# only the command substitution's subshell, leaving the caller to carry on with
+# an empty value and report a second, invented diagnosis on top of the real one.
+# Running in the caller's own shell means one refusal, with the true reason.
+INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED=""
+
+read_installed_deployment_protocol_supported() {
+    INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED=""
+
+    [[ ! -L "${DEPLOYMENT_PROTOCOL_FILE}" ]] \
+        || fail "the installed deployment protocol contract is a symlink: ${DEPLOYMENT_PROTOCOL_FILE}. Run Prepare Host to reinstall the trusted operational bundle"
+
+    [[ -e "${DEPLOYMENT_PROTOCOL_FILE}" ]] \
+        || fail "the installed deployment protocol contract is missing: ${DEPLOYMENT_PROTOCOL_FILE}. Run Prepare Host to install the trusted operational bundle, then retry deployment"
+
+    [[ -f "${DEPLOYMENT_PROTOCOL_FILE}" ]] \
+        || fail "the installed deployment protocol contract is not a regular file: ${DEPLOYMENT_PROTOCOL_FILE}. Run Prepare Host to reinstall the trusted operational bundle"
+
+    [[ -r "${DEPLOYMENT_PROTOCOL_FILE}" ]] \
+        || fail "the installed deployment protocol contract is not readable: ${DEPLOYMENT_PROTOCOL_FILE}"
+
+    INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED="$(
+        jq -e '
+            if type != "object" then error("contract is not a JSON object")
+            elif .schema != 1 then error("unsupported contract schema")
+            elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
+            elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
+            elif .tooling.supported < 1 then error("tooling.supported is below 1")
+            elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
+            else .tooling.supported
+            end
+        ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${DEPLOYMENT_PROTOCOL_FILE}" 2>/dev/null
+    )" \
+        || fail "the installed deployment protocol contract is not usable: ${DEPLOYMENT_PROTOCOL_FILE}. Run Prepare Host to reinstall the trusted operational bundle"
+
+    # Proven again on this side of jq, because this is the value the arithmetic
+    # comparison will be handed.
+    protocol_version_within_bounds "${INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED}" \
+        || fail "the installed deployment protocol contract states an unusable tooling.supported — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}: ${DEPLOYMENT_PROTOCOL_FILE}"
+}
+
+# candidate_deployment_protocol_required ARTIFACT STAGE_DIR — the artifact's own
+# declaration, read out of the verified archive.
+#
+# release.json is read as a single member into a private staging directory; the
+# application release is never extracted into the target for this, so this runs
+# before any history row, any release directory and any change to the target.
+#
+#   0  STAGE_DIR/candidate-protocol holds the integer the artifact declares
+#   2  the artifact's release.json is an OBJECT with no deployment_protocol_min
+#   -  anything else fails
+#
+# 2 is the one LEGACY case, and the caller resolves it to protocol 1 with an
+# explicit log line: releases built before this contract existed must stay
+# deployable, and a silent default would be indistinguishable from a value that
+# was actually read.
+#
+# Everything else is a broken artifact and refuses rather than being waved
+# through as "old" — including, deliberately, an artifact with no release.json at
+# all. That is not a legacy shape here: the build has written release.json since
+# the first real deployment workflow, and assert_controlled_artifact_identity
+# above already refuses an artifact without one, in this same file, for the
+# neighbouring reason that it cannot confirm which commit it is installing. A
+# fallback for a class of artifact that has never existed would only be a way in.
+candidate_deployment_protocol_required() {
+    local artifact="${1-}" stage_dir="${2-}"
+    local members member plain_entries dotted_entries root_entries member_type staged required
+
+    [[ -f "${artifact}" ]] \
+        || fail "cannot read the candidate artifact to establish its deployment protocol: ${artifact}"
+
+    [[ -d "${stage_dir}" ]] \
+        || fail "internal: no staging directory for the candidate deployment protocol"
+
+    members="$(tar -tzf "${artifact}")" \
+        || fail "cannot list the candidate artifact to establish its deployment protocol: ${artifact}"
+
+    # Whole-line matches only, tolerating the leading ./ the build's own tar
+    # produces, so no part of a member name is ever treated as a pattern.
+    #
+    # BOTH spellings are counted together, because `release.json` and
+    # `./release.json` are the same path once extracted. Picking one and counting
+    # only that name let an archive carrying both pass as unambiguous while
+    # extraction would leave the OTHER one on disk — this gate would have read a
+    # declaration the deployed release does not contain. There is no answer to
+    # "which one is the contract?", so there is no attempt at one.
+    plain_entries="$(grep -cxF 'release.json' <<<"${members}" || true)"
+    dotted_entries="$(grep -cxF './release.json' <<<"${members}" || true)"
+    root_entries=$(( plain_entries + dotted_entries ))
+
+    (( root_entries > 0 )) \
+        || fail "the candidate artifact contains no release.json — a RateGuru release artifact always carries one, so this cannot be read as an older release"
+
+    (( root_entries == 1 )) \
+        || fail "the candidate artifact contains ${root_entries} root release.json entries (release.json / ./release.json) — refusing to read a deployment contract from an ambiguous archive, because extraction would leave a different one on disk than this gate read"
+
+    if (( plain_entries == 1 )); then
+        member='release.json'
+    else
+        member='./release.json'
+    fi
+
+    # The declaration must come from a regular file. A symlink member would
+    # extract as empty content through -O rather than following anything, but
+    # refusing it by type says so, instead of relying on that.
+    member_type="$(tar -tvzf "${artifact}" "${member}" 2>/dev/null | awk 'NR == 1 { print substr($1, 1, 1) }')"
+
+    [[ "${member_type}" == "-" ]] \
+        || fail "the candidate artifact's ${member} is not a regular file — refusing to read a deployment contract from it"
+
+    staged="${stage_dir}/${ARTIFACT_RELEASE_METADATA_BASENAME}"
+
+    tar -xzOf "${artifact}" "${member}" > "${staged}" \
+        || fail "cannot read ${member} out of the candidate artifact"
+
+    # Valid JSON, EXACTLY ONE top-level value, and that value an OBJECT — all
+    # proven before has() is asked anything.
+    #
+    # jq's has() ERRORS on an array, string, number or boolean, and an error is
+    # not the same answer as "the key is absent". Treating the two alike
+    # classified every non-object release.json — `[]`, `"foo"`, `123`, `true` —
+    # as a legacy artifact and deployed it as protocol 1, which is the opposite
+    # of what a release.json nobody can read should mean.
+    #
+    # Slurping is what makes "exactly one" provable: jq reads a concatenated
+    # stream of values quite happily, and a release.json holding `{}{}` would
+    # otherwise reach the field read and yield two numbers.
+    jq -e -s 'length == 1 and (.[0] | type) == "object"' "${staged}" >/dev/null 2>&1 \
+        || fail "the candidate artifact's ${member} is not a single JSON object — this is a broken artifact, not an older release"
+
+    # Only an object WITHOUT the key is the legacy case.
+    jq -e -s '.[0] | has("deployment_protocol_min")' "${staged}" >/dev/null 2>&1 \
+        || return 2
+
+    required="$(
+        jq -e -s '
+            .[0].deployment_protocol_min as $value
+            | if ($value | type) != "number" then error("deployment_protocol_min is not a number")
+              elif ($value | floor) != $value then error("deployment_protocol_min is not an integer")
+              elif $value < 1 then error("deployment_protocol_min is below 1")
+              elif $value > $max then error("deployment_protocol_min is above the supported maximum")
+              else $value
+              end
+        ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${staged}" 2>/dev/null
+    )" \
+        || fail "the candidate artifact declares an unusable deployment_protocol_min — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}. This is a broken artifact, not an older release"
+
+    # Proven again on this side of jq, because this is the value the arithmetic
+    # comparison will be handed.
+    protocol_version_within_bounds "${required}" \
+        || fail "the candidate artifact declares an unusable deployment_protocol_min — it must be an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}. This is a broken artifact, not an older release"
+
+    printf '%s\n' "${required}" > "${stage_dir}/${ARTIFACT_DEPLOYMENT_PROTOCOL_BASENAME}"
+}
+
+# assert_deployment_protocol_compatible — the gate.
+#
+# Applies to a controlled restore or recovery alignment exactly as it does to an
+# ordinary deployment, and deliberately unlike the environment contract. That
+# exemption is about historical APPLICATION STATE: a backup's environment.env
+# belongs to the SHA it was taken from and may predate keys that exist now. This
+# is about whether the engine running right now can carry out the deployment at
+# all, which is just as true when the release being installed is historical. A
+# historical artifact without the field is protocol 1 and stays compatible with
+# any engine; one that declares a protocol this engine does not implement cannot
+# be deployed by it, controlled or not.
+#
+# Position: the lock is held, containment and the checksum are verified and
+# unsafe tar paths are rejected — but no history row has been written, no release
+# directory exists, no migration has run, current/previous are untouched and no
+# service has been transitioned. One member is read OUT of the archive; nothing
+# is extracted into the target.
+assert_deployment_protocol_compatible() {
+    local stage="" status=0 diagnosis="" required="" supported=""
+
+    # The host's declaration first: a bundle that cannot say what it supports is
+    # not a bundle anything should be deployed onto, and finding that out costs
+    # nothing and touches nothing.
+    read_installed_deployment_protocol_supported
+    supported="${INSTALLED_DEPLOYMENT_PROTOCOL_SUPPORTED}"
+
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-deployment-protocol.XXXXXX")" \
+        || fail "could not create a private directory to read the candidate artifact's deployment protocol"
+
+    chmod 0700 "${stage}"
+
+    # Run in a subshell so a refusal inside the reader cannot exit this script
+    # before the staging directory is removed. Its verdict travels as an exit
+    # status, its diagnosis as output, and the value it read as a known path.
+    diagnosis="$(
+        candidate_deployment_protocol_required "${ARTIFACT}" "${stage}" 2>&1
+    )" || status=$?
+
+    case "${status}" in
+        0)
+            required="$(cat "${stage}/${ARTIFACT_DEPLOYMENT_PROTOCOL_BASENAME}")"
+            ;;
+        2)
+            log "candidate release has no deployment_protocol_min; treating legacy artifact as protocol 1"
+            required=1
+            ;;
+        *)
+            printf '%s\n' "${diagnosis}" >&2
+            rm -rf "${stage}"
+            fail "refusing to deploy ${RELEASE_ID} to ${TARGET_ID}: its deployment protocol declaration cannot be read. No history was written and nothing was extracted"
+            ;;
+    esac
+
+    rm -rf "${stage}"
+
+    # Both sides are bounded before they are compared, so the arithmetic below
+    # operates on two integers in 1..DEPLOYMENT_PROTOCOL_MAX and cannot overflow.
+    # Asserted here rather than assumed: this is the step that decides whether a
+    # deployment proceeds, and the one an out-of-range value would fail open on.
+    protocol_version_within_bounds "${required}" \
+        || fail "internal: could not determine the candidate release's required deployment protocol as an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}"
+
+    protocol_version_within_bounds "${supported}" \
+        || fail "internal: could not determine the installed tooling's supported deployment protocol as an integer from 1 to ${DEPLOYMENT_PROTOCOL_MAX}"
+
+    if (( required > supported )); then
+        fail "refusing to deploy ${RELEASE_ID} to ${TARGET_ID}: candidate requires deployment protocol ${required}, installed tooling supports ${supported}; run Prepare Host to update the trusted operational bundle, then retry deployment. No history was written and nothing was extracted"
+    fi
+
+    log "deployment protocol compatible: candidate requires ${required}, installed tooling supports ${supported}"
+}
+# --- deployment protocol compatibility (end) ---
+
+# assert_candidate_environment_contract — does the live canonical .env declare
+# every key the CANDIDATE ARTIFACT requires?
+#
+# WHY THE ARTIFACT AND NOT THE INSTALLED TEMPLATE. install-target-operations is
+# not part of an ordinary application deployment, so this host's operational
+# bundle can legitimately be older than the application being deployed onto it.
+# Judged against the installed template, a host with 70 keys installed, an
+# artifact expecting 71 and a .env carrying 70 compares 70 against 70, passes,
+# and installs an application that cannot read the key it needs. This project has
+# already seen that class of drift for real: an installed deploy lagged
+# repository behaviour and silently skipped a step the release expected.
+#
+# WHY NOT IN A CONTROLLED ALIGNMENT. A restore or a recovery deliberately puts an
+# EXACT historical release beside historical, restored state — a backup's
+# environment.env belongs to the source SHA it was taken from, and that release
+# may legitimately predate keys that exist today. Refusing such a pair would make
+# a valid disaster recovery impossible, which is the opposite of what those modes
+# are for. They carry their own strict authorization and state guards, and the
+# next ORDINARY deployment enforces the current contract before that target is
+# moved forward again.
+#
+# Position: the lock is held, containment and the checksum are verified, and
+# unsafe tar paths are rejected — but no history row has been written, no release
+# directory exists and nothing about the target has changed. Two members are read
+# out of the archive and nothing is extracted into the target.
+assert_candidate_environment_contract() {
+    if controlled_mode; then
+        log "controlled alignment: the current operational environment contract is deliberately NOT applied — this installs an exact historical release beside historical state, and the next ordinary deployment enforces the current contract"
+
+        return 0
+    fi
+
+    local stage="" status=0 diagnosis=""
+
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-environment-contract.XXXXXX")" \
+        || fail "could not create a private directory to read the candidate artifact's environment contract"
+
+    chmod 0700 "${stage}"
+
+    # Run in a subshell so a refusal inside the resolver cannot exit this script
+    # before the staging directory is removed. Its verdict travels as an exit
+    # status, its diagnosis as output, and the template it staged as a known
+    # path.
+    diagnosis="$(
+        artifact_environment_template_stage "${ARTIFACT}" "${TARGET_ID}" "${stage}" 2>&1
+    )" || status=$?
+
+    case "${status}" in
+        0)
+            if ! assert_environment_contract \
+                "${TARGET_ID}" \
+                "${TARGET_ROOT}/shared/.env" \
+                "${stage}/${ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME}" \
+                "this deployment"
+            then
+                rm -rf "${stage}"
+                exit 1
+            fi
+            ;;
+        2)
+            log "release predates artifact-owned environment contract — skipping environment key validation"
+            ;;
+        *)
+            printf '%s\n' "${diagnosis}" >&2
+            rm -rf "${stage}"
+            fail "refusing to deploy ${RELEASE_ID} to ${TARGET_ID}: its artifact declares an environment contract it cannot produce. No history was written and nothing was extracted"
+            ;;
+    esac
+
+    rm -rf "${stage}"
+}
+
+# --- deployment recovery (unchanged internals; process-global trap, not
+# function-scoped, so moving the call site that arms it into perform_deploy
+# below changes nothing about when or how it fires) ---------------------------
+
+restore_link_state() {
+    local link_path="$1"
+    local original_present="$2"
+    local original_path="$3"
+    local recovery_link="${link_path}.recovery"
+
+    if [[ "${original_present}" == true ]]; then
+        if [[ ! -d "${original_path}" ]]; then
+            log "WARNING: original symlink target is unavailable: ${original_path}"
+            return 1
+        fi
+
+        if ! ln -sfn "${original_path}" "${recovery_link}"; then
+            return 1
+        fi
+
+        if ! mv -Tf "${recovery_link}" "${link_path}"; then
+            rm -f "${recovery_link}" || true
+            return 1
+        fi
+    elif ! rm -f "${link_path}"; then
+        return 1
+    fi
+
+    return 0
+}
+
+restore_deployment_links() {
+    local recovery_failed=false
+
+    if ! restore_link_state \
+        "${CURRENT_LINK}" \
+        "${ORIGINAL_CURRENT_PRESENT}" \
+        "${ORIGINAL_CURRENT_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! restore_link_state \
+        "${PREVIOUS_LINK}" \
+        "${ORIGINAL_PREVIOUS_PRESENT}" \
+        "${ORIGINAL_PREVIOUS_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
+        recovery_failed=true
+    fi
+
+    [[ "${recovery_failed}" == false ]]
+}
+
+handle_deployment_exit() {
+    local exit_code=$?
+    local recovery_succeeded=true
+
+    trap - EXIT
+
+    if (( exit_code != 0 )) \
+        && [[ "${DEPLOYMENT_STARTED}" == true ]]
+    then
+        if [[ "${CURRENT_SWITCHED}" == true ]]; then
+            log "deployment failed after switching current; restoring prior links"
+
+            if ! restore_deployment_links; then
+                recovery_succeeded=false
+                log "WARNING: unable to fully restore deployment symlinks"
+            fi
+        fi
+
+        # Supervisor state recovery: only when THIS deploy
+        # activated the target worker (which only happens when it was not
+        # active before the deploy — an already-RUNNING worker is never
+        # touched, so there is nothing to recover for it). Stopping the
+        # newly-activated program guarantees no worker keeps executing
+        # against a current that recovery just removed. A worker that cannot
+        # be stopped blocks the failed release directory's cleanup below —
+        # never delete a release a process may still be running in. Only the
+        # target's own program group is touched.
+        #
+        # This stops the processes; it does not unregister the program. The
+        # program group stays known to the running supervisord, so a failed
+        # first deployment leaves the host in the same residual window the
+        # PRE_DEPLOY bootstrap already documents: the committed config keeps
+        # autostart=true, so a later supervisord restart would start it
+        # against a current that does not exist and fail-loop until a
+        # deployment succeeds. Deliberately not resolved by removing the
+        # program here — recovery does not own the operator's supervisor
+        # registration. See runbooks/bootstrap-services.md.
+        if controlled_mode; then
+            # A failed controlled deployment leaves the target HELD, on purpose
+            # and in every case. The link recovery above already put `current`
+            # (and `previous`) back where they were and reloaded PHP-FPM, which
+            # is the whole of what recovery may do here — and for a recovering
+            # host "where they were" is ABSENT, which restore_link_state
+            # already expresses by unlinking.
+            #
+            # What it must NOT do is anything that starts the target: no queue
+            # start or restart, no `artisan up`, no scheduler restoration and
+            # no removal of either guard. The hold is not damage to be repaired
+            # — it is the correct state for a target whose data and code do not
+            # yet provably match — and it stays until the operation's own
+            # `--resume` says otherwise.
+            if restore_alignment_mode; then
+                log "controlled restore alignment failed; ${TARGET_ID} remains HELD — its maintenance mode, stopped queue, held scheduler and restore guard are all untouched by this recovery"
+            else
+                log "controlled recovery deployment failed; ${TARGET_ID} remains a HELD replacement host — its stopped queue, held scheduler and recovery guard are all untouched by this recovery, and its recovered data was never read"
+            fi
+
+            if [[ "${CURRENT_SWITCHED}" == true ]] && [[ "${recovery_succeeded}" == false ]]; then
+                log "ERROR: the prior release links could NOT be restored after a failed controlled deployment — ${TARGET_ID} is held with release pointers this script could not return to their previous state; do not resume it until an operator has inspected ${TARGET_ROOT}"
+            fi
+        elif [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
+            log "deployment failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not active before this deployment)"
+
+            if ! supervisorctl stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
+                recovery_succeeded=false
+                log "WARNING: unable to stop supervisor worker ${SUPERVISOR_PROGRAM} during recovery"
+            fi
+        elif [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]]; then
+            # The worker ran before this deploy and was never registered or
+            # started by it. If this deploy already signalled a restart, the
+            # workers were told to exit and reboot against what `current`
+            # points at — which recovery has just changed back to the old
+            # release. Re-signal from the RESTORED release so the queue ends
+            # up coherent with the release actually being served, rather than
+            # leaving workers that booted (or are about to boot) the failed
+            # one. Only the target's own program is involved.
+            if [[ "${QUEUE_RESTART_ISSUED}" == true ]] \
+                && [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+                && [[ -d "${ORIGINAL_CURRENT_PATH}" ]] \
+                && [[ -f "${ORIGINAL_CURRENT_PATH}/artisan" ]]
+            then
+                log "re-issuing the queue restart signal from the restored release ${ORIGINAL_CURRENT_PATH}"
+
+                if ! issue_queue_restart "${ORIGINAL_CURRENT_PATH}"; then
+                    recovery_succeeded=false
+                    log "WARNING: unable to re-issue the queue restart signal against the restored release"
+                fi
+            fi
+
+            # Bounded wait, not a single check: a recovery restart signal
+            # races Supervisor's replacement exactly like the deploy-time one,
+            # so a transient STARTING must not be reported as degraded
+            # recovery. The worker is never force-started here — this is a
+            # normal deployed-target recovery, and only the target's own
+            # program is ever observed.
+            if ! wait_for_queue_program_running; then
+                # Either something outside this pipeline stopped it, or the
+                # program did not survive the transition — surfaced through
+                # the existing recovery warning semantics, never silently
+                # absorbed and never force-started by recovery.
+                recovery_succeeded=false
+                log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this deployment but is not RUNNING after recovery — investigate manually"
+            fi
+        fi
+
+        if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
+            if append_history \
+                "${TARGET_ROOT}" \
+                "${DEPLOY_HISTORY_FINISH_EVENT}" \
+                "${RELEASE_ID}" \
+                "${FAILURE_STATUS}"
+            then
+                TERMINAL_HISTORY_WRITTEN=true
+            else
+                log "WARNING: unable to record failed deployment"
+            fi
+        fi
+
+        if [[ -d "${RELEASE_ROOT}" ]] \
+            && { [[ "${CURRENT_SWITCHED}" == false ]] \
+                || [[ "${recovery_succeeded}" == true ]]; }
+        then
+            rm -rf "${RELEASE_ROOT}" || true
+        fi
+    fi
+
+    if [[ -d "${TEMP_RELEASE_ROOT}" ]]; then
+        rm -rf "${TEMP_RELEASE_ROOT}" || true
+    fi
+
+    exit "${exit_code}"
+}
+
+# --- deployment pipeline -------------------------------------------------------
+
+perform_deploy() {
+    validate_release_id "${RELEASE_ID}"
+
+    ARTIFACT="$(readlink -f "${ARTIFACT}")"
+
+    [[ -f "${ARTIFACT}" ]] \
+        || fail "artifact does not exist: ${ARTIFACT}"
+
+    if [[ -z "${CHECKSUM_FILE}" ]]; then
+        CHECKSUM_FILE="${ARTIFACT}.sha256"
+    fi
+
+    CHECKSUM_FILE="$(readlink -f "${CHECKSUM_FILE}")"
+
+    [[ -f "${CHECKSUM_FILE}" ]] \
+        || fail "checksum file does not exist: ${CHECKSUM_FILE}"
+
+    case "${ARTIFACT}" in
+        "${INCOMING_ROOT}"/*)
+            ;;
+        *)
+            fail "artifact must be located inside ${INCOMING_ROOT}"
+            ;;
+    esac
+
+    case "${CHECKSUM_FILE}" in
+        "${INCOMING_ROOT}"/*)
+            ;;
+        *)
+            fail "checksum must be located inside ${INCOMING_ROOT}"
+            ;;
+    esac
+
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
+    RELEASE_ROOT="${RELEASES_ROOT}/${RELEASE_ID}"
+    TEMP_RELEASE_ROOT="${RELEASES_ROOT}/.${RELEASE_ID}.tmp-$$"
+
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
+
+    acquire_deployment_lock "${TARGET_ROOT}"
+
+    # The restore interlock, taken under the deployment lock so it cannot race
+    # a restore that is about to take the same lock, and BEFORE any mutation:
+    # nothing has been extracted, no history record exists and no link has
+    # moved by this point.
+    #
+    # A held target's live data may belong to a different commit than `current`
+    # serves. An ordinary deployment there would health-check it, transition
+    # its queue and bring it back up — fighting the hold that exists precisely
+    # to stop anything running against data whose code has not arrived yet. So
+    # an ordinary deployment refuses, and the only deployment that proceeds is
+    # the controlled alignment that proves it is the one this hold is waiting
+    # for.
+    # --- restore interlock (begin) ---
+    if restore_alignment_mode; then
+        DEPLOY_HISTORY_START_EVENT="restore-alignment-started"
+        DEPLOY_HISTORY_FINISH_EVENT="restore-alignment-finished"
+
+        assert_restore_alignment_authorized
+    elif recovery_alignment_mode; then
+        DEPLOY_HISTORY_START_EVENT="recovery-alignment-started"
+        DEPLOY_HISTORY_FINISH_EVENT="recovery-alignment-finished"
+
+        assert_recovery_alignment_authorized
+    else
+        assert_no_operation_hold "${TARGET_ID}" "${RUN_ROOT}" "a deployment"
+    fi
+    # --- restore interlock (end) ---
+
+    ORIGINAL_CURRENT_PRESENT=false
+    ORIGINAL_CURRENT_PATH=""
+    ORIGINAL_PREVIOUS_PRESENT=false
+    ORIGINAL_PREVIOUS_PATH=""
+
+    if [[ -L "${CURRENT_LINK}" ]]; then
+        ORIGINAL_CURRENT_PRESENT=true
+        ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
+    fi
+
+    if [[ -L "${PREVIOUS_LINK}" ]]; then
+        ORIGINAL_PREVIOUS_PRESENT=true
+        ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+    fi
+
+    # Snapshot the target worker's state before any mutation (a read-only
+    # supervisorctl status query — never reread/update/start): recovery must
+    # distinguish "was RUNNING before this deploy" (left alone, stays
+    # coherent against a restored old current) from "was not active before"
+    # (a failed deploy that activated it must stop it again).
+    ORIGINAL_QUEUE_RUNNING=false
+    queue_program_running && ORIGINAL_QUEUE_RUNNING=true
+    SUPERVISOR_ACTIVATED_NOW=false
+    QUEUE_RESTART_ISSUED=false
+
+    DEPLOYMENT_STARTED=false
+    TERMINAL_HISTORY_WRITTEN=false
+    CURRENT_SWITCHED=false
+    FAILURE_STATUS="failed"
+
+    trap handle_deployment_exit EXIT
+
+    [[ ! -e "${RELEASE_ROOT}" ]] \
+        || fail "release already exists: ${RELEASE_ROOT}"
+
+    log "verifying artifact checksum"
+
+    (
+        cd "$(dirname "${ARTIFACT}")"
+
+        sha256sum \
+            --check \
+            "$(basename "${CHECKSUM_FILE}")"
+    )
+
+    log "validating artifact paths"
+
+    if tar -tzf "${ARTIFACT}" \
+        | grep -Eq '(^/|(^|/)\.\.(/|$))'
+    then
+        fail "artifact contains an unsafe path"
+    fi
+
+    # Before the environment contract, and for the same reason it is before the
+    # history row: if this engine cannot carry out the deployment at all, saying
+    # so is the only useful thing left to do. Applies to a controlled alignment
+    # too — see the function's own header.
+    # --- deployment protocol gate (begin) ---
+    assert_deployment_protocol_compatible
+    # --- deployment protocol gate (end) ---
+
+    # --- candidate environment contract (begin) ---
+    assert_candidate_environment_contract
+    # --- candidate environment contract (end) ---
+
+    AVAILABLE_KB="$(
+        df --output=avail "${RELEASES_ROOT}" \
+            | tail -1 \
+            | tr -d ' '
+    )"
+
+    ARTIFACT_KB="$(
+        du -k "${ARTIFACT}" \
+            | awk '{ print $1 }'
+    )"
+
+    REQUIRED_KB="$((ARTIFACT_KB * 5 + 102400))"
+
+    if (( AVAILABLE_KB < REQUIRED_KB )); then
+        fail "insufficient disk space for release extraction"
+    fi
+
+    append_history \
+        "${TARGET_ROOT}" \
+        "${DEPLOY_HISTORY_START_EVENT}" \
+        "${RELEASE_ID}" \
+        "running"
+
+    DEPLOYMENT_STARTED=true
+
+    log "extracting ${RELEASE_ID}"
+
+    install \
+        -d \
+        -o "${DEPLOY_ACCOUNT}" \
+        -g "${CODE_GROUP}" \
+        -m 0750 \
+        "${TEMP_RELEASE_ROOT}"
+
+    tar \
+        -xzf "${ARTIFACT}" \
+        --no-same-owner \
+        --no-same-permissions \
+        -C "${TEMP_RELEASE_ROOT}"
+
+    [[ -f "${TEMP_RELEASE_ROOT}/public/index.php" ]] \
+        || fail "artifact does not contain public/index.php"
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/.env" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/.env" ]]
+    then
+        rm -f "${TEMP_RELEASE_ROOT}/.env"
+    fi
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/storage" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/storage" ]]
+    then
+        rm -rf "${TEMP_RELEASE_ROOT}/storage"
+    fi
+
+    ln -s \
+        "${TARGET_ROOT}/shared/.env" \
+        "${TEMP_RELEASE_ROOT}/.env"
+
+    ln -s \
+        "${TARGET_ROOT}/shared/storage" \
+        "${TEMP_RELEASE_ROOT}/storage"
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/public/storage" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/public/storage" ]]
+    then
+        rm -rf "${TEMP_RELEASE_ROOT}/public/storage"
+    fi
+
+    ln -s \
+        "${TARGET_ROOT}/shared/storage/app/public" \
+        "${TEMP_RELEASE_ROOT}/public/storage"
+
+    chown -R \
+        "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
+        "${TEMP_RELEASE_ROOT}"
+
+    # Normalize modes without discarding the executable bit. Files Git tracked as
+    # executable (installer/verify/status scripts, and any future ones) are extracted
+    # with their exec bit intact and must stay runnable; every other regular file is
+    # normalized to non-executable. Ownership was already normalized by chown -R
+    # above; we never widen beyond group access (no world read/write/execute).
+    # --- normalize release permissions (begin) ---
+    find "${TEMP_RELEASE_ROOT}" \
+        -type d \
+        -exec chmod 0750 {} +
+
+    find "${TEMP_RELEASE_ROOT}" \
+        -type f \
+        -perm /111 \
+        -exec chmod 0750 {} +
+
+    find "${TEMP_RELEASE_ROOT}" \
+        -type f \
+        ! -perm /111 \
+        -exec chmod 0640 {} +
+    # --- normalize release permissions (end) ---
+
+    # Proves what this deploy script itself actually produces for the installed,
+    # server-side copy of every infrastructure CLI, immediately after the
+    # normalization above ran — not merely what the GitHub Actions artifact-build
+    # workflows verified before upload. The two checks are independent: an
+    # artifact CLI can arrive executable and still lose that bit here if this
+    # normalization logic regresses on the server, or if the manifest itself goes
+    # missing from a release. verify-required-clis fails closed and never
+    # chmod's around a violation — a wrong mode here means the release is
+    # genuinely broken, not something to paper over silently, so this fails
+    # before current is ever switched. Shared with both artifact-build workflows
+    # (deploy-staging.yml, release.yml) rather than reimplemented here, so the
+    # one algorithm can't drift between the three call sites.
+    # --- verify infrastructure CLI executable bits (begin) ---
+    "${VERIFY_REQUIRED_CLIS_BIN}" --release-root "${TEMP_RELEASE_ROOT}"
+    # --- verify infrastructure CLI executable bits (end) ---
+
+    if [[ "${RUN_MIGRATIONS}" == true ]] \
+        && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
+    then
+        fail "--migrate was requested, but artifact does not contain artisan"
+    fi
+
+    # Checked against the STAGED tree, so a wrong artifact is rejected while
+    # the only thing that exists is a directory the failure handler removes —
+    # long before current could point at it.
+    # --- controlled alignment artifact identity (begin) ---
+    if restore_alignment_mode; then
+        assert_controlled_artifact_identity \
+            "${RESTORE_ALIGNMENT_REQUIRED_SHA}" \
+            "restore operation ${RESTORE_OPERATION_ID}"
+    elif recovery_alignment_mode; then
+        assert_controlled_artifact_identity \
+            "${RECOVERY_ALIGNMENT_REQUIRED_SHA}" \
+            "recovery operation ${RECOVERY_OPERATION_ID}"
+    fi
+    # --- controlled alignment artifact identity (end) ---
+
+    # Move to the final immutable path before generating Laravel caches.
+    # Laravel configuration may contain absolute application/storage paths.
+    mv \
+        "${TEMP_RELEASE_ROOT}" \
+        "${RELEASE_ROOT}"
+
+    if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
+        log "preparing Laravel release"
+
+        SHARED_STORAGE="${TARGET_ROOT}/shared/storage"
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g "${RUNTIME_USER}" \
+            -m 2770 \
+            "${SHARED_STORAGE}/framework/cache/data" \
+            "${SHARED_STORAGE}/framework/sessions" \
+            "${SHARED_STORAGE}/framework/views" \
+            "${SHARED_STORAGE}/logs"
+
+        chown -R \
+            "${RUNTIME_USER}:${RUNTIME_USER}" \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs"
+
+        find \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs" \
+            -type d \
+            -exec chmod 2770 {} +
+
+        find \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs" \
+            -type f \
+            -exec chmod 0660 {} +
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g www-data \
+            -m 2710 \
+            "${SHARED_STORAGE}/app"
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g www-data \
+            -m 2750 \
+            "${SHARED_STORAGE}/app/public"
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g "${RUNTIME_USER}" \
+            -m 0770 \
+            "${RELEASE_ROOT}/bootstrap/cache"
+
+        rm -f \
+            "${RELEASE_ROOT}/bootstrap/cache/config.php" \
+            "${RELEASE_ROOT}/bootstrap/cache/events.php" \
+            "${RELEASE_ROOT}/bootstrap/cache/routes-"*.php
+
+        if ! (
+            cd "${RELEASE_ROOT}"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan config:cache
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan rateguru:sharing:verify \
+                    --expected-host="${PUBLIC_HOSTNAME}"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan view:cache
+
+            if [[ "${RUN_MIGRATIONS}" == true ]]; then
+                log "running database migrations"
+
+                runuser \
+                    -u "${RUNTIME_USER}" \
+                    -- "${PHP_BIN}" artisan migrate --force
+            fi
+        ); then
+            FAILURE_STATUS="failed-preparation"
+            fail "Laravel release preparation failed"
+        fi
+
+        # After any requested migrations, so the backfill sees the schema
+        # the new release expects.
+        if ! controlled_mode; then
+            backfill_project_translations
+        fi
+
+        chown -R \
+            "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
+            "${RELEASE_ROOT}/bootstrap/cache"
+
+        find "${RELEASE_ROOT}/bootstrap/cache" \
+            -type d \
+            -exec chmod 0750 {} +
+
+        find "${RELEASE_ROOT}/bootstrap/cache" \
+            -type f \
+            -exec chmod 0640 {} +
+    fi
+
+    log "switching current symlink"
+
+    ln -sfn \
+        "${RELEASE_ROOT}" \
+        "${CURRENT_LINK}.new"
+
+    mv -Tf \
+        "${CURRENT_LINK}.new" \
+        "${CURRENT_LINK}"
+
+    CURRENT_SWITCHED=true
+
+    systemctl reload "${PHP_FPM_SERVICE}"
+
+    # The fork, and the only one. Everything above this line is identical for
+    # both modes; everything below is the runtime policy that differs.
+    if restore_alignment_mode; then
+        finalize_restore_alignment
+
+        return 0
+    fi
+
+    if recovery_alignment_mode; then
+        finalize_recovery_alignment
+
+        return 0
+    fi
+
+    if ! "${HEALTH_CHECK_BIN}" \
+        "${HEALTH_CHECK_ARGS[@]}"
+    then
+        FAILURE_STATUS="failed-health-check"
+        fail "deployment health check failed"
+    fi
+
+    # Slice 5.5: the queue transition — activation on a first deployment,
+    # a mandatory restart signal on a normal one. Runs after the HTTP health
+    # check and before the success record: both must hold before the
+    # deployment may be called successful.
+    perform_queue_transition
+
+    # The Nightwatch agent follows the queue worker, and only ever
+    # warns. A running observability sidecar that could not be restarted is
+    # worth saying out loud; it is not worth undoing a release that has
+    # already passed its health check.
+    perform_nightwatch_transition
+
+    if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+        && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
+    then
+        ln -sfn \
+            "${ORIGINAL_CURRENT_PATH}" \
+            "${PREVIOUS_LINK}.new"
+
+        mv -Tf \
+            "${PREVIOUS_LINK}.new" \
+            "${PREVIOUS_LINK}"
+    fi
+
+    # The queue transition already ran, immediately after the health check —
+    # it is a deployment requirement, not a best-effort afterthought, so
+    # there is deliberately no second, warning-only restart attempt here.
+
+    log "${LABEL} deployed successfully: ${RELEASE_ID}"
+
+    append_history \
+        "${TARGET_ROOT}" \
+        "${DEPLOY_HISTORY_FINISH_EVENT}" \
+        "${RELEASE_ID}" \
+        "success"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
+# --- dispatch -----------------------------------------------------------
+
+# require_root stays the first substantive action of a real invocation,
+# unchanged from before this slice — this is the production root-only
+# contract, and it is not weakened by anything above: parse_deploy_args,
+# resolve_target and perform_deploy are all inert definitions until main
+# calls them, in this exact order.
+main() {
+    require_root
+    parse_deploy_args "$@"
+    resolve_target
+    perform_deploy
+}
+
+# A real invocation (`bash deploy ...` or `./deploy ...`) always has
+# BASH_SOURCE[0] == $0, so main runs immediately here, exactly as today.
+# Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so main
+# never auto-runs — then call parse_deploy_args/resolve_target/perform_deploy
+# directly (bypassing require_root, for parsing/resolution-only coverage) or
+# call main explicitly (for coverage that legitimately needs the real
+# root-gated flow).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

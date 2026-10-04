@@ -5,6 +5,10 @@ use App\Enums\ImportProvider;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use Illuminate\Support\Facades\Http;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('imports preview from generic open graph url', function () {
     Http::fake([
         'example.com/page' => Http::response(

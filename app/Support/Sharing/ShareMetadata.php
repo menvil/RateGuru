@@ -6,6 +6,7 @@ final readonly class ShareMetadata
 {
     public function __construct(
         public string $title,
+        public string $shareText,
         public string $description,
         public string $url,
         public ?string $imageUrl,

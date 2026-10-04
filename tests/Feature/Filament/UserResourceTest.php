@@ -4,6 +4,7 @@ use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
@@ -41,7 +42,6 @@ it('allows admin to edit user identity and password', function () {
             'username' => 'new_username',
             'email' => 'new-user@example.com',
             'role' => $user->role->value,
-            'status' => UserStatus::Limited->value,
             'password' => 'new-password',
         ])
         ->call('save')
@@ -49,11 +49,37 @@ it('allows admin to edit user identity and password', function () {
 
     $fresh = $user->fresh();
 
+    // Lifecycle status is not editable through the generic form: it stays
+    // exactly as it was and no moderation log appears.
     expect($fresh->name)->toBe('New Name')
         ->and($fresh->username)->toBe('new_username')
         ->and($fresh->email)->toBe('new-user@example.com')
-        ->and($fresh->status)->toBe(UserStatus::Limited)
-        ->and(Hash::check('new-password', $fresh->password))->toBeTrue();
+        ->and($fresh->status)->toBe(UserStatus::Active)
+        ->and(Hash::check('new-password', $fresh->password))->toBeTrue()
+        ->and(ModerationLog::query()->count())->toBe(0);
+});
+
+it('cannot mutate lifecycle status through the generic edit form even with injected state', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
+        ->fillForm([
+            'name' => $user->name,
+            'username' => $user->username,
+            'email' => $user->email,
+            'role' => $user->role->value,
+        ])
+        // Injected Livewire state for a field that no longer exists in the
+        // schema must be ignored by save().
+        ->set('data.status', UserStatus::Banned->value)
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($user->fresh()->status)->toBe(UserStatus::Active)
+        ->and(ModerationLog::query()->count())->toBe(0);
 });
 
 it('validates username uniqueness when editing a user', function () {
@@ -69,7 +95,6 @@ it('validates username uniqueness when editing a user', function () {
             'username' => 'taken_username',
             'email' => $user->email,
             'role' => $user->role->value,
-            'status' => $user->status->value,
         ])
         ->call('save')
         ->assertHasFormErrors(['username' => 'unique']);
@@ -87,7 +112,6 @@ it('requires an integer trust level when editing a user', function () {
             'username' => $user->username,
             'email' => $user->email,
             'role' => $user->role->value,
-            'status' => $user->status->value,
             'trust_level' => 1.5,
         ])
         ->call('save')

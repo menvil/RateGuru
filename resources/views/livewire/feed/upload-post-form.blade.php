@@ -126,7 +126,7 @@
                     />
 
                     <template x-if="previewUrl && imageTab === 'file'">
-                        <img :src="previewUrl" alt="Selected image preview" class="max-h-56 w-full rounded-rgMedia object-contain" />
+                        <img :src="previewUrl" alt="{{ __('ui.upload.selected_image_alt') }}" decoding="async" class="max-h-56 w-full rounded-rgMedia object-contain" />
                     </template>
 
                     <div x-show="!previewUrl || imageTab !== 'file'" class="flex flex-col items-center gap-2">
@@ -158,7 +158,7 @@
                     x-on:input="previewUrl = $event.target.value || null"
                 />
                 <template x-if="previewUrl && imageTab === 'url'">
-                    <img :src="previewUrl" alt="Image preview" class="max-h-48 w-full rounded-rgMedia object-contain" />
+                    <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" class="max-h-48 w-full rounded-rgMedia object-contain" />
                 </template>
             </div>
             @endif
@@ -195,7 +195,7 @@
                         class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
                     >
                     <div>
-                        <label for="knows_correct_answer" class="text-sm font-medium text-rg-text">
+                        <label for="knows_correct_answer" class="cursor-pointer text-sm font-medium text-rg-text">
                             {{ __('ui.upload.knows_answer') }}
                         </label>
                         <p class="mt-0.5 text-xs text-rg-muted">{{ __('ui.upload.knows_answer_hint') }}</p>
@@ -332,22 +332,22 @@
         </div>
 
         {{-- Category — public, feeds the sidebar "Categories" filter --}}
-        @if($categoryGroup !== null && $categoryGroup->options->isNotEmpty())
+        @if($categories->isNotEmpty())
             <div>
-                <x-input-label for="category_option_id" :value="__('ui.upload.category')" />
+                <x-input-label for="category_id" :value="__('ui.upload.category')" />
                 <select
-                    id="category_option_id"
-                    wire:model.defer="categoryOptionId"
+                    id="category_id"
+                    wire:model.defer="categoryId"
                     data-testid="upload-category-select"
                     class="mt-1 block w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text shadow-sm focus:border-rg-accent focus:outline-none focus:ring-1 focus:ring-rg-accent"
                 >
                     <option value="">{{ __('ui.upload.category_placeholder') }}</option>
-                    @foreach($categoryGroup->options as $option)
-                        <option value="{{ $option->id }}">{{ $option->translatedLabel() }}</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category->id }}">{{ $category->translatedName() }}</option>
                     @endforeach
                 </select>
                 <div data-testid="field-error-category" class="mt-1">
-                    <x-input-error :messages="$errors->get('categoryOptionId')" />
+                    <x-input-error :messages="$errors->get('categoryId')" />
                 </div>
             </div>
         @endif

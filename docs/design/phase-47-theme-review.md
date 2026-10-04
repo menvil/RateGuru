@@ -95,7 +95,7 @@
 ## Quality Guards
 
 - [x] `RawColorGuardTest` scans active views for forbidden raw color classes
-- [x] Documented exceptions: avatar `text-white`, dish-placeholder opacity overlays
+- [x] Documented exceptions: avatar `text-white`, image-placeholder opacity overlays
 - [x] Legacy scaffolding files excluded from scan
 
 ## Tests

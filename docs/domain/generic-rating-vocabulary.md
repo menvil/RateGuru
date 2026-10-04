@@ -1,74 +1,26 @@
 # Generic Rating Vocabulary
 
-Phase: 43 - Domain Refactor: Generic Rating Platform
-Task: RG-663 - Define Generic Rating Vocabulary
+RateGuru uses neutral, configurable concepts so the same application can rate any kind of content.
 
-This document defines the neutral vocabulary for new RateGuru code, public UI, tests, and docs. The goal is to stop reinforcing the original food-specific domain while keeping legacy storage stable until Phase 44.
+## Core terms
 
-## Core Terms
-
-| Term | Meaning | Usage |
-| --- | --- | --- |
-| Post | The primary object being published and rated. | Use for model-facing and UI-facing references to submitted content. |
-| Item | A human-readable generic name for the thing represented by a post. | Use only when the UI needs a casual noun instead of Post. |
-| Object | A generic technical name for the rated entity. | Use in architecture notes when Post is too application-specific. |
-| Rating Group | A configurable group of voting options. | Phase 44 target concept. Examples: Source, Category, Quality, Style. |
-| Rating Option | One selectable option inside a Rating Group. | Phase 44 target concept. Examples: Option A, Option B, Category A. |
-| Rating Vote | A user's vote for a Rating Option on a Post. | Phase 44 target concept replacing legacy vote tables. |
-| Source | Temporary neutral public name for the legacy Origin voting group. | Phase 43 bridge term. Backing storage may still use `origin_*`. |
-| Category | Temporary neutral public name for the legacy Cuisine voting group. | Phase 43 bridge term. Backing storage may still use `cuisine_*`. |
-
-## Public Copy Rules
-
-Use these terms in public UI, admin-visible labels, tests that describe behavior, and new documentation:
-
-| Legacy wording | New wording |
+| Term | Meaning |
 | --- | --- |
-| Dish | Post or Item |
-| Dishes | Posts or Items |
-| Upload dish | Upload post |
-| Food photo | Post image or Image |
-| Origin | Source |
-| Cuisine | Category |
-| Homemade | Option A or Source A |
-| Restaurant | Option B or Source B |
-| Cuisine votes | Category votes |
-| Origin votes | Source votes |
+| Post | The primary piece of content published by an author. |
+| Category | An optional single classification selected by the author. |
+| Tag | An optional reusable label; a post may have multiple tags. |
+| Rating Group | A configurable question shown for a post. |
+| Rating Option | One selectable answer inside a Rating Group. |
+| Rating Vote | A user's selected Rating Option for one Post and Rating Group. |
+| Author Answer | The author's optional answer for a Rating Group at publication time. |
 
-## Phase 44 Target Model
+## Independence rules
 
-Phase 44 should replace the temporary Source/Category bridge with generic configurable voting primitives:
+- Category and tags are independent: choosing either is optional.
+- Category and Author Answers are independent and are persisted separately.
+- Rating Groups and Rating Options are configured in the database, not hardcoded in public components.
+- Public post cards render every active Rating Group in configured order.
 
-- Rating Group: the named set of options shown to users.
-- Rating Option: a selectable option inside a group.
-- Rating Vote: the persisted user selection for one option on one post.
+## Naming rules
 
-New Phase 43 code should avoid creating more direct dependencies on legacy Origin or Cuisine concepts unless it is explicitly acting as a compatibility layer.
-
-## Do Not Use In New Code
-
-Do not introduce these terms in new active application code, public views, test descriptions, or new docs except in explicit legacy compatibility context:
-
-- dish
-- dishes
-- cuisine
-- food
-- food photo
-- homemade
-- restaurant
-- meal
-- recipe
-
-## Legacy Exceptions
-
-These terms may remain temporarily where they are already tied to storage or historical context:
-
-- old migrations;
-- legacy database tables and columns until Phase 44;
-- legacy models such as `OriginVote` and `CuisineVote`;
-- legacy enums such as `OriginType` and `CuisineType`;
-- compatibility docs that explain the transition;
-- the original PlateRate prototype reference;
-- tests that directly assert existing legacy schema until the schema changes.
-
-Do not create intermediate table names such as `source_votes` or `category_votes`. Phase 44 should migrate directly from legacy voting storage to the generic rating schema.
+Use `post`, `category`, `tag`, `rating group`, `rating option`, and `rating vote` in new identifiers and public copy. Content-specific words belong in admin-managed labels, categories, tags, or user content rather than in schema, model, action, or component names.

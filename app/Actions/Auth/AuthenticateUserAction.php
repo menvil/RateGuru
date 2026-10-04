@@ -31,6 +31,26 @@ final class AuthenticateUserAction
             ]);
         }
 
+        // Lifecycle gate after credential verification: living sanctions
+        // (limited/banned/shadowbanned) may authenticate; only a Deleted
+        // tombstone is refused — with the generic failure message, never
+        // revealing that a tombstone exists. Anonymization already
+        // scrambles tombstone credentials; this is the explicit boundary.
+        $user = Auth::user();
+
+        if ($user !== null && ! $user->canAuthenticate()) {
+            Auth::logout();
+
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            RateLimiter::hit($throttleKey);
+
+            throw ValidationException::withMessages([
+                'email' => trans('auth.failed'),
+            ]);
+        }
+
         RateLimiter::clear($throttleKey);
     }
 

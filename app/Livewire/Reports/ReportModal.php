@@ -103,7 +103,7 @@ final class ReportModal extends Component
             ReportReason::Offensive => __('ui.report.reasons.offensive'),
             ReportReason::Fake => __('ui.report.reasons.fake'),
             ReportReason::Copyright => __('ui.report.reasons.copyright'),
-            ReportReason::NotFood => __('ui.report.reasons.not_food'),
+            ReportReason::WrongCategory => __('ui.report.reasons.wrong_category'),
             ReportReason::Other => __('ui.report.reasons.other'),
         };
     }

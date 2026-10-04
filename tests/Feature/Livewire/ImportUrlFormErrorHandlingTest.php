@@ -5,6 +5,10 @@ use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('shows clear message for unsupported social import', function () {
     app(ProjectSettingsManager::class)->flush();
 

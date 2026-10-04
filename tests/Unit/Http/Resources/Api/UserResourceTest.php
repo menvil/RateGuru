@@ -9,6 +9,8 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
@@ -30,13 +32,12 @@ it('resolves api user resource to array', function () {
 });
 
 it('returns expected api user resource shape', function () {
-    $user = User::factory()->create([
+    $user = User::factory()->withAvatar(path: 'avatars/alice.jpg')->create([
         'username' => 'alice',
         'name' => 'Alice Demo',
         'email' => 'alice@example.test',
         'role' => UserRole::Admin,
         'status' => UserStatus::Banned,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $data = (new ApiUserResource($user))->resolve();
@@ -46,14 +47,18 @@ it('returns expected api user resource shape', function () {
         'username',
         'display_name',
         'avatar_url',
+        'avatar_srcset',
         'profile_url',
     ]);
 
+    // Computed independently from the storage disk rather than reusing the
+    // model's own resolved_avatar_url accessor, so this doesn't just compare
+    // the resource against the exact value it was implemented to return.
     expect($data)->toMatchArray([
         'id' => $user->id,
         'username' => 'alice',
         'display_name' => 'Alice Demo',
-        'avatar_url' => 'https://example.test/avatar.jpg',
+        'avatar_url' => Storage::disk('public')->url('avatars/alice.jpg'),
     ]);
 
     expect($data)->not->toHaveKey('email');
@@ -104,10 +109,35 @@ it('uses user resource shape for post and comment authors', function () {
 
     $postAuthor = (new ApiPostResource($post->load('user')))->resolve()['author'];
     $commentAuthor = (new ApiCommentResource($comment->load('user')))->resolve()['author'];
-    $expectedKeys = ['id', 'username', 'display_name', 'avatar_url', 'profile_url'];
+    $expectedKeys = ['id', 'username', 'display_name', 'avatar_url', 'avatar_srcset', 'profile_url'];
 
     expect(array_keys($postAuthor))->toBe($expectedKeys);
     expect(array_keys($commentAuthor))->toBe($expectedKeys);
     expect($postAuthor)->not->toHaveKey('email');
     expect($commentAuthor)->not->toHaveKey('email');
+});
+
+it('does not n+1 query avatar assets when serializing a collection', function () {
+    $users = User::factory()->withAvatar()->count(5)->create();
+    $users = User::query()->with('avatarAsset.variants')->whereIn('id', $users->pluck('id'))->get();
+
+    $queryCount = 0;
+
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    $resolved = ApiUserResource::collection($users)->resolve();
+
+    foreach ($resolved as $user) {
+        expect($user['avatar_url'])->not->toBeNull();
+        // No variants were ever generated for these factory-created assets,
+        // so srcset falls back to null rather than throwing or querying.
+        expect($user['avatar_srcset'])->toBeNull();
+    }
+
+    // The resource must not add any query of its own on top of whatever the
+    // caller already eager-loaded — avatar_url/avatar_srcset both read
+    // straight from the already-loaded avatarAsset.variants relation.
+    expect($queryCount)->toBe(0);
 });

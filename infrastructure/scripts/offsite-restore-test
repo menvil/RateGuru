@@ -1,0 +1,456 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Gated test overrides — the rclone-related set matches
+# offsite-backup/offsite-retention exactly; the database binaries match
+# local restore-test's own established set exactly.
+RCLONE_CONFIG_DEFAULT="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE_DEFAULT="rateguru-b2"
+BUCKET_DEFAULT="rateguru-database-backups"
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RCLONE_BIN_DEFAULT="/usr/bin/rclone"
+CREATEDB_BIN_DEFAULT="/usr/bin/createdb"
+DROPDB_BIN_DEFAULT="/usr/bin/dropdb"
+PG_RESTORE_BIN_DEFAULT="/usr/bin/pg_restore"
+PSQL_BIN_DEFAULT="/usr/bin/psql"
+
+RCLONE_CONFIG="${RCLONE_CONFIG_DEFAULT}"
+RCLONE_REMOTE="${RCLONE_REMOTE_DEFAULT}"
+BUCKET="${BUCKET_DEFAULT}"
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+RCLONE_BIN="${RCLONE_BIN_DEFAULT}"
+CREATEDB_BIN="${CREATEDB_BIN_DEFAULT}"
+DROPDB_BIN="${DROPDB_BIN_DEFAULT}"
+PG_RESTORE_BIN="${PG_RESTORE_BIN_DEFAULT}"
+PSQL_BIN="${PSQL_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RCLONE_CONFIG:-}" ]]; then
+        RCLONE_CONFIG="${RATEGURU_RCLONE_CONFIG}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_REMOTE:-}" ]]; then
+        RCLONE_REMOTE="${RATEGURU_RCLONE_REMOTE}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BUCKET:-}" ]]; then
+        BUCKET="${RATEGURU_RCLONE_BUCKET}"
+    fi
+
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BIN:-}" ]]; then
+        RCLONE_BIN="${RATEGURU_RCLONE_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_CREATEDB_BIN:-}" ]]; then
+        CREATEDB_BIN="${RATEGURU_CREATEDB_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DROPDB_BIN:-}" ]]; then
+        DROPDB_BIN="${RATEGURU_DROPDB_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PG_RESTORE_BIN:-}" ]]; then
+        PG_RESTORE_BIN="${RATEGURU_PG_RESTORE_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PSQL_BIN:-}" ]]; then
+        PSQL_BIN="${RATEGURU_PSQL_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  offsite-restore-test --target TARGET_ID
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called.
+
+# --- target parsing (mirrors offsite-backup/offsite-retention) --------------
+#
+# require_flag_value is defined in common (shared with offsite-backup and
+# offsite-retention — see the comment there).
+
+parse_offsite_restore_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+}
+
+# --- target resolution (mirrors offsite-backup) ------------------------------
+#
+# require_active_target runs first thing — before the rclone config check,
+# any remote listing, the lock, temporary directories or database work.
+resolve_offsite_restore_subject() {
+    require_active_target "${TARGET_ID}"
+
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+}
+
+# --- manifest validation (identical contract to offsite-backup's own) -------
+#
+# validate_backup_manifest is defined in common (shared with offsite-backup
+# — see the comment there). It runs before createdb — like checksum and
+# storage-archive validation. No independently resolved database name to
+# compare against (unlike local restore-test) — `database` is only required
+# to be present and non-empty.
+
+# --- offsite restore-test pipeline ------------------------------------------
+
+perform_offsite_restore_test() {
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — matching offsite-backup/
+    # offsite-retention's identical shared-namespace contract exactly.
+    REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"
+    LOCK_FILE="${RUN_ROOT}/offsite-restore-test-${BACKUP_NAMESPACE}.lock"
+    RESULT_FILE="${BACKUP_BASE}/offsite-restore-tests.jsonl"
+    TEMP_PARENT="${BACKUP_BASE}/.offsite-restore"
+
+    TEMP_DIRECTORY=""
+    TEST_DATABASE=""
+
+    cleanup() {
+        if [[ -n "${TEST_DATABASE}" ]]; then
+            runuser -u postgres -- \
+                "${DROPDB_BIN}" \
+                    --if-exists \
+                    "${TEST_DATABASE}" \
+                    >/dev/null 2>&1 || true
+        fi
+
+        if [[ -n "${TEMP_DIRECTORY}" ]]; then
+            rm -rf -- "${TEMP_DIRECTORY}"
+        fi
+    }
+
+    trap cleanup EXIT
+
+    [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
+
+    install -d \
+        -o root \
+        -g root \
+        -m 0700 \
+        "${RUN_ROOT}" \
+        "${BACKUP_BASE}" \
+        "${TEMP_PARENT}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "${BACKUP_NAMESPACE} offsite restore test is already running"
+    fi
+
+    log "Reading remote backup list"
+
+    REMOTE_LIST="$(
+        "${RCLONE_BIN}" \
+            --config "${RCLONE_CONFIG}" \
+            lsf \
+            "${REMOTE_ROOT}" \
+            --dirs-only
+    )"
+
+    LATEST_BACKUP="$(
+        python3 -c '
+import re
+import sys
+
+names = []
+
+for line in sys.stdin:
+    name = line.strip().rstrip("/")
+
+    if re.fullmatch(r"[0-9]{8}-[0-9]{6}", name):
+        names.append(name)
+
+print(max(names) if names else "")
+' <<<"${REMOTE_LIST}"
+    )"
+
+    [[ -n "${LATEST_BACKUP}" ]] || fail "no timestamped remote backup found in ${REMOTE_ROOT}"
+
+    REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
+
+    # Sanitized so a namespace containing characters unsafe for a filesystem
+    # path component or a PostgreSQL identifier (e.g. a hyphen) never reaches
+    # either the temporary directory name or the temporary database name.
+    SANITIZED_NAMESPACE="$(
+        printf '%s' "${BACKUP_NAMESPACE}" \
+            | sed -E 's/[^a-zA-Z0-9_]/_/g'
+    )"
+
+    TEMP_DIRECTORY="$(
+        mktemp \
+            -d \
+            "${TEMP_PARENT}/${SANITIZED_NAMESPACE}-${LATEST_BACKUP}.XXXXXX"
+    )"
+
+    log ""
+    log "${LABEL} offsite restore test"
+    log "Remote backup:  ${REMOTE_DIRECTORY}"
+    log "Temporary path: ${TEMP_DIRECTORY}"
+    log ""
+
+    log "Downloading backup from Backblaze B2"
+
+    "${RCLONE_BIN}" \
+        --config "${RCLONE_CONFIG}" \
+        copy \
+        "${REMOTE_DIRECTORY}" \
+        "${TEMP_DIRECTORY}" \
+        --check-first \
+        --checksum \
+        --stats-one-line \
+        --stats 10s
+
+    # The downloaded manifest decides which closed file set this backup must
+    # carry (seven files for schema 1 and 2, eight for schema 3), so it has to
+    # have arrived first, and it is proven to be a plain regular file before
+    # it is read.
+    [[ -e "${TEMP_DIRECTORY}/${BACKUP_MANIFEST_FILE}" ]] \
+        || fail "missing downloaded backup file: ${BACKUP_MANIFEST_FILE}"
+
+    BACKUP_SCHEMA="$(backup_schema_of_directory "${TEMP_DIRECTORY}")"
+
+    local -a required_files=()
+    mapfile -t required_files < <(backup_required_files_for_schema "${BACKUP_SCHEMA}")
+
+    local required_file
+    for required_file in "${required_files[@]}"; do
+        [[ -f "${TEMP_DIRECTORY}/${required_file}" ]] \
+            || fail "missing downloaded backup file: ${required_file}"
+    done
+
+    # Exactly the closed set, and SHA256SUMS naming exactly it: the download
+    # copied the whole remote directory, so a stray object there would
+    # otherwise be tested as if it were part of the backup.
+    backup_assert_file_set "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+    backup_assert_sha256sums_entries "${TEMP_DIRECTORY}" "${BACKUP_SCHEMA}"
+
+    log "Backup schema:  ${BACKUP_SCHEMA} (exactly ${#required_files[@]} files)"
+
+    log ""
+    log "Checking downloaded SHA-256 checksums"
+
+    (
+        cd "${TEMP_DIRECTORY}"
+        sha256sum --check SHA256SUMS
+    )
+
+    log ""
+    log "Checking storage archive"
+
+    tar \
+        -tzf "${TEMP_DIRECTORY}/storage-app.tar.gz" \
+        >/dev/null
+
+    validate_backup_manifest "${TEMP_DIRECTORY}/manifest.json"
+
+    # A schema 3 backup is CERTIFIED here, the same way local restore-test
+    # certifies it: the recovery material must be exactly what a clean-host
+    # recovery could be prepared from today — safe as data, covered by
+    # SHA256SUMS exactly once, and holding exactly the target's host-scope
+    # prerequisite names as the installed table states them. A nightly PASS
+    # on a backup a recovery could not use would be the worst kind of pass.
+    if backup_schema_supports_clean_host_recovery "${BACKUP_SCHEMA}"; then
+        log ""
+        log "Checking recovery material against the prerequisite table"
+
+        backup_assert_recovery_material_certified "${TEMP_DIRECTORY}" "${TARGET_ID}"
+
+        log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
+    fi
+
+    # PostgreSQL silently truncates identifiers longer than 63 bytes
+    # (NAMEDATALEN - 1). "rateguru_offsite_restore_" (25) + "_" + a 14-digit
+    # UTC timestamp + "_" + a PID (up to 7 digits on Linux) already uses 48
+    # bytes, leaving 15 for the namespace component — every namespace in the
+    # registry today (staging, production, tits-guru) is well under that and
+    # is completely unaffected. A longer namespace falls back to a short
+    # deterministic hash instead of silently relying on PostgreSQL's own
+    # truncation, which could otherwise drop the timestamp/PID suffix
+    # entirely and let two differently-named temporary databases collide.
+    DATABASE_NAMESPACE_TAG="${SANITIZED_NAMESPACE}"
+
+    if (( ${#DATABASE_NAMESPACE_TAG} > 15 )); then
+        DATABASE_NAMESPACE_TAG="$(
+            printf '%s' "${BACKUP_NAMESPACE}" \
+                | sha256sum \
+                | cut -c1-12
+        )"
+    fi
+
+    TEST_DATABASE="rateguru_offsite_restore_${DATABASE_NAMESPACE_TAG}_$(date -u +%Y%m%d%H%M%S)_$$"
+
+    log ""
+    log "Creating temporary PostgreSQL database:"
+    log "${TEST_DATABASE}"
+
+    runuser -u postgres -- \
+        "${CREATEDB_BIN}" \
+            --template=template0 \
+            "${TEST_DATABASE}"
+
+    log "Restoring downloaded PostgreSQL dump"
+
+    runuser -u postgres -- \
+        "${PG_RESTORE_BIN}" \
+            --exit-on-error \
+            --single-transaction \
+            --no-owner \
+            --no-privileges \
+            --dbname="${TEST_DATABASE}" \
+        < "${TEMP_DIRECTORY}/database.dump"
+
+    log "Checking restored PostgreSQL database"
+
+    TABLE_COUNT="$(
+        runuser -u postgres -- \
+            "${PSQL_BIN}" \
+                --set ON_ERROR_STOP=1 \
+                --no-align \
+                --tuples-only \
+                --dbname="${TEST_DATABASE}" \
+                --command="
+                    SELECT count(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public';
+                "
+    )"
+
+    TABLE_COUNT="${TABLE_COUNT//[[:space:]]/}"
+
+    if [[ ! "${TABLE_COUNT}" =~ ^[0-9]+$ ]] \
+        || (( TABLE_COUNT == 0 ))
+    then
+        fail "restored database contains no public tables"
+    fi
+
+    MIGRATION_COUNT="$(
+        runuser -u postgres -- \
+            "${PSQL_BIN}" \
+                --set ON_ERROR_STOP=1 \
+                --no-align \
+                --tuples-only \
+                --dbname="${TEST_DATABASE}" \
+                --command="
+                    SELECT CASE
+                        WHEN to_regclass('public.migrations') IS NULL
+                            THEN 0
+                        ELSE (SELECT count(*) FROM migrations)
+                    END;
+                "
+    )"
+
+    MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
+
+    if [[ ! "${MIGRATION_COUNT}" =~ ^[0-9]+$ ]]; then
+        fail "unable to determine migrations table row count"
+    fi
+
+    cleanup
+    TEST_DATABASE=""
+    TEMP_DIRECTORY=""
+    trap - EXIT
+
+    RESULT="$(
+        jq \
+            --null-input \
+            --compact-output \
+            --arg status "ok" \
+            --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg selector "target" \
+            --arg target "${TARGET_ID}" \
+            --arg environment "${ENVIRONMENT_CLASS}" \
+            --arg backup_namespace "${BACKUP_NAMESPACE}" \
+            --arg backup "${LATEST_BACKUP}" \
+            --arg remote "${REMOTE_DIRECTORY}" \
+            --argjson tables "${TABLE_COUNT}" \
+            --argjson migrations "${MIGRATION_COUNT}" \
+            '{
+                status: $status,
+                tested_at: $tested_at,
+                selector: $selector,
+                target: $target,
+                environment: $environment,
+                backup_namespace: $backup_namespace,
+                backup: $backup,
+                remote: $remote,
+                tables: $tables,
+                migrations: $migrations
+            }'
+    )"
+
+    printf '%s\n' "${RESULT}" \
+        | tee -a "${RESULT_FILE}"
+
+    chmod 0600 "${RESULT_FILE}"
+
+    log ""
+    log "${LABEL} offsite restore test completed successfully."
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching offsite-backup/offsite-retention's contract exactly.
+main() {
+    require_root
+    parse_offsite_restore_args "$@"
+    resolve_offsite_restore_subject
+    perform_offsite_restore_test
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

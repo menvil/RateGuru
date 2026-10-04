@@ -8,8 +8,19 @@
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
         </testsuite>
+        <!-- Architecture is a sibling suite, not part of Feature.
+
+             Those tests read committed files and drive real shell subprocesses
+             against a simulated host; not one of them touches the database.
+             Keeping them inside Feature meant the compatibility jobs re-ran
+             the whole set on MariaDB and on SQLite, where they cannot discover
+             anything a database engine could disagree about. -->
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
+            <exclude>tests/Feature/Architecture</exclude>
+        </testsuite>
+        <testsuite name="Architecture">
+            <directory>tests/Feature/Architecture</directory>
         </testsuite>
         <testsuite name="Browser">
             <directory>tests/Browser</directory>
@@ -28,8 +39,12 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5432"/>
+        <env name="DB_DATABASE" value="rateguru_test"/>
+        <env name="DB_USERNAME" value="rateguru"/>
+        <env name="DB_PASSWORD" value="rateguru"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
@@ -37,5 +52,12 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Placeholder OAuth keys, never real ones: a provider without keys is
+             unavailable and its buttons are hidden, so tests that exercise the
+             social sign-in flows need a value. No test contacts a provider. -->
+        <env name="GOOGLE_CLIENT_ID" value="testing-google-client-id"/>
+        <env name="GOOGLE_CLIENT_SECRET" value="testing-google-client-secret"/>
+        <env name="FACEBOOK_CLIENT_ID" value="testing-facebook-client-id"/>
+        <env name="FACEBOOK_CLIENT_SECRET" value="testing-facebook-client-secret"/>
     </php>
 </phpunit>

@@ -8,6 +8,6 @@ enum ReportReason: string
     case Offensive = 'offensive';
     case Fake = 'fake';
     case Copyright = 'copyright';
-    case NotFood = 'not_food';
+    case WrongCategory = 'wrong_category';
     case Other = 'other';
 }

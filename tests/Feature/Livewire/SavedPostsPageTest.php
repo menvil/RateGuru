@@ -4,6 +4,8 @@ use App\Livewire\SavedPosts\SavedPostsPage;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -61,6 +63,18 @@ it('renders posts as full feed post cards', function () {
         ->assertOk()
         ->assertSee('data-testid="post-card"', false)
         ->assertSee('Saved Feed Card Post');
+});
+
+it('renders active rating groups on saved post cards', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'confidence', 'label' => 'Confidence']);
+    RatingOption::factory()->count(2)->for($group, 'group')->create();
+    PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
+
+    Livewire::actingAs($user)
+        ->test(SavedPostsPage::class)
+        ->assertSee('data-testid="post-card-rating-confidence"', false);
 });
 
 it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function () {

@@ -2,21 +2,37 @@
 
 namespace App\Providers;
 
+use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
-use App\Models\RatingGroup;
+use App\Models\Category;
 use App\Models\Tag;
+use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
-use App\Services\Images\CloudinaryImageStorage;
-use App\Services\Images\ImageStorage;
-use App\Services\Images\LocalImageStorage;
+use App\Queries\SocialProvidersInUseQuery;
+use App\Services\Media\FilesystemMediaStorage;
+use App\Services\Media\FilesystemMediaUrlResolver;
+use App\Services\Media\GdImageIngestor;
+use App\Services\Media\GdImageVariantProcessor;
+use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageVariantProcessor;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaUrlResolver;
+use App\Support\Auth\RememberSessionGenerationOnLogin;
+use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Import\Dns\DnsHostResolver;
+use App\Support\Import\Dns\HostResolver;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -25,20 +41,23 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ProjectSettingsManager::class);
-        $this->app->singleton(ThemeManager::class);
+        // Scoped, not singleton: the settings are cached for one request or
+        // one queued job, never for the life of a queue worker, which would
+        // otherwise keep serving the languages and defaults it started with.
+        // ThemeManager holds the settings manager, so it has to be scoped too —
+        // a singleton would capture the first scope's instance for good.
+        $this->app->scoped(ProjectSettingsManager::class);
+        $this->app->scoped(ThemeManager::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
-        $this->app->bind(ImageStorage::class, function () {
-            $driver = config('rateguru.images.driver');
+        $this->app->singleton(MediaStorage::class, FilesystemMediaStorage::class);
+        $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
+        $this->app->singleton(ImageIngestor::class, GdImageIngestor::class);
+        $this->app->singleton(ImageVariantProcessor::class, GdImageVariantProcessor::class);
 
-            return match ($driver) {
-                'local' => $this->app->make(LocalImageStorage::class),
-                'cloudinary' => $this->app->make(CloudinaryImageStorage::class),
-                default => throw new \InvalidArgumentException("Unsupported image driver: [{$driver}]."),
-            };
-        });
+        $this->app->singleton(HostResolver::class, DnsHostResolver::class);
+        $this->app->singleton(ImportHttpTransport::class, PinnedImportHttpTransport::class);
     }
 
     /**
@@ -46,9 +65,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Stamps every signed-in session with its account's session
+        // generation; EnsureSessionGenerationIsCurrent ends older ones.
+        Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
+
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
+        Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);
@@ -63,10 +87,31 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.app', function ($view): void {
+            // The header renders auth()->user()->resolved_avatar_srcset,
+            // which never lazy-loads variants (see AvatarUrlResolver) — load
+            // it once here so the header actually gets a real srcset instead
+            // of silently always falling back to the master image.
+            auth()->user()?->loadMissing('avatarAsset.variants');
+
             $settings = app(ProjectSettingsManager::class)->current();
             $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
                 'projectSettings' => $settings,
             ]));
+        });
+
+        View::composer('components.auth.panel', function ($view): void {
+            $availability = app(SocialProviderAvailability::class);
+            $mode = AuthModalMode::fromInput($view->getData()['mode'] ?? null);
+
+            $view->with([
+                'socialProviders' => $availability->available(),
+                // Only the login side names switched-off providers, and only
+                // those somebody actually signs in with: a provider this site
+                // never offered is not news to anyone.
+                'unavailableSocialProviders' => $mode === AuthModalMode::Login
+                    ? app(SocialProvidersInUseQuery::class)->among($availability->unavailable())
+                    : [],
+            ]);
         });
 
         View::composer('layouts.guest', function ($view): void {
@@ -75,35 +120,26 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer('layouts.partials.app-sidebar-content', function ($view): void {
             $locale = app()->getLocale();
-            $activeOrigin = (array) request('origin');
-            $activeCuisine = (array) request('cuisine');
-            $noFilters = $activeOrigin === [] && $activeCuisine === [];
+            $activeCategories = (array) request('category');
+            $activeRatings = (array) request('ratings');
+            $noFilters = $activeCategories === [] && $activeRatings === [] && blank(request('tag'));
 
             // Cached as plain arrays, not Eloquent models: the file cache store's
             // serializable_classes=false setting silently corrupts cached objects
             // on read (unserialize returns __PHP_Incomplete_Class).
-            $firstGroupOptions = Cache::remember('sidebar-nav-rating-group-options', 300, function () {
-                $firstGroup = RatingGroup::query()
+            $sidebarCategories = Cache::remember('sidebar-nav-categories', 300, function () {
+                return Category::query()
                     ->active()
-                    ->orderBy('sort_order')
-                    ->orderBy('id')
-                    ->with(['options' => fn ($q) => $q->active()->ordered()])
-                    ->first();
-
-                if ($firstGroup === null) {
-                    return [];
-                }
-
-                return $firstGroup->options
-                    ->map(fn ($option): array => [
-                        'key' => $option->key,
-                        'label' => $option->label,
-                        'label_translations' => $option->label_translations,
+                    ->ordered()
+                    ->get()
+                    ->map(fn (Category $category): array => [
+                        'slug' => $category->slug,
+                        'name' => $category->name,
+                        'name_translations' => $category->name_translations,
                     ])
                     ->all();
             });
 
-            // Only first group shown in sidebar (second group is a feed-page dropdown only)
             $categories = [
                 [
                     'label' => __('ui.feed.all'),
@@ -112,11 +148,15 @@ class AppServiceProvider extends ServiceProvider
                 ],
             ];
 
-            foreach ($firstGroupOptions as $option) {
+            foreach ($sidebarCategories as $category) {
                 $categories[] = [
-                    'label' => TranslatableField::resolve($option['label_translations'], $option['label'], $locale),
-                    'href' => route('feed', ['origin' => [$option['key']]]),
-                    'active' => in_array($option['key'], $activeOrigin, true),
+                    'label' => TranslatableField::resolve(
+                        $category['name_translations'],
+                        $category['name'],
+                        $locale,
+                    ),
+                    'href' => route('feed', ['category' => [$category['slug']]]),
+                    'active' => in_array($category['slug'], $activeCategories, true),
                 ];
             }
 
@@ -131,7 +171,7 @@ class AppServiceProvider extends ServiceProvider
                     ->get()
                     ->map(fn ($tag): array => [
                         'label' => '#'.$tag->slug,
-                        'href' => route('feed', ['search' => $tag->slug]),
+                        'href' => route('feed', ['tag' => $tag->slug]),
                     ])
                     ->all();
             });
@@ -139,7 +179,7 @@ class AppServiceProvider extends ServiceProvider
             $fallbackTags = collect(['sample-a', 'sample-b', 'sample-c', 'sample-d', 'sample-e'])
                 ->map(fn (string $tag): array => [
                     'label' => '#'.$tag,
-                    'href' => route('feed', ['search' => $tag]),
+                    'href' => route('feed', ['tag' => $tag]),
                 ])
                 ->all();
 

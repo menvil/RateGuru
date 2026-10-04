@@ -1,0 +1,572 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Gated test overrides for every previously-hardcoded path
+# and binary this script touches, following the exact
+# FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed shape established
+# for HEALTH_CHECK_BIN in deploy/rollback. Production values are unchanged.
+# SYSTEM_ROOT is deliberately backup-only: it is the root the server
+# configuration snapshot is tar'd from (real production always tars from
+# "/"), which lets tests exercise that snapshot against a scratch fixture
+# tree instead of the real filesystem. restore-test never reads anything
+# outside BACKUP_BASE/RUN_ROOT, so it has no equivalent use for it.
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+SYSTEM_ROOT_DEFAULT="/"
+PG_DUMP_BIN_DEFAULT="/usr/bin/pg_dump"
+PHP_BIN_DEFAULT="/usr/bin/php8.5"
+# The installed external-material installer. Its --capture mode is how a
+# backup gains the host-scope recovery material a clean-host recovery needs,
+# from the one prerequisite table Prepare Host installs from — this script
+# never lists that material itself. The installer is resolved by common
+# (backup_prerequisites_bin), the same way every certifier of that material
+# resolves it.
+
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+SYSTEM_ROOT="${SYSTEM_ROOT_DEFAULT}"
+PG_DUMP_BIN="${PG_DUMP_BIN_DEFAULT}"
+PHP_BIN="${PHP_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_SYSTEM_ROOT:-}" ]]; then
+        SYSTEM_ROOT="${RATEGURU_SYSTEM_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_PG_DUMP_BIN:-}" ]]; then
+        PG_DUMP_BIN="${RATEGURU_PG_DUMP_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PHP_BIN:-}" ]]; then
+        PHP_BIN="${RATEGURU_PHP_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  backup --target TARGET_ID
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. This is what lets tests source this whole section standalone
+# (BASH_SOURCE[0] != $0 when sourced, so the guard never calls main on its
+# own), call parse_backup_args/resolve_backup_subject/perform_backup directly
+# for parsing- and resolution-only coverage, or call main explicitly for
+# tests that legitimately need the full root-gated flow — the same technique
+# already established for deploy and rollback.
+
+# --- target parsing (mirrors health-check/status/cleanup/deploy/rollback) ---
+
+parse_backup_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+}
+
+# --- target resolution (mirrors cleanup/deploy/rollback) --------------------
+#
+# require_active_target runs first thing — before BACKUP_ROOT, the lock file,
+# any database binary, rclone, or filesystem mutation is ever computed or
+# touched. main() already called require_root before this function runs, so
+# the full ordering is: root authorization -> lifecycle=planned rejection ->
+# (only if active) filesystem/database/lock work.
+resolve_backup_subject() {
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    RETENTION_DAYS="$(target_local_backup_retention "${TARGET_ID}")"
+    MINIMUM_RETAINED_BACKUPS="$(target_minimum_retained_backups "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+
+    # Only needed by the server-configuration snapshot below
+    # (build_server_configuration_archive).
+    NGINX_SITE_NAME="$(target_nginx_site_name "${TARGET_ID}")"
+    PHP_FPM_POOL="$(target_php_fpm_pool "${TARGET_ID}")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+    SCHEDULER_NAME="$(target_scheduler_name "${TARGET_ID}")"
+    DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
+}
+
+# --- server configuration snapshot -------------------------------------------
+#
+# Archives only this target's own configuration files — never another
+# target's authorized_keys, htpasswd, PHP-FPM pool, Supervisor unit or cron
+# entry. Additionally searches /etc/sudoers.d and /etc/ssh/sshd_config.d for
+# any RateGuru-named file. Paths are relative to SYSTEM_ROOT (production
+# always "/"), which is what lets tests exercise this against a scratch
+# fixture tree.
+build_server_configuration_archive() {
+    local -a infra_paths=(
+        "home/www/rateguru/bin"
+        "home/www/rateguru/config"
+        "home/www/rateguru/DEPLOYMENT_POLICY"
+        "home/www/rateguru/runbooks"
+        "etc/nginx/sites-available/${NGINX_SITE_NAME}"
+        "etc/nginx/${NGINX_SITE_NAME}.htpasswd"
+        "etc/php/8.5/fpm/pool.d/${PHP_FPM_POOL}.conf"
+        "etc/supervisor/conf.d/${SUPERVISOR_PROGRAM}.conf"
+        "etc/cron.d/${SCHEDULER_NAME}"
+        "home/${DEPLOY_ACCOUNT}/.ssh/authorized_keys"
+    )
+
+    local system_root_prefix="${SYSTEM_ROOT%/}/"
+
+    local -a existing_infra_paths=()
+    local path
+    for path in "${infra_paths[@]}"; do
+        if [[ -e "${system_root_prefix}${path}" ]]; then
+            existing_infra_paths+=("${path}")
+        fi
+    done
+
+    while IFS= read -r path; do
+        existing_infra_paths+=("${path#"${system_root_prefix}"}")
+    done < <(
+        find \
+            "${system_root_prefix}etc/sudoers.d" \
+            "${system_root_prefix}etc/ssh/sshd_config.d" \
+            -maxdepth 1 \
+            -type f \
+            -iname '*rateguru*' \
+            2>/dev/null
+    )
+
+    if (( ${#existing_infra_paths[@]} == 0 )); then
+        # No configuration paths exist on this host (a minimal or scratch
+        # environment) — tar with zero file operands is a hard error on both
+        # GNU and BSD tar ("Cowardly refusing to create an empty archive" /
+        # "no files or directories specified"), so read an explicitly empty
+        # file list instead, which both accept as "create a valid, empty
+        # archive."
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            -T /dev/null
+    else
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            "${existing_infra_paths[@]}"
+    fi
+}
+
+# --- recovery material ----------------------------------------------------
+#
+# The host-scope external material a clean-host recovery has to put back
+# before the host can even serve TLS: the target's certificate and private
+# key, the Basic Auth hashes, the shared Nginx TLS material and the
+# mail-capture certificate. Captured through install-target-prerequisites
+# --capture — the same prerequisite table Prepare Host installs from — so the
+# archive is written in the exact vocabulary the recovery will read it in, and
+# this script never carries a list of its own.
+#
+# Deliberately NOT in this archive, each for its own reason:
+#   environment.env         already a backup member of its own
+#   rclone.conf             the offsite credential — a recovery supplies its
+#                           own, so a backup can never hand out the key to the
+#                           namespace it is stored in
+#   the deploy public key   derived by the recovery from the deploy credential
+#   any private SSH key, any bootstrap credential, any database password apart
+#   from the ones inside environment.env, and any application artifact
+#
+# The archive holds top-level regular files only, one per logical name, and
+# a recovery validates exactly that before extracting a byte. Its members are
+# never read, hashed, measured or logged here; the only thing printed is a
+# logical name. A capture that cannot be completed safely FAILS the backup:
+# a backup missing this material would be reported as a success and then
+# found unusable on the worst day, which is worse than no backup at all.
+build_recovery_material_archive() {
+    local capture_dir="${TEMP_ROOT}/.recovery-material"
+
+    install -d -o root -g root -m 0700 "${capture_dir}"
+
+    # The backup tree carries setgid semantics, and a directory created inside
+    # one inherits the bit on Linux — `install -d -m 0700` then yields 2700,
+    # which the installer's exact-0700 contract rightly refuses. Normalized
+    # here, by the producer, with the special bits cleared explicitly: GNU
+    # chmod preserves a directory's setuid/setgid bits under a numeric mode,
+    # so a plain `chmod 0700` would not do it. Then proven, so the directory
+    # handed to --capture is exactly what that contract demands: a real
+    # directory, not a symlink, owned by the identity running this backup
+    # (root in production), mode exactly 0700.
+    chmod u=rwx,g=,o=,u-s,g-s "${capture_dir}" \
+        || fail "could not normalize the recovery material capture directory to mode 0700: ${capture_dir}"
+
+    [[ ! -L "${capture_dir}" ]] && [[ -d "${capture_dir}" ]] \
+        || fail "the recovery material capture directory is not a plain directory: ${capture_dir}"
+
+    local capture_mode capture_owner
+    capture_mode="$(stat -c '%a' "${capture_dir}")"
+    capture_owner="$(stat -c '%u:%g' "${capture_dir}")"
+
+    [[ "${capture_mode}" == "700" ]] \
+        || fail "the recovery material capture directory is mode ${capture_mode}, not exactly 0700, after normalization: ${capture_dir} — refusing to hand --capture a directory its contract would refuse"
+
+    [[ "${capture_owner}" == "${EUID}:$(id -g)" ]] \
+        || fail "the recovery material capture directory is owned by ${capture_owner}, not by the identity running this backup: ${capture_dir}"
+
+    local prerequisites_bin
+    prerequisites_bin="$(backup_prerequisites_bin)"
+
+    [[ -x "${prerequisites_bin}" ]] \
+        || fail "the external-material installer is not available at ${prerequisites_bin} — a backup cannot capture the recovery material a clean-host recovery needs without it, so no backup is written"
+
+    "${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}" \
+        || fail "host-scope recovery material could not be captured for ${TARGET_ID} — refusing to write a backup that a clean-host recovery could not use"
+
+    local -a names=()
+    mapfile -t names < <(find "${capture_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+
+    (( ${#names[@]} > 0 )) \
+        || fail "the recovery material capture for ${TARGET_ID} produced no files — refusing to write a backup that a clean-host recovery could not use"
+
+    # Named members from a fixed directory: the archive carries bare logical
+    # names and nothing else — no directory entry, no path prefix, no link.
+    tar \
+        -C "${capture_dir}" \
+        -czf "${TEMP_ROOT}/recovery-material.tar.gz" \
+        -- "${names[@]}"
+
+    chmod 0600 "${TEMP_ROOT}/recovery-material.tar.gz"
+
+    rm -rf -- "${capture_dir}"
+
+    log "Recovery material captured: ${#names[@]} host-scope files (${names[*]}); content never read or logged"
+}
+
+# --- manifest -----------------------------------------------------------
+#
+# manifest_schema_version 3: the format that carries recovery-material.tar.gz,
+# which is what makes a backup usable for a clean-host recovery. Backward
+# compatible on the READ side with schema 2 (the same fields, seven files,
+# no recovery material) and schema 1 (no manifest_schema_version/selector/
+# target/backup_namespace fields at all): every reader in this repository —
+# restore-test, the offsite scripts and the restore primitives — still
+# accepts those for a live restore, see common's backup format contract.
+build_manifest() {
+    # Captured into their own assignments — not inline inside the jq
+    # invocation — so that a failure of either command (e.g. a broken
+    # PG_DUMP_BIN/PHP_BIN override) is the exit status of the assignment
+    # itself and aborts the backup under `set -e`, rather than silently
+    # embedding an empty version string into the manifest and continuing.
+    local postgres_version php_version
+    postgres_version="$("${PG_DUMP_BIN}" --version)"
+    php_version="$("${PHP_BIN}" -r 'echo PHP_VERSION;')"
+
+    jq \
+        --null-input \
+        --arg project "rateguru" \
+        --arg selector "target" \
+        --arg target "${TARGET_ID}" \
+        --arg environment "${ENVIRONMENT_CLASS}" \
+        --arg backup_namespace "${BACKUP_NAMESPACE}" \
+        --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg hostname "$(hostname -f 2>/dev/null || hostname)" \
+        --arg database "${DATABASE_NAME}" \
+        --arg release "${CURRENT_RELEASE}" \
+        --arg postgres_version "${postgres_version}" \
+        --arg php_version "${php_version}" \
+        --argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}" \
+        '{
+            manifest_schema_version: $manifest_schema_version,
+            project: $project,
+            selector: $selector,
+            target: $target,
+            environment: $environment,
+            backup_namespace: $backup_namespace,
+            created_at: $created_at,
+            hostname: $hostname,
+            database: $database,
+            release: $release,
+            postgres_version: $postgres_version,
+            php_version: $php_version
+        }' \
+        > "${TEMP_ROOT}/manifest.json"
+}
+
+# --- backup pipeline ------------------------------------------------------
+
+perform_backup() {
+    BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+    TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
+    TEMP_ROOT="${BACKUP_ROOT}/.${TIMESTAMP}.tmp"
+    FINAL_ROOT="${BACKUP_ROOT}/${TIMESTAMP}"
+    # Keyed on BACKUP_NAMESPACE, never on LABEL (the target ID): two targets
+    # sharing a backup namespace must resolve to the identical lock file and
+    # backup root, so they can never write into the same namespace
+    # concurrently.
+    LOCK_FILE="${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
+
+    install -d -o root -g root -m 0700 \
+        "${RUN_ROOT}" \
+        "${BACKUP_ROOT}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "${BACKUP_NAMESPACE} backup is already running"
+    fi
+
+    cleanup() {
+        rm -rf "${TEMP_ROOT}"
+    }
+
+    trap cleanup EXIT
+
+    install -d -o root -g root -m 0700 "${TEMP_ROOT}"
+
+    # Before the first byte is dumped: a backup written today is the source of
+    # a clean-host recovery, which rebuilds the EXACT commit the data belongs
+    # to. A target with no deployed release, or a release that cannot name
+    # its full source_sha, is not backed up at all — a schema 3 backup with an
+    # empty identity would be reported as a success and found unusable on the
+    # worst day. The manifest's release is the one release.json names.
+    backup_assert_release_identity "${TARGET_ROOT}/current/release.json" \
+        "a backup is the source of a clean-host recovery, which rebuilds exactly the commit the data belongs to, so a target without a deployed release naming its full source_sha is not backed up"
+
+    CURRENT_RELEASE="${BACKUP_RELEASE}"
+
+    log "Backing up PostgreSQL database ${DATABASE_NAME}"
+
+    runuser -u postgres -- \
+        "${PG_DUMP_BIN}" \
+            --format=custom \
+            --compress=9 \
+            --no-owner \
+            --no-privileges \
+            "${DATABASE_NAME}" \
+        > "${TEMP_ROOT}/database.dump"
+
+    log "Backing up application storage"
+
+    tar \
+        -C "${TARGET_ROOT}/shared/storage" \
+        -czf "${TEMP_ROOT}/storage-app.tar.gz" \
+        app
+
+    log "Backing up environment configuration"
+
+    install \
+        -o root \
+        -g root \
+        -m 0600 \
+        "${TARGET_ROOT}/shared/.env" \
+        "${TEMP_ROOT}/environment.env"
+
+    # Proven above to name the release and its full source_sha; copied as is.
+    install \
+        -o root \
+        -g root \
+        -m 0600 \
+        "${TARGET_ROOT}/current/release.json" \
+        "${TEMP_ROOT}/release.json"
+
+    log "Backing up server configuration"
+
+    build_server_configuration_archive
+
+    log "Capturing host-scope recovery material"
+
+    build_recovery_material_archive
+    build_manifest
+
+    # Every checksummed file of the current schema, in the one order common's
+    # backup format contract states — the same list every reader is held to.
+    (
+        cd "${TEMP_ROOT}"
+
+        sha256sum "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" > SHA256SUMS
+    )
+
+    mv "${TEMP_ROOT}" "${FINAL_ROOT}"
+    trap - EXIT
+
+    apply_local_backup_retention
+
+    log ""
+    log "${LABEL} backup completed:"
+    log "${FINAL_ROOT}"
+
+    du -sh "${FINAL_ROOT}"
+}
+
+# --- local retention ---------------------------------------------------------
+#
+# Deterministic, count-aware retention over the resolved BACKUP_ROOT. Runs
+# only after the new backup was fully created and atomically moved into
+# FINAL_ROOT — a failed creation never triggers retention. Only direct-child
+# timestamped directories (YYYYMMDD-HHMMSS) participate: auxiliary
+# directories (database, manifests, uploads) and any non-timestamp entries
+# are never touched.
+#
+# The invariant: the newest MINIMUM_RETAINED_BACKUPS timestamped backups are
+# ALWAYS kept regardless of age — the minimum count has priority over the
+# age cutoff — and everything younger than RETENTION_DAYS is kept too. Age
+# derives from the timestamp NAME, not filesystem mtime, so the decision is
+# deterministic for a given listing. The just-created FINAL_ROOT is the
+# newest entry and therefore always inside the protected minimum.
+apply_local_backup_retention() {
+    local cutoff_epoch
+    cutoff_epoch="$(
+        date \
+            -u \
+            -d "${RETENTION_DAYS} days ago" \
+            +%s
+    )"
+
+    local entries
+    mapfile -t entries < <(
+        find "${BACKUP_ROOT}" \
+            -regextype posix-extended \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -regex '.*/[0-9]{8}-[0-9]{6}' \
+            -printf '%f\n' \
+        | sort -r
+    )
+
+    local index=0
+    local entry
+    for entry in "${entries[@]}"; do
+        # A name can match the YYYYMMDD-HHMMSS shape without being a real
+        # calendar timestamp (month 13, day 99). Round-trip through epoch:
+        # anything that fails to parse, or does not format back to exactly
+        # its own name, was not created by this script — it is left alone
+        # entirely, and never consumes a protected-minimum slot.
+        local year month day hour minute second entry_epoch canonical
+        year="${entry:0:4}"
+        month="${entry:4:2}"
+        day="${entry:6:2}"
+        hour="${entry:9:2}"
+        minute="${entry:11:2}"
+        second="${entry:13:2}"
+
+        if ! entry_epoch="$(
+            date \
+                -u \
+                -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
+                +%s \
+                2>/dev/null
+        )"; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        canonical="$(date -u -d "@${entry_epoch}" +%Y%m%d-%H%M%S)"
+
+        if [[ "${canonical}" != "${entry}" ]]; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        if (( index < MINIMUM_RETAINED_BACKUPS )); then
+            log "KEEP minimum: ${entry}"
+            index=$((index + 1))
+            continue
+        fi
+
+        index=$((index + 1))
+
+        if (( entry_epoch >= cutoff_epoch )); then
+            log "KEEP recent: ${entry}"
+            continue
+        fi
+
+        log "DELETE expired: ${entry}"
+        rm -rf -- "${BACKUP_ROOT:?}/${entry}"
+    done
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching deploy/rollback's contract exactly: parse_backup_args,
+# resolve_backup_subject and perform_backup are all inert definitions until
+# main calls them, in this exact order.
+main() {
+    require_root
+    parse_backup_args "$@"
+    resolve_backup_subject
+
+    # A backup takes its DATA from disk and its release identity from
+    # current/release.json. Those two normally describe the same thing — but
+    # not on a target held after a restore, whose live data came from a backup
+    # taken under a different commit than the one current serves. A backup
+    # created in that window would assert that this data belongs to a commit it
+    # does not, breaking the invariant every recovery depends on:
+    #
+    #   backup release.json.source_sha -> the code the restored data belongs to
+    #
+    # Refused before perform_backup creates a temporary root, a snapshot or a
+    # retention pass. backup-cycle inherits this by starting with this script.
+    assert_no_operation_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"
+
+    perform_backup
+}
+
+# A real invocation (`bash backup ...` or `./backup ...`) always has
+# BASH_SOURCE[0] == $0, so main runs immediately here. Tests source this file
+# instead — BASH_SOURCE[0] != $0 in that case, so main never auto-runs — then
+# call parse_backup_args/resolve_backup_subject/perform_backup directly
+# (bypassing require_root, for parsing/resolution/pipeline coverage that
+# doesn't need real root) or invoke the script as a genuine subprocess (which
+# does run main(), requiring root first, exactly as production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

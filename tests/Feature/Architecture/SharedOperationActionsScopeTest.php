@@ -1,0 +1,541 @@
+<?php
+
+use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
+
+/**
+ * the shared operation actions's own scope guard: the operational model it establishes, and the
+ * architecture it deliberately does not build.
+ *
+ * The model is one BUILD, one DEPLOY and one ROLLBACK implementation, with
+ * separate operator-facing workflows wherever policy differs. The rejected
+ * architecture is a durable release-artifact archive — no artifact bucket, no
+ * artifact credentials, no artifact retention, no backup-to-artifact mapping.
+ * Recovery rebuilds from the source SHA a backup already carries.
+ */
+
+/** @return array<string, array> */
+function phase71Workflows(): array
+{
+    $workflows = [];
+
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $workflows[basename($path)] = Yaml::parse(File::get($path));
+    }
+
+    return $workflows;
+}
+
+/** @return list<string> */
+function phase71OperationalFiles(): array
+{
+    return array_values(array_filter(array_merge(
+        glob(base_path('.github/workflows/*.yml')) ?: [],
+        glob(base_path('.github/actions/*/action.yml')) ?: [],
+        glob(base_path('infrastructure/scripts/*')) ?: [],
+        glob(base_path('infrastructure/config/*')) ?: [],
+        glob(base_path('infrastructure/config/**/*')) ?: [],
+        [base_path('.env.example')],
+    ), 'is_file'));
+}
+
+it('has exactly one build, one deploy and one rollback implementation', function () {
+    $implementations = [
+        'build' => './.github/actions/build-rateguru',
+        'deploy' => './.github/actions/deploy-rateguru',
+        'rollback' => './.github/actions/rollback-rateguru',
+    ];
+
+    foreach ($implementations as $operation => $action) {
+        expect(File::exists(base_path(mb_substr($action, 2).'/action.yml')))
+            ->toBeTrue("the shared {$operation} action is missing");
+    }
+
+    // And no near-miss sibling exists: one implementation per operation, never
+    // a per-environment fork of it.
+    $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
+        ->map(fn (string $path): string => basename($path))
+        ->sort()
+        ->values()
+        ->all();
+
+    expect($actions)->toBe([
+        'build-rateguru',
+        // One CONFIGURE implementation, for an already-provisioned planned
+        // production target. Transport only: it carries no material at all —
+        // the target's environment file and deploy key are canonical on the
+        // host — and it cannot build, deploy, restore, repair or activate.
+        'configure-rateguru-target',
+        'deploy-rateguru',
+        // Prepare Host's two additions: one PREPARE implementation and one
+        // deployment-recording implementation. Still one action per operation,
+        // never a per-environment fork of any of them.
+        'prepare-rateguru-host',
+        // One PROVISION implementation, for a planned production target on a
+        // host that already exists. Transport only: it carries no material,
+        // names no commit, and cannot build, deploy, restore, repair, prepare
+        // or activate anything.
+        'provision-rateguru-target',
+        'record-rateguru-deployment',
+        // One RECOVER implementation, covering all four of its modes. Transport
+        // only: it carries no material, names no commit and cannot build,
+        // deploy, restore, repair or prepare.
+        'recover-rateguru-host',
+        // The read-only clean-host proof a recovery runs before it prepares
+        // anything: transport only, carries no material, installs nothing.
+        'recovery-host-preflight',
+        // One REPAIR implementation, covering both environments. Transport
+        // only: it carries no material and cannot deploy, restore or prepare.
+        'repair-rateguru-target',
+        // One RESTORE implementation, covering all
+        // three of its modes and both environments.
+        'restore-rateguru',
+        'rollback-rateguru',
+        'sentry-release',
+    ]);
+});
+
+it('keeps one operator-facing workflow per environment, with no target selector anywhere', function () {
+    expect(array_keys(phase71Workflows()))->toEqualCanonicalizing([
+        'ci.yml',
+        'configure-tits-guru.yml',
+        'coverage.yml',
+        'deploy-staging.yml',
+        'label-review-bot-prs.yml',
+        'prepare-production-host.yml',
+        'prepare-staging-host.yml',
+        'provision-tits-guru.yml',
+        // One recovery workflow per environment, exactly like every other
+        // operator-facing operation here.
+        'recover-production.yml',
+        'recover-staging.yml',
+        'release.yml',
+        // One repair workflow per environment, exactly like every other
+        // operator-facing operation here.
+        'repair-production.yml',
+        'repair-staging.yml',
+        // One restore workflow per environment, exactly like every
+        // other operator-facing operation here.
+        'restore-production.yml',
+        'restore-staging.yml',
+        'rollback-production.yml',
+        'rollback-staging.yml',
+    ]);
+
+    // No workflow may let an operator type, choose or otherwise supply a
+    // deployment target, an environment or a wrapper path.
+    foreach (phase71Workflows() as $name => $workflow) {
+        foreach ((array) data_get($workflow, 'on.workflow_dispatch.inputs', []) as $input => $definition) {
+            foreach (['target', 'environment', 'wrapper'] as $forbidden) {
+                expect(str_contains($input, $forbidden))
+                    ->toBeFalse("{$name} lets the operator select {$input}");
+            }
+
+            if (! str_contains($input, 'host')) {
+                continue;
+            }
+
+            // A host is normally structural too: a GitHub Environment is
+            // exactly where a logical target is bound to the physical machine
+            // serving it, and no operation picks a machine.
+            //
+            // Host recovery is the one deliberate exception, and only under
+            // one name. A recovery exists BECAUSE the bound machine is gone,
+            // so the replacement machine is the single fact about the
+            // operation that is not already known — while the target, the
+            // environment, the credentials, the paths and above all the commit
+            // all still come from somewhere other than the operator. The two
+            // recovery workflows read the environment's own binding once, to
+            // refuse a recovery pointed at it.
+            expect($input)->toBe('replacement-host', "{$name} lets the operator select {$input}");
+
+            expect(str_starts_with($name, 'recover-'))
+                ->toBeTrue("{$name} is not a host recovery and must not let an operator name a machine");
+        }
+    }
+
+    // Every deployment-target and Sentry environment is a literal, never an
+    // expression an operator could influence.
+    foreach (phase71Workflows() as $name => $workflow) {
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                foreach (['deployment-target', 'environment'] as $fixed) {
+                    $value = data_get($step, "with.{$fixed}");
+
+                    if ($value === null) {
+                        continue;
+                    }
+
+                    expect($value)->not->toContain('${{', "{$name}:{$jobName} computes its {$fixed} instead of fixing it");
+                }
+            }
+        }
+    }
+});
+
+it('pairs each fixed target with the GitHub Environment that owns it', function () {
+    // The box, not the class. staging-main's box happens to be spelled the
+    // same as its environment class; tits-guru's is not, and that asymmetry is
+    // the point — one box per target, so the credentials and reviewers that
+    // reach one brand are not the ones that reach another.
+    $expected = [
+        'deploy-staging.yml' => ['staging-main' => 'staging'],
+        'release.yml' => ['staging-main' => 'staging', 'tits-guru' => 'production-tits-guru'],
+        'rollback-staging.yml' => ['staging-main' => 'staging'],
+        'rollback-production.yml' => ['tits-guru' => 'production-tits-guru'],
+    ];
+
+    foreach ($expected as $name => $pairs) {
+        $workflow = phase71Workflows()[$name];
+
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                $target = data_get($step, 'with.deployment-target');
+
+                if ($target === null) {
+                    continue;
+                }
+
+                expect(array_key_exists($target, $pairs))
+                    ->toBeTrue("{$name}:{$jobName} deploys to an unexpected target {$target}");
+
+                expect(data_get($job, 'environment'))
+                    ->toBe($pairs[$target], "{$name}:{$jobName} runs {$target} in the wrong GitHub Environment");
+            }
+        }
+    }
+});
+
+it('introduces no durable release-artifact archive of any kind', function () {
+    // The cancelled the shared operation actions architecture, asserted absent by its own names
+    // so it cannot creep back in under a rename of the phase.
+    foreach (phase71OperationalFiles() as $path) {
+        $source = File::get($path);
+        $relative = str_replace(base_path().'/', '', $path);
+
+        foreach ([
+            'B2_ARTIFACT',
+            'rateguru-release-artifacts',
+            'archive-release-artifact',
+            'fetch-release-artifact',
+            'release-artifact-common',
+            'artifact_retention',
+            'recovery-point',
+            'artifacts/<release',
+        ] as $forbidden) {
+            expect(str_contains($source, $forbidden))
+                ->toBeFalse("{$relative} reintroduces the cancelled artifact-archive architecture: {$forbidden}");
+        }
+    }
+
+    // No script, action or workflow implements one either.
+    foreach ([
+        'infrastructure/scripts/archive-release-artifact',
+        'infrastructure/scripts/fetch-release-artifact',
+        'infrastructure/scripts/release-artifact-common',
+        '.github/actions/archive-release-artifact/action.yml',
+        '.github/workflows/archive-release-artifact.yml',
+    ] as $rejected) {
+        expect(File::exists(base_path($rejected)))
+            ->toBeFalse("{$rejected} belongs to the cancelled artifact-archive architecture");
+    }
+
+    // GitHub artifacts stay temporary transport: nothing outside the two
+    // build call sites sets an artifact retention policy for a release.
+    $retentions = [];
+
+    foreach (phase71Workflows() as $name => $workflow) {
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                if (data_get($step, 'uses') !== './.github/actions/build-rateguru') {
+                    continue;
+                }
+
+                $retentions[$name] = data_get($step, 'with.artifact-retention-days');
+            }
+        }
+    }
+
+    // Every build's artifact retention is a caller-owned POLICY, and each one
+    // is a short, bounded window on a GitHub workflow artifact — never a
+    // durable archive anything recovers from. Recovery rebuilds from the
+    // source_sha a backup already carries, which is why an alignment build's
+    // artifact may expire without weakening anything.
+    expect($retentions)->toBe([
+        'deploy-staging.yml' => '3',
+        // A host recovery's historical build is transport to the controlled
+        // recovery deployment in the same run and nothing else — the shortest
+        // window of any of them, and still not something anything recovers
+        // FROM: the commit is what a backup carries.
+        'recover-production.yml' => '3',
+        'recover-staging.yml' => '3',
+        'release.yml' => '90',
+        'restore-production.yml' => '7',
+        'restore-staging.yml' => '7',
+    ]);
+});
+
+it('records the disaster-recovery work as the consolidated plan, with the artifact archive gone', function () {
+    $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
+
+    // The obsolete slice, and the metadata mapping it required, are gone.
+    expect($roadmap)
+        ->not->toContain('7.1 Durable immutable release artifact archive')
+        ->not->toContain('Backup ↔ exact release mapping')
+        ->not->toContain('artifact reference, artifact checksum')
+        ->not->toContain('rateguru/artifacts/')
+        ->not->toContain('retrieve the exact immutable artifact');
+
+    // The final the disaster-recovery work headings, in order.
+    foreach ([
+        '**7.1 Common operational primitives',
+        '**7.2 Deployment observability + Prepare Host',
+        '**7.3 Restore Target Data',
+        '**7.4 GitHub Restore actions + controlled code alignment',
+        '**7.5 Repair Target',
+        '**7.6 Recover Host',
+        '**7.7 GitHub Recover + clean-host rehearsal',
+        '**7.8 Final DR acceptance',
+    ] as $heading) {
+        expect($roadmap)->toContain($heading);
+    }
+
+    $positions = array_map(
+        fn (string $heading): int => (int) mb_strpos($roadmap, $heading),
+        ['**7.1 ', '**7.2 ', '**7.3 ', '**7.4 ', '**7.5 ', '**7.6 ', '**7.7 ', '**7.8 '],
+    );
+
+    expect($positions)->toBe(array_values(array_filter($positions)))
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all(), 'the disaster-recovery work slices are out of order');
+
+    // The four scopes stay explicitly distinguished.
+    expect($roadmap)
+        ->toContain('**Prepare Host** — produce clean, prepared infrastructure')
+        ->toContain('**Restore Target Data** — restore application state onto a host that already')
+        ->toContain('**Repair Target** — repair one RateGuru target')
+        ->toContain('**Recover Host** — full replacement-server recovery')
+        ->toContain('rebuilds the application from the exact `source_sha`');
+
+    // The observability work is still current, and the disaster-recovery work
+    // closed without ever becoming it: these primitives landing did not open a
+    // phase, and the phase closing did not move the marker off observability.
+    // The production launch has since opened alongside it, which is why two
+    // phases are current rather than one.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(2);
+    expect($roadmap)
+        ->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m')
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*✅ completed\s*\|$/m');
+});
+
+it('implements no recovery rehearsal harness, and no host provisioner beside the target one', function () {
+    // Prepare Host, the live restore, the GitHub restore surface with
+    // controlled code alignment, target-scoped repair, host recovery and the
+    // named recovery workflows all landed after this work, each with its own
+    // scope guard (DeploymentObservabilityScopeTest,
+    // RestoreServerPrimitivesScopeTest, RestoreOperatorSurfaceScopeTest,
+    // RepairWorkflowsTest, RecoverHostScopeTest, RecoverWorkflowsTest).
+    //
+    // The generic TARGET provisioner has since landed too, with its own scope
+    // guard (ProvisionTargetTest) — so this no longer forbids it, and says so
+    // rather than being quietly deleted. What remains future work is a harness
+    // that automates a disposable rehearsal machine, and a HOST provisioner
+    // that creates one: creating a machine is a different blast radius from
+    // creating a target on a machine that already exists, and neither may ship
+    // as a side effect of anything.
+    foreach ([
+        '.github/workflows/rehearse-recovery.yml',
+        'infrastructure/scripts/rehearse-recovery',
+        'infrastructure/scripts/provision-host',
+    ] as $futureWork) {
+        expect(File::exists(base_path($futureWork)))
+            ->toBeFalse("{$futureWork} is later work and must not exist yet");
+    }
+
+    // And the target provisioner that did land stays what it is: an
+    // orchestrator that never creates a machine and never activates a target.
+    expect(File::exists(base_path('infrastructure/scripts/provision-target')))->toBeTrue();
+
+    $provisioner = executableSourceLines(File::get(base_path('infrastructure/scripts/provision-target')));
+
+    expect($provisioner)
+        ->not->toContain('apt-get')
+        ->not->toContain('lifecycle = ')
+        // It never reads the registry itself: no selector, no parse. It names
+        // the file to establish ONE authority — pointing `common` at this
+        // bundle's own registry rather than the host's, and comparing the two
+        // byte for byte — and every value still comes back through `common`.
+        ->not->toContain('.targets[')
+        ->not->toContain('jq -r');
+
+    expect($provisioner)
+        ->toContain('TARGET_REGISTRY_FILE="${TRUSTED_REGISTRY}"')
+        ->toContain('cmp -s "${INSTALLED_REGISTRY}" "${TRUSTED_REGISTRY}"');
+
+    // restore-test stays what it always was: a scratch-database integrity
+    // check, never a live restore. Restore Target Data's live restore is a separate
+    // primitive built beside it, not a mutation of it.
+    expect(File::exists(base_path('infrastructure/scripts/restore-test')))->toBeTrue();
+    expect(File::get(base_path('infrastructure/scripts/restore-test')))
+        ->toContain('rateguru_restore_')
+        ->not->toContain('ALTER DATABASE');
+});
+
+it('leaves every accepted the target-aware migration and the clean-host bootstrap primitive in place', function () {
+    // the shared operation actions removes duplicated orchestration; it does not collapse the
+    // operational scripts, whose ownership boundaries and side effects differ.
+    foreach ([
+        'deploy',
+        'rollback',
+        'cleanup',
+        'backup',
+        'backup-cycle',
+        'restore-test',
+        'offsite-backup',
+        'offsite-retention',
+        'offsite-restore-test',
+        'bootstrap-host',
+        'bootstrap-host-preflight',
+        'install-bootstrap-runtime',
+        'install-bootstrap-host-layout',
+        'install-bootstrap-services',
+        'install-target-operations',
+        'install-target-perimeter',
+        'install-public-storage-access',
+        'health-check',
+        'status',
+        'common',
+        'verify-required-clis',
+    ] as $script) {
+        expect(File::exists(base_path("infrastructure/scripts/{$script}")))
+            ->toBeTrue("infrastructure/scripts/{$script} must not be removed or merged away");
+    }
+
+    foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore'] as $wrapper) {
+        expect(File::exists(base_path("infrastructure/config/wrappers/{$wrapper}")))
+            ->toBeTrue("the generic {$wrapper} wrapper must stay the privilege boundary");
+    }
+
+    expect(File::exists(base_path('infrastructure/config/deployment-targets.json')))->toBeTrue();
+});
+
+it('serializes every mutation of the same target in the GitHub orchestration layer too', function () {
+    // The final operational model promises that two operations mutating the
+    // same target cannot run at once. The server-side deployment lock is the
+    // thing that actually enforces integrity; GitHub concurrency exists so one
+    // workflow does not fail merely because another was already holding it.
+    //
+    // Every place a target is mutated, and the group that must cover it:
+    //
+    // Prepare Host added two operations that name a target: preparing its host,
+    // which reconfigures the machine a deployed release runs on and therefore
+    // belongs in the same domain, and recording an already-completed
+    // deployment, which mutates nothing on the target but inherits the domain
+    // of the workflow it reports on.
+    //
+    // the controlled code alignment added four more per restore workflow, and they are the reason
+    // the group is declared at WORKFLOW level there rather than per job: the
+    // restore, the controlled alignment deploy and the resume are one logical
+    // mutation of one target, and a deploy or rollback slipping in between two
+    // of them would move `current` away from the commit the restored data
+    // belongs to while the target is held and cannot object.
+    $mutations = [
+        'deploy-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
+        'deploy-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'rollback-staging.yml:rollback' => ['staging-main', 'rateguru-staging-deployment'],
+        'release.yml:deploy-staging' => ['staging-main', 'rateguru-staging-deployment'],
+        'release.yml:deploy-production' => ['tits-guru', 'rateguru-production-release'],
+        'rollback-production.yml:rollback' => ['tits-guru', 'rateguru-production-release'],
+        'prepare-staging-host.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
+        'prepare-production-host.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
+        'restore-staging.yml:restore' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:align' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-production.yml:restore' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:align' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
+        // A repair converges the infrastructure a release runs inside, so it
+        // shares the domain of every other mutation of that target.
+        'repair-staging.yml:repair' => ['staging-main', 'rateguru-staging-deployment'],
+        'repair-production.yml:repair' => ['tits-guru', 'rateguru-production-release'],
+        // A host recovery runs against a DIFFERENT machine, and still belongs
+        // to the target's own mutation domain: it is the same logical target
+        // being rebuilt, so an ordinary deploy, rollback, Restore or Repair
+        // must not interleave with it. Six jobs each, all at the fixed
+        // identity — preparation, the recovery itself, the controlled
+        // deployment, the resume, the final verification and the marker.
+        // The clean-host preflight mutates nothing — it is the read-only proof
+        // that the machine may be prepared — but it names the target and
+        // sits inside the same workflow-level group as everything after it.
+        'recover-staging.yml:preflight' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:recover' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-production.yml:preflight' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:recover' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:deploy' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:verify' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
+        // Provisioning tits-guru is the one entry where the target's
+        // environment class and the concurrency domain deliberately disagree:
+        // it installs that target's service configuration and reloads services
+        // it SHARES with staging-main, because both logical targets currently
+        // sit on the same physical machine. Serializing it against the
+        // production release domain would serialize it against nothing that
+        // can touch the same host. This becomes a question about hosts rather
+        // than environments once a second host exists.
+        'provision-tits-guru.yml:provision' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Configuring creates that target's database on the same shared
+        // machine, for the same reason and with the same consequence.
+        'configure-tits-guru.yml:configure' => ['tits-guru', 'rateguru-staging-deployment'],
+    ];
+
+    $found = [];
+
+    foreach (phase71Workflows() as $name => $workflow) {
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            $target = collect(data_get($job, 'steps', []))
+                ->map(fn (array $step): mixed => data_get($step, 'with.deployment-target'))
+                ->first(fn (mixed $value): bool => is_string($value) && $value !== '');
+
+            if ($target === null) {
+                continue;
+            }
+
+            // A job-level group wins where present; otherwise the workflow's.
+            $concurrency = data_get($job, 'concurrency') ?? data_get($workflow, 'concurrency');
+
+            $found["{$name}:{$jobName}"] = [$target, data_get($concurrency, 'group')];
+
+            expect(data_get($concurrency, 'cancel-in-progress'))
+                ->toBeFalse("{$name}:{$jobName} must never cancel a deployment in flight");
+        }
+    }
+
+    expect($found)->toEqual($mutations);
+
+    // Both rollback workflows sit in the same domain as the workflow that
+    // deploys their target, so a rollback and a deploy cannot interleave.
+    $groups = collect(phase71Workflows())->map(fn (array $workflow): mixed => data_get($workflow, 'concurrency.group'));
+
+    expect($groups['rollback-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['rollback-production.yml'])->toBe($groups['release.yml'])
+        ->and($groups['release.yml'])->toBe('rateguru-production-release')
+        ->and($groups['prepare-staging-host.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml'])
+        ->and($groups['restore-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['restore-production.yml'])->toBe($groups['release.yml'])
+        ->and($groups['repair-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['repair-production.yml'])->toBe($groups['release.yml'])
+        ->and($groups['recover-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['recover-production.yml'])->toBe($groups['release.yml']);
+
+    // ...and GitHub concurrency never replaced the server-side lock.
+    expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');
+});

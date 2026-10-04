@@ -24,15 +24,19 @@ class ProjectSettings extends Model
         'upload_cta_label_translations',
         'feed_title',
         'feed_title_translations',
-        'default_locale',
+        'static_pages',
+        'enabled_locales',
         'default_theme',
         'default_sort',
         'active_preset_key',
+        'preset_applied_at',
         'feature_flags',
+        'sign_in_providers',
     ];
 
     protected $casts = [
         'feature_flags' => 'array',
+        'sign_in_providers' => 'array',
         'site_name_translations' => 'array',
         'site_tagline_translations' => 'array',
         'site_description_translations' => 'array',
@@ -40,5 +44,8 @@ class ProjectSettings extends Model
         'object_plural_name_translations' => 'array',
         'upload_cta_label_translations' => 'array',
         'feed_title_translations' => 'array',
+        'static_pages' => 'array',
+        'enabled_locales' => 'array',
+        'preset_applied_at' => 'datetime',
     ];
 }

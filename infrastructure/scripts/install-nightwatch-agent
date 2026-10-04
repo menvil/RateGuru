@@ -1,0 +1,1363 @@
+#!/usr/bin/env bash
+#
+# install-nightwatch-agent — install, verify or remove the Supervisor-managed
+# Laravel Nightwatch agent for one deployment target.
+#
+# the Nightwatch evaluation is a time-boxed side-by-side evaluation of Nightwatch against the
+# already-accepted Sentry integration, and this script is deliberately shaped
+# by that:
+#
+#   * It is a standalone installer, not a step inside
+#     install-bootstrap-services. The service contract describes what
+#     a RateGuru host must have to serve traffic; a trial APM agent is not part
+#     of that, and wiring it in would make every host --verify fail on a host
+#     that simply has not opted in. Ownership boundary: 5.4 owns the queue
+#     worker, PHP-FPM, Nginx and cron; this owns the Nightwatch integration and
+#     nothing else.
+#
+#   * the deployment observability work widened "the Nightwatch integration" by exactly three files,
+#     and deliberately not by more: the deployment-marker primitive
+#     (record-nightwatch-deployment), the generic sudo wrapper the GitHub
+#     deploy channel invokes it through, and that wrapper's own sudoers
+#     drop-in. They belong here rather than in install-target-operations'
+#     bundle or install-target-perimeter's own generic wrappers for the
+#     same reason the agent does: every one of them is Nightwatch-only, a
+#     the Nightwatch decision rejection has to be able to remove the entire integration in one
+#     step, and no host may be *required* to carry any of it. The accepted 5.4
+#     host contract is therefore untouched.
+#
+#   * --remove exists as a first-class mode, because the Nightwatch decision may reject
+#     Nightwatch and "undo it" must not be a paragraph of manual supervisorctl
+#     in a runbook. It removes the marker primitive, the wrapper and the
+#     sudoers grant alongside the Supervisor program, so the grant can never
+#     outlive the integration it exists for.
+#
+#   * Which targets may run an agent is a closed allowlist in
+#     infrastructure/scripts/common (target_nightwatch_program). staging-main
+#     is the only entry, so "staging only" is structural: no production target
+#     can be activated by editing a .env, a registry file or an argument to
+#     this script, because no production target has a program to install.
+#
+# The agent is a local sidecar. The application writes events to it over
+# loopback and it forwards them to Nightwatch; it is never a network service,
+# and this script refuses to install or verify one whose bind address is not
+# loopback.
+#
+# Modes (all require root — Supervisor's control socket, /etc/supervisor and
+# the target's shared .env are all root-only, and verification runs artisan as
+# the target's runtime user via runuser):
+#   --check   Report what is currently installed and whether the preconditions
+#             for --apply hold. Strictly read-only, makes NO changes.
+#   --apply   Install the committed Supervisor program transactionally, apply
+#             it to the running supervisord and require the agent to become
+#             stably RUNNING, listening on loopback only, and reachable by
+#             `artisan nightwatch:status`.
+#   --verify  Re-run every verification against what is installed now. Makes
+#             NO changes.
+#   --remove  Stop the agent, uninstall its Supervisor program and confirm the
+#             ingest port is no longer listening. Leaves the Composer package,
+#             config/nightwatch.php and the target's .env untouched — this
+#             stops telemetry, it does not un-evaluate Nightwatch.
+#
+# Every path is derived from the target registry via
+# infrastructure/scripts/common — never from a command-line argument.
+#
+# See infrastructure/runbooks/nightwatch-evaluation.md.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Fixed identities and locations (not overridable) -----------------------
+
+SELF_PATH="${BASH_SOURCE[0]}"
+
+DST_SUPERVISOR_DIR="/etc/supervisor/conf.d"
+
+# Supervisor program files are non-secret host configuration, and the agent's
+# token is deliberately not among their contents — it stays in the target's
+# shared .env, which the runtime user reads through Laravel's own config.
+SERVICE_FILE_OWNER="root"
+SERVICE_FILE_GROUP="root"
+SERVICE_FILE_MODE="0644"
+
+SERVICE_LOG_SUBPATH="shared/storage/logs"
+
+BACKUP_ROOT="/var/backups/rateguru-nightwatch-agent"
+
+# --- Deployment-marker primitive ---------------------------------------------
+#
+# The three files that let a successful deploy or rollback record itself in
+# Nightwatch. Destinations are fixed; FS_ROOT (a test seam only) is applied by
+# physical() at the point of use, exactly as it is for the Supervisor program.
+#
+# The record binary lands in the operations bin directory beside the other
+# root-run operational scripts because that is where its sibling `common`
+# lives and where the wrapper resolves it from — but it is emphatically NOT a
+# member of install-target-operations' bundle: that installer neither installs,
+# Verifies nor removes it, and its own file set is unchanged by Prepare Host.
+DST_RECORD_BIN="/home/www/rateguru/bin/record-nightwatch-deployment"
+DST_MARKER_WRAPPER="/usr/local/sbin/rateguru-nightwatch-deployment"
+DST_MARKER_SUDOERS="/etc/sudoers.d/rateguru-nightwatch-deployment"
+
+MARKER_EXECUTABLE_MODE="0755"
+# Same mode sudo itself demands of a drop-in, and the same one
+# install-target-perimeter pins on the operational grant.
+MARKER_SUDOERS_MODE="0440"
+
+# The package default, and the value config/nightwatch.php falls back to when
+# the target's .env names none. Repeated here rather than read from PHP so
+# that --check works on a host whose release cannot boot.
+DEFAULT_INGEST_URI="127.0.0.1:2407"
+
+# Tools this script invokes by bare name, and which therefore have to be on
+# PATH. The overridable ones (supervisorctl, ss, runuser, install, stat, chown,
+# chmod) are checked separately below, through the value actually resolved —
+# checking the default name instead would reject a correctly configured run and
+# accept a misconfigured one.
+REQUIRED_TOOLS=(cat cmp grep awk tail readlink mktemp date rm mv mkdir cp sleep tr basename dirname)
+
+# --- Test seams -------------------------------------------------------------
+#
+# Identical gated shape to every other RateGuru installer: an override is
+# honored only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray
+# environment variable surviving in a real root shell can never redirect this
+# script at an operator- or attacker-controlled binary or path. Production
+# never sets either variable.
+
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+SUPERVISORCTL_BIN="$(gated_default RATEGURU_NIGHTWATCH_SUPERVISORCTL_BIN supervisorctl)"
+SS_BIN="$(gated_default RATEGURU_NIGHTWATCH_SS_BIN ss)"
+RUNUSER_BIN="$(gated_default RATEGURU_NIGHTWATCH_RUNUSER_BIN runuser)"
+INSTALL_BIN="$(gated_default RATEGURU_NIGHTWATCH_INSTALL_BIN install)"
+STAT_BIN="$(gated_default RATEGURU_NIGHTWATCH_STAT_BIN stat)"
+CHOWN_BIN="$(gated_default RATEGURU_NIGHTWATCH_CHOWN_BIN chown)"
+CHMOD_BIN="$(gated_default RATEGURU_NIGHTWATCH_CHMOD_BIN chmod)"
+VISUDO_BIN="$(gated_default RATEGURU_NIGHTWATCH_VISUDO_BIN visudo)"
+EFFECTIVE_EUID="$(gated_default RATEGURU_NIGHTWATCH_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_NIGHTWATCH_FS_ROOT '')"
+REPO_ROOT_OVERRIDE="$(gated_default RATEGURU_NIGHTWATCH_REPO_ROOT '')"
+WAIT_ATTEMPTS="$(gated_default RATEGURU_NIGHTWATCH_WAIT_ATTEMPTS 10)"
+RETRY_DELAY_SECONDS="$(gated_default RATEGURU_NIGHTWATCH_RETRY_DELAY 1)"
+STABILITY_WAIT_SECONDS="$(gated_default RATEGURU_NIGHTWATCH_STABILITY_WAIT 3)"
+
+# physical PATH — the real filesystem location of a logical path. FS_ROOT is
+# empty in production, so this is the identity function there; tests point it
+# at a scratch tree so /etc/supervisor/conf.d can be exercised for real
+# without touching the host.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+resolve_repo_root() {
+    if [[ -n "${REPO_ROOT_OVERRIDE}" ]]; then
+        printf '%s\n' "${REPO_ROOT_OVERRIDE}"
+
+        return 0
+    fi
+
+    # The file is canonicalized before its directory, so a symlinked entry
+    # point resolves to the real checkout rather than to the symlink's parent.
+    local self_real script_dir
+    self_real="$(readlink -f "${SELF_PATH}")" \
+        || fail "cannot resolve the real path of ${SELF_PATH}"
+    script_dir="$(dirname "${self_real}")"
+
+    [[ "${script_dir}" == */infrastructure/scripts ]] \
+        || fail "install-nightwatch-agent must run from a RateGuru checkout (resolved ${script_dir})"
+
+    printf '%s\n' "${script_dir%/infrastructure/scripts}"
+}
+
+# --- Argument parsing -------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-nightwatch-agent --check   --target TARGET
+  install-nightwatch-agent --apply   --target TARGET
+  install-nightwatch-agent --verify  --target TARGET
+  install-nightwatch-agent --remove  --target TARGET
+  install-nightwatch-agent --apply-deployment-marker    --target TARGET
+  install-nightwatch-agent --verify-deployment-marker   --target TARGET
+  install-nightwatch-agent --supports-deployment-marker --target TARGET
+  install-nightwatch-agent --help
+
+  All modes require root.
+
+  --check   Report the installed state and whether --apply's preconditions
+            hold. Read-only, makes no changes.
+  --apply   Install and start the target's Nightwatch agent under Supervisor.
+            Transactional: the previous program file is restored if any
+            post-change verification fails.
+  --verify  Re-verify what is installed now. Read-only, makes no changes.
+  --remove  Stop the agent and uninstall its Supervisor program. The Composer
+            package, config/nightwatch.php and the target .env are untouched.
+
+  --apply-deployment-marker   Install ONLY the deployment-marker half: the
+            primitive, the sudo wrapper the GitHub deploy channel invokes and
+            that wrapper's sudoers grant. No Supervisor program, no artisan,
+            no Nightwatch token, and no requirement that the target has ever
+            been deployed. This is what host convergence installs, so a host
+            carries its deploy channel's authorization whether or not anyone
+            has opted into running the agent.
+  --verify-deployment-marker  Prove that half is installed and that the grant
+            authorizes exactly this target's deploy user for exactly that
+            wrapper. Read-only: it reads configuration, and never runs the
+            marker, the agent or anything that needs a Nightwatch token.
+  --supports-deployment-marker  Exit 0 when this target records a deployment
+            marker at all, 1 when it does not. The closed allowlist lives in
+            one place, and a caller deciding whether to converge the
+            authorization asks here instead of keeping a copy of it.
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--remove|--apply-deployment-marker|--verify-deployment-marker|--supports-deployment-marker)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "only one mode may be given (already have --${MODE})"
+                fi
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "--target given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || { usage >&2; fail "--target requires a value"; }
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply, --verify or --remove is required"; }
+    [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+    [[ -n "${TARGET_ID}" ]] || { usage >&2; fail "--target requires a non-empty value"; }
+}
+
+require_root_mode() {
+    if [[ "${EFFECTIVE_EUID}" -ne 0 ]]; then
+        fail "this command must be executed as root"
+    fi
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    local resolved
+    for resolved in \
+        "${SUPERVISORCTL_BIN}" "${SS_BIN}" "${RUNUSER_BIN}" \
+        "${INSTALL_BIN}" "${STAT_BIN}" "${CHOWN_BIN}" "${CHMOD_BIN}" \
+        "${VISUDO_BIN}"
+    do
+        command -v "${resolved}" >/dev/null 2>&1 || fail "required tool not found: ${resolved}"
+    done
+}
+
+# --- Target contract --------------------------------------------------------
+
+REPO_ROOT=""
+NIGHTWATCH_PROGRAM=""
+TARGET_ROOT=""
+RUNTIME_USER=""
+RUNTIME_GROUP=""
+SRC_CONF=""
+DST_CONF=""
+SRC_RECORD_BIN=""
+SRC_MARKER_WRAPPER=""
+SRC_MARKER_SUDOERS=""
+LOG_DIR=""
+SHARED_ENV=""
+CURRENT_LINK=""
+INGEST_URI=""
+INGEST_PORT=""
+
+resolve_target() {
+    require_active_target "${TARGET_ID}"
+
+    if ! NIGHTWATCH_PROGRAM="$(target_nightwatch_program "${TARGET_ID}")"; then
+        fail "target ${TARGET_ID} does not run a Nightwatch agent — the Nightwatch evaluation is a staging-only evaluation and the allowlist in infrastructure/scripts/common names staging-main alone"
+    fi
+
+    REPO_ROOT="$(resolve_repo_root)"
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    RUNTIME_GROUP="$(target_runtime_group "${TARGET_ID}")"
+
+    SRC_CONF="${REPO_ROOT}/infrastructure/config/supervisor/${NIGHTWATCH_PROGRAM}.conf"
+    DST_CONF="${DST_SUPERVISOR_DIR}/${NIGHTWATCH_PROGRAM}.conf"
+    SRC_RECORD_BIN="${REPO_ROOT}/infrastructure/scripts/record-nightwatch-deployment"
+    SRC_MARKER_WRAPPER="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-nightwatch-deployment"
+    SRC_MARKER_SUDOERS="${REPO_ROOT}/infrastructure/config/sudoers/rateguru-nightwatch-deployment"
+    LOG_DIR="${TARGET_ROOT}/${SERVICE_LOG_SUBPATH}"
+    SHARED_ENV="${TARGET_ROOT}/shared/.env"
+    CURRENT_LINK="${TARGET_ROOT}/current"
+
+    log "target ${TARGET_ID}: program=${NIGHTWATCH_PROGRAM} root=${TARGET_ROOT} runtime_user=${RUNTIME_USER}"
+}
+
+# --- Committed-source validation (registry/config drift) --------------------
+
+validate_source_conf() {
+    local src_phys="${SRC_CONF}"
+
+    [[ -e "${src_phys}" ]] || fail "committed Supervisor config is missing: ${SRC_CONF}"
+    [[ ! -L "${src_phys}" ]] || fail "committed Supervisor config must not be a symlink: ${SRC_CONF}"
+    [[ -f "${src_phys}" ]] || fail "committed Supervisor config is not a regular file: ${SRC_CONF}"
+    [[ -r "${src_phys}" ]] || fail "committed Supervisor config is not readable: ${SRC_CONF}"
+
+    grep -Fxq "[program:${NIGHTWATCH_PROGRAM}]" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not declare [program:${NIGHTWATCH_PROGRAM}] — registry/config drift"
+    grep -Eq "^directory *= *${TARGET_ROOT}/current$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run in ${TARGET_ROOT}/current — the agent must follow the deployment symlink, never a pinned release"
+    grep -Eq "^user *= *${RUNTIME_USER}$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run as ${RUNTIME_USER} — registry/config drift"
+    grep -Eq "^command *=.*artisan nightwatch:agent" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run the official 'artisan nightwatch:agent' command"
+    grep -Eq "^autorestart *= *true$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not set autorestart=true"
+    grep -Fq "${LOG_DIR}/" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not log under ${LOG_DIR}"
+
+    # The environment token is a runtime secret and belongs in the target's
+    # shared .env, which is not world-readable. A Supervisor program file is
+    # root:root 0644 and is quoted verbatim in `supervisorctl` output, so a
+    # token here would be a credential in host configuration.
+    ! grep -qi 'NIGHTWATCH_TOKEN' "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} references NIGHTWATCH_TOKEN — the environment token must never appear in Supervisor configuration"
+
+    log "committed Supervisor config validated against the registry: ${SRC_CONF}"
+}
+
+# --- Target .env contract ---------------------------------------------------
+#
+# Values are inspected, never echoed. `env_value` prints the raw value for the
+# two keys whose value is not a secret (ENABLED, INGEST_URI); the token is only
+# ever tested for presence.
+
+env_value() {
+    local key="$1" env_phys line value
+    env_phys="$(physical "${SHARED_ENV}")"
+
+    [[ -f "${env_phys}" ]] || return 1
+
+    line="$(grep -E "^[[:space:]]*${key}=" "${env_phys}" | tail -n 1)" || return 1
+    [[ -n "${line}" ]] || return 1
+
+    value="${line#*=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+
+    [[ -n "${value}" ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+resolve_ingest_uri() {
+    INGEST_URI="$(env_value NIGHTWATCH_INGEST_URI || printf '%s\n' "${DEFAULT_INGEST_URI}")"
+    INGEST_PORT="${INGEST_URI##*:}"
+
+    [[ "${INGEST_PORT}" =~ ^[0-9]+$ ]] \
+        || fail "NIGHTWATCH_INGEST_URI in ${SHARED_ENV} does not end in a port: ${INGEST_URI}"
+}
+
+# address_is_loopback ADDRESS — ADDRESS is host:port, [host]:port, or *:port.
+address_is_loopback() {
+    local address="$1" host
+
+    if [[ "${address}" =~ ^\[(.+)\]:[0-9]+$ ]]; then
+        host="${BASH_REMATCH[1]}"
+    else
+        host="${address%:*}"
+    fi
+
+    case "${host}" in
+        localhost|::1) return 0 ;;
+        127.*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_env_contract() {
+    local env_phys
+    env_phys="$(physical "${SHARED_ENV}")"
+
+    [[ -f "${env_phys}" ]] || fail "the target's shared environment file is missing: ${SHARED_ENV}"
+
+    local enabled
+    enabled="$(env_value NIGHTWATCH_ENABLED || true)"
+
+    [[ "${enabled}" == "true" ]] \
+        || fail "NIGHTWATCH_ENABLED is not 'true' in ${SHARED_ENV} — the agent would run while the application transmits nothing, and 'artisan nightwatch:status' would report Nightwatch as disabled"
+
+    env_value NIGHTWATCH_TOKEN >/dev/null \
+        || fail "NIGHTWATCH_TOKEN is missing or empty in ${SHARED_ENV} — obtain the staging-main environment token from the Nightwatch dashboard (see the runbook). The value is never printed by this script."
+
+    resolve_ingest_uri
+
+    address_is_loopback "${INGEST_URI}" \
+        || fail "NIGHTWATCH_INGEST_URI in ${SHARED_ENV} is not a loopback address (${INGEST_URI}) — the agent would accept ingest connections from off-box"
+
+    log "target environment contract satisfied: NIGHTWATCH_ENABLED=true, a token is present (value not printed), ingest ${INGEST_URI} is loopback"
+}
+
+validate_deployed() {
+    local current_phys
+    current_phys="$(physical "${CURRENT_LINK}")"
+
+    [[ -L "${current_phys}" ]] \
+        || fail "${CURRENT_LINK} is not a deployment symlink — deploy the target before installing its Nightwatch agent (the agent's working directory follows current)"
+    [[ -d "${current_phys}" ]] \
+        || fail "${CURRENT_LINK} does not resolve to a release directory"
+
+    [[ -d "$(physical "${LOG_DIR}")" ]] \
+        || fail "the service log directory is missing: ${LOG_DIR} — it is owned by install-bootstrap-services, not by this script"
+}
+
+# --- Supervisor ------------------------------------------------------------
+
+supervisor_reread_validation() {
+    local output
+    output="$("${SUPERVISORCTL_BIN}" reread 2>&1)" || return 1
+    ! grep -q 'ERROR' <<<"${output}"
+}
+
+agent_program_running() {
+    local output
+
+    output="$("${SUPERVISORCTL_BIN}" status "${NIGHTWATCH_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+agent_program_known() {
+    "${SUPERVISORCTL_BIN}" status "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1
+}
+
+wait_for_agent_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= WAIT_ATTEMPTS; attempt++)); do
+        if agent_program_running; then
+            return 0
+        fi
+
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    agent_program_running
+}
+
+# --- Listener ---------------------------------------------------------------
+
+ingest_listener_addresses() {
+    "${SS_BIN}" -H -l -n -t 2>/dev/null | awk -v port="${INGEST_PORT}" '
+        { addr = $4; n = split(addr, parts, ":") }
+        n > 0 && parts[n] == port { print addr }
+    '
+}
+
+verify_listener_loopback_only() {
+    local addresses address found=false
+
+    addresses="$(ingest_listener_addresses)"
+
+    [[ -n "${addresses}" ]] \
+        || fail "nothing is listening on port ${INGEST_PORT} — the Nightwatch agent is not accepting ingest connections"
+
+    while IFS= read -r address; do
+        [[ -n "${address}" ]] || continue
+        found=true
+
+        address_is_loopback "${address}" \
+            || fail "the Nightwatch ingest port is publicly reachable: a listener is bound to ${address}. Bind it to loopback (NIGHTWATCH_INGEST_URI) before continuing."
+    done <<<"${addresses}"
+
+    [[ "${found}" == true ]] || fail "could not read any listener address for port ${INGEST_PORT}"
+
+    log "ingest listener is loopback-only on port ${INGEST_PORT}: $(tr '\n' ' ' <<<"${addresses}")"
+}
+
+verify_listener_absent() {
+    local addresses
+    addresses="$(ingest_listener_addresses)"
+
+    [[ -z "${addresses}" ]] \
+        || fail "port ${INGEST_PORT} is still listening after removal: $(tr '\n' ' ' <<<"${addresses}")"
+
+    log "ingest port ${INGEST_PORT} is no longer listening"
+}
+
+# --- Application-side agent health -----------------------------------------
+#
+# The official command, run as the runtime user from the deployed release —
+# never a RateGuru reimplementation of it. It pings the LOCAL agent, so it
+# answers "is our integration working", not "is Nightwatch's cloud up": a
+# RateGuru release is never rolled back on its result, but an install that
+# cannot reach its own agent is a broken install and fails here.
+
+verify_agent_status() {
+    local current_phys
+    current_phys="$(physical "${CURRENT_LINK}")"
+
+    if ! (cd "${current_phys}" && "${RUNUSER_BIN}" -u "${RUNTIME_USER}" -- "${PHP_BIN}" artisan nightwatch:status >/dev/null 2>&1); then
+        fail "'artisan nightwatch:status' failed as ${RUNTIME_USER} — the application cannot reach its local agent. Run it by hand from ${CURRENT_LINK} for the exact message."
+    fi
+
+    log "artisan nightwatch:status: the agent is running and accepting connections"
+}
+
+# --- Transactional file install ---------------------------------------------
+
+TXN_BACKUP_FILE=""
+TXN_HAD_PREVIOUS=false
+TXN_ARMED=false
+MAIN_BASHPID=""
+
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E propagates this trap into $(...) subshells; only the main process
+    # ever performs the real rollback, exactly as the other installers do.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${TXN_ARMED}" != true ]]; then
+        exit "${code}"
+    fi
+
+    log "apply failed (status ${code}) — restoring the previous Supervisor configuration"
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ "${TXN_HAD_PREVIOUS}" == true ]]; then
+        if "${INSTALL_BIN}" -m "${SERVICE_FILE_MODE}" -- "${TXN_BACKUP_FILE}" "${dst_phys}"; then
+            "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${dst_phys}" || true
+            log "rollback: restored ${DST_CONF} from ${TXN_BACKUP_FILE}"
+        else
+            printf 'ROLLBACK ERROR: could not restore %s from %s\n' "${DST_CONF}" "${TXN_BACKUP_FILE}" >&2
+        fi
+    else
+        rm -f -- "${dst_phys}" \
+            && log "rollback: removed ${DST_CONF} (there was no previous file)" \
+            || printf 'ROLLBACK ERROR: could not remove %s\n' "${DST_CONF}" >&2
+    fi
+
+    restore_marker_files
+
+    # The running supervisord must never be left pointing at a program file
+    # that has just been rolled back — but only re-apply a configuration the
+    # parser accepts.
+    if supervisor_reread_validation; then
+        "${SUPERVISORCTL_BIN}" update "${NIGHTWATCH_PROGRAM}" >/dev/null 2>&1 \
+            && log "rollback: supervisor program ${NIGHTWATCH_PROGRAM} re-applied from the restored configuration" \
+            || printf 'ROLLBACK ERROR: supervisorctl update %s with the restored configuration failed\n' "${NIGHTWATCH_PROGRAM}" >&2
+    else
+        printf 'ROLLBACK ERROR: the restored Supervisor configuration does not parse; %s was left as-is\n' "${NIGHTWATCH_PROGRAM}" >&2
+    fi
+
+    exit "${code}"
+}
+
+# prepare_marker_backup_dir — one transaction, one backup directory. Extracted
+# so a marker-only apply, which installs no Supervisor program and therefore
+# backs none up, still has somewhere to restore from.
+prepare_marker_backup_dir() {
+    local backup_dir
+    backup_dir="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-${NIGHTWATCH_PROGRAM}"
+
+    mkdir -p -- "${backup_dir}" || fail "cannot create the backup directory: ${backup_dir}"
+    "${CHMOD_BIN}" '=0700' "${backup_dir}" || fail "cannot pin mode on the backup directory: ${backup_dir}"
+
+    TXN_MARKER_BACKUP_DIR="${backup_dir}"
+}
+
+backup_existing_conf() {
+    local dst_phys backup_dir
+    dst_phys="$(physical "${DST_CONF}")"
+
+    # The Supervisor program and the three deployment-marker files are applied
+    # together and restored together.
+    prepare_marker_backup_dir
+    backup_dir="${TXN_MARKER_BACKUP_DIR}"
+
+    if [[ -f "${dst_phys}" ]]; then
+        TXN_BACKUP_FILE="${backup_dir}/$(basename "${DST_CONF}")"
+        cp -- "${dst_phys}" "${TXN_BACKUP_FILE}" || fail "cannot back up ${DST_CONF}"
+        TXN_HAD_PREVIOUS=true
+        log "backed up ${DST_CONF} to ${TXN_BACKUP_FILE}"
+    else
+        TXN_HAD_PREVIOUS=false
+        log "no existing ${DST_CONF} to back up"
+    fi
+}
+
+install_conf() {
+    local src_phys="${SRC_CONF}" dst_phys tmp
+    dst_phys="$(physical "${DST_CONF}")"
+
+    [[ ! -L "${dst_phys}" ]] || fail "refusing to install over an existing symlink: ${DST_CONF}"
+    if [[ -e "${dst_phys}" ]] && [[ ! -f "${dst_phys}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${DST_CONF}"
+    fi
+
+    [[ -d "$(dirname "${dst_phys}")" ]] \
+        || fail "${DST_SUPERVISOR_DIR} does not exist — install Supervisor first (install-bootstrap-runtime installs it)"
+
+    tmp="$(mktemp "${dst_phys}.XXXXXX")" || fail "cannot stage ${DST_CONF}"
+
+    if ! "${INSTALL_BIN}" -m "${SERVICE_FILE_MODE}" -- "${src_phys}" "${tmp}"; then
+        rm -f -- "${tmp}"
+        fail "failed to stage ${DST_CONF}"
+    fi
+
+    if ! mv -f -- "${tmp}" "${dst_phys}"; then
+        rm -f -- "${tmp}"
+        fail "failed to rename the staged file into place: ${DST_CONF}"
+    fi
+
+    "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${dst_phys}" \
+        || fail "cannot set ownership on ${DST_CONF}"
+    # The GNU '=MODE' operator, never a plain numeric chmod: a plain numeric
+    # chmod preserves setgid, which is exactly the class of bug the rest of
+    # the RateGuru installers pin against.
+    "${CHMOD_BIN}" "=${SERVICE_FILE_MODE}" "${dst_phys}" \
+        || fail "cannot pin mode ${SERVICE_FILE_MODE} on ${DST_CONF}"
+
+    log "installed ${DST_CONF} (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE})"
+}
+
+verify_installed_conf() {
+    local src_phys="${SRC_CONF}" dst_phys owner group mode
+    dst_phys="$(physical "${DST_CONF}")"
+
+    [[ -e "${dst_phys}" ]] || fail "${DST_CONF} is not installed"
+    [[ ! -L "${dst_phys}" ]] || fail "${DST_CONF} is a symlink"
+    [[ -f "${dst_phys}" ]] || fail "${DST_CONF} is not a regular file"
+
+    cmp -s "${src_phys}" "${dst_phys}" \
+        || fail "${DST_CONF} differs from the committed ${SRC_CONF} — re-run --apply"
+
+    owner="$("${STAT_BIN}" -c '%U' "${dst_phys}")"
+    group="$("${STAT_BIN}" -c '%G' "${dst_phys}")"
+    mode="$("${STAT_BIN}" -c '%a' "${dst_phys}")"
+
+    [[ "${owner}" == "${SERVICE_FILE_OWNER}" ]] || fail "${DST_CONF} is owned by ${owner}, expected ${SERVICE_FILE_OWNER}"
+    [[ "${group}" == "${SERVICE_FILE_GROUP}" ]] || fail "${DST_CONF} has group ${group}, expected ${SERVICE_FILE_GROUP}"
+    [[ "$((8#${mode}))" -eq "$((8#${SERVICE_FILE_MODE}))" ]] || fail "${DST_CONF} has mode ${mode}, expected ${SERVICE_FILE_MODE}"
+
+    log "installed Supervisor program is byte-identical to the committed source, ${owner}:${group} ${mode}"
+}
+
+# --- Deployment-marker primitive: sources, install, verify, remove -----------
+#
+# Three managed files, handled with the same discipline as the Supervisor
+# program above: committed source validated first, existing file backed up,
+# staged copy renamed into place, ownership and mode pinned with the GNU
+# '=MODE' operator (never a plain numeric chmod, which preserves setgid), and
+# the installed result verified byte-identical to the repository.
+
+# marker_file_rows — the closed set, as SRC|DST|MODE|LABEL. One definition,
+# consumed by check, apply, verify and remove alike, so no mode can ever act on
+# a different set than another.
+marker_file_rows() {
+    printf '%s|%s|%s|%s\n' \
+        "${SRC_RECORD_BIN}" "${DST_RECORD_BIN}" "${MARKER_EXECUTABLE_MODE}" "deployment-marker primitive"
+    printf '%s|%s|%s|%s\n' \
+        "${SRC_MARKER_WRAPPER}" "${DST_MARKER_WRAPPER}" "${MARKER_EXECUTABLE_MODE}" "deployment-marker sudo wrapper"
+    printf '%s|%s|%s|%s\n' \
+        "${SRC_MARKER_SUDOERS}" "${DST_MARKER_SUDOERS}" "${MARKER_SUDOERS_MODE}" "deployment-marker sudoers grant"
+}
+
+validate_marker_sources() {
+    local src dst mode label
+
+    while IFS='|' read -r src dst mode label; do
+        [[ -e "${src}" ]] || fail "committed ${label} is missing: ${src}"
+        [[ ! -L "${src}" ]] || fail "committed ${label} must not be a symlink: ${src}"
+        [[ -f "${src}" ]] || fail "committed ${label} is not a regular file: ${src}"
+        [[ -r "${src}" ]] || fail "committed ${label} is not readable: ${src}"
+    done < <(marker_file_rows)
+
+    bash -n "${SRC_RECORD_BIN}" \
+        || fail "committed deployment-marker primitive fails bash -n: ${SRC_RECORD_BIN}"
+    bash -n "${SRC_MARKER_WRAPPER}" \
+        || fail "committed deployment-marker sudo wrapper fails bash -n: ${SRC_MARKER_WRAPPER}"
+
+    # The wrapper must resolve the primitive at the exact path this installer
+    # puts it at — a drift between the two would only surface as a confusing
+    # "command not found" during a real deployment.
+    grep -Fq "${DST_RECORD_BIN}" "${SRC_MARKER_WRAPPER}" \
+        || fail "committed sudo wrapper does not invoke ${DST_RECORD_BIN}: ${SRC_MARKER_WRAPPER}"
+
+    validate_marker_sudoers_source
+
+    log "committed deployment-marker sources validated (primitive, wrapper, sudoers grant)"
+}
+
+# validate_marker_sudoers_source — the grant must name the wrapper this
+# installer actually installs and nothing else, must grant the target's own
+# registered deploy user, and must never mention any other target's deploy
+# user: tits-guru stays lifecycle=planned and has no Nightwatch program at all,
+# so no installer may hand its deploy user anything.
+#
+# Every content check runs against the DIRECTIVE lines only. The file's own
+# comments explain the design and legitimately name other paths and files;
+# matching those would make the checks meaningless in both directions.
+# marker_sudoers_directives PATH — the grant's executable content: comments and
+# blank lines dropped, and line continuations folded, so one rule is one line
+# however the committed file wraps it. Done in Bash rather than with sed: the
+# folding scripts that read well in GNU sed are not portable, and this file is
+# read by tests on other platforms as well as by the installer on the host.
+marker_sudoers_directives() {
+    local line buffer=""
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ ! "${line}" =~ ^[[:space:]]*(#|$) ]] || continue
+
+        if [[ "${line}" == *\\ ]]; then
+            buffer+="${line%\\} "
+
+            continue
+        fi
+
+        printf '%s\n' "${buffer}${line}"
+        buffer=""
+    done < "$1"
+
+    [[ -z "${buffer}" ]] || printf '%s\n' "${buffer}"
+}
+
+# assert_marker_sudoers_grant PATH LABEL — the authorization itself, asserted
+# the same way wherever it is read: the committed source before it is staged,
+# and the installed drop-in afterwards. It proves ONE rule exists — this
+# target's own deploy user, running as root without a password, allowed to run
+# the marker wrapper and nothing else — and never runs sudo, the wrapper or
+# anything else to find out.
+assert_marker_sudoers_grant() {
+    local path="$1" label="$2" deploy_user directives
+    deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    "${VISUDO_BIN}" -cf "${path}" >/dev/null \
+        || fail "${label} failed visudo -cf: ${path}"
+
+    directives="$(marker_sudoers_directives "${path}")"
+
+    grep -Eq "(^|[[:space:]])${deploy_user}[[:space:]]+ALL=\(root\)[[:space:]]+NOPASSWD:[[:space:]]+${DST_MARKER_WRAPPER}([[:space:]]|$)" <<<"${directives}" \
+        || fail "${label} does not authorize ${deploy_user} to run ${DST_MARKER_WRAPPER} as root without a password: ${path}"
+}
+
+validate_marker_sudoers_source() {
+    local path="${SRC_MARKER_SUDOERS}" deploy_user directives
+    deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    "${VISUDO_BIN}" -cf "${path}" >/dev/null \
+        || fail "committed sudoers grant failed visudo -cf: ${path}"
+
+    directives="$(grep -vE '^[[:space:]]*(#|$)' "${path}")"
+
+    # First, because it is the shape that would hand the deploy user every
+    # command on the host and every later check would then be beside the point.
+    if grep -Eq 'NOPASSWD:[[:space:]]*ALL' <<<"${directives}"; then
+        fail "sudoers grant must never be a blanket NOPASSWD: ALL: ${path}"
+    fi
+
+    grep -Fq "${DST_MARKER_WRAPPER}" <<<"${directives}" \
+        || fail "sudoers grant does not name ${DST_MARKER_WRAPPER}: ${path}"
+
+    grep -Fq "${deploy_user}" <<<"${directives}" \
+        || fail "sudoers grant does not grant ${deploy_user} access: ${path}"
+
+    # Closed check, not a tits-guru-shaped one: any deploy user belonging to a
+    # target that is not this one has no business in this grant.
+    local other_target other_deploy_user
+    while read -r other_target; do
+        [[ -n "${other_target}" ]] || continue
+        [[ "${other_target}" != "${TARGET_ID}" ]] || continue
+
+        other_deploy_user="$(target_deploy_user "${other_target}")"
+
+        if grep -Fq "${other_deploy_user}" <<<"${directives}"; then
+            fail "sudoers grant must not mention ${other_deploy_user} (target ${other_target}): ${path}"
+        fi
+    done < <(registry_target_ids)
+
+    # Exactly one command path, and it is the marker wrapper. An operational
+    # wrapper appearing here would silently widen the deploy user's privileges.
+    local named_commands
+    named_commands="$(grep -oE '/[A-Za-z0-9_./-]+' <<<"${directives}" | sort -u | tr '\n' ' ')"
+    named_commands="${named_commands% }"
+
+    [[ "${named_commands}" == "${DST_MARKER_WRAPPER}" ]] \
+        || fail "sudoers grant must name ${DST_MARKER_WRAPPER} and nothing else, found: ${named_commands} (${path})"
+
+    # Last, and the whole point of the file: one rule, and it is the one the
+    # deploy channel depends on.
+    assert_marker_sudoers_grant "${path}" "committed sudoers grant"
+}
+
+# registry_target_ids — every target ID the registry declares. Read through
+# the same validated registry file every target_* accessor uses.
+registry_target_ids() {
+    jq -r '.targets | keys[]' "$(target_registry_file)"
+}
+
+TXN_MARKER_BACKUPS=()
+TXN_MARKER_BACKUP_DIR=""
+
+# backup_key DESTINATION — a collision-free filename for one destination's
+# backup, derived from the whole path rather than its last component.
+backup_key() {
+    printf '%s\n' "${1#/}" | tr '/' '_'
+}
+
+backup_existing_marker_files() {
+    local src dst mode label dst_phys backup_path
+
+    [[ -n "${TXN_MARKER_BACKUP_DIR}" ]] \
+        || fail "internal: marker backup directory was not prepared"
+
+    while IFS='|' read -r src dst mode label; do
+        dst_phys="$(physical "${dst}")"
+
+        # Rejected here, before the transaction is armed, rather than later in
+        # install_marker_files: a symlink recorded as "no previous file" would
+        # be silently deleted by a rollback that believed it was cleaning up
+        # after itself.
+        [[ ! -L "${dst_phys}" ]] \
+            || fail "refusing to manage a symlinked destination: ${dst}"
+
+        if [[ -e "${dst_phys}" ]] && [[ ! -f "${dst_phys}" ]]; then
+            fail "refusing to manage a non-regular-file destination: ${dst}"
+        fi
+
+        if [[ -f "${dst_phys}" ]]; then
+            # Keyed by the whole destination path, not its basename: the sudo
+            # wrapper and its sudoers grant are both called
+            # rateguru-nightwatch-deployment, so a basename-keyed backup would
+            # have one file serving two destinations — and a rollback would
+            # restore sudoers content over an executable.
+            backup_path="${TXN_MARKER_BACKUP_DIR}/$(backup_key "${dst}")"
+
+            cp -- "${dst_phys}" "${backup_path}" \
+                || fail "cannot back up ${dst}"
+
+            # Ownership and mode are part of the previous state, so they are
+            # captured alongside the bytes; restoring content while leaving a
+            # failed apply's mode behind is not a rollback. Numeric IDs, not
+            # names: a file owned by a uid with no passwd entry would otherwise
+            # be captured as the literal UNKNOWN and fail to restore.
+            TXN_MARKER_BACKUPS+=("${dst}|${backup_path}|$("${STAT_BIN}" -c '%u:%g' "${dst_phys}")|$("${STAT_BIN}" -c '%a' "${dst_phys}")")
+            log "backed up ${dst}"
+        else
+            TXN_MARKER_BACKUPS+=("${dst}|||")
+        fi
+    done < <(marker_file_rows)
+}
+
+restore_marker_files() {
+    local entry dst backup ownership mode dst_phys
+
+    for entry in ${TXN_MARKER_BACKUPS[@]+"${TXN_MARKER_BACKUPS[@]}"}; do
+        IFS='|' read -r dst backup ownership mode <<<"${entry}"
+        dst_phys="$(physical "${dst}")"
+
+        if [[ -n "${backup}" ]]; then
+            if cp -- "${backup}" "${dst_phys}"; then
+                "${CHOWN_BIN}" -- "${ownership}" "${dst_phys}" \
+                    || printf 'ROLLBACK ERROR: could not restore ownership on %s\n' "${dst}" >&2
+                "${CHMOD_BIN}" "=${mode}" "${dst_phys}" \
+                    || printf 'ROLLBACK ERROR: could not restore mode on %s\n' "${dst}" >&2
+                log "rollback: restored ${dst} (${ownership} ${mode})"
+            else
+                printf 'ROLLBACK ERROR: could not restore %s\n' "${dst}" >&2
+            fi
+        else
+            rm -f -- "${dst_phys}" \
+                && log "rollback: removed ${dst} (there was no previous file)" \
+                || printf 'ROLLBACK ERROR: could not remove %s\n' "${dst}" >&2
+        fi
+    done
+}
+
+install_marker_files() {
+    local src dst mode label dst_phys tmp
+
+    while IFS='|' read -r src dst mode label; do
+        dst_phys="$(physical "${dst}")"
+
+        [[ ! -L "${dst_phys}" ]] || fail "refusing to install over an existing symlink: ${dst}"
+
+        if [[ -e "${dst_phys}" ]] && [[ ! -f "${dst_phys}" ]]; then
+            fail "refusing to install over an existing non-regular-file destination: ${dst}"
+        fi
+
+        [[ -d "$(dirname "${dst_phys}")" ]] \
+            || fail "$(dirname "${dst}") does not exist — run bootstrap-host --apply first"
+
+        tmp="$(mktemp "${dst_phys}.XXXXXX")" || fail "cannot stage ${dst}"
+
+        if ! "${INSTALL_BIN}" -m "${mode}" -- "${src}" "${tmp}"; then
+            rm -f -- "${tmp}"
+            fail "failed to stage ${dst}"
+        fi
+
+        # A sudoers file is parsed by sudo on every invocation, so a malformed
+        # one breaks every operational wrapper on the host, not just this one.
+        # It is validated in its staged location, before it can ever be seen by
+        # sudo under its real name.
+        if [[ "${dst}" == "${DST_MARKER_SUDOERS}" ]]; then
+            if ! "${VISUDO_BIN}" -cf "${tmp}" >/dev/null; then
+                rm -f -- "${tmp}"
+                fail "staged sudoers grant failed visudo -cf: ${dst}"
+            fi
+        fi
+
+        if ! mv -f -- "${tmp}" "${dst_phys}"; then
+            rm -f -- "${tmp}"
+            fail "failed to rename the staged file into place: ${dst}"
+        fi
+
+        "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${dst_phys}" \
+            || fail "cannot set ownership on ${dst}"
+        "${CHMOD_BIN}" "=${mode}" "${dst_phys}" \
+            || fail "cannot pin mode ${mode} on ${dst}"
+
+        log "installed ${dst} (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${mode}; ${label})"
+    done < <(marker_file_rows)
+}
+
+verify_marker_files() {
+    local src dst mode label dst_phys owner group actual_mode
+
+    while IFS='|' read -r src dst mode label; do
+        dst_phys="$(physical "${dst}")"
+
+        [[ -e "${dst_phys}" ]] || fail "${dst} is not installed (${label}) — run --apply"
+        [[ ! -L "${dst_phys}" ]] || fail "${dst} is a symlink"
+        [[ -f "${dst_phys}" ]] || fail "${dst} is not a regular file"
+
+        cmp -s "${src}" "${dst_phys}" \
+            || fail "${dst} differs from the committed ${src} — re-run --apply"
+
+        owner="$("${STAT_BIN}" -c '%U' "${dst_phys}")"
+        group="$("${STAT_BIN}" -c '%G' "${dst_phys}")"
+        actual_mode="$("${STAT_BIN}" -c '%a' "${dst_phys}")"
+
+        [[ "${owner}" == "${SERVICE_FILE_OWNER}" ]] \
+            || fail "${dst} is owned by ${owner}, expected ${SERVICE_FILE_OWNER}"
+        [[ "${group}" == "${SERVICE_FILE_GROUP}" ]] \
+            || fail "${dst} has group ${group}, expected ${SERVICE_FILE_GROUP}"
+        [[ "$((8#${actual_mode}))" -eq "$((8#${mode}))" ]] \
+            || fail "${dst} has mode ${actual_mode}, expected ${mode}"
+    done < <(marker_file_rows)
+
+    "${VISUDO_BIN}" -cf "$(physical "${DST_MARKER_SUDOERS}")" >/dev/null \
+        || fail "installed sudoers grant failed visudo -cf: ${DST_MARKER_SUDOERS}"
+
+    log "deployment-marker primitive, sudo wrapper and sudoers grant are installed, byte-identical to the committed sources and correctly owned"
+}
+
+# marker_removal_order — the same closed set as marker_file_rows, in the only
+# safe removal order: the sudo grant first, then the wrapper it names, then the
+# primitive the wrapper runs. Spelled out explicitly rather than derived by
+# sorting marker_file_rows, because a sort key is an accident of the source
+# paths and would silently reorder the moment one of them was renamed.
+marker_removal_order() {
+    printf '%s\n' \
+        "${DST_MARKER_SUDOERS}" \
+        "${DST_MARKER_WRAPPER}" \
+        "${DST_RECORD_BIN}"
+}
+
+remove_marker_files() {
+    local dst dst_phys
+
+    while read -r dst; do
+        dst_phys="$(physical "${dst}")"
+
+        if [[ -f "${dst_phys}" ]]; then
+            rm -f -- "${dst_phys}" || fail "cannot remove ${dst}"
+            log "removed ${dst}"
+        else
+            log "${dst} was already absent"
+        fi
+    done < <(marker_removal_order)
+}
+
+report_marker_files() {
+    local src dst mode label dst_phys
+
+    while IFS='|' read -r src dst mode label; do
+        dst_phys="$(physical "${dst}")"
+
+        if [[ -f "${dst_phys}" ]]; then
+            if cmp -s "${src}" "${dst_phys}"; then
+                log "${label}: installed and byte-identical to the committed source (${dst})"
+            else
+                log "${label}: installed but DIFFERS from the committed source — --apply will replace it (${dst})"
+            fi
+        else
+            log "${label}: not installed — --apply will install it (${dst})"
+        fi
+    done < <(marker_file_rows)
+}
+
+# --- Modes ------------------------------------------------------------------
+
+run_check() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+    validate_marker_sources
+
+    log "--- current state ---"
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ -f "${dst_phys}" ]]; then
+        if cmp -s "${SRC_CONF}" "${dst_phys}"; then
+            log "Supervisor program: installed and byte-identical to the committed source"
+        else
+            log "Supervisor program: installed but DIFFERS from the committed source — --apply will replace it"
+        fi
+    else
+        log "Supervisor program: not installed — --apply will install it"
+    fi
+
+    report_marker_files
+
+    if agent_program_known; then
+        if agent_program_running; then
+            log "agent process: RUNNING"
+        else
+            log "agent process: known to supervisord but NOT RUNNING"
+        fi
+    else
+        log "agent process: not registered with supervisord"
+    fi
+
+    if [[ -L "$(physical "${CURRENT_LINK}")" ]]; then
+        log "deployment state: DEPLOYED (${CURRENT_LINK} resolves)"
+    else
+        log "deployment state: PRE_DEPLOY — deploy the target before --apply"
+    fi
+
+    resolve_ingest_uri
+    log "expected ingest endpoint: ${INGEST_URI}"
+
+    local addresses
+    addresses="$(ingest_listener_addresses)"
+    if [[ -n "${addresses}" ]]; then
+        log "listeners on port ${INGEST_PORT}: $(tr '\n' ' ' <<<"${addresses}")"
+    else
+        log "listeners on port ${INGEST_PORT}: none"
+    fi
+
+    log "PASS: --check complete (no changes made)"
+}
+
+run_apply() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+    validate_marker_sources
+    validate_deployed
+    validate_env_contract
+
+    MAIN_BASHPID="${BASHPID}"
+
+    backup_existing_conf
+    backup_existing_marker_files
+
+    TXN_ARMED=true
+    trap on_apply_error ERR EXIT
+
+    install_conf
+    install_marker_files
+
+    supervisor_reread_validation \
+        || fail "supervisorctl reread reported a configuration error with the candidate installed"
+
+    "${SUPERVISORCTL_BIN}" update "${NIGHTWATCH_PROGRAM}" >/dev/null 2>&1 \
+        || fail "supervisorctl update ${NIGHTWATCH_PROGRAM} failed"
+
+    if ! agent_program_running; then
+        "${SUPERVISORCTL_BIN}" start "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    wait_for_agent_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} did not reach RUNNING"
+
+    sleep "${STABILITY_WAIT_SECONDS}"
+
+    agent_program_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} did not remain stably RUNNING"
+
+    verify_listener_loopback_only
+    verify_agent_status
+    verify_marker_files
+    verify_marker_authorization
+
+    trap - ERR EXIT
+    TXN_ARMED=false
+
+    log "PASS: Nightwatch agent ${NIGHTWATCH_PROGRAM} installed and RUNNING for ${TARGET_ID}, deployment-marker primitive installed"
+}
+
+# verify_marker_authorization — the proof requirement (7) asks for, made about
+# the file that is actually on the host: the installed drop-in parses, and it
+# authorizes this target's own deploy user for exactly the marker wrapper.
+# Configuration only — nothing here runs sudo, the wrapper, artisan or the
+# agent, and nothing needs a Nightwatch token.
+verify_marker_authorization() {
+    local path
+    path="$(physical "${DST_MARKER_SUDOERS}")"
+
+    [[ -e "${path}" ]] \
+        || fail "the deployment-marker sudoers grant is not installed: ${DST_MARKER_SUDOERS} — the target's deploy user cannot invoke ${DST_MARKER_WRAPPER}, and the deployment marker will fail with 'sudo: a password is required'"
+    [[ ! -L "${path}" ]] || fail "${DST_MARKER_SUDOERS} is a symlink"
+    [[ -f "${path}" ]] || fail "${DST_MARKER_SUDOERS} is not a regular file"
+
+    assert_marker_sudoers_grant "${path}" "installed sudoers grant"
+
+    local wrapper_phys
+    wrapper_phys="$(physical "${DST_MARKER_WRAPPER}")"
+
+    [[ -f "${wrapper_phys}" ]] && [[ ! -L "${wrapper_phys}" ]] \
+        || fail "the deployment-marker sudo wrapper is not installed: ${DST_MARKER_WRAPPER} — the grant above authorizes a command that does not exist"
+
+    log "deployment-marker authorization verified: $(target_deploy_user "${TARGET_ID}") may run ${DST_MARKER_WRAPPER} as root without a password, and nothing else"
+}
+
+# --- The deployment marker, on its own ----------------------------------------
+#
+# The marker is not the agent, and the difference is why these modes exist.
+#
+# The GitHub deploy channel records a deployment marker after every deployment
+# of a target whose OWN environment configures Nightwatch — as that target's
+# ordinary deploy user, through `sudo -n`, against the wrapper below. The
+# authorization for that is therefore part of what a prepared host must carry,
+# and host convergence installs it. The agent — a Supervisor-managed sidecar
+# an operator opts into and can remove in one step — is untouched by these
+# modes and stays exactly as optional as it was.
+#
+# The first real clean-host recovery is what made the distinction concrete: a
+# canonically prepared machine served the recovered release correctly and then
+# failed to record its Nightwatch marker with "sudo: a password is required",
+# because the grant only ever arrived with an agent installation nobody had
+# performed on a brand-new host.
+#
+# Neither mode requires a deployed release, a Nightwatch token, a running
+# supervisord or a reachable ingest port: on a host being prepared, none of
+# those exists yet, and the authorization still has to be right.
+on_marker_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E propagates this trap into $(...) subshells; only the main process
+    # ever performs the real rollback.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${TXN_ARMED}" != true ]]; then
+        exit "${code}"
+    fi
+
+    log "deployment-marker apply failed (status ${code}) — restoring the previous files"
+
+    restore_marker_files
+
+    exit "${code}"
+}
+
+# run_supports_deployment_marker — does this target record a deployment marker
+# at all? Exit status only, so a caller that must decide whether to converge
+# the authorization asks the script that owns the closed allowlist rather than
+# keeping a second copy of it. Reads nothing but the registry, changes nothing,
+# and needs no root.
+run_supports_deployment_marker() {
+    local program
+
+    if ! program="$(target_nightwatch_program "${TARGET_ID}" 2>/dev/null)"; then
+        printf 'target %s records no deployment marker: it has no Nightwatch program in the closed allowlist\n' "${TARGET_ID}"
+
+        return 1
+    fi
+
+    printf 'target %s records a deployment marker (Nightwatch program %s)\n' "${TARGET_ID}" "${program}"
+}
+
+run_apply_deployment_marker() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_marker_sources
+
+    MAIN_BASHPID="${BASHPID}"
+
+    prepare_marker_backup_dir
+    backup_existing_marker_files
+
+    TXN_ARMED=true
+    trap on_marker_apply_error ERR EXIT
+
+    install_marker_files
+    verify_marker_files
+    verify_marker_authorization
+
+    trap - ERR EXIT
+    TXN_ARMED=false
+
+    log "PASS: deployment-marker primitive, sudo wrapper and sudoers grant installed for ${TARGET_ID}"
+}
+
+run_verify_deployment_marker() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_marker_sources
+
+    # The authorization first, because it is what this mode exists to prove and
+    # what an operator meets when it is missing: a deployment marker that fails
+    # with "sudo: a password is required" says nothing about which file is
+    # absent, and this says exactly that.
+    verify_marker_authorization
+    verify_marker_files
+
+    log "PASS: deployment-marker authorization verified for ${TARGET_ID}"
+}
+
+run_verify() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+    validate_marker_sources
+    validate_deployed
+    validate_env_contract
+    verify_installed_conf
+    verify_marker_files
+    verify_marker_authorization
+
+    agent_program_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} is not RUNNING under supervisor"
+
+    verify_listener_loopback_only
+    verify_agent_status
+
+    log "PASS: Nightwatch agent and deployment-marker primitive verified for ${TARGET_ID}"
+}
+
+run_remove() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    resolve_ingest_uri
+
+    log "stopping ${NIGHTWATCH_PROGRAM}"
+    "${SUPERVISORCTL_BIN}" stop "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1 || true
+
+    # The sudo grant goes first and unconditionally: a deploy user must never
+    # be left holding a privilege whose target this run is in the middle of
+    # deleting.
+    remove_marker_files
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ -f "${dst_phys}" ]]; then
+        rm -f -- "${dst_phys}" || fail "cannot remove ${DST_CONF}"
+        log "removed ${DST_CONF}"
+    else
+        log "${DST_CONF} was already absent"
+    fi
+
+    supervisor_reread_validation \
+        || fail "supervisorctl reread reported a configuration error after removing ${DST_CONF} — resolve it before continuing"
+
+    "${SUPERVISORCTL_BIN}" update >/dev/null 2>&1 \
+        || fail "supervisorctl update failed after removing ${DST_CONF}"
+
+    ! agent_program_known \
+        || fail "${NIGHTWATCH_PROGRAM} is still registered with supervisord after removal"
+
+    verify_listener_absent
+
+    log "PASS: Nightwatch agent and deployment-marker primitive removed for ${TARGET_ID}. The Composer package, config/nightwatch.php and ${SHARED_ENV} are untouched; set NIGHTWATCH_ENABLED=false and redeploy to stop the application from producing events."
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        check) run_check ;;
+        apply) run_apply ;;
+        verify) run_verify ;;
+        remove) run_remove ;;
+        apply-deployment-marker) run_apply_deployment_marker ;;
+        verify-deployment-marker) run_verify_deployment_marker ;;
+        supports-deployment-marker) run_supports_deployment_marker ;;
+    esac
+}
+
+# Source-guard: lets tests source this file and call individual functions
+# without main() auto-running — the same pattern deploy and
+# install-bootstrap-services use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

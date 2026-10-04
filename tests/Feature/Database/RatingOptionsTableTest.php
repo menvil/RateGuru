@@ -25,21 +25,24 @@ it('uses rating option defaults', function () {
 
     $optionId = DB::table('rating_options')->insertGetId([
         'rating_group_id' => $groupId,
-        'key' => 'source_a',
-        'label' => 'Source A',
+        'key' => 'type_a',
+        'label' => 'Type A',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
-    expect(DB::table('rating_options')->find($optionId))
-        ->is_active->toBe(1)
+    $option = DB::table('rating_options')->find($optionId);
+
+    expect($option)
         ->sort_order->toBe(0)
         ->archived_at->toBeNull();
+
+    expect((bool) $option->is_active)->toBeTrue();
 });
 
 it('requires unique rating option keys within a group', function () {
     $groupId = createRatingGroup();
-    $otherGroupId = createRatingGroup('category');
+    $otherGroupId = createRatingGroup('attribute');
 
     insertRatingOption($groupId, 'option_a');
     insertRatingOption($otherGroupId, 'option_a');
@@ -58,7 +61,7 @@ it('deletes rating options when their group is deleted', function () {
         ->toBe(0);
 });
 
-function createRatingGroup(string $key = 'source'): int
+function createRatingGroup(string $key = 'type'): int
 {
     return DB::table('rating_groups')->insertGetId([
         'key' => $key,

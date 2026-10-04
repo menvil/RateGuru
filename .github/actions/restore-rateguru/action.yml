@@ -1,0 +1,550 @@
+name: Restore RateGuru target
+description: Drive one RateGuru restore operation through the generic, target-aware server-side wrapper
+
+# The single GitHub-side restore implementation for every RateGuru target, and
+# the only remote route into a restore that exists.
+#
+# Transport and orchestration only. The server-side wrapper
+# /usr/local/sbin/rateguru-restore -> infrastructure/scripts/restore-target owns
+# every piece of restore business logic — target lifecycle, the restore/backup/
+# deployment locks, staging and fully verifying the named backup, the emergency
+# pre-restore backup and its restore test, quiescing the target, the database
+# and storage swaps, the compensation, the restore guard, and the code-alignment
+# decision. None of that is reimplemented, mirrored or second-guessed here, so a
+# target that is lifecycle=planned or unprovisioned fails closed on the server
+# exactly as it does for every other operation.
+#
+# Three modes, one command shape:
+#
+#   apply    restore this target's data from ONE exact, named backup
+#   inspect  read-only: what is a held operation waiting for?
+#   resume   finish a held operation once its code has been aligned
+#
+# What this action refuses to do is read prose. The server prints a human
+# summary for operators and exactly one machine-readable result line for
+# machines, and this action consumes only the latter: which commit the target
+# requires, and whether it came back or is still held, are decisions a caller
+# branches on, and grepping a log for them would make every future wording
+# change a silent behaviour change.
+#
+# It also never accepts a remote command. The operator picks a mode, a backup
+# or an operation — never a path, never a flag, never a commit — and the
+# argument vector is assembled here from validated, closed-class values.
+
+inputs:
+  mode:
+    required: true
+    description: apply (restore data from a backup), inspect (read-only status of a held operation) or resume (finish a held operation)
+
+  deployment-target:
+    required: true
+    description: Deployment target ID from the RateGuru target registry
+
+  environment:
+    required: true
+    description: Environment class this restore runs in (staging or production), for diagnostics and the run summary
+
+  restore-source:
+    required: false
+    default: ""
+    description: local or offsite; required when mode=apply and forbidden otherwise
+
+  backup-id:
+    required: false
+    default: ""
+    description: Exact backup timestamp (YYYYMMDD-HHMMSS); required when mode=apply and forbidden otherwise
+
+  operation-id:
+    required: false
+    default: ""
+    description: Restore operation ID; required when mode=inspect or mode=resume and forbidden when mode=apply
+
+  deploy-host:
+    required: true
+    description: SSH server hostname or IP
+
+  deploy-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  deploy-user:
+    required: true
+    description: Restricted deployment user
+
+  restore-wrapper:
+    required: true
+    description: Target-aware sudo restore wrapper; its basename must be rateguru-restore
+
+  ssh-private-key:
+    required: true
+    description: Deployment SSH private key
+
+  known-hosts:
+    required: true
+    description: Verified SSH known_hosts entry
+
+outputs:
+  status:
+    description: completed (restored and serving), held (data restored, code alignment required) or resumed
+    value: ${{ steps.result.outputs.status }}
+
+  operation-id:
+    description: The restore operation this run acted on
+    value: ${{ steps.result.outputs.operation_id }}
+
+  backup:
+    description: The exact backup the operation restored from
+    value: ${{ steps.result.outputs.backup }}
+
+  backup-release:
+    description: The immutable release the backup's data was taken under
+    value: ${{ steps.result.outputs.backup_release }}
+
+  required-source-sha:
+    description: The exact commit the restored data belongs to
+    value: ${{ steps.result.outputs.required_source_sha }}
+
+  current-source-sha:
+    description: The commit the target's current release carries
+    value: ${{ steps.result.outputs.current_source_sha }}
+
+  code-alignment:
+    description: ALIGNED (the target already serves the required commit) or REQUIRED
+    value: ${{ steps.result.outputs.code_alignment }}
+
+  runtime-resumed:
+    description: yes when the target is serving again, no while it is held
+    value: ${{ steps.result.outputs.runtime_resumed }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate restore inputs
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RESTORE_SOURCE: ${{ inputs.restore-source }}
+        BACKUP_ID: ${{ inputs.backup-id }}
+        OPERATION_ID: ${{ inputs.operation-id }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        RESTORE_WRAPPER: ${{ inputs.restore-wrapper }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters
+        # and a flag-shaped value (a leading "-") in one closed character
+        # class — none of those characters are members of [a-z0-9-]. Exactly
+        # the expression the deploy and rollback actions validate a target
+        # with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production" >&2
+            exit 1
+            ;;
+        esac
+
+        for required_var in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER RESTORE_WRAPPER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for the ${ENVIRONMENT} environment" >&2
+            exit 1
+          fi
+        done
+
+        # The wrapper must be the generic, target-aware restore wrapper — never
+        # the deploy wrapper, never a path under /home/www (which would be the
+        # underlying binary the wrapper exists to gate), and never anything the
+        # restricted credential has no sudo grant for. Failing closed here,
+        # before any SSH connection is made, gives a clear diagnostic instead
+        # of a confusing remote sudo refusal.
+        if [[ ! "${RESTORE_WRAPPER}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+          echo "RESTORE_WRAPPER is not a plain absolute path: ${RESTORE_WRAPPER}" >&2
+          exit 1
+        fi
+
+        if [[ "$(basename "${RESTORE_WRAPPER}")" != "rateguru-restore" ]]; then
+          echo "RESTORE_WRAPPER must be the generic rateguru-restore wrapper (got: ${RESTORE_WRAPPER})" >&2
+          exit 1
+        fi
+
+        # The same closed formats the server enforces. Validated here too so a
+        # malformed value never reaches an SSH command line at all.
+        backup_regex='^[0-9]{8}-[0-9]{6}$'
+        operation_regex='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'
+
+        case "${MODE}" in
+          apply)
+            if [[ -n "${OPERATION_ID}" ]]; then
+              echo "operation-id must be empty when mode=apply: a restore generates its own operation ID" >&2
+              exit 1
+            fi
+
+            case "${RESTORE_SOURCE}" in
+              local|offsite)
+                ;;
+              *)
+                echo "restore-source must be local or offsite when mode=apply (got: ${RESTORE_SOURCE})" >&2
+                exit 1
+                ;;
+            esac
+
+            # There is no "latest" anywhere in this pipeline, by design: a
+            # destructive restore names the exact backup it is applying.
+            if [[ ! "${BACKUP_ID}" =~ ${backup_regex} ]]; then
+              echo "backup-id must be an exact YYYYMMDD-HHMMSS timestamp when mode=apply (got: ${BACKUP_ID})" >&2
+              exit 1
+            fi
+            ;;
+          inspect|resume)
+            if [[ -n "${RESTORE_SOURCE}" ]]; then
+              echo "restore-source must be empty when mode=${MODE}: the operation's own state records where its backup came from" >&2
+              exit 1
+            fi
+
+            if [[ -n "${BACKUP_ID}" ]]; then
+              echo "backup-id must be empty when mode=${MODE}: the operation's own state records which backup it applied" >&2
+              exit 1
+            fi
+
+            if [[ ! "${OPERATION_ID}" =~ ${operation_regex} ]]; then
+              echo "operation-id is required and must be a restore operation ID when mode=${MODE} (got: ${OPERATION_ID})" >&2
+              exit 1
+            fi
+            ;;
+          *)
+            echo "mode must be apply, inspect or resume (got: ${MODE})" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Configure SSH
+      shell: bash
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_restore_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_restore_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
+        printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_KNOWN_HOSTS_PATH=${known_hosts_path}"
+          echo "RATEGURU_RESTORE_LOG_PATH=${RUNNER_TEMP}/rateguru_restore_output.log"
+        } >> "${GITHUB_ENV}"
+
+    - name: Run the restore operation through the target-aware wrapper
+      id: restore
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        RESTORE_WRAPPER: ${{ inputs.restore-wrapper }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        RESTORE_SOURCE: ${{ inputs.restore-source }}
+        BACKUP_ID: ${{ inputs.backup-id }}
+        OPERATION_ID: ${{ inputs.operation-id }}
+      run: |
+        set -Eeuo pipefail
+
+        echo "Deployment target: ${DEPLOYMENT_TARGET}"
+        echo "Mode: ${MODE}"
+
+        # A fixed argument vector built as a Bash array — never an interpolated
+        # shell string, never operator input concatenated into a command line.
+        # Every value in it has already passed a closed-class check above, and
+        # @Q quotes each element for the remote shell.
+        remote_command=(
+          sudo -n "${RESTORE_WRAPPER}"
+          "--${MODE}"
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        if [[ "${MODE}" == "apply" ]]; then
+          remote_command+=(--source "${RESTORE_SOURCE}" --backup "${BACKUP_ID}")
+        else
+          remote_command+=(--operation "${OPERATION_ID}")
+        fi
+
+        # The whole server-side transcript is kept, both because an operator
+        # reading a failed run needs it and because the machine-readable result
+        # is extracted from it below. pipefail is already set, so a failed
+        # restore fails this step even though its output goes through tee.
+        ssh \
+          -p "${DEPLOY_PORT}" \
+          -i "${RATEGURU_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          "${remote_command[@]@Q}" 2>&1 | tee "${RATEGURU_RESTORE_LOG_PATH}"
+
+    # Reached only when the restore itself succeeded. Everything this workflow
+    # decides afterwards — build or do not build, resume or do not resume — is
+    # decided from THIS object and nothing else.
+    - name: Read the machine-readable restore result
+      id: result
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        OPERATION_ID: ${{ inputs.operation-id }}
+        BACKUP_ID: ${{ inputs.backup-id }}
+      run: |
+        set -Eeuo pipefail
+
+        # Exactly one, never zero and never two. Zero would mean a restore that
+        # exited 0 without stating an outcome; two would be an ambiguity a
+        # consumer has to resolve, and there is no safe way to resolve it.
+        mapfile -t result_lines < <(grep '^RATEGURU_RESTORE_RESULT=' "${RATEGURU_RESTORE_LOG_PATH}" || true)
+
+        if (( ${#result_lines[@]} != 1 )); then
+          echo "Expected exactly one RATEGURU_RESTORE_RESULT line, found ${#result_lines[@]}" >&2
+          exit 1
+        fi
+
+        result="${result_lines[0]#RATEGURU_RESTORE_RESULT=}"
+
+        if ! printf '%s' "${result}" | jq -e 'type == "object"' >/dev/null 2>&1; then
+          echo "Restore result is not a JSON object" >&2
+          exit 1
+        fi
+
+        # Every field the rest of the pipeline reads must be present as a
+        # string. A missing one would otherwise become an empty output that
+        # compares equal to another empty output somewhere downstream.
+        for field in status operation_id target backup backup_release \
+          backup_source_sha required_source_sha current_source_sha \
+          code_alignment runtime_resumed
+        do
+          if ! printf '%s' "${result}" | jq -e --arg f "${field}" '.[$f] | type == "string"' >/dev/null 2>&1; then
+            echo "Restore result is missing the ${field} field, or it is not a string" >&2
+            exit 1
+          fi
+        done
+
+        read_field() {
+          printf '%s' "${result}" | jq -r --arg f "$1" '.[$f]'
+        }
+
+        status="$(read_field status)"
+        operation_id="$(read_field operation_id)"
+        target="$(read_field target)"
+        backup="$(read_field backup)"
+        backup_release="$(read_field backup_release)"
+        backup_source_sha="$(read_field backup_source_sha)"
+        required_source_sha="$(read_field required_source_sha)"
+        current_source_sha="$(read_field current_source_sha)"
+        code_alignment="$(read_field code_alignment)"
+        runtime_resumed="$(read_field runtime_resumed)"
+
+        if [[ "${target}" != "${DEPLOYMENT_TARGET}" ]]; then
+          echo "Restore result names target ${target}, not ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        fi
+
+        operation_regex='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'
+
+        if [[ ! "${operation_id}" =~ ${operation_regex} ]]; then
+          echo "Restore result carries a malformed operation ID: ${operation_id}" >&2
+          exit 1
+        fi
+
+        # In inspect/resume the operation was named by the caller and the
+        # answer must be about that operation. In apply the server generated
+        # it, so there is nothing to compare it against.
+        if [[ -n "${OPERATION_ID}" ]] && [[ "${operation_id}" != "${OPERATION_ID}" ]]; then
+          echo "Restore result is about operation ${operation_id}, not the requested ${OPERATION_ID}" >&2
+          exit 1
+        fi
+
+        if [[ -n "${BACKUP_ID}" ]] && [[ "${backup}" != "${BACKUP_ID}" ]]; then
+          echo "Restore result names backup ${backup}, not the requested ${BACKUP_ID}" >&2
+          exit 1
+        fi
+
+        backup_regex='^[0-9]{8}-[0-9]{6}$'
+
+        if [[ ! "${backup}" =~ ${backup_regex} ]]; then
+          echo "Restore result carries a malformed backup ID: ${backup}" >&2
+          exit 1
+        fi
+
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        if [[ ! "${backup_release}" =~ ${release_regex} ]]; then
+          echo "Restore result carries a malformed backup release: ${backup_release}" >&2
+          exit 1
+        fi
+
+        # A full 40-character commit, never an abbreviation: this value becomes
+        # the exact ref a historical build checks out, and an abbreviated SHA
+        # is not an exact ref.
+        sha_regex='^[0-9a-f]{40}$'
+
+        if [[ ! "${required_source_sha}" =~ ${sha_regex} ]]; then
+          echo "Restore result carries no full 40-character required source SHA: ${required_source_sha}" >&2
+          exit 1
+        fi
+
+        if [[ "${backup_source_sha}" != "${required_source_sha}" ]]; then
+          echo "Restore result disagrees with itself: backup source ${backup_source_sha}, required ${required_source_sha}" >&2
+          exit 1
+        fi
+
+        case "${code_alignment}" in
+          ALIGNED|REQUIRED)
+            ;;
+          *)
+            echo "Restore result carries an unknown code alignment: ${code_alignment}" >&2
+            exit 1
+            ;;
+        esac
+
+        case "${runtime_resumed}" in
+          yes|no)
+            ;;
+          *)
+            echo "Restore result carries an unknown runtime_resumed value: ${runtime_resumed}" >&2
+            exit 1
+            ;;
+        esac
+
+        # Which outcomes each mode may legitimately produce. Anything else is
+        # a state this action does not understand, and guessing is exactly what
+        # it must not do.
+        case "${MODE}" in
+          apply)
+            case "${status}" in
+              completed|held) ;;
+              *)
+                echo "mode=apply produced an unexpected status: ${status}" >&2
+                exit 1
+                ;;
+            esac
+            ;;
+          inspect)
+            if [[ "${status}" != "held" ]]; then
+              echo "mode=inspect produced an unexpected status: ${status}" >&2
+              exit 1
+            fi
+            ;;
+          resume)
+            if [[ "${status}" != "resumed" ]]; then
+              echo "mode=resume produced an unexpected status: ${status}" >&2
+              exit 1
+            fi
+            ;;
+        esac
+
+        # The three internally-consistent combinations, spelled out. A
+        # "completed" that is somehow still held, or a "held" that claims to be
+        # serving, is a contradiction and never something to act on.
+        case "${status}" in
+          completed|resumed)
+            if [[ "${code_alignment}" != "ALIGNED" ]] || [[ "${runtime_resumed}" != "yes" ]]; then
+              echo "status=${status} must be ALIGNED and resumed, got ${code_alignment}/${runtime_resumed}" >&2
+              exit 1
+            fi
+            ;;
+          held)
+            if [[ "${code_alignment}" != "REQUIRED" ]] || [[ "${runtime_resumed}" != "no" ]]; then
+              echo "status=held must be REQUIRED and not resumed, got ${code_alignment}/${runtime_resumed}" >&2
+              exit 1
+            fi
+            ;;
+        esac
+
+        {
+          echo "status=${status}"
+          echo "operation_id=${operation_id}"
+          echo "backup=${backup}"
+          echo "backup_release=${backup_release}"
+          echo "required_source_sha=${required_source_sha}"
+          echo "current_source_sha=${current_source_sha}"
+          echo "code_alignment=${code_alignment}"
+          echo "runtime_resumed=${runtime_resumed}"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "Restore ${status}: operation ${operation_id}, backup ${backup}, code alignment ${code_alignment}, runtime resumed ${runtime_resumed}"
+
+    # Reports what happened on failed runs too. The result comes from the
+    # restore step's own outcome rather than the calling job's status, so it
+    # describes the operation itself and is never coloured by a later step.
+    - name: Write restore summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RESTORE_SOURCE: ${{ inputs.restore-source }}
+        REQUESTED_BACKUP: ${{ inputs.backup-id }}
+        REQUESTED_OPERATION: ${{ inputs.operation-id }}
+        RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+        RESULT_STATUS: ${{ steps.result.outputs.status }}
+        RESULT_OPERATION: ${{ steps.result.outputs.operation_id }}
+        RESULT_BACKUP: ${{ steps.result.outputs.backup }}
+        RESULT_BACKUP_RELEASE: ${{ steps.result.outputs.backup_release }}
+        RESULT_REQUIRED_SHA: ${{ steps.result.outputs.required_source_sha }}
+        RESULT_CURRENT_SHA: ${{ steps.result.outputs.current_source_sha }}
+        RESULT_ALIGNMENT: ${{ steps.result.outputs.code_alignment }}
+        RESULT_RESUMED: ${{ steps.result.outputs.runtime_resumed }}
+      run: |
+        set -Eeuo pipefail
+
+        # The step summary is rendered as Markdown, so plain consecutive lines
+        # would collapse into one paragraph. Same heading + list shape the
+        # rollback and release workflows already use.
+        {
+          echo "## Restore (${MODE})"
+          echo
+          echo "- Target: ${DEPLOYMENT_TARGET}"
+          echo "- Environment: ${ENVIRONMENT}"
+          echo "- Requested source: ${RESTORE_SOURCE:-n/a}"
+          echo "- Requested backup: ${REQUESTED_BACKUP:-n/a}"
+          echo "- Requested operation: ${REQUESTED_OPERATION:-n/a}"
+          echo "- Operation: ${RESULT_OPERATION:-unknown}"
+          echo "- Backup: ${RESULT_BACKUP:-unknown} (${RESULT_BACKUP_RELEASE:-unknown})"
+          echo "- Required source commit: ${RESULT_REQUIRED_SHA:-unknown}"
+          echo "- Current source commit: ${RESULT_CURRENT_SHA:-unknown}"
+          echo "- Code alignment: ${RESULT_ALIGNMENT:-unknown}"
+          echo "- Runtime resumed: ${RESULT_RESUMED:-unknown}"
+          echo "- Status: ${RESULT_STATUS:-unknown}"
+          echo "- Result: ${RESTORE_OUTCOME:-not attempted}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Remove temporary SSH material
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_SSH_KEY_PATH:-}" \
+          "${RATEGURU_KNOWN_HOSTS_PATH:-}"

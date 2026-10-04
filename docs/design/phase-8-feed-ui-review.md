@@ -19,7 +19,7 @@
 - [x] Image area exists (aspect-video img or x-ui.image-placeholder fallback)
 - [x] Author area exists (x-ui.avatar + name + @username)
 - [x] Title area exists (h3 + optional description with Str::limit)
-- [x] Stats area exists (score, comments, Homemade/Restaurant badges)
+- [x] Stats area exists (score, comments, and configurable rating summaries)
 - [x] Missing image fallback works (x-ui.image-placeholder "Food image")
 - [x] Missing description does not break layout
 - [x] Missing user relation does not break layout
@@ -60,7 +60,7 @@ Observations:
 - No topbar with search/upload/notifications (Phase 9+)
 - Feed column wider than reference due to missing sidebar — acceptable for Phase 8
 - Vote rail not shown (Phase 13+)
-- Binary choice / cuisine chips not shown (Phase 13+)
+- Configurable rating controls were scheduled for a later phase.
 - PostCard stats are read-only display only (no interactive voting)
 
 ## Test suite

@@ -1,8 +1,43 @@
 <?php
 
+use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Enums\MediaResizeMode;
+use App\Enums\MediaVariantName;
+use App\Models\MediaAsset;
+use App\Models\MediaVariant;
+use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\User;
+use App\Services\Media\MediaVariantSpecification;
+use App\Services\Media\NormalizedImage;
+use App\Support\Import\Dns\HostResolver;
+use App\Support\Import\ImportFetchPolicy;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\ImportTransportResponse;
+use App\Support\Import\ResolvedImportTarget;
+use App\Support\Settings\PresetSettingsBuilder;
+use App\Support\Translations\TranslationCatalogInspector;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
+use Laravel\Socialite\Two\User as SocialiteUser;
+use Livewire\Livewire;
+use Sentry\ClientBuilder as SentryClientBuilder;
+use Sentry\Event as SentryEvent;
+use Sentry\EventType as SentryEventType;
+use Sentry\Laravel\Integration as SentryLaravelIntegration;
+use Sentry\State\HubInterface as SentryHubInterface;
+use Sentry\Transport\Result as SentryTransportResult;
+use Sentry\Transport\ResultStatus as SentryResultStatus;
+use Sentry\Transport\TransportInterface as SentryTransportInterface;
+use Symfony\Component\Yaml\Yaml;
 use Tests\TestCase;
 
 /*
@@ -52,20 +87,3704 @@ function something()
 }
 
 /**
- * Create the two RatingGroups used by FeedPage filter logic:
- *   group 0 (source)   → origin param  (homemade, restaurant)
- *   group 1 (category) → cuisine param (italian, asian, american, mexican, other)
+ * A HostResolver test double that never touches real DNS — shared by every
+ * Import test file that needs UrlImportValidator to resolve a hostname to a
+ * specific IP without depending on that hostname actually existing on the
+ * public internet. See the block comment above the image-marker helpers for
+ * why a bare function/class needed by more than one test file has to live
+ * here rather than in any single one of them (Pest's --parallel runner
+ * assigns whole files to separate workers).
+ */
+final class FakeHostResolver implements HostResolver
+{
+    /**
+     * @param  array<string, list<string>>  $hostToIps
+     */
+    public function __construct(private readonly array $hostToIps) {}
+
+    public function resolve(string $host): array
+    {
+        return $this->hostToIps[$host] ?? [];
+    }
+}
+
+/**
+ * Binds a FakeHostResolver so UrlImportValidator (and everything built on
+ * it — SafeImportHttpClient, the import adapters/actions/Livewire
+ * components) never performs a real DNS lookup in tests. Defaults cover the
+ * handful of hostnames the wider Import test suite fetches through
+ * Http::fake(); pass $extraHostToIps to add or override entries for a
+ * specific test.
+ *
+ * @param  array<string, list<string>>  $extraHostToIps
+ */
+function bindFakeHostResolver(array $extraHostToIps = []): void
+{
+    $defaults = [
+        'example.com' => ['93.184.216.34'],
+        'cdn.example.com' => ['93.184.216.35'],
+        'www.instagram.com' => ['157.240.2.174'],
+    ];
+
+    app()->instance(HostResolver::class, new FakeHostResolver($extraHostToIps + $defaults));
+}
+
+/**
+ * An ImportHttpTransport test double that returns a scripted sequence of
+ * responses (one per call to get()) and records every ResolvedImportTarget
+ * it was actually invoked with — shared by every SafeImportHttpClient-level
+ * test that needs precise, per-hop control over what the "network" returns
+ * without going through Http::fake() (which bypasses PinnedImportHttpTransport
+ * entirely and can't simulate hop-by-hop transport behavior). A scripted
+ * entry may be an ImportTransportResponse, or a Closure(ResolvedImportTarget,
+ * ImportFetchPolicy): ImportTransportResponse for a hop that needs to throw
+ * (e.g. simulating a connect timeout on one specific hop).
+ */
+final class ScriptedImportHttpTransport implements ImportHttpTransport
+{
+    /** @var list<ResolvedImportTarget> */
+    public array $calls = [];
+
+    /**
+     * @param  list<ImportTransportResponse|Closure>  $responses
+     */
+    public function __construct(private array $responses) {}
+
+    public function get(ResolvedImportTarget $target, ImportFetchPolicy $policy): ImportTransportResponse
+    {
+        $this->calls[] = $target;
+
+        $next = array_shift($this->responses);
+
+        if ($next === null) {
+            throw new RuntimeException('ScriptedImportHttpTransport: no more scripted responses.');
+        }
+
+        if ($next instanceof Closure) {
+            return $next($target, $policy);
+        }
+
+        return $next;
+    }
+}
+
+/**
+ * The single committed source of truth for which infrastructure CLIs must
+ * stay executable — also read (independently, at runtime) by both
+ * deploy-staging.yml and release.yml, so the allowlist enforced by
+ * InfrastructureScriptExecutableModesTest, DeployStagingWorkflowTest and
+ * ProductionReleaseWorkflowTest can never drift from what the artifact-build
+ * workflows actually verify.
+ *
+ * @return list<string>
+ */
+function requiredCliManifestNames(): array
+{
+    $manifestPath = base_path('infrastructure/config/required-clis.txt');
+    $contents = file_get_contents($manifestPath);
+
+    if ($contents === false) {
+        throw new RuntimeException("could not read the required-CLI manifest: {$manifestPath}");
+    }
+
+    $lines = preg_split('/\R/', $contents);
+
+    return array_values(array_filter(array_map('trim', $lines), fn (string $line): bool => $line !== ''));
+}
+
+/*
+|--------------------------------------------------------------------------
+| Scope guards: what a change added, and what it deliberately did not
+|--------------------------------------------------------------------------
+|
+| A scope guard answers two questions about one body of work: does the end
+| state look the way it should, and did this branch stay inside its own
+| boundary. The second half needs a diff, so these helpers resolve the
+| revision a branch is measured against and read files as of it.
+|
+| They live here, once, because every guard needs the identical answer.
+| Copies of them drifted apart across three separate guard files before this.
+*/
+
+/**
+ * Every operational file a rejected architecture could sneak back into.
+ *
+ * @return list<string>
+ */
+function operationalFiles(): array
+{
+    $configFiles = [];
+
+    $tree = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(base_path('infrastructure/config'), FilesystemIterator::SKIP_DOTS),
+    );
+
+    foreach ($tree as $entry) {
+        if ($entry->isFile()) {
+            $configFiles[] = $entry->getPathname();
+        }
+    }
+
+    return array_values(array_filter(array_merge(
+        glob(base_path('.github/workflows/*.yml')) ?: [],
+        glob(base_path('.github/actions/*/action.yml')) ?: [],
+        glob(base_path('infrastructure/scripts/*')) ?: [],
+        $configFiles,
+    ), 'is_file'));
+}
+
+/**
+ * Is this run measuring a `develop → main` promotion?
+ *
+ * Every diff-based scope guard asks "what did THIS change touch", and answers it
+ * by diffing against the base. That question only has a meaning when the base is
+ * the branch the work was cut from. A promotion into `main` compares against a
+ * branch hundreds of commits behind, so the "change" becomes the whole history
+ * of develop and the guards report everything as newly touched — which is a
+ * property of the comparison, not a defect in the code.
+ *
+ * Those guards already skip when there is no base at all (a push event). A
+ * promotion is the same situation for the same reason, so it resolves to no base
+ * and they skip identically, rather than each guard needing to know about it.
+ */
+function branchIsPromotionToMain(): bool
+{
+    return getenv('GITHUB_BASE_REF') === 'main';
+}
+
+/**
+ * The revision this branch is measured against: the pull request's own base
+ * commit in CI, `origin/develop` locally, or null when neither is available —
+ * which a promotion into `main` also resolves to, see above.
+ */
+function branchBaseRevision(): ?string
+{
+    if (branchIsPromotionToMain()) {
+        return null;
+    }
+
+    $baseSha = getenv('BASE_SHA');
+
+    if (is_string($baseSha) && $baseSha !== '' && gitSucceeds(['cat-file', '-e', $baseSha.'^{commit}'])) {
+        return $baseSha;
+    }
+
+    return gitSucceeds(['rev-parse', '--verify', 'origin/develop']) ? 'origin/develop' : null;
+}
+
+/**
+ * @param  list<string>  $arguments
+ */
+function gitSucceeds(array $arguments): bool
+{
+    // Every argument is escaped individually: BASE_SHA is an environment
+    // value and this runs through a shell.
+    $command = 'cd '.escapeshellarg(base_path()).' && git '
+        .implode(' ', array_map('escapeshellarg', $arguments))
+        .' >/dev/null 2>&1; echo $?';
+
+    return trim((string) shell_exec($command)) === '0';
+}
+
+/** @return list<string> */
+function branchChangedFiles(): array
+{
+    $baseline = trim((string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git diff --name-only '
+            .escapeshellarg((string) branchBaseRevision()).' HEAD 2>/dev/null'
+    ));
+
+    return $baseline === '' ? [] : explode("\n", $baseline);
+}
+
+/**
+ * The changed files whose CODE actually changed — a file this branch touched
+ * only in comments is not in the list.
+ *
+ * The "these files stay untouched" guards exist to protect behaviour: a script
+ * accepted on real hardware must not be quietly edited by a later slice. What
+ * they are not for is freezing prose. A repository-wide comment cleanup
+ * legitimately rewrites a line in `backup` or `common` without changing a
+ * single thing either one does, and a guard that fires on that is measuring
+ * bytes where it means to measure behaviour — which trains people to widen it,
+ * and then it stops catching the real edit too.
+ *
+ * @return list<string>
+ */
+function branchChangedCodeFiles(): array
+{
+    return array_values(array_filter(
+        branchChangedFiles(),
+        static function (string $path): bool {
+            $diff = branchFileDiff($path);
+            $changed = array_merge($diff['added'], $diff['removed']);
+
+            return $changed !== [] && sourceCodeLines($changed) !== [];
+        },
+    ));
+}
+
+/**
+ * The lines that are not blank and not a whole-line comment.
+ *
+ * Deliberately only `#` and `//`. A leading `*` is a comment continuation in
+ * PHP but a `case` arm in shell, and every file these guards protect is a
+ * shell script or a `#`-commented config — so treating `*` as prose here would
+ * hide exactly the kind of change they exist to catch.
+ *
+ * @param  list<string>  $lines
+ * @return list<string>
+ */
+function sourceCodeLines(array $lines): array
+{
+    return array_values(array_filter(
+        array_map('trim', $lines),
+        static fn (string $line): bool => $line !== ''
+            && ! str_starts_with($line, '#')
+            && ! str_starts_with($line, '//'),
+    ));
+}
+
+/**
+ * The lines this branch adds to, and removes from, one file.
+ *
+ * `-U0` so the hunks carry no context: every `+` really is an addition. This is
+ * what lets a scope guard say "exactly this much changed, and nothing else"
+ * about a file it deliberately touches, instead of the blunter "this file did
+ * not change at all".
+ *
+ * @return array{added: list<string>, removed: list<string>}
+ */
+function branchFileDiff(string $path): array
+{
+    $diff = (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git diff -U0 '
+            .escapeshellarg((string) branchBaseRevision()).' HEAD -- '.escapeshellarg($path).' 2>/dev/null'
+    );
+
+    $added = [];
+    $removed = [];
+
+    foreach (explode("\n", $diff) as $line) {
+        if (str_starts_with($line, '+++') || str_starts_with($line, '---')) {
+            continue;
+        }
+
+        if (str_starts_with($line, '+')) {
+            $added[] = mb_substr($line, 1);
+        } elseif (str_starts_with($line, '-')) {
+            $removed[] = mb_substr($line, 1);
+        }
+    }
+
+    return ['added' => $added, 'removed' => $removed];
+}
+
+/**
+ * One file as this branch has it committed.
+ *
+ * These guards describe the branch, not the working tree — that is what a diff
+ * against the base measures, and what CI reviews. Reading the file from HEAD
+ * too keeps both halves of an assertion talking about the same thing, instead
+ * of comparing a committed diff against uncommitted edits.
+ */
+function committedFile(string $path): string
+{
+    return (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git show HEAD:'.escapeshellarg($path).' 2>/dev/null'
+    );
+}
+
+/**
+ * One file as the base revision has it, so a diff-bounded guard can say where a
+ * REMOVED line used to live, not only where an added one landed.
+ */
+function baseRevisionFile(string $path): string
+{
+    return (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git show '
+            .escapeshellarg((string) branchBaseRevision().':'.$path).' 2>/dev/null'
+    );
+}
+
+/**
+ * The body of one shell function, so an ordering assertion is about what
+ * actually runs rather than about where things happen to be declared. Every one
+ * of these scripts defines its helpers above its pipeline, so a whole-file
+ * position comparison would routinely say the opposite of the truth.
+ */
+function shellFunctionBody(string $source, string $name): string
+{
+    $start = mb_strpos($source, "\n{$name}() {\n");
+
+    expect($start)->not->toBeFalse("{$name} is not defined");
+
+    $end = mb_strpos($source, "\n}\n", $start);
+
+    expect($end)->not->toBeFalse("{$name} has no closing brace");
+
+    return mb_substr($source, $start, $end - $start);
+}
+
+/**
+ * One source file with its comment and blank lines removed, so a
+ * forbidden-construct scan reasons about code rather than about prose.
+ *
+ * Every guard that greps a script, a wrapper, an action or a workflow for
+ * something it must never contain needs this, and for one specific reason: the
+ * files most likely to be scanned for `eval` / `bash -c` / a legacy flag are
+ * exactly the files that legitimately DOCUMENT not using it. A naive whole-file
+ * grep turns "no eval, no bash -c, no string-built command" in a header comment
+ * into a violation — the real incident
+ * install-target-perimeter's own verify_wrapper_static_contract was hardened
+ * against, and one that has since been rediscovered in four separate test
+ * files.
+ *
+ * `#` is the comment marker in every format this is used on: shell scripts,
+ * YAML actions and YAML workflows alike.
+ */
+function executableSourceLines(string $source): string
+{
+    return implode("\n", array_filter(
+        preg_split('/\R/', $source),
+        static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
+    ));
+}
+
+/**
+ * The sourced libraries under infrastructure/scripts: never executed
+ * directly, so they must stay non-executable. Kept here beside
+ * requiredCliManifestNames() so the CLI allowlist and the library exemption
+ * have one definition between every test that reasons about either.
+ *
+ * @return list<string>
+ */
+function sourcedLibraryNames(): array
+{
+    return ['common', 'restore-common'];
+}
+
+/**
+ * Scripts under infrastructure/scripts/ that are REPOSITORY tooling: run from a
+ * checkout by a developer or by CI, and deliberately never installed onto a host.
+ *
+ * The third category, and it exists because the first two could not honestly hold
+ * one. A required CLI is installed on every host; a sourced library is installed
+ * and read by those CLIs. `render-environment-templates` is neither — and its
+ * absence from a host is a SAFETY property, not an omission: it generates the
+ * committed environment templates, and a generator reachable on a host would be a
+ * way for tooling to write a target's canonical shared/.env, which is the
+ * operator's to own.
+ *
+ * So a script listed here must stay out of required-clis.txt and out of the
+ * operational bundle, and the guards that inventory infrastructure/scripts/ know
+ * to expect exactly that rather than reporting it as unclassified.
+ *
+ * @return list<string>
+ */
+function repositoryOnlyScriptNames(): array
+{
+    return ['render-environment-templates'];
+}
+
+/**
+ * A correctly normalized release-tree fixture: every manifested CLI present
+ * and executable, every sourced library present, readable and non-executable,
+ * the manifest itself copied verbatim from the real committed one. Shared by
+ * InfrastructureScriptExecutableModesTest (testing verify-required-clis and
+ * deploy directly) and DeployStagingWorkflowTest/ProductionReleaseWorkflowTest
+ * (testing that each workflow correctly delegates to it).
+ */
+function releaseCliFixture(array $cliNames): string
+{
+    $root = sys_get_temp_dir().'/release-cli-exec-check-'.uniqid('', true);
+
+    mkdir($root.'/infrastructure/scripts', 0o755, true);
+    mkdir($root.'/infrastructure/config', 0o755, true);
+    copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
+
+    foreach ($cliNames as $name) {
+        file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
+        chmod($root.'/infrastructure/scripts/'.$name, 0o755);
+    }
+
+    foreach (sourcedLibraryNames() as $library) {
+        file_put_contents($root.'/infrastructure/scripts/'.$library, "#!/usr/bin/env bash\n");
+        chmod($root.'/infrastructure/scripts/'.$library, 0o644);
+    }
+
+    return $root;
+}
+
+/**
+ * An in-memory Sentry transport: every event the SDK decides to send lands in
+ * $events instead of on the network. Shared by every Sentry test file (see the
+ * block comment above the image-marker helpers for why a helper used by more
+ * than one test file has to live here rather than in any single one of them).
+ */
+final class RecordingSentryTransport implements SentryTransportInterface
+{
+    /** @var list<SentryEvent> */
+    public array $events = [];
+
+    public function send(SentryEvent $event): SentryTransportResult
+    {
+        $this->events[] = $event;
+
+        return new SentryTransportResult(SentryResultStatus::success(), $event);
+    }
+
+    public function close(?int $timeout = null): SentryTransportResult
+    {
+        return new SentryTransportResult(SentryResultStatus::success());
+    }
+
+    /** @return list<SentryEvent> */
+    public function errorEvents(): array
+    {
+        return array_values(array_filter(
+            $this->events,
+            static fn (SentryEvent $event): bool => $event->getType() === SentryEventType::event(),
+        ));
+    }
+}
+
+/**
+ * Rebuilds the Sentry client the application is already using, from the
+ * application's own config/sentry.php, with only the transport replaced — so
+ * tests exercise our real options (release, environment, sampling, PII, SQL
+ * bindings) and our real scope, and never open a socket to sentry.io.
+ *
+ * The hub instance itself is kept and only re-bound to the new client, so the
+ * scope App\Providers\ObservabilityServiceProvider configured at boot (the
+ * deployment_target/commit tags) survives.
+ *
+ * @param  array<string, mixed>  $config  config overrides applied before the client is built
+ */
+function fakeSentryTransport(array $config = []): RecordingSentryTransport
+{
+    config(array_merge(['sentry.dsn' => 'https://recorder@sentry.invalid/1'], $config));
+
+    $transport = new RecordingSentryTransport;
+
+    /** @var SentryClientBuilder $builder */
+    $builder = app(SentryClientBuilder::class);
+    $builder->setTransport($transport);
+
+    // The PHP SDK's default integrations install process-global error and
+    // exception handlers. The Laravel service provider strips exactly those in
+    // production; here we build without them entirely and add back only the
+    // Laravel integration that shapes events, so a test client can never take
+    // over PHPUnit's own handlers.
+    $builder->getOptions()->setDefaultIntegrations(false);
+    $builder->getOptions()->setIntegrations([new SentryLaravelIntegration]);
+
+    app(SentryHubInterface::class)->bindClient($builder->getClient());
+
+    return $transport;
+}
+
+/**
+ * Captures the records Nightwatch is about to transmit, and stops it.
+ *
+ * `IngestingEvents` is the package's own public event, dispatched through
+ * `Event::until()` with the exact serialized payloads immediately before they
+ * are written to the agent socket — and a listener returning `false` halts
+ * that write. So this both reads what would really be sent (not a
+ * reconstruction of it) and guarantees a test never opens a socket, needs an
+ * agent, or consumes account quota.
+ *
+ * Shared by every Nightwatch ingest test (see the block comment above the
+ * image-marker helpers for why a helper used by more than one test file has to
+ * live here rather than in any single one of them).
+ */
+final class RecordingNightwatchIngest
+{
+    /** @var list<array<string, mixed>> */
+    public array $records = [];
+
+    public function __invoke(NightwatchIngestingEvents $event): bool
+    {
+        foreach ($event->records as $record) {
+            $this->records[] = $record;
+        }
+
+        return false;
+    }
+
+    /**
+     * The records exactly as they would go on the wire.
+     *
+     * Nightwatch defers some fields (the user ID, for one) behind a
+     * JsonSerializable LazyValue that only resolves during encoding, so the
+     * raw array is not yet what would be sent. Round-tripping through
+     * json_encode reproduces `Payload::json`'s own step and is therefore the
+     * only faithful thing to assert against.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function wire(): array
+    {
+        return json_decode($this->encoded(), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function ofType(string $type): array
+    {
+        return array_values(array_filter(
+            $this->wire(),
+            static fn (array $record): bool => ($record['t'] ?? null) === $type,
+        ));
+    }
+
+    /** The whole capture as one string, for "this value appears nowhere" assertions. */
+    public function encoded(): string
+    {
+        return (string) json_encode(
+            $this->records,
+            JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
+    }
+}
+
+/**
+ * Registers the recorder above and returns it. Nightwatch flushes its buffer
+ * on `Nightwatch::digest()`, which is the public way to make a test's events
+ * arrive at a deterministic point.
+ */
+function captureNightwatchIngest(): RecordingNightwatchIngest
+{
+    $recorder = new RecordingNightwatchIngest;
+
+    Event::listen(NightwatchIngestingEvents::class, $recorder);
+
+    return $recorder;
+}
+
+/**
+ * The executable source of a PHP file with every comment removed — shared by
+ * the observability guards that assert a file never shells out to Git and
+ * never special-cases a deployment target. Those files document both rules at
+ * length, and prose about a rule must never be mistaken for a breach of it.
+ * (See the block comment above the image-marker helpers for why a helper used
+ * by more than one test file has to live here.)
+ */
+function phpSourceWithoutComments(string $relativePath): string
+{
+    return collect(token_get_all(File::get(base_path($relativePath))))
+        ->reject(fn (array|string $token): bool => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true))
+        ->map(fn (array|string $token): string => is_array($token) ? $token[1] : $token)
+        ->implode('');
+}
+
+/**
+ * A minimal NormalizedImage fixture shared by every Media test that needs
+ * one to hand to MediaStorage::storeNormalized() without running a real
+ * image through GdImageIngestor first.
+ */
+function normalizedFixture(string $bytes = 'normalized-jpeg-bytes'): NormalizedImage
+{
+    return new NormalizedImage(
+        bytes: $bytes,
+        mimeType: 'image/jpeg',
+        extension: 'jpg',
+        byteSize: strlen($bytes),
+        width: 800,
+        height: 600,
+    );
+}
+
+/**
+ * Create two configurable Rating Groups used by feed filter tests.
  */
 function seedFeedFilterGroups(): void
 {
-    $source = RatingGroup::factory()->create(['key' => 'source', 'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'homemade',   'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'restaurant', 'sort_order' => 20]);
+    $type = RatingGroup::factory()->create(['key' => 'type', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $type->id, 'key' => 'type_a', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $type->id, 'key' => 'type_b', 'sort_order' => 20]);
 
-    $category = RatingGroup::factory()->create(['key' => 'category', 'sort_order' => 20]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'italian',  'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'asian',    'sort_order' => 20]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'american', 'sort_order' => 30]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'mexican',  'sort_order' => 40]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'other',    'sort_order' => 50]);
+    $attribute = RatingGroup::factory()->create(['key' => 'attribute', 'sort_order' => 20]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_a', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_b', 'sort_order' => 20]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_c', 'sort_order' => 30]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_d', 'sort_order' => 40]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_other', 'sort_order' => 50]);
+}
+
+/**
+ * The following image-marker helpers are shared across multiple Media test
+ * files (GdImageIngestorTest, GdImageVariantProcessorTest, and everything
+ * that generates fixture bytes for MediaVariantGenerator/Writer/Job/Command
+ * tests). They live here — not as bare functions inside any one of those
+ * files — because Pest's parallel runner (`--parallel`, used in CI) assigns
+ * whole test files to separate worker processes; a bare function declared in
+ * file A is not visible to file B when they land in different workers, which
+ * only surfaces as an "undefined function" failure under --parallel, not
+ * under a normal sequential run. Everything in this file, by contrast, is
+ * part of Pest's own bootstrap and is loaded by every worker.
+ */
+
+/**
+ * Distinct marker colors in each corner: TL=red, TR=green, BL=blue,
+ * BR=white — lets orientation tests assert on physical pixel positions, not
+ * just reported dimensions.
+ */
+function makeMarkerImage(int $width, int $height): GdImage
+{
+    $im = imagecreatetruecolor($width, $height);
+    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
+    imagesetpixel($im, 0, 0, imagecolorallocate($im, 255, 0, 0));
+    imagesetpixel($im, $width - 1, 0, imagecolorallocate($im, 0, 255, 0));
+    imagesetpixel($im, 0, $height - 1, imagecolorallocate($im, 0, 0, 255));
+    imagesetpixel($im, $width - 1, $height - 1, imagecolorallocate($im, 255, 255, 255));
+
+    return $im;
+}
+
+function markerCornerColor(GdImage $im, int $x, int $y): string
+{
+    $rgb = imagecolorsforindex($im, imagecolorat($im, $x, $y));
+
+    return match (true) {
+        $rgb['red'] > 200 && $rgb['green'] < 50 && $rgb['blue'] < 50 => 'RED',
+        $rgb['green'] > 200 && $rgb['red'] < 50 && $rgb['blue'] < 50 => 'GREEN',
+        $rgb['blue'] > 200 && $rgb['red'] < 50 && $rgb['green'] < 50 => 'BLUE',
+        $rgb['red'] > 200 && $rgb['green'] > 200 && $rgb['blue'] > 200 => 'WHITE',
+        default => 'OTHER',
+    };
+}
+
+/** @return array{tl: string, tr: string, bl: string, br: string, width: int, height: int} */
+function markerCorners(string $bytes): array
+{
+    $im = imagecreatefromstring($bytes);
+    $w = imagesx($im);
+    $h = imagesy($im);
+
+    return [
+        'tl' => markerCornerColor($im, 0, 0),
+        'tr' => markerCornerColor($im, $w - 1, 0),
+        'bl' => markerCornerColor($im, 0, $h - 1),
+        'br' => markerCornerColor($im, $w - 1, $h - 1),
+        'width' => $w,
+        'height' => $h,
+    ];
+}
+
+function jpegMarkerBytes(int $width = 20, int $height = 10, int $quality = 90): string
+{
+    $im = makeMarkerImage($width, $height);
+    ob_start();
+    imagejpeg($im, null, $quality);
+
+    return ob_get_clean();
+}
+
+/** @param 'png'|'webp' $format */
+function markerBytesWithAlpha(string $format, int $width = 20, int $height = 10): string
+{
+    $im = imagecreatetruecolor($width, $height);
+    imagealphablending($im, false);
+    imagesavealpha($im, true);
+    imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+    imagesetpixel($im, 0, 0, imagecolorallocatealpha($im, 255, 0, 0, 0));
+    imagesetpixel($im, $width - 1, 0, imagecolorallocatealpha($im, 0, 255, 0, 0));
+    imagesetpixel($im, 0, $height - 1, imagecolorallocatealpha($im, 0, 0, 255, 0));
+    ob_start();
+
+    match ($format) {
+        'png' => imagepng($im),
+        'webp' => imagewebp($im),
+    };
+
+    return ob_get_clean();
+}
+
+/**
+ * Solid corner BLOCKS (not single pixels, unlike makeMarkerImage() above) —
+ * a single marker pixel gets diluted below markerCornerColor()'s detection
+ * threshold once imagecopyresampled()'s interpolation and JPEG's lossy
+ * compression both apply, which never happens to makeMarkerImage()'s own
+ * pixel-preserving flip/rotate use in GdImageIngestorTest. Block size scales
+ * with the image so it survives even an aggressive downscale (e.g.
+ * 4000x500 -> 640x80, ~0.16x, exercised in GdImageVariantProcessorTest).
+ */
+function containResizeMarkerBytes(int $width, int $height): string
+{
+    return solidCornerBlockJpeg($width, $height, 0, 0, $width, $height);
+}
+
+/**
+ * Places the four marker color blocks at the region that will become a
+ * CoverSquare crop's four corners, rather than the source image's own
+ * absolute corners — lets a crop+resize be verified with the same
+ * markerCorners() reader above.
+ */
+function coverSquareCropMarkerBytes(int $width, int $height): string
+{
+    $cropSize = min($width, $height);
+    $cropX = intdiv($width - $cropSize, 2);
+    $cropY = intdiv($height - $cropSize, 2);
+
+    return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropSize, $cropSize);
+}
+
+/**
+ * Generalizes coverSquareCropMarkerBytes() to an arbitrary (non-square)
+ * target aspect ratio — places the four marker color blocks at the region
+ * that will become a Cover crop's four corners for the given targetWidth /
+ * targetHeight ratio, mirroring GdImageVariantProcessor::planCover()'s own
+ * math so a test failure here means the two have diverged.
+ */
+function coverCropMarkerBytes(int $width, int $height, int $targetWidth, int $targetHeight): string
+{
+    $targetRatio = $targetWidth / $targetHeight;
+    $srcRatio = $width / $height;
+
+    if ($srcRatio > $targetRatio) {
+        $cropHeight = $height;
+        $cropWidth = (int) round($height * $targetRatio);
+    } else {
+        $cropWidth = $width;
+        $cropHeight = (int) round($width / $targetRatio);
+    }
+
+    $cropX = intdiv($width - $cropWidth, 2);
+    $cropY = intdiv($height - $cropHeight, 2);
+
+    return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropWidth, $cropHeight);
+}
+
+function solidCornerBlockJpeg(int $width, int $height, int $regionX, int $regionY, int $regionW, int $regionH): string
+{
+    $blockW = max(4, (int) round($regionW * 0.15));
+    $blockH = max(4, (int) round($regionH * 0.15));
+
+    $im = imagecreatetruecolor($width, $height);
+    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
+
+    $red = imagecolorallocate($im, 255, 0, 0);
+    $green = imagecolorallocate($im, 0, 255, 0);
+    $blue = imagecolorallocate($im, 0, 0, 255);
+    $white = imagecolorallocate($im, 255, 255, 255);
+
+    imagefilledrectangle($im, $regionX, $regionY, $regionX + $blockW - 1, $regionY + $blockH - 1, $red);
+    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY, $regionX + $regionW - 1, $regionY + $blockH - 1, $green);
+    imagefilledrectangle($im, $regionX, $regionY + $regionH - $blockH, $regionX + $blockW - 1, $regionY + $regionH - 1, $blue);
+    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY + $regionH - $blockH, $regionX + $regionW - 1, $regionY + $regionH - 1, $white);
+
+    ob_start();
+    imagejpeg($im, null, 90);
+
+    return ob_get_clean();
+}
+
+function variantSpec(
+    MediaVariantName $name = MediaVariantName::PostFeed640,
+    int $maxWidth = 640,
+    int $maxHeight = 1280,
+    MediaResizeMode $mode = MediaResizeMode::Contain,
+    int $quality = 82,
+    ?string $outputMimeType = null,
+): MediaVariantSpecification {
+    return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality, $outputMimeType);
+}
+
+/**
+ * A soft-deleted MediaAsset, with a master file and two variant files all
+ * physically present, whose deleted_at is 19 days in the past — past the
+ * 7-day default purge grace period and safely purgeable. Shared by
+ * MediaLifecycleServicePurgeTest and MediaPurgeCommandTest (see the
+ * block comment above image-marker helpers for why a shared bare function
+ * used by more than one test file must live here, not in either file).
+ * Requires the caller to have already called Storage::fake('public').
+ *
+ * Leaves Carbon test time frozen at 2026-01-20 12:00:00 when it returns —
+ * callers must reset it themselves (e.g. `afterEach(fn () =>
+ * Carbon::setTestNow())`) rather than assuming "now" is real wall-clock
+ * time for the rest of the test.
+ */
+function createPurgeableAsset(): MediaAsset
+{
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $asset = MediaAsset::factory()->postImage()->create(['path' => 'posts/master.jpg']);
+    Storage::disk('public')->put($asset->path, 'master-bytes');
+
+    foreach ([MediaVariantName::PostFeed640, MediaVariantName::PostDetail1920] as $name) {
+        $variant = MediaVariant::factory()->named($name)->create([
+            'media_asset_id' => $asset->id,
+            'disk' => 'public',
+            'path' => "posts/master/{$name->value}.jpg",
+        ]);
+        Storage::disk('public')->put($variant->path, "{$name->value}-bytes");
+    }
+
+    $asset->delete();
+    Carbon::setTestNow(Carbon::parse('2026-01-20 12:00:00')); // 19 days later, past the 7-day default grace
+
+    return $asset->fresh();
+}
+
+/**
+ * Builds a failed_jobs row in Laravel's real payload shape — the "command"
+ * field is genuine serialize() output (never unserialize()'d by anything
+ * under test), so these fixtures exercise FailedMediaJobReader's actual
+ * regex-based extraction the same way a real queue worker failure would
+ * populate the table. Shared by FailedMediaJobReaderTest and
+ * MediaAuditServiceTest (see the block comment above image-marker helpers
+ * for why a shared bare function used by more than one test file must live
+ * here, not in either file).
+ */
+function insertFailedJobRow(string $jobClass, ?string $command, string $exception = "RuntimeException: boom\n#0 somewhere", ?string $failedAt = null): string
+{
+    $uuid = (string) Str::uuid();
+
+    $payload = [
+        'uuid' => $uuid,
+        'displayName' => $jobClass,
+        'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+        'maxTries' => 3,
+        'data' => [
+            'commandName' => $jobClass,
+            'command' => $command,
+        ],
+    ];
+
+    DB::table('failed_jobs')->insert([
+        'uuid' => $uuid,
+        'connection' => 'sync',
+        'queue' => 'default',
+        'payload' => json_encode($payload),
+        'exception' => $exception,
+        'failed_at' => $failedAt ?? now(),
+    ]);
+
+    return $uuid;
+}
+
+/**
+ * Shared by MediaAspectRatioBrowserTest and ResponsiveMediaBrowserTest — see
+ * the block comment above for why cross-file browser-test helpers live here
+ * rather than as a bare function in either file.
+ *
+ * Several contexts (drawer, fullscreen, non-first feed cards) render
+ * loading="lazy". Reading naturalWidth/naturalHeight before the browser has
+ * actually decoded the image would yield 0/0 → a NaN ratio that fails the
+ * assertion regardless of fit, nondeterministically depending on load
+ * timing (worse under CI's --parallel, where workers compete for CPU).
+ * `complete` can turn true slightly before pixel decoding has actually
+ * finished, so each poll also awaits image.decode() itself (Pest's
+ * $page->script() awaits a returned Promise, same as Playwright's
+ * page.evaluate) rather than trusting the synchronous flags alone.
+ */
+function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (microtime(true) < $deadline) {
+        $loaded = $page->script(<<<JS
+            (async () => {
+                const img = document.querySelector('{$selector}');
+                if (!img || !img.complete || img.naturalWidth === 0) {
+                    return false;
+                }
+                try {
+                    await img.decode();
+                } catch (e) {
+                    return false;
+                }
+                return true;
+            })()
+        JS);
+
+        if ($loaded) {
+            return;
+        }
+
+        usleep(100_000);
+    }
+
+    throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
+}
+
+/**
+ * Compares the rendered <img> box ratio against the image's own natural
+ * ratio. object-fit: cover would force the box toward the *container's*
+ * ratio instead, so a mismatch here is exactly what would catch a
+ * regression back to cropping.
+ *
+ * @return array{naturalWidth: int, naturalHeight: int, width: float, height: float, ratioDiff: float}
+ */
+function imageFitGeometry(mixed $page, string $selector): array
+{
+    waitForImageLoaded($page, $selector);
+
+    $geometry = $page->script(<<<JS
+        (() => {
+            const img = document.querySelector('{$selector}');
+            const rect = img.getBoundingClientRect();
+            return {
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                width: rect.width,
+                height: rect.height,
+            };
+        })()
+    JS);
+
+    $naturalRatio = $geometry['naturalWidth'] / $geometry['naturalHeight'];
+    $renderedRatio = $geometry['width'] / $geometry['height'];
+
+    $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
+
+    return $geometry;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Restore Target Data — Restore Target Data harness
+|--------------------------------------------------------------------------
+|
+| Shared by FetchBackupTest, VerifyBackupTest, RestoreDatabaseTest,
+| RestoreStorageTest, RestoreServerPrimitivesScopeTest and the four
+| restore-target files (RestoreTargetTest, RestoreTargetRuntimeQuiesceTest,
+| RestoreTargetCodeAlignmentHoldTest, RestoreTargetInspectTest) — files that
+| all need the same scratch target tree, the same parity registry, the same
+| backup fixtures and the same self-contained stub host tooling. A helper used
+| by more than one test file has to live here rather than in any single one of
+| them (see the block comment above the image-marker helpers).
+|
+| Every test below executes the REAL shipped scripts under
+| infrastructure/scripts — never a reimplementation of their logic — with each
+| host dependency supplied through the gated RATEGURU_* test-override
+| contract, exactly the way BackupTest/RestoreTest already do.
+*/
+
+/** The immutable release identity the fixture target is "serving". */
+const FIXTURE_RELEASE = 'v1.4.0-20260101-000000-a81d7f2';
+
+const FIXTURE_SOURCE_SHA = 'a81d7f2c3b4a5968778899aabbccddeeff001122';
+
+/** A different, equally valid release/commit pair, for code-mismatch tests. */
+const FIXTURE_OTHER_RELEASE = 'v1.5.0-20260202-000000-b92e8a3';
+
+const FIXTURE_OTHER_SOURCE_SHA = 'b92e8a3d4c5a6a79889900bbccddeeff11223344';
+
+function restoreScratchDir(): string
+{
+    $dir = sys_get_temp_dir().'/rateguru-restore-'.uniqid('', true).'-'.getmypid();
+
+    foreach (['', '/bin', '/pg'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+function removeScratchDir(string $dir): void
+{
+    exec('rm -rf '.escapeshellarg($dir));
+}
+
+function infraScript(string $name): string
+{
+    return base_path('infrastructure/scripts/'.$name);
+}
+
+/**
+ * A copy of a shipped script with two — and only two — mechanical rewrites,
+ * so the real pipeline runs end to end without being root:
+ *
+ *   * every root-only `install -o root -g root` uses this process's own
+ *     uid/gid instead;
+ *   * `require_root` becomes a no-op, but ONLY when RGTEST_BYPASS_ROOT=true is
+ *     explicitly set in the environment.
+ *
+ * Every line of restore logic under test is byte-identical to what ships. The
+ * production root gate itself is proven separately, against the unpatched
+ * script, by the "requires root" test in each file.
+ */
+function patchedInfraScript(string $scratch, string $name): string
+{
+    $path = $scratch.'/patched-'.$name;
+
+    if (file_exists($path)) {
+        return $path;
+    }
+
+    $source = File::get(infraScript($name));
+    $source = str_replace('-o root', '-o '.getmyuid(), $source);
+    $source = str_replace('-g root', '-g '.getmygid(), $source);
+
+    // Anchored on the LAST library the script sources, so this works for the
+    // restore primitives (common + restore-common) and for a script that
+    // sources common alone — require_root only exists once the library
+    // defining it has been loaded.
+    $source = preg_replace(
+        '/^(source "\$\{[A-Z_]*COMMON_FILE\}"\n)(?![\s\S]*^source "\$\{[A-Z_]*COMMON_FILE\}"\n)/m',
+        "$1\nif [[ \"\${RGTEST_BYPASS_ROOT:-false}\" == true ]]; then require_root() { :; }; fi\n",
+        $source,
+        1,
+    );
+
+    file_put_contents($path, $source);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+function writeExecutable(string $path, string $body): string
+{
+    file_put_contents($path, $body);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A host-global deployment.conf pointing PHP_BIN at the scratch php stub.
+ * common validates and sources this file; it is never the installed default
+ * path, so no root ownership is demanded of it.
+ */
+function deploymentConfFixture(string $scratch): string
+{
+    $path = $scratch.'/deployment.conf';
+
+    file_put_contents($path, implode("\n", [
+        "RELEASE_ID_REGEX='^v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}\$'",
+        'PHP_BIN='.$scratch.'/bin/php',
+        'PHP_FPM_SERVICE=php-noop-fpm',
+        '',
+    ]));
+
+    return $path;
+}
+
+/**
+ * A registry declaring one fully valid, lifecycle=active `parity-target`
+ * whose paths all live inside the scratch tree, plus the patched `targets`
+ * validator that accepts it (the shipped validator only allows staging-main
+ * to be active).
+ *
+ * @return array{0: string, 1: string} [registryPath, targetsCliPath]
+ */
+function parityRegistryFixture(string $scratch, array $options = []): array
+{
+    // Memoised per scratch directory and option set. Every infrastructure
+    // script invocation resolves this fixture, and a full restore or recovery
+    // makes six or seven of them — so re-writing both files and re-running the
+    // registry validator on each call was paying for the same answer dozens of
+    // times per test.
+    static $cache = [];
+
+    $key = $scratch.'|'.md5(serialize($options));
+
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+
+    $account = trim((string) shell_exec('id -un'));
+    $group = trim((string) shell_exec('id -gn'));
+
+    $patched = File::get(base_path('infrastructure/scripts/targets'));
+    $patched = str_replace('ACTIVE_ALLOWLIST="staging-main"', 'ACTIVE_ALLOWLIST="parity-target"', $patched);
+    $patched = str_replace('elif [[ "${application_root}" != /home/www/rateguru/* ]]; then', 'elif false; then', $patched);
+    $patched = str_replace('elif [[ "${incoming}" != /home/* ]]; then', 'elif false; then', $patched);
+    $patched = str_replace('if [[ "${code_group}" == "${runtime_group}" ]]; then', 'if false; then', $patched);
+    $patched = str_replace('if [[ "${code_group}" == "${runtime_user}" ]]; then', 'if false; then', $patched);
+
+    $targetsPath = writeExecutable($scratch.'/parity-targets', $patched);
+
+    $registry = [
+        'schema_version' => 1,
+        'targets' => [
+            'parity-target' => [
+                'id' => 'parity-target',
+                'lifecycle' => $options['lifecycle'] ?? 'active',
+                'environment_class' => 'staging',
+                'application_root' => $scratch.'/target',
+                'runtime_user' => $account,
+                'runtime_group' => $group,
+                'deploy_user' => 'parity-deploy',
+                'code_group' => $group,
+                'incoming_artifacts' => $scratch.'/incoming',
+                'release_retention' => 5,
+                'database' => [
+                    'name' => $options['database'] ?? 'parity_db',
+                    'application_role' => $options['role'] ?? 'parity_app',
+                ],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
+                'public_hostnames' => ['parity.example'],
+                'backup' => [
+                    'namespace' => $options['namespace'] ?? 'parity',
+                    'local_retention_days' => 14,
+                    'offsite_retention_days' => 30,
+                    'minimum_retained_backups' => 2,
+                ],
+                'php_fpm' => ['pool' => 'parity-pool', 'socket' => '/run/php/parity.sock'],
+                'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
+                'scheduler' => ['name' => 'parity-scheduler'],
+                'nginx' => ['site_name' => 'parity-site', 'internal_hostname' => 'parity.internal'],
+                'environment_template' => 'infrastructure/templates/environment/staging.env.example',
+            ],
+            'planned-target' => [
+                'id' => 'planned-target',
+                'lifecycle' => 'planned',
+                'environment_class' => 'production',
+                'application_root' => $scratch.'/planned',
+                // Distinct identities from parity-target: the registry
+                // validator rejects two targets sharing a runtime user,
+                // runtime group or code group. Nothing ever uses these — a
+                // planned target is rejected before any identity is read.
+                'runtime_user' => 'planned-runtime',
+                'runtime_group' => 'planned-runtime',
+                'deploy_user' => 'planned-deploy',
+                'code_group' => 'planned-code',
+                'incoming_artifacts' => $scratch.'/planned-incoming',
+                'release_retention' => 5,
+                'database' => ['name' => 'planned_db', 'application_role' => 'planned_app'],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'planned.internal'],
+                'public_hostnames' => ['planned.example'],
+                'backup' => [
+                    'namespace' => 'planned',
+                    'local_retention_days' => 14,
+                    'offsite_retention_days' => 30,
+                    'minimum_retained_backups' => 2,
+                ],
+                'php_fpm' => ['pool' => 'planned-pool', 'socket' => '/run/php/planned.sock'],
+                'supervisor' => ['program' => 'planned-queue', 'queue' => 'planned'],
+                'scheduler' => ['name' => 'planned-scheduler'],
+                'nginx' => ['site_name' => 'planned-site', 'internal_hostname' => 'planned.internal'],
+                'environment_template' => 'infrastructure/templates/environment/tits-guru.env.example',
+            ],
+        ],
+    ];
+
+    $registryPath = $scratch.'/registry.json';
+    file_put_contents($registryPath, json_encode($registry, JSON_PRETTY_PRINT));
+
+    exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $out, $exit);
+    expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
+
+    return $cache[$key] = [$registryPath, $targetsPath];
+}
+
+/**
+ * The keys a template declares, in FILE ORDER.
+ *
+ * Section comments and the blank lines between them are layout, not content,
+ * so they are dropped — a template may be grouped and annotated freely. What
+ * survives is the ordered list of variables, which is the thing a reviewer
+ * actually has to read.
+ */
+function environmentTemplateKeys(string $path): array
+{
+    return collect(preg_split('/\R/', File::get(base_path($path))))
+        ->map(fn (string $line): string => ltrim($line))
+        ->reject(fn (string $line): bool => $line === '' || str_starts_with($line, '#'))
+        ->filter(fn (string $line): bool => str_contains($line, '='))
+        ->map(fn (string $line): string => rtrim((string) strstr($line, '=', true)))
+        ->values()
+        ->all();
+}
+
+/**
+ * A runtime .env that satisfies the environment contract: every key the
+ * committed template declares, with the given values substituted in.
+ *
+ * Built FROM the template rather than from a list kept here, which is the whole
+ * point — deploy and configure refuse when a key the template declares is
+ * absent from the runtime file, so a fixture carrying its own hand-written key
+ * list would start failing the moment a key is added and would teach whoever
+ * fixed it to copy the list again. There is one list of keys and it is the
+ * template.
+ *
+ * @param  array<string, string>  $values  keys to give a concrete value
+ */
+function contractSatisfyingEnvironment(array $values = [], string $template = 'staging'): string
+{
+    $path = base_path("infrastructure/templates/environment/{$template}.env.example");
+
+    $lines = [];
+
+    foreach (preg_split('/\R/', (string) file_get_contents($path)) as $line) {
+        $trimmed = ltrim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        $key = rtrim(strstr($trimmed, '=', true) ?: '');
+
+        $lines[] = $key.'='.($values[$key] ?? substr(strstr($trimmed, '=') ?: '=', 1));
+    }
+
+    return implode("\n", $lines)."\n";
+}
+
+/**
+ * The scratch target tree a live restore acts on: an immutable release under
+ * releases/, a current symlink, shared/.env, the shared storage layout deploy
+ * itself creates, and the lock/deployment directories.
+ */
+function targetTreeFixture(string $scratch, array $options = []): string
+{
+    $root = $scratch.'/target';
+    $release = $options['release'] ?? FIXTURE_RELEASE;
+    $sourceSha = $options['source_sha'] ?? FIXTURE_SOURCE_SHA;
+
+    mkdir($root.'/releases/'.$release, 0o755, true);
+    mkdir($root.'/shared/storage/app/public', 0o755, true);
+    mkdir($root.'/shared/storage/framework', 0o755, true);
+    mkdir($root.'/locks', 0o755, true);
+    mkdir($root.'/deployments', 0o755, true);
+    mkdir($root.'/incoming', 0o755, true);
+
+    file_put_contents(
+        $root.'/releases/'.$release.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => $release, 'source_sha' => $sourceSha], JSON_PRETTY_PRINT),
+    );
+    file_put_contents($root.'/releases/'.$release.'/artisan', "<?php\n");
+
+    if (($options['current'] ?? true) === true) {
+        symlink($root.'/releases/'.$release, $root.'/current');
+    }
+
+    file_put_contents($root.'/shared/.env', contractSatisfyingEnvironment([
+        'APP_ENV' => 'staging',
+        'DB_CONNECTION' => 'pgsql',
+        'DB_HOST' => '127.0.0.1',
+        'DB_PORT' => '5432',
+        'DB_DATABASE' => $options['database'] ?? 'parity_db',
+        'DB_USERNAME' => $options['role'] ?? 'parity_app',
+        'DB_PASSWORD' => 's3cr3t-not-logged',
+    ]));
+
+    file_put_contents($root.'/shared/storage/app/live-marker.txt', "live\n");
+    file_put_contents($root.'/shared/storage/app/public/live-public.txt', "live public\n");
+
+    return $root;
+}
+
+/**
+ * The host-scope logical names the committed vhosts derive for a target whose
+ * site is the staging one — the vocabulary a schema 3 backup's recovery
+ * material is written in, in the order install-target-prerequisites lists it.
+ *
+ * @return list<string>
+ */
+/**
+ * Runs a bash body with `common` sourced, the way every operational script
+ * has it: the deployment.conf template and the committed registry stand in
+ * for the installed ones, and test overrides are enabled. `fail` exits the
+ * shell it runs in, so a refusal is observed from a subshell: `( fn ) || …`.
+ *
+ * @return array{0: int, 1: string}
+ */
+function commonFunctionHarness(string $scratch, string $body, array $env = []): array
+{
+    $harness = $scratch.'/common-harness-'.uniqid('', true).'.sh';
+    file_put_contents($harness, "set -Eeuo pipefail\nsource ".escapeshellarg(base_path('infrastructure/scripts/common'))."\n".$body."\n");
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes, null, array_merge([
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
+        'RATEGURU_TARGET_REGISTRY_FILE' => base_path('infrastructure/config/deployment-targets.json'),
+        'RATEGURU_TARGETS_CLI' => base_path('infrastructure/scripts/targets'),
+    ], $env));
+
+    expect($process)->not->toBeFalse();
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+function recoveryMaterialNames(): array
+{
+    return [
+        'basic-auth',
+        'tls-certificate',
+        'tls-private-key',
+        'nginx-tls-options',
+        'tls-dhparams',
+        'mail-tls-certificate',
+        'mail-tls-private-key',
+    ];
+}
+
+/**
+ * The default recovery material of a schema 3 fixture: every host-scope
+ * logical name, with deliberately unlike-real content that a test can prove
+ * never leaks into a log.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialMembers(): array
+{
+    $members = [];
+
+    foreach (recoveryMaterialNames() as $name) {
+        $members[$name] = "material-{$name}-never-logged\n";
+    }
+
+    return $members;
+}
+
+/**
+ * Builds recovery-material.tar.gz at $path exactly the way backup writes it:
+ * named top-level regular files from a fixed directory, no directory entry,
+ * no path prefix, no link.
+ *
+ * @param  array<string, string>  $members  logical name => content
+ */
+function buildRecoveryMaterialArchive(string $path, array $members): void
+{
+    $stage = $path.'.material-src';
+    mkdir($stage, 0o700, true);
+
+    $names = array_keys($members);
+    sort($names);
+
+    foreach ($members as $name => $content) {
+        file_put_contents($stage.'/'.$name, $content);
+        chmod($stage.'/'.$name, 0o600);
+    }
+
+    $quoted = implode(' ', array_map('escapeshellarg', $names));
+
+    exec('tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($path).' -- '.$quoted.' 2>&1', $out, $exit);
+    exec('rm -rf '.escapeshellarg($stage));
+
+    expect($exit)->toBe(0, "could not build the recovery material archive:\n".implode("\n", $out));
+}
+
+/**
+ * The bytes of a recovery material archive built WRONG on purpose, so a test
+ * can prove the archive-as-data rules: 'link' (a symbolic link named $name),
+ * 'nested' (sub/$name), 'traversal' (../$name, kept with -P), 'directory'
+ * (a directory entry), 'hardlink' ($name plus a hard link to it), 'fifo'
+ * (a FIFO named $name), 'duplicate' ($name listed twice), 'empty'.
+ */
+function recoveryMaterialArchiveBytes(string $shape, string $name = 'basic-auth', array $others = []): string
+{
+    $stage = sys_get_temp_dir().'/recovery-material-shape-'.uniqid('', true);
+    mkdir($stage.'/sub', 0o700, true);
+    $archive = $stage.'.tar.gz';
+    $quoted = escapeshellarg($name);
+
+    // Plain regular members beside the wrong one, so a judge that checks the
+    // vocabulary first still reaches the shape under test.
+    $prelude = '';
+    $more = '';
+
+    foreach ($others as $other) {
+        $prelude .= 'printf x > '.escapeshellarg($stage.'/'.$other).' && ';
+        $more .= ' '.escapeshellarg($other);
+    }
+
+    $command = $prelude.match ($shape) {
+        'link' => 'ln -s /etc/hosts '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.$more,
+        'nested' => 'printf x > '.escapeshellarg($stage.'/sub/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- sub/'.$name.$more,
+        'traversal' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && tar -P -C '.escapeshellarg($stage.'/sub').' -czf '.escapeshellarg($archive).' -- ../'.$name.str_replace(" '", " '../", $more),
+        'directory' => 'printf x > '.escapeshellarg($stage.'/sub/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- sub'.$more,
+        'hardlink' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && ln '.escapeshellarg($stage.'/'.$name).' '.escapeshellarg($stage.'/tls-dhparams').' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.' tls-dhparams'.$more,
+        'fifo' => 'mkfifo '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.$more,
+        'duplicate' => 'printf x > '.escapeshellarg($stage.'/'.$name).' && tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($archive).' -- '.$quoted.' '.$quoted.$more,
+        'empty' => 'tar -czf '.escapeshellarg($archive).' -T /dev/null',
+        default => throw new InvalidArgumentException("unknown archive shape: {$shape}"),
+    };
+
+    exec($command.' 2>&1', $out, $exit);
+    expect($exit)->toBe(0, "could not build the {$shape} archive:\n".implode("\n", $out));
+
+    $bytes = file_get_contents($archive);
+    exec('rm -rf '.escapeshellarg($stage).' '.escapeshellarg($archive));
+
+    return $bytes;
+}
+
+/**
+ * Writes recovery-material.tar.gz into $dir the way a schema 3 backup fixture
+ * carries it, from the same options every fixture builder accepts:
+ * `omit_recovery_material` suppresses it, `recovery_material_bytes` wins over
+ * `recovery_material` (a logical name => content map), and the default is
+ * every host-scope name. Returns whether the archive was written, so the
+ * caller checksums it exactly when it exists.
+ */
+function maybeWriteRecoveryMaterial(string $dir, array $options): bool
+{
+    if (! empty($options['omit_recovery_material'])) {
+        return false;
+    }
+
+    if (array_key_exists('recovery_material_bytes', $options)) {
+        file_put_contents($dir.'/recovery-material.tar.gz', $options['recovery_material_bytes']);
+
+        return true;
+    }
+
+    buildRecoveryMaterialArchive($dir.'/recovery-material.tar.gz', $options['recovery_material'] ?? recoveryMaterialMembers());
+
+    return true;
+}
+
+/**
+ * Everything the REAL install-target-prerequisites needs to capture, list or
+ * judge parity-target's recovery material without a real host: a scratch
+ * checkout carrying the parity registry and the committed vhosts under the
+ * target's own site name, and a scratch filesystem root where every
+ * host-scope prerequisite is present with the mode the table declares.
+ *
+ * Used by the backup, restore-test, verify-backup and recovery suites, so the
+ * vocabulary those scripts capture in and check against is the shipped
+ * installer's own — never a stub's idea of it.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath, string $targetsPath): array
+{
+    $repoRoot = $scratch.'/prereq-checkout';
+
+    if (! is_dir($repoRoot.'/infrastructure/config/nginx')) {
+        mkdir($repoRoot.'/infrastructure/config/nginx', 0o755, true);
+        copy(base_path('infrastructure/config/nginx/rateguru-staging'), $repoRoot.'/infrastructure/config/nginx/parity-site');
+
+        foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
+            copy(base_path('infrastructure/config/nginx/'.$vhost), $repoRoot.'/infrastructure/config/nginx/'.$vhost);
+        }
+    }
+
+    // Refreshed on every call: a later call with different registry options
+    // must not keep judging against the first registry it copied.
+    copy($registryPath, $repoRoot.'/infrastructure/config/deployment-targets.json');
+
+    $fsRoot = $scratch.'/prereq-host';
+
+    if (! is_dir($fsRoot)) {
+        recoveryMaterialHostFixture($fsRoot);
+    }
+
+    return [
+        'RATEGURU_PREREQUISITES_BIN' => infraScript('install-target-prerequisites'),
+        'RATEGURU_TARGETPREREQ_REPO_ROOT' => $repoRoot,
+        'RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN' => $targetsPath,
+        'RATEGURU_TARGETPREREQ_EUID' => '0',
+        'RATEGURU_TARGETPREREQ_FS_ROOT' => $fsRoot,
+        'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
+    ];
+}
+
+/**
+ * A scratch filesystem root holding every host-scope prerequisite the
+ * committed staging vhosts reference, as plain regular files with the mode
+ * install-target-prerequisites declares — what a live host looks like to
+ * `--capture`.
+ *
+ * @return array<string, string> logical name => the content planted for it
+ */
+function recoveryMaterialHostFixture(string $fsRoot): array
+{
+    $destinations = [
+        'basic-auth' => ['/etc/nginx/rateguru-staging.htpasswd', 0o640],
+        'tls-certificate' => ['/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem', 0o644],
+        'tls-private-key' => ['/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem', 0o600],
+        'nginx-tls-options' => ['/etc/letsencrypt/options-ssl-nginx.conf', 0o644],
+        'tls-dhparams' => ['/etc/letsencrypt/ssl-dhparams.pem', 0o644],
+        'mail-tls-certificate' => ['/etc/letsencrypt/live/staging-mail-capture/fullchain.pem', 0o644],
+        'mail-tls-private-key' => ['/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 0o600],
+    ];
+
+    $planted = [];
+
+    foreach ($destinations as $name => [$destination, $mode]) {
+        $path = $fsRoot.$destination;
+
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0o755, true);
+        }
+
+        $planted[$name] = "host-{$name}-never-logged\n";
+        file_put_contents($path, $planted[$name]);
+        chmod($path, $mode);
+    }
+
+    return $planted;
+}
+
+/**
+ * A real, on-disk backup directory in exactly the shape
+ * infrastructure/scripts/backup produces: a genuine gzip storage archive, the
+ * checksummed files of its schema, and a genuine SHA256SUMS computed with real
+ * sha256sum, so every checksum check downstream is a real check.
+ *
+ * Schema 2 (seven files) by default. `'schema' => 3`, or an explicit schema 3
+ * manifest, adds recovery-material.tar.gz — built from `recovery_material`
+ * (logical name => content, defaulting to every host-scope name), or from raw
+ * `recovery_material_bytes` for a malformed archive — and checksums it in the
+ * position backup writes it. `omit_recovery_material` builds a schema 3
+ * manifest whose archive is missing, for the refusal that must catch it.
+ */
+function buildBackupFixture(string $namespaceRoot, string $timestamp, array $options = []): string
+{
+    $dir = $namespaceRoot.'/'.$timestamp;
+    mkdir($dir, 0o755, true);
+
+    file_put_contents($dir.'/database.dump', $options['dump'] ?? "FAKE-PG-CUSTOM-DUMP\n");
+
+    $stage = $dir.'.src';
+    mkdir($stage.'/app/public', 0o755, true);
+    file_put_contents($stage.'/app/restored-marker.txt', "restored\n");
+    file_put_contents($stage.'/app/public/restored-public.txt', "restored public\n");
+
+    if (isset($options['archive_builder'])) {
+        $options['archive_builder']($stage);
+    }
+
+    exec('tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($dir.'/storage-app.tar.gz').' '.($options['archive_member'] ?? 'app').' 2>&1');
+    exec('rm -rf '.escapeshellarg($stage));
+
+    if (isset($options['storage_archive_bytes'])) {
+        file_put_contents($dir.'/storage-app.tar.gz', $options['storage_archive_bytes']);
+    }
+
+    // A live restore never applies this file, so its default content is
+    // deliberately unlike any real .env. A host recovery COMPARES it against
+    // the prepared host's own shared/.env and refuses on a difference, so that
+    // fixture passes the identical bytes through this option.
+    file_put_contents(
+        $dir.'/environment.env',
+        $options['environment'] ?? "APP_ENV=staging\nDB_PASSWORD=from-backup-never-applied\n",
+    );
+    file_put_contents($dir.'/server-configuration.tar.gz', "fake server configuration snapshot\n");
+
+    $releaseJson = array_key_exists('release_json', $options)
+        ? $options['release_json']
+        : ['project' => 'rateguru', 'release' => FIXTURE_RELEASE, 'source_sha' => FIXTURE_SOURCE_SHA];
+
+    file_put_contents(
+        $dir.'/release.json',
+        is_string($releaseJson) ? $releaseJson : json_encode($releaseJson, JSON_PRETTY_PRINT),
+    );
+
+    $schema3 = ($options['schema'] ?? null) === 3;
+
+    $manifest = array_key_exists('manifest', $options)
+        ? $options['manifest']
+        : backupManifestFixture($schema3 ? ['manifest_schema_version' => 3] : []);
+
+    if (is_array($manifest) && ($manifest['manifest_schema_version'] ?? null) === 3) {
+        $schema3 = true;
+    }
+
+    if ($manifest !== null) {
+        file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
+    }
+
+    $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
+
+    if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
+        $files[] = 'recovery-material.tar.gz';
+    }
+
+    if ($manifest !== null) {
+        $files[] = 'manifest.json';
+    }
+
+    $lines = [];
+    foreach ($files as $file) {
+        $lines[] = hash_file('sha256', $dir.'/'.$file).'  '.$file;
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        $lines[] = $extra;
+    }
+
+    file_put_contents($dir.'/SHA256SUMS', implode("\n", $lines)."\n");
+
+    if (! empty($options['corrupt_after_checksum'])) {
+        file_put_contents($dir.'/database.dump', "TAMPERED\n");
+    }
+
+    return $dir;
+}
+
+/** @return array<string, mixed> */
+function backupManifestFixture(array $overrides = []): array
+{
+    return array_merge([
+        'manifest_schema_version' => 2,
+        'project' => 'rateguru',
+        'selector' => 'target',
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup_namespace' => 'parity',
+        'created_at' => '2026-01-01T00:00:00Z',
+        'hostname' => 'test-host',
+        'database' => 'parity_db',
+        'release' => FIXTURE_RELEASE,
+        'postgres_version' => 'pg_dump (PostgreSQL) 18.4',
+        'php_version' => '8.5.0',
+    ], $overrides);
+}
+
+/**
+ * A file-backed fake PostgreSQL: one file per database under $scratch/pg/db,
+ * holding "<owner> <allowconn>". The psql/createdb/dropdb/pg_restore stubs
+ * below read and mutate it, so a rename swap, a connection barrier and a drop
+ * are all genuinely observable across separate script invocations — which is
+ * what makes the activation/compensation tests real rather than rigged.
+ */
+function installFakePostgres(string $scratch, array $options = []): void
+{
+    $catalog = $scratch.'/pg/db';
+    @mkdir($catalog, 0o755, true);
+
+    foreach ($options['databases'] ?? ['parity_db' => 'parity_app'] as $name => $owner) {
+        file_put_contents($catalog.'/'.$name, $owner." t\n");
+    }
+
+    writeExecutable($scratch.'/bin/runuser', "#!/usr/bin/env bash\nshift 2; shift\nexec \"\$@\"\n");
+
+    writeExecutable($scratch.'/bin/psql', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+catalog="${RGTEST_PG_CATALOG}"
+printf '%s\n' "psql $*" >> "${RGTEST_PSQL_LOG}"
+
+cmd=""
+for arg in "$@"; do
+    case "${arg}" in
+        --command=*) cmd="${arg#--command=}" ;;
+    esac
+done
+
+db_owner() { [[ -f "${catalog}/$1" ]] && awk '{print $1}' "${catalog}/$1"; }
+db_allow() { [[ -f "${catalog}/$1" ]] && awk '{print $2}' "${catalog}/$1"; }
+
+if [[ "${cmd}" =~ SELECT\ 1\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    [[ -f "${catalog}/${BASH_REMATCH[1]}" ]] && printf '1\n'
+    exit 0
+fi
+
+if [[ "${cmd}" =~ pg_get_userbyid\(datdba\)\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    db_owner "${BASH_REMATCH[1]}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ SELECT\ datallowconn\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    db_allow "${BASH_REMATCH[1]}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ SELECT\ 1\ FROM\ pg_roles\ WHERE\ rolname\ =\ \'([a-z0-9_]+)\' ]]; then
+    grep -qx "${BASH_REMATCH[1]}" "${RGTEST_PG_ROLES}" && printf '1\n'
+    exit 0
+fi
+
+if [[ "${cmd}" == *"rolcanlogin"* ]]; then
+    printf '%s\n' "${RGTEST_ROLE_CANLOGIN:-t}"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"rolsuper"* ]]; then
+    printf '%s\n' "${RGTEST_ROLE_ELEVATED:-}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ ALTER\ DATABASE\ \"([a-z0-9_]+)\"\ WITH\ ALLOW_CONNECTIONS\ (true|false) ]]; then
+    name="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    [[ -f "${catalog}/${name}" ]] || { printf 'ERROR: no such database %s\n' "${name}" >&2; exit 1; }
+    flag=t
+    [[ "${value}" == false ]] && flag=f
+    printf '%s %s\n' "$(db_owner "${name}")" "${flag}" > "${catalog}/${name}"
+    exit 0
+fi
+
+# The row counts a database holds follow it through a rename, exactly as
+# they do in PostgreSQL. Without this the counts would be keyed to a name
+# rather than to a database, and the staged swap — whose whole point is that
+# one name comes to mean a different database — would be unobservable.
+move_counts() {
+    local from="$1" to="$2" dir
+    for dir in "${RGTEST_PG_TABLE_COUNTS:-}" "${RGTEST_PG_MIGRATION_COUNTS:-}"; do
+        [[ -n "${dir}" ]] || continue
+        [[ -f "${dir}/${from}" ]] || continue
+        mv "${dir}/${from}" "${dir}/${to}"
+    done
+}
+
+if [[ "${cmd}" =~ ALTER\ DATABASE\ \"([a-z0-9_]+)\"\ RENAME\ TO\ \"([a-z0-9_]+)\" ]]; then
+    from="${BASH_REMATCH[1]}"
+    to="${BASH_REMATCH[2]}"
+    if [[ -n "${RGTEST_RENAME_FAIL:-}" ]] && [[ "${RGTEST_RENAME_FAIL}" == "${from}->${to}" ]]; then
+        printf 'ERROR: injected rename failure\n' >&2
+        exit 1
+    fi
+    if [[ -n "${RGTEST_RENAME_FAIL_TO_PREFIX:-}" ]] && [[ "${to}" == "${RGTEST_RENAME_FAIL_TO_PREFIX}"* ]]; then
+        printf 'ERROR: injected rename failure\n' >&2
+        exit 1
+    fi
+    [[ -f "${catalog}/${from}" ]] || { printf 'ERROR: no such database %s\n' "${from}" >&2; exit 1; }
+    [[ ! -f "${catalog}/${to}" ]] || { printf 'ERROR: database %s already exists\n' "${to}" >&2; exit 1; }
+    mv "${catalog}/${from}" "${catalog}/${to}"
+    move_counts "${from}" "${to}"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"pg_terminate_backend"* ]]; then
+    exit 0
+fi
+
+queried_database() {
+    local arg
+    for arg in "$@"; do
+        case "${arg}" in --dbname=*) printf '%s' "${arg#--dbname=}" ;; esac
+    done
+}
+
+# A per-database count file wins over the flat default when one exists, so a
+# fixture can hold an EMPTY prepared database and a populated restored one at
+# the same time. With neither directory set, behaviour is exactly the flat
+# default it always was.
+count_for() {
+    local dir="$1" fallback="$2" database
+    database="$(queried_database "${@:3}")"
+
+    if [[ -n "${dir}" ]] && [[ -n "${database}" ]] && [[ -f "${dir}/${database}" ]]; then
+        cat "${dir}/${database}"
+
+        return 0
+    fi
+
+    printf '%s\n' "${fallback}"
+}
+
+if [[ "${cmd}" == *"information_schema.tables"* ]]; then
+    count_for "${RGTEST_PG_TABLE_COUNTS:-}" "${RGTEST_TABLE_COUNT:-42}" "$@"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"public.migrations"* ]]; then
+    count_for "${RGTEST_PG_MIGRATION_COUNTS:-}" "${RGTEST_MIGRATION_COUNT:-17}" "$@"
+    exit 0
+fi
+
+if [[ "${cmd}" == "SELECT 1;" ]]; then
+    printf '1\n'
+    exit 0
+fi
+
+printf 'ERROR: unhandled SQL in fake psql: %s\n' "${cmd}" >&2
+exit 1
+BASH);
+
+    writeExecutable($scratch.'/bin/createdb', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "createdb $*" >> "${RGTEST_CREATEDB_LOG}"
+[[ "${RGTEST_CREATEDB_EXIT:-0}" == 0 ]] || exit "${RGTEST_CREATEDB_EXIT}"
+owner=""
+name=""
+for arg in "$@"; do
+    case "${arg}" in
+        --owner=*) owner="${arg#--owner=}" ;;
+        --template=*) ;;
+        -*) ;;
+        *) name="${arg}" ;;
+    esac
+done
+[[ -n "${name}" ]] || exit 1
+[[ ! -f "${RGTEST_PG_CATALOG}/${name}" ]] || exit 1
+printf '%s t\n' "${owner}" > "${RGTEST_PG_CATALOG}/${name}"
+BASH);
+
+    writeExecutable($scratch.'/bin/dropdb', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "dropdb $*" >> "${RGTEST_DROPDB_LOG}"
+for arg in "$@"; do
+    case "${arg}" in
+        -*) ;;
+        *) rm -f "${RGTEST_PG_CATALOG}/${arg}" ;;
+    esac
+done
+BASH);
+
+    writeExecutable($scratch.'/bin/pg_restore', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "pg_restore $*" >> "${RGTEST_PG_RESTORE_LOG}"
+if [[ -n "${PGPASSWORD:-}" ]]; then
+    printf 'pgpassword-present\n' >> "${RGTEST_PG_RESTORE_LOG}"
+fi
+cat >/dev/null
+
+status="${RGTEST_PG_RESTORE_EXIT:-0}"
+
+# A successful restore gives the target database the row counts the dump
+# carried, so "the staged database holds the backup's data" is observable
+# rather than assumed. Only when the fixture asked for per-database counts.
+if [[ "${status}" == 0 ]]; then
+    database=""
+    for arg in "$@"; do
+        case "${arg}" in --dbname=*) database="${arg#--dbname=}" ;; esac
+    done
+
+    if [[ -n "${database}" ]]; then
+        [[ -z "${RGTEST_PG_TABLE_COUNTS:-}" ]] \
+            || printf '%s\n' "${RGTEST_RESTORED_TABLE_COUNT:-42}" > "${RGTEST_PG_TABLE_COUNTS}/${database}"
+        [[ -z "${RGTEST_PG_MIGRATION_COUNTS:-}" ]] \
+            || printf '%s\n' "${RGTEST_RESTORED_MIGRATION_COUNT:-17}" > "${RGTEST_PG_MIGRATION_COUNTS}/${database}"
+    fi
+fi
+
+exit "${status}"
+BASH);
+
+    file_put_contents($scratch.'/pg/roles', implode("\n", $options['roles'] ?? ['parity_app'])."\n");
+
+    foreach (['psql', 'createdb', 'dropdb', 'pg_restore'] as $log) {
+        touch($scratch.'/'.$log.'.log');
+    }
+}
+
+/** @return array<string, string> */
+function fakePostgresEnv(string $scratch): array
+{
+    return [
+        'RGTEST_PG_CATALOG' => $scratch.'/pg/db',
+        'RGTEST_PG_ROLES' => $scratch.'/pg/roles',
+        'RGTEST_PSQL_LOG' => $scratch.'/psql.log',
+        'RGTEST_CREATEDB_LOG' => $scratch.'/createdb.log',
+        'RGTEST_DROPDB_LOG' => $scratch.'/dropdb.log',
+        'RGTEST_PG_RESTORE_LOG' => $scratch.'/pg_restore.log',
+        'RATEGURU_CREATEDB_BIN' => $scratch.'/bin/createdb',
+        'RATEGURU_DROPDB_BIN' => $scratch.'/bin/dropdb',
+        'RATEGURU_PG_RESTORE_BIN' => $scratch.'/bin/pg_restore',
+        'RATEGURU_PSQL_BIN' => $scratch.'/bin/psql',
+        'RATEGURU_RESTORE_RUNUSER_BIN' => $scratch.'/bin/runuser',
+    ];
+}
+
+/** The baseline environment every Restore Target Data script invocation needs. */
+function infraScriptEnv(string $scratch, string $registryPath, string $targetsPath, array $overrides = []): array
+{
+    return array_merge([
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_COMMON_FILE' => infraScript('common'),
+        // The patched copy: restore-common's own workspace/history creation
+        // uses `install -o root -g root`, which needs real root. Only that is
+        // rewritten; every line of logic under test is byte-identical.
+        'RATEGURU_RESTORE_COMMON_FILE' => patchedInfraScript($scratch, 'restore-common'),
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => deploymentConfFixture($scratch),
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
+        'RATEGURU_BACKUP_BASE' => $scratch.'/backups',
+        'RATEGURU_RUN_ROOT' => $scratch.'/run',
+        'RATEGURU_RESTORE_HISTORY_ROOT' => $scratch.'/restores',
+        'RATEGURU_RESTORE_CRON_D_ROOT' => $scratch.'/cron.d',
+        'RATEGURU_RESTORE_WEB_GROUP' => trim((string) shell_exec('id -gn')),
+        'RGTEST_BYPASS_ROOT' => 'true',
+    ], $overrides);
+}
+
+/**
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function runInfraScript(string $scriptPath, array $arguments, array $env): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(array_merge(['bash', $scriptPath], $arguments), $descriptors, $pipes, null, $env);
+
+    expect($process)->not->toBeFalse('could not start the script under test');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/**
+ * The GitHub Environment values one recovery workflow actually reads, by kind.
+ *
+ * Derived from the workflow source rather than restated, so a value that is
+ * added, removed or moved between a variable and a secret is a change every
+ * test and every document that names the set has to answer for.
+ *
+ * @return array{vars: list<string>, secrets: list<string>, all: list<string>}
+ */
+function recoveryValuesRead(string $workflow): array
+{
+    $source = File::get(base_path('.github/workflows/'.$workflow));
+
+    $byKind = static function (string $kind) use ($source): array {
+        preg_match_all('/\b'.$kind.'\.((?:RECOVERY|DEPLOY)_[A-Z_]+)\b/', $source, $matches);
+
+        $names = array_values(array_unique($matches[1]));
+        sort($names);
+
+        return $names;
+    };
+
+    $vars = $byKind('vars');
+    $secrets = $byKind('secrets');
+
+    $all = array_values(array_unique([...$vars, ...$secrets]));
+    sort($all);
+
+    return ['vars' => $vars, 'secrets' => $secrets, 'all' => $all];
+}
+
+/**
+ * One composite action step's `run:` body, executed for real.
+ *
+ * A transport step is ordinary Bash under `set -Eeuo pipefail`, and the way it
+ * treats a remote failure — what it captures, what it prints, what it exits
+ * with — is behaviour, not text. Running the step against a stub `ssh` is the
+ * only way to prove it, and it is exactly how the diagnostics of a failed
+ * remote invocation got lost once already.
+ *
+ * @param  array<string, string>  $env
+ * @return array{exit: int, output: string}
+ */
+function runActionStep(string $actionPath, string $stepName, array $env): array
+{
+    // The steps are written for the ubuntu-24.04 runner and use Bash 4+ parameter
+    // expansion (${array[@]@Q}). macOS ships Bash 3.2 as /bin/bash, which
+    // cannot execute them faithfully — skipping is honest there; CI runs it.
+    exec('bash -c \'echo "${BASH_VERSINFO[0]}"\' 2>/dev/null', $probe, $probeStatus);
+
+    if ($probeStatus !== 0 || (int) ($probe[0] ?? 0) < 4) {
+        test()->markTestSkipped('needs Bash 4+; this host offers '.($probe[0] ?? 'no bash'));
+    }
+
+    $action = Yaml::parseFile(base_path($actionPath));
+
+    $step = collect($action['runs']['steps'] ?? [])
+        ->first(static fn (array $candidate): bool => ($candidate['name'] ?? '') === $stepName);
+
+    expect($step)->not->toBeNull("{$actionPath} has no step named {$stepName}");
+
+    // GitHub defines every variable a step declares under `env:`, including
+    // the ones whose value is empty — an unset optional input is empty, not
+    // absent, and a step reading it under `set -u` depends on that. PHP's
+    // proc_open drops an empty value entirely, so those are declared in the
+    // script instead of being passed through the process environment.
+    $empty = array_filter($env, static fn (string $value): bool => $value === '');
+
+    $preamble = implode('', array_map(
+        static fn (string $name): string => 'export '.$name."=''\n",
+        array_keys($empty),
+    ));
+
+    $script = tempnam(sys_get_temp_dir(), 'rateguru-action-step-');
+    file_put_contents($script, "#!/usr/bin/env bash\n".$preamble.($step['run'] ?? ''));
+
+    [$exit, $output] = runInfraScript($script, [], array_diff_key($env, $empty));
+
+    unlink($script);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+/**
+ * The `ssh` a transport step meets in these tests: it records its argv, writes
+ * whatever the case needs to stdout and stderr, and exits with the status the
+ * case needs. Nothing connects anywhere.
+ */
+function sshStub(string $scratch): string
+{
+    @mkdir($scratch.'/bin', 0o755, true);
+    touch($scratch.'/ssh.log');
+
+    foreach (['ssh', 'scp'] as $name) {
+        writeExecutable($scratch.'/bin/'.$name, <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "$(basename -- "$0") $*" >> "${RGTEST_SSH_LOG}"
+
+[[ -z "${RGTEST_SSH_STDOUT:-}" ]] || printf '%s\n' "${RGTEST_SSH_STDOUT}"
+[[ -z "${RGTEST_SSH_STDERR:-}" ]] || printf '%s\n' "${RGTEST_SSH_STDERR}" >&2
+
+exit "${RGTEST_SSH_EXIT:-0}"
+BASH);
+    }
+
+    return $scratch.'/bin/ssh';
+}
+
+/**
+ * The runner-side environment a transport step runs in: the GitHub files it
+ * appends to, a scratch RUNNER_TEMP, and a PATH whose ssh is the stub.
+ *
+ * @param  array<string, string>  $overrides
+ * @return array<string, string>
+ */
+function actionStepEnv(string $scratch, array $overrides = []): array
+{
+    sshStub($scratch);
+
+    foreach (['github-output', 'github-step-summary'] as $file) {
+        touch($scratch.'/'.$file);
+    }
+
+    return array_merge([
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RUNNER_TEMP' => $scratch,
+        'GITHUB_OUTPUT' => $scratch.'/github-output',
+        'GITHUB_STEP_SUMMARY' => $scratch.'/github-step-summary',
+        'RGTEST_SSH_LOG' => $scratch.'/ssh.log',
+    ], $overrides);
+}
+
+/**
+ * Sources a script (so its functions exist without main() running) and
+ * executes an arbitrary body against them — the technique BackupTest and
+ * RestoreTest already use for coverage that must bypass require_root.
+ *
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function runInfraHarness(string $scratch, string $scriptPath, string $body, array $env): array
+{
+    $harness = $scratch.'/harness-'.uniqid('', true).'.sh';
+    file_put_contents($harness, "set -Eeuo pipefail\nsource ".escapeshellarg($scriptPath)."\n".$body."\n");
+
+    return runInfraScript($harness, [], $env);
+}
+
+/** Extracts every operation ID a script printed, newest last. */
+function operationIdsIn(string $output): array
+{
+    preg_match_all('/\b(\d{8}-\d{6}-[0-9a-f]{6})\b/', $output, $matches);
+
+    return array_values(array_unique($matches[1]));
+}
+
+/**
+ * A restore operation workspace with a state document in a chosen phase, and
+ * a real staged backup inside it — the exact shape restore-target hands the
+ * restore-database/restore-storage primitives.
+ *
+ * @param  array<string, string>  $state
+ */
+function restoreWorkspaceFixture(string $scratch, string $operationId, array $state = [], array $backupOptions = []): string
+{
+    $workspace = $scratch.'/run/restores/parity-target/'.$operationId;
+    mkdir($workspace.'/selected-backup', 0o700, true);
+    chmod($workspace, 0o700);
+
+    $backup = buildBackupFixture($scratch.'/source-'.$operationId, '20260115-120000', $backupOptions);
+
+    foreach (scandir($backup) as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+
+        copy($backup.'/'.$entry, $workspace.'/selected-backup/'.$entry);
+    }
+
+    file_put_contents($workspace.'/state.json', json_encode(array_merge([
+        'operation_id' => $operationId,
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup_namespace' => 'parity',
+        'source' => 'local',
+        'backup' => '20260115-120000',
+        'status' => 'running',
+        'phase' => 'backup-verified',
+    ], $state), JSON_PRETTY_PRINT));
+    chmod($workspace.'/state.json', 0o600);
+
+    return $workspace;
+}
+
+/** @return array<string, mixed> */
+function restoreOperationState(string $workspace): array
+{
+    return json_decode(File::get($workspace.'/state.json'), true);
+}
+
+/** The database names restore-database derives for a given operation. */
+function stagedDatabaseName(string $operationId): string
+{
+    return 'rateguru_rst_parity_'.str_replace('-', '_', $operationId);
+}
+
+function preRestoreDatabaseName(string $operationId): string
+{
+    return 'rateguru_pre_parity_'.str_replace('-', '_', $operationId);
+}
+
+/** Every database the fake catalog currently holds. */
+function fakePostgresDatabases(string $scratch): array
+{
+    $entries = array_values(array_diff(scandir($scratch.'/pg/db'), ['.', '..']));
+    sort($entries);
+
+    return $entries;
+}
+
+/** Advances an operation's recorded phase, the way restore-target does. */
+function setRestoreOperationPhase(string $workspace, string $phase): void
+{
+    $state = restoreOperationState($workspace);
+    $state['phase'] = $phase;
+
+    file_put_contents($workspace.'/state.json', json_encode($state, JSON_PRETTY_PRINT));
+}
+
+/*
+|--------------------------------------------------------------------------
+| restore-target harness
+|--------------------------------------------------------------------------
+|
+| The fixture, the run and the observers the four restore-target test files
+| share: RestoreTargetTest (the whole restore), RestoreTargetRuntimeQuiesceTest,
+| RestoreTargetCodeAlignmentHoldTest and RestoreTargetInspectTest.
+*/
+
+function restoreTargetScript(): string
+{
+    return base_path('infrastructure/scripts/restore-target');
+}
+
+/**
+ * The full fixture: target tree, fake catalog, cron entry, local backup to
+ * restore from, and the emergency-backup template the `backup` stub copies.
+ *
+ * @return array<string, string>
+ */
+function restoreTargetFixture(string $scratch, array $options = []): array
+{
+    targetTreeFixture($scratch, [
+        'source_sha' => $options['current_source_sha'] ?? FIXTURE_SOURCE_SHA,
+        'release' => $options['current_release'] ?? FIXTURE_RELEASE,
+    ]);
+    installFakePostgres($scratch, $options['postgres'] ?? []);
+    installTargetRuntimeStubs($scratch);
+
+    // The backup being restored from, and a byte-identical template the
+    // emergency `backup` stub copies into place as the new latest backup.
+    buildBackupFixture($scratch.'/backups/parity', '20260115-120000', $options['backup'] ?? []);
+    buildBackupFixture($scratch.'/emergency-src', '20260116-090000');
+    exec('mv '.escapeshellarg($scratch.'/emergency-src/20260116-090000').' '.escapeshellarg($scratch.'/emergency-template'));
+
+    if (($options['scheduler'] ?? true) === true) {
+        mkdir($scratch.'/cron.d', 0o755, true);
+        file_put_contents(
+            $scratch.'/cron.d/parity-scheduler',
+            "* * * * * runtime cd /target/current && php artisan schedule:run\n",
+        );
+    }
+
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    return ['registry' => $registryPath, 'targets' => $targetsPath];
+}
+
+/**
+ * @return array{exit: int, output: string}
+ */
+function restoreTargetRun(string $scratch, array $arguments, array $envOverrides = []): array
+{
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    $env = infraScriptEnv($scratch, $registryPath, $targetsPath, array_merge(
+        fakePostgresEnv($scratch),
+        targetRuntimeEnv($scratch),
+        [
+            'RATEGURU_RESTORE_FETCH_BACKUP_BIN' => patchedInfraScript($scratch, 'fetch-backup'),
+            'RATEGURU_RESTORE_VERIFY_BACKUP_BIN' => patchedInfraScript($scratch, 'verify-backup'),
+            'RATEGURU_RESTORE_DATABASE_BIN' => patchedInfraScript($scratch, 'restore-database'),
+            'RATEGURU_RESTORE_STORAGE_BIN' => patchedInfraScript($scratch, 'restore-storage'),
+        ],
+        $envOverrides,
+    ));
+
+    [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'restore-target'), $arguments, $env);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+function restoreTargetApply(string $scratch, array $envOverrides = []): array
+{
+    return restoreTargetRun($scratch, [
+        '--apply', '--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000',
+    ], $envOverrides);
+}
+
+/** @return list<array<string, mixed>> */
+function restoreTargetHistory(string $scratch): array
+{
+    $path = $scratch.'/restores/restore-history.jsonl';
+
+    if (! is_file($path)) {
+        return [];
+    }
+
+    return array_map(
+        static fn (string $line): array => json_decode($line, true),
+        array_values(array_filter(preg_split('/\R/', trim(File::get($path))))),
+    );
+}
+
+function restoreTargetStorage(string $scratch): string
+{
+    return $scratch.'/target/shared/storage';
+}
+
+function restoreTargetMaintenanceActive(string $scratch): bool
+{
+    return is_file(restoreTargetStorage($scratch).'/framework/down');
+}
+
+function restoreTargetQueueState(string $scratch): string
+{
+    return trim(File::get($scratch.'/supervisor-state'));
+}
+
+function restoreTargetSchedulerPresent(string $scratch): bool
+{
+    return is_file($scratch.'/cron.d/parity-scheduler');
+}
+
+/** Runs an apply that ends held, and returns its operation ID. */
+function restoreTargetHeldOperation(string $scratch): string
+{
+    $result = restoreTargetApply($scratch);
+    expect($result['exit'])->toBe(0, $result['output']);
+    expect($result['output'])->toContain('CODE ALIGNMENT: REQUIRED');
+
+    $operations = operationIdsIn($result['output']);
+    expect($operations)->toHaveCount(1);
+
+    return $operations[0];
+}
+
+/** Deploys the aligned release, the way the controlled alignment deploy would. */
+function restoreTargetAlignCode(string $scratch): void
+{
+    $aligned = $scratch.'/target/releases/'.FIXTURE_RELEASE;
+    mkdir($aligned, 0o755, true);
+    file_put_contents($aligned.'/artisan', "<?php\n");
+    file_put_contents(
+        $aligned.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => FIXTURE_RELEASE, 'source_sha' => FIXTURE_SOURCE_SHA]),
+    );
+
+    unlink($scratch.'/target/current');
+    symlink($aligned, $scratch.'/target/current');
+}
+
+/** The marker restore-target writes for a held target. */
+function restoreGuardFile(string $scratch): string
+{
+    return $scratch.'/run/restores/parity-target/restore-guard';
+}
+
+/**
+ * Builds a tar.gz from an explicit entry spec, so an archive containing a
+ * symlink, hardlink, device node, FIFO, absolute path or `..` component can
+ * be constructed exactly — none of which a filesystem-based `tar -c` can
+ * reliably produce on every platform this suite runs on.
+ *
+ * @param  list<array{name: string, type: string, link?: string}>  $entries
+ */
+function buildArchiveFixture(string $path, array $entries): void
+{
+    $python = <<<'PY'
+import io, json, sys, tarfile
+
+spec = json.loads(sys.argv[2])
+
+with tarfile.open(sys.argv[1], "w:gz") as tf:
+    for entry in spec:
+        info = tarfile.TarInfo(entry["name"])
+        kind = entry["type"]
+
+        if kind == "dir":
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+        elif kind == "file":
+            info.type = tarfile.REGTYPE
+            info.mode = 0o644
+            info.size = 1
+        elif kind == "symlink":
+            info.type = tarfile.SYMTYPE
+            info.linkname = entry.get("link", "/etc/passwd")
+        elif kind == "hardlink":
+            info.type = tarfile.LNKTYPE
+            info.linkname = entry.get("link", "app/regular.txt")
+        elif kind == "fifo":
+            info.type = tarfile.FIFOTYPE
+        elif kind == "chardev":
+            info.type = tarfile.CHRTYPE
+            info.devmajor, info.devminor = 1, 3
+        elif kind == "blockdev":
+            info.type = tarfile.BLKTYPE
+            info.devmajor, info.devminor = 8, 0
+        else:
+            raise SystemExit("unknown entry type: " + kind)
+
+        if info.type == tarfile.REGTYPE:
+            tf.addfile(info, io.BytesIO(b"x"))
+        else:
+            tf.addfile(info)
+PY;
+
+    $script = sys_get_temp_dir().'/rateguru-archive-'.uniqid('', true).'.py';
+    file_put_contents($script, $python);
+
+    exec(
+        'python3 '.escapeshellarg($script).' '.escapeshellarg($path).' '.escapeshellarg(json_encode($entries)).' 2>&1',
+        $output,
+        $exit,
+    );
+
+    unlink($script);
+
+    expect($exit)->toBe(0, "could not build the archive fixture:\n".implode("\n", $output));
+}
+
+/**
+ * The target-runtime stubs a full restore-target run needs: this target's own
+ * Supervisor program, its Laravel maintenance mode, the existing `backup` and
+ * `restore-test` implementations it reuses for the emergency backup, the
+ * health check, and pgrep for the scheduler barrier.
+ *
+ * Each records what it was asked to do, so a test can assert BOTH the runtime
+ * state that resulted and the fact that nothing global was ever touched.
+ */
+function installTargetRuntimeStubs(string $scratch): void
+{
+    writeExecutable($scratch.'/bin/supervisorctl', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "supervisorctl $*" >> "${RGTEST_SUPERVISOR_LOG}"
+
+action="${1:-}"
+group="${2:-}"
+
+# Supervisor's own status exit codes, from supervisor 4.2.1
+# (supervisorctl.py LSBStatusExitStatuses, states.py STOPPED_STATES):
+#
+#   0  every matched process is in a running-ish state
+#   3  at least one matched process is STOPPED, EXITED, FATAL or UNKNOWN
+#   4  upcheck() failed, or a name matched nothing
+#
+# Modelling this faithfully is the point: the stub used to exit 0 for every
+# status, which is why a real staging restore — where a correctly STOPPED queue
+# reports rc 3 — was not caught here first.
+supervisor_status_rc() {
+    local rc=0 state
+
+    for state in "$@"; do
+        case "${state}" in
+            STOPPED|EXITED|FATAL|UNKNOWN) rc=3 ;;
+        esac
+    done
+
+    printf '%s\n' "${rc}"
+}
+
+# The PRE_DEPLOY shape a prepared, never-deployed host is in: the program
+# configuration is installed, and its group has not been added to the running
+# Supervisor because `supervisorctl update` was deferred. supervisorctl answers
+# every request about such a group on STDOUT with exit 4, and `update` is what
+# adds it (starting it, because the committed program sets autostart=true).
+group_absent() {
+    [[ -n "${RGTEST_SUPERVISOR_GROUP_ABSENT:-}" ]] && [[ -e "${RGTEST_SUPERVISOR_GROUP_ABSENT}" ]]
+}
+
+no_such_group() {
+    printf '%s: ERROR (no such group)\n' "${group%:*}"
+    exit 4
+}
+
+case "${action}" in
+    reread)
+        exit "${RGTEST_SUPERVISOR_REREAD_EXIT:-0}"
+        ;;
+    update)
+        [[ "${RGTEST_SUPERVISOR_UPDATE_EXIT:-0}" == 0 ]] || exit "${RGTEST_SUPERVISOR_UPDATE_EXIT}"
+
+        if group_absent; then
+            rm -f "${RGTEST_SUPERVISOR_GROUP_ABSENT}"
+            printf '%s\n' "${RGTEST_SUPERVISOR_UPDATE_STATE:-RUNNING}" > "${RGTEST_SUPERVISOR_STATE}"
+        fi
+        ;;
+    status)
+        group_absent && no_such_group
+
+        # An observation failure that is NOT a process state: supervisord
+        # unreachable, or the group unknown. do_status overrides the exit
+        # status to 4 for both.
+        if [[ -n "${RGTEST_SUPERVISOR_STATUS_FAILURE:-}" ]]; then
+            printf '%s\n' "${RGTEST_SUPERVISOR_STATUS_FAILURE}" >&2
+            exit "${RGTEST_SUPERVISOR_STATUS_FAILURE_RC:-4}"
+        fi
+
+        # Arbitrary stdout, for the malformed / wrong-group cases.
+        if [[ -n "${RGTEST_SUPERVISOR_STATUS_STDOUT:-}" ]]; then
+            printf '%s\n' "${RGTEST_SUPERVISOR_STATUS_STDOUT}"
+            exit "${RGTEST_SUPERVISOR_STATUS_RC:-0}"
+        fi
+
+        state="$(cat "${RGTEST_SUPERVISOR_STATE}")"
+
+        # A worker that comes back AFTER it was stopped. Without a way to model
+        # it, "something started the queue between the hold and the final
+        # proof" — the exact hazard a last-moment runtime proof exists for — is
+        # untestable.
+        #
+        # Anchored on the stop rather than on a raw call count, so a test does
+        # not have to know how many times an operation happens to read the
+        # group: RGTEST_SUPERVISOR_FLIP_AFTER_STOP=1 means the FIRST read after
+        # the stop still sees it stopped (the confirmation the stop itself
+        # waits for) and every read after that sees it back. Unset, nothing
+        # changes.
+        if [[ -n "${RGTEST_SUPERVISOR_FLIP_AFTER_STOP:-}" ]] \
+            && [[ -f "${RGTEST_SUPERVISOR_STATE}.stopped" ]]
+        then
+            observed=$(( $(cat "${RGTEST_SUPERVISOR_STATE}.stopped") + 1 ))
+            printf '%s\n' "${observed}" > "${RGTEST_SUPERVISOR_STATE}.stopped"
+
+            if (( observed > RGTEST_SUPERVISOR_FLIP_AFTER_STOP )); then
+                state="${RGTEST_SUPERVISOR_FLIP_STATE:-RUNNING}"
+            fi
+        fi
+
+        printf '%-40s %s   pid 4242, uptime 0:10:00\n' "${group%:*}:${group%:*}_00" "${state}"
+
+        # A second process in the same group, so a MIXED group (one RUNNING,
+        # one FATAL) can be exercised the way a real crash-looping worker
+        # presents. Empty means a single-process group.
+        second="$(cat "${RGTEST_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)"
+        if [[ -n "${second}" ]]; then
+            printf '%-40s %s   pid 4243, uptime 0:00:01\n' "${group%:*}:${group%:*}_01" "${second}"
+        fi
+
+        exit "$(supervisor_status_rc "${state}" ${second:+"${second}"})"
+        ;;
+    stop)
+        group_absent && no_such_group
+
+        # supervisorctl stop takes the whole group down, second process included.
+        # RGTEST_SUPERVISOR_STOP_STATE models a stop that TOOK EFFECT but landed
+        # somewhere other than STOPPED — the state a confirmation timeout sees.
+        printf '%s\n' "${RGTEST_SUPERVISOR_STOP_STATE:-STOPPED}" > "${RGTEST_SUPERVISOR_STATE}"
+        # Opens the post-stop observation window RGTEST_SUPERVISOR_FLIP_AFTER_STOP counts in.
+        printf '0\n' > "${RGTEST_SUPERVISOR_STATE}.stopped"
+        [[ -z "$(cat "${RGTEST_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
+            || printf '%s\n' "${RGTEST_SUPERVISOR_STOP_STATE:-STOPPED}" > "${RGTEST_SUPERVISOR_SECOND_STATE}"
+        ;;
+    start)
+        group_absent && no_such_group
+
+        # RGTEST_SUPERVISOR_START_STATE models a start that TOOK EFFECT but has
+        # not reached RUNNING — STARTING, or a worker crash-looping in BACKOFF.
+        printf '%s\n' "${RGTEST_SUPERVISOR_START_STATE:-RUNNING}" > "${RGTEST_SUPERVISOR_STATE}"
+        [[ -z "$(cat "${RGTEST_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
+            || printf '%s\n' "${RGTEST_SUPERVISOR_START_STATE:-RUNNING}" > "${RGTEST_SUPERVISOR_SECOND_STATE}"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+BASH);
+
+    writeExecutable($scratch.'/bin/php', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "php $*" >> "${RGTEST_PHP_LOG}"
+
+case "${2:-}" in
+    down)
+        [[ "${RGTEST_ARTISAN_DOWN_EXIT:-0}" == 0 ]] || exit "${RGTEST_ARTISAN_DOWN_EXIT}"
+        printf '{"time":0}\n' > "${RGTEST_MAINTENANCE_FLAG}"
+        ;;
+    up)
+        [[ "${RGTEST_ARTISAN_UP_EXIT:-0}" == 0 ]] || exit "${RGTEST_ARTISAN_UP_EXIT}"
+        # RGTEST_ARTISAN_UP_INEFFECTIVE models `artisan up` reporting success
+        # while the target stays down.
+        [[ -n "${RGTEST_ARTISAN_UP_INEFFECTIVE:-}" ]] || rm -f "${RGTEST_MAINTENANCE_FLAG}"
+        ;;
+    schedule:interrupt)
+        exit "${RGTEST_SCHEDULE_INTERRUPT_EXIT:-0}"
+        ;;
+    *)
+        ;;
+esac
+BASH);
+
+    writeExecutable($scratch.'/bin/backup-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "backup $*" >> "${RGTEST_BACKUP_LOG}"
+[[ "${RGTEST_BACKUP_EXIT:-0}" == 0 ]] || exit "${RGTEST_BACKUP_EXIT}"
+
+mkdir -p "${RGTEST_BACKUP_NAMESPACE_ROOT}"
+
+# "none" is the explicit "this backup run produced nothing" case: an empty
+# environment value cannot express it, since a shell default would take over.
+ids="${RGTEST_EMERGENCY_BACKUP_IDS:-20260116-090000}"
+
+if [[ "${ids}" != none ]]; then
+    for stamp in ${ids}; do
+        cp -a "${RGTEST_BACKUP_TEMPLATE}" "${RGTEST_BACKUP_NAMESPACE_ROOT}/${stamp}"
+    done
+fi
+BASH);
+
+    writeExecutable($scratch.'/bin/restore-test-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "restore-test $*" >> "${RGTEST_RESTORE_TEST_LOG}"
+exit "${RGTEST_RESTORE_TEST_EXIT:-0}"
+BASH);
+
+    writeExecutable($scratch.'/bin/health-check-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "health-check $*" >> "${RGTEST_HEALTH_CHECK_LOG}"
+exit "${RGTEST_HEALTH_CHECK_EXIT:-0}"
+BASH);
+
+    // Nothing is running by default: pgrep exits 1 when no process matches.
+    writeExecutable($scratch.'/bin/pgrep', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "pgrep $*" >> "${RGTEST_PGREP_LOG}"
+exit "${RGTEST_PGREP_EXIT:-1}"
+BASH);
+
+    file_put_contents($scratch.'/supervisor-state', "RUNNING\n");
+    file_put_contents($scratch.'/supervisor-second-state', '');
+
+    foreach (['supervisor', 'php', 'backup', 'restore-test', 'health-check', 'pgrep'] as $log) {
+        touch($scratch.'/'.$log.'.log');
+    }
+}
+
+/**
+ * An rclone stub that serves exactly one fixed remote directory tree from
+ * disk, and records every argument vector it was given — so a test can prove
+ * the remote path was composed from the registry and the fixed bucket rather
+ * than from anything a caller supplied.
+ *
+ * Shared: fetch-backup's own offsite staging and the host recovery that drives
+ * it both need the identical fake remote, and two copies would drift into
+ * disagreeing about what a remote path even looks like.
+ */
+function offsiteRcloneStub(string $scratch): string
+{
+    return writeExecutable($scratch.'/bin/rclone', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "rclone $*" >> "${RGTEST_RCLONE_LOG}"
+
+# rclone --config X copy SOURCE DEST [flags...]
+# rclone --config X copyto SOURCE_FILE DEST_FILE [flags...]
+source_path=""
+dest_path=""
+seen_copy=false
+copy_verb=""
+positional=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        copy|copyto) seen_copy=true; copy_verb="$1"; shift ;;
+        --config) shift 2 ;;
+        # `--stats 10s` takes a value; every other flag rclone is given here
+        # is a bare switch. Counting positionals rather than taking "the last
+        # bare token" is what keeps a flag value out of the destination path.
+        --stats) shift 2 ;;
+        --*) shift ;;
+        *)
+            if [[ "${seen_copy}" == true ]] && (( positional < 2 )); then
+                if (( positional == 0 )); then source_path="$1"; else dest_path="$1"; fi
+                positional=$(( positional + 1 ))
+            fi
+            shift
+            ;;
+    esac
+done
+
+[[ "${seen_copy}" == true ]] || exit 1
+
+# A relative destination means the argument parsing above mistook a flag
+# VALUE for a path — which would silently copy a backup into whatever
+# directory the test runner happened to be in. Fail loudly instead.
+[[ "${dest_path}" == /* ]] || {
+    printf 'ERROR: stub refuses a relative destination: %s\n' "${dest_path}" >&2
+    exit 1
+}
+
+local_source="${RGTEST_REMOTE_ROOT}/${source_path}"
+
+if [[ "${copy_verb}" == copyto ]]; then
+    # One object to one local file, exactly as B2 answers copyto: a missing
+    # object is an error, never an empty file.
+    if [[ ! -f "${local_source}" ]]; then
+        printf 'ERROR: remote object not found: %s\n' "${source_path}" >&2
+        exit 1
+    fi
+
+    cp "${local_source}" "${dest_path}"
+    exit $?
+fi
+
+if [[ ! -d "${local_source}" ]]; then
+    printf 'ERROR: remote directory not found: %s\n' "${source_path}" >&2
+    exit 1
+fi
+
+cp -a "${local_source}/." "${dest_path}/"
+BASH);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Host recovery fixtures
+|--------------------------------------------------------------------------
+|
+| A recovery starts where a restore cannot: on a PREPARED but EMPTY target —
+| the PRE_DEPLOY state Prepare Host produces, with no current, no previous, no
+| releases, an empty database and a storage root whose `app` tree does not
+| exist yet because the host layout leaves Laravel's descendants to the
+| deployment pipeline.
+*/
+
+/**
+ * The environment file a prepared host carries, and — byte for byte — the
+ * `environment.env` its backup must contain. The recovery refuses on any
+ * difference, so a fixture that let the two drift would exercise the refusal
+ * instead of the recovery.
+ */
+function preparedEnvironmentContents(array $options = []): string
+{
+    return implode("\n", [
+        'APP_ENV=staging',
+        'DB_CONNECTION=pgsql',
+        'DB_HOST=127.0.0.1',
+        'DB_PORT=5432',
+        'DB_DATABASE='.($options['database'] ?? 'parity_db'),
+        'DB_USERNAME='.($options['role'] ?? 'parity_app'),
+        'DB_PASSWORD=s3cr3t-not-logged',
+        '',
+    ]);
+}
+
+/**
+ * A prepared, EMPTY replacement target: exactly what prepare-host leaves
+ * behind, and nothing a deployment would have added.
+ */
+function preparedTargetTreeFixture(string $scratch, array $options = []): string
+{
+    $root = $scratch.'/target';
+
+    mkdir($root.'/releases', 0o755, true);
+    mkdir($root.'/shared/storage', 0o755, true);
+    mkdir($root.'/locks', 0o755, true);
+    mkdir($root.'/deployments', 0o755, true);
+    mkdir($root.'/incoming', 0o755, true);
+
+    file_put_contents($root.'/shared/.env', $options['environment'] ?? preparedEnvironmentContents($options));
+
+    // The host layout stops at shared/storage: shared/storage/app is created
+    // by the first deployment, and its absence is the normal prepared shape.
+    if (($options['storage_app'] ?? false) === true) {
+        mkdir($root.'/shared/storage/app', 0o2710, true);
+    }
+
+    return $root;
+}
+
+/**
+ * The prepare-host stub a recovery runs its own prepared-host verification
+ * through. Records its argv, and fails on demand so the "this machine is not
+ * prepared" refusal can be exercised without a real bootstrap.
+ */
+function installFakePrepareHost(string $scratch): string
+{
+    touch($scratch.'/prepare-host.log');
+
+    return writeExecutable($scratch.'/bin/prepare-host-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s
+' "prepare-host $*" >> "${RGTEST_PREPARE_HOST_LOG}"
+[[ "${RGTEST_PREPARE_HOST_EXIT:-0}" == 0 ]] || {
+    printf 'SLICE bootstrap — FAIL
+' >&2
+    exit "${RGTEST_PREPARE_HOST_EXIT}"
+}
+printf 'TARGET PREPARED: YES
+'
+BASH);
+}
+
+/**
+ * A real offsite remote for the recovery to download from: one backup, in the
+ * exact layout the fixed remote path composes, whose environment.env matches
+ * the prepared host's shared/.env byte for byte.
+ */
+function recoveryOffsiteBackupFixture(string $scratch, string $backupId = '20260115-023000', array $options = []): string
+{
+    $remoteRoot = $scratch.'/remote/rateguru-b2:rateguru-database-backups/rateguru/parity';
+    @mkdir($remoteRoot, 0o755, true);
+
+    // A clean-host recovery requires a schema 3 backup — the one that carries
+    // the recovery material Prepare Host was fed — so that is what a recovery
+    // fixture is unless a test asks for an older one on purpose.
+    return buildBackupFixture($remoteRoot, $backupId, array_merge([
+        'environment' => preparedEnvironmentContents(),
+        'schema' => 3,
+    ], $options));
+}
+
+/**
+ * Every override a recover-host invocation needs on top of infraScriptEnv:
+ * the four backup primitives it drives (patched, so they run without root),
+ * the prepare-host verification it delegates to, the fake offsite remote, and
+ * the per-database row counts that make "empty" and "restored" distinguishable.
+ *
+ * @return array<string, string>
+ */
+function recoveryEnv(string $scratch): array
+{
+    @mkdir($scratch.'/pg/tables', 0o755, true);
+    @mkdir($scratch.'/pg/migrations', 0o755, true);
+
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    return recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
+        'RATEGURU_RECOVERY_HISTORY_ROOT' => $scratch.'/recoveries',
+        'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/prepare-host-stub',
+        'RATEGURU_RECOVER_SUPERVISOR_CONF_D' => $scratch.'/supervisor-conf.d',
+        'RGTEST_PREPARE_HOST_LOG' => $scratch.'/prepare-host.log',
+
+        'RATEGURU_RESTORE_FETCH_BACKUP_BIN' => patchedInfraScript($scratch, 'fetch-backup'),
+        'RATEGURU_RESTORE_VERIFY_BACKUP_BIN' => patchedInfraScript($scratch, 'verify-backup'),
+        'RATEGURU_RESTORE_DATABASE_BIN' => patchedInfraScript($scratch, 'restore-database'),
+        'RATEGURU_RESTORE_STORAGE_BIN' => patchedInfraScript($scratch, 'restore-storage'),
+
+        'RATEGURU_RCLONE_BIN' => $scratch.'/bin/rclone',
+        'RATEGURU_RCLONE_CONFIG' => $scratch.'/rclone.conf',
+        'RGTEST_RCLONE_LOG' => $scratch.'/rclone.log',
+        'RGTEST_REMOTE_ROOT' => $scratch.'/remote',
+
+        'RGTEST_PG_TABLE_COUNTS' => $scratch.'/pg/tables',
+        'RGTEST_PG_MIGRATION_COUNTS' => $scratch.'/pg/migrations',
+    ];
+}
+
+/** The recovery guard document, or null when the target carries none. */
+function recoveryGuard(string $scratch): ?array
+{
+    $path = $scratch.'/run/recoveries/parity-target/recovery-guard';
+
+    return File::exists($path) ? json_decode(File::get($path), true) : null;
+}
+
+/** @return array<string, mixed> */
+function recoveryOperationState(string $scratch, string $operationId): array
+{
+    return json_decode(File::get($scratch.'/run/recoveries/parity-target/'.$operationId.'/state.json'), true);
+}
+
+/** @return array<string, string> */
+function targetRuntimeEnv(string $scratch): array
+{
+    return [
+        'RGTEST_SUPERVISOR_LOG' => $scratch.'/supervisor.log',
+        'RGTEST_SUPERVISOR_STATE' => $scratch.'/supervisor-state',
+        'RGTEST_SUPERVISOR_SECOND_STATE' => $scratch.'/supervisor-second-state',
+        // Its EXISTENCE means "this group is not loaded in the running
+        // Supervisor"; no file, no change to any other test.
+        'RGTEST_SUPERVISOR_GROUP_ABSENT' => $scratch.'/supervisor-group-absent',
+        'RGTEST_PHP_LOG' => $scratch.'/php.log',
+        'RGTEST_MAINTENANCE_FLAG' => $scratch.'/target/shared/storage/framework/down',
+        'RGTEST_BACKUP_LOG' => $scratch.'/backup.log',
+        'RGTEST_BACKUP_TEMPLATE' => $scratch.'/emergency-template',
+        'RGTEST_BACKUP_NAMESPACE_ROOT' => $scratch.'/backups/parity',
+        'RGTEST_RESTORE_TEST_LOG' => $scratch.'/restore-test.log',
+        'RGTEST_HEALTH_CHECK_LOG' => $scratch.'/health-check.log',
+        'RGTEST_PGREP_LOG' => $scratch.'/pgrep.log',
+        'RATEGURU_RESTORE_PGREP_BIN' => $scratch.'/bin/pgrep',
+        'RATEGURU_RESTORE_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_RESTORE_BACKUP_BIN' => $scratch.'/bin/backup-stub',
+        'RATEGURU_RESTORE_RESTORE_TEST_BIN' => $scratch.'/bin/restore-test-stub',
+        'RATEGURU_RESTORE_HEALTH_CHECK_BIN' => $scratch.'/bin/health-check-stub',
+        'RATEGURU_RESTORE_QUEUE_WAIT_ATTEMPTS' => '3',
+        'RATEGURU_RESTORE_QUEUE_RETRY_DELAY' => '0',
+        'RATEGURU_RESTORE_SCHEDULER_WAIT_ATTEMPTS' => '3',
+        'RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY' => '0',
+    ];
+}
+
+// =============================================================================
+// GitHub Actions job gating
+// =============================================================================
+
+/**
+ * Tokenize one GitHub Actions expression.
+ *
+ * @return list<array{kind: string, value: string}>
+ */
+function githubExpressionTokens(string $expression): array
+{
+    $source = trim($expression);
+
+    if (preg_match('/^\$\{\{(.*)\}\}$/s', $source, $matches) === 1) {
+        $source = trim($matches[1]);
+    }
+
+    $tokens = [];
+    $length = strlen($source);
+    $offset = 0;
+
+    while ($offset < $length) {
+        $character = $source[$offset];
+
+        if (ctype_space($character)) {
+            $offset++;
+
+            continue;
+        }
+
+        // Single-quoted string, with '' as the escape for a literal quote.
+        if ($character === "'") {
+            $offset++;
+            $literal = '';
+
+            while ($offset < $length) {
+                if ($source[$offset] === "'") {
+                    if (($source[$offset + 1] ?? '') === "'") {
+                        $literal .= "'";
+                        $offset += 2;
+
+                        continue;
+                    }
+
+                    $offset++;
+                    break;
+                }
+
+                $literal .= $source[$offset];
+                $offset++;
+            }
+
+            $tokens[] = ['kind' => 'string', 'value' => $literal];
+
+            continue;
+        }
+
+        foreach (['&&', '||', '==', '!='] as $operator) {
+            if (substr($source, $offset, 2) === $operator) {
+                $tokens[] = ['kind' => 'operator', 'value' => $operator];
+                $offset += 2;
+
+                continue 2;
+            }
+        }
+
+        if ($character === '!' || $character === '(' || $character === ')') {
+            $tokens[] = ['kind' => 'operator', 'value' => $character];
+            $offset++;
+
+            continue;
+        }
+
+        // A path or a function name. Job identifiers carry hyphens, so a
+        // hyphen is part of a name here and never a minus: these expressions
+        // do no arithmetic.
+        if (preg_match('/[A-Za-z_][A-Za-z0-9_.\-]*/A', $source, $matches, 0, $offset) === 1) {
+            $tokens[] = ['kind' => 'name', 'value' => $matches[0]];
+            $offset += strlen($matches[0]);
+
+            continue;
+        }
+
+        throw new RuntimeException("unsupported character '{$character}' at offset {$offset} of: {$expression}");
+    }
+
+    return $tokens;
+}
+
+/**
+ * Evaluate one GitHub Actions expression against a context, and return the
+ * value it produces — a string, or a bool for the status functions.
+ *
+ * The subset is the one job gates are written in: `&&`, `||`, `!`, `==`, `!=`,
+ * parentheses, single-quoted strings, the four status functions, and property
+ * paths under `needs`. `&&` and `||` return an OPERAND rather than a boolean,
+ * exactly as GitHub does, because that is what makes an empty-string operand
+ * behave the way it does in a real run.
+ *
+ * @param  array{needs?: array<string, array{result?: string, outputs?: array<string, string>}>, always?: bool, cancelled?: bool, success?: bool, failure?: bool}  $context
+ */
+function githubExpressionValue(string $expression, array $context): bool|string
+{
+    $tokens = githubExpressionTokens($expression);
+    $position = 0;
+
+    $peek = static function () use (&$tokens, &$position): ?array {
+        return $tokens[$position] ?? null;
+    };
+
+    $truthy = static function (bool|string $value): bool {
+        // GitHub coerces a string to a boolean by emptiness, and the empty
+        // string is exactly what an undeclared `needs.<job>` produces.
+        return is_bool($value) ? $value : $value !== '';
+    };
+
+    $parseOr = null;
+
+    $parsePrimary = function () use (&$peek, &$position, &$parseOr, $context, $expression): bool|string {
+        $token = $peek();
+
+        if ($token === null) {
+            throw new RuntimeException("expression ends early: {$expression}");
+        }
+
+        if ($token['kind'] === 'operator' && $token['value'] === '(') {
+            $position++;
+            $value = $parseOr();
+
+            $closing = $peek();
+
+            if ($closing === null || $closing['value'] !== ')') {
+                throw new RuntimeException("unbalanced parentheses in: {$expression}");
+            }
+
+            $position++;
+
+            return $value;
+        }
+
+        if ($token['kind'] === 'string') {
+            $position++;
+
+            return $token['value'];
+        }
+
+        if ($token['kind'] !== 'name') {
+            throw new RuntimeException("unexpected '{$token['value']}' in: {$expression}");
+        }
+
+        $position++;
+        $name = $token['value'];
+
+        $next = $peek();
+
+        if ($next !== null && $next['kind'] === 'operator' && $next['value'] === '(') {
+            $position++;
+
+            $closing = $peek();
+
+            if ($closing === null || $closing['value'] !== ')') {
+                throw new RuntimeException("only zero-argument functions are supported: {$expression}");
+            }
+
+            $position++;
+
+            if (! array_key_exists($name, $context)) {
+                throw new RuntimeException("the scenario does not say what {$name}() is: {$expression}");
+            }
+
+            return (bool) $context[$name];
+        }
+
+        // `needs.<job>.result` and `needs.<job>.outputs.<name>`. Anything a
+        // scenario has no value for is the empty string, which is what GitHub
+        // produces for an unset output and for a job that is not needed.
+        $path = explode('.', $name);
+
+        $value = $context;
+
+        foreach ($path as $segment) {
+            if (! is_array($value) || ! array_key_exists($segment, $value)) {
+                return '';
+            }
+
+            $value = $value[$segment];
+        }
+
+        return is_array($value) ? '' : (string) $value;
+    };
+
+    $parseUnary = function () use (&$peek, &$position, &$parseUnary, $parsePrimary, $truthy): bool|string {
+        $token = $peek();
+
+        if ($token !== null && $token['kind'] === 'operator' && $token['value'] === '!') {
+            $position++;
+
+            return ! $truthy($parseUnary());
+        }
+
+        return $parsePrimary();
+    };
+
+    $parseComparison = function () use (&$peek, &$position, $parseUnary): bool|string {
+        $left = $parseUnary();
+
+        $token = $peek();
+
+        if ($token !== null && $token['kind'] === 'operator' && in_array($token['value'], ['==', '!='], true)) {
+            $position++;
+            $right = $parseUnary();
+
+            $equal = is_bool($left) || is_bool($right)
+                ? $left === $right
+                : (string) $left === (string) $right;
+
+            return $token['value'] === '==' ? $equal : ! $equal;
+        }
+
+        return $left;
+    };
+
+    $parseAnd = function () use (&$peek, &$position, $parseComparison, $truthy): bool|string {
+        $value = $parseComparison();
+
+        while (($token = $peek()) !== null && $token['kind'] === 'operator' && $token['value'] === '&&') {
+            $position++;
+            $right = $parseComparison();
+
+            // GitHub returns the first falsy operand, or the last one.
+            $value = $truthy($value) ? $right : $value;
+        }
+
+        return $value;
+    };
+
+    $parseOr = function () use (&$peek, &$position, $parseAnd, $truthy): bool|string {
+        $value = $parseAnd();
+
+        while (($token = $peek()) !== null && $token['kind'] === 'operator' && $token['value'] === '||') {
+            $position++;
+            $right = $parseAnd();
+
+            $value = $truthy($value) ? $value : $right;
+        }
+
+        return $value;
+    };
+
+    $result = $parseOr();
+
+    if ($position !== count($tokens)) {
+        throw new RuntimeException("trailing input in: {$expression}");
+    }
+
+    return $result;
+}
+
+/**
+ * Every job a workflow job transitively depends on.
+ *
+ * @param  array<string, array>  $jobs
+ * @return list<string>
+ */
+function githubJobAncestors(array $jobs, string $job): array
+{
+    $ancestors = [];
+    $queue = (array) data_get($jobs, $job.'.needs', []);
+
+    while ($queue !== []) {
+        $name = array_shift($queue);
+
+        if (in_array($name, $ancestors, true)) {
+            continue;
+        }
+
+        $ancestors[] = $name;
+
+        foreach ((array) data_get($jobs, $name.'.needs', []) as $parent) {
+            $queue[] = $parent;
+        }
+    }
+
+    return $ancestors;
+}
+
+/**
+ * Run a workflow's job graph on paper and report what each job's `result`
+ * would be.
+ *
+ * The rule this models is the one that is easy to get wrong and expensive to
+ * discover in production: a job with no `if:` carries GitHub's implicit
+ * `success()`, and at job level that is not "the jobs I need succeeded" — it
+ * is "no job anywhere in my ancestry failed or was skipped". A legitimately
+ * skipped stage therefore withholds every unconditioned job downstream of it,
+ * however many successful jobs stand in between. A job that names its own
+ * condition is judged by that condition alone.
+ *
+ * @param  array  $workflow  the parsed workflow
+ * @param  array<string, string>  $outcomes  what a job reports IF it runs; success by default
+ * @param  array<string, array<string, string>>  $outputs  outputs by job, for the gates that read them
+ * @return array<string, string> each job's result: success, failure, cancelled or skipped
+ */
+function githubWorkflowJobResults(array $workflow, array $outcomes = [], array $outputs = [], bool $runCancelled = false): array
+{
+    $jobs = (array) data_get($workflow, 'jobs', []);
+
+    $results = [];
+    $pending = array_keys($jobs);
+
+    while ($pending !== []) {
+        $progressed = false;
+
+        foreach ($pending as $index => $name) {
+            $needs = (array) data_get($jobs, $name.'.needs', []);
+
+            foreach ($needs as $dependency) {
+                if (! array_key_exists($dependency, $results)) {
+                    continue 2;
+                }
+            }
+
+            unset($pending[$index]);
+            $progressed = true;
+
+            $ancestors = githubJobAncestors($jobs, $name);
+
+            $ancestorsSucceeded = true;
+            $ancestorFailed = false;
+
+            foreach ($ancestors as $ancestor) {
+                if (($results[$ancestor] ?? '') !== 'success') {
+                    $ancestorsSucceeded = false;
+                }
+
+                if (($results[$ancestor] ?? '') === 'failure') {
+                    $ancestorFailed = true;
+                }
+            }
+
+            $condition = data_get($jobs, $name.'.if');
+
+            if ($condition === null) {
+                $results[$name] = $ancestorsSucceeded ? ($outcomes[$name] ?? 'success') : 'skipped';
+
+                continue;
+            }
+
+            $needsContext = [];
+
+            foreach ($needs as $dependency) {
+                $result = $results[$dependency] ?? '';
+
+                $needsContext[$dependency] = [
+                    'result' => $result,
+                    // A job that did not run published nothing. Handing a
+                    // skipped job's declared outputs to a downstream gate
+                    // would let a scenario pass on a value GitHub would have
+                    // delivered as the empty string.
+                    'outputs' => $result === 'success' ? ($outputs[$dependency] ?? []) : [],
+                ];
+            }
+
+            $runs = githubExpressionValue((string) $condition, [
+                'needs' => $needsContext,
+                'always' => true,
+                'cancelled' => $runCancelled,
+                'success' => $ancestorsSucceeded,
+                'failure' => $ancestorFailed,
+            ]);
+
+            $results[$name] = (is_bool($runs) ? $runs : $runs !== '')
+                ? ($outcomes[$name] ?? 'success')
+                : 'skipped';
+        }
+
+        if (! $progressed) {
+            throw new RuntimeException('the workflow job graph has a cycle: '.implode(', ', $pending));
+        }
+    }
+
+    return $results;
+}
+
+/**
+ * One recovery workflow, parsed and raw.
+ *
+ * Shared because two files ask about the same two documents from opposite
+ * directions: one asserts the policy those workflows implement, the other
+ * states the disaster-recovery contract they are one surface of.
+ *
+ * @return array{0: array, 1: string}
+ */
+function recoverWorkflow(string $file): array
+{
+    $path = base_path(".github/workflows/{$file}");
+
+    expect(File::exists($path))->toBeTrue("{$file} is missing");
+
+    $source = File::get($path);
+
+    return [Yaml::parse($source), $source];
+}
+
+/**
+ * A Socialite user shaped like what the Google or Facebook provider returns,
+ * for Socialite::fake(). Every attribute a test does not name gets a stable
+ * default, and extra keys (Google's `email_verified` and `hd`) land in the
+ * raw provider payload exactly where Socialite puts them.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function fakeSocialiteUser(array $attributes = []): SocialiteUser
+{
+    return SocialiteUser::fake(array_merge([
+        'id' => 'provider-user-1',
+        'nickname' => null,
+        'name' => 'Ivan Moroz',
+        'email' => 'ivan@example.com',
+        'avatar' => null,
+    ], $attributes));
+}
+
+/** Where every connect and disconnect lands: the profile's Connected accounts card. */
+function connectedAccountsUrl(): string
+{
+    return route('profile.edit').'#connected-accounts';
+}
+
+/**
+ * Signs in as $user and presses Connect for $provider on the Connected
+ * accounts card — the only start that lets a later callback attach an
+ * identity to a signed-in account. Returns the test case for the callback.
+ */
+function startConnectingProvider(User $user, string $provider): TestCase
+{
+    $test = test()->actingAs($user);
+    $test->post(route('profile.connected-accounts.store', ['provider' => $provider]))->assertRedirect();
+
+    return $test;
+}
+
+/**
+ * The callback URL a provider redirects back to, carrying the query a
+ * completed consent produces. Override or add parameters through $query —
+ * an OAuth `error`, or `code => null` for a callback without a code.
+ *
+ * @param  array<string, string|null>  $query
+ */
+function socialCallbackUrl(string $provider, array $query = []): string
+{
+    $query = array_filter(
+        array_merge(['code' => 'fake-authorization-code', 'state' => 'fake-state'], $query),
+        static fn (?string $value): bool => $value !== null,
+    );
+
+    return '/auth/'.$provider.'/callback?'.http_build_query($query);
+}
+
+/**
+ * The marker fields the authentication modal adds to a login or registration
+ * post — and to a provider link — so a test can act "from the modal, opened
+ * on this page".
+ *
+ * @return array{_auth_surface: string, _auth_mode: string, _auth_return_to: string}
+ */
+function authModalFields(string $mode, string $returnTo = '/'): array
+{
+    return [
+        '_auth_surface' => 'modal',
+        '_auth_mode' => $mode,
+        '_auth_return_to' => $returnTo,
+    ];
+}
+
+/**
+ * The authentication modal as the page rendered it, for assertions that must
+ * not be satisfied by markup elsewhere on the page.
+ */
+function authModalElement(string $html): DOMElement
+{
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NOERROR | LIBXML_NOWARNING);
+
+    $node = (new DOMXPath($document))->query('//*[@data-testid="auth-modal-root"]')->item(0);
+
+    expect($node)->toBeInstanceOf(DOMElement::class, 'the page rendered no authentication modal');
+
+    return $node;
+}
+
+/**
+ * Asserts that a Livewire component refuses to mount because the model it
+ * was asked for does not exist for this visitor.
+ *
+ * What a refusal looks like depends on Livewire's test harness, not on the
+ * component: it reports a missing model as a 404 response, where releases
+ * before 4.4.7 let the ModelNotFoundException itself through. Both are the
+ * same refusal, and a visitor sees a 404 page either way.
+ *
+ * @param  class-string  $component
+ * @param  array<string, mixed>  $parameters
+ */
+function expectLivewireModelNotFound(string $component, array $parameters): void
+{
+    try {
+        Livewire::test($component, $parameters)->assertNotFound();
+    } catch (ModelNotFoundException $exception) {
+        expect($exception)->toBeInstanceOf(ModelNotFoundException::class);
+    }
+}
+
+/**
+ * Waits for the page to reach a state instead of guessing how long that takes.
+ *
+ * A fixed pause is a bet on the speed of the machine: fine on a laptop, lost
+ * on a CI runner that is busy with the rest of the suite. This polls the
+ * expression until it evaluates to the expected value, and fails with the
+ * last value it saw when the time runs out.
+ */
+function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    do {
+        $actual = $page->script($expression);
+
+        if ($actual === $expected) {
+            break;
+        }
+
+        $page->wait(0.1);
+    } while (microtime(true) < $deadline);
+
+    expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+}
+
+/**
+ * The languages the product offers, read from config/locales.php — the one
+ * place a language is declared. Every localization test iterates this rather
+ * than spelling out a list, so declaring a language puts it through all of
+ * them without editing a single test.
+ *
+ * It reads the file rather than going through config() because Pest collects
+ * datasets before the application boots, and `->with(supportedLocales())` is
+ * the usual way a test asks for "every language".
+ *
+ * @return list<string>
+ */
+function supportedLocales(): array
+{
+    return array_keys((require dirname(__DIR__).'/config/locales.php')['supported']);
+}
+
+/**
+ * Every supported language except English, the reference the others are
+ * translated from.
+ *
+ * @return list<string>
+ */
+function translatedLocales(): array
+{
+    return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * A well-formed language code the product will never offer, for tests about
+ * what happens to an unsupported locale. Deliberately not a real language: a
+ * real one ("de") is exactly what may be added to config/locales.php next, and
+ * the test proving it is refused would then fail for the wrong reason.
+ */
+function unsupportedLocale(): string
+{
+    return 'xx';
+}
+
+/**
+ * Two installed languages other than English, for tests that need distinct
+ * roles — one offered, one withheld; a project default that is not the
+ * technical fallback. Taken from config/locales.php like everything else, so
+ * the tests keep meaning the same thing whichever languages are installed.
+ *
+ * @return array{0: string, 1: string}
+ */
+function twoTranslatedLocales(): array
+{
+    $locales = translatedLocales();
+
+    if (count($locales) < 2) {
+        throw new RuntimeException('These tests need at least two installed languages besides English.');
+    }
+
+    return [$locales[0], $locales[1]];
+}
+
+/**
+ * A published post whose image has these generated variants, with the asset
+ * and its variants loaded — the shape the presenter is handed in a list.
+ *
+ * @param  array<string, array{0: int, 1: int}>  $variantDimensionsByName  keyed by MediaVariantName::value
+ */
+function postWithVariants(array $variantDimensionsByName): Post
+{
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
+
+    foreach ($variantDimensionsByName as $name => $dimensions) {
+        MediaVariant::factory()->named(MediaVariantName::from($name))->create([
+            'media_asset_id' => $asset->id,
+            'width' => $dimensions[0],
+            'height' => $dimensions[1],
+        ]);
+    }
+
+    return Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset.variants');
+}
+
+/**
+ * Makes the project offer these installed languages through the same action
+ * the Languages page uses — so a test cannot set up a state the application
+ * itself would refuse. English, the default, is always among them.
+ *
+ * @param  list<string>  $enabled
+ */
+function offerLocales(array $enabled): void
+{
+    app(UpdateProjectLocaleSettingsAction::class)->handle(array_values(array_unique([config('locales.default'), ...$enabled])));
+}
+
+/**
+ * Makes the project offer every installed language, for a test that puts each
+ * one through what a visitor or a reader gets. A project that never chose
+ * offers only the languages enabled by default, and a language a release adds
+ * is not among them — but what such a test checks is that a language works
+ * once it is offered, which has to hold from the day the language is
+ * installed, before anyone enables it.
+ */
+function offerEveryInstalledLocale(): void
+{
+    offerLocales(supportedLocales());
+}
+
+/**
+ * Makes the project offer every installed language except these — the usual
+ * way a test withholds a language. English, the default, is offered whatever
+ * is passed.
+ */
+function offerEveryInstalledLocaleExcept(string ...$withheld): void
+{
+    offerLocales(array_values(array_diff(supportedLocales(), $withheld)));
+}
+
+/** Request headers for a browser asking for these languages. */
+function acceptLanguage(string $header): array
+{
+    return ['Accept-Language' => $header];
+}
+
+/**
+ * Request headers for a browser that states no language. Test requests
+ * otherwise carry Symfony's default `Accept-Language: en-us,en;q=0.5`, which
+ * answers before the project default ever could.
+ */
+function noBrowserLanguage(): array
+{
+    return acceptLanguage('');
+}
+
+/**
+ * Every translatable project setting translated into these languages, as the
+ * `{field}_translations` attributes of a settings row.
+ *
+ * @param  list<string>  $locales
+ * @return array<string, array<string, string>>
+ */
+function projectSettingsTranslationsIn(array $locales): array
+{
+    $attributes = [];
+
+    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
+        $attributes["{$field}_translations"] = collect($locales)->mapWithKeys(fn (string $locale): array => [$locale => "{$field} in {$locale}"])->all();
+    }
+
+    return $attributes;
+}
+
+/**
+ * A fresh, empty directory for one test's own language catalogs. The file
+ * that uses it removes it again with removeCatalogScratchDirectory($this) in
+ * its afterEach.
+ */
+function catalogScratchDirectory(): string
+{
+    $root = sys_get_temp_dir().'/rateguru-catalogs-'.uniqid('', true);
+    File::ensureDirectoryExists($root);
+    test()->catalogScratchDirectory = $root;
+
+    return $root;
+}
+
+/**
+ * Takes the test case itself: test() hands back a proxy that forwards reads
+ * and writes but answers isset() with false, so a check through it would
+ * never find the directory.
+ */
+function removeCatalogScratchDirectory(TestCase $test): void
+{
+    if (isset($test->catalogScratchDirectory)) {
+        File::deleteDirectory($test->catalogScratchDirectory);
+    }
+}
+
+/**
+ * Points the inspector at a copy of the catalogs with one of this language's
+ * files removed — a broken release on a server.
+ */
+function breakCatalogsOf(string $locale): void
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    File::delete("{$root}/{$locale}/ui.php");
+
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+}
+
+/**
+ * Stored values that are not a translation (TranslatableField::isPresent()):
+ * completeness counts each as missing, and a visitor gets the fallback for
+ * each — the two sides of the same rule, tested with the same values.
+ */
+dataset('not a translation', [
+    'null' => [null],
+    'empty' => [''],
+    'spaces' => ['   '],
+    'tabs and newlines' => ["\t\n"],
+    'a number' => [42],
+    'a boolean' => [true],
+    'a list' => [['Desserts']],
+]);
+
+/**
+ * The inclusive upper bound each protocol-accepting site declares for a
+ * deployment protocol version.
+ *
+ * Three files accept a protocol version and none can share a runtime constant
+ * with the others: `deploy` and `install-target-operations` are separate bash
+ * programs (the installer deliberately never sources `common`), and the build is
+ * YAML. So the literal is written three times and read back here, because three
+ * independent ceilings would be three different contracts — and the one that
+ * matters is whichever is lowest, silently.
+ *
+ * @return array<string, int|null> null where the declaration could not be found
+ */
+function deploymentProtocolMaxDeclarations(): array
+{
+    $sites = [
+        'deploy' => [
+            'infrastructure/scripts/deploy',
+            '/^DEPLOYMENT_PROTOCOL_MAX=([0-9]+)$/m',
+        ],
+        'install-target-operations' => [
+            'infrastructure/scripts/install-target-operations',
+            '/^DEPLOYMENT_PROTOCOL_MAX=([0-9]+)$/m',
+        ],
+        'build-rateguru' => [
+            '.github/actions/build-rateguru/action.yml',
+            '/^\s*protocol_max=([0-9]+)$/m',
+        ],
+    ];
+
+    $found = [];
+
+    foreach ($sites as $name => [$path, $pattern]) {
+        $found[$name] = preg_match($pattern, File::get(base_path($path)), $matches) === 1
+            ? (int) $matches[1]
+            : null;
+    }
+
+    return $found;
+}
+
+/**
+ * The committed deployment protocol contract, decoded.
+ *
+ * @return array<string, mixed>
+ */
+function deploymentProtocolContract(): array
+{
+    return json_decode(
+        File::get(base_path('infrastructure/config/deployment-protocol.json')),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+}
+
+/**
+ * The branch each operational workflow's PRIVILEGED TOOLING checkout must come
+ * from — the control-plane contract, as a closed map.
+ *
+ *   develop  integration branch, and staging's source
+ *   main     the production control plane
+ *
+ * Production operational workflows take their tooling from main because the
+ * `production-tits-guru` GitHub Environment allows `main` and `v*` only, and
+ * deliberately not `develop`. A production workflow pointed at develop simply
+ * cannot run — and should not, because privileged production tooling has to be
+ * promoted through a develop -> main pull request before it may act on
+ * production. Staging stays on develop, which is the whole point of develop.
+ *
+ * This says nothing about APPLICATION code. A new release reaches production
+ * only through a `v*` tag whose commit is contained in main; main's HEAD is
+ * never deployed as an application.
+ *
+ * Closed on purpose: a new operational workflow has to be classified here
+ * deliberately, and ProductionControlPlaneTest proves the map covers every
+ * operational workflow in the repository and matches the YAML.
+ *
+ * @return array<string, string>
+ */
+function trustedToolingRefs(): array
+{
+    return [
+        // Production control plane.
+        'configure-tits-guru.yml' => 'main',
+        'provision-tits-guru.yml' => 'main',
+        'prepare-production-host.yml' => 'main',
+        'repair-production.yml' => 'main',
+        'restore-production.yml' => 'main',
+        'recover-production.yml' => 'main',
+        'rollback-production.yml' => 'main',
+        // Integration and staging.
+        'deploy-staging.yml' => 'develop',
+        'prepare-staging-host.yml' => 'develop',
+        'repair-staging.yml' => 'develop',
+        'restore-staging.yml' => 'develop',
+        'recover-staging.yml' => 'develop',
+        'rollback-staging.yml' => 'develop',
+    ];
+}
+
+/**
+ * The trusted tooling ref for one workflow, by file name or path.
+ */
+function trustedToolingRef(string $workflow): string
+{
+    $name = basename($workflow);
+    $refs = trustedToolingRefs();
+
+    // toHaveKey's second argument is an expected VALUE, not a message.
+    expect(array_key_exists($name, $refs))
+        ->toBeTrue("{$name} is not classified in trustedToolingRefs() — classify it as 'main' (production control plane) or 'develop' (integration and staging)");
+
+    return $refs[$name];
 }

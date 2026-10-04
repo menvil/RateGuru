@@ -2,6 +2,7 @@
 
 namespace App\Actions\Moderation;
 
+use App\Actions\Moderation\Concerns\LocksAndAuthorizesPostModeration;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
@@ -9,14 +10,18 @@ use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;
+use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class ApprovePostAction
 {
+    use LocksAndAuthorizesPostModeration;
+
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
+        private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
@@ -29,11 +34,7 @@ final class ApprovePostAction
         // transaction with a row lock on the post so a concurrent moderation
         // cannot bypass the state guard between the check and the write.
         DB::transaction(function () use ($moderator, $post, $reason) {
-            $locked = $post->newQuery()->lockForUpdate()->find($post->getKey());
-
-            if ($locked === null || $locked->status !== PostStatus::Pending) {
-                throw CannotModeratePostException::becausePostStatusIsInvalid();
-            }
+            [$lockedActor, $locked] = $this->lockAndAuthorizePostModeration($moderator, $post, 'approve', PostStatus::Pending);
 
             $fromStatus = $locked->status;
 
@@ -48,7 +49,7 @@ final class ApprovePostAction
             }
 
             $this->createModerationLog->handle(
-                moderator: $moderator,
+                moderator: $lockedActor,
                 action: ModerationActionType::ApprovePost,
                 target: $locked,
                 reason: $reason,
@@ -61,14 +62,18 @@ final class ApprovePostAction
             $post->setRawAttributes($locked->getAttributes(), true);
         });
 
-        $post->loadMissing('user');
-
         if ($post->user_id !== $moderator->id) {
             try {
-                $post->user?->notify(new PostApprovedNotification(
-                    post: $post,
-                    actor: $moderator,
-                ));
+                // Identity-bearing DB notification: serialized against
+                // anonymization, built from the FRESH locked moderator.
+                $this->safeNotifier->send(
+                    recipientId: (int) $post->user_id,
+                    identitySourceId: (int) $moderator->id,
+                    notification: fn (User $freshModerator) => new PostApprovedNotification(
+                        post: $post,
+                        actor: $freshModerator,
+                    ),
+                );
             } catch (Throwable $exception) {
                 report($exception);
 

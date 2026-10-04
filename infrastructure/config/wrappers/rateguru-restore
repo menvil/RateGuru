@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+#
+# rateguru-restore — generic, target-aware sudo wrapper installed at
+# /usr/local/sbin/rateguru-restore. It is the ONLY way a restricted deploy
+# credential can reach a restore, and it exposes exactly the restore-target
+# contract and nothing else:
+#
+#   rateguru-restore --apply   --target T --source local|offsite \
+#                    --backup YYYYMMDD-HHMMSS
+#   rateguru-restore --inspect --target T --operation OPERATION_ID
+#   rateguru-restore --resume  --target T --operation OPERATION_ID
+#
+# Deliberately NOT shaped like rateguru-deploy. That wrapper forwards every
+# argument it does not recognize, because a deployment's flag set is the
+# deploying operation's business and the underlying binary rejects what it does
+# not know. A restore is destructive in a way a deployment is not — it replaces
+# a live database and a live storage tree — so this one is a closed whitelist:
+# five flags, each with a validated closed-class value, assembled into a fixed
+# argv. Nothing is passed through, so no future restore-target flag becomes
+# remotely reachable by accident.
+#
+# What it is not: it holds no restore logic. Target lifecycle, the deployment
+# and backup locks, backup verification, the emergency backup, the swap, the
+# compensation, the guard and the code-alignment decision all live in
+# /home/www/rateguru/bin/restore-target, which this wrapper execs into with a
+# completely scrubbed environment.
+
+set -Eeuo pipefail
+
+WRAPPER_NAME="rateguru-restore"
+
+# Literal root-first contract: for a real invocation (never a sourced test
+# harness — BASH_SOURCE[0] == $0), reject a non-root caller before anything
+# else runs at all — before RATEGURU_ALLOW_TEST_OVERRIDES is even consulted,
+# before COMMON_FILE is resolved, before common is sourced. This is what
+# common's own require_root (called inside main(), below) cannot be: common
+# itself is not yet sourced at this point, so this is a plain inline EUID
+# check, not a function call. require_root still runs inside main() as
+# defense in depth for any caller that reaches that point some other way
+# (e.g. main() invoked directly after sourcing).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]] && [[ "${EUID}" -ne 0 ]]; then
+    printf 'ERROR: this command must be executed as root\n' >&2
+    exit 1
+fi
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/deploy. Common
+# has not been sourced yet at this point, so this is a plain inline
+# condition, not a call to rateguru_test_overrides_allowed().
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Gated test override for the underlying binary this wrapper execs into,
+# following the exact FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed
+# shape every operational script already establishes. Production value is
+# unchanged; this exists purely so tests can point this wrapper at a
+# self-contained stub restore-target binary instead of the real installed one.
+RESTORE_TARGET_BIN_DEFAULT="/home/www/rateguru/bin/restore-target"
+RESTORE_TARGET_BIN="${RESTORE_TARGET_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RESTORE_TARGET_BIN:-}" ]]; then
+        RESTORE_TARGET_BIN="${RATEGURU_RESTORE_TARGET_BIN}"
+    fi
+fi
+
+# The exact minimal production environment every exec below runs with —
+# matches infrastructure/config/wrappers/rateguru-deploy and
+# infrastructure/config/cron/rateguru-backups exactly, so every perimeter entry
+# point hands operational scripts the identical, minimal,
+# non-attacker-influenceable environment.
+PRODUCTION_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+print_wrapper_usage() {
+    cat <<USAGE
+Usage:
+  ${WRAPPER_NAME} --apply   --target TARGET_ID --source local|offsite \\
+                  --backup YYYYMMDD-HHMMSS
+  ${WRAPPER_NAME} --inspect --target TARGET_ID --operation OPERATION_ID
+  ${WRAPPER_NAME} --resume  --target TARGET_ID --operation OPERATION_ID
+
+This wrapper accepts these five flags and nothing else. Every argument is
+validated against a closed class here and the resulting command is assembled
+as a fixed argument vector — no argument is ever passed through unexamined.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. Tests source this whole file (BASH_SOURCE[0] != $0 in that
+# case, so main never auto-runs), then call parse_wrapper_args/
+# authorize_caller/require_active_target/exec_underlying directly — bypassing
+# require_root, which needs no coverage beyond a real non-root subprocess
+# invocation failing closed — mirroring the exact technique
+# infrastructure/config/wrappers/rateguru-deploy already established.
+
+# --- argument parsing --------------------------------------------------------
+#
+# A closed whitelist. Anything not named here — including an unrecognized long
+# flag, a bare positional, a `--flag=value` form or a lone short flag — is
+# rejected before the underlying binary is reached, so this wrapper can never
+# become a way to reach a restore-target flag that was never meant to be
+# remotely callable.
+parse_wrapper_args() {
+    MODE=""
+    MODE_SEEN=false
+    TARGET_ID=""
+    TARGET_SEEN=false
+    SOURCE_KIND=""
+    SOURCE_SEEN=false
+    BACKUP_ID=""
+    BACKUP_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --apply|--inspect|--resume)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    fail "only one of --apply, --inspect or --resume may be given"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                require_wrapper_flag_value "--target" "${TARGET_SEEN}" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --source)
+                require_wrapper_flag_value "--source" "${SOURCE_SEEN}" "$#" "${2-}"
+                SOURCE_KIND="$2"
+                SOURCE_SEEN=true
+                shift 2
+                ;;
+            --backup)
+                require_wrapper_flag_value "--backup" "${BACKUP_SEEN}" "$#" "${2-}"
+                BACKUP_ID="$2"
+                BACKUP_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                require_wrapper_flag_value "--operation" "${OPERATION_SEEN}" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --target=*|--source=*|--backup=*|--operation=*)
+                fail "${1%%=*} must be given as '${1%%=*} VALUE', not '${1%%=*}=VALUE'"
+                ;;
+            --help|-h)
+                print_wrapper_usage
+                exit 0
+                ;;
+            *)
+                fail "unknown ${WRAPPER_NAME} argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || fail "exactly one of --apply, --inspect or --resume is required"
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+
+    validate_target_id "${TARGET_ID}"
+
+    if [[ "${MODE}" == "apply" ]]; then
+        [[ "${SOURCE_SEEN}" == true ]] || fail "--source is required with --apply (local or offsite)"
+        [[ "${BACKUP_SEEN}" == true ]] \
+            || fail "--backup is required with --apply — a destructive restore never selects a backup implicitly, and there is no 'latest'"
+        [[ "${OPERATION_SEEN}" != true ]] \
+            || fail "--operation is only valid with --inspect or --resume; --apply generates its own operation ID"
+
+        case "${SOURCE_KIND}" in
+            local|offsite) ;;
+            *) fail "--source must be local or offsite, got: ${SOURCE_KIND}" ;;
+        esac
+
+        # A shape gate at the perimeter. restore-target's own validate_backup_id
+        # additionally proves the name is a real UTC calendar timestamp and
+        # stays the authority; this exists so a malformed value never reaches
+        # the exec at all.
+        [[ "${BACKUP_ID}" =~ ${RESTORE_BACKUP_ID_REGEX} ]] \
+            || fail "invalid backup ID (expected YYYYMMDD-HHMMSS): ${BACKUP_ID}"
+    else
+        [[ "${OPERATION_SEEN}" == true ]] || fail "--${MODE} requires --operation"
+        [[ "${SOURCE_SEEN}" != true ]] || fail "--source is only valid with --apply"
+        [[ "${BACKUP_SEEN}" != true ]] || fail "--backup is only valid with --apply"
+
+        validate_operation_id "${OPERATION_ID}"
+    fi
+}
+
+# require_wrapper_flag_value FLAG ALREADY_SEEN REMAINING NEXT_TOKEN — the same
+# duplicate/missing/empty/flag-shaped rejection deploy's own require_flag_value
+# applies, plus the duplicate check, since every flag here may appear at most
+# once.
+require_wrapper_flag_value() {
+    local flag="$1" already_seen="$2" remaining="$3" value="${4-}"
+
+    [[ "${already_seen}" != true ]] || fail "${flag} given more than once"
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+# --- caller authorization -----------------------------------------------------
+#
+# Identical to rateguru-deploy's: SUDO_USER is set by sudo to the identity that
+# invoked it, before privilege escalation. Empty (a genuine root shell) or
+# "root" are server administration and always permitted. Any other caller must
+# be exactly the target's own registered deploy user — read from the registry,
+# never assumed.
+authorize_caller() {
+    local caller="${SUDO_USER:-}"
+
+    if [[ -z "${caller}" ]] || [[ "${caller}" == root ]]; then
+        return 0
+    fi
+
+    local registered_deploy_user
+    registered_deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    if [[ "${caller}" != "${registered_deploy_user}" ]]; then
+        fail "deploy user ${caller} is not authorized for target ${TARGET_ID}"
+    fi
+}
+
+# --- exec into the underlying operation ---------------------------------------
+#
+# env -i starts the child with a completely empty environment, then adds back
+# only the four production variables above — every RATEGURU_* test override this
+# wrapper's own process may have seen is stripped unconditionally, regardless of
+# what was set beforehand. Pure Bash arrays and exec: no eval, no bash -c, no
+# string-built command. The argument vector is assembled from validated values
+# only; nothing the caller wrote is forwarded verbatim.
+exec_underlying() {
+    local -a operation_args=(--"${MODE}" --target "${TARGET_ID}")
+
+    if [[ "${MODE}" == "apply" ]]; then
+        operation_args+=(--source "${SOURCE_KIND}" --backup "${BACKUP_ID}")
+    else
+        operation_args+=(--operation "${OPERATION_ID}")
+    fi
+
+    exec env -i \
+        PATH="${PRODUCTION_PATH}" \
+        HOME=/root \
+        USER=root \
+        LOGNAME=root \
+        "${RESTORE_TARGET_BIN}" \
+        "${operation_args[@]}"
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first action main() takes — defense in depth behind
+# the inline EUID gate at the top of this file, which already rejects a real
+# non-root invocation before common is even sourced. This wrapper is reached
+# only via sudo (or by real root directly), and never performs any privileged
+# filesystem work of its own beyond that gate; every actual mutation happens
+# in the execed underlying binary.
+main() {
+    require_root
+    parse_wrapper_args "$@"
+    authorize_caller
+    require_active_target "${TARGET_ID}"
+    exec_underlying
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

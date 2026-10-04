@@ -21,7 +21,6 @@ class DemoAdminSeeder extends Seeder
             [
                 'name' => 'Demo Admin',
                 'username' => 'admin',
-                'avatar_url' => null,
                 'role' => UserRole::Admin,
                 'status' => UserStatus::Active,
                 'trust_level' => 0,

@@ -11,13 +11,15 @@
 
 ## Database
 
-- Set `DB_CONNECTION=sqlite`; SQLite is the only supported runtime database.
-- Confirm the SQLite database path.
+- Prefer `DB_CONNECTION=pgsql`; PostgreSQL is the primary runtime database.
+- Configure a dedicated database, least-privilege user, SSL mode, and connection
+  limits for the deployment environment.
 - Take a backup before deployment.
-- For SQLite, see [SQLite backup strategy](sqlite-backup-strategy.md).
-- For future PostgreSQL planning, see [SQLite to PostgreSQL migration note](sqlite-to-postgresql-migration.md).
+- If deploying on SQLite, see [SQLite backup strategy](sqlite-backup-strategy.md).
+- For an existing SQLite data set, see
+  [SQLite to PostgreSQL migration note](sqlite-to-postgresql-migration.md).
 - See the [database support contract](../architecture/database-support.md)
-  before treating migration smoke checks as runtime compatibility.
+  for the tested compatibility matrix.
 - See [deployment migration docs](migrations.md).
 - Run production migrations with `php artisan migrate --force`.
 - Never run destructive reset commands against production data.
@@ -36,6 +38,10 @@
 - Do not keep demo admin credentials in production.
 - See [admin user creation docs](admin-user-creation.md).
 - Create a real admin with the admin creation command when available.
+- Social sign-in needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `FACEBOOK_CLIENT_ID` and `FACEBOOK_CLIENT_SECRET`, with the callbacks
+  registered at each provider for the production `APP_URL` — see
+  [social login docs](../dev/social-login.md).
 
 ## Queues
 

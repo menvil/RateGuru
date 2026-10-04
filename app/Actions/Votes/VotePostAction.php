@@ -7,6 +7,7 @@ use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\VoteType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly RecalculatePostScoreAction $recalculatePostScore,
@@ -38,7 +41,7 @@ final class VotePostAction
             throw CannotVoteException::becausePostIsNotPublic();
         }
 
-        if ((int) $post->user_id === (int) $user->id) {
+        if (! $user->can('vote', $post)) {
             throw CannotVoteException::becauseOwnPost();
         }
 
@@ -47,13 +50,33 @@ final class VotePostAction
                 key: RateLimitKey::userAction('vote', $user),
                 maxAttempts: (int) config('rate_limits.vote.max_attempts'),
                 decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
-                message: 'You are voting too quickly. Please try again later.',
+                message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotVoteException::becauseRateLimited($e->getMessage());
         }
 
         DB::transaction(function () use ($user, $post, $type) {
+            // Lock order: Actor User -> Post -> child rows
+            // (docs/architecture/user-lifecycle.md). The pre-checks above
+            // ran on possibly stale instances — an admin sanction, author
+            // delete or moderation hide can land in between. Only rows
+            // re-read under lock are authoritative.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteException::becauseUserIsNotAllowed();
+            }
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveVotes()) {
+                throw CannotVoteException::becausePostIsNotPublic();
+            }
+
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)
                 ->where('user_id', $user->id)

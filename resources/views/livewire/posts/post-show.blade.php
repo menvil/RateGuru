@@ -1,19 +1,35 @@
-@section('title', $ogTitle)
+@inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
+@section('title', $pageTitle)
 
 @push('meta')
     <link rel="canonical" href="{{ canonical_post_url($post) }}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ $ogTitle }}">
+    <meta property="og:site_name" content="{{ $ogSiteName }}">
+    <meta property="og:locale" content="{{ $ogLocale }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
-    <meta property="og:image" content="{{ $ogImage }}">
-    <meta property="og:image:secure_url" content="{{ $ogImage }}">
+    <meta property="og:image" content="{{ $ogImage->url }}">
+    @if($ogImage->secureUrl() !== null)
+        <meta property="og:image:secure_url" content="{{ $ogImage->secureUrl() }}">
+    @endif
+    @if($ogImage->mimeType !== null)
+        <meta property="og:image:type" content="{{ $ogImage->mimeType }}">
+    @endif
+    @if($ogImage->width !== null)
+        <meta property="og:image:width" content="{{ $ogImage->width }}">
+    @endif
+    @if($ogImage->height !== null)
+        <meta property="og:image:height" content="{{ $ogImage->height }}">
+    @endif
+    <meta property="og:image:alt" content="{{ $ogImage->alt }}">
     <meta name="description" content="{{ $ogDescription }}">
-    <meta name="twitter:card" content="{{ $ogHasImage ? 'summary_large_image' : 'summary' }}">
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:description" content="{{ $ogDescription }}">
-    <meta name="twitter:image" content="{{ $ogImage }}">
-    <meta name="twitter:image:src" content="{{ $ogImage }}">
+    <meta name="twitter:image" content="{{ $ogImage->url }}">
+    <meta name="twitter:image:src" content="{{ $ogImage->url }}">
+    <meta name="twitter:image:alt" content="{{ $ogImage->alt }}">
 @endpush
 
 <div
@@ -36,27 +52,27 @@
         <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
             <section class="flex min-w-0 items-start justify-between gap-3" data-testid="post-show-meta">
                 <div class="flex min-w-0 items-start gap-3">
-                    @if($post->user?->username)
-                        <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                            <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user->name" size="lg" />
+                    @if($post->user?->public_username)
+                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                         </a>
                     @else
-                        <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
                     @endif
 
                     <div class="min-w-0">
-                        @if($post->user?->username)
-                            <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
+                        @if($post->user?->public_username)
+                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
                         @else
-                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
 
                         <div class="truncate text-xs text-rg-muted">
-                            @if($post->user?->username)
-                                {{ '@' . $post->user->username }}
+                            @if($post->user?->public_username)
+                                {{ '@' . $post->user->public_username }}
                             @endif
                             @if($post->published_at)
-                                {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                                {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                             @endif
                         </div>
                     </div>
@@ -81,21 +97,22 @@
 
             <div class="mt-4" data-testid="post-show-hero">
             @if($post->public_image_url)
-                <button
-                    type="button"
-                    class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                    x-on:click.stop="imageOpen = true"
-                    data-testid="post-show-image-open"
-                    aria-label="{{ __('ui.a11y.open_image') }}"
-                >
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="aspect-[16/10] w-full rounded-rgMedia object-cover"
-                    >
-                </button>
+                @php
+                    $standaloneImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Standalone);
+                @endphp
+                <x-media.post-image
+                    :post="$post"
+                    :src="$standaloneImage?->src"
+                    :srcset="$standaloneImage?->srcset"
+                    :sizes="$standaloneImage?->sizes"
+                    :width="$standaloneImage?->width"
+                    :height="$standaloneImage?->height"
+                    context="standalone"
+                    open-fullscreen="imageOpen = true"
+                    testid="post-show-image-open"
+                />
             @else
-                <x-ui.image-placeholder label="Image preview" ratio="video" />
+                <x-ui.image-placeholder :label="__('ui.post.image_preview')" ratio="video" />
             @endif
             </div>
 
@@ -195,8 +212,12 @@
                 @endif
             </footer>
 
-            @if($post->tags->isNotEmpty() || $post->source_url)
+            @if($post->category || $post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
+                    @if($post->category)
+                        <x-posts.category-link :category="$post->category" test-id="post-show-category" />
+                    @endif
+
                     @foreach($post->tags as $tag)
                         <x-ui.badge>{{ $tag->name }}</x-ui.badge>
                     @endforeach
@@ -208,7 +229,7 @@
                             target="_blank"
                             class="text-xs font-semibold text-rg-accent2 hover:underline"
                         >
-                            {{ __('ui.voting.source') }}
+                            {{ __('ui.upload.source_url') }}
                         </a>
                     @endif
                 </section>
@@ -221,20 +242,28 @@
             @endif
 
             @if($post->public_image_url)
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
-                        data-testid="post-fullscreen-image"
-                    >
+                @php
+                    $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                @endphp
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                    <x-media.post-image
+                        :post="$post"
+                        :src="$fullscreenImage?->src"
+                        :srcset="$fullscreenImage?->srcset"
+                        :sizes="$fullscreenImage?->sizes"
+                        :width="$fullscreenImage?->width"
+                        :height="$fullscreenImage?->height"
+                        context="fullscreen"
+                        image-testid="post-fullscreen-image"
+                        loading="lazy"
+                    />
                 </x-ui.modal>
             @endif
 
             @if($canDeletePost)
                 <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                     <div class="space-y-4">
-                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
                         @if($deleteError)
                             <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>

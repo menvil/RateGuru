@@ -22,8 +22,8 @@ it('creates rating votes table with required columns', function () {
 it('allows only one rating vote per user post and group', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    [$groupId, $firstOptionId] = createRatingGroupAndOptionForVotes('source', 'source_a');
-    $secondOptionId = createRatingOptionForVotes($groupId, 'source_b');
+    [$groupId, $firstOptionId] = createRatingGroupAndOptionForVotes('type', 'type_a');
+    $secondOptionId = createRatingOptionForVotes($groupId, 'type_b');
 
     insertRatingVote($user->id, $post->id, $groupId, $firstOptionId);
 
@@ -34,11 +34,11 @@ it('allows only one rating vote per user post and group', function () {
 it('allows a user to vote on the same post in different rating groups', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    [$sourceGroupId, $sourceOptionId] = createRatingGroupAndOptionForVotes('source', 'source_a');
-    [$categoryGroupId, $categoryOptionId] = createRatingGroupAndOptionForVotes('category', 'category_a');
+    [$typeGroupId, $typeOptionId] = createRatingGroupAndOptionForVotes('type', 'type_a');
+    [$attributeGroupId, $attributeOptionId] = createRatingGroupAndOptionForVotes('attribute', 'attribute_a');
 
-    insertRatingVote($user->id, $post->id, $sourceGroupId, $sourceOptionId);
-    insertRatingVote($user->id, $post->id, $categoryGroupId, $categoryOptionId);
+    insertRatingVote($user->id, $post->id, $typeGroupId, $typeOptionId);
+    insertRatingVote($user->id, $post->id, $attributeGroupId, $attributeOptionId);
 
     expect(DB::table('rating_votes')->count())->toBe(2);
 });
@@ -46,15 +46,15 @@ it('allows a user to vote on the same post in different rating groups', function
 it('rejects rating votes whose option belongs to another group', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    [$sourceGroupId] = createRatingGroupAndOptionForVotes('source', 'source_a');
-    [, $categoryOptionId] = createRatingGroupAndOptionForVotes('category', 'category_a');
+    [$typeGroupId] = createRatingGroupAndOptionForVotes('type', 'type_a');
+    [, $attributeOptionId] = createRatingGroupAndOptionForVotes('attribute', 'attribute_a');
 
-    expect(fn () => insertRatingVote($user->id, $post->id, $sourceGroupId, $categoryOptionId))
+    expect(fn () => insertRatingVote($user->id, $post->id, $typeGroupId, $attributeOptionId))
         ->toThrow(QueryException::class);
 });
 
 it('creates rating vote lookup indexes', function () {
-    $indexes = collect(DB::select("PRAGMA index_list('rating_votes')"))
+    $indexes = collect(Schema::getIndexes('rating_votes'))
         ->pluck('name');
 
     expect($indexes)
@@ -63,15 +63,22 @@ it('creates rating vote lookup indexes', function () {
         ->toContain('rating_votes_rating_option_id_index');
 });
 
-it('deletes rating votes when their post is deleted', function () {
+it('restricts hard-deleting a post while rating votes reference it', function () {
+    // PR-C: rating votes are user contribution/history — the DB refuses to
+    // let a post hard-delete silently destroy them. A future sanctioned
+    // purge service (PR-E) will remove the child graph explicitly first.
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    [$groupId, $optionId] = createRatingGroupAndOptionForVotes('source', 'source_a');
+    [$groupId, $optionId] = createRatingGroupAndOptionForVotes('type', 'type_a');
 
     insertRatingVote($user->id, $post->id, $groupId, $optionId);
-    $post->forceDelete();
 
-    expect(DB::table('rating_votes')->count())->toBe(0);
+    // Savepoint so the rejected statement doesn't abort the test's outer
+    // PostgreSQL transaction.
+    expect(fn () => DB::transaction(fn () => $post->forceDelete()))
+        ->toThrow(QueryException::class);
+
+    expect(DB::table('rating_votes')->count())->toBe(1);
 });
 
 /**

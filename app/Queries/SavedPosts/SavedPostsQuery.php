@@ -6,7 +6,7 @@ use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 final class SavedPostsQuery implements StablePaginationBoundary
 {
@@ -17,7 +17,7 @@ final class SavedPostsQuery implements StablePaginationBoundary
             ->where('post_saves.user_id', $user->id)
             ->where('posts.status', PostStatus::Published)
             ->whereNull('posts.deleted_at')
-            ->with(['user', 'tags'])
+            ->with(['user.avatarAsset.variants', 'imageAsset.variants', 'tags', 'category'])
             ->select('posts.*', 'post_saves.created_at as saved_at')
             ->orderBy('post_saves.created_at', 'desc')
             ->orderByDesc('posts.id')

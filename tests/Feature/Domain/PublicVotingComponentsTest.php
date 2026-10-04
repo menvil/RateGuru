@@ -1,6 +1,6 @@
 <?php
 
-it('uses source and category voting components in public views', function () {
+it('uses the generic rating voting component in public views', function () {
     $content = collect([
         resource_path('views/components/feed/post-card.blade.php'),
         resource_path('views/livewire/feed/post-drawer.blade.php'),
@@ -10,8 +10,7 @@ it('uses source and category voting components in public views', function () {
         ->implode("\n");
 
     expect($content)
-        ->toContain('<livewire:posts.source-voting')
-        ->toContain('<livewire:posts.category-voting')
-        ->not->toContain('<livewire:posts.origin-voting')
-        ->not->toContain('<livewire:posts.cuisine-voting');
+        ->toContain('<livewire:voting.rating-voting')
+        ->not->toContain('<livewire:posts.source-voting')
+        ->not->toContain('<livewire:posts.category-voting');
 });

@@ -2,13 +2,12 @@
 
 namespace Database\Seeders;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Database\Seeders\Support\DemoPostMediaGenerator;
 use Illuminate\Database\Seeder;
 
 class DemoHiddenPostsSeeder extends Seeder
@@ -21,21 +20,18 @@ class DemoHiddenPostsSeeder extends Seeder
             return;
         }
 
-        foreach ($this->posts() as $demoPost) {
+        foreach ($this->posts() as $index => $demoPost) {
             $author = User::query()->where('email', $demoPost['author'])->firstOrFail();
+            $imageAsset = app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index + 17);
 
             $post = Post::query()->updateOrCreate(
                 ['title' => $demoPost['title']],
                 [
                     'user_id' => $author->id,
                     'description' => $demoPost['description'],
-                    'image_path' => $demoPost['image_path'],
-                    'image_url' => null,
-                    'thumbnail_url' => null,
+                    'image_asset_id' => $imageAsset->id,
                     'source_url' => null,
                     'status' => PostStatus::Hidden,
-                    'origin_truth' => $demoPost['origin_truth'],
-                    'cuisine_truth' => $demoPost['cuisine_truth'],
                     'published_at' => CarbonImmutable::parse(self::PUBLISHED_AT),
                 ],
             );
@@ -52,8 +48,6 @@ class DemoHiddenPostsSeeder extends Seeder
      *     description: string,
      *     image_path: string,
      *     author: string,
-     *     origin_truth: OriginType,
-     *     cuisine_truth: CuisineType,
      *     tags: list<string>
      * }>
      */
@@ -62,21 +56,17 @@ class DemoHiddenPostsSeeder extends Seeder
         return [
             [
                 'title' => 'Demo Hidden: Removed From Feed 01',
-                'description' => 'A hidden source B post kept for admin moderation filter checks.',
-                'image_path' => 'demo/posts/hidden-01.jpg',
+                'description' => 'A hidden curated post kept for admin moderation filter checks.',
+                'image_path' => 'demo/posts/hidden-01.svg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Other,
-                'tags' => ['source-b', 'sample-f'],
+                'tags' => ['curated', 'sample-f'],
             ],
             [
                 'title' => 'Demo Hidden: Removed From Feed 02',
-                'description' => 'A hidden source A post that should stay outside public feed results.',
-                'image_path' => 'demo/posts/hidden-02.jpg',
+                'description' => 'A hidden original post that should stay outside public feed results.',
+                'image_path' => 'demo/posts/hidden-02.svg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::American,
-                'tags' => ['source-a', 'category-c'],
+                'tags' => ['original', 'visual'],
             ],
         ];
     }

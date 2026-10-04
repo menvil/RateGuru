@@ -13,7 +13,9 @@ return new class extends Migration
     {
         Schema::create('moderation_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('moderator_id')->nullable()->constrained('users')->nullOnDelete();
+            // Moderation attribution is history: keep the actor reference
+            // (tombstoned, not deleted) instead of silently losing it.
+            $table->foreignId('moderator_id')->nullable()->constrained('users')->restrictOnDelete();
 
             $table->string('action');
 

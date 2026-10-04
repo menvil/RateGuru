@@ -11,6 +11,7 @@ use App\Queries\UserPublicPostsQuery;
 use App\Queries\UserRatingActivityQuery;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -33,7 +34,11 @@ final class ProfilePage extends Component
 
     public function mount(string $username): void
     {
+        // Tombstoned accounts have no public profile: the route 404s both
+        // for the (non-identifying) tombstone username and, naturally, for
+        // the pre-deletion username, which no longer exists on any row.
         $this->profileUser = User::query()
+            ->withoutTombstoned()
             ->where('username', $username)
             ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
@@ -128,9 +133,11 @@ final class ProfilePage extends Component
         }
     }
 
-    public function render(): View
+    public function render(RatingConfigurationManager $ratingConfiguration): View
     {
-        return view('livewire.profile.profile-page')
+        return view('livewire.profile.profile-page', [
+            'ratingGroups' => $ratingConfiguration->activeGroups(),
+        ])
             ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

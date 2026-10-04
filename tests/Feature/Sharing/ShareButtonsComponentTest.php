@@ -33,23 +33,22 @@ it('renders social provider links', function () {
     expect($view)->toContain('data-testid="share-email"');
 });
 
-it('hides pinterest when post has no image', function () {
+it('shows pinterest with the fallback social image when post has no image', function () {
     $post = Post::factory()->published()->create([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $view = Blade::render('<x-sharing.share-buttons :post="$post" />', [
         'post' => $post,
     ]);
 
-    expect($view)->not->toContain('data-testid="share-pinterest"');
+    expect($view)
+        ->toContain('data-testid="share-pinterest"')
+        ->toContain('rateguru-post-placeholder.png');
 });
 
 it('shows pinterest when post has image', function () {
-    $post = Post::factory()->published()->create([
-        'image_url' => 'https://rateguru.test/storage/posts/img.jpg',
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/img.jpg')->create();
 
     $view = Blade::render('<x-sharing.share-buttons :post="$post" />', [
         'post' => $post,

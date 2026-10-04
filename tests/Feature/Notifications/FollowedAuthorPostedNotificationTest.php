@@ -13,7 +13,7 @@ it('creates followed author posted notification payload', function () {
         'title' => 'New Post',
     ]);
 
-    $notification = new FollowedAuthorPostedNotification($post);
+    $notification = new FollowedAuthorPostedNotification($post, $post->user);
 
     $data = $notification->toArray(User::factory()->create());
 
@@ -25,14 +25,14 @@ it('creates followed author posted notification payload', function () {
 
 it('uses database notification channel', function () {
     $post = Post::factory()->published()->create();
-    $notification = new FollowedAuthorPostedNotification($post);
+    $notification = new FollowedAuthorPostedNotification($post, $post->user);
 
     expect($notification->via(User::factory()->make()))->toContain('database');
 });
 
 it('includes post url in payload', function () {
     $post = Post::factory()->published()->create();
-    $notification = new FollowedAuthorPostedNotification($post);
+    $notification = new FollowedAuthorPostedNotification($post, $post->user);
 
     $data = $notification->toArray(User::factory()->create());
 

@@ -23,6 +23,12 @@ final class PostApprovedNotification extends Notification
     }
 
     /**
+     * Stored as a translation key plus its parameters, never as a rendered
+     * sentence. A notification is written once and read for as long as it
+     * lives in the bell, potentially in a language the reader had not chosen
+     * yet when it was created — so the language has to be decided at read
+     * time, and a stored sentence can never be.
+     *
      * @return array<string, mixed>
      */
     public function toArray(object $notifiable): array
@@ -34,7 +40,8 @@ final class PostApprovedNotification extends Notification
             'actor_id' => $this->actor->id,
             'actor_name' => $this->actor->name,
             'actor_username' => $this->actor->username,
-            'message' => 'Your post was approved',
+            'message_key' => 'ui.notifications.messages.post_approved',
+            'message_params' => [],
             'url' => $this->postUrl(),
         ];
     }

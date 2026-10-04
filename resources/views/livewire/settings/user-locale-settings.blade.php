@@ -12,8 +12,8 @@
                 name="locale"
                 class="block w-full max-w-xs rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text focus:border-rg-accent focus:outline-none focus:ring-2 focus:ring-rg-accent/25"
             >
-                @foreach($supported as $code => $info)
-                    <option value="{{ $code }}">{{ $info['native'] }}</option>
+                @foreach($enabled as $code => $info)
+                    <option value="{{ $code }}">{{ $info['flag'] }} {{ $info['native'] }}</option>
                 @endforeach
             </select>
 

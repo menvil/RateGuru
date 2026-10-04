@@ -13,7 +13,9 @@ return new class extends Migration
     {
         Schema::create('reports', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('reporter_id')->constrained('users')->cascadeOnDelete();
+            // Reports are moderation evidence and survive account deletion
+            // (the reporter becomes a tombstone, never a deleted row).
+            $table->foreignId('reporter_id')->constrained('users')->restrictOnDelete();
 
             $table->string('target_type');
             $table->unsignedBigInteger('target_id');
@@ -23,7 +25,9 @@ return new class extends Migration
 
             $table->string('status')->default('open');
 
-            $table->foreignId('resolved_by')->nullable()->constrained('users')->nullOnDelete();
+            // Moderation attribution is history: keep the actor reference
+            // (tombstoned, not deleted) instead of silently losing it.
+            $table->foreignId('resolved_by')->nullable()->constrained('users')->restrictOnDelete();
             $table->timestamp('resolved_at')->nullable();
 
             $table->timestamps();

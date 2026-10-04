@@ -1,0 +1,2252 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# RATEGURU_DEPLOYMENT_CONF_FILE is only honored alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true — a stray environment variable surviving
+# in a real root shell (a leftover export, a shared profile) can never
+# silently redirect this privileged `source` at an attacker- or
+# operator-controlled file. This is a plain inline condition rather than a
+# call to a shared function: no function this file defines exists yet at this
+# point in its own execution (function definitions run in order, same as
+# anything else in a sourced file), so there is nothing to call. The identical
+# check is reused, as an actual function, further down for
+# RATEGURU_TARGET_REGISTRY_FILE and RATEGURU_TARGETS_CLI, where that ordering
+# problem does not apply.
+CONFIG_FILE_DEFAULT="/home/www/rateguru/config/deployment.conf"
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_DEPLOYMENT_CONF_FILE:-}" ]]
+then
+    CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE}"
+else
+    CONFIG_FILE="${CONFIG_FILE_DEFAULT}"
+fi
+
+if [[ ! -r "${CONFIG_FILE}" ]]; then
+    echo "ERROR: deployment configuration is unavailable: ${CONFIG_FILE}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${CONFIG_FILE}" ]] || [[ -L "${CONFIG_FILE}" ]]; then
+    echo "ERROR: deployment configuration must be a regular file: ${CONFIG_FILE}" >&2
+    exit 1
+fi
+
+# Ownership and mode are only demanded of the installed default, exactly like
+# the target registry's own usability check — an explicit test fixture works
+# without root.
+if [[ "${CONFIG_FILE}" == "${CONFIG_FILE_DEFAULT}" ]]; then
+    if [[ "$(stat -c '%u:%g' "${CONFIG_FILE}")" != "0:0" ]]; then
+        echo "ERROR: deployment configuration must be owned by root:root: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
+
+    CONFIG_MODE="$(stat -c '%a' "${CONFIG_FILE}")"
+
+    if (( (8#${CONFIG_MODE} & 8#022) != 0 )); then
+        echo "ERROR: deployment configuration must not be group- or other-writable: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${CONFIG_FILE}"
+
+log() {
+    printf '[%s] %s\n' \
+        "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        "$*"
+}
+
+fail() {
+    log "ERROR: $*" >&2
+    exit 1
+}
+
+require_root() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        fail "this command must be executed as root"
+    fi
+}
+
+validate_release_id() {
+    local release_id="$1"
+
+    if [[ ! "${release_id}" =~ ${RELEASE_ID_REGEX} ]]; then
+        fail "invalid release ID: ${release_id}"
+    fi
+}
+
+acquire_deployment_lock() {
+    local application_root="$1"
+
+    exec 200>"${application_root}/locks/deployment.lock"
+
+    if ! flock -n 200; then
+        fail "another deployment operation is already running"
+    fi
+}
+
+append_history() {
+    local application_root="$1"
+    local event="$2"
+    local release_id="${3:-null}"
+    local status="${4:-unknown}"
+
+    printf \
+        '{"timestamp":"%s","event":"%s","release":"%s","status":"%s","user":"%s"}\n' \
+        "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${event}" \
+        "${release_id}" \
+        "${status}" \
+        "${SUDO_USER:-$(id -un)}" \
+        >> "${application_root}/deployments/history.jsonl"
+}
+
+# --- backup format contract (begin) ---
+#
+# The closed backup format, stated once. Every producer and consumer of a
+# RateGuru backup — backup, restore-test, offsite-backup, offsite-restore-test,
+# and the restore/recovery primitives through restore-common — reads these
+# constants rather than carrying its own list, so "which files make up a
+# backup" cannot come to mean two different things in two privileged scripts.
+#
+# Three manifest schemas exist, and the set of files is the only thing that
+# differs between them:
+#
+#   schema 1   the historical format: no manifest_schema_version field at all
+#   schema 2   adds the selector/target/backup_namespace manifest fields
+#   schema 3   adds recovery-material.tar.gz — the target's host-scope external
+#              prerequisites (TLS, Basic Auth, the shared Nginx TLS material),
+#              captured under their logical names — which is what makes a
+#              backup usable for a clean-host recovery without any external
+#              material being supplied by hand
+#
+# Schema 1 and 2 backups carry exactly seven top-level files; schema 3 carries
+# exactly eight. Every set is CLOSED: a backup with a file missing from its
+# schema's set, or with any file beyond it, is refused wherever it is read.
+#
+# recovery-material.tar.gz is deliberately NOT a superset of
+# server-configuration.tar.gz and does not replace it. The server snapshot is
+# a diagnostic, forensic record of how the host was configured and is never
+# applied anywhere; the recovery material is a closed, explicitly allowed set
+# of reconstruction inputs for Prepare Host, and nothing else may be in it.
+
+BACKUP_MANIFEST_FILE=manifest.json
+BACKUP_CHECKSUMS_FILE=SHA256SUMS
+BACKUP_RECOVERY_MATERIAL_FILE=recovery-material.tar.gz
+
+# The checksummed files of a schema 1 or schema 2 backup, in the exact order
+# backup wrote them into SHA256SUMS.
+BACKUP_CHECKSUMMED_FILES_LEGACY=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    manifest.json
+)
+
+# The checksummed files of a schema 3 backup, in the exact order backup
+# writes them into SHA256SUMS.
+BACKUP_CHECKSUMMED_FILES_SCHEMA3=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    recovery-material.tar.gz
+    manifest.json
+)
+
+# The manifest schema a backup written today carries.
+BACKUP_MANIFEST_SCHEMA_CURRENT=3
+
+# backup_checksummed_files_for_schema SCHEMA — the checksummed files of one
+# schema, one per line, in SHA256SUMS order. SCHEMA is a classifier verdict:
+# schema1, schema2 or schema3. Anything else is a hard failure, never an
+# empty list: an empty closed set would make every "exactly these files"
+# check pass on nothing.
+backup_checksummed_files_for_schema() {
+    case "${1-}" in
+        schema1|schema2) printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}" ;;
+        schema3)         printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" ;;
+        *)               fail "internal: no backup file set is defined for manifest schema '${1-}'" ;;
+    esac
+}
+
+# backup_required_files_for_schema SCHEMA — the complete top-level file set of
+# one schema: its checksummed files plus SHA256SUMS itself.
+backup_required_files_for_schema() {
+    backup_checksummed_files_for_schema "$1"
+    printf '%s\n' "${BACKUP_CHECKSUMS_FILE}"
+}
+
+# backup_schema_supports_clean_host_recovery SCHEMA — whether a backup of this
+# schema carries the recovery material a clean-host recovery needs. Only
+# schema 3 does: the older schemas stay fully restorable onto a LIVE target,
+# and are refused, by name, as the source of a clean-host recovery.
+backup_schema_supports_clean_host_recovery() {
+    [[ "${1-}" == schema3 ]]
+}
+
+# Shared, strict backup-manifest schema classifier. infrastructure/scripts/
+# restore-test established this exact contract inline, independently, and
+# still carries its own contractually identical copy (a test pins the two
+# together); every other reader calls this function.
+#
+# Never classify by `jq -r '.manifest_schema_version // empty'` alone: raw
+# output loses JSON type, so a schema_version of 0, 4, the JSON *string* "2"
+# or "3" (not a number), "garbage", an array, an object or a boolean would all
+# compare unequal to the literal and silently pass as legacy schema 1
+# (fail-open). `type` disambiguates first.
+#
+# Prints exactly one of:
+#   schema1        - the field is absent or JSON null
+#   schema2        - the field is a JSON number equal to 2
+#   schema3        - the field is a JSON number equal to 3
+#   invalid:<value> - anything else, with the offending value's own JSON
+#                     representation appended (quoted for a string, compact
+#                     for an array/object) — callers turn this into their own
+#                     `fail "unsupported backup manifest schema_version: ..."`
+#
+# Never calls fail itself, and has no dependency on any target-resolved
+# variable (ENVIRONMENT_CLASS, BACKUP_NAMESPACE, TARGET_ID, ...) — safe to
+# call before those exist.
+manifest_schema_classify() {
+    local manifest_path="$1"
+    local manifest_schema_type
+    manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
+
+    case "${manifest_schema_type}" in
+        null)
+            printf 'schema1\n'
+            ;;
+        number)
+            local manifest_schema_version
+            manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
+
+            case "${manifest_schema_version}" in
+                2) printf 'schema2\n' ;;
+                3) printf 'schema3\n' ;;
+                *) printf 'invalid:%s\n' "${manifest_schema_version}" ;;
+            esac
+            ;;
+        *)
+            local manifest_schema_value
+            manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
+            printf 'invalid:%s\n' "${manifest_schema_value}"
+            ;;
+    esac
+}
+
+# backup_schema_of_directory DIR — classify a backup DIRECTORY safely, before
+# anything in it is trusted: manifest.json must be a plain regular file that
+# is a direct child of DIR (never a symlink, never a directory, never a
+# special file), and its schema field must classify. Prints the schema verdict
+# or fails with the same diagnostic every manifest validator uses.
+#
+# Manifest content decides WHICH closed file set applies and nothing else — it
+# is never used as a path, a name or a command.
+backup_schema_of_directory() {
+    local dir="$1"
+    local manifest_path="${dir}/${BACKUP_MANIFEST_FILE}"
+
+    [[ -e "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+    [[ ! -L "${manifest_path}" ]] || fail "backup manifest must not be a symlink: ${manifest_path}"
+    [[ -f "${manifest_path}" ]] || fail "backup manifest must be a regular file: ${manifest_path}"
+
+    jq -e 'type == "object"' "${manifest_path}" >/dev/null 2>&1 \
+        || fail "backup manifest is not a JSON object: ${BACKUP_MANIFEST_FILE}"
+
+    local schema
+    schema="$(manifest_schema_classify "${manifest_path}")"
+
+    case "${schema}" in
+        schema1|schema2|schema3)
+            printf '%s\n' "${schema}"
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${schema#invalid:}"
+            ;;
+        *)
+            fail "internal: unrecognised manifest schema verdict: ${schema}"
+            ;;
+    esac
+}
+
+# Shared manifest validator for offsite-backup and offsite-restore-test —
+# both scripts had this exact, byte-identical implementation; extracted here
+# to remove the duplication. infrastructure/scripts/restore-test (local
+# restore-test) has a materially different contract (it also checks
+# `database` against its own independently resolved database name) and
+# stays untouched — this function is never called by it.
+#
+# Runs before any rclone command — checksum validation only proves the
+# selected backup's own files are internally consistent; this proves the
+# backup actually belongs to the resolved target. Operates on
+# ENVIRONMENT_CLASS, BACKUP_NAMESPACE and TARGET_ID, set by the caller's own
+# resolve_* step before this runs — same convention as require_active_target
+# and parse_target_args below.
+#
+# A schema 2 manifest whose own target field is absent or JSON null (every
+# manifest produced before this cutover, when the operational selector was
+# not yet target-only) is accepted without a target comparison — historical
+# manifest content is immutable and stays restorable. An explicit empty
+# string is not treated the same as absent: it is rejected outright, the
+# same way an unexpected type is, since a real manifest this script writes
+# itself never produces one.
+validate_backup_manifest() {
+    local manifest_path="$1"
+
+    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+
+    local manifest_project manifest_environment manifest_database
+
+    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
+    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
+    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
+
+    [[ "${manifest_project}" == "rateguru" ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
+
+    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
+
+    [[ -n "${manifest_database}" ]] \
+        || fail "backup manifest database is missing or empty"
+
+    local manifest_schema_status
+    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
+
+    case "${manifest_schema_status}" in
+        schema1)
+            ;;
+        schema2|schema3)
+            local manifest_backup_namespace
+            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
+
+            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
+                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
+
+            local manifest_target_type
+            manifest_target_type="$(jq -r '.target | type' "${manifest_path}")"
+
+            case "${manifest_target_type}" in
+                null)
+                    # Absent or explicit JSON null — a schema 2 manifest
+                    # predating the target-only cutover; no target to compare.
+                    # A schema 3 manifest is never written without one.
+                    [[ "${manifest_schema_status}" != schema3 ]] \
+                        || fail "backup manifest target is missing — a schema 3 manifest always names its target"
+                    ;;
+                string)
+                    local manifest_target
+                    manifest_target="$(jq -r '.target' "${manifest_path}")"
+
+                    [[ -n "${manifest_target}" ]] \
+                        || fail "backup manifest target is an empty string"
+
+                    [[ "${manifest_target}" == "${TARGET_ID}" ]] \
+                        || fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                    ;;
+                *)
+                    local manifest_target_value
+                    manifest_target_value="$(jq -c '.target' "${manifest_path}")"
+                    fail "backup manifest target has unexpected type: ${manifest_target_value}"
+                    ;;
+            esac
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
+            ;;
+    esac
+}
+
+# --- the backup as a whole: closed sets, safety as data, release identity ---
+#
+# The checks below read a backup the way every consumer must, and are stated
+# here once so restore-test, offsite-backup, offsite-restore-test and — through
+# restore-common — the restore and recovery primitives cannot come to mean
+# different things by "a backup":
+#
+#   backup_assert_file_set                    exactly the schema's closed set
+#   backup_assert_sha256sums_entries          SHA256SUMS names exactly that set
+#   backup_assert_recovery_material_archive_safe
+#                                             the recovery material is a safe
+#                                             archive of plain files (as DATA)
+#   backup_assert_recovery_material_certified the material also matches the
+#                                             installed prerequisite table
+#   backup_assert_release_identity            release.json names the exact commit
+#
+# Two levels of judgement for the recovery material, on purpose. A live
+# restore never applies the archive: it only has to be safe to stage beside
+# the data, and a backup written under an older prerequisite table stays
+# restorable forever. Whether the names match TODAY's table is asked only
+# where the material is installed (fetch-recovery-material, on the replacement
+# machine) and where a backup is certified for a clean-host recovery
+# (restore-test and offsite-restore-test, which must fail on a backup a
+# recovery could not use).
+
+# backup_assert_file_set DIR SCHEMA — DIR holds exactly the closed file set of
+# SCHEMA: every required file present as a plain regular file that resolves
+# inside DIR, and not one entry more. Run wherever a backup is read as a
+# whole — before its checksums are followed, before it is uploaded, before a
+# temporary database is created — so a stranger never rides along.
+backup_assert_file_set() {
+    local dir="$1" schema="$2" name entry path resolved
+    local -a expected=()
+    mapfile -t expected < <(backup_required_files_for_schema "${schema}")
+
+    for name in "${expected[@]}"; do
+        path="${dir}/${name}"
+
+        [[ -e "${path}" ]] || fail "backup is missing a required file: ${name}"
+        [[ ! -L "${path}" ]] || fail "backup file must not be a symlink: ${name}"
+        [[ -f "${path}" ]] || fail "backup file must be a regular file: ${name}"
+
+        resolved="$(readlink -f "${path}")" \
+            || fail "could not resolve backup file: ${name}"
+
+        [[ "$(dirname "${resolved}")" == "$(readlink -f "${dir}")" ]] \
+            || fail "backup file resolves outside the backup directory: ${name}"
+    done
+
+    # Every stranger is named, so an operator reading the refusal knows what
+    # was there; the count below is belt and braces over the two loops.
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        for name in "${expected[@]}"; do
+            [[ "${entry}" != "${name}" ]] || continue 2
+        done
+
+        fail "backup directory holds an entry that is not part of a ${schema} backup: ${entry}"
+    done < <(find "${dir}" -mindepth 1 -maxdepth 1 -printf '%f\n')
+
+    local count
+    count="$(find "${dir}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
+    count="${count//[[:space:]]/}"
+
+    [[ "${count}" == "${#expected[@]}" ]] \
+        || fail "backup directory holds ${count} entries, expected exactly ${#expected[@]} for a ${schema} backup"
+}
+
+# backup_assert_sha256sums_entries DIR SCHEMA — SHA256SUMS names exactly the
+# checksummed files of SCHEMA, once each, as bare names. Checked BEFORE
+# `sha256sum --check` follows a single path, so an entry naming /etc/shadow
+# or ../../something never reaches it.
+backup_assert_sha256sums_entries() {
+    local dir="$1" schema="$2"
+    local sums="${dir}/${BACKUP_CHECKSUMS_FILE}"
+    local -a expected=() seen=()
+    local line hash name known found
+
+    mapfile -t expected < <(backup_checksummed_files_for_schema "${schema}")
+
+    [[ -f "${sums}" ]] && [[ ! -L "${sums}" ]] \
+        || fail "backup is missing a required file: ${BACKUP_CHECKSUMS_FILE}"
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
+            || fail "SHA256SUMS carries a malformed entry: ${line}"
+
+        hash="${BASH_REMATCH[1]}"
+        name="${BASH_REMATCH[2]}"
+
+        # Silences the "assigned but unused" reading of $hash while keeping
+        # the capture explicit about what each half of the line is.
+        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
+
+        found=false
+        for known in "${expected[@]}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS references a file that is not part of a RateGuru backup: ${name}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${name}" ]] \
+                || fail "SHA256SUMS references ${name} more than once"
+        done
+
+        seen+=("${name}")
+    done < "${sums}"
+
+    for known in "${expected[@]}"; do
+        found=false
+        for name in "${seen[@]:-}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS does not cover ${known}"
+    done
+}
+
+# backup_assert_recovery_material_archive_safe ARCHIVE — the recovery material
+# judged as DATA: a readable gzip tar whose members are top-level regular
+# files with plain names — no directory, symlink, hard link, device, FIFO or
+# socket, no absolute, nested or parent-relative path, no duplicate. Nothing
+# is extracted and nothing about any member's content is printed. Which
+# names it holds is not this function's question. Sets
+# BACKUP_RECOVERY_MATERIAL_COUNT to the number of members.
+#
+# install-target-prerequisites applies these same rules on a clean host,
+# where common cannot be sourced; a test pins the two together.
+backup_assert_recovery_material_archive_safe() {
+    local archive="$1"
+
+    [[ -e "${archive}" ]] || fail "recovery material archive is missing: ${archive}"
+    [[ ! -L "${archive}" ]] || fail "recovery material archive must not be a symlink: ${archive}"
+    [[ -f "${archive}" ]] || fail "recovery material archive must be a regular file: ${archive}"
+    [[ -r "${archive}" ]] || fail "recovery material archive is not readable: ${archive}"
+
+    local listing
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable (not a gzip tar, or truncated): ${archive}"
+
+    [[ -n "${listing}" ]] || fail "recovery material archive is empty: ${archive}"
+
+    local entry known
+    local -a seen=()
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        [[ "${entry}" != *\\* ]] \
+            || fail "recovery material archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "recovery material archive entry contains a control character"
+        [[ "${entry}" != /* ]] \
+            || fail "recovery material archive contains an absolute path: ${entry}"
+        [[ "${entry}" != "." ]] && [[ "${entry}" != ".." ]] && [[ "${entry}" != *..* ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+        [[ "${entry}" != */* ]] \
+            || fail "recovery material archive contains a nested path or a directory entry, where only top-level logical names are allowed: ${entry}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${entry}" ]] \
+                || fail "recovery material archive contains ${entry} more than once"
+        done
+
+        seen+=("${entry}")
+    done <<< "${listing}"
+
+    local verbose line
+    verbose="$(tar -tvzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${archive}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string.
+        case "${line:0:1}" in
+            -) ;;
+            d) fail "recovery material archive contains a directory entry — only top-level regular files are allowed" ;;
+            l) fail "recovery material archive contains a symbolic link — refusing to extract as root" ;;
+            h) fail "recovery material archive contains a hard link — refusing to extract as root" ;;
+            c|b) fail "recovery material archive contains a device node — refusing to extract as root" ;;
+            p) fail "recovery material archive contains a FIFO — refusing to extract as root" ;;
+            s) fail "recovery material archive contains a socket — refusing to extract as root" ;;
+            *) fail "recovery material archive contains an entry of an unrecognized type: ${line}" ;;
+        esac
+    done <<< "${verbose}"
+
+    BACKUP_RECOVERY_MATERIAL_COUNT="${#seen[@]}"
+}
+
+# backup_prerequisites_bin — the installed external-material installer, whose
+# prerequisite table is the one vocabulary a backup's recovery material is
+# captured from and certified against. Resolved at call time, so the gated
+# override is honoured wherever this runs.
+backup_prerequisites_bin() {
+    local bin="/home/www/rateguru/bin/install-target-prerequisites"
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_PREREQUISITES_BIN:-}" ]]; then
+        bin="${RATEGURU_PREREQUISITES_BIN}"
+    fi
+
+    printf '%s\n' "${bin}"
+}
+
+# backup_assert_recovery_material_certified DIR TARGET_ID — the STRICT
+# judgement: the archive is safe as data, SHA256SUMS covers it exactly once,
+# and it holds exactly the host-scope prerequisite names the installed table
+# states for TARGET_ID today — proven by the installer itself, which never
+# reads a member's content. This is what a backup verification must fail on,
+# because a backup that passes it and nothing else is one a clean-host
+# recovery could not be prepared from. Sets BACKUP_RECOVERY_MATERIAL_REPORT
+# to the installer's one-line summary (names only).
+backup_assert_recovery_material_certified() {
+    local dir="$1" target_id="$2"
+    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
+    local bin listed output status=0
+    local pattern="^[0-9a-f]{64}  ${BACKUP_RECOVERY_MATERIAL_FILE//./\\.}\$"
+
+    backup_assert_recovery_material_archive_safe "${archive}"
+
+    listed="$(grep -c -E "${pattern}" "${dir}/${BACKUP_CHECKSUMS_FILE}" || true)"
+
+    [[ "${listed}" == "1" ]] \
+        || fail "SHA256SUMS must cover ${BACKUP_RECOVERY_MATERIAL_FILE} exactly once (found ${listed} entries)"
+
+    bin="$(backup_prerequisites_bin)"
+
+    [[ -x "${bin}" ]] \
+        || fail "the external-material installer is not available at ${bin} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+
+    output="$("${bin}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
+    fi
+
+    BACKUP_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+}
+
+# A backup names the exact commit its data belongs to: the full 40-character
+# form, never an abbreviation a recovery would have to resolve.
+BACKUP_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
+
+# backup_assert_release_identity FILE REASON — FILE is a release.json naming
+# a well-formed release and a full source_sha. A backup written today is the
+# source of a clean-host recovery, which rebuilds exactly that commit, so a
+# target that cannot name it is not backed up at all: a schema 3 backup with
+# an empty or partial identity would be reported as a success and found
+# unusable on the worst day. REASON is appended to every refusal. Sets
+# BACKUP_RELEASE and BACKUP_SOURCE_SHA.
+backup_assert_release_identity() {
+    local file="$1" reason="$2"
+
+    [[ -e "${file}" ]] || fail "release.json is missing: ${file} — ${reason}"
+    [[ ! -L "${file}" ]] || fail "release.json must not be a symlink: ${file} — ${reason}"
+    [[ -f "${file}" ]] || fail "release.json must be a regular file: ${file} — ${reason}"
+
+    jq -e 'type == "object"' "${file}" >/dev/null 2>&1 \
+        || fail "release.json is not a JSON object: ${file} — ${reason}"
+
+    local release="" source_sha=""
+
+    if [[ "$(jq -r '.release | type' "${file}")" == "string" ]]; then
+        release="$(jq -r '.release' "${file}")"
+    fi
+
+    if [[ "$(jq -r '.source_sha | type' "${file}")" == "string" ]]; then
+        source_sha="$(jq -r '.source_sha' "${file}")"
+    fi
+
+    [[ "${release}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "release.json carries no well-formed release (${release:-<unset>}): ${file} — ${reason}"
+
+    [[ "${source_sha}" =~ ${BACKUP_SOURCE_SHA_REGEX} ]] \
+        || fail "release.json carries no full 40-character source_sha (${source_sha:-<unset>}): ${file} — ${reason}"
+
+    BACKUP_RELEASE="${release}"
+    BACKUP_SOURCE_SHA="${source_sha}"
+}
+
+# --- backup format contract (end) ---
+
+# --- deployment target registry (begin) ---
+#
+# Read-only accessors over the non-secret target registry.
+#
+# Nothing below runs at source time. The registry is read only when a target_*
+# helper is actually called, so scripts installed before the registry exists —
+# every operational script today — keep working untouched. Sourcing common must
+# never fail merely because the registry is absent.
+#
+# The registry is data, never code: it is parsed with jq and never sourced,
+# eval'd or substituted into a shell command. Target IDs reach jq through --arg
+# only, never by string concatenation into a jq program.
+
+TARGET_REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
+TARGET_REGISTRY_SCHEMA_VERSION=1
+
+# Gates every RATEGURU_*_FILE / RATEGURU_*_CLI override below that could
+# redirect a privileged script at an attacker- or operator-controlled file —
+# the identical plain condition guards RATEGURU_DEPLOYMENT_CONF_FILE near the
+# top of this file, before this block starts. Defined as a real function here
+# (rather than inlined, as that one is) because it is called from multiple
+# places below, and — unlike the top-of-file check — it has somewhere earlier
+# in this same execution to have already been defined.
+#
+# This function lives inside the extractable block (between the begin/end
+# markers) rather than at the top of the file, because tests exercise this
+# block in isolation by extracting exactly the text between those markers —
+# see tests/Feature/Architecture/DeploymentTargetRegistryTest.php's
+# targetHelperHarness(). A definition outside the markers would not be part of
+# what gets extracted, and target_registry_file()/target_registry_validator()
+# below would fail to find it when tested that way.
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# One resolution contract, identical to scripts/targets (which layers --file on
+# top as the most specific source):
+#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling, and only
+#      when RATEGURU_ALLOW_TEST_OVERRIDES=true
+#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above; no test
+#      flag required, since honoring it requires deployment.conf to already
+#      have loaded (from its own root-owned installed path, or from a fixture
+#      that already required the same flag to be read at all)
+#   3. TARGET_REGISTRY_DEFAULT_FILE
+#
+# `common` already sourced deployment.conf, so step 2 is a plain variable here.
+# The CLI reaches the same value by parsing that file, because deployment.conf
+# assigns without `export` and the value would not survive into a child process.
+target_registry_file() {
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+        printf '%s\n' "${RATEGURU_TARGET_REGISTRY_FILE}"
+
+        return 0
+    fi
+
+    if [[ -n "${TARGET_REGISTRY_FILE:-}" ]]; then
+        printf '%s\n' "${TARGET_REGISTRY_FILE}"
+
+        return 0
+    fi
+
+    printf '%s\n' "${TARGET_REGISTRY_DEFAULT_FILE}"
+}
+
+validate_target_id() {
+    local target_id="${1-}"
+
+    if [[ ! "${target_id}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]]; then
+        fail "invalid target ID: ${target_id}"
+    fi
+}
+
+# Readable regular file, real JSON, schema we understand. When the registry is
+# the installed runtime default we additionally demand root ownership and no
+# group/other write, matching how deployment.conf is already protected. An
+# explicitly pointed-at file (tests, repository checks) skips the ownership
+# demand but is still never allowed to be a symlink.
+target_registry_assert_usable() {
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if [[ -L "${registry_file}" ]]; then
+        fail "target registry must not be a symlink: ${registry_file}"
+    fi
+
+    if [[ ! -e "${registry_file}" ]]; then
+        fail "target registry is unavailable: ${registry_file}"
+    fi
+
+    if [[ ! -f "${registry_file}" ]]; then
+        fail "target registry must be a regular file: ${registry_file}"
+    fi
+
+    if [[ ! -r "${registry_file}" ]]; then
+        fail "target registry is not readable: ${registry_file}"
+    fi
+
+    if [[ "${registry_file}" == "${TARGET_REGISTRY_DEFAULT_FILE}" ]]; then
+        if [[ "$(stat -c '%u:%g' "${registry_file}")" != "0:0" ]]; then
+            fail "target registry must be owned by root:root: ${registry_file}"
+        fi
+
+        local registry_mode
+        registry_mode="$(stat -c '%a' "${registry_file}")"
+
+        if (( (8#${registry_mode} & 8#022) != 0 )); then
+            fail "target registry must not be group- or other-writable: ${registry_file}"
+        fi
+    fi
+
+    if ! jq -e 'type == "object"' "${registry_file}" >/dev/null 2>&1; then
+        fail "target registry is not valid JSON: ${registry_file}"
+    fi
+
+    if ! jq -e --argjson expected "${TARGET_REGISTRY_SCHEMA_VERSION}" \
+        '.schema_version == $expected' "${registry_file}" >/dev/null 2>&1
+    then
+        local found
+        found="$(jq -r '.schema_version // "missing"' "${registry_file}" 2>/dev/null || printf 'unreadable')"
+
+        fail "unsupported target registry schema_version: ${found} (expected ${TARGET_REGISTRY_SCHEMA_VERSION})"
+    fi
+}
+
+# Locate the registry validator. It ships beside this file, so an installed
+# common at /home/www/rateguru/bin/common finds /home/www/rateguru/bin/targets.
+target_registry_validator() {
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
+        printf '%s\n' "${RATEGURU_TARGETS_CLI}"
+
+        return 0
+    fi
+
+    # BASH_SOURCE is unset when this block is evaluated outside a sourced file
+    # (bash -c, tests), and `set -u` would abort on a bare reference.
+    local own_source="${BASH_SOURCE[0]:-}"
+
+    if [[ -n "${own_source}" ]]; then
+        local own_dir
+        own_dir="$(cd -- "$(dirname -- "${own_source}")" 2>/dev/null && pwd)" || own_dir=""
+
+        if [[ -n "${own_dir}" ]] && [[ -x "${own_dir}/targets" ]]; then
+            printf '%s\n' "${own_dir}/targets"
+
+            return 0
+        fi
+    fi
+
+    printf '%s\n' "/home/www/rateguru/bin/targets"
+}
+
+# Full registry validation — schema, required properties, semantics and
+# cross-target collisions — run at most once per shell process.
+#
+# Without this, a helper would happily return one property while the rest of the
+# same target was missing or malformed. Reading application_root must not
+# succeed on a target whose database name or socket is invalid, because the
+# caller will use both.
+#
+# The result is cached against the resolved path, so a script reading a dozen
+# properties pays for validation once rather than a dozen times.
+_TARGET_REGISTRY_VALIDATED_FILE=""
+
+target_registry_assert_valid() {
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if [[ "${_TARGET_REGISTRY_VALIDATED_FILE}" == "${registry_file}" ]]; then
+        return 0
+    fi
+
+    local validator
+    validator="$(target_registry_validator)"
+
+    if [[ ! -x "${validator}" ]]; then
+        fail "target registry validator is unavailable: ${validator}"
+    fi
+
+    local output
+    if ! output="$("${validator}" validate --file "${registry_file}" 2>&1)"; then
+        fail "target registry failed validation: ${registry_file}"$'\n'"${output}"
+    fi
+
+    _TARGET_REGISTRY_VALIDATED_FILE="${registry_file}"
+}
+
+# Internal: presence lookup that assumes validate_target_id and
+# target_registry_assert_usable have already run. Callers that have done both
+# use this instead of target_exists, so the registry is not re-stat'ed and its
+# schema not re-checked once per property access.
+_target_present() {
+    local target_id="$1"
+    local registry_file="$2"
+
+    jq -e --arg id "${target_id}" \
+        '(.targets | type == "object") and (.targets | has($id))' \
+        "${registry_file}" >/dev/null 2>&1
+}
+
+target_exists() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    _target_present "${target_id}" "$(target_registry_file)"
+}
+
+# Whole normalized target object, key-sorted so output is deterministic.
+target_get() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if ! _target_present "${target_id}" "${registry_file}"; then
+        fail "unknown target: ${target_id}"
+    fi
+
+    jq -S -e --arg id "${target_id}" '.targets[$id]' "${registry_file}" \
+        || fail "unable to read target: ${target_id}"
+}
+
+# Internal: fetch one property by jq path, refusing null/empty results so a
+# missing or mistyped field is an error rather than a silent empty string.
+_target_property() {
+    local target_id="$1"
+    local jq_path="$2"
+    local expected_type="$3"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if ! _target_present "${target_id}" "${registry_file}"; then
+        fail "unknown target: ${target_id}"
+    fi
+
+    local value
+    if ! value="$(jq -e -r --arg id "${target_id}" \
+        "(.targets[\$id] | ${jq_path}) as \$v
+         | if (\$v | type) != \"${expected_type}\" then error(\"type\") else \$v end" \
+        "${registry_file}" 2>/dev/null)"
+    then
+        fail "target ${target_id} is missing a valid ${jq_path} (expected ${expected_type})"
+    fi
+
+    if [[ "${expected_type}" == "string" ]] && [[ -z "${value}" ]]; then
+        fail "target ${target_id} has an empty ${jq_path}"
+    fi
+
+    printf '%s\n' "${value}"
+}
+
+target_lifecycle()                { _target_property "${1-}" '.lifecycle' string; }
+target_environment_class()        { _target_property "${1-}" '.environment_class' string; }
+target_root()                     { _target_property "${1-}" '.application_root' string; }
+target_runtime_user()             { _target_property "${1-}" '.runtime_user' string; }
+target_runtime_group()            { _target_property "${1-}" '.runtime_group' string; }
+target_deploy_user()              { _target_property "${1-}" '.deploy_user' string; }
+target_code_group()               { _target_property "${1-}" '.code_group' string; }
+target_incoming_artifacts()       { _target_property "${1-}" '.incoming_artifacts' string; }
+target_release_retention()        { _target_property "${1-}" '.release_retention' number; }
+target_database_name()            { _target_property "${1-}" '.database.name' string; }
+target_database_role()            { _target_property "${1-}" '.database.application_role' string; }
+target_health_url()               { _target_property "${1-}" '.health.url' string; }
+target_health_host_header()       { _target_property "${1-}" '.health.host_header' string; }
+target_backup_namespace()         { _target_property "${1-}" '.backup.namespace' string; }
+target_local_backup_retention()   { _target_property "${1-}" '.backup.local_retention_days' number; }
+target_offsite_backup_retention() { _target_property "${1-}" '.backup.offsite_retention_days' number; }
+target_minimum_retained_backups() { _target_property "${1-}" '.backup.minimum_retained_backups' number; }
+target_php_fpm_pool()             { _target_property "${1-}" '.php_fpm.pool' string; }
+target_php_fpm_socket()           { _target_property "${1-}" '.php_fpm.socket' string; }
+target_supervisor_program()       { _target_property "${1-}" '.supervisor.program' string; }
+target_queue_name()               { _target_property "${1-}" '.supervisor.queue' string; }
+target_scheduler_name()           { _target_property "${1-}" '.scheduler.name' string; }
+target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' string; }
+# The first public_hostnames entry is the target's canonical
+# public hostname, used by deploy for `artisan rateguru:sharing:verify
+# --expected-host`. No new registry field: _target_property's existing
+# generic contract already fails closed here for free — `.public_hostnames[0]`
+# on an empty array, or on a first element that isn't a string, both yield a
+# value whose jq type isn't "string", which _target_property already turns
+# into "target X is missing a valid .public_hostnames[0] (expected string)".
+target_primary_public_hostname()  { _target_property "${1-}" '.public_hostnames[0]' string; }
+
+# The Supervisor program running this target's Laravel Nightwatch
+# agent, or a non-zero return when the target does not run one.
+#
+# Deliberately a closed allowlist here rather than a registry field. Nightwatch
+# Is a time-boxed evaluation that the Nightwatch decision may reject outright, and a required
+# registry field would make every target — including the planned production
+# ones — carry a key for a product that may not survive, ripple through
+# targets' REQUIRED_STRINGS and every registry fixture the test suite embeds,
+# and have to be unwound again. An allowlist keeps the whole decision in one
+# case statement: staging-main runs an agent, nothing else can, and deleting
+# the entry disables the integration everywhere at once.
+#
+# It is also the mechanism that makes "staging only" structural rather than
+# procedural: no production target can be activated by editing a .env or a
+# registry file, because no production target has a program to activate.
+#
+# Callers must treat a non-zero return as "no agent for this target" and carry
+# on — never as an error. Used by deploy (agent transition after the current
+# switch) and by install-nightwatch-agent (which target may be installed).
+target_nightwatch_program() {
+    case "${1-}" in
+        staging-main) printf 'rateguru-staging-nightwatch\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+# --- registry lifecycle gates (begin) ---
+#
+# The gates that decide whether an operation may act on a target at all, and
+# the only place in this file where lifecycle is turned into permission. They
+# are read-only by construction: each validates the target ID, validates the
+# whole registry, reads .lifecycle (and, for provisioning, .environment_class)
+# and either returns or calls fail. Nothing here writes the registry, and
+# nothing here touches the filesystem.
+#
+# A new gate belongs HERE rather than beside the caller that wants it: a
+# lifecycle rule that lives in one script is a lifecycle rule the next script
+# can contradict.
+
+# The single gate operational commands use before acting on a
+# target. target_lifecycle already validates the target ID, validates the
+# whole registry, and confirms the target exists (failing "unknown target: …"
+# otherwise) — so this only adds the final check: the target must be
+# lifecycle=active. A planned or disabled target must never be read further,
+# so this must run before any URL is built, curl is called, or an application
+# path is touched.
+#
+# validate_target_id / target_registry_assert_usable / target_registry_assert_valid
+# are called directly here — not through target_lifecycle's own $(...) command
+# substitution below — because a command substitution forks a subshell, and
+# target_registry_assert_valid's cache (_TARGET_REGISTRY_VALIDATED_FILE) is a
+# plain shell variable: setting it inside a subshell has no effect once that
+# subshell exits. Running the three checks directly, in this function's own
+# (the caller's) shell, means the cache is actually set here — in the process
+# health-check or status is running as — so target_lifecycle two lines down,
+# and every target_* call the caller makes afterward, inherit an
+# already-matching cache and skip re-running the external validator. Without
+# this, every target_* accessor call would re-invoke the validator from
+# scratch, once each, silently defeating the "once per process" design.
+require_active_target() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local lifecycle
+    lifecycle="$(target_lifecycle "${target_id}")"
+
+    if [[ "${lifecycle}" != "active" ]]; then
+        fail "target ${target_id} has lifecycle=${lifecycle}, not active"
+    fi
+}
+
+# The gate a provisioning operation uses in place of require_active_target.
+#
+# It is deliberately a SEPARATE function rather than a parameter on the one
+# above. require_active_target is what every operational command asks, and its
+# answer must stay "active, full stop" — a flag on it would put "or planned,
+# under some condition" inside the one gate that protects deploy, rollback,
+# backup, restore and health. A caller that wants the other answer has to name
+# a different function, and that name says what it is authorizing.
+#
+# Provisionable means exactly: lifecycle=planned AND
+# environment_class=production. Not active (that target is already in the
+# operational lifecycle and has its own operations), not disabled (a
+# deliberate registry state), not planned staging. The registry itself is
+# never written by anything that calls this: a provisioned target stays
+# planned, because lifecycle records permission to operate a target, not
+# whether its directories exist.
+#
+# The three checks before the lifecycle read are the same ones
+# require_active_target runs directly rather than through a command
+# substitution, and for the same reason: target_registry_assert_valid's cache
+# is a plain shell variable, so it has to be set in the caller's own shell.
+require_provisionable_target() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    # Named `environment` rather than `environment_class`: `common` legitimately
+    # READS an ENVIRONMENT_CLASS supplied by the script that sourced it, and a
+    # local differing from it only in case makes every reader — human and
+    # linter — pause over which one is meant.
+    local lifecycle environment
+    lifecycle="$(target_lifecycle "${target_id}")"
+    environment="$(target_environment_class "${target_id}")"
+
+    if [[ "${lifecycle}" == "active" ]]; then
+        fail "target ${target_id} has lifecycle=active — it is already in the operational lifecycle, so provisioning refuses it; use the existing prepare/repair/deploy operations instead"
+    fi
+
+    if [[ "${lifecycle}" != "planned" ]]; then
+        fail "target ${target_id} has lifecycle=${lifecycle}, not planned — provisioning is only ever authorized for a planned target"
+    fi
+
+    if [[ "${environment}" != "production" ]]; then
+        fail "target ${target_id} has environment_class=${environment}, not production — provisioning is only ever authorized for a planned production target"
+    fi
+}
+
+# --- registry lifecycle gates (end) ---
+
+# --- host infrastructure lock (begin) ---
+#
+# One physical machine can carry several logical targets, and several
+# operations can mutate the infrastructure they SHARE: the host roots, the
+# shared namespace they sit in, the base services, the operational bundle.
+#
+# Every lock this repository had before was keyed by backup namespace or by
+# application root, which is exactly the wrong key for that. "Prepare
+# staging-main" and "Provision tits-guru" hold different namespace locks and
+# then both converge host-global state on the same machine, in parallel,
+# neither aware of the other. GitHub concurrency groups do not close it either:
+# two different GitHub Environments can address the same host, and the
+# authoritative answer has to live where the mutation happens.
+#
+# So this lock is keyed by NOTHING. One file per machine, held for the whole
+# run by the operation that owns it.
+#
+# ONE OWNER PER LOCK. Only the top-level operations take it — prepare-host,
+# provision-target, configure-target and repair-target — and only in a mutating
+# mode. The installers they invoke never take it, because flock treats
+# independently opened descriptors independently even inside one process tree,
+# so a child re-acquiring what its parent holds would deadlock against its own
+# orchestrator. A read-only mode takes nothing, which is what lets
+# configure-target ask provision-target --verify a question while holding it.
+#
+# prepare-host cannot source this file (it runs before the operational bundle
+# is installed), so it opens the same path itself. The shared thing is the
+# FILE NAME, not the function.
+#
+# WHAT THIS DOES NOT CLOSE, stated here so nobody reads it as more than it is.
+# It serializes host-global mutators against EACH OTHER. It does not serialize a
+# host-global mutator against a target-only one: "Prepare tits-guru" and "Deploy
+# staging-main" still run concurrently, because deploy, rollback and the
+# restore-style operations take only their own target's lock and never this one.
+# Closing that needs a shared/exclusive model — target-only mutators taking this
+# lock shared, host-global mutators taking it exclusively — which is a separate
+# change with its own audit of every target mutation, and must land before
+# tits-guru is activated.
+HOST_INFRASTRUCTURE_LOCK_NAME="host-infrastructure.lock"
+
+HOST_INFRASTRUCTURE_LOCK_FD=""
+
+# host_infrastructure_lock_path — the one lock file for this machine.
+host_infrastructure_lock_path() {
+    local run_root="/home/www/rateguru/run"
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_HOST_LOCK_ROOT:-}" ]]; then
+        run_root="${RATEGURU_HOST_LOCK_ROOT}"
+    fi
+
+    printf '%s/%s\n' "${run_root}" "${HOST_INFRASTRUCTURE_LOCK_NAME}"
+}
+
+# acquire_host_infrastructure_lock OPERATION — claim this machine's shared
+# infrastructure for the whole run, or refuse naming what already holds it.
+#
+# Never waits. An operator who sees "another operation is already mutating this
+# host" can look at what is running and decide; a run that blocked silently
+# would look like a hang and get cancelled halfway through a mutation.
+acquire_host_infrastructure_lock() {
+    local operation="${1-}" lock_path
+    lock_path="$(host_infrastructure_lock_path)"
+
+    local lock_dir
+    lock_dir="$(dirname -- "${lock_path}")"
+
+    [[ -d "${lock_dir}" ]] \
+        || fail "the operational lock directory does not exist: ${lock_dir} — this host has not been bootstrapped, and ${operation} never creates it"
+
+    exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${lock_path}" \
+        || fail "could not open ${lock_path} to claim this host's shared infrastructure for ${operation}"
+
+    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
+        || fail "another operation is already mutating this host's shared infrastructure (${lock_path}); ${operation} changed nothing. Targets share one machine, so host-level operations run one at a time"
+}
+# --- host infrastructure lock (end) ---
+
+# Shared flag-value validator, used by every operational script's own
+# argument loop (including parse_target_args below) — offsite-backup,
+# offsite-retention and offsite-restore-test originally had this exact,
+# byte-identical implementation inline; extracted here to remove the
+# duplication. deploy/rollback/restore-test keep their own separate copies,
+# since bash's normal function-shadowing means a script defining its own
+# require_flag_value after sourcing this file is unaffected either way.
+#
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+# Shared --target parsing for target-only operational commands with no
+# operation-specific flags of their own (health-check, status). Runs in the
+# caller's own shell — never a subshell — so it sets TARGET_ID and
+# TARGET_SEEN directly in the caller's scope rather than returning them.
+#
+# Call as: parse_target_args "$0" "$@"  (or an explicit program name in
+# place of "$0", since callers invoke this via `bash script`, not `./script`).
+#
+# Enforces: exactly one --target; duplicate --target fails; a --target given
+# with no value, an explicitly empty value, or a flag-shaped value all fail;
+# an unrecognized argument fails; --help prints usage and exits 0. It does
+# not perform lifecycle validation (require_active_target) — that stays with
+# the caller, since what happens with a resolved target differs per command.
+#
+# Scripts with their own operation-specific flags (deploy, rollback, cleanup,
+# backup, restore-test, offsite-backup, offsite-retention,
+# offsite-restore-test, backup-cycle) run their own argument loop instead —
+# this function only fits a script whose sole flag is --target.
+parse_target_args() {
+    local program_name="$1"
+    shift
+
+    TARGET_ID=""
+    TARGET_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                require_flag_value "--target" "$#" "${2-}"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                cat <<USAGE
+Usage:
+  ${program_name} --target TARGET_ID
+USAGE
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+}
+# --- restore guard -----------------------------------------------------------
+#
+# A restore that lands data from backup A onto a target whose `current` still
+# serves code B finishes in a deliberate HELD state: the data is restored, but
+# nothing may run against it until the matching code is deployed. The hold
+# itself is runtime state — maintenance on, queue stopped, cron entry moved
+# aside — and it dies with the process that created it.
+#
+# This marker is the part that has to outlive it, because the hold is not only
+# about traffic. While a target is held, its live data belongs to a DIFFERENT
+# commit than the one `current/release.json` names, and an ordinary backup
+# copies the data from disk while taking its release identity from
+# `current/release.json`. Taken in that window it would produce a backup
+# asserting that data from A belongs to commit B — quietly corrupting the one
+# invariant the whole disaster-recovery model rests on:
+#
+#   backup release.json.source_sha -> the code the restored data belongs to
+#
+# So the marker is a root-only file that says "this target's data may not match
+# its code", and `backup` refuses to snapshot while it exists.
+#
+# It is written BEFORE the first live mutation, not after a restore ends. The
+# window that needs covering is the one a failure handler cannot see: a SIGKILL
+# or OOM kill between activation and completion runs no trap, releases flock to
+# the kernel, and leaves the host's own backup cron free to snapshot restored
+# data under the old commit. A marker written only on completion is absent in
+# exactly that case.
+#
+# It is removed only by an outcome that proves the data matches the code again:
+# an aligned restore that passed its health check, a successful `--resume`, or a
+# compensation that put the live data back.
+#
+# It lives under the restore run root rather than the target's own locks/
+# directory, which is deploy_user:code_group 2750 — a safety marker must not
+# sit somewhere the deployment credential can unlink it. Everything under the
+# run root is root:root 0700.
+
+# restore_guard_file TARGET_ID RUN_ROOT
+restore_guard_file() {
+    local target_id="${1-}" run_root="${2-}"
+
+    [[ -n "${target_id}" ]] || fail "restore_guard_file: target ID is required"
+    [[ -n "${run_root}" ]] || fail "restore_guard_file: run root is required"
+
+    printf '%s/restores/%s/restore-guard\n' "${run_root%/}" "${target_id}"
+}
+
+# assert_no_restore_hold TARGET_ID RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while the target is held awaiting code alignment.
+#
+# Deliberately reads the marker rather than trusting its mere presence to be
+# self-explanatory: an operator who hits this needs the operation ID and the
+# source SHA the target is waiting for, and both are in the file.
+assert_no_restore_hold() {
+    local target_id="${1-}" run_root="${2-}" operation="${3-an operation}"
+    local marker held_operation held_sha held_status
+
+    marker="$(restore_guard_file "${target_id}" "${run_root}")"
+
+    [[ -e "${marker}" ]] || return 0
+
+    held_operation="$(jq -r '.operation // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_sha="$(jq -r '.required_source_sha // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_status="$(jq -r '.status // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    # Deliberately does NOT tell the operator to deploy the SHA. restore-target
+    # itself is explicit that the normal deployment path must not be used to
+    # resolve a hold — a normal deploy health-checks the target and transitions
+    # the queue, both of which fight the hold — and two places giving different
+    # advice about the same state is how someone ends up running the wrong one.
+    fail "${target_id} is held after restore operation ${held_operation} (status ${held_status}): its live data may be from a backup taken under ${held_sha}, which is not what current serves, so ${operation} is refused — a backup would record the wrong source_sha for this data, and a deployment, rollback or cleanup would move the code further away from it or delete the release it needs. Controlled code alignment is required, and it is the ONLY thing that may end this hold. Do NOT use the normal deployment path: run the Restore workflow for this target with mode=continue-held and operation=${held_operation}, or, by hand, deploy the required source SHA with 'deploy --target ${target_id} --restore-operation ${held_operation}' and finish with 'restore-target --resume'. The guard is ${marker}"
+}
+
+# --- recovery guard ----------------------------------------------------------
+#
+# The restore guard above says "this target's DATA may not match its CODE".
+# The recovery guard says something different and needs its own marker rather
+# than a second meaning bolted onto the first: "this target is a replacement
+# host part-way through being rebuilt, and it has no code at all yet".
+#
+# The two are separate state machines with separate workspaces, separate
+# histories and separate endings — a restore is finished by
+# `restore-target --resume`, a recovery by `recover-host --resume` — and
+# collapsing them into one marker would make every reader of it guess which
+# machine wrote it.
+#
+# What they share is the interlock: while EITHER exists, an ordinary
+# operation on that target is refused. That is why the refusal below lives
+# here, beside the restore one, and why every operational script calls the
+# combined gate rather than picking a guard to check.
+
+# recovery_guard_file TARGET_ID RUN_ROOT
+recovery_guard_file() {
+    local target_id="${1-}" run_root="${2-}"
+
+    [[ -n "${target_id}" ]] || fail "recovery_guard_file: target ID is required"
+    [[ -n "${run_root}" ]] || fail "recovery_guard_file: run root is required"
+
+    printf '%s/recoveries/%s/recovery-guard\n' "${run_root%/}" "${target_id}"
+}
+
+# assert_no_recovery_hold TARGET_ID RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while a host recovery owns the target.
+#
+# Reads the marker rather than trusting its presence to be self-explanatory,
+# for the same reason assert_no_restore_hold does: the operator needs the
+# operation ID and the commit the recovery is waiting for, and both are in the
+# file.
+assert_no_recovery_hold() {
+    local target_id="${1-}" run_root="${2-}" operation="${3-an operation}"
+    local marker held_operation held_sha held_status held_backup
+
+    marker="$(recovery_guard_file "${target_id}" "${run_root}")"
+
+    [[ -e "${marker}" ]] || return 0
+
+    held_operation="$(jq -r '.operation // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_sha="$(jq -r '.required_source_sha // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_status="$(jq -r '.status // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_backup="$(jq -r '.backup // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    fail "${target_id} is being recovered onto a replacement host by recovery operation ${held_operation} (status ${held_status}): its data came from backup ${held_backup} and belongs to ${held_sha}, which is not deployed here yet, so ${operation} is refused — a backup would record the wrong source_sha for this data, and a deployment, rollback, cleanup, restore or repair would act on a host that is not finished being rebuilt. Only 'recover-host --inspect', the controlled recovery deployment for this exact operation, and 'recover-host --resume' may touch it. The guard is ${marker}"
+}
+
+# assert_no_conflicting_operation_holds TARGET_ID RUN_ROOT — a restore guard
+# and a recovery guard on the same target at the same time.
+#
+# The two operations are mutually exclusive by construction: a live restore
+# demands a deployed target, a host recovery demands an empty one, and each
+# refuses to start while the other's guard exists. Both present therefore means
+# something outside these tools wrote one of them, or a marker survived from a
+# state nobody reconciled — and no automatic reading of that is safe. It is a
+# hard failure with no continuation path, deliberately reported before either
+# individual refusal so the operator sees the real problem rather than
+# whichever guard happened to be checked first.
+assert_no_conflicting_operation_holds() {
+    local target_id="${1-}" run_root="${2-}"
+    local restore_marker recovery_marker
+
+    restore_marker="$(restore_guard_file "${target_id}" "${run_root}")"
+    recovery_marker="$(recovery_guard_file "${target_id}" "${run_root}")"
+
+    [[ -e "${restore_marker}" ]] && [[ -e "${recovery_marker}" ]] || return 0
+
+    fail "${target_id} carries BOTH a restore guard (${restore_marker}) and a recovery guard (${recovery_marker}). A live restore requires a deployed target and a host recovery requires an empty one, so the two can never legitimately hold the same target at once — nothing may proceed automatically from here. Read both markers and their operations' own state documents, decide which one describes reality, and resolve it by hand"
+}
+
+# assert_no_operation_hold TARGET_ID RUN_ROOT OPERATION_DESCRIPTION — the one
+# gate every ordinary operation calls.
+#
+# Ordinary operations do not care WHICH data operation owns the target, only
+# that one does. Giving them a single call is what stops a future guard from
+# being added to five of the six scripts that need it.
+assert_no_operation_hold() {
+    assert_no_conflicting_operation_holds "${1-}" "${2-}"
+    assert_no_restore_hold "${1-}" "${2-}" "${3-an operation}"
+    assert_no_recovery_hold "${1-}" "${2-}" "${3-an operation}"
+}
+
+# --- offsite-write hold ------------------------------------------------------
+#
+# A third marker beside the two guards, for a hazard neither of them covers.
+#
+# A host rebuilt by a recovery is a complete RateGuru host: it carries the
+# backup cron, the offsite uploader and the offsite retention pruner, and it
+# believes it is the target it was recovered as. Nothing about the recovery
+# repoints DEPLOY_HOST or DNS at it, so until an operator deliberately adopts
+# the machine, the long-lived host it was rehearsed beside — or the machine it
+# genuinely replaces — still owns the real offsite backup namespace. Two
+# writers and two pruners on one namespace is how a rehearsal deletes the very
+# history it exists to prove we can recover from.
+#
+# The guards do not help here: both are gone once a recovery completes, and a
+# completed recovery is exactly when the recovered host's cron starts firing.
+# So recovery preparation and recovery itself write this marker, nothing in
+# the recovery flow ever removes it, and every offsite WRITER refuses while it
+# exists:
+#
+#   backup-cycle        the cron entry point — refused before its first child
+#   offsite-backup      the uploader
+#   offsite-retention   the pruner
+#
+# Reads are deliberately not fenced: offsite-restore-test downloads and never
+# writes, and a recovered host reading the namespace it came from is the whole
+# point. Local backups are not fenced either — `backup` writes only to the
+# host's own disk.
+#
+# It is host-global, like the cron entry it holds, and it lives under the run
+# root with the other markers: root:root 0700 all the way up, so neither the
+# deploy credential nor the runtime user can unlink it. Releasing it is a
+# deliberate operator act as part of adopting the recovered machine (repointing
+# DEPLOY_HOST and DNS), which no script here performs.
+
+# offsite_write_hold_file RUN_ROOT
+offsite_write_hold_file() {
+    local run_root="${1-}"
+
+    [[ -n "${run_root}" ]] || fail "offsite_write_hold_file: run root is required"
+
+    printf '%s/offsite-write-hold\n' "${run_root%/}"
+}
+
+# offsite_writes_held RUN_ROOT — whether the marker exists. A marker that is
+# anything but a regular file is treated as HELD too: this fence fails closed,
+# and an odd marker is a reason to look, never a reason to write offsite.
+offsite_writes_held() {
+    local marker
+    marker="$(offsite_write_hold_file "${1-}")"
+
+    [[ -e "${marker}" ]] || [[ -L "${marker}" ]]
+}
+
+# assert_no_offsite_write_hold RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while the recovered host's offsite writers are held.
+#
+# Reads the marker rather than trusting its presence to be self-explanatory:
+# the operator needs to know which recovery placed it and which backup that
+# recovery came from, and both are in the file.
+assert_no_offsite_write_hold() {
+    local run_root="${1-}" operation="${2-an offsite write}"
+    local marker held_target held_backup held_by held_at
+
+    marker="$(offsite_write_hold_file "${run_root}")"
+
+    offsite_writes_held "${run_root}" || return 0
+
+    held_target="$(jq -r '.target // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_backup="$(jq -r '.backup // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_by="$(jq -r '.created_by // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_at="$(jq -r '.created_at // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    fail "OFFSITE WRITES: HELD — ${operation} is refused on this host. It was rebuilt by a host recovery of ${held_target} from backup ${held_backup} (${held_by}, ${held_at}), and DEPLOY_HOST and DNS were deliberately left unchanged, so the machine this target is still bound to owns the real offsite backup namespace. A second uploader or pruner on that namespace would overwrite or delete the history a recovery depends on. Nothing was uploaded, pruned or changed. The hold is ${marker}; releasing it is part of deliberately adopting this machine, never a side effect of any operation"
+}
+
+# --- operator guidance ---------------------------------------------------------
+#
+# operator_action_required CAUSE MEANING THEN STEP... — the one operator-facing
+# refusal format every recovery surface prints, on stderr, right before the
+# refusal that follows it: what happened, what it means, what to do, and what
+# to run afterwards. Names only, never a secret, a digest or a private path an
+# operator would not already know. The clean-host scripts, which cannot source
+# this file, print the identical format from their own copy; the GitHub
+# summary renders the same block from the cause a job reports.
+operator_action_required() {
+    local cause="$1" meaning="$2" then="$3"
+    shift 3
+
+    {
+        printf '\nRECOVERY ACTION REQUIRED\n'
+        printf 'Cause: %s\n' "${cause}"
+        printf 'What this means: %s\n' "${meaning}"
+        printf 'Do:\n'
+
+        local n=1 step
+        for step in "$@"; do
+            printf '  %d. %s\n' "${n}" "${step}"
+            n=$(( n + 1 ))
+        done
+
+        printf 'Then: %s\n' "${then}"
+        printf 'Runbook: infrastructure/runbooks/clean-host-recovery.md\n'
+    } >&2
+}
+
+# --- restore alignment authorization -----------------------------------------
+#
+# The hold above has exactly one legitimate ending: a controlled deployment of
+# the exact commit the restored data belongs to, followed by
+# `restore-target --resume`. That deployment is the ordinary `deploy`, run with
+# --restore-operation — there is no second deployment implementation — and
+# everything below is what it must prove before it is allowed to behave
+# differently from a normal deploy.
+#
+# The rule the whole design rests on is that the CALLER never says which commit
+# is required. GitHub hands the server an operation ID and nothing else; the
+# commit comes out of the server's own persisted restore state, and this is
+# where it is read. A caller naming an operation that is not held, belongs to
+# another target, or whose guard and state disagree gets a refusal, never a
+# deployment.
+#
+# Two independent documents have to agree before a single byte moves:
+#
+#   the guard   ${RUN_ROOT}/restores/<target>/restore-guard
+#               root-only, written before the first live mutation, carries the
+#               operation, the target, the required commit and the hold status
+#   the state   ${RUN_ROOT}/restores/<target>/<operation>/state.json
+#               the operation's own record: same target, status held, phase
+#               committed, code_alignment required, and the backup identity
+#
+# Reading both and requiring them to name the same commit is what makes a
+# tampered or half-written guard insufficient on its own.
+
+# An operation ID is generated by the restore tooling, never by an operator's
+# filesystem: UTC timestamp plus six hex characters of entropy. No slash, no
+# whitespace, no shell metacharacter, no dot — so it can never climb out of the
+# workspace root it is concatenated onto.
+#
+# Defined here rather than in restore-common because it is no longer a
+# restore-only format: `deploy` validates the same identifier, and deploy does
+# not (and must not) source the restore library. restore-common sources this
+# file, so the restore primitives keep using the identical implementation.
+RESTORE_OPERATION_ID_REGEX='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'
+
+# A backup ID is exactly the timestamped directory name `backup` itself
+# creates. No path, no separator and no relative component survives it. Here
+# for the same reason as the operation ID: the restore sudo wrapper validates
+# it at the perimeter and does not source the restore library. The deeper check
+# — that the name is a real UTC calendar timestamp, not merely timestamp-shaped
+# — stays in restore-common's validate_backup_id, which remains authoritative.
+RESTORE_BACKUP_ID_REGEX='^[0-9]{8}-[0-9]{6}$'
+
+# The commit a controlled alignment installs. Deliberately stricter than
+# restore-common's RESTORE_SOURCE_SHA_REGEX (7-40 hex, which exists to read
+# historical release.json files): an alignment resolves an exact commit to
+# check out and build, and an abbreviated SHA is not one. A backup carrying a
+# short source_sha is still restorable — it simply cannot be aligned
+# automatically, and says so instead of guessing.
+RESTORE_ALIGNMENT_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
+
+# validate_operation_id ID [KIND] — the shared format check. KIND names the
+# operation the caller is validating for, and exists only so the diagnostic is
+# true: a malformed --recovery-operation reported as an "invalid restore
+# operation ID" sends an operator looking at the wrong state machine. It
+# defaults to `restore`, so every caller that does not pass one is
+# byte-identical to what it always said.
+validate_operation_id() {
+    local operation_id="${1-}" kind="${2:-restore}"
+
+    [[ "${operation_id}" =~ ${RESTORE_OPERATION_ID_REGEX} ]] \
+        || fail "invalid ${kind} operation ID: ${operation_id}"
+}
+
+# restore_operation_state_file TARGET_ID RUN_ROOT OPERATION_ID — the same path
+# restore-common's workspace helpers compose, expressed once more here for the
+# two callers that must read it without sourcing the restore library. Both
+# components are validated first, so no operator-supplied string ever reaches
+# the path.
+restore_operation_state_file() {
+    local target_id="${1-}" run_root="${2-}" operation_id="${3-}"
+
+    [[ -n "${run_root}" ]] || fail "restore_operation_state_file: run root is required"
+
+    validate_target_id "${target_id}"
+    validate_operation_id "${operation_id}"
+
+    printf '%s/restores/%s/%s/state.json\n' "${run_root%/}" "${target_id}" "${operation_id}"
+}
+
+# Set by assert_restore_alignment_operation, and only ever from the server's
+# own persisted state — never from an argument.
+RESTORE_ALIGNMENT_REQUIRED_SHA=""
+RESTORE_ALIGNMENT_BACKUP=""
+
+# restore_alignment_read_json FILE FILTER — read ONE field out of a document
+# that has already been proven readable.
+#
+# Deliberately not a guarded read, and the guarding is not missing: every
+# caller below establishes that the document exists, is a regular file, is not
+# a symlink and parses as a JSON object BEFORE its first call here. By the time
+# this runs, the only thing that can be absent is a FIELD.
+#
+# An absent field yields the empty string, and that is safe because nothing acts
+# on the value: every single read below is either compared against a required
+# target, operation, status or commit, or required to be non-empty. Empty fails
+# both, so the refusal comes from that check — with the field's own diagnostic —
+# rather than from here. Widening this into a second layer of file checks would
+# duplicate the caller's and give two places to keep in agreement.
+#
+# That invariant is load-bearing: a field read here and then neither compared
+# nor required would silently accept an empty value. Keep every new read paired
+# with a check, or do not add the read.
+restore_alignment_read_json() {
+    local path="$1" filter="$2"
+
+    jq -r "${filter} // empty" "${path}" 2>/dev/null || printf ''
+}
+
+assert_restore_alignment_operation() {
+    local target_id="${1-}" run_root="${2-}" operation_id="${3-}"
+
+    RESTORE_ALIGNMENT_REQUIRED_SHA=""
+    RESTORE_ALIGNMENT_BACKUP=""
+
+    [[ -n "${run_root}" ]] || fail "assert_restore_alignment_operation: run root is required"
+
+    validate_target_id "${target_id}"
+    validate_operation_id "${operation_id}"
+
+    # A restore hold and a recovery hold cannot both be real. Checked here
+    # rather than only in the ordinary-operation gate, because a controlled
+    # alignment is the one deployment that walks PAST that gate.
+    assert_no_conflicting_operation_holds "${target_id}" "${run_root}"
+
+    local marker
+    marker="$(restore_guard_file "${target_id}" "${run_root}")"
+
+    # 1. There is a hold at all. A controlled alignment deploy is meaningless
+    #    without one: nothing is holding the target, so nothing needs the
+    #    special runtime policy, and a normal deployment is the right tool.
+    [[ -e "${marker}" ]] \
+        || fail "${target_id} is not held: no restore guard at ${marker}. --restore-operation is only for finishing a restore that is waiting for its code; an ordinary deployment needs no restore operation"
+
+    # 2. It is a real, regular file this credential could not have swapped for
+    #    a symlink pointing at something more convenient.
+    [[ ! -L "${marker}" ]] \
+        || fail "the restore guard ${marker} is a symlink — refusing to authorize a controlled alignment against it"
+    [[ -f "${marker}" ]] \
+        || fail "the restore guard ${marker} is not a regular file — refusing to authorize a controlled alignment against it"
+
+    # Ownership and mode are demanded of the INSTALLED run root only, exactly
+    # the way this file already treats deployment.conf and the target registry:
+    # a scratch fixture is a legitimate non-root caller, the production path
+    # never is.
+    if [[ "${run_root%/}" == "/home/www/rateguru/run" ]]; then
+        [[ "$(stat -c '%u' "${marker}")" == "0" ]] \
+            || fail "the restore guard ${marker} is not owned by root — refusing to authorize a controlled alignment against it"
+
+        local marker_mode
+        marker_mode="$(stat -c '%a' "${marker}")"
+
+        (( (8#${marker_mode} & 8#077) == 0 )) \
+            || fail "the restore guard ${marker} is readable or writable beyond root — refusing to authorize a controlled alignment against it"
+    fi
+
+    jq -e 'type == "object"' "${marker}" >/dev/null 2>&1 \
+        || fail "the restore guard ${marker} is not a JSON object — refusing to authorize a controlled alignment against it"
+
+    local guard_target guard_operation guard_status guard_sha
+    guard_target="$(restore_alignment_read_json "${marker}" '.target')"
+    guard_operation="$(restore_alignment_read_json "${marker}" '.operation')"
+    guard_status="$(restore_alignment_read_json "${marker}" '.status')"
+    guard_sha="$(restore_alignment_read_json "${marker}" '.required_source_sha')"
+
+    # 3-4. The hold is this target's, and it is the operation the caller named.
+    [[ "${guard_target}" == "${target_id}" ]] \
+        || fail "the restore guard at ${marker} belongs to target ${guard_target:-<unset>}, not ${target_id}"
+
+    [[ "${guard_operation}" == "${operation_id}" ]] \
+        || fail "${target_id} is held by restore operation ${guard_operation:-<unset>}, not ${operation_id} — a controlled alignment may only serve the operation that is actually holding the target"
+
+    # 5. Only `held` is a code-alignment hold. `in-progress` means a restore is
+    #    still running or died mid-flight, and `failed-held` means a restore
+    #    failed with live data that may have been replaced: neither is finished
+    #    by deploying a commit, and both need the repair path instead.
+    [[ "${guard_status}" == "held" ]] \
+        || fail "restore operation ${operation_id} has hold status '${guard_status:-<unset>}', not 'held' — only a completed data restore awaiting its code may be aligned; an in-progress or failed-held operation needs manual recovery, never a deployment"
+
+    [[ "${guard_sha}" =~ ${RESTORE_ALIGNMENT_SOURCE_SHA_REGEX} ]] \
+        || fail "the restore guard at ${marker} carries no full 40-character commit (${guard_sha:-<unset>}) — a controlled alignment installs an exact commit and will not guess one"
+
+    # 6-7. The operation's own record, read from the workspace the restore
+    #      created. A guard without one is not a state a deployment may act on.
+    local state_file
+    state_file="$(restore_operation_state_file "${target_id}" "${run_root}" "${operation_id}")"
+
+    [[ ! -L "${state_file}" ]] \
+        || fail "restore operation state ${state_file} is a symlink — refusing to authorize a controlled alignment against it"
+    [[ -f "${state_file}" ]] \
+        || fail "restore operation ${operation_id} has no state file at ${state_file} — refusing to authorize a controlled alignment without the operation's own record"
+
+    jq -e 'type == "object"' "${state_file}" >/dev/null 2>&1 \
+        || fail "restore operation state ${state_file} is not a JSON object — refusing to authorize a controlled alignment against it"
+
+    local state_target state_status state_phase state_alignment state_sha state_backup
+    state_target="$(restore_alignment_read_json "${state_file}" '.target')"
+    state_status="$(restore_alignment_read_json "${state_file}" '.status')"
+    state_phase="$(restore_alignment_read_json "${state_file}" '.phase')"
+    state_alignment="$(restore_alignment_read_json "${state_file}" '.code_alignment')"
+    state_sha="$(restore_alignment_read_json "${state_file}" '.backup_source_sha')"
+    state_backup="$(restore_alignment_read_json "${state_file}" '.backup')"
+
+    [[ "${state_target}" == "${target_id}" ]] \
+        || fail "restore operation ${operation_id} belongs to target ${state_target:-<unset>}, not ${target_id}"
+
+    # 8-9. The data restore completed and committed, and it is waiting for code
+    #      — not running, not failed, not already aligned.
+    [[ "${state_status}" == "held" ]] \
+        || fail "restore operation ${operation_id} has status '${state_status:-<unset>}' — a controlled alignment only applies to an operation whose data restore completed and whose runtime is held for code alignment"
+
+    [[ "${state_phase}" == "committed" ]] \
+        || fail "restore operation ${operation_id} is in phase '${state_phase:-<unset>}', expected committed"
+
+    [[ "${state_alignment}" == "required" ]] \
+        || fail "restore operation ${operation_id} records code_alignment '${state_alignment:-<unset>}', not 'required' — there is no code to align"
+
+    # 10-11. The two documents name the same commit, and it is an exact one.
+    [[ "${state_sha}" =~ ${RESTORE_ALIGNMENT_SOURCE_SHA_REGEX} ]] \
+        || fail "restore operation ${operation_id} records no full 40-character backup source_sha (${state_sha:-<unset>}) — a controlled alignment installs an exact commit and will not guess one"
+
+    [[ "${state_sha}" == "${guard_sha}" ]] \
+        || fail "restore operation ${operation_id} records backup source ${state_sha}, but its guard requires ${guard_sha} — refusing to align a target whose own restore documents disagree"
+
+    [[ -n "${state_backup}" ]] \
+        || fail "restore operation ${operation_id} records no backup identity — refusing to align a target whose restore cannot name the backup it applied"
+
+    RESTORE_ALIGNMENT_REQUIRED_SHA="${guard_sha}"
+    RESTORE_ALIGNMENT_BACKUP="${state_backup}"
+
+    log "restore operation ${operation_id} authorizes a controlled alignment of ${target_id} to ${RESTORE_ALIGNMENT_REQUIRED_SHA} (backup ${RESTORE_ALIGNMENT_BACKUP})"
+}
+
+# --- recovery alignment authorization ----------------------------------------
+#
+# The recovery counterpart of the block above, and deliberately its own
+# implementation rather than a parameter on it: the two holds prove different
+# things. A restore alignment deploys into a target that is HELD — serving
+# nothing, queue stopped, scheduler aside, and still carrying the `current` it
+# had before. A recovery alignment deploys into a target that has NO code at
+# all: its data has been restored onto a replacement host and `current` is
+# absent.
+#
+# This half reads the two persisted documents. The RUNTIME half — the proof
+# that the host is still held right now — is `recover-host --inspect`, which
+# `deploy` runs for exactly the same reason it runs `restore-target --inspect`
+# for an alignment: that proof has one implementation and deploy re-derives
+# neither.
+#
+# What is identical is the rule the whole design rests on: the CALLER never
+# says which commit is required. GitHub hands the server an operation ID and
+# nothing else; the commit comes out of the server's own persisted recovery
+# state, and this is where it is read.
+#
+# Two independent documents have to agree before a single byte moves:
+#
+#   the guard   ${RUN_ROOT}/recoveries/<target>/recovery-guard
+#               root-only, written before the first activation, carries the
+#               operation, the target, the backup, the required commit and the
+#               recovery status
+#   the state   ${RUN_ROOT}/recoveries/<target>/<operation>/state.json
+#               the operation's own record: same target, same backup, status
+#               awaiting-code, phase awaiting-code, and the same commit
+
+# recovery_operation_state_file TARGET_ID RUN_ROOT OPERATION_ID — the same path
+# recover-host composes, expressed once more here for `deploy`, which must read
+# it without sourcing the restore library. Both components are validated first,
+# so no operator-supplied string ever reaches the path.
+recovery_operation_state_file() {
+    local target_id="${1-}" run_root="${2-}" operation_id="${3-}"
+
+    [[ -n "${run_root}" ]] || fail "recovery_operation_state_file: run root is required"
+
+    validate_target_id "${target_id}"
+    validate_operation_id "${operation_id}"
+
+    printf '%s/recoveries/%s/%s/state.json\n' "${run_root%/}" "${target_id}" "${operation_id}"
+}
+
+# Set by assert_recovery_alignment_operation, and only ever from the server's
+# own persisted state — never from an argument.
+RECOVERY_ALIGNMENT_REQUIRED_SHA=""
+RECOVERY_ALIGNMENT_BACKUP=""
+
+assert_recovery_alignment_operation() {
+    local target_id="${1-}" run_root="${2-}" operation_id="${3-}"
+
+    RECOVERY_ALIGNMENT_REQUIRED_SHA=""
+    RECOVERY_ALIGNMENT_BACKUP=""
+
+    [[ -n "${run_root}" ]] || fail "assert_recovery_alignment_operation: run root is required"
+
+    validate_target_id "${target_id}"
+    validate_operation_id "${operation_id}"
+
+    assert_no_conflicting_operation_holds "${target_id}" "${run_root}"
+
+    local marker
+    marker="$(recovery_guard_file "${target_id}" "${run_root}")"
+
+    # 1. There is a recovery at all. A controlled recovery deployment is
+    #    meaningless without one: nothing is recovering, so nothing needs the
+    #    special runtime policy, and an ordinary deployment is the right tool.
+    [[ -e "${marker}" ]] \
+        || fail "${target_id} is not being recovered: no recovery guard at ${marker}. --recovery-operation is only for installing the exact code a recovered host is waiting for; an ordinary deployment needs no recovery operation"
+
+    # 2. It is a real, regular file this credential could not have swapped for
+    #    a symlink pointing at something more convenient.
+    [[ ! -L "${marker}" ]] \
+        || fail "the recovery guard ${marker} is a symlink — refusing to authorize a controlled recovery deployment against it"
+    [[ -f "${marker}" ]] \
+        || fail "the recovery guard ${marker} is not a regular file — refusing to authorize a controlled recovery deployment against it"
+
+    # Ownership and mode are demanded of the INSTALLED run root only, exactly
+    # as the restore guard above treats its own.
+    if [[ "${run_root%/}" == "/home/www/rateguru/run" ]]; then
+        [[ "$(stat -c '%u' "${marker}")" == "0" ]] \
+            || fail "the recovery guard ${marker} is not owned by root — refusing to authorize a controlled recovery deployment against it"
+
+        local marker_mode
+        marker_mode="$(stat -c '%a' "${marker}")"
+
+        (( (8#${marker_mode} & 8#077) == 0 )) \
+            || fail "the recovery guard ${marker} is readable or writable beyond root — refusing to authorize a controlled recovery deployment against it"
+    fi
+
+    jq -e 'type == "object"' "${marker}" >/dev/null 2>&1 \
+        || fail "the recovery guard ${marker} is not a JSON object — refusing to authorize a controlled recovery deployment against it"
+
+    local guard_target guard_operation guard_status guard_sha guard_backup
+    guard_target="$(restore_alignment_read_json "${marker}" '.target')"
+    guard_operation="$(restore_alignment_read_json "${marker}" '.operation')"
+    guard_status="$(restore_alignment_read_json "${marker}" '.status')"
+    guard_sha="$(restore_alignment_read_json "${marker}" '.required_source_sha')"
+    guard_backup="$(restore_alignment_read_json "${marker}" '.backup')"
+
+    # 3-4. The recovery is this target's, and it is the operation the caller
+    #      named.
+    [[ "${guard_target}" == "${target_id}" ]] \
+        || fail "the recovery guard at ${marker} belongs to target ${guard_target:-<unset>}, not ${target_id}"
+
+    [[ "${guard_operation}" == "${operation_id}" ]] \
+        || fail "${target_id} is being recovered by operation ${guard_operation:-<unset>}, not ${operation_id} — a controlled recovery deployment may only serve the operation that is actually recovering the host"
+
+    # 5. Only `awaiting-code` is a code-alignment state. `in-progress` means a
+    #    recovery is still running or died mid-flight, and `failed-held` means
+    #    one failed with data that may already have been activated: neither is
+    #    finished by deploying a commit, and both need manual recovery.
+    [[ "${guard_status}" == "awaiting-code" ]] \
+        || fail "recovery operation ${operation_id} has status '${guard_status:-<unset>}', not 'awaiting-code' — only a completed data recovery waiting for its code may be deployed into; an in-progress or failed-held recovery needs manual recovery, never a deployment"
+
+    [[ "${guard_sha}" =~ ${RESTORE_ALIGNMENT_SOURCE_SHA_REGEX} ]] \
+        || fail "the recovery guard at ${marker} carries no full 40-character commit (${guard_sha:-<unset>}) — a controlled recovery deployment installs an exact commit and will not guess one"
+
+    [[ -n "${guard_backup}" ]] \
+        || fail "the recovery guard at ${marker} names no backup — refusing to deploy into a recovery that cannot say which backup its data came from"
+
+    # 6-7. The operation's own record, read from the workspace the recovery
+    #      created. A guard without one is not a state a deployment may act on.
+    local state_file
+    state_file="$(recovery_operation_state_file "${target_id}" "${run_root}" "${operation_id}")"
+
+    [[ ! -L "${state_file}" ]] \
+        || fail "recovery operation state ${state_file} is a symlink — refusing to authorize a controlled recovery deployment against it"
+    [[ -f "${state_file}" ]] \
+        || fail "recovery operation ${operation_id} has no state file at ${state_file} — refusing to authorize a controlled recovery deployment without the operation's own record"
+
+    jq -e 'type == "object"' "${state_file}" >/dev/null 2>&1 \
+        || fail "recovery operation state ${state_file} is not a JSON object — refusing to authorize a controlled recovery deployment against it"
+
+    local state_target state_status state_phase state_kind state_sha state_backup
+    state_target="$(restore_alignment_read_json "${state_file}" '.target')"
+    state_status="$(restore_alignment_read_json "${state_file}" '.status')"
+    state_phase="$(restore_alignment_read_json "${state_file}" '.phase')"
+    state_kind="$(restore_alignment_read_json "${state_file}" '.operation_kind')"
+    state_sha="$(restore_alignment_read_json "${state_file}" '.backup_source_sha')"
+    state_backup="$(restore_alignment_read_json "${state_file}" '.backup')"
+
+    [[ "${state_target}" == "${target_id}" ]] \
+        || fail "recovery operation ${operation_id} belongs to target ${state_target:-<unset>}, not ${target_id}"
+
+    # 8. It really is a host recovery, and not a restore operation whose state
+    #    happened to be reachable under this path.
+    [[ "${state_kind}" == "host-recovery" ]] \
+        || fail "recovery operation ${operation_id} records operation_kind '${state_kind:-<unset>}', not 'host-recovery'"
+
+    # 9-10. The data recovery completed and is waiting for code — not running,
+    #       not failed, not already deployed into.
+    [[ "${state_status}" == "awaiting-code" ]] \
+        || fail "recovery operation ${operation_id} has status '${state_status:-<unset>}' — a controlled recovery deployment only applies to an operation whose data recovery completed and whose host is waiting for its code"
+
+    [[ "${state_phase}" == "awaiting-code" ]] \
+        || fail "recovery operation ${operation_id} is in phase '${state_phase:-<unset>}', expected awaiting-code"
+
+    # 11-13. The two documents name the same commit and the same backup, and
+    #        the commit is an exact one.
+    [[ "${state_sha}" =~ ${RESTORE_ALIGNMENT_SOURCE_SHA_REGEX} ]] \
+        || fail "recovery operation ${operation_id} records no full 40-character backup source_sha (${state_sha:-<unset>}) — a controlled recovery deployment installs an exact commit and will not guess one"
+
+    [[ "${state_sha}" == "${guard_sha}" ]] \
+        || fail "recovery operation ${operation_id} records backup source ${state_sha}, but its guard requires ${guard_sha} — refusing to deploy into a host whose own recovery documents disagree"
+
+    [[ "${state_backup}" == "${guard_backup}" ]] \
+        || fail "recovery operation ${operation_id} records backup ${state_backup:-<unset>}, but its guard names ${guard_backup} — refusing to deploy into a host whose own recovery documents disagree"
+
+    RECOVERY_ALIGNMENT_REQUIRED_SHA="${guard_sha}"
+    RECOVERY_ALIGNMENT_BACKUP="${guard_backup}"
+
+    log "recovery operation ${operation_id} authorizes a controlled recovery deployment of ${target_id} to ${RECOVERY_ALIGNMENT_REQUIRED_SHA} (backup ${RECOVERY_ALIGNMENT_BACKUP})"
+}
+
+# --- deployment target registry (end) ---
+
+# --- environment contract (begin) ---
+#
+# A target's runtime environment file is CANONICAL on the host: an operator
+# creates it once, backups carry it, a recovery restores it, and no deploy,
+# configure or repair operation ever writes it. That is deliberate, and it has
+# one consequence this section exists to close — the host file can silently
+# fall behind the reviewed template, and nothing notices until the application
+# reads a key that is not there.
+#
+# So the committed template is the DECLARATION of which keys must exist, and
+# this compares it against the real file. KEY NAMES ONLY. No value is read,
+# printed, hashed, measured or compared: a validator that handled values would
+# be a second place a credential can leak from, and a drifted value is not the
+# failure being looked for.
+#
+# There is one list of keys and it lives in the template. Nothing here, and
+# nothing in any caller, restates it.
+
+# The repository-relative path of the template that declares which keys this
+# target's runtime environment file must carry. It is the ONLY declaration of
+# that key set — there is deliberately no second list anywhere.
+#
+# It lives inside this section rather than beside the other registry accessors
+# because it is read by nothing else: the section is self-contained, which is
+# what lets a guard pin what the whole of it may do.
+target_environment_template()     { _target_property "${1-}" '.environment_template' string; }
+
+ENVIRONMENT_TEMPLATE_INSTALLED_ROOT="/home/www/rateguru/config/environment"
+
+# environment_template_file TARGET_ID — the template to judge this target by,
+# resolved for BOTH worlds this runs in.
+#
+# Configure runs from a trusted repository bundle uploaded for that run, where
+# the registry's repo-relative path resolves directly. Deploy runs from the
+# installed operational bundle on a host that has no repository at all, where
+# the same templates were installed as flat files by install-target-operations.
+# The registry declares one path; this resolves it in whichever world is real,
+# and refuses rather than guessing when neither is.
+environment_template_file() {
+    local target_id="${1-}" declared basename_only own_source own_dir repo_root
+
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_ENVIRONMENT_TEMPLATE_FILE:-}" ]]; then
+        printf '%s\n' "${RATEGURU_ENVIRONMENT_TEMPLATE_FILE}"
+        return 0
+    fi
+
+    declared="$(target_environment_template "${target_id}")" || return 1
+
+    # A declaration that could escape its own directory is refused outright:
+    # this value selects a file that decides whether a deploy proceeds.
+    case "${declared}" in
+        /*|*..*) fail "target ${target_id} declares an unusable environment_template: ${declared}" ;;
+    esac
+
+    basename_only="${declared##*/}"
+
+    own_source="${BASH_SOURCE[0]:-}"
+
+    if [[ -n "${own_source}" ]]; then
+        own_dir="$(cd -- "$(dirname -- "${own_source}")" 2>/dev/null && pwd -P)" || own_dir=""
+
+        # In the repository bundle this file is infrastructure/scripts/common,
+        # so the repo root is two levels up and the declared path resolves as
+        # written.
+        if [[ -n "${own_dir}" ]]; then
+            repo_root="$(cd -- "${own_dir}/../.." 2>/dev/null && pwd -P)" || repo_root=""
+
+            if [[ -n "${repo_root}" ]] && [[ -f "${repo_root}/${declared}" ]]; then
+                printf '%s\n' "${repo_root}/${declared}"
+                return 0
+            fi
+        fi
+    fi
+
+    printf '%s/%s\n' "${ENVIRONMENT_TEMPLATE_INSTALLED_ROOT}" "${basename_only}"
+}
+
+# environment_declared_keys FILE — every key the file declares, one per line, in
+# file order.
+#
+# The file is READ, never sourced and never evaluated. It is operator-authored
+# root-owned secret material, so `source`ing it would hand a root shell to
+# whoever last edited it — the same rule install-target-database states for the
+# same file, for the same reason.
+#
+# What counts as a key, and why each rule is here:
+#   * a blank line, and a line whose first non-blank character is #, are not
+#     keys — which is what lets the templates carry section comments;
+#   * a trailing CR is stripped, so a file edited on Windows does not report
+#     every key as missing;
+#   * `export KEY=` is a key, because dotenv accepts it and an operator who
+#     wrote it supplied the key;
+#   * `KEY=` with nothing after it IS a declared key. Every secret in the
+#     templates is deliberately declared-and-blank, so treating empty as absent
+#     would report exactly the keys that matter most as missing.
+environment_declared_keys() {
+    local file="${1-}" line key
+
+    [[ -f "${file}" ]] || return 1
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+
+        [[ -n "${line}" ]] || continue
+        [[ "${line}" != '#'* ]] || continue
+        [[ "${line}" == *=* ]] || continue
+
+        key="${line%%=*}"
+        key="${key#export }"
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+        printf '%s\n' "${key}"
+    done < "${file}"
+}
+
+# Where the resolver below leaves the template it read out of the artifact,
+# relative to the staging directory the caller hands it.
+#
+# A fixed name rather than an output variable, so a caller can run the resolver
+# in a subshell — which is how a caller keeps a refusal from leaking the staging
+# directory: this resolver REFUSES a broken artifact, and a refusal that exits
+# the shell would run no cleanup.
+ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME="candidate-template"
+
+# artifact_environment_template_stage ARTIFACT TARGET_ID STAGE_DIR — the contract
+# the CANDIDATE ARTIFACT declares, read out of the artifact itself.
+#
+# WHY NOT THE INSTALLED TEMPLATE, which is the entire reason this function
+# exists. install-target-operations is not part of an ordinary application
+# deployment, so the operational bundle on a host can legitimately be older than
+# the application being deployed onto it. Judged against the installed template,
+# a host with 70 keys installed, an artifact expecting 71 and a .env carrying 70
+# compares 70 against 70, passes, and installs an application that cannot read
+# the key it needs. That is not hypothetical — an installed deploy on this
+# project's own staging host has already lagged repository behaviour and silently
+# skipped a step the release expected.
+#
+# So the artifact is asked what IT requires. Two members are read OUT of it,
+# never the whole tree and never into the target, so this runs before the
+# deployment history row, before any release directory exists and before anything
+# about the target has changed.
+#
+#   0  STAGE_DIR/candidate-template is a copy of the template the artifact declares
+#   2  this artifact predates the artifact-owned environment contract
+#   -  an artifact that DECLARES a contract it cannot produce fails outright
+#
+# The difference between 2 and a failure is the subtlety. RateGuru must keep
+# deploying artifacts built before this feature existed — refusing them for not
+# carrying a declaration they could not have carried would make old releases
+# undeployable. But feature detection must not become a way for a CORRUPT modern
+# artifact to be waved through: one that names a template and cannot produce it
+# is broken, and there is deliberately no fallback to the installed template.
+#
+# The caller has already rejected unsafe tar paths by the time this runs; what is
+# checked here is the DECLARATION, which is artifact-controlled metadata.
+artifact_environment_template_stage() {
+    local artifact="${1-}" target_id="${2-}" stage_dir="${3-}"
+    local members registry declared member matches staged
+
+    [[ -f "${artifact}" ]] \
+        || fail "cannot read the candidate artifact to establish ${target_id}'s environment contract: ${artifact}"
+
+    [[ -d "${stage_dir}" ]] \
+        || fail "internal: no staging directory for ${target_id}'s environment contract"
+
+    members="$(tar -tzf "${artifact}")" \
+        || fail "cannot list the candidate artifact to establish ${target_id}'s environment contract: ${artifact}"
+
+    # Case A, every branch below: the feature is genuinely absent from this
+    # artifact. Nothing is wrong; there is simply nothing to check.
+    if grep -qxF 'infrastructure/config/deployment-targets.json' <<<"${members}"; then
+        member='infrastructure/config/deployment-targets.json'
+    elif grep -qxF './infrastructure/config/deployment-targets.json' <<<"${members}"; then
+        member='./infrastructure/config/deployment-targets.json'
+    else
+        return 2
+    fi
+
+    registry="${stage_dir}/candidate-registry.json"
+
+    tar -xzOf "${artifact}" "${member}" > "${registry}" \
+        || fail "cannot read the candidate artifact's target registry to establish ${target_id}'s environment contract"
+
+    jq -e . "${registry}" >/dev/null 2>&1 \
+        || fail "the candidate artifact carries a target registry that is not valid JSON — this is a broken artifact, not an older release"
+
+    jq -e --arg id "${target_id}" '.targets | has($id)' "${registry}" >/dev/null 2>&1 || return 2
+    jq -e --arg id "${target_id}" '.targets[$id] | has("environment_template")' "${registry}" >/dev/null 2>&1 || return 2
+
+    declared="$(jq -r --arg id "${target_id}" '.targets[$id].environment_template' "${registry}")"
+
+    # Case B from here down: declared, so the artifact is held to it.
+    [[ -n "${declared}" ]] && [[ "${declared}" != null ]] \
+        || fail "the candidate artifact declares an empty environment_template for ${target_id} — this is a broken artifact, not an older release"
+
+    # Artifact-controlled metadata naming a member this function is about to
+    # read. Any `..` at all is refused rather than only a leading one: a blunt
+    # rule costs a legal-but-bizarre filename and buys certainty.
+    case "${declared}" in
+        /*)   fail "the candidate artifact declares an absolute environment_template for ${target_id} (${declared}) — an artifact may only describe its own tree" ;;
+        *..*) fail "the candidate artifact declares an environment_template containing '..' for ${target_id} (${declared}) — an artifact may only describe its own tree" ;;
+    esac
+
+    # Matched as a whole member name, so no part of the declaration is ever
+    # interpreted as a pattern.
+    if grep -qxF "${declared}" <<<"${members}"; then
+        member="${declared}"
+    elif grep -qxF "./${declared}" <<<"${members}"; then
+        member="./${declared}"
+    else
+        fail "the candidate artifact declares environment_template ${declared}, which it does not contain — this is a broken artifact, not an older release"
+    fi
+
+    # A member present twice would make "which content won?" unanswerable, in
+    # exactly the way a duplicated env key does.
+    matches="$(grep -cxF "${member}" <<<"${members}")"
+
+    (( matches == 1 )) \
+        || fail "the candidate artifact contains ${matches} entries named ${member} — refusing to read a deployment contract from an ambiguous archive"
+
+    staged="${stage_dir}/${ARTIFACT_ENVIRONMENT_TEMPLATE_BASENAME}"
+
+    tar -xzOf "${artifact}" "${member}" > "${staged}" \
+        || fail "cannot read environment_template ${declared} out of the candidate artifact"
+
+    [[ -s "${staged}" ]] \
+        || fail "the candidate artifact declares environment_template ${declared}, which is empty — refusing to treat an empty contract as satisfied"
+}
+
+# assert_environment_contract TARGET_ID ENV_FILE CALLER — the gate itself.
+#
+# Returns 0 when every key the template declares exists exactly once in the
+# runtime file. Otherwise it fails, naming ONLY key names and the file path.
+#
+# Extra keys in the runtime file are reported and allowed. Turning a key an
+# operator added, or one a retired feature left behind, into a refused deploy
+# would be this check causing the outage it exists to prevent. Tightening that
+# is a separate, evidenced decision.
+assert_environment_contract() {
+    local target_id="${1-}" env_file="${2-}" template="${3-}" caller="${4-this operation}"
+    local key
+    local -a template_keys=() runtime_keys=() missing=() duplicate=() extra=()
+    declare -A runtime_count=()
+
+    [[ -n "${template}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: no template was given to compare against"
+
+    [[ -f "${template}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: the template to compare against is not present at ${template}"
+
+    [[ -f "${env_file}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: ${env_file} does not exist. It is canonical on this host and is created once by an operator, never by this operation; nothing was changed"
+
+    [[ -r "${env_file}" ]] \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: ${env_file} is not readable; nothing was changed"
+
+    mapfile -t template_keys < <(environment_declared_keys "${template}")
+    mapfile -t runtime_keys < <(environment_declared_keys "${env_file}")
+
+    (( ${#template_keys[@]} > 0 )) \
+        || fail "${caller} cannot verify ${target_id}'s environment contract: the template ${template} contains no keys — refusing to treat an empty contract as satisfied; nothing was changed"
+
+    for key in ${runtime_keys[@]+"${runtime_keys[@]}"}; do
+        runtime_count["${key}"]=$(( ${runtime_count["${key}"]:-0} + 1 ))
+    done
+
+    for key in "${template_keys[@]}"; do
+        case "${runtime_count["${key}"]:-0}" in
+            0) missing+=("${key}") ;;
+            1) ;;
+            *) duplicate+=("${key}") ;;
+        esac
+    done
+
+    # A key declared twice is not a harmless extra: dotenv resolves one of them
+    # and which one is not obvious from reading the file, so the operator who
+    # edited it and the application can disagree about the value in force.
+    # Checked across the whole runtime file, not only the declared keys.
+    for key in "${!runtime_count[@]}"; do
+        if (( runtime_count["${key}"] > 1 )); then
+            case " ${duplicate[*]-} " in
+                *" ${key} "*) ;;
+                *) duplicate+=("${key}") ;;
+            esac
+        fi
+    done
+
+    for key in "${!runtime_count[@]}"; do
+        case " ${template_keys[*]} " in
+            *" ${key} "*) ;;
+            *) extra+=("${key}") ;;
+        esac
+    done
+
+    if (( ${#missing[@]} > 0 )) || (( ${#duplicate[@]} > 0 )); then
+        printf 'ENVIRONMENT CONTRACT: BROKEN\n' >&2
+        printf '  target:   %s\n' "${target_id}" >&2
+        printf '  declared: %s\n' "${template}" >&2
+        printf '  runtime:  %s\n' "${env_file}" >&2
+
+        if (( ${#missing[@]} > 0 )); then
+            printf '  MISSING (declared by the template, absent from the runtime file):\n' >&2
+            for key in $(printf '%s\n' "${missing[@]}" | sort); do
+                printf '    %s\n' "${key}" >&2
+            done
+        fi
+
+        if (( ${#duplicate[@]} > 0 )); then
+            printf '  DUPLICATE (declared more than once in the runtime file):\n' >&2
+            for key in $(printf '%s\n' "${duplicate[@]}" | sort); do
+                printf '    %s\n' "${key}" >&2
+            done
+        fi
+
+        printf '  No value was read, printed or compared — key names only.\n' >&2
+
+        local remedy=""
+
+        if (( ${#missing[@]} > 0 )) && (( ${#duplicate[@]} > 0 )); then
+            remedy="add the missing key(s) and remove the repeated declaration(s)"
+        elif (( ${#missing[@]} > 0 )); then
+            remedy="add the missing key(s)"
+        else
+            remedy="leave one declaration of the repeated key(s) and remove the rest"
+        fi
+
+        fail "${caller} refuses to continue: ${target_id}'s environment file does not satisfy its declared contract. Edit ${env_file} on this host to ${remedy}; this operation never writes it. Nothing was changed"
+    fi
+
+    if (( ${#extra[@]} > 0 )); then
+        log "environment contract: ${#template_keys[@]} declared key(s) present; ${#extra[@]} additional key(s) in ${env_file} are left as they are ($(printf '%s\n' "${extra[@]}" | sort | tr '\n' ' '))"
+    else
+        log "environment contract: all ${#template_keys[@]} declared key(s) present in ${env_file}"
+    fi
+}
+# --- environment contract (end) ---

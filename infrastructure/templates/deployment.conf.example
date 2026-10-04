@@ -1,0 +1,13 @@
+# Non-secret, host-global deployment settings installed as:
+# /home/www/rateguru/config/deployment.conf
+#
+# Target-specific values (application root, runtime user, deploy user,
+# database name, retention, ...) live in the target registry
+# (deployment-targets.json), never here — this file only carries settings
+# that apply to the whole host regardless of which target is being operated
+# on.
+
+RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+PHP_BIN=/usr/bin/php8.5
+PHP_FPM_SERVICE=php8.5-fpm

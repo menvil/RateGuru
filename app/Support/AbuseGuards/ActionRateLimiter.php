@@ -11,11 +11,11 @@ final class ActionRateLimiter
         string $key,
         int $maxAttempts,
         int $decaySeconds,
-        string $message = 'Too many attempts. Please try again later.',
+        ?string $message = null,
     ): void {
         if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
             throw RateLimitExceededException::make(
-                message: $message,
+                message: $message ?? __('ui.rate_limit.default'),
                 retryAfterSeconds: RateLimiter::availableIn($key),
             );
         }

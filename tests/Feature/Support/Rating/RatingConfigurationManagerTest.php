@@ -42,13 +42,13 @@ it('returns active rating groups with active options in sort order', function ()
 
 it('returns an active rating group by key with active options', function () {
     $group = RatingGroup::factory()->create([
-        'key' => 'source',
+        'key' => 'type',
         'is_active' => true,
     ]);
     $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => true]);
     RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
 
-    $found = app(RatingConfigurationManager::class)->activeGroupByKey('source');
+    $found = app(RatingConfigurationManager::class)->activeGroupByKey('type');
 
     expect($found?->is($group))->toBeTrue()
         ->and($found?->options->modelKeys())->toBe([$option->id]);
@@ -56,11 +56,11 @@ it('returns an active rating group by key with active options', function () {
 
 it('does not return inactive rating groups by key', function () {
     RatingGroup::factory()->create([
-        'key' => 'source',
+        'key' => 'type',
         'is_active' => false,
     ]);
 
-    expect(app(RatingConfigurationManager::class)->activeGroupByKey('source'))->toBeNull();
+    expect(app(RatingConfigurationManager::class)->activeGroupByKey('type'))->toBeNull();
 });
 
 it('eager loads options for active rating groups', function () {

@@ -1,0 +1,612 @@
+# Prepare host
+
+Phase 7.2B. Turning a clean supported VPS into infrastructure ready to host
+one RateGuru target, as a single resumable operation:
+
+- `infrastructure/scripts/prepare-host` — the server-side orchestrator;
+- `infrastructure/scripts/install-target-prerequisites` — external material;
+- `infrastructure/scripts/install-target-database` — the target's PostgreSQL
+  role and database;
+- `.github/actions/prepare-rateguru-host` — the GitHub transport;
+- `.github/workflows/prepare-staging-host.yml` — **Prepare staging host**;
+- `.github/workflows/prepare-production-host.yml` — **Prepare production
+  host** (fail-closed until Phase 8; see below).
+
+## What Prepare Host is, and is not
+
+```text
+clean supported Ubuntu VPS
+  → RateGuru infrastructure installed
+  → target prerequisites present
+  → target infrastructure configured
+  → empty database/role prerequisites ready
+  → verification PASS
+  → PREPARED FOR TARGET
+```
+
+At the end of a successful run it is **completely correct** that the host has:
+
+- no restored database contents;
+- no restored media;
+- no historical release;
+- **no current application release at all**.
+
+The host is infrastructure-ready, not application-recovered. `prepare-host
+--verify` says so explicitly:
+
+```text
+TARGET PREPARED: YES
+APPLICATION DEPLOYED: NOT REQUIRED — a prepared target legitimately has no release yet
+```
+
+Prepare Host is therefore **not**:
+
+| It is not | That is |
+| --- | --- |
+| a deploy | `Deploy to staging` / `Release to production` |
+| a rollback | `Rollback staging` / `Rollback tits.guru` |
+| a data restore | Phase 7.3 — Restore Target Data |
+| a drift repair | Phase 7.5 — Repair Target |
+| replacement-server recovery | Recover Host — [`recover-host.md`](recover-host.md) |
+| a target another operation is holding | finish that operation first — `--apply` refuses under a restore or recovery guard |
+| production activation | Phase 8 |
+
+## Operator usage
+
+Run the **Prepare staging host** workflow from the Actions tab. It takes no
+inputs: the environment is `staging`, the target is `staging-main`, and the
+tooling always comes from `develop`. There is nothing to select, and
+deliberately no application ref, no mode selector and no target dropdown.
+
+On the host itself, the same operation is available directly from a checkout
+of the trusted bootstrap bundle:
+
+```bash
+sudo infrastructure/scripts/prepare-host --check  --target staging-main
+sudo infrastructure/scripts/prepare-host --apply  --target staging-main --material-dir /root/rateguru-prepare-<id>/material
+sudo infrastructure/scripts/prepare-host --verify --target staging-main
+```
+
+`--check` is read-only and dependency-aware; `--apply` is convergent;
+`--verify` is the gate. There is no `--force`, no `--skip` and no
+`--continue-on-error`.
+
+## The pipeline, and why the order is what it is
+
+```text
+5.2 install-bootstrap-runtime                      base packages
+  → lifecycle gate (target must be active)
+  → 7.2 install-target-prerequisites --scope host    Nginx-referenced material
+  → 5.x bootstrap-host                               5.2 → 5.3 → 5.4 → preflight
+  → 7.2 install-target-prerequisites --scope target  .env, deploy key, rclone
+  → 7.2 install-target-database                      PostgreSQL role/database
+  → final prepare-host verification
+```
+
+The gate sits where it does for one reason: reading a JSON registry needs `jq`,
+and a clean Ubuntu image has none. The runtime slice is the only step allowed
+to precede it, and it installs packages from a committed list — no RateGuru
+identity, no target directory, no secret, nothing target-specific. On any host
+that already has `jq` — which is every host that has ever been prepared — the
+gate runs first, before anything at all.
+
+Each step sits at the only point in the sequence where it can succeed:
+
+- **Runtime first**, because everything after it needs tools a clean Ubuntu
+  image does not carry — `jq` above all, without which the target registry
+  cannot be read. It is one of Phase 5's own authoritative installers,
+  invoked rather than reimplemented, and it installs packages only: no
+  RateGuru identity, no target directory, no secret. `bootstrap-host`
+  re-verifies the same slice below and SKIPs it.
+- **Host-scope material next**, because `install-bootstrap-services` (slice
+  5.4) fails closed when an Nginx vhost names a file that does not exist.
+  This is the one manual step the clean-host bootstrap runbook still asks an
+  operator to perform between `--check` and `--apply`; automating it is what
+  makes preparation a single operation.
+- **`bootstrap-host` then runs its whole pipeline**, unchanged and
+  undecomposed. Prepare Host orchestrates it; it never absorbs it.
+- **Target-scope material after**, because `shared/.env` and the deploy
+  user's `authorized_keys` live inside directories and accounts slice 5.3
+  creates.
+- **The database last**, because it needs PostgreSQL *and* the credentials
+  inside `shared/.env`.
+
+`prepare-host` owns ordering, per-slice status, fail-fast behaviour and the
+readiness aggregation — nothing else. Every child remains authoritative for
+its own contract.
+
+## Recovery preparation: the material comes from the backup
+
+`prepare-host --apply --target T --material-dir SEED --recovery-backup
+YYYYMMDD-HHMMSS` prepares a **clean replacement host for a clean-host
+recovery**. The difference from an ordinary preparation is exactly one thing —
+where the external material comes from — and it changes the pipeline into:
+
+```text
+install-bootstrap-runtime                       base packages, rclone, jq
+  → lifecycle gate (target must be active)
+  → fetch-recovery-material                     the backup's bootstrap subset → effective material
+  → install-target-prerequisites --scope host    from the effective material
+  → bootstrap-host
+  → OFFSITE-WRITE HOLD                           /home/www/rateguru/run/offsite-write-hold
+  → install-target-prerequisites --scope target  from the effective material
+  → install-target-database
+  → final prepare-host verification
+```
+
+`--material-dir` names a **seed** directory holding exactly two files,
+`rclone-config` (the recovery offsite credential) and
+`deploy-authorized-keys` (the deploy public key, derived on the runner) —
+anything else in it is refused, because a recovery takes the target's
+environment and host material from the backup itself, never from a supplied
+file. `fetch-recovery-material` downloads only `manifest.json`,
+`release.json`, `environment.env`, `recovery-material.tar.gz` and `SHA256SUMS`
+of the named backup from the fixed remote (never the data, never "latest",
+never an arbitrary path), verifies the manifest is the target's own and is
+**schema 3**, verifies the subset's checksums, has the prerequisite installer
+judge the recovery material archive before extracting a byte, and composes a
+root-only 0700 effective material directory under `/root`: `laravel-env` from
+`environment.env`, every host-scope logical name from the archive, and the two
+seeds. The prerequisite slices are fed that directory, and it is removed when
+the run ends, however it ends.
+
+The **offsite-write hold** is placed after host bootstrap created the run root
+and before the target slice installs the offsite credential, so the replacement
+machine can never upload into, or prune, the namespace the target's live host
+owns: `backup-cycle`, `offsite-backup` and `offsite-retention` refuse on it
+(`OFFSITE WRITES: HELD`). A hold that already exists is kept, never rewritten,
+and nothing in preparation releases it; the summary reports it whenever it is
+present. See [`recover-host.md`](recover-host.md) and
+[`github-recover.md`](github-recover.md) §9.
+
+`--recovery-backup` requires an exact timestamp (there is no `latest`). With
+`--apply` it requires `--material-dir` (the seed), and the run refuses to
+report the host prepared unless the hold is still in place after every slice
+has run. With `--verify` it verifies a recovery preparation **as one**: the
+ordinary read-only walk, plus the requirement that the offsite-write hold
+exists and is a genuine hold document this script can read —
+`RECOVERY PREPARATION: HELD …`, naming who placed it and for which backup —
+so a verification can never call a replacement machine prepared while its
+offsite writers are unfenced, whatever happened between the apply and the
+verify. The hold is host-global and is kept, never rewritten: one placed by
+an earlier preparation or recovery of the same machine fences it just the
+same, so its identity is reported rather than enforced. The shared GitHub
+action passes the backup to both invocations from the same input. `--check`
+never takes it. An ordinary preparation — without it — is unchanged: material
+from the supplied directory, no fetch, no hold, and `--verify` demands none
+(it still reports a hold it happens to find).
+
+## Convergence and idempotency
+
+Per slice: run the child's own verification; if it passes, **SKIP**;
+otherwise run the child's own `--apply` and require its verification
+afterwards. Nothing is reinstalled "to make sure", because making sure is
+what overwrites a live `.env` and rotates a working credential.
+
+On an already prepared host — including one that is already deployed and
+serving traffic — a second run is SKIPs throughout. It must not, and does
+not:
+
+- reinstall anything blindly;
+- destroy or modify database contents;
+- rotate a secret or replace a TLS key;
+- overwrite `.env`, `authorized_keys`, `htpasswd` or `rclone.conf`;
+- recreate a user destructively;
+- break the deployed `current` release, delete releases or touch storage;
+- run a migration or restore a backup.
+
+A failed run stops at the failing slice, leaves earlier slices converged and
+resumes there on the next run.
+
+## Minimum clean-host contract
+
+Intentionally small:
+
+- a supported clean Ubuntu release (the Phase 5.1 preflight's hard gate);
+- SSH connectivity;
+- the bootstrap/recovery credential;
+- root, or passwordless non-interactive `sudo`;
+- the base shell/core utilities needed to receive and run bootstrap material.
+
+The host is **not** required to have Git, Composer, Node, npm, application
+source, RateGuru wrappers, RateGuru system users or the RateGuru directory
+layout. Those are the bootstrap system's job. `jq` is not required either: it
+arrives with the runtime slice, which is precisely why that slice runs first
+and why it is the only step allowed to precede the lifecycle gate — it
+installs packages from a committed list and provisions nothing
+target-specific.
+
+## Trusted bootstrap bundle
+
+A clean host has no RateGuru repository, and no manual `git clone` is needed.
+GitHub Actions is the control plane:
+
+```text
+checkout the trusted control plane (main for production, develop for staging)
+  → tar the infrastructure/ directory (nothing else)
+  → scp to the bootstrap user's 0700 staging directory
+  → move into /root/rateguru-prepare-<run>, root:root, go-rwx
+  → run prepare-host --apply, then prepare-host --verify
+  → remove the remote directory (on success AND on failure)
+  → remove the local key, known_hosts and material
+```
+
+The bundle contains only `infrastructure/` — every bootstrap and preparation
+script resolves every file it needs beneath that one directory. No
+application artifact is built or uploaded, and no application ref is ever
+involved.
+
+## Deployment protocol compatibility
+
+An application artifact can be newer than the privileged operational bundle
+installed beside it. Prepare Host is what installs that bundle, and it is not
+part of an ordinary deployment, so a host can legitimately be running an older
+`deploy` than the release it is handed — and that engine can simply not
+implement behaviour the release was built expecting. This has happened here for
+real: an installed `deploy` lagged repository behaviour and silently skipped a
+step the release expected. Silently is the problem.
+
+So the two sides declare themselves and `deploy` compares them before it
+touches anything:
+
+| Side | Declaration | Where it comes from |
+| --- | --- | --- |
+| the artifact | minimum protocol required (`N`) | `release.json`'s `deployment_protocol_min`, written at build time from the application source's own `infrastructure/config/deployment-protocol.json` |
+| the host | maximum protocol supported (`M`) | `tooling.supported` in `/home/www/rateguru/config/deployment-protocol.json`, installed by `install-target-operations` — that is, by Prepare Host |
+
+```text
+N <= M → deploy proceeds
+N >  M → deploy refuses → run Prepare Host → retry deploy
+```
+
+A refusal names both numbers and the one operation that fixes it. `deploy`
+never updates the bundle itself: self-updating a privileged engine out of the
+artifact it is being asked to trust would make the artifact the authority on
+its own trustworthiness. An artifact may state what it requires; only this
+runbook's operation may state what a host supports.
+
+A protocol version is an integer in `1..2147483647`, and every place a version
+is accepted enforces the same range: the committed contract, the application
+source's copy at build time, the candidate's `deployment_protocol_min`, and the
+installed `tooling.supported`. The ceiling is not decoration. JSON has no
+integer limit, so an unbounded contract could state `9223372036854775808`;
+Bash signed arithmetic wraps that to `-9223372036854775808`, the comparison
+answers "not greater", and an artifact requiring a protocol nothing implements
+would deploy. A version outside the range is refused where it is read, before
+anything is compared.
+
+Two deliberate asymmetries:
+
+* **An artifact whose `release.json` is an object with no
+  `deployment_protocol_min` is protocol 1.** Releases built before this contract
+  existed must stay deployable — a clean-host recovery installs exactly such a
+  historical release — and `deploy` logs that it drew the legacy conclusion
+  rather than defaulting silently. That is the *only* legacy shape: a
+  `release.json` that is an array, string, number or boolean, or that is missing
+  entirely, is a broken artifact and refuses. An artifact has always carried a
+  `release.json`, and `assert_controlled_artifact_identity` already refuses one
+  without it.
+* **A missing or malformed contract on the HOST refuses the deployment, with no
+  fallback.** That file is installed by the same operation that installs the
+  engine reading it, so a broken one means the bundle is not in a state to
+  deploy onto. Run Prepare Host.
+
+An archive carrying both `release.json` and `./release.json` is refused outright:
+the two are the same path once extracted, so the gate would be reading one
+declaration while extraction left the other on disk, and there is no answer to
+which is the contract.
+
+The compatibility gate applies to a controlled restore or recovery alignment
+exactly as it does to an ordinary deployment, deliberately unlike the
+environment contract, which *is* exempt there. That exemption is about
+historical application *state*: a backup's `environment.env` belongs to the
+commit it was taken from and may legitimately predate keys that exist now. This
+is about whether the engine running right now can carry out the deployment at
+all — just as true when the release being installed is historical.
+
+### Protocol 1 is the bootstrap baseline
+
+Both numbers are `1` today, so no artifact *requires* anything new and no
+deployment outcome changes on account of a version comparison.
+
+**That is not the same as "nothing to do".** The protocol-aware `deploy` treats
+the installed contract as mandatory and refuses without it, so a host that
+already has an older bundle has no
+`/home/www/rateguru/config/deployment-protocol.json` and its next deployment
+fails closed with:
+
+```text
+the installed deployment protocol contract is missing:
+/home/www/rateguru/config/deployment-protocol.json. Run Prepare Host to install
+the trusted operational bundle, then retry deployment
+```
+
+> **Every existing host must run Prepare Host once, before its next deployment.**
+> That is the operation that installs the protocol-aware `deploy` together with
+> the contract it reads. Until it has run, deployments to that host refuse — by
+> design, because a host whose engine and contract disagree is exactly what this
+> handshake exists to catch.
+
+Prepare Host is idempotent and converges, so running it on an already-prepared
+host is safe and is the normal way to adopt this.
+
+Only once a host is prepared may a protocol ever be raised:
+
+> Never raise `artifact.minimum_required` above 1 until all hosts that may
+> deploy that artifact have first installed the protocol-aware operational
+> bundle via Prepare Host.
+
+There is deliberately no automatic host migration: raising the floor before the
+hosts have moved would hand them artifacts they must refuse. The order is
+always Prepare Host first, then the artifact.
+
+## Credential separation
+
+Two credentials, two lifecycles, and neither substitutes for the other:
+
+| Credential | Used by | Reaches |
+| --- | --- | --- |
+| `DEPLOY_SSH_KEY` | deploy, rollback, deployment markers | the restricted deploy user and the `rateguru-*` sudo wrappers only |
+| `BOOTSTRAP_SSH_KEY` | Prepare Host (and later Recover Host) | root, or passwordless `sudo` |
+
+Ordinary deployment never uses the bootstrap credential, and Prepare Host
+refuses to fall back to the deployment credential — that key is restricted to
+the deploy wrappers and cannot bootstrap a host.
+
+Every bootstrap SSH and SCP invocation uses `BatchMode=yes`,
+`IdentitiesOnly=yes`, `StrictHostKeyChecking=yes` and an explicit
+`known_hosts`. There is no TOFU, no `StrictHostKeyChecking=no` and no
+password fallback anywhere in the path.
+
+## GitHub Environment contract
+
+Configured per GitHub Environment (`staging`, `production-tits-guru` — named
+after the target it carries the credentials for, not after the environment
+class). **No secret value belongs in this document or in any other repository
+file.**
+
+### Variables
+
+| Variable | Meaning |
+| --- | --- |
+| `DEPLOY_HOST` | The physical host currently serving the target. The two Prepare workflows pass it deliberately: a GitHub Environment is where a logical target is bound to a physical host, and that host is the same one whether we deploy to it or prepare it. The action itself takes an explicit `bootstrap-host` and does not decide the binding — a host recovery prepares a REPLACEMENT machine through the same action, and repointing the binding is a separate deliberate act either way. See [`github-recover.md`](github-recover.md). |
+| `DEPLOY_PORT` | SSH port. |
+| `BOOTSTRAP_USER` | The privileged bootstrap/recovery user: root, or a passwordless sudoer. |
+
+### Secrets
+
+| Secret | Meaning |
+| --- | --- |
+| `BOOTSTRAP_SSH_KEY` | Privileged bootstrap SSH private key. |
+| `BOOTSTRAP_KNOWN_HOSTS` | Verified `known_hosts` entry for the bootstrap host. |
+| `PREPARE_LARAVEL_ENV` | The target's Laravel environment file. |
+| `PREPARE_DEPLOY_AUTHORIZED_KEYS` | `authorized_keys` for the restricted deploy user. |
+| `PREPARE_RCLONE_CONFIG` | rclone configuration for offsite backups. |
+| `PREPARE_BASIC_AUTH` | Basic Auth htpasswd hashes. |
+| `PREPARE_TLS_CERTIFICATE` | TLS certificate chain for the target's public hostname. |
+| `PREPARE_TLS_PRIVATE_KEY` | TLS private key for the target's public hostname. |
+| `PREPARE_TLS_DHPARAMS` | Shared TLS DH parameters. |
+| `PREPARE_NGINX_TLS_OPTIONS` | Shared Nginx TLS options snippet. |
+| `PREPARE_MAIL_TLS_CERTIFICATE` | TLS certificate chain for the mail-capture vhosts. |
+| `PREPARE_MAIL_TLS_PRIVATE_KEY` | TLS private key for the mail-capture vhosts. |
+
+Every `PREPARE_*` secret is **optional**. An unset secret is simply not
+uploaded, and the server preserves whatever the host already holds. On an
+already-prepared host none of them are required at all.
+
+A **recovery preparation** — the shared action's optional `recovery-backup`
+input, set only by the Recover workflows — reads **none of the `PREPARE_*`
+secrets**: it seeds `rclone-config` from `RECOVERY_RCLONE_CONFIG` and
+`deploy-authorized-keys` from the public half of `DEPLOY_SSH_KEY`, and the
+action refuses any other material beside a recovery backup. See
+[`github-recover.md`](github-recover.md) §5.
+
+## External prerequisites, and the safe-existing-file contract
+
+The prerequisite set is derived, never hard-coded in GitHub. Registry-owned
+paths come from the target registry; Nginx-owned paths are parsed out of this
+repository's committed vhosts using the same directive contract
+`install-bootstrap-services` gates on — so the two can never disagree about
+which files a host must have.
+
+For `staging-main` that resolves to ten logical prerequisites:
+
+| Logical name | Scope | Destination owner |
+| --- | --- | --- |
+| `basic-auth` | host | the target's Nginx vhost |
+| `tls-certificate` / `tls-private-key` | host | the target's Nginx vhost |
+| `tls-dhparams` / `nginx-tls-options` | host | the target's Nginx vhost |
+| `mail-tls-certificate` / `mail-tls-private-key` | host | the shared mail-capture vhosts |
+| `laravel-env` | target | the target registry |
+| `deploy-authorized-keys` | target | the target registry |
+| `rclone-config` | target | host-global root configuration |
+
+Each row also declares the owner, group and mode its destination must have —
+the runtime identity for `.env`, the deploy user for `authorized_keys`,
+`root:www-data` for the htpasswd, and so on. Those are installed on material
+this operation delivers, and verified on material that was already there.
+
+The rules, in full:
+
+| Destination | Supplied material | Result |
+| --- | --- | --- |
+| absent | supplied | **install** |
+| absent | none | **MISSING** — apply fails closed; nothing is invented |
+| present | none | **PASS**, untouched |
+| present | identical | **PASS**, untouched — not even rewritten |
+| present | different | **CONFLICT** — apply fails closed |
+
+That last row is the important one. A differing `.env`, TLS private key,
+htpasswd or `rclone.conf` means the supplied material and the live host
+disagree, and the safe response is to say so — not to silently rotate a
+credential every running process is holding. Rotation is a separate,
+deliberate operation.
+
+Secrets are compared, never read. A conflict reports only that the two
+differ: no content, no length, no hash, no byte offset.
+
+### Symlinked destinations
+
+A destination may be a **symlink only where an ACME client actually publishes
+one**, and all of the following must hold together:
+
+- it is one of the four TLS rows (`tls-certificate`, `tls-private-key`,
+  `mail-tls-certificate`, `mail-tls-private-key`);
+- the destination is exactly
+  `/etc/letsencrypt/live/<certificate>/fullchain.pem` or
+  `…/privkey.pem`, with the leaf matching the row;
+- the link resolves to that **same certificate's** numbered archive file,
+  `/etc/letsencrypt/archive/<certificate>/<leaf><version>.pem`.
+
+That is precisely what certbot publishes, and such a link is accepted as
+present and never written through. Every condition is load-bearing: the logical
+name alone, or a loose "points somewhere inside `/etc/letsencrypt`" test, would
+let a link at an allowed path be repointed at another certificate's key — or at
+any other file in the tree — and preparation would bless the substitution as
+correct state. A link resolving to nothing, to something that is not a regular
+file, or anywhere other than its own archive file fails closed.
+
+Everywhere else a link is refused outright, and that is a security property
+rather than tidiness: a target's `shared/` directory is writable by the
+application's own runtime user, so accepting a link there would let a
+compromised runtime replace `.env` with a pointer at attacker-controlled
+material and have preparation bless it as present and correct.
+
+### Ownership and mode
+
+Verification enforces the **owner, group and mode the prerequisite table
+declares**, exactly — not merely presence, and not merely the absence of
+world-read. `--apply` checks the same contract on everything already present
+*before* it installs anything, so a host with one prerequisite absent and
+another one's ownership wrong is never left half-converged.
+
+Presence alone is not readiness. A `shared/.env` that drifted to `root:root
+0600` is perfectly protected from outsiders and completely unreadable by the
+PHP-FPM and queue workers that have to read it; an htpasswd that lost its
+`www-data` group breaks Nginx the same way; an `authorized_keys` or
+`rclone.conf` with the wrong owner is simply ignored. Each of those is a target
+verification would otherwise call prepared and that would then fail on its first
+real use, so each is a failure here, with the exact `chown`/`chmod` to run in
+the message.
+
+`stat` dereferences, so for the ACME material that legitimately is a link the
+file behind it is checked — which is what any reader actually opens, and whose
+modes certbot already sets to what this table declares.
+
+Supplied material has its trailing newlines normalized to exactly one, since
+GitHub secrets do not record whether the operator's file ended with one.
+
+## Database prerequisites
+
+`install-target-database` closes the clean-host gap Phase 5 deliberately left
+open: it creates the target's PostgreSQL role and database from credentials
+the operator already supplied in `shared/.env`, and generates nothing.
+
+On a clean host it creates the role (`LOGIN NOSUPERUSER NOCREATEDB
+NOCREATEROLE NOREPLICATION`), creates the database owned by that role, grants
+`CONNECT`, and then proves the target's own credentials can connect. On an
+already-prepared host both objects are SKIPped.
+
+It also refuses a pre-existing role that cannot log in, or that holds
+`SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION` or `BYPASSRLS`: "it exists"
+is not "it is safe to hand the application", and this installer never alters an
+existing role. Both checks run **before** anything is created, so a refused run
+never leaves a database and a `CONNECT` grant behind for an account it went on
+to reject.
+
+It never, in any mode:
+
+- drops a role or a database;
+- recreates, renames or truncates anything;
+- reads, alters or deletes a row of application data;
+- resets a schema or runs a migration — schema is applied by `deploy
+  --migrate`;
+- rotates the password of a role that already exists;
+- restores a backup.
+
+Where an existing object cannot be proven to match the intended
+configuration — a database owned by someone else, credentials that do not
+connect, a registry/`.env` disagreement — it **fails closed** and reports the
+mismatch. Reconciling genuine drift is Repair Target (Phase 7.5).
+
+The credentials are read from `shared/.env` by a deliberately limited reader:
+six keys, plain string extraction, never sourced and never `eval`'d. A `.env`
+is operator-authored secret material, and executing it as shell in a root
+process would hand whoever wrote it a root shell. The password reaches
+PostgreSQL on stdin or through `PGPASSWORD`; it never appears in an argument
+vector, a log line or a summary.
+
+## Target lifecycle
+
+`staging-main` is `lifecycle=active`; `tits-guru` is `lifecycle=planned`.
+Phase 7.2 changes neither.
+
+`prepare-host` refuses any target that is not `active`, **before any
+target-specific mutation**. Both target-aware children enforce the same gate
+independently. Host-global bootstrap is therefore not a loophole for silently
+provisioning a planned production target.
+
+### Prepare tits.guru host
+
+The workflow exists, is wired to the same shared action, and is pinned to the
+real `tits-guru` target ID — so a real run fails closed on the server's
+lifecycle gate today. That is deliberate: it proves production will be
+prepared by exactly the same mechanism once Phase 8 activates and provisions
+the target, rather than by a separate production-shaped procedure invented
+under pressure on launch day. The `production-tits-guru` GitHub Environment's
+own protection rules stay authoritative on top of it.
+
+## Boundaries
+
+Prepare Host is RateGuru repository infrastructure, not a general
+configuration-management engine for the machine. It touches only resources
+this repository's own contract declares — resolved from the target registry
+or from a committed RateGuru vhost — and never unrelated projects,
+databases, vhosts, PHP-FPM pools, Supervisor programs, system users or
+`/home/www` trees. It never deletes host configuration merely because the
+repository does not know about it.
+
+## Concurrency
+
+`Prepare staging host` runs in the `rateguru-staging-deployment` concurrency
+group — the same domain as `Deploy to staging`, `Rollback staging` and the
+staging verification step of a production release, and the domain future
+restore and recover operations will join. `Prepare tits.guru host` runs in
+`rateguru-production-release`. Neither cancels an in-flight run. This is
+orchestration on top of, never a replacement for, the server-side deployment
+lock.
+
+## Before a recovery preparation: the read-only preflight
+
+A recovery preparation is preceded, in the Recover workflows, by
+`infrastructure/scripts/recovery-host-preflight --check --target T` on the
+replacement machine — read-only, and refusing by name a machine that is not
+Ubuntu 22.04 on x86_64 or that already carries any RateGuru state (a
+`/home/www/rateguru` tree, a release, a guard, a RateGuru database or role,
+a managed Nginx site, PHP-FPM pool, Supervisor program, cron entry, systemd
+unit, sudo wrapper, sudoers grant, or account). Preparation is convergent
+and has no clean-host precondition of its own; the preflight is where that
+question is asked, before the first byte of preparation reaches the host.
+Its `--operator-guide` prints the compact operator instruction; the full one
+is [`clean-host-recovery.md`](clean-host-recovery.md).
+
+## What builds on this
+
+Restore Target Data, Repair Target and Recover Host all build on this
+operation and are explicitly out of scope here.
+
+Recover Host is the closest neighbour, and the boundary is worth stating
+plainly: a recovery REQUIRES a prepared host and refuses to run without one —
+it runs `prepare-host --verify` as its first precondition. It never prepares
+one. Preparation stays the owner of packages, identities, layout,
+Nginx/FPM/Supervisor/cron, external material, `shared/.env`,
+`authorized_keys`, rclone, TLS, Basic Auth and the empty database; recovery
+fills that prepared, empty target with data and code and touches none of it.
+A recovery preparation (`--recovery-backup`, above) is still a preparation:
+the same slices, the same installers, the same verification — only the
+material's origin changes.
+
+A recovery rebuilds a lost application from the `source_sha` every backup
+already carries in its `release.json`, through the same single build
+implementation a normal release uses — there is no durable artifact archive.
+See [`recover-host.md`](recover-host.md).

@@ -1,15 +1,12 @@
 <?php
 
-it('has import translation keys for supported locales', function () {
-    foreach (['en', 'ru', 'bg'] as $locale) {
-        app()->setLocale($locale);
+use Illuminate\Support\Facades\Lang;
 
-        expect(__('import.from_url'))->not->toBe('import.from_url');
-        expect(__('import.preview'))->not->toBe('import.preview');
-        expect(__('import.errors.unsupported'))->not->toBe('import.errors.unsupported');
-        expect(__('import.manual_upload_hint'))->not->toBe('import.manual_upload_hint');
+it('has import translation keys in every supported locale', function (string $locale) {
+    foreach (['import.from_url', 'import.preview', 'import.errors.unsupported', 'import.manual_upload_hint'] as $key) {
+        expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-});
+})->with(supportedLocales());
 
 it('has all required import keys in english', function () {
     app()->setLocale('en');

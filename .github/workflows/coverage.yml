@@ -24,14 +24,35 @@ permissions:
 
 jobs:
   coverage:
-    name: Coverage (Pest + PCOV)
-    runs-on: ubuntu-latest
+    name: Coverage (Pest + PostgreSQL + PCOV)
+    runs-on: ubuntu-24.04
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
     outputs:
       assertions: ${{ steps.coverage-results.outputs.assertions }}
       errors: ${{ steps.coverage-results.outputs.errors }}
       failures: ${{ steps.coverage-results.outputs.failures }}
       percentage: ${{ steps.coverage-results.outputs.percentage }}
       tests: ${{ steps.coverage-results.outputs.tests }}
+    services:
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -39,8 +60,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, pcov
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql, pcov, gd, exif
           coverage: pcov
 
       - name: Setup Node
@@ -60,17 +81,40 @@ jobs:
           composer install --no-interaction --prefer-dist --no-progress
           npm ci
 
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
+      - name: Install rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
+
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
-          touch database/database.sqlite
           npm run build
 
       # Coverage measures the Unit and Feature suites only. The Browser suite
       # is exercised (and gated) by the CI "Tests" job; adding it here hangs on
       # PCOV coverage collection from a real Chromium and contributes just
       # +0.16% (9 of 5625 statements), nearly all already hit by Feature tests.
+      #
+      # The Architecture suite is absent for a different reason: it measures
+      # infrastructure/, not app/, so it contributes essentially nothing to the
+      # figure this job reports while costing the whole suite's runtime. It is
+      # gated by the CI "Architecture tests" job.
       - name: Run tests with coverage
         id: coverage
         shell: bash
@@ -149,7 +193,7 @@ jobs:
   coverage-summary:
     name: Summary
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: coverage
     permissions:
       contents: read
@@ -216,15 +260,25 @@ jobs:
               const existingComments = comments.filter((comment) =>
                 comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
               );
+              const [existing, ...duplicateComments] = existingComments;
 
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pullRequest.number,
-                body,
-              });
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  body,
+                });
+              }
 
-              await Promise.all(existingComments.map((comment) =>
+              await Promise.all(duplicateComments.map((comment) =>
                 github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,

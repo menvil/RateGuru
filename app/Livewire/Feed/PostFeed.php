@@ -3,6 +3,7 @@
 namespace App\Livewire\Feed;
 
 use App\Queries\Feed\FeedQuery;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -18,9 +19,9 @@ class PostFeed extends Component
 
     public ?string $tag = null;
 
-    public mixed $origin = [];
+    public mixed $category = [];
 
-    public mixed $cuisine = [];
+    public array $ratings = [];
 
     public string $sort = 'newest';
 
@@ -40,25 +41,28 @@ class PostFeed extends Component
 
     public function render(
         FeedQuery $feedQuery,
+        RatingConfigurationManager $ratingConfiguration,
         RatingVotingStateLoader $ratingVotingStateLoader,
     ): View {
         $paginator = $feedQuery->paginate(
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
-            origin: $this->origin,
-            cuisine: $this->cuisine,
+            category: $this->category,
+            ratingFilters: $this->ratings,
             followedByUserId: $this->followingOnly ? auth()->id() : null,
         )->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();
         $canModerate = Gate::allows('moderate-content');
+        $ratingGroups = $ratingConfiguration->activeGroups();
 
         return view('livewire.feed.post-feed', [
             'posts' => $posts,
             'paginator' => $paginator,
             'selectedPostId' => $this->selectedPostId,
-            'ratingVotingStates' => $ratingVotingStateLoader->forPosts($posts, $user),
+            'ratingGroups' => $ratingGroups,
+            'ratingVotingStates' => $ratingVotingStateLoader->forPosts($posts, $user, $ratingGroups),
             'deletePermissions' => $posts
                 ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('deleteFromFeed', $post) ?? false])
                 ->all(),

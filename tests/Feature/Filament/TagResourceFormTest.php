@@ -299,3 +299,54 @@ it('rejects duplicate slug when editing tag', function () {
 
     expect($tag->fresh()->slug)->toBe('editable');
 });
+
+it('offers a translation field for every supported language', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    $component = Livewire::test(CreateTag::class);
+
+    foreach (supportedLocales() as $locale) {
+        $component->assertFormFieldExists("name_translations.{$locale}");
+    }
+});
+
+it('saves the tag name translations an admin enters', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    $translations = collect(supportedLocales())
+        ->mapWithKeys(fn (string $locale): array => [$locale => "Street food ({$locale})"])
+        ->all();
+
+    Livewire::test(CreateTag::class)
+        ->fillForm([
+            'name' => 'Street Food',
+            'slug' => 'street-food',
+            'name_translations' => $translations,
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $tag = Tag::query()->where('slug', 'street-food')->firstOrFail();
+
+    expect($tag->name_translations)->toBe($translations)
+        ->and($tag->slug)->toBe('street-food');
+
+    foreach (translatedLocales() as $locale) {
+        expect($tag->translatedName($locale))->toBe("Street food ({$locale})");
+    }
+});
+
+it('edits one language of an existing tag without touching its slug', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $locale = translatedLocales()[0];
+    $tag = Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta', 'name_translations' => null]);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm(["name_translations.{$locale}" => 'Translated pasta'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($tag->fresh()->name_translations[$locale])->toBe('Translated pasta')
+        ->and($tag->fresh()->slug)->toBe('pasta')
+        ->and($tag->fresh()->translatedName($locale))->toBe('Translated pasta');
+});

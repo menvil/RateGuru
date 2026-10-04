@@ -7,8 +7,8 @@
         <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
         <input
             type="search"
-            aria-label="Search tags, users, dishes"
-            placeholder="Search tags, users, dishes..."
+            aria-label="Search tags, users, posts"
+            placeholder="Search tags, users, posts..."
             class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
         >
     </div>
@@ -23,6 +23,6 @@
             <x-ui.icon name="bell" class="size-4" />
         </button>
 
-        <x-ui.avatar name="pasta_lover" color="purple" size="lg" />
+        <x-ui.avatar name="sample_author" color="purple" size="lg" />
     </div>
 </header>

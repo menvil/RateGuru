@@ -13,7 +13,7 @@ it('validates locale changes through a dedicated form request', function () {
     $request = new ChangeLocaleRequest;
 
     expect(Validator::make(['locale' => 'ru'], $request->rules())->passes())->toBeTrue()
-        ->and(Validator::make(['locale' => 'de'], $request->rules())->fails())->toBeTrue()
+        ->and(Validator::make(['locale' => unsupportedLocale()], $request->rules())->fails())->toBeTrue()
         ->and(Validator::make(['locale' => ['ru']], $request->rules())->fails())->toBeTrue();
 });
 

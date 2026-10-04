@@ -16,4 +16,5 @@ return [
     'share_via' => 'Share via',
     'share_unavailable' => 'Sharing unavailable',
     'copy_failed' => 'Could not copy automatically. Select and copy manually.',
+    'post_fallback_description' => 'See and rate this post on :siteName.',
 ];

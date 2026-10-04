@@ -34,10 +34,13 @@ return [
         'enabled' => true,
     ],
 
+    // Sentry and Nightwatch are real, installed integrations and are each
+    // configured entirely in their own file (config/sentry.php,
+    // config/nightwatch.php) — both are deliberately absent from this list, so
+    // there is never a second place that answers "is this vendor configured?".
+    // What remains is a placeholder for a vendor RateGuru does not install.
     'external_vendors' => [
-        'sentry_dsn' => env('SENTRY_LARAVEL_DSN'),
         'datadog_agent_host' => env('DD_AGENT_HOST'),
-        'nightwatch_token' => env('NIGHTWATCH_TOKEN'),
     ],
 
 ];

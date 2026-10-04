@@ -107,17 +107,47 @@ it('does not link comments to public pages for non-published posts', function ()
         ->assertDontSee(route('posts.show', $post).'#comment-'.$comment->id, false);
 });
 
-it('renders sortable status badge column in comment resource table', function () {
+it('renders the derived lifecycle state badge column in comment resource table', function () {
     $admin = User::factory()->admin()->create();
     $hidden = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+    $deleted = Comment::factory()->create();
+    $deleted->delete();
 
     $this->actingAs($admin);
 
     Livewire::test(ListComments::class)
-        ->assertCanSeeTableRecords([$hidden])
-        ->assertTableColumnExists('status')
-        ->assertCanRenderTableColumn('status')
-        ->assertSee('hidden');
+        ->assertCanSeeTableRecords([$hidden, $deleted])
+        ->assertTableColumnExists('lifecycle_state')
+        ->assertCanRenderTableColumn('lifecycle_state')
+        ->assertSee('Hidden by moderation')
+        ->assertSee('Deleted by author');
+});
+
+it('offers no actions at all on an author-deleted comment row', function () {
+    $admin = User::factory()->admin()->create();
+    $deleted = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+    $deleted->delete();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$deleted])
+        ->assertTableActionHidden('hide', $deleted)
+        ->assertTableActionHidden('restore', $deleted);
+});
+
+it('filters author-deleted comments into their own view', function () {
+    $admin = User::factory()->admin()->create();
+    $visible = Comment::factory()->create();
+    $deleted = Comment::factory()->create();
+    $deleted->delete();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->filterTable('author_deleted')
+        ->assertCanSeeTableRecords([$deleted])
+        ->assertCanNotSeeTableRecords([$visible]);
 });
 
 it('renders comment reports count in comment resource table', function () {

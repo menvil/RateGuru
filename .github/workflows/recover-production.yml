@@ -1,0 +1,2109 @@
+name: Recover tits.guru host
+
+# The production counterpart of recover-staging.yml. Same operator semantics,
+# the same five shared actions, the same server-side prepare-host and
+# recover-host — a different fixed identity, a different concurrency domain,
+# and one extra gate.
+#
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
+# Its infrastructure exists, but a planned target may not be operated.
+# The validation job below reads that lifecycle out of the
+# committed target registry, in a job that holds no GitHub Environment, so a
+# real run of this workflow fails closed before production approval is
+# requested, before a production secret is loaded and before any connection is
+# opened to anything. It exists now to prove that production will be recovered
+# by exactly the same mechanism once the production launch activates and
+# provisions the target, rather than by a production-shaped procedure invented
+# under pressure on the worst day of the year.
+#
+# Nothing here weakens that gate, nothing here edits the registry, and the
+# production-tits-guru GitHub Environment's own protection rules stay authoritative on
+# top of the confirmation below.
+#
+# Manual-only: rebuilding a target onto a replacement machine is an operator
+# decision, never an automatic reaction to anything. The target is fixed to
+# tits-guru by this workflow — an operator names WHICH replacement machine
+# and WHICH backup, never WHICH target. There is deliberately no target
+# dropdown anywhere in this repository: "Recover staging host" and "Recover
+# production host" are two buttons whose names say what they do, sharing one
+# implementation underneath.
+#
+# This workflow is policy and orchestration only. Every mechanism it uses
+# already exists and is used unchanged:
+#
+#   .github/actions/prepare-rateguru-host       the one host-preparation transport
+#   .github/actions/recover-rateguru-host       the one recovery transport
+#   .github/actions/build-rateguru              the one build implementation
+#   .github/actions/deploy-rateguru             the one deployment transport
+#   .github/actions/record-rateguru-deployment  the one observability marker
+#
+# and every decision that touches the host is made by the server-side
+# prepare-host and recover-host, never here.
+#
+# THE PIPELINE.
+#
+#   a replacement machine
+#     -> Prepare Host                  (infrastructure, no application; the
+#                                       target's environment file and host
+#                                       material come out of the chosen
+#                                       backup itself; offsite writes held)
+#     -> recover-host --apply          (one exact offsite backup; host held)
+#     -> the server names the commit   (read from the backup's release.json)
+#     -> historical build of THAT commit
+#     -> controlled recovery deployment, migrations forbidden, host still held
+#     -> recover-host --resume         (the only thing that ends a hold)
+#     -> recover-host --verify         (independent final contract)
+#     -> deployment marker
+#
+# NO HAND-SUPPLIED MATERIAL. A start recovery reads no PREPARE_* secret at all.
+# The replacement machine is prepared from the SAME schema 3 backup the
+# recovery restores: its environment file and its host-scope material (TLS,
+# Basic Auth, the shared Nginx TLS material) are fetched out of that backup on
+# the host, through the recovery offsite credential. The only things GitHub
+# seeds are that credential and the deploy PUBLIC key, derived here from the
+# deployment credential in a job that holds nothing else. Nothing is copied
+# off a working host by an operator, and a backup that carries no recovery
+# material (an older schema) is refused on the server before anything on the
+# machine is prepared.
+#
+# WHAT IS AN OPERATOR INPUT, AND WHY.
+#
+# The replacement host is. A recovery exists precisely because the machine the
+# GitHub Environment names is gone, so the physical machine cannot come from
+# the environment — it is the one thing about this operation that is not
+# already known. Nothing else is: not the target, not the environment class,
+# not the credentials, not the paths, and above all not the commit. The commit
+# is read on the SERVER out of the backup's own release.json and flows
+# backup -> server -> action output -> checkout, without ever passing through
+# a person's hands.
+#
+# WHAT THIS DOES NOT DO. It does not change DNS, does not update DEPLOY_HOST,
+# does not touch the machine that target is currently bound to, does not
+# activate a target, and does not make the replacement host public. Recovering
+# a host and repointing the world at it are separate questions, and only the
+# first one is here.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: start a new recovery, or continue one already held on the replacement host
+        required: true
+        default: start
+        type: choice
+        options:
+          - start
+          - continue-held
+
+      backup:
+        description: Exact offsite backup timestamp YYYYMMDD-HHMMSS (required when mode=start, must be empty otherwise)
+        required: false
+        default: ""
+        type: string
+
+      operation:
+        description: Recovery operation ID (required when mode=continue-held, must be empty otherwise)
+        required: false
+        default: ""
+        type: string
+
+      replacement-host:
+        description: Hostname or IPv4 address of the REPLACEMENT machine (never the host this target is bound to now)
+        required: true
+        default: ""
+        type: string
+
+      replacement-port:
+        description: SSH port of the replacement machine
+        required: false
+        default: "22"
+        type: string
+
+      confirmation:
+        description: Type exactly "RECOVER tits-guru" to confirm rebuilding production onto a replacement machine
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# The WHOLE workflow, not just its first job. Prepare -> recover -> build ->
+# controlled deploy -> resume -> verify is ONE logical mutation of one target:
+# a production release, rollback, Restore or Repair slipping in between two of
+# its jobs would act on a target whose runtime is deliberately held and cannot
+# object. Same group as release.yml, rollback-production.yml,
+# restore-production.yml and repair-production.yml, the only other workflows
+# that touch a production target, so none of them can run alongside it. cancel-in-progress stays false: a cancelled recovery is not a stopped
+# recovery, and the server-side locks and the recovery guard remain the
+# ultimate integrity protection regardless.
+concurrency:
+  group: rateguru-production-release
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  # No GitHub Environment and no secret: request policy and the target's
+  # lifecycle are decided before the environment's own protection rules are
+  # ever consulted, so a malformed request never becomes an approval request
+  # and never reaches a credential.
+  validate:
+    name: Validate recovery request
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    outputs:
+      mode: ${{ steps.request.outputs.mode }}
+      backup: ${{ steps.request.outputs.backup }}
+      operation: ${{ steps.request.outputs.operation }}
+      replacement_host: ${{ steps.request.outputs.replacement_host }}
+      replacement_port: ${{ steps.request.outputs.replacement_port }}
+
+    steps:
+      # Deliberately first, and deliberately without a checkout: a malformed
+      # request is refused before this runner has fetched anything at all.
+      - name: Validate the recovery request
+        id: request
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          BACKUP: ${{ inputs.backup }}
+          OPERATION: ${{ inputs.operation }}
+          REPLACEMENT_HOST: ${{ inputs['replacement-host'] }}
+          REPLACEMENT_PORT: ${{ inputs['replacement-port'] }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+
+          # First, and in a job that holds no GitHub Environment: an
+          # unconfirmed production recovery ends here, before the environment's
+          # approval is even requested and long before any connection is made.
+          # This is deliberately IN ADDITION to the production-tits-guru environment's own
+          # protection rules, not instead of them — one gate proves a human
+          # meant this specific target, the other proves the right humans
+          # approved it.
+          if [[ "${CONFIRMATION}" != "RECOVER tits-guru" ]]; then
+            echo "confirmation must be exactly 'RECOVER tits-guru' to rebuild production onto a replacement machine" >&2
+            exit 1
+          fi
+
+          # Whitespace is stripped before anything is judged: a pasted backup
+          # ID, operation ID or address routinely arrives with a trailing
+          # space, and "looks empty but is not" is exactly the confusion these
+          # rules are here to remove.
+          backup="$(printf '%s' "${BACKUP}" | tr -d '[:space:]')"
+          operation="$(printf '%s' "${OPERATION}" | tr -d '[:space:]')"
+          replacement_host="$(printf '%s' "${REPLACEMENT_HOST}" | tr -d '[:space:]')"
+          replacement_port="$(printf '%s' "${REPLACEMENT_PORT}" | tr -d '[:space:]')"
+
+          case "${MODE}" in
+            start)
+              # An exact backup, always. There is no "latest" anywhere in this
+              # pipeline: a recovery names the data it rebuilds a host from.
+              if [[ ! "${backup}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+                echo "mode=start requires an exact offsite backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP})" >&2
+                exit 1
+              fi
+
+              if [[ -n "${operation}" ]]; then
+                echo "mode=start must not name an operation: a new recovery generates its own operation ID on the server. To continue a recovery that is already held on the replacement host, use mode=continue-held" >&2
+                exit 1
+              fi
+              ;;
+            continue-held)
+              if [[ ! "${operation}" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$ ]]; then
+                echo "mode=continue-held requires the recovery operation ID to continue (got: ${OPERATION})" >&2
+                exit 1
+              fi
+
+              # Refusing a backup here is the point of the mode. A replacement
+              # host that is held already HAS recovered data, from a backup its
+              # own persisted state names; starting a second recovery on top of
+              # it would replace that data — and the code being built would
+              # then be for the wrong commit. The server refuses it too.
+              if [[ -n "${backup}" ]]; then
+                echo "mode=continue-held must not name a backup: the held operation's own state records which backup it recovered, and a new recovery must never be started over a held one" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "mode must be start or continue-held" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "${replacement_host}" ]]; then
+            echo "replacement-host is required: a recovery rebuilds a target onto a named machine, and there is no default" >&2
+            exit 1
+          fi
+
+          if (( ${#replacement_host} > 253 )); then
+            echo "replacement-host is longer than a DNS name may be (253 characters)" >&2
+            exit 1
+          fi
+
+          # The address is DATA, never shell syntax. One closed character class
+          # of DNS labels rejects whitespace, control characters, every shell
+          # metacharacter, a leading "-", "user@host", ":port" suffixes, paths
+          # and SSH option syntax in a single expression — an ordinary
+          # hostname and an IPv4 address are both sequences of such labels, and
+          # nothing else is accepted.
+          host_label='[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'
+
+          if [[ ! "${replacement_host}" =~ ^${host_label}(\.${host_label})*$ ]]; then
+            echo "replacement-host must be a DNS hostname or an IPv4 address (got: ${REPLACEMENT_HOST})" >&2
+            exit 1
+          fi
+
+          # An all-numeric name is an address, and an address that is out of
+          # range is a typo rather than a hostname. Checked separately so the
+          # diagnostic says which of the two the operator got wrong.
+          if [[ "${replacement_host}" =~ ^[0-9.]+$ ]]; then
+            if [[ ! "${replacement_host}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+              echo "replacement-host looks like an address but is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
+              exit 1
+            fi
+
+            IFS='.' read -r -a octets <<<"${replacement_host}"
+
+            for octet in "${octets[@]}"; do
+              # 10# forces decimal: Bash reads a leading-zero operand inside
+              # (( )) as octal, so 010 would be 8 and 08 would raise an error
+              # this || chain would read as "the condition did not hold".
+              if (( 10#${octet} > 255 )); then
+                echo "replacement-host is not a valid IPv4 address: ${REPLACEMENT_HOST}" >&2
+                exit 1
+              fi
+            done
+          fi
+
+          # A syntactically numeric port is not enough: 0 and anything above
+          # 65535 would sail through and fail later inside every ssh call with
+          # a far less obvious diagnostic.
+          if [[ ! "${replacement_port}" =~ ^[0-9]{1,5}$ ]] \
+            || (( 10#${replacement_port} < 1 )) \
+            || (( 10#${replacement_port} > 65535 ))
+          then
+            echo "replacement-port must be between 1 and 65535 (got: ${REPLACEMENT_PORT})" >&2
+            exit 1
+          fi
+
+          {
+            echo "mode=${MODE}"
+            echo "backup=${backup}"
+            echo "operation=${operation}"
+            echo "replacement_host=${replacement_host}"
+            echo "replacement_port=${replacement_port}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Mode: ${MODE}"
+          echo "Backup: ${backup:-n/a}"
+          echo "Operation: ${operation:-n/a}"
+          echo "Replacement host: ${replacement_host}:${replacement_port}"
+
+      # Trusted main, purely so the lifecycle question below can be asked of
+      # the production control plane's own registry rather than of a rule copied
+      # into YAML.
+      - name: Checkout the trusted target registry
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The same question the recovery action and the server-side primitives
+      # ask, asked here first for one reason: in a job that holds no GitHub
+      # Environment, so a recovery of a target that must not exist yet is
+      # refused before an environment is entered, before a secret is loaded and
+      # long before a connection is opened to anything.
+      - name: Refuse a recovery of a target that is not active
+        shell: bash
+        env:
+          DEPLOYMENT_TARGET: tits-guru
+        run: |
+          set -Eeuo pipefail
+
+          registry="${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+          targets_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/targets"
+
+          test -x "${targets_cli}"
+          test -f "${registry}"
+
+          if ! target_json="$("${targets_cli}" show --target "${DEPLOYMENT_TARGET}" --file "${registry}" 2>&1)"; then
+            echo "${target_json}" >&2
+            echo "Unknown or unusable deployment target: ${DEPLOYMENT_TARGET}" >&2
+            exit 1
+          fi
+
+          lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+
+          if [[ "${lifecycle}" != "active" ]]; then
+            echo "Target ${DEPLOYMENT_TARGET} has lifecycle=${lifecycle:-unknown}, not active." >&2
+            echo "Recovery is refused before any GitHub Environment is entered. A recovery rebuilds a target that is already live somewhere; activating a target is a deliberate registry change in its own right, never a side effect of recovering a host." >&2
+            exit 1
+          fi
+
+          echo "Target ${DEPLOYMENT_TARGET}: lifecycle=active — recovery may proceed"
+
+  # ---------------------------------------------------------------------------
+  # The values this environment must hold, proven present BEFORE any
+  # connection is made and before anything on the replacement host changes.
+  #
+  # Presence only: each value reaches this job as a boolean (`!= ''`), never
+  # as its content, so nothing here can print a secret. A missing value is
+  # named to the operator with the exact place to put it and the KIND it must
+  # be — a variable or a secret — because the one real failure this job exists
+  # for was a recovery that reached the preparation with RECOVERY_RCLONE_CONFIG
+  # absent and could only say "both seed inputs are required".
+  # ---------------------------------------------------------------------------
+  values:
+    name: Refuse to start without the recovery values the environment must hold
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 5
+
+    outputs:
+      cause: ${{ steps.values.outputs.cause }}
+
+    steps:
+      - name: Prove every recovery value is configured, without reading any
+        id: values
+        shell: bash
+        env:
+          MODE: ${{ needs.validate.outputs.mode }}
+          BACKUP: ${{ needs.validate.outputs.backup }}
+          RECOVERY_BOOTSTRAP_USER_PRESENT: ${{ vars.RECOVERY_BOOTSTRAP_USER != '' }}
+          RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY != '' }}
+          RECOVERY_KNOWN_HOSTS_PRESENT: ${{ secrets.RECOVERY_KNOWN_HOSTS != '' }}
+          RECOVERY_RCLONE_CONFIG_PRESENT: ${{ secrets.RECOVERY_RCLONE_CONFIG != '' }}
+          DEPLOY_SSH_KEY_PRESENT: ${{ secrets.DEPLOY_SSH_KEY != '' }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${MODE}" == "start" ]]; then
+            then_action="re-run \"Recover tits.guru host\" with mode=start and the same exact backup (backup=${BACKUP})"
+          else
+            then_action="re-run \"Recover tits.guru host\" with mode=continue-held and the same operation"
+          fi
+
+          # action_required WORD CAUSE MEANING DO... — the shared operator-facing
+          # refusal format, written to the log, to this step's summary and to
+          # the job's cause output. The first missing value ends the job.
+          action_required() {
+            local word="$1" cause="$2" meaning="$3"
+            shift 3
+
+            {
+              echo "RECOVERY ACTION REQUIRED"
+              echo "Cause: ${cause}"
+              echo "What this means: ${meaning}"
+              echo "Do:"
+              local n=1
+              for step in "$@"; do
+                echo "  ${n}. ${step}"
+                n=$(( n + 1 ))
+              done
+              echo "Then: ${then_action}"
+              echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+            } | tee "${RUNNER_TEMP}/rateguru_values_action_required" >&2
+
+            echo "cause=${word}" >> "${GITHUB_OUTPUT}"
+
+            {
+              echo "## Recovery refused before any connection — ${word}"
+              echo
+              echo '```text'
+              cat "${RUNNER_TEMP}/rateguru_values_action_required"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            exit 1
+          }
+
+          if [[ "${RECOVERY_BOOTSTRAP_USER_PRESENT}" != "true" ]]; then
+            action_required bootstrap-user-variable-missing \
+              "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+              "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> production-tits-guru -> Environment variables" \
+              "create RECOVERY_BOOTSTRAP_USER" \
+              "set it to the privileged user on the replacement host (root, or a user with passwordless sudo)" \
+              "it is an Environment variable, not a secret"
+          fi
+
+          if [[ "${RECOVERY_BOOTSTRAP_SSH_KEY_PRESENT}" != "true" ]]; then
+            action_required bootstrap-ssh-key-secret-missing \
+              "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+              "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+              "create RECOVERY_BOOTSTRAP_SSH_KEY" \
+              "paste the complete OpenSSH private key whose public half is installed for RECOVERY_BOOTSTRAP_USER on the replacement host" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${RECOVERY_KNOWN_HOSTS_PRESENT}" != "true" ]]; then
+            action_required known-hosts-secret-missing \
+              "the production-tits-guru GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+              "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+              "create RECOVERY_KNOWN_HOSTS" \
+              "paste the one verified known_hosts line for the replacement host (runbook section C)" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${MODE}" == "start" ]] && [[ "${RECOVERY_RCLONE_CONFIG_PRESENT}" != "true" ]]; then
+            action_required rclone-config-secret-missing \
+              "the production-tits-guru GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+              "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+              "create RECOVERY_RCLONE_CONFIG" \
+              "paste the complete contents of the recovery rclone configuration file" \
+              "do not create it as an Environment variable"
+          fi
+
+          if [[ "${DEPLOY_SSH_KEY_PRESENT}" != "true" ]]; then
+            action_required deploy-ssh-key-secret-missing \
+              "the production-tits-guru GitHub Environment has no DEPLOY_SSH_KEY secret" \
+              "the deploy public key installed on the replacement host is derived from it on the runner, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
+              "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+              "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key (the ordinary deploy identity, not a recovery-only value)" \
+              "do not create it as an Environment variable"
+          fi
+
+          echo "Every recovery value the production-tits-guru environment must hold is configured (presence only; no value was read)."
+
+  # The one place vars.DEPLOY_HOST is read, and it is read only to REFUSE.
+  #
+  # Recover Host is for a machine that is gone. Pointing it at the machine the
+  # target is currently bound to would attack a live host with an operation
+  # whose whole premise is that the host is empty — and the two operations that
+  # DO belong to a live host already exist. The comparison needs the GitHub
+  # Environment (that is where the binding lives), so it runs in its own job,
+  # before Prepare Host, before the recovery credential is used and before
+  # anything at all is uploaded anywhere.
+  #
+  # Nothing here updates the binding. The target stays bound to the machine it
+  # is bound to for the whole of the recovery; repointing it is a separate,
+  # deliberate act.
+  binding:
+    name: Confirm the replacement host is not the current host
+    needs:
+      - validate
+      - values
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 5
+
+    steps:
+      - name: Refuse a recovery onto the host this target is already bound to
+        shell: bash
+        env:
+          REPLACEMENT_HOST: ${{ needs.validate.outputs.replacement_host }}
+          CURRENT_HOST: ${{ vars.DEPLOY_HOST }}
+          # Read to COMPARE, never to connect. No step in this job opens a
+          # connection to anything, and neither value is ever printed.
+          CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${CURRENT_HOST}" ]]; then
+            echo "The production-tits-guru environment has no DEPLOY_HOST, so this run cannot prove the replacement machine is a different one." >&2
+            echo "Recovery is refused: the proof that a recovery is not pointed at a live host must never be skipped because the binding is missing." >&2
+            exit 1
+          fi
+
+          # DNS names are case-insensitive, so two spellings that differ only
+          # in case name the same machine and must be refused as the same
+          # machine.
+          if [[ "${REPLACEMENT_HOST,,}" == "${CURRENT_HOST,,}" ]]; then
+            echo "The replacement host is the host currently bound to this target." >&2
+            echo "Recover Host is only for a lost/replacement machine. Use Restore or Repair for the existing host." >&2
+            exit 1
+          fi
+
+          # The comparison above catches the common paste mistake and nothing
+          # more: one machine answers to a name, an alias and an address, and
+          # only one of those spellings is in DEPLOY_HOST.
+          #
+          # This second gate does not care how the machine is spelled, and it
+          # has to exist HERE rather than be left to the server, because of
+          # what runs next. The job after this one is Prepare Host, and Prepare
+          # Host is convergent by design: it has no empty-host precondition, it
+          # reconverges whatever it finds, and it is perfectly willing to act
+          # on a target that is already serving. The prepared/EMPTY contract
+          # that would refuse a live host belongs to `recover-host --apply`,
+          # which runs a whole job LATER. So an alias that slips past a literal
+          # string comparison reaches a mutating operation on the live machine
+          # before anything checks whether that machine is empty.
+          #
+          # ONE CANONICAL IDENTITY, REQUIRED ON BOTH SIDES. Sharing a host key
+          # proves one machine, but NOT sharing one proves nothing by itself:
+          # an ordinary OpenSSH server offers several host keys, and two
+          # secrets can easily hold different ones for the SAME machine —
+          #
+          #   DEPLOY_KNOWN_HOSTS     current.example.com ssh-ed25519 AAAA1111
+          #   RECOVERY_KNOWN_HOSTS   203.0.113.10        ssh-rsa     AAAA2222
+          #
+          # — which is no overlap and one machine, and would have walked
+          # straight into Prepare Host on the live host. So identity is pinned
+          # to the one key type every supported host generates, it is required
+          # on both sides, and a missing or ambiguous one is a refusal rather
+          # than a pass. That makes the NEGATIVE answer decisive too: two
+          # different canonical keys are two different machines.
+          #
+          # Direct host keys only. An @cert-authority or @revoked line names a
+          # CA or a withdrawn key, never this machine's own identity, and
+          # hostname fields are ignored throughout — they are exactly what
+          # differs between two spellings of one machine.
+          ed25519_identity() {
+            awk '
+              { sub(/\r$/, "") }
+              /^[[:space:]]*($|#)/ { next }
+              $1 ~ /^@/ { next }
+              $2 == "ssh-ed25519" && $3 != "" { print $3 }
+            ' | sort -u
+          }
+
+          current_identity="$(printf '%s\n' "${CURRENT_KNOWN_HOSTS}" | ed25519_identity)"
+          replacement_identity="$(printf '%s\n' "${REPLACEMENT_KNOWN_HOSTS}" | ed25519_identity)"
+
+          current_identity_count="$(grep -c . <<<"${current_identity}" || true)"
+          replacement_identity_count="$(grep -c . <<<"${replacement_identity}" || true)"
+
+          if (( current_identity_count != 1 )); then
+            echo "DEPLOY_KNOWN_HOSTS does not carry exactly one direct ssh-ed25519 host key (found ${current_identity_count})." >&2
+            echo "Recovery is refused. That key is the canonical machine identity this run compares, and without exactly one the replacement machine cannot be proven to be a different machine — while the next job, Prepare Host, would converge whatever answers at the address it is given." >&2
+            echo "Record the bound host's own ssh-ed25519 entry, and only that host's." >&2
+            exit 1
+          fi
+
+          if (( replacement_identity_count != 1 )); then
+            echo "RECOVERY_KNOWN_HOSTS does not carry exactly one direct ssh-ed25519 host key (found ${replacement_identity_count})." >&2
+            echo "Recovery is refused. That key is the canonical machine identity this run compares, and an RSA or ECDSA entry alone cannot answer whether this is the machine the target is already bound to." >&2
+            echo "Record the replacement machine's own ssh-ed25519 entry, verified out of band." >&2
+            exit 1
+          fi
+
+          if [[ "${current_identity}" == "${replacement_identity}" ]]; then
+            echo "The replacement machine presents the same ssh-ed25519 host key as the machine currently bound to this target." >&2
+            echo "That is one physical machine under two names. Recover Host is only for a lost/replacement machine, and the next job — Prepare Host — would converge this one: it has no empty-host precondition, and the prepared/EMPTY contract that refuses a live host does not run until a job later." >&2
+            echo "Use Restore or Repair for the existing host." >&2
+            exit 1
+          fi
+
+          # Belt and braces, and it can only ever refuse more. Two canonical
+          # keys that differ are normally two machines — but they also differ
+          # when one secret predates a host-key rotation, and there the machine
+          # is the same and some OTHER key type still matches.
+          any_key_blobs() {
+            awk '
+              { sub(/\r$/, "") }
+              /^[[:space:]]*($|#)/ { next }
+              $1 ~ /^@/ { next }
+              { if ($2 != "" && $3 != "") { print $2 " " $3 } }
+            ' | sort -u
+          }
+
+          shared_keys="$(
+            comm -12 \
+              <(printf '%s\n' "${CURRENT_KNOWN_HOSTS}" | any_key_blobs) \
+              <(printf '%s\n' "${REPLACEMENT_KNOWN_HOSTS}" | any_key_blobs) \
+              | grep -c . || true
+          )"
+
+          if (( shared_keys > 0 )); then
+            echo "The replacement machine shares an SSH host key with the machine currently bound to this target, under a different key type than the canonical one." >&2
+            echo "That is one physical machine whose recorded ssh-ed25519 keys disagree — most likely one of the two secrets predates a host-key rotation. Recovery is refused rather than guessing which is current." >&2
+            exit 1
+          fi
+
+          echo "The replacement machine is not the machine tits-guru is currently bound to: different name, and a different canonical ssh-ed25519 host key."
+          echo "The current binding is left exactly as it is: recovery never edits DEPLOY_HOST, the target registry or DNS."
+
+  # START ONLY, and the one job that holds the deployment credential before a
+  # release exists. It derives the deploy PUBLIC key from DEPLOY_SSH_KEY —
+  # written to a 0600 file on the runner, proven with ssh-keygen, read back as
+  # a public key, removed — so the replacement machine's restricted deploy
+  # user gets exactly the identity ordinary deployments already use, without a
+  # PREPARE_DEPLOY_AUTHORIZED_KEYS secret existing and without the private
+  # half ever leaving this job. It opens no connection and prints no key.
+  deploy-identity:
+    name: Derive the deploy public key for the replacement host
+    needs:
+      - validate
+      - binding
+    if: ${{ needs.validate.outputs.mode == 'start' }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 5
+
+    outputs:
+      public_key: ${{ steps.identity.outputs.public_key }}
+
+    steps:
+      - name: Derive the deploy public key from the deployment credential
+        id: identity
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          if [[ -z "${DEPLOY_SSH_KEY}" ]]; then
+            echo "The production-tits-guru environment has no DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity." >&2
+            exit 1
+          fi
+
+          # A private temp file, removed whatever happens next. The value is
+          # written through a redirection and never appears in argv or output.
+          key_path="${RUNNER_TEMP}/rateguru-deploy-identity"
+          trap 'rm -f "${key_path}"' EXIT
+
+          install -m 0600 /dev/null "${key_path}"
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > "${key_path}"
+
+          # ssh-keygen -y both proves the credential is a usable private key
+          # and prints its public half — the ONLY thing this job reports.
+          if ! public_key="$(ssh-keygen -y -f "${key_path}")"; then
+            echo "DEPLOY_SSH_KEY is not a usable SSH private key; nothing was derived." >&2
+            exit 1
+          fi
+
+          # One line, one key, in authorized_keys form, of a type OpenSSH
+          # publishes. Anything else means the derivation did not produce what
+          # the replacement host's authorized_keys must hold.
+          if [[ "$(grep -c . <<<"${public_key}")" != "1" ]] \
+            || [[ ! "${public_key}" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\ [A-Za-z0-9+/]+=*(\ .*)?$ ]]
+          then
+            echo "The derived deploy public key is not a single authorized_keys line of a supported type; refusing to seed it." >&2
+            exit 1
+          fi
+
+          echo "public_key=${public_key}" >> "${GITHUB_OUTPUT}"
+
+          echo "Derived the deploy public key (${public_key%% *}) for the replacement host's deploy user; the private key never left this job."
+
+  # START ONLY. A recovery that is already held deliberately must not be
+  # prepared again: preparation reconverges the target's Supervisor program and
+  # its scheduler cron entry, which is exactly what a recovery holds aside, and
+  # the server-side interlock refuses a Prepare against any guarded target.
+  # Skipping the job is orchestration; the refusal on the host is the guarantee.
+  # The clean-host proof, asked before the first byte of preparation reaches
+  # the machine. Prepare Host is convergent and has no empty-host
+  # precondition of its own, and the prepared/EMPTY contract recover-host
+  # --apply enforces belongs to a job that runs only after preparation has
+  # already installed packages, identities and services — so this is the one
+  # place a machine that is not a genuinely clean, supported replacement host
+  # is refused with nothing changed on it. Read-only on the host; it
+  # installs, repairs, removes and repoints nothing. START ONLY: a
+  # continuation addresses a machine the recovery already owns.
+  preflight:
+    name: Prove the replacement host is a clean, supported machine
+    needs:
+      - validate
+      - binding
+    if: ${{ needs.validate.outputs.mode == 'start' }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 10
+
+    outputs:
+      result: ${{ steps.preflight.outputs.result }}
+      cause: ${{ steps.preflight.outputs.cause }}
+      state: ${{ steps.preflight.outputs.state }}
+
+    steps:
+      - name: Checkout trusted recovery tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Refuse a replacement host that is not a clean, supported machine
+        id: preflight
+        uses: ./.github/actions/recovery-host-preflight
+        with:
+          deployment-target: tits-guru
+          environment: production
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          # Identity only, and only on the start path: compared with the backup
+          # an earlier preparation of THIS recovery recorded on the machine, so
+          # a start that already prepared this host is recognised as one to
+          # converge rather than refused as dirty. Nothing is read from the
+          # backup here.
+          recovery-backup: ${{ needs.validate.outputs.backup }}
+
+  prepare:
+    name: Prepare the replacement host from the backup
+    needs:
+      - validate
+      - binding
+      - preflight
+      - deploy-identity
+    if: ${{ needs.validate.outputs.mode == 'start' }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    # A genuinely clean VPS installs the full base runtime before it does
+    # anything else, which is by far the slowest step here.
+    timeout-minutes: 45
+
+    outputs:
+      cause: ${{ steps.prepare.outputs.failure-cause }}
+
+    steps:
+      - name: Checkout trusted bootstrap tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The SAME preparation action the ordinary Prepare tits.guru host
+      # workflow uses, in its recovery mode. Two differences, and only two:
+      # the machine it is pointed at (the replacement, never DEPLOY_HOST), and
+      # where the material comes from — the chosen backup, on the host, through
+      # the recovery offsite credential. No PREPARE_* secret is read: the
+      # environment file, TLS, Basic Auth and the shared Nginx material are the
+      # backup's own, which is also why recover-host can later prove the
+      # prepared shared/.env is byte-identical to the backup's.
+      - name: Prepare tits-guru on the replacement machine from backup ${{ needs.validate.outputs.backup }}
+        id: prepare
+        uses: ./.github/actions/prepare-rateguru-host
+        with:
+          deployment-target: tits-guru
+          environment: production
+
+          bootstrap-host: ${{ needs.validate.outputs.replacement_host }}
+          bootstrap-port: ${{ needs.validate.outputs.replacement_port }}
+
+          # A replacement machine has its own privileged credential, separate
+          # from the long-lived host's. The public half is installed by
+          # whoever creates the machine — that first access is a provider
+          # concern, outside RateGuru automation — and there is deliberately no
+          # fallback to BOOTSTRAP_SSH_KEY or to the deployment key.
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          # The backup this recovery restores, and the backup this machine is
+          # prepared from — the same one, by construction.
+          recovery-backup: ${{ needs.validate.outputs.backup }}
+
+          # The two seed files, and nothing else. The offsite credential lets
+          # the replacement machine read the backup and later own its own
+          # offsite pipeline; the server holds every offsite WRITE on this
+          # machine before the credential is installed, so a rehearsal beside
+          # the long-lived host can never upload into or prune the real
+          # namespace — whatever permissions the credential carries. The deploy
+          # public key is the derived one from the job above: never the
+          # private key, and never a separate secret.
+          rclone-config: ${{ secrets.RECOVERY_RCLONE_CONFIG }}
+          deploy-authorized-keys: ${{ needs.deploy-identity.outputs.public_key }}
+
+  # The authoritative step. Everything after this branches on what the SERVER
+  # reported, never on what the request asked for.
+  recover:
+    name: Recover tits-guru onto the replacement host
+    needs:
+      - validate
+      - binding
+      - prepare
+    # prepare is skipped on the continue-held path, and a skipped dependency
+    # would otherwise skip this job too. The mode is re-checked rather than
+    # accepting any skip: a prepare that was skipped on the START path would
+    # mean the graph was rewired, not that preparation was unnecessary.
+    if: >-
+      ${{ !cancelled()
+          && needs.validate.result == 'success'
+          && needs.binding.result == 'success'
+          && (needs.prepare.result == 'success'
+              || (needs.prepare.result == 'skipped' && needs.validate.outputs.mode == 'continue-held')) }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    # A real recovery downloads, fully verifies and stages a whole backup and
+    # then activates a database and a storage tree. All of that scales with
+    # data size.
+    timeout-minutes: 180
+
+    outputs:
+      status: ${{ steps.decide.outputs.status }}
+      operation: ${{ steps.decide.outputs.operation }}
+      backup: ${{ steps.decide.outputs.backup }}
+      backup_release: ${{ steps.decide.outputs.backup_release }}
+      required_source_sha: ${{ steps.decide.outputs.required_source_sha }}
+      current_release: ${{ steps.decide.outputs.current_release }}
+      current_source_sha: ${{ steps.decide.outputs.current_source_sha }}
+      build_required: ${{ steps.decide.outputs.build_required }}
+      deploy_required: ${{ steps.decide.outputs.deploy_required }}
+      resume_required: ${{ steps.decide.outputs.resume_required }}
+      release_version: ${{ steps.decide.outputs.release_version }}
+      release_metadata: ${{ steps.decide.outputs.release_metadata }}
+      cause: ${{ steps.apply.outputs.failure-cause || steps.inspect.outputs.failure-cause }}
+
+    steps:
+      # Recovery business logic stays entirely server-side; nothing from this
+      # checkout is deployed. It comes from main — the production control
+      # plane — rather than from develop or any release ref, because the shared
+      # recovery action is privileged operational tooling and must never be
+      # selectable by the code being rebuilt.
+      - name: Checkout trusted recovery tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Recover tits-guru from the named offsite backup
+        id: apply
+        if: ${{ needs.validate.outputs.mode == 'start' }}
+        uses: ./.github/actions/recover-rateguru-host
+        with:
+          mode: apply
+          deployment-target: tits-guru
+          environment: production
+
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          backup-id: ${{ needs.validate.outputs.backup }}
+
+      # Read-only. The data is already recovered; this only reports which of
+      # the two safe stages the held operation is at, so a run whose build
+      # failed yesterday — or whose runner died after the deployment — can be
+      # picked up today without touching the host's data again.
+      - name: Inspect the held recovery operation
+        id: inspect
+        if: ${{ needs.validate.outputs.mode == 'continue-held' }}
+        uses: ./.github/actions/recover-rateguru-host
+        with:
+          mode: inspect
+          deployment-target: tits-guru
+          environment: production
+
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          operation-id: ${{ needs.validate.outputs.operation }}
+
+      # Index syntax, not property dereference: half of these output names
+      # contain a hyphen, and `a.b-c || a.b-c` is exactly the shape where a
+      # dereference is ambiguous with a subtraction. `outputs['b-c']` cannot be
+      # read any other way.
+      #
+      # Exactly one of the two steps above ran; the other was skipped and its
+      # outputs are empty, so `||` picks the one that has an answer.
+      - name: Decide what this recovery still needs
+        id: decide
+        shell: bash
+        env:
+          STATUS: ${{ steps.apply.outputs['status'] || steps.inspect.outputs['status'] }}
+          OPERATION: ${{ steps.apply.outputs['operation'] || steps.inspect.outputs['operation'] }}
+          BACKUP: ${{ steps.apply.outputs['backup'] || steps.inspect.outputs['backup'] }}
+          BACKUP_RELEASE: ${{ steps.apply.outputs['backup-release'] || steps.inspect.outputs['backup-release'] }}
+          REQUIRED_SOURCE_SHA: ${{ steps.apply.outputs['required-source-sha'] || steps.inspect.outputs['required-source-sha'] }}
+          DATA_RESTORED: ${{ steps.apply.outputs['data-restored'] || steps.inspect.outputs['data-restored'] }}
+          CURRENT_RELEASE: ${{ steps.apply.outputs['current-release'] || steps.inspect.outputs['current-release'] }}
+          CURRENT_SOURCE_SHA: ${{ steps.apply.outputs['source-sha'] || steps.inspect.outputs['source-sha'] }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "${STATUS}"
+          test -n "${OPERATION}"
+          test -n "${REQUIRED_SOURCE_SHA}"
+
+          release_version=""
+          release_metadata="{}"
+
+          case "${STATUS}" in
+            awaiting-code)
+              # The data is on the replacement host and the host is
+              # deliberately not serving. Everything downstream is required.
+              build_required=yes
+              deploy_required=yes
+              resume_required=yes
+              ;;
+            ready-to-resume)
+              # A previous run already built and deployed the exact commit and
+              # then lost its runner before resuming. Rebuilding and
+              # redeploying an identical tree would be work with a risk and no
+              # purpose; the operation only needs to be finished.
+              build_required=no
+              deploy_required=no
+              resume_required=yes
+              ;;
+            *)
+              echo "Unexpected recovery status: ${STATUS}" >&2
+              echo "Only awaiting-code and ready-to-resume are stages this workflow may act on. The recovery remains held on the replacement host, and 'recover-host --inspect' on the host reports what it is waiting for." >&2
+              exit 1
+              ;;
+          esac
+
+          # The data must actually be on the host before any of the above means
+          # anything. Both stages report it restored; a result that says
+          # otherwise is one this workflow refuses to act on rather than
+          # interpret.
+          if [[ "${DATA_RESTORED}" != "true" ]]; then
+            echo "The server reports status=${STATUS} but data_restored=${DATA_RESTORED:-<empty>}" >&2
+            exit 1
+          fi
+
+          # This value becomes a Git checkout ref and a build's expected
+          # commit. A malformed one is refused here, where the diagnostic can
+          # still say what was wrong.
+          if [[ ! "${REQUIRED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The server named a required commit that is not a full SHA: ${REQUIRED_SOURCE_SHA}" >&2
+            exit 1
+          fi
+
+          # ready-to-resume is DEFINED by the deployed commit being the
+          # required one, and the server is what decided it. This refuses to
+          # act on a result that contradicts itself rather than re-deciding it.
+          if [[ "${STATUS}" == "ready-to-resume" ]]; then
+            if [[ -z "${CURRENT_RELEASE}" ]] || [[ "${CURRENT_SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then
+              echo "The server reports ready-to-resume, but names current release '${CURRENT_RELEASE:-<empty>}' at commit '${CURRENT_SOURCE_SHA:-<empty>}' rather than the required ${REQUIRED_SOURCE_SHA}" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "${build_required}" == "yes" ]]; then
+            # The version prefix of the recovery release comes from the
+            # BACKUP's own release, so the rebuilt code keeps the version the
+            # data belongs to. The rest of the release ID is new, and
+            # deliberately: this is a new build of the same commit, not a claim
+            # to be byte-identical to a release that already exists. The commit
+            # is the identity that matters, and it is carried exactly.
+            if [[ ! "${BACKUP_RELEASE}" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+)-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$ ]]; then
+              echo "Backup release ${BACKUP_RELEASE} is not a canonical release ID; refusing to invent a version for the recovery build" >&2
+              exit 1
+            fi
+
+            release_version="${BASH_REMATCH[1]}"
+
+            # Extra identity only. build-rateguru refuses any attempt to
+            # redefine a core release.json field, so this can add to the
+            # artifact's provenance and never rewrite it.
+            release_metadata="$(
+              jq -cn \
+                --arg operation "${OPERATION}" \
+                --arg backup "${BACKUP}" \
+                '{
+                  environment: "production",
+                  recovery_operation: $operation,
+                  recovery_backup: $backup,
+                  host_recovery: true
+                }'
+            )"
+          fi
+
+          {
+            echo "status=${STATUS}"
+            echo "operation=${OPERATION}"
+            echo "backup=${BACKUP}"
+            echo "backup_release=${BACKUP_RELEASE}"
+            echo "required_source_sha=${REQUIRED_SOURCE_SHA}"
+            echo "current_release=${CURRENT_RELEASE}"
+            echo "current_source_sha=${CURRENT_SOURCE_SHA}"
+            echo "build_required=${build_required}"
+            echo "deploy_required=${deploy_required}"
+            echo "resume_required=${resume_required}"
+            echo "release_version=${release_version}"
+            echo "release_metadata=${release_metadata}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Status: ${STATUS}"
+          echo "Operation: ${OPERATION}"
+          echo "Backup: ${BACKUP} (offsite)"
+          echo "Required source commit: ${REQUIRED_SOURCE_SHA}"
+          echo "Historical build required: ${build_required}"
+          echo "Controlled deployment required: ${deploy_required}"
+          echo "Resume required: ${resume_required}"
+
+  # The historical build. Deliberately holds NO GitHub Environment, no
+  # recovery credential, no deployment SSH key, no Sentry credential, no B2
+  # credential and no Prepare material: the commit it builds is an arbitrary
+  # point in this repository's history, chosen by a backup rather than by a
+  # person, and it must never be able to reach anything privileged.
+  # contents: read is the whole of its permission.
+  build:
+    name: Build the exact commit the recovered data belongs to
+    needs:
+      - validate
+      - binding
+      - recover
+    if: ${{ needs.recover.outputs.build_required == 'yes' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    outputs:
+      source-sha: ${{ steps.build.outputs.source-sha }}
+      release-id: ${{ steps.build.outputs.release-id }}
+      artifact-name: ${{ steps.build.outputs.artifact-name }}
+      workflow-artifact-name: ${{ steps.build.outputs.workflow-artifact-name }}
+
+    steps:
+      # Two checkouts, deliberately, and the separation is the whole trust
+      # boundary. The build tooling is operational code and always comes from
+      # main; the application is a historical commit that may predate every
+      # part of the current pipeline. Loading the build action out of the
+      # historical commit would let recovered data decide what the operational
+      # tooling does — so it never happens. The historical ref below is the one
+      # checkout that must NOT become main: it is the exact source the backup
+      # names, and replacing it would silently recover different code.
+      - name: Checkout trusted build tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The exact commit the server said the recovered data belongs to. Not a
+      # branch, not a tag, not "whatever is near it": if this commit is gone or
+      # no longer builds, this job fails and the replacement host simply stays
+      # held. There is no fallback, because every fallback would install code
+      # the data does not belong to.
+      - name: Checkout the required historical application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.recover.outputs.required_source_sha }}
+          path: application
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build the recovery release artifact
+        id: build
+        uses: ./.github/actions/build-rateguru
+        with:
+          source-root: ${{ github.workspace }}/application
+
+          # The commit itself, so release.json's source_ref never claims a
+          # branch or tag this build did not come from.
+          source-ref: ${{ needs.recover.outputs.required_source_sha }}
+          expected-source-sha: ${{ needs.recover.outputs.required_source_sha }}
+
+          release-version: ${{ needs.recover.outputs.release_version }}
+
+          workflow-artifact-prefix: rateguru-host-recovery
+
+          # Short-lived transport to the deployment job in the same run, and
+          # nothing more. There is deliberately no durable artifact archive in
+          # this architecture: a recovery rebuilds from the commit a backup
+          # already names.
+          artifact-retention-days: "3"
+
+          release-metadata: ${{ needs.recover.outputs.release_metadata }}
+
+  deploy:
+    name: Deploy that commit while the replacement host stays held
+    needs:
+      - validate
+      - binding
+      - recover
+      - build
+    if: ${{ needs.recover.outputs.deploy_required == 'yes' }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Deployment code is always taken from main, the production control
+          # plane — never from develop, and never from the historical
+          # application ref being deployed.
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # A last check on this side of the connection. It is deliberately NOT the
+      # authorization: the server reads the required commit from the recovery
+      # operation's own documents and refuses an artifact built from anything
+      # else, and that refusal is what actually protects the host. This only
+      # stops an obviously wrong artifact from being uploaded at all.
+      - name: Prove the artifact is the commit the server requires
+        shell: bash
+        env:
+          BUILT_SOURCE_SHA: ${{ needs.build.outputs.source-sha }}
+          REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${BUILT_SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then
+            echo "The built artifact is commit ${BUILT_SOURCE_SHA}, but the recovered data belongs to ${REQUIRED_SOURCE_SHA}." >&2
+            echo "Nothing is uploaded. The recovery remains held on the replacement host." >&2
+            exit 1
+          fi
+
+          echo "Artifact commit matches the commit the recovered data belongs to: ${REQUIRED_SOURCE_SHA}"
+
+      - name: Download the recovery release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-release
+
+      # The same deployment action and the same server-side deploy every
+      # ordinary release uses. recovery-operation is the only difference, and
+      # it names the operation — never the commit. The server reads the
+      # required commit from that operation's own persisted state, re-proves
+      # the hold through recover-host --inspect, and refuses this artifact if
+      # it was built from anything else.
+      #
+      # The identity is the target's ordinary restricted deploy identity: the
+      # user, the incoming directory, the sudo wrapper and the target root that
+      # Prepare Host just created on the replacement machine. Only the ADDRESS
+      # and the host key are the replacement machine's. The privileged recovery
+      # credential is deliberately not used here — a deployment is a deployment.
+      - name: Deploy the recovery release
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deployment-target: tits-guru
+
+          deploy-host: ${{ needs.validate.outputs.replacement_host }}
+          deploy-port: ${{ needs.validate.outputs.replacement_port }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.build.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
+
+          # Never true here, and the action refuses the combination outright.
+          # Recovered data belongs to the schema of the commit being installed;
+          # migrating it would change the very thing the recovery just put back.
+          run-migrations: "false"
+
+          recovery-operation: ${{ needs.recover.outputs.operation }}
+
+  # The single owner of ending a hold. Nothing before this point starts the
+  # queue, restores the scheduler, leaves maintenance or clears the recovery
+  # guard — recover-host --resume does all of it, verifies the recovered data
+  # and health checks the host, and only then is the operation over.
+  #
+  # Reached both when a controlled deployment landed above and when
+  # continue-held found the required commit already installed.
+  resume:
+    name: Resume the recovered host
+    needs:
+      - validate
+      - binding
+      - recover
+      - build
+      - deploy
+    if: >-
+      ${{ !cancelled()
+          && needs.recover.result == 'success'
+          && needs.recover.outputs.resume_required == 'yes'
+          && (needs.build.result == 'success' || needs.build.result == 'skipped')
+          && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 30
+
+    outputs:
+      status: ${{ steps.resume.outputs.status }}
+      current_release: ${{ steps.resume.outputs['current-release'] }}
+      source_sha: ${{ steps.resume.outputs['source-sha'] }}
+      health: ${{ steps.resume.outputs.health }}
+      cause: ${{ steps.resume.outputs['failure-cause'] }}
+
+    steps:
+      - name: Checkout trusted recovery tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resume the recovery operation
+        id: resume
+        uses: ./.github/actions/recover-rateguru-host
+        with:
+          mode: resume
+          deployment-target: tits-guru
+          environment: production
+
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+          operation-id: ${{ needs.recover.outputs.operation }}
+
+      # Read out of the SERVER's own result, never inferred from the build job.
+      # What was built is what this workflow asked for; what the host serves is
+      # what the host says it serves, and only the second one is evidence.
+      - name: Prove the server finished the recovery it was asked to finish
+        shell: bash
+        env:
+          STATUS: ${{ steps.resume.outputs.status }}
+          CURRENT_RELEASE: ${{ steps.resume.outputs['current-release'] }}
+          SOURCE_SHA: ${{ steps.resume.outputs['source-sha'] }}
+          HEALTH: ${{ steps.resume.outputs.health }}
+          REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${STATUS}" != "completed" ]]; then
+            echo "The recovery did not complete: the server reports status=${STATUS:-<empty>}" >&2
+            exit 1
+          fi
+
+          if [[ -z "${CURRENT_RELEASE}" ]]; then
+            echo "The server reports a completed recovery but names no current release" >&2
+            exit 1
+          fi
+
+          if [[ "${SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then
+            echo "The recovered host serves commit ${SOURCE_SHA:-<empty>}, not the ${REQUIRED_SOURCE_SHA} its data belongs to" >&2
+            exit 1
+          fi
+
+          if [[ "${HEALTH}" != "pass" ]]; then
+            echo "The recovered host reports health=${HEALTH:-<empty>}" >&2
+            exit 1
+          fi
+
+          echo "Recovery completed: ${CURRENT_RELEASE} at ${SOURCE_SHA}, health pass."
+
+  # A recovery is not successful because --resume exited 0. It is successful
+  # because the final contract holds on the host as it stands now, asked as a
+  # separate read-only question: current canonical, release metadata valid,
+  # neither guard present, database reachable and coherent, storage present,
+  # scheduler present, queue RUNNING, health PASS.
+  #
+  # No `if`: every dependency must have SUCCEEDED for this to run, which is
+  # exactly the gate this job is supposed to have.
+  verify:
+    name: Verify the recovered host against the final contract
+    needs:
+      - validate
+      - binding
+      - recover
+      - resume
+    # Deliberately tolerant of a FAILED resume, and this is the whole reason a
+    # recovery does not depend on a runner surviving to the end.
+    #
+    # `recover-host --resume` clears the recovery guard as its commit point and
+    # only prints its machine-readable result afterwards. A connection that
+    # dies in between leaves a target that is fully recovered, healthy, queue
+    # RUNNING and no longer guarded — while this workflow saw nothing but a
+    # failed step. Skipping the verification there would strand the operator:
+    # `continue-held` cannot continue an operation whose guard is gone, and
+    # `start` cannot begin one on a host that is no longer empty.
+    #
+    # So the final contract is asked regardless, and it is what decides. It
+    # weakens nothing: a resume that genuinely failed leaves the guard in
+    # place, and `--verify` refuses any target that still carries one.
+    #
+    # `skipped` is deliberately NOT accepted — a resume that never ran means
+    # the recovery is still mid-flight, not finished.
+    if: >-
+      ${{ !cancelled()
+          && needs.recover.result == 'success'
+          && (needs.resume.result == 'success' || needs.resume.result == 'failure') }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    outputs:
+      status: ${{ steps.verify.outputs.status }}
+      current_release: ${{ steps.verify.outputs['current-release'] }}
+      source_sha: ${{ steps.verify.outputs['source-sha'] }}
+      health: ${{ steps.verify.outputs.health }}
+      offsite_writes: ${{ steps.verify.outputs['offsite-writes'] }}
+      cause: ${{ steps.verify.outputs['failure-cause'] }}
+      queue: ${{ steps.verify.outputs.queue }}
+      scheduler: ${{ steps.verify.outputs.scheduler }}
+      previous: ${{ steps.verify.outputs.previous }}
+
+    steps:
+      - name: Checkout trusted recovery tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the recovered target
+        id: verify
+        uses: ./.github/actions/recover-rateguru-host
+        with:
+          mode: verify
+          deployment-target: tits-guru
+          environment: production
+
+          recovery-host: ${{ needs.validate.outputs.replacement_host }}
+          recovery-port: ${{ needs.validate.outputs.replacement_port }}
+
+          bootstrap-user: ${{ vars.RECOVERY_BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.RECOVERY_BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+      # --verify proves the target satisfies the final contract; it does not
+      # know which commit this OPERATION was for, because it takes no operation
+      # and reads no operation state. That last identity check is made here,
+      # against the commit the server named when the data was recovered — so a
+      # host that is healthy on some other release can never be read as this
+      # recovery having succeeded.
+      - name: Prove the verified host serves the commit its data belongs to
+        shell: bash
+        env:
+          CURRENT_RELEASE: ${{ steps.verify.outputs['current-release'] }}
+          SOURCE_SHA: ${{ steps.verify.outputs['source-sha'] }}
+          OFFSITE_WRITES: ${{ steps.verify.outputs['offsite-writes'] }}
+          PREVIOUS: ${{ steps.verify.outputs.previous }}
+          REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${CURRENT_RELEASE}" ]]; then
+            echo "The verified host names no current release" >&2
+            exit 1
+          fi
+
+          if [[ "${SOURCE_SHA}" != "${REQUIRED_SOURCE_SHA}" ]]; then
+            echo "The verified host serves commit ${SOURCE_SHA:-<empty>}, not the ${REQUIRED_SOURCE_SHA} its recovered data belongs to" >&2
+            exit 1
+          fi
+
+          # The server refuses to verify a host whose offsite writers are not
+          # held; this only refuses to READ a result that says otherwise.
+          if [[ "${OFFSITE_WRITES}" != "held" ]]; then
+            echo "The verified host reports offsite_writes=${OFFSITE_WRITES:-<empty>}; a recovered host must hold its offsite writers until it is deliberately adopted" >&2
+            exit 1
+          fi
+
+          # Same shape, same reason. A recovered host has had exactly one
+          # deployment and therefore no rollback target; an empty field is a
+          # verification that did not report it, and is refused rather than
+          # read as the answer the contract hopes for.
+          if [[ "${PREVIOUS}" != "absent" ]]; then
+            echo "The verified host reports previous=${PREVIOUS:-<empty>}; a recovered host carries no previous release link" >&2
+            exit 1
+          fi
+
+          echo "Final contract holds: ${CURRENT_RELEASE} at ${SOURCE_SHA}; previous absent; offsite writes held."
+
+  # Only once the host is provably recovered, and only for what it is provably
+  # serving. The final verification is the entire gate, and it is enough to be
+  # one: it is the stage that proves the target holds the recovered data, is
+  # serving the exact commit that data belongs to, is healthy, has its queue
+  # RUNNING and its scheduler PRESENT, carries no guard, and still holds its
+  # offsite writers.
+  #
+  # That gate is written out rather than left implicit, and the difference is
+  # the whole reason this job exists in this shape. A job with no `if` inherits
+  # GitHub's default `success()`, which does not mean "the jobs I need
+  # succeeded" — it means "no job anywhere in my ancestry failed or was
+  # skipped". On `continue-held` the preparation, the historical build and the
+  # controlled deployment are all legitimately skipped, because the first half
+  # of the operation already performed them; the implicit gate inherited those
+  # skips and withheld the marker from a recovery that had verified perfectly.
+  #
+  # Naming the condition stops that inheritance. Nothing but the verification's
+  # own result decides, so `start` and `continue-held` record the same marker
+  # for the same reason.
+  #
+  # `always()` here means "whatever the rest of the graph did", never "whatever
+  # the verification did": a verify that reports `failure`, `cancelled` or
+  # `skipped` fails the equality and records nothing. The verification is not
+  # loosened anywhere to make this possible.
+  #
+  # Same shared implementation the deploy, release, rollback and restore
+  # workflows use, and fail-open throughout: an unreachable Sentry or a
+  # Nightwatch outage never turns a successfully recovered host into a failed
+  # recovery.
+  observability:
+    name: Record the recovered release in Sentry and Nightwatch
+    needs:
+      - validate
+      - binding
+      - recover
+      - verify
+    if: ${{ always() && needs.verify.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: production-tits-guru
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout observability action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The release the final VERIFICATION read off the host, not the one the
+      # build job produced and not the one the resume step reported. On the
+      # continue-held path there is no build job at all, and on the lost-runner
+      # path there is no usable resume result either — the verification is the
+      # one source that is always present when a marker is owed.
+      - name: Record deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
+        with:
+          deployment-target: tits-guru
+          environment: production
+
+          release-id: ${{ needs.verify.outputs.current_release }}
+          source-sha: ${{ needs.verify.outputs.source_sha }}
+
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          # Nightwatch is reached on the machine that was actually recovered.
+          deploy-host: ${{ needs.validate.outputs.replacement_host }}
+          deploy-port: ${{ needs.validate.outputs.replacement_port }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.RECOVERY_KNOWN_HOSTS }}
+
+  # Always, including on every failure path. A recovery that stops halfway
+  # leaves a real host in a real state, and the operator's next move depends on
+  # knowing which state that is. Identity only — no environment file, no rclone
+  # configuration, no key material, no credential fingerprint, no secret size
+  # or digest, and no GitHub Environment at all.
+  report:
+    name: Report what this recovery did
+    needs:
+      - validate
+      - values
+      - binding
+      - preflight
+      - deploy-identity
+      - prepare
+      - recover
+      - build
+      - deploy
+      - resume
+      - verify
+      - observability
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Summarize the recovery
+        shell: bash
+        env:
+          MODE: ${{ needs.validate.outputs.mode }}
+          BACKUP: ${{ needs.validate.outputs.backup }}
+          REQUESTED_OPERATION: ${{ needs.validate.outputs.operation }}
+          REPLACEMENT_HOST: ${{ needs.validate.outputs.replacement_host }}
+          REPLACEMENT_PORT: ${{ needs.validate.outputs.replacement_port }}
+          STATUS: ${{ needs.recover.outputs.status }}
+          OPERATION: ${{ needs.recover.outputs.operation }}
+          SERVER_BACKUP: ${{ needs.recover.outputs.backup }}
+          REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
+          BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
+          RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
+          OFFSITE_WRITES: ${{ needs.verify.outputs.offsite_writes }}
+          RECOVERED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RECOVERED_QUEUE: ${{ needs.verify.outputs.queue }}
+          RECOVERED_SCHEDULER: ${{ needs.verify.outputs.scheduler }}
+          RECOVERED_PREVIOUS: ${{ needs.verify.outputs.previous }}
+          RECOVERED_HEALTH: ${{ needs.verify.outputs.health }}
+          VALUES_CAUSE: ${{ needs.values.outputs.cause }}
+          PREFLIGHT_CAUSE: ${{ needs.preflight.outputs.cause }}
+          PREPARATION_CAUSE: ${{ needs.prepare.outputs.cause }}
+          RECOVER_CAUSE: ${{ needs.recover.outputs.cause }}
+          RESUME_CAUSE: ${{ needs.resume.outputs.cause }}
+          VERIFY_CAUSE: ${{ needs.verify.outputs.cause }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          VALUES_RESULT: ${{ needs.values.result }}
+          BINDING_RESULT: ${{ needs.binding.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          DEPLOY_IDENTITY_RESULT: ${{ needs.deploy-identity.result }}
+          PREPARATION_RESULT: ${{ needs.prepare.result }}
+          RECOVER_RESULT: ${{ needs.recover.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          RESUME_RESULT: ${{ needs.resume.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          OBSERVABILITY_RESULT: ${{ needs.observability.result }}
+        run: |
+          set -Eeuo pipefail
+
+          operation="${OPERATION:-${REQUESTED_OPERATION}}"
+          backup="${SERVER_BACKUP:-${BACKUP}}"
+
+          {
+            echo "## Recover tits.guru host"
+            echo
+            echo "| Fact | Value |"
+            echo "| --- | --- |"
+            echo "| Target | \`tits-guru\` (\`production\`) |"
+            echo "| Replacement host | \`${REPLACEMENT_HOST:-unknown}:${REPLACEMENT_PORT:-unknown}\` |"
+            echo "| Mode | \`${MODE:-unknown}\` |"
+            echo "| Backup | \`${backup:-n/a}\` |"
+            echo "| Recovery operation | \`${operation:-not yet assigned}\` |"
+            echo "| Server status | \`${STATUS:-not reached}\` |"
+            echo "| Required source SHA | \`${REQUIRED_SOURCE_SHA:-not reported}\` |"
+            echo "| Historical build required | \`${BUILD_REQUIRED:-not decided}\` |"
+            echo "| Recovered release | \`${RECOVERED_RELEASE:-none}\` |"
+            echo "| Offsite backup/retention writer | \`${OFFSITE_WRITES:-not verified}\` |"
+            echo "| DEPLOY_HOST | unchanged |"
+            echo "| DNS | unchanged |"
+            echo "| Migrations run | none |"
+            echo
+            echo "| Stage | Result |"
+            echo "| --- | --- |"
+            echo "| Validate request | \`${VALIDATE_RESULT}\` |"
+            echo "| Recovery values present | \`${VALUES_RESULT}\` |"
+            echo "| Replacement-host binding check | \`${BINDING_RESULT}\` |"
+            echo "| Clean-host preflight (read-only) | \`${PREFLIGHT_RESULT}\` |"
+            echo "| Derive deploy public key | \`${DEPLOY_IDENTITY_RESULT}\` |"
+            echo "| Prepare replacement host from the backup | \`${PREPARATION_RESULT}\` |"
+            echo "| Recover data | \`${RECOVER_RESULT}\` |"
+            echo "| Historical build | \`${BUILD_RESULT}\` |"
+            echo "| Controlled recovery deployment | \`${DEPLOY_RESULT}\` |"
+            echo "| Resume | \`${RESUME_RESULT}\` |"
+            echo "| Final verify | \`${VERIFY_RESULT}\` |"
+            echo "| Deployment marker | \`${OBSERVABILITY_RESULT}\` |"
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${VERIFY_RESULT}" == "success" ]]; then
+            # Every fact below is one the server-side verification REPORTED.
+            # A summary headed "as verified on the host" may not fill a gap
+            # with the value the contract hopes for: an absent field means the
+            # verification did not report it, and a recovery whose final
+            # contract cannot be stated in full is not a recovery to announce
+            # as complete.
+            missing=()
+            [[ -n "${RECOVERED_SOURCE_SHA}" ]]  || missing+=("source_sha")
+            [[ -n "${RECOVERED_QUEUE}" ]]       || missing+=("queue")
+            [[ -n "${RECOVERED_SCHEDULER}" ]]   || missing+=("scheduler")
+            [[ -n "${RECOVERED_PREVIOUS}" ]]    || missing+=("previous")
+            [[ -n "${RECOVERED_HEALTH}" ]]      || missing+=("health")
+            [[ -n "${OFFSITE_WRITES}" ]]        || missing+=("offsite_writes")
+
+            if (( ${#missing[@]} > 0 )); then
+              {
+                echo "### Recovery NOT confirmed — the final verification reported an incomplete contract"
+                echo
+                echo "\`recover-host --verify\` succeeded, but the run has no value for: \`${missing[*]}\`."
+                echo "These are the facts the final contract is made of, and this summary will not"
+                echo "invent them. The host may well be correct — read the verify job's own output,"
+                echo "or run \`recover-host --verify --target tits-guru\` on the machine."
+                echo
+                echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              } >> "${GITHUB_STEP_SUMMARY}"
+
+              echo "The final verification did not report: ${missing[*]}" >&2
+              exit 1
+            fi
+
+            # The one field whose VALUE is the contract rather than merely its
+            # presence. A recovered host has had exactly one deployment and so
+            # has no rollback target; the server, this action and the verify
+            # job all refuse anything else, and this refuses to head a summary
+            # "as verified on the host" over a host that contradicts it.
+            if [[ "${RECOVERED_PREVIOUS}" != "absent" ]]; then
+              {
+                echo "### Recovery NOT confirmed — the verified host carries a previous release link"
+                echo
+                echo "The final verification reports \`previous=${RECOVERED_PREVIOUS}\`. A recovered host has"
+                echo "had exactly one deployment — the controlled recovery deployment, which leaves no"
+                echo "rollback target on purpose — so this machine had something deployed to it after"
+                echo "the recovery, has already begun being adopted, or is not the host this run"
+                echo "describes. Nothing here changed it."
+                echo
+                echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              } >> "${GITHUB_STEP_SUMMARY}"
+
+              echo "The verified host reports previous=${RECOVERED_PREVIOUS}, and a recovered host carries no previous release link" >&2
+              exit 1
+            fi
+
+            {
+              echo "### Recovered — the final contract, as verified on the host"
+              echo
+              echo "| Fact | Value |"
+              echo "| --- | --- |"
+              echo "| Target | \`tits-guru\` |"
+              echo "| Replacement host | \`${REPLACEMENT_HOST}:${REPLACEMENT_PORT}\` |"
+              echo "| Exact backup | \`${backup}\` |"
+              echo "| Exact source_sha | \`${RECOVERED_SOURCE_SHA}\` |"
+              echo "| Queue | \`${RECOVERED_QUEUE}\` |"
+              echo "| Scheduler | \`${RECOVERED_SCHEDULER}\` |"
+              echo "| Previous | \`${RECOVERED_PREVIOUS}\` |"
+              echo "| Health | \`${RECOVERED_HEALTH}\` |"
+              echo "| Guards | none (recover-host --verify refuses a target that carries a restore or recovery guard) |"
+              echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES}\`) |"
+              echo "| Migrations run | none |"
+              echo "| DNS | unchanged |"
+              echo "| DEPLOY_HOST | unchanged |"
+              echo
+              echo "The replacement host is recovered and verified against the final contract:"
+              echo "the exact backup's data and environment, the exact commit its data belongs to,"
+              echo "no migration, queue RUNNING, scheduler PRESENT, no guard, health PASS."
+              echo
+              echo "The machine \`tits-guru\` was bound to before this run is unchanged: nothing here"
+              echo "edited DEPLOY_HOST, the target registry or DNS, and no traffic moved. The"
+              echo "replacement host's offsite backup/retention writer stays HELD until the"
+              echo "machine is deliberately adopted — the real offsite namespace was neither"
+              echo "written to nor pruned by this recovery."
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            # The lost-runner case, stated plainly so nobody re-runs a recovery
+            # that is already finished. --resume clears the guard before it
+            # prints its result, so a connection that dies in between fails the
+            # step over a target that is complete. The final contract was asked
+            # independently and held.
+            if [[ "${RESUME_RESULT}" != "success" ]]; then
+              {
+                echo
+                echo "The resume stage reports \`${RESUME_RESULT}\`, and the final verification"
+                echo "still passed. That is the lost-runner case: the server finished the recovery"
+                echo "and cleared its own guard before this workflow could read the result."
+                echo
+                echo "The host is complete. Do NOT re-run this workflow: \`mode=continue-held\`"
+                echo "would fail, because there is no longer a held operation to continue."
+              } >> "${GITHUB_STEP_SUMMARY}"
+            fi
+
+            exit 0
+          fi
+
+          # The stage the run stopped at, and the one operator-facing refusal
+          # format every recovery surface prints: what happened, what it
+          # means, what to do, what to run. Rendered from the cause word a
+          # stage reported — never from a secret, a digest or a private path.
+          stage=""
+          for pair in \
+            "validate:${VALIDATE_RESULT}" \
+            "values:${VALUES_RESULT}" \
+            "binding:${BINDING_RESULT}" \
+            "preflight:${PREFLIGHT_RESULT}" \
+            "deploy-identity:${DEPLOY_IDENTITY_RESULT}" \
+            "prepare:${PREPARATION_RESULT}" \
+            "recover:${RECOVER_RESULT}" \
+            "build:${BUILD_RESULT}" \
+            "deploy:${DEPLOY_RESULT}" \
+            "resume:${RESUME_RESULT}" \
+            "verify:${VERIFY_RESULT}"
+          do
+            if [[ "${pair#*:}" == "failure" ]] || [[ "${pair#*:}" == "cancelled" ]]; then
+              stage="${pair%%:*}"
+              break
+            fi
+          done
+
+          if [[ -n "${operation}" ]]; then
+            then_action="re-run \"Recover tits.guru host\" with mode=continue-held, operation=${operation} and replacement-host=${REPLACEMENT_HOST}"
+            recommendation="CONTINUE"
+          else
+            then_action="re-run \"Recover tits.guru host\" with mode=start (backup=${backup:-<exact timestamp>}, replacement-host=<the clean machine>, replacement-port=${REPLACEMENT_PORT:-22})"
+            recommendation="START"
+          fi
+
+          action_required() {
+            local cause="$1" meaning="$2"
+            shift 2
+
+            {
+              echo "### Stopped at: ${stage:-unknown} — recommendation: ${recommendation}"
+              echo
+              echo '```text'
+              echo "RECOVERY ACTION REQUIRED"
+              echo "Cause: ${cause}"
+              echo "What this means: ${meaning}"
+              echo "Do:"
+              local n=1
+              for step in "$@"; do
+                echo "  ${n}. ${step}"
+                n=$(( n + 1 ))
+              done
+              echo "Then: ${then_action}"
+              echo "Runbook: infrastructure/runbooks/clean-host-recovery.md"
+              echo '```'
+              echo
+            } >> "${GITHUB_STEP_SUMMARY}"
+          }
+
+
+          # A missing environment value is refused before any connection, and
+          # its guidance names the value and the KIND it must be created as.
+          if [[ "${stage}" == "values" ]] && [[ "${MODE}" == "start" ]]; then
+            then_action="re-run \"Recover tits.guru host\" with mode=start and the same exact backup (backup=${backup:-<exact timestamp>})"
+          fi
+
+          # A values job that never reported a cause did not judge anything:
+          # an environment approval was rejected or timed out, the run was
+          # cancelled, or the job failed before its own step. Guidance about a
+          # missing GitHub value would be a guess, so it is not given.
+          if [[ "${stage}" == "values" ]] && [[ -z "${VALUES_CAUSE}" ]]; then
+            if [[ "${VALUES_RESULT}" == "cancelled" ]]; then
+              action_required "the run was cancelled before the production-tits-guru environment's recovery values were judged" \
+                "nothing was connected to and nothing was changed" \
+                "re-run the workflow when you are ready; a cancelled run holds nothing on any machine"
+            else
+              action_required "the values job did not complete (its result is \`${VALUES_RESULT}\`, and it reported no cause)" \
+                "the production-tits-guru environment's approval was rejected or timed out, or the job failed before it could judge anything; nothing was connected to and nothing was changed" \
+                "read the values job's own log and its environment approval" \
+                "approve the production-tits-guru environment deployment, or fix what the log names, and re-run"
+            fi
+
+            exit 0
+          fi
+
+          case "${stage}:${VALUES_CAUSE}" in
+            values:rclone-config-secret-missing)
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_RCLONE_CONFIG secret" \
+                "a start recovery seeds the replacement host with exactly that rclone configuration, and the backup cannot be read without it; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+                "create RECOVERY_RCLONE_CONFIG" \
+                "paste the complete contents of the recovery rclone configuration file" \
+                "do not create it as an Environment variable"
+              ;;
+            values:bootstrap-user-variable-missing)
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_USER variable" \
+                "every connection to the replacement host is made as that user; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> production-tits-guru -> Environment variables" \
+                "create RECOVERY_BOOTSTRAP_USER and set it to the privileged user on the replacement host" \
+                "it is an Environment variable, not a secret"
+              ;;
+            values:bootstrap-ssh-key-secret-missing)
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_BOOTSTRAP_SSH_KEY secret" \
+                "the replacement host is reached with that private key and no other; the workflow never falls back to the deploy key" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+                "create RECOVERY_BOOTSTRAP_SSH_KEY and paste the complete OpenSSH private key" \
+                "do not create it as an Environment variable"
+              ;;
+            values:known-hosts-secret-missing)
+              action_required "the production-tits-guru GitHub Environment has no RECOVERY_KNOWN_HOSTS secret" \
+                "the replacement host's key is verified against that entry, and never scanned or trusted on first use" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+                "create RECOVERY_KNOWN_HOSTS and paste the one verified known_hosts line (runbook section C)" \
+                "do not create it as an Environment variable"
+              ;;
+            values:deploy-ssh-key-secret-missing)
+              action_required "the production-tits-guru GitHub Environment has no DEPLOY_SSH_KEY secret" \
+                "the deploy public key installed on the replacement host is derived from it, and the controlled recovery deployment connects with it; nothing was connected to and nothing was changed" \
+                "Settings -> Environments -> production-tits-guru -> Environment secrets" \
+                "confirm DEPLOY_SSH_KEY holds the target's existing deployment private key" \
+                "do not create it as an Environment variable"
+              ;;
+            values:*)
+              action_required "a recovery value the production-tits-guru GitHub Environment must hold is missing (see the values job log)" \
+                "nothing was connected to and nothing was changed" \
+                "create the value it names, under the heading it names (Environment variables or Environment secrets)"
+              ;;
+          esac
+
+          case "${stage}:${PREFLIGHT_CAUSE}:${PREPARATION_CAUSE}:${RECOVER_CAUSE}:${RESUME_CAUSE}:${VERIFY_CAUSE}" in
+            values:*)
+              ;;
+            validate:*)
+              action_required "the request was refused before any environment or secret was read" \
+                "mode, backup, replacement-host or replacement-port is malformed, or the target is not active (see the validate job log)" \
+                "use mode=start with backup=YYYYMMDD-HHMMSS (an exact schema 3 backup), replacement-host=<IP> and replacement-port=22" \
+                "for a continuation, use mode=continue-held with the operation ID from the earlier summary"
+              ;;
+            binding:*)
+              action_required "the replacement host is the machine tits-guru is already bound to, or its host key could not be proven different" \
+                "a recovery rebuilds a target onto a NEW machine; the binding check compares replacement-host with DEPLOY_HOST and the ssh-ed25519 key in RECOVERY_KNOWN_HOSTS with the one in DEPLOY_KNOWN_HOSTS" \
+                "name a genuinely new machine as replacement-host" \
+                "record that machine's ssh-ed25519 host key as RECOVERY_KNOWN_HOSTS, verified out of band (runbook section C)" \
+                "leave DEPLOY_HOST and DEPLOY_KNOWN_HOSTS exactly as they are"
+              ;;
+            preflight:unsupported-os:*)
+              action_required "the replacement host is not Ubuntu 22.04" \
+                "every bootstrap installer is written for exactly that release; nothing was installed or changed" \
+                "create a new VPS from an Ubuntu 22.04 x86_64 image" \
+                "install only the public half of RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:unsupported-architecture:*)
+              action_required "the replacement host is not x86_64" \
+                "the pinned runtime binaries and packages exist for x86_64 only; nothing was installed or changed" \
+                "create a new x86_64 VPS from an Ubuntu 22.04 image" \
+                "install only the public half of RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "record its ssh-ed25519 host key out of band into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:host-not-clean:*)
+              action_required "the replacement host already carries RateGuru state that no earlier start of this recovery put there (the preflight job names it)" \
+                "a start may enter from a genuinely clean machine, or from one an earlier start of THIS recovery already prepared — proven by the offsite-write hold naming this target and this exact backup. This machine is neither, and preparing over unknown state would turn the recovery into a partial repair of it, so nothing was changed or removed" \
+                "do not clean the machine up by hand: create a NEW VPS from an Ubuntu 22.04 x86_64 image" \
+                "if that machine is the live host or an earlier recovery, it is not a replacement host — use Repair Target or Restore Target Data for a live host" \
+                "install only the bootstrap SSH public key on the new machine and record its host key into RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:operation-in-progress:*)
+              action_required "a data operation already owns tits-guru on the replacement host" \
+                "a recovery that reached its own --apply holds the target with a guard and an operation ID; a restore guard means a live restore owns the data. Starting a second operation over either is never safe, and nothing was changed" \
+                "if a recovery is held there, continue it: re-run with mode=continue-held and the operation ID from that run's summary" \
+                "read what it is waiting for on the host: recover-host --inspect --target tits-guru --operation <id>" \
+                "never remove a guard or the offsite-write hold by hand to make a start pass"
+              ;;
+            preflight:host-unreachable:*)
+              action_required "the replacement host did not answer the bootstrap SSH connection" \
+                "the address, the port, a firewall or the machine itself is not ready; nothing was uploaded or changed" \
+                "confirm the machine is up and replacement-host:replacement-port is reachable (nc -vz <IP> 22)" \
+                "confirm the inputs name the NEW machine"
+              ;;
+            preflight:known-hosts-mismatch:*)
+              action_required "the replacement host's SSH host key is not the one in RECOVERY_KNOWN_HOSTS" \
+                "either another machine answered, or RECOVERY_KNOWN_HOSTS holds a different machine's key; the workflow never scans or trusts a key on first use" \
+                "read the machine's ssh-ed25519 host key from your own machine (runbook section C)" \
+                "verify that ssh-ed25519 line against the provider console or the machine's /etc/ssh/ssh_host_ed25519_key.pub" \
+                "store exactly that line as RECOVERY_KNOWN_HOSTS"
+              ;;
+            preflight:ssh-authentication-failed:*)
+              action_required "the replacement host did not accept RECOVERY_BOOTSTRAP_SSH_KEY for RECOVERY_BOOTSTRAP_USER" \
+                "the public half of the recovery key is not installed for that user, or RECOVERY_BOOTSTRAP_USER names the wrong account" \
+                "install the public half of RECOVERY_BOOTSTRAP_SSH_KEY into that user's ~/.ssh/authorized_keys on the replacement host" \
+                "confirm from your own machine that an SSH login as that user with the recovery key runs 'id -u' (runbook section B)"
+              ;;
+            preflight:passwordless-sudo-missing:*)
+              action_required "RECOVERY_BOOTSTRAP_USER is neither root nor a passwordless sudoer on the replacement host" \
+                "the preflight, the preparation and the recovery all need root on that machine; nothing was uploaded or changed" \
+                "grant that user passwordless sudo (a sudoers entry with NOPASSWD), or set RECOVERY_BOOTSTRAP_USER to root" \
+                "confirm from your own machine that 'sudo -n true' succeeds for that user over SSH (runbook section B)"
+              ;;
+            preflight:*)
+              action_required "the clean-host preflight did not pass (see the preflight job log)" \
+                "nothing was changed on the replacement host" \
+                "read the REFUSED lines in the preflight job and fix the machine or the GitHub values they name"
+              ;;
+            deploy-identity:*)
+              action_required "the deploy public key could not be derived from DEPLOY_SSH_KEY" \
+                "the production-tits-guru environment has no usable DEPLOY_SSH_KEY, so the replacement host's deploy user cannot be given the deployment identity; nothing on the host was changed" \
+                "configure DEPLOY_SSH_KEY in the production-tits-guru GitHub Environment as the deployment private key (a usable OpenSSH private key)"
+              ;;
+            prepare:*:backup-not-recovery-capable:*)
+              action_required "backup ${backup} is a schema 1 or 2 backup, written before the recovery material joined the format" \
+                "a clean-host recovery can only be prepared from a schema 3 backup; there is no fallback to hand-supplied material, and this backup stays restorable onto a LIVE target" \
+                "take a new backup on the live host (backup --target tits-guru, or the nightly backup-cycle) and let it reach the offsite namespace" \
+                "confirm it passed the offsite restore test, then use its exact timestamp"
+              ;;
+            prepare:*:backup-not-found:*)
+              action_required "backup ${backup} could not be read from the offsite namespace" \
+                "no backup with that exact timestamp exists there, or RECOVERY_RCLONE_CONFIG cannot reach or read the namespace; nothing on the host was changed" \
+                "list the namespace with the recovery rclone configuration: rclone --config <cfg> lsf rateguru-b2:rateguru-database-backups/rateguru/<namespace>/" \
+                "use the exact timestamp of an existing schema 3 backup that passed the offsite restore test"
+              ;;
+            prepare:*:recovery-material-invalid:*)
+              action_required "the recovery material of backup ${backup} is not acceptable for tits-guru" \
+                "its archive is unsafe or does not hold exactly the target's host-scope prerequisites as the current prerequisite table states them; nothing was extracted or installed" \
+                "take a new backup on the live host so its recovery material matches the current prerequisite table" \
+                "confirm the new backup passed the offsite restore test, then use its exact timestamp"
+              ;;
+            prepare:*:rclone-config-unavailable:*)
+              action_required "the recovery offsite credential is missing or cannot reach the backup namespace" \
+                "RECOVERY_RCLONE_CONFIG is the only way the replacement host reads the backup; nothing was installed" \
+                "configure RECOVERY_RCLONE_CONFIG in the production-tits-guru GitHub Environment with an rclone configuration whose key can READ the backup bucket" \
+                "never copy an rclone configuration onto the host by hand"
+              ;;
+            prepare:*:offsite-hold-missing:*)
+              action_required "the offsite-write hold vanished on the replacement host before the preparation finished" \
+                "a replacement machine whose offsite writers are not fenced could upload into, or prune, the real offsite namespace, so the preparation refused to report the host prepared" \
+                "nothing on the machine releases the hold by itself: find what removed /home/www/rateguru/run/offsite-write-hold" \
+                "re-run the preparation; it places the hold again"
+              ;;
+            prepare:*)
+              action_required "Prepare Host failed on the replacement host (see the prepare job log for the slice that failed)" \
+                "preparation is convergent: safely converged slices are kept, nothing is rolled back, and a re-run resumes at the first unsatisfied slice" \
+                "read the failing slice's own output in the prepare job log and fix what it names" \
+                "re-run against the same clean machine — or a new one if the preflight would now refuse it"
+              ;;
+            recover:*:backup-not-recovery-capable:*|recover:*:*:backup-not-recovery-capable:*)
+              action_required "backup ${backup} is a schema 1 or 2 backup" \
+                "recover-host requires a schema 3 backup and staged no data; nothing was activated" \
+                "take a new backup on the live host and let it reach the offsite namespace" \
+                "confirm it passed the offsite restore test, then use its exact timestamp"
+              ;;
+            recover:*:*:backup-not-found:*)
+              action_required "backup ${backup} could not be downloaded from the offsite namespace" \
+                "no backup with that exact timestamp exists there, or the host's rclone configuration cannot read it; nothing was staged" \
+                "list the namespace and use the exact timestamp of an existing schema 3 backup"
+              ;;
+            recover:*:*:recovery-material-invalid:*)
+              action_required "the recovery material of backup ${backup} is not acceptable" \
+                "the staged backup's archive is unsafe as data; nothing was activated" \
+                "take a new backup on the live host and use its exact timestamp"
+              ;;
+            recover:*:*:rclone-config-unavailable:*)
+              action_required "the replacement host has no usable rclone configuration" \
+                "Prepare Host installs it from RECOVERY_RCLONE_CONFIG; a prepared host without it cannot download the backup" \
+                "configure RECOVERY_RCLONE_CONFIG in the production-tits-guru GitHub Environment and re-prepare the machine"
+              ;;
+            recover:*:*:offsite-hold-missing:*|resume:*:*:*:offsite-hold-missing:*|verify:*:*:*:*:offsite-hold-missing)
+              action_required "the offsite-write hold is missing on the replacement host" \
+                "the host's backup cron, uploader and pruner are no longer fenced while DEPLOY_HOST still points at the machine that owns the real offsite namespace; the mode refused" \
+                "a recovery still awaiting its code re-establishes the hold when it resumes: re-run with mode=continue-held" \
+                "for --inspect or --verify, re-place /home/www/rateguru/run/offsite-write-hold by hand as root (see recover-host.md), then re-run"
+              ;;
+            recover:*:*:host-not-prepared:*)
+              action_required "the replacement host is not a prepared host" \
+                "recover-host runs prepare-host --verify first and refuses a machine whose preparation does not pass; nothing was staged" \
+                "read the prepare job log; re-run mode=start so the preparation converges before the recovery"
+              ;;
+            recover:*:*:environment-mismatch:*)
+              action_required "the prepared shared/.env is not byte-identical to the backup's environment.env" \
+                "the machine was prepared from a different backup than the one being recovered; nothing was activated" \
+                "re-run mode=start with the same backup for the preparation and the recovery (the workflow does this by construction)"
+              ;;
+            recover:*)
+              action_required "recover-host --apply refused or failed (see the recover job log for the step)" \
+                "nothing was activated unless the log says so; a held operation, if one was assigned, keeps its data and its guard" \
+                "read the ERROR line in the recover job log and fix what it names"
+              ;;
+            build:*)
+              action_required "the exact commit ${REQUIRED_SOURCE_SHA:-the backup names} could not be built" \
+                "the recovered data belongs to that commit and no other; the data is restored and held on the replacement host" \
+                "confirm the commit exists in this repository's history (git cat-file -e ${REQUIRED_SOURCE_SHA:-<sha>})" \
+                "read the build job log for the failing step; nothing on the host needs to change"
+              ;;
+            deploy:*)
+              action_required "the controlled recovery deployment failed" \
+                "the data is restored and held, no migration ran, and the host's guard is intact; deploy rolled back what it staged" \
+                "read the deploy job log for the failing step"
+              ;;
+            resume:*:*:*:awaiting-code:*)
+              action_required "the recovery is still awaiting its code" \
+                "no current release is deployed yet, so --resume refused; the data is restored and held" \
+                "let the workflow build and deploy the exact commit: re-run mode=continue-held"
+              ;;
+            resume:*)
+              action_required "recover-host --resume refused or failed (see the resume job log)" \
+                "the target stays held with its data, its retained pre-recovery copies and its guard untouched" \
+                "read the ERROR line in the resume job log and fix what it names"
+              ;;
+            verify:*:*:*:*:guard-present)
+              action_required "the recovered target still carries a recovery guard" \
+                "the resume did not complete, so the final verification refuses; the host is held" \
+                "re-run mode=continue-held (the server reports whether the recovery is ready-to-resume)"
+              ;;
+            verify:*)
+              action_required "the independent final verification failed" \
+                "the host does not meet the final contract (current, database, storage, queue, scheduler, health, no guard, offsite writes held); read the verify job log for the line that failed" \
+                "fix what it names on the host, then re-run mode=continue-held if a held operation exists, or run recover-host --verify --target tits-guru on the host"
+              ;;
+            *)
+              action_required "the run did not complete (stage: ${stage:-unknown})" \
+                "read the failing job's log; nothing is cleaned up to make a run look green" \
+                "fix what the log names"
+              ;;
+          esac
+
+          # A hold is claimed only when an operation ID is actually known.
+          # Every failure before the server assigned one — a malformed request,
+          # the binding refusal, a failed preparation — leaves nothing held on
+          # the replacement machine, and saying otherwise would send an
+          # operator hunting for a guard that was never written.
+          if [[ -n "${operation}" ]]; then
+            {
+              echo "Recovery remains held on the replacement host."
+              echo
+              echo "Nothing was cleaned up to make this run look green: the recovered data, the"
+              echo "recovery guard and the operation's own state are all still on the machine."
+              echo
+              echo 'Re-run "Recover tits.guru host" with:'
+              echo
+              echo '```text'
+              echo "mode=continue-held"
+              echo "operation=${operation}"
+              echo "replacement-host=${REPLACEMENT_HOST}"
+              echo '```'
+              echo
+              echo "It will ask the server which stage the recovery is at and continue from there:"
+              echo "\`awaiting-code\` rebuilds and redeploys the required commit, \`ready-to-resume\`"
+              echo "skips straight to the resume."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            {
+              echo "No recovery operation ID reached this summary, so there is nothing to continue"
+              echo "with \`mode=continue-held\` — and this summary cannot claim a recovery is held"
+              echo "on the replacement machine either."
+              echo
+              echo "Nothing was cleaned up regardless. If the recovery step itself failed, its own"
+              echo "log names the operation the server assigned, if it got that far; a fresh"
+              echo "\`mode=start\` run refuses BY NAME, naming the operation that owns the target,"
+              echo "when one really is held."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi

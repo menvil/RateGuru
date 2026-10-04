@@ -3,13 +3,7 @@ parametersSchema:
 
 parameters:
     architecture:
-        lowLevelDatabaseExceptions:
-            -
-                class: App\Services\Rating\LegacyRatingVoteMigrator
-                methods: [table]
-                reason: 'Legacy vote tables are selected from trusted internal names and have no long-lived Eloquent model.'
-                behaviorTests: [tests/Feature/Console/MigrateLegacyRatingVotesCommandTest.php]
-                status: approved
+        lowLevelDatabaseExceptions: []
         rawSqlExceptions:
             -
                 class: App\Queries\Comments\CommentListQuery
@@ -65,6 +59,12 @@ parameters:
                 uniqueOrder: [id]
                 behaviorTests: [tests/Feature/Domain/UserPublicPostsQueryTest.php]
                 status: approved
+            -
+                class: App\Queries\Posts\RecentlyDeletedPostsQuery
+                method: forOwner
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Queries/RecentlyDeletedPostsQueryTest.php]
+                status: approved
 
 services:
     -
@@ -85,6 +85,10 @@ services:
 
     -
         class: RateGuru\PHPStan\Rules\NoDirectControllerPermissionCheckRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoPhysicalUserDeletionRule
         tags: [phpstan.rules.rule]
 
     -

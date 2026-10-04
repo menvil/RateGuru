@@ -1,3 +1,4 @@
+@inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
 <div data-testid="post-drawer">
     <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
         <x-ui.skeleton shape="block" height="16rem" />
@@ -11,7 +12,7 @@
             x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false, menuId: $id('post-drawer-menu') }"
             x-on:keydown.escape.window="menuOpen = false"
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
-            class="relative rounded-rgCard border border-rg-border bg-rg-card p-5"
+            class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >
             <button
                 type="button"
@@ -28,27 +29,27 @@
             </button>
 
             <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
-                @if($post->user?->username)
-                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                        <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user->name" size="lg" />
+                @if($post->user?->public_username)
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                     </a>
                 @else
-                    <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
                 @endif
 
                 <div class="min-w-0">
-                    @if($post->user?->username)
-                        <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                    @if($post->user?->public_username)
+                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                     @else
-                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                     @endif
 
                     <div class="truncate text-xs text-rg-muted">
-                        @if($post->user?->username)
-                            {{ '@' . $post->user->username }}
+                        @if($post->user?->public_username)
+                            {{ '@' . $post->user->public_username }}
                         @endif
                         @if($post->published_at)
-                            {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                            {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                         @endif
                     </div>
                 </div>
@@ -66,23 +67,31 @@
                 <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
 
+            @if($post->category)
+                <div class="mt-3">
+                    <x-posts.category-link :category="$post->category" test-id="post-drawer-category" />
+                </div>
+            @endif
+
             <div class="mt-4">
                 @if($post->public_image_url)
-                    <button
-                        type="button"
-                        class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                        x-on:click.stop="imageOpen = true"
-                        data-testid="post-drawer-image-open"
-                        aria-label="{{ __('ui.a11y.open_image') }}"
-                    >
-                        <img
-                            src="{{ $post->public_image_url }}"
-                            alt="{{ $post->title }}"
-                            class="aspect-[4/3] w-full rounded-rgMedia object-cover"
-                        >
-                    </button>
+                    @php
+                        $drawerImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Drawer);
+                    @endphp
+                    <x-media.post-image
+                        :post="$post"
+                        :src="$drawerImage?->src"
+                        :srcset="$drawerImage?->srcset"
+                        :sizes="$drawerImage?->sizes"
+                        :width="$drawerImage?->width"
+                        :height="$drawerImage?->height"
+                        context="drawer"
+                        open-fullscreen="imageOpen = true"
+                        testid="post-drawer-image-open"
+                        loading="lazy"
+                    />
                 @else
-                    <x-ui.image-placeholder label="Image preview" ratio="detail" />
+                    <x-ui.image-placeholder :label="__('ui.post.image_preview')" ratio="detail" />
                 @endif
             </div>
 
@@ -172,19 +181,27 @@
             @endif
 
             @if($post->public_image_url)
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
-                        data-testid="post-fullscreen-image"
-                    >
+                @php
+                    $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                @endphp
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                    <x-media.post-image
+                        :post="$post"
+                        :src="$fullscreenImage?->src"
+                        :srcset="$fullscreenImage?->srcset"
+                        :sizes="$fullscreenImage?->sizes"
+                        :width="$fullscreenImage?->width"
+                        :height="$fullscreenImage?->height"
+                        context="fullscreen"
+                        image-testid="post-fullscreen-image"
+                        loading="lazy"
+                    />
                 </x-ui.modal>
             @endif
 
             <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                 <div class="space-y-4">
-                    <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+                    <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
                     @if($deleteError)
                         <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>
@@ -207,7 +224,7 @@
         </article>
 
         @if($activeRatingGroups->isNotEmpty())
-        <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
+        <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5">
             @foreach($activeRatingGroups as $ratingGroup)
                 <div class="{{ $loop->first ? '' : 'border-t border-rg-border pt-4' }}" wire:click.stop wire:keydown.stop>
                     <livewire:voting.rating-voting
@@ -228,13 +245,13 @@
         @endif
     @elseif($postId)
         <x-ui.error-message
-            title="Post not found"
-            message="This post is unavailable or no longer public."
+            :title="__('ui.post.not_found_title')"
+            :message="__('ui.post.not_found_description')"
         />
     @else
         <x-ui.empty-state
-            title="Select a post"
-            description="Post details will appear here."
+            :title="__('ui.post.select_title')"
+            :description="__('ui.post.select_description')"
         />
     @endif
     </div>

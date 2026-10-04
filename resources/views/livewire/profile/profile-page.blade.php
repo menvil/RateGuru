@@ -10,7 +10,8 @@
             <div class="flex min-w-0 items-center gap-4">
                 <div data-testid="profile-avatar">
                     <x-ui.avatar
-                        :src="$profileUser->avatar_path ? \Illuminate\Support\Facades\Storage::disk('public')->url($profileUser->avatar_path) : $profileUser->avatar_url"
+                        :src="$profileUser->resolved_avatar_url"
+                        :srcset="$profileUser->resolved_avatar_srcset"
                         :name="$this->displayName"
                         size="xl"
                     />
@@ -145,7 +146,12 @@
                     @else
                         <div data-testid="profile-posts-grid" class="space-y-4">
                             @foreach($this->posts as $post)
-                                <x-feed.post-card :post="$post" wire:key="profile-post-{{ $post->id }}" />
+                                <x-feed.post-card
+                                    :post="$post"
+                                    :rating-groups="$ratingGroups"
+                                    :eager-image="$loop->first"
+                                    wire:key="profile-post-{{ $post->id }}"
+                                />
                             @endforeach
                         </div>
 
@@ -175,8 +181,8 @@
                                             <p class="truncate text-sm font-medium text-rg-text">{{ $vote->post->title ?? '—' }}</p>
                                             @if($vote->group && $vote->option)
                                                 <p class="mt-1 text-xs text-rg-muted">
-                                                    {{ $vote->group->label ?? $vote->group->name ?? '' }}:
-                                                    <span class="font-medium text-rg-text2">{{ $vote->option->label ?? $vote->option->name ?? '' }}</span>
+                                                    {{ $vote->group->translatedLabel() }}:
+                                                    <span class="font-medium text-rg-text2">{{ $vote->option->translatedLabel() }}</span>
                                                 </p>
                                             @endif
                                         </div>
@@ -198,7 +204,12 @@
                     @elseif($this->savedPosts)
                         <div class="space-y-4" data-testid="profile-saved-posts-grid">
                             @foreach($this->savedPosts as $post)
-                                <x-feed.post-card :post="$post" wire:key="profile-saved-post-{{ $post->id }}" />
+                                <x-feed.post-card
+                                    :post="$post"
+                                    :rating-groups="$ratingGroups"
+                                    :eager-image="$loop->first"
+                                    wire:key="profile-saved-post-{{ $post->id }}"
+                                />
                             @endforeach
                         </div>
                         <div class="mt-6">

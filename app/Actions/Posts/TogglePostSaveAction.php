@@ -3,6 +3,8 @@
 namespace App\Actions\Posts;
 
 use App\Data\Posts\PostSaveToggleResult;
+use App\Exceptions\SavedPosts\CannotSavePostException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
@@ -11,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 final class TogglePostSaveAction
 {
+    use LocksActorForWrite;
+
     public function handleForPostId(?User $user, int $postId): PostSaveToggleResult
     {
         if ($user === null) {
@@ -46,6 +50,28 @@ final class TogglePostSaveAction
     public function handle(User $user, Post $post): bool
     {
         return DB::transaction(function () use ($user, $post): bool {
+            // Lock order: Actor User -> Post -> PostSave. Saved posts are
+            // private state: every living account (sanctions included) may
+            // manage them, a Deleted tombstone may not — tombstoning removed its
+            // rows and a stale request must never recreate them.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canAuthenticate()) {
+                throw CannotSavePostException::userNotAllowed();
+            }
+
+            // The caller's post instance may also be stale — a save/unsave
+            // must never mutate state for a post that was author-deleted or
+            // hidden in between.
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canBeSaved()) {
+                throw CannotSavePostException::postNotViewable();
+            }
+
             $existing = PostSave::query()
                 ->where('user_id', $user->id)
                 ->where('post_id', $post->id)
@@ -59,10 +85,10 @@ final class TogglePostSaveAction
             }
 
             try {
-                PostSave::query()->create([
+                DB::transaction(fn (): PostSave => PostSave::query()->create([
                     'user_id' => $user->id,
                     'post_id' => $post->id,
-                ]);
+                ]));
             } catch (QueryException $e) {
                 if (! $this->isUniqueConstraintViolation($e)) {
                     throw $e;

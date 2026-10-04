@@ -21,7 +21,6 @@ class DemoModeratorSeeder extends Seeder
             [
                 'name' => 'Demo Moderator',
                 'username' => 'moderator',
-                'avatar_url' => null,
                 'role' => UserRole::Moderator,
                 'status' => UserStatus::Active,
                 'trust_level' => 0,

@@ -4,6 +4,7 @@ namespace App\Actions\Rating;
 
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteRatingOptionAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly ActionRateLimiter $rateLimiter,
         private readonly PostListCacheManager $postListCache,
@@ -31,11 +34,11 @@ final class VoteRatingOptionAction
             throw CannotVoteForRatingOptionException::becauseUserIsNotAllowed();
         }
 
-        if (! $post->canReceiveVotes()) {
+        if (! $post->canReceiveRatingVotes()) {
             throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
         }
 
-        if ((int) $post->user_id === (int) $user->id) {
+        if (! $user->can('vote', $post)) {
             throw CannotVoteForRatingOptionException::becauseOwnPost();
         }
 
@@ -44,13 +47,31 @@ final class VoteRatingOptionAction
                 key: RateLimitKey::userAction('vote', $user),
                 maxAttempts: (int) config('rate_limits.vote.max_attempts'),
                 decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
-                message: 'You are voting too quickly. Please try again later.',
+                message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotVoteForRatingOptionException::becauseRateLimited($e->getMessage());
         }
 
         $changed = DB::transaction(function () use ($user, $post, $option): bool {
+            // Lock order: Actor User -> Post -> rating group -> option
+            // (docs/architecture/user-lifecycle.md). Pre-checks ran on
+            // possibly stale instances; the locked rows decide.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteForRatingOptionException::becauseUserIsNotAllowed();
+            }
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveRatingVotes()) {
+                throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
+            }
+
             $group = RatingGroup::query()
                 ->lockForUpdate()
                 ->findOrFail($option->rating_group_id);

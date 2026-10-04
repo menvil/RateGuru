@@ -18,8 +18,8 @@ it('renders facebook share link component with correct url', function () {
     );
 
     expect($html)->toContain('data-testid="share-facebook"');
-    expect($html)->toContain('facebook.com');
-    expect($html)->toContain('window.open');
+    expect($html)->toContain('href="'.e($fbUrl).'"');
+    expect($html)->not->toContain('window.open');
 });
 
 it('renders x share link component with correct url', function () {
@@ -35,6 +35,6 @@ it('renders x share link component with correct url', function () {
     );
 
     expect($html)->toContain('data-testid="share-x"');
-    expect($html)->toContain('twitter.com');
-    expect($html)->toContain('window.open');
+    expect($html)->toContain('href="'.e($xUrl).'"');
+    expect($html)->not->toContain('window.open');
 });

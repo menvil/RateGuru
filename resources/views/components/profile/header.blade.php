@@ -5,6 +5,7 @@
         <div data-testid="profile-avatar">
             <x-ui.avatar
                 :src="$user->resolved_avatar_url"
+                :srcset="$user->resolved_avatar_srcset"
                 :name="$user->resolved_display_name"
                 size="xl"
             />

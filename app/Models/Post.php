@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
+use App\Support\Media\PostImagePresenter;
+use App\Support\Posts\PostRetention;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,13 +18,13 @@ use Illuminate\Support\Str;
 
 /**
  * @property PostStatus $status
- * @property OriginType|null $origin_truth
- * @property CuisineType|null $cuisine_truth
+ * @property PostStatus|null $deleted_from_status
  * @property-read int $score
  * @property-read string|null $public_image_url
- * @property string|null $thumbnail_url
  * @property Carbon|null $created_at
  * @property Carbon|null $published_at
+ * @property Carbon|null $deleted_at
+ * @property Carbon|null $moderation_removed_at
  */
 class Post extends Model
 {
@@ -36,12 +36,12 @@ class Post extends Model
     {
         return [
             'status' => PostStatus::class,
-            'origin_truth' => OriginType::class,
-            'cuisine_truth' => CuisineType::class,
+            'deleted_from_status' => PostStatus::class,
             'published_at' => 'datetime',
             'hot_score' => 'float',
             'needs_review' => 'boolean',
             'flagged_at' => 'datetime',
+            'moderation_removed_at' => 'datetime',
         ];
     }
 
@@ -75,20 +75,102 @@ class Post extends Model
         return $query->where('status', PostStatus::Published);
     }
 
+    /**
+     * Statuses an author may delete their own post from. Hidden is a
+     * moderation state and deliberately absent: the author must not be able
+     * to start the retention purge clock for moderation-hidden evidence.
+     * Deleted is never a source state (docs/architecture/post-lifecycle.md).
+     */
+    public const AUTHOR_DELETABLE_STATUSES = [
+        PostStatus::Draft,
+        PostStatus::Pending,
+        PostStatus::Published,
+        PostStatus::Rejected,
+    ];
+
+    // Lifecycle helpers. Author deletion = SoftDeletes + status Deleted +
+    // deleted_from_status capture; moderation hide = status Hidden with
+    // deleted_at null. Public-interaction helpers are trashed-aware so a
+    // stale withTrashed() instance can never claim interactivity.
+
+    public function isAuthorDeleted(): bool
+    {
+        return $this->trashed() && $this->status === PostStatus::Deleted;
+    }
+
+    /**
+     * Hidden + moderation_removed_at distinguishes the two moderation
+     * states: null = reversible hide, non-null = finalized removal that can
+     * never be restored through the normal lifecycle
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function isModerationRemovalFinalized(): bool
+    {
+        return ! $this->trashed()
+            && $this->status === PostStatus::Hidden
+            && $this->moderation_removed_at !== null;
+    }
+
     public function canReceiveVotes(): bool
     {
-        return $this->status === PostStatus::Published;
+        return ! $this->trashed() && $this->status === PostStatus::Published;
     }
 
     public function canReceiveComments(): bool
     {
-        return $this->status === PostStatus::Published;
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canReceiveReports(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canBeSaved(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canReceiveRatingVotes(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    /**
+     * When the author-restore window closes. Null unless author-deleted.
+     * Restore is allowed strictly before this instant: at the exact cutoff
+     * the window is already expired (retention 0 expires immediately).
+     */
+    public function authorRestoreDeadline(): ?Carbon
+    {
+        if (! $this->isAuthorDeleted() || $this->deleted_at === null) {
+            return null;
+        }
+
+        return $this->deleted_at->copy()->addDays(
+            PostRetention::days(),
+        );
+    }
+
+    public function isAuthorRestorable(): bool
+    {
+        $deadline = $this->authorRestoreDeadline();
+
+        return $deadline !== null
+            && in_array($this->deleted_from_status, self::AUTHOR_DELETABLE_STATUSES, true)
+            && now()->lt($deadline);
     }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function imageAsset(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'image_asset_id');
     }
 
     /** @return HasMany<Comment, $this> */
@@ -101,18 +183,6 @@ class Post extends Model
     public function postVotes(): HasMany
     {
         return $this->hasMany(PostVote::class);
-    }
-
-    /** @return HasMany<OriginVote, $this> */
-    public function originVotes(): HasMany
-    {
-        return $this->hasMany(OriginVote::class);
-    }
-
-    /** @return HasMany<CuisineVote, $this> */
-    public function cuisineVotes(): HasMany
-    {
-        return $this->hasMany(CuisineVote::class);
     }
 
     /** @return HasMany<PostSave, $this> */
@@ -133,16 +203,16 @@ class Post extends Model
         return $this->belongsToMany(Tag::class);
     }
 
+    /** @return BelongsTo<Category, $this> */
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(Category::class);
+    }
+
     /** @return HasMany<PostAuthorAnswer, $this> */
     public function authorAnswers(): HasMany
     {
         return $this->hasMany(PostAuthorAnswer::class);
-    }
-
-    /** @return BelongsTo<RatingOption, $this> */
-    public function categoryOption(): BelongsTo
-    {
-        return $this->belongsTo(RatingOption::class, 'category_option_id');
     }
 
     protected function score(): Attribute
@@ -159,20 +229,18 @@ class Post extends Model
         );
     }
 
+    /**
+     * Temporary compatibility accessor kept only because Blade views and API
+     * resources already call it in many places — removing it would ripple
+     * across the presentation layer for no behavioral gain. It carries no
+     * filesystem knowledge of its own: it just delegates to
+     * PostImagePresenter, which delegates to MediaUrlResolver. New code
+     * should prefer injecting PostImagePresenter directly.
+     */
     protected function publicImageUrl(): Attribute
     {
         return Attribute::make(
-            get: function (): ?string {
-                $path = trim((string) $this->image_path);
-
-                if ($path !== '') {
-                    return '/storage/'.ltrim($path, '/');
-                }
-
-                $url = trim((string) $this->image_url);
-
-                return $url !== '' ? $url : null;
-            },
+            get: fn (): ?string => app(PostImagePresenter::class)->url($this),
         );
     }
 }

@@ -7,6 +7,7 @@ function makeMetadata(bool $withImage = true): ShareMetadata
 {
     return new ShareMetadata(
         title: 'Test Post Title',
+        shareText: 'Distinct share payload',
         description: 'Test description text.',
         url: 'https://example.test/posts/1',
         imageUrl: $withImage ? 'https://example.test/image.jpg' : null,
@@ -26,6 +27,7 @@ it('builds x share url', function () {
 
     expect($url)->toContain('twitter.com/intent/tweet');
     expect($url)->toContain('example.test');
+    expect($url)->toContain(urlencode('Distinct share payload'));
 });
 
 it('builds telegram share url', function () {
@@ -33,6 +35,7 @@ it('builds telegram share url', function () {
 
     expect($url)->toContain('t.me/share/url');
     expect($url)->toContain('example.test');
+    expect($url)->toContain(urlencode('Distinct share payload'));
 });
 
 it('builds whatsapp share url', function () {
@@ -40,6 +43,7 @@ it('builds whatsapp share url', function () {
 
     expect($url)->toContain('wa.me');
     expect($url)->toContain('example.test');
+    expect($url)->toContain(urlencode('Distinct share payload'));
 });
 
 it('builds reddit share url', function () {

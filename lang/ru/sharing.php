@@ -14,6 +14,7 @@ return [
     'email' => 'Email',
     'share_this_post' => 'Поделиться постом',
     'share_via' => 'Поделиться через',
-    'share_unavailable' => 'Поделиться недоступно',
+    'share_unavailable' => 'Функция «Поделиться» недоступна',
     'copy_failed' => 'Не удалось скопировать. Выделите и скопируйте вручную.',
+    'post_fallback_description' => 'Посмотрите и оцените этот пост на сайте :siteName.',
 ];

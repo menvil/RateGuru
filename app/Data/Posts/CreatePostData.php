@@ -2,8 +2,7 @@
 
 namespace App\Data\Posts;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
+use App\Enums\ImageInputSource;
 use Illuminate\Http\UploadedFile;
 
 final readonly class CreatePostData
@@ -12,14 +11,12 @@ final readonly class CreatePostData
         public string $title,
         public ?string $description = null,
         public ?string $sourceUrl = null,
-        public OriginType $originTruth = OriginType::Unknown,
-        public CuisineType $cuisineTruth = CuisineType::Unknown,
         /** @var array<int> $tagIds */
         public array $tagIds = [],
         public ?UploadedFile $image = null,
-        // Author-chosen feed category: an active option of the first active
-        // rating group (the one the sidebar "Categories" block is built from).
-        public ?int $categoryOptionId = null,
+        public ImageInputSource $imageSource = ImageInputSource::Upload,
+        // Optional standalone taxonomy selected by the author.
+        public ?int $categoryId = null,
         /**
          * Author's claimed correct answers ("I know the correct answer"):
          * active rating option ids, at most one per active rating group.

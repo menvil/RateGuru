@@ -4,6 +4,7 @@ namespace App\Livewire\Profile;
 
 use App\Actions\Profile\UpdateUserProfileAction;
 use App\Models\User;
+use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Profile\ProfileValidationRules;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rules\File;
@@ -26,6 +27,8 @@ class EditProfileForm extends Component
     /** @var TemporaryUploadedFile|null */
     public $avatar = null;
 
+    public ?string $submitError = null;
+
     public function mount(): void
     {
         /** @var User $user */
@@ -38,6 +41,8 @@ class EditProfileForm extends Component
 
     public function save(UpdateUserProfileAction $action): void
     {
+        $this->submitError = null;
+
         $rules = array_merge(
             app(ProfileValidationRules::class)->rules(),
             ['avatar' => $this->avatarRules()],
@@ -49,7 +54,12 @@ class EditProfileForm extends Component
         /** @var User $user */
         $user = auth()->user();
 
-        $action->execute($user, $validated, $this->avatar);
+        try {
+            $action->execute($user, $validated, $this->avatar);
+        } catch (ImageIngestException $e) {
+            report($e);
+            $this->submitError = __('ui.upload.error_invalid_image');
+        }
     }
 
     /** @return list<mixed> */

@@ -1,10 +1,15 @@
 <?php
 
+use App\Enums\SocialProvider;
 use App\Http\Controllers\Locale\ChangeLocaleController;
+use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\StaticPageController;
+use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
+use App\Livewire\Posts\RecentlyDeletedPostsPage;
 use App\Livewire\Profile\ProfilePage;
 use App\Livewire\SavedPosts\SavedPostsPage;
 use App\Models\Post;
@@ -21,24 +26,29 @@ Route::get('/posts/{post}', PostShow::class)->name('posts.show');
 
 Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
 
+Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');
+Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');
+Route::get('/terms', [StaticPageController::class, 'terms'])->name('pages.terms');
+Route::get('/contact', [StaticPageController::class, 'contact'])->name('pages.contact');
+Route::post('/contact', SubmitContactMessageController::class)
+    ->middleware('throttle:5,1')
+    ->name('pages.contact.submit');
+
 Route::get('/dashboard', function () {
     return redirect()->route('feed');
 })->name('dashboard');
 
 Route::get('/dev/ui-kit', function () {
     $demoPost = new Post([
-        'title' => 'Homemade Carbonara',
-        'description' => 'Creamy pasta with pepper and guanciale.',
+        'title' => 'Sample Post',
+        'description' => 'A neutral preview used to demonstrate configurable rating components.',
         'upvotes_count' => 128,
         'downvotes_count' => 12,
         'comments_count' => 24,
-        'homemade_votes_count' => 70,
-        'restaurant_votes_count' => 30,
-        'image_url' => null,
     ]);
     $demoPost->setRelation('user', new User([
-        'name' => 'Demo Chef',
-        'username' => 'demo_chef',
+        'name' => 'Demo Author',
+        'username' => 'demo_author',
     ]));
 
     $demoRatingGroup = new RatingGroup([
@@ -59,7 +69,18 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
+    Route::post('/profile/connected-accounts/{provider}', [ConnectedAccountController::class, 'store'])
+        ->whereIn('provider', SocialProvider::values())
+        ->middleware('throttle:10,1')
+        ->name('profile.connected-accounts.store');
+    Route::delete('/profile/connected-accounts/{provider}', [ConnectedAccountController::class, 'destroy'])
+        ->whereIn('provider', SocialProvider::values())
+        ->middleware('throttle:10,1')
+        ->name('profile.connected-accounts.destroy');
+
     Route::get('/saved', SavedPostsPage::class)->name('saved-posts.index');
+
+    Route::get('/account/posts/deleted', RecentlyDeletedPostsPage::class)->name('posts.recently-deleted');
 });
 
 require __DIR__.'/auth.php';

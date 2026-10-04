@@ -10,7 +10,7 @@ Each row defines one independently configurable voting question.
 
 Important fields:
 
-- `key`: stable integration key such as `source` or `category`.
+- `key`: stable integration key such as `type` or `attribute`.
 - `label` and `description`: admin-managed display copy.
 - `min_options` and `max_options`: allowed active option range.
 - `is_active`: controls public availability.
@@ -56,16 +56,19 @@ The action also verifies that:
 
 `RatingVoting` is the generic Livewire component. It receives a post and `groupKey`, renders configured options, records votes through `VoteRatingOptionAction`, and displays the selected option and distribution.
 
-`SourceVoting` and `CategoryVoting` are compatibility wrappers. They hardcode the `source` and `category` group keys but use `rating_votes` for all new votes. They no longer create rows in the legacy vote tables.
+Public post cards load all active groups in configured order and render one `RatingVoting` instance per group. The feed and saved-post pages preload distributions in bulk. No group key is hardcoded in the card, so a newly activated group appears without a new Livewire wrapper or Blade branch.
 
 ## Default configuration
 
 `DefaultRatingConfigurationSeeder` creates idempotent defaults:
 
-- Source: `source_a`, `source_b`.
-- Category: `category_a`, `category_b`, `category_c`.
+- Type: `type_a`, `type_b`.
+- Attribute: `attribute_a`, `attribute_b`, `attribute_c`.
 
-The explicit legacy migration may add `category_d` and `category_other` so every valid historical category choice maps to a distinct generic option.
+These are rating groups and their answer options. They are independent from the
+optional standalone category assigned to a post and from the post's many tags.
+
+The author's category selection is optional and is stored independently from tags and rating votes. Tags are also optional and may contain multiple values.
 
 ## Admin management
 
@@ -90,4 +93,3 @@ The admin UI enforces 2-10 options through group validation and prospective acti
 `ArchiveRatingOptionAction` sets `is_active` to false and records `archived_at`. Archiving and deleting an active option are both blocked when the change would reduce the group below `min_options`.
 
 Never reuse an archived option ID for a different meaning. Create a new option instead.
-

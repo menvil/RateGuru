@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Support\Facades\Storage;
 
 it('has posts show route', function () {
     $post = Post::factory()->published()->create();
@@ -28,25 +29,24 @@ it('renders post voting component on post show page', function () {
 
 it('renders published post show page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Homemade Carbonara')
+        ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
 });
 
 it('renders post hero image', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('/storage/posts/1/dish.jpg')
+        ->assertSee(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->assertSee('alt="Dish"', false)
         ->assertSee('data-testid="post-show-image-open"', false)
         ->assertSee('data-testid="post-fullscreen-image"', false);
@@ -58,10 +58,9 @@ it('renders post show content in feed card order', function () {
         'username' => 'demo_chef',
     ]);
 
-    $post = Post::factory()->published()->for($user)->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/ordered.jpg')->for($user)->create([
         'title' => 'Ordered Dish',
         'description' => 'Description should sit below title',
-        'image_url' => '/storage/posts/1/ordered.jpg',
     ]);
 
     $response = $this->get(route('posts.show', $post))->assertOk();
@@ -79,12 +78,53 @@ it('renders post show content in feed card order', function () {
 
 it('renders hero image placeholder when image is missing', function () {
     $post = Post::factory()->published()->create([
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Image preview');
+});
+
+it('does not crop the standalone hero image to a fixed aspect ratio', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Dish',
+    ]);
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+    $html = $response->getContent();
+
+    expect($html)
+        ->toContain('posts/1/dish.jpg')
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[16/10]')
+        ->not->toContain('object-cover');
+});
+
+it('renders the standalone fullscreen image with contain behavior', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Dish',
+    ]);
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+    $html = $response->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-fullscreen-image"')
+        // Capped at 80vh, and at the room the viewer measured below the app header.
+        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]')
+        ->toContain('object-contain');
+});
+
+it('resolves standalone author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->withAvatar()->create([
+        'name' => 'Demo Chef',
+    ]);
+    $post = Post::factory()->published()->for($author)->create();
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+
+    expect($response->getContent())->toContain($author->resolved_avatar_url);
 });
 
 it('renders post metadata', function () {
@@ -154,25 +194,25 @@ it('does not render related posts placeholder', function () {
 
 it('renders seo title for post page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<title>Homemade Carbonara · '.config('app.name', 'RateGuru').'</title>', false);
+        ->assertSee('<title>Sample Post · '.config('app.name', 'RateGuru').'</title>', false);
 });
 
 it('renders open graph metadata for post page', function () {
-    $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('property="og:title"', false)
-        ->assertSee('content="Homemade Carbonara · RateGuru"', false)
+        ->assertSee('content="Sample Post"', false)
+        ->assertSee('property="og:site_name"', false)
         ->assertSee('property="og:description"', false)
         ->assertSee('Creamy pasta with pepper', false)
         ->assertSee('property="og:type"', false)

@@ -1,11 +1,50 @@
 <?php
 
 it('has supported locales config', function () {
-    expect(config('locales.fallback'))->toBe('en');
-    expect(config('locales.supported'))->toHaveKeys(['en', 'ru', 'bg']);
+    expect(config('locales.fallback'))->toBe('en')
+        ->and(config('locales.supported'))->toHaveKey('en');
 });
-it('does not allow unsupported locale keys in locale config', function () {
-    foreach (array_keys(config('locales.supported')) as $locale) {
+
+it('describes every installed locale with a label, a native name and a flag', function () {
+    foreach (config('locales.supported') as $locale => $info) {
         expect($locale)->toMatch('/^[a-z]{2}$/');
+
+        foreach (['label', 'native', 'flag'] as $field) {
+            expect($info[$field] ?? null)->toBeString("{$locale} has no {$field}")
+                ->and(trim($info[$field]))->not->toBe('', "{$locale} has an empty {$field}");
+        }
     }
+});
+
+it('says of every installed locale whether a new project offers it', function () {
+    // Bootstrap policy, not project state: a language a release adds ships
+    // with false, so installing it never offers it to an existing project.
+    foreach (config('locales.supported') as $locale => $info) {
+        expect($info)->toHaveKey('enabled_by_default')
+            ->and($info['enabled_by_default'])->toBeBool("{$locale} enabled_by_default must be true or false");
+    }
+});
+
+it('offers the technical fallback by default, so a new project starts with a valid default', function () {
+    // A new installation stores the fallback as its default and has chosen no
+    // languages, so the fallback has to be among the ones offered by default —
+    // which also means a project that never chose is offered at least one.
+    // Any other language may ship either way: one a release adds ships false.
+    expect(config('locales.supported.'.config('locales.fallback').'.enabled_by_default'))->toBeTrue()
+        ->and(array_filter(array_column(config('locales.supported'), 'enabled_by_default')))->not->toBeEmpty();
+});
+
+it('makes English the default, installed and offered by default', function () {
+    // System policy, not a setting: nothing reads a default from the
+    // environment or from the project.
+    expect(config('locales.default'))->toBe('en')
+        ->and(config('locales.supported'))->toHaveKey('en')
+        ->and(config('locales.supported.en.enabled_by_default'))->toBeTrue();
+});
+
+it('keeps the technical fallback installed', function () {
+    // It is the emergency catalog and the last resort when the project
+    // settings resolve to nothing, so it must exist. A project need not
+    // offer it — that is checked where projects choose their languages.
+    expect(config('locales.supported'))->toHaveKey(config('locales.fallback'));
 });

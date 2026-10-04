@@ -7,19 +7,44 @@
 - `site_name` — displayed in browser title, header brand, and page meta
 - `site_tagline` — short descriptor for the project
 - `site_description` — longer description (used in future meta tags)
-- `object_singular_name` — what a single rated item is called (e.g. "post", "dish", "cat")
-- `object_plural_name` — plural form (e.g. "posts", "dishes", "cats")
+- `object_singular_name` — what a single rated item is called (e.g. "post", "photo", "animal")
+- `object_plural_name` — plural form (e.g. "posts", "photos", "animals")
 - `upload_cta_label` — text of the upload button (e.g. "Upload post")
 - `feed_title` — heading above the main feed (e.g. "Latest posts")
-- `default_locale` — locale string (e.g. `en`)
+- `static_pages` — the title and content of each built-in page (about, privacy, terms, contact) per language; the only source visitors read them from
+- `enabled_locales` — the languages offered to visitors, English always among them; written only from Admin → System → Languages
 - `default_theme` — one of `system`, `light`, `dark`
 - `default_sort` — one of `hot`, `new`, `top`
 - `active_preset_key` — which preset was last applied (informational only)
+- `preset_applied_at` — successful one-time preset installation timestamp
 - `feature_flags` — JSON object controlling UI visibility
+- `sign_in_providers` — JSON object of the social sign-in providers switched on or off (see [Sign-in methods](#sign-in-methods))
 
-## Fallback defaults
+## Installation preset status
 
-If the `project_settings` table is empty, the app continues to work using these fallback defaults built into `ProjectSettingsManager`:
+Project presets are installed from the server with
+`php artisan rateguru:setup`. The Project Settings admin page exposes the
+installed preset label (for example, “Nature & travel photography”) and
+`preset_applied_at` as read-only status; it cannot apply or replace a preset.
+The label is resolved from the stored `active_preset_key`.
+
+This separation is intentional: a preset also synchronizes categories, rating
+groups, rating options, and tags, so it is not a normal settings-form operation. See
+`docs/admin/project-presets.md` for the command workflow and safety guards.
+
+There is no default-language setting: English is the default language by
+system policy (`config/locales.php`).
+
+## Bootstrap defaults
+
+`ProjectSettingsManager::defaults()` is the one bootstrap: every writer that
+creates the row — `rateguru:setup`, the default settings seeder, the Project
+Settings and Languages pages on an installation without a row — starts from
+it, and an installation with no row runs on it. It includes a copy of every
+page of `config/static-pages.php` in every language the repository ships;
+once stored, the pages are the project's, and a later change to that file
+does not reach them (the deploy's translation backfill only fills what is
+missing — see `docs/i18n/project-translation-lifecycle.md`).
 
 ```text
 site_name = RateGuru
@@ -28,10 +53,12 @@ object_singular_name = post
 object_plural_name = posts
 upload_cta_label = Upload post
 feed_title = Latest posts
-default_locale = en
+enabled_locales = null (English and the languages enabled by default)
+static_pages = config/static-pages.php
 default_theme = system
 default_sort = hot
 active_preset_key = generic
+preset_applied_at = null
 feature_flags:
   show_comments = true
   show_share_buttons = true
@@ -101,6 +128,25 @@ Feature flags are stored in `feature_flags` JSON column:
 Disabling `allow_user_uploads` in settings hides the upload button, but does not block the backend action. A determined user could still call the upload endpoint directly.
 
 For security-critical flags, a backend guard must also be added. This is documented as future work.
+
+## Sign-in methods
+
+The **Sign-in methods** section has one switch per social provider, stored in
+`sign_in_providers` as `{"google": true, "facebook": false}`. A provider
+missing from it — or the column being null — is on. It is a separate column
+from `feature_flags` on purpose: applying a preset replaces the feature flags
+and must never switch a way of signing in off.
+
+Email and password sign-in is always on. A provider is **available** only
+while its switch is on *and* its keys (`GOOGLE_CLIENT_ID` /
+`GOOGLE_CLIENT_SECRET`, `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET`) are
+set in the server's `.env`; the section says so under a provider whose keys
+are missing, and shows how many accounts sign in with each provider.
+
+Unlike the UI feature flags above, switching a provider off is enforced by
+the server, not only hidden: its buttons disappear everywhere and its
+redirect, callback and connections are refused. Nobody is locked out
+silently — see [social sign-in](../dev/social-login.md#switching-a-provider-off).
 
 ## Relation to future phases
 

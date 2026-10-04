@@ -18,8 +18,8 @@ it('renders reddit share link with correct url', function () {
     );
 
     expect($html)->toContain('data-testid="share-reddit"');
-    expect($html)->toContain('reddit.com');
-    expect($html)->toContain('window.open');
+    expect($html)->toContain('href="'.e($url).'"');
+    expect($html)->not->toContain('window.open');
 });
 
 it('renders email share link', function () {
@@ -35,14 +35,12 @@ it('renders email share link', function () {
     );
 
     expect($html)->toContain('data-testid="share-email"');
-    expect($html)->toContain('mailto:');
+    expect($html)->toContain('href="'.e($url).'"');
 });
 
 it('renders pinterest share link when image exists', function () {
     config(['app.url' => 'https://rateguru.test']);
-    $post = Post::factory()->published()->create([
-        'image_url' => 'https://rateguru.test/storage/posts/test.jpg',
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/test.jpg')->create();
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
     $url = app(ShareUrlBuilder::class)->build('pinterest', $metadata);
@@ -53,17 +51,20 @@ it('renders pinterest share link when image exists', function () {
     );
 
     expect($html)->toContain('data-testid="share-pinterest"');
-    expect($html)->toContain('pinterest.com');
+    expect($html)->toContain('href="'.e($url).'"');
 });
 
-it('does not render pinterest link when post has no image', function () {
+it('uses the fallback social image for pinterest when post has no image', function () {
+    config(['app.url' => 'https://rateguru.test']);
+
     $post = Post::factory()->published()->create([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
     $url = app(ShareUrlBuilder::class)->build('pinterest', $metadata);
 
-    expect($url)->toBeNull();
+    expect($url)
+        ->not->toBeNull()
+        ->toContain(urlencode('https://rateguru.test/images/og/rateguru-post-placeholder.png'));
 });

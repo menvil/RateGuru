@@ -5,15 +5,20 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Requests\Auth\ConfirmPasswordRequest;
 use App\Http\Requests\Auth\RegisterUserRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Http\Requests\Auth\SendPasswordResetLinkRequest;
+use App\Http\Requests\Auth\SocialCallbackRequest;
+use App\Http\Requests\Auth\SocialRedirectRequest;
 use App\Http\Requests\Auth\UpdatePasswordRequest;
 use App\Http\Requests\ChangeLocaleRequest;
 use App\Http\Requests\DeleteUserRequest;
+use App\Http\Requests\SubmitContactMessageRequest;
 use Illuminate\Support\Facades\File;
 
 it('uses dedicated form requests for controller validation', function () {
@@ -23,8 +28,11 @@ it('uses dedicated form requests for controller validation', function () {
         [NewPasswordController::class, 'store', ResetPasswordRequest::class],
         [RegisteredUserController::class, 'store', RegisterUserRequest::class],
         [ConfirmablePasswordController::class, 'store', ConfirmPasswordRequest::class],
+        [SocialAuthController::class, 'callback', SocialCallbackRequest::class],
+        [SocialAuthController::class, 'redirect', SocialRedirectRequest::class],
         [PasswordController::class, 'update', UpdatePasswordRequest::class],
         [ProfileController::class, 'destroy', DeleteUserRequest::class],
+        [SubmitContactMessageController::class, '__invoke', SubmitContactMessageRequest::class],
     ];
 
     foreach ($actions as [$controller, $method, $expectedRequest]) {

@@ -8,6 +8,8 @@ use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Models\Comment;
 use App\Models\CommentVote;
+use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Post;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
@@ -15,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteCommentAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly RecalculateCommentCountersAction $recalculateCommentCounters,
         private readonly ActionRateLimiter $rateLimiter,
@@ -43,17 +47,49 @@ final class VoteCommentAction
                 key: RateLimitKey::userAction('vote', $user),
                 maxAttempts: (int) config('rate_limits.vote.max_attempts'),
                 decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
-                message: 'You are voting too quickly. Please try again later.',
+                message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
             throw CannotVoteCommentException::becauseRateLimited($e->getMessage());
         }
 
         DB::transaction(function () use ($user, $comment, $type): void {
+            // Lock order: Actor User -> Post -> Comment -> vote rows; the
+            // pre-checks ran on possibly stale instances. A still-Visible
+            // comment beneath an author-deleted or Hidden post is not a
+            // public interaction surface and must not accept votes.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteCommentException::becauseUserIsNotAllowed();
+            }
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($comment->post_id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveVotes()) {
+                throw CannotVoteCommentException::becauseCommentIsNotVisible();
+            }
+
             $lockedComment = Comment::query()
+                ->withTrashed()
                 ->whereKey($comment->id)
                 ->lockForUpdate()
-                ->firstOrFail();
+                ->first();
+
+            // The pre-transaction check ran on the caller's instance, which
+            // may be stale: a hide or author delete can land in between.
+            // Only the row re-read under lock is authoritative.
+            if ($lockedComment === null || ! $lockedComment->canReceiveVotes()) {
+                throw CannotVoteCommentException::becauseCommentIsNotVisible();
+            }
+
+            // Re-check the own-comment rule on the authoritative rows.
+            if ((int) $lockedComment->user_id === (int) $lockedActor->id) {
+                throw CannotVoteCommentException::becauseOwnComment();
+            }
 
             $existingVote = CommentVote::query()
                 ->where('comment_id', $lockedComment->id)

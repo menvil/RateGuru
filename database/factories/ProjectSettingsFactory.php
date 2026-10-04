@@ -12,6 +12,7 @@ class ProjectSettingsFactory extends Factory
     public function definition(): array
     {
         return [
+            'id' => 1,
             'site_name' => 'RateGuru',
             'site_tagline' => 'Rate anything',
             'site_description' => null,
@@ -19,10 +20,11 @@ class ProjectSettingsFactory extends Factory
             'object_plural_name' => 'posts',
             'upload_cta_label' => 'Upload post',
             'feed_title' => 'Latest posts',
-            'default_locale' => 'en',
+            'static_pages' => config('static-pages.defaults'),
             'default_theme' => 'system',
             'default_sort' => 'hot',
             'active_preset_key' => 'generic',
+            'preset_applied_at' => null,
             'feature_flags' => [
                 'show_comments' => true,
                 'show_share_buttons' => true,

@@ -9,4 +9,7 @@ it('has import config with safe defaults', function () {
     expect(config('import.allowed_schemes'))->toContain('https');
     expect(config('import.allowed_schemes'))->not->toContain('file');
     expect(config('import.allowed_schemes'))->not->toContain('ftp');
+    expect(config('import.allowed_ports'))->toContain(443);
+    expect(config('import.allowed_ports'))->not->toContain(22);
+    expect(config('import.allowed_ports'))->not->toContain(3306);
 });

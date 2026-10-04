@@ -1,0 +1,1579 @@
+#!/usr/bin/env bash
+#
+# Install-target-prerequisites — Prepare Host: converge the EXTERNAL material one
+# RateGuru target needs, from operator-supplied secrets, without ever
+# overwriting or rotating what is already there.
+#
+# The problem. the clean-host bootstrap host bootstrap deliberately generates no secret
+# material: no APP_KEY, no database password, no TLS private key, no htpasswd,
+# no rclone credentials, no deploy authorized_keys. That decision is correct
+# and is preserved here in full — this script still generates nothing. What it
+# adds is a safe way to *deliver* material the operator already holds (in
+# GitHub Environment secrets) onto a clean host, so that the one manual step
+# the clean-host bootstrap clean-host runbook still requires between `--check` and `--apply`
+# ("you supply the external prerequisites the report names") can be performed
+# by the same operation that runs the bootstrap.
+#
+# TWO SCOPES, AND WHY THEY EXIST. The material a target needs does not all
+# become installable at the same moment, so it is split by what has to exist
+# first — never by how secret it is:
+#
+#   --scope host    Files the Nginx vhosts reference: the Basic Auth htpasswd,
+#                   TLS certificate/key/dhparams and the shared TLS options
+#                   Snippet. install-bootstrap-services FAILS
+#                   CLOSED when any of them is absent, so they must be in place
+#                   BEFORE host bootstrap runs. All of them live under /etc,
+#                   owned by root, and depend on no RateGuru identity — which
+#                   is exactly why they can be installed that early.
+#
+#   --scope target  Files that live inside RateGuru's own identities and
+#                   directories: the target's shared/.env, the deploy user's
+#                   authorized_keys, and root's rclone.conf. Their parent
+#                   Directories and owning accounts are created by install-bootstrap-host-layout,
+#                   so they can only be installed AFTER host bootstrap. Slice
+#                   5.4 treats all three as WARN rather than a gate, precisely
+#                   because a pre-deploy host legitimately lacks them.
+#
+#   --scope all     Both, for direct operator use on an already-bootstrapped
+#                   host. prepare-host always passes an explicit scope.
+#
+# Modes (all require root — every destination is root-only or belongs to a
+# system account):
+#   --check   Report every prerequisite's state and what --apply would do.
+#             Strictly read-only.
+#   --apply   Install ONLY the prerequisites whose canonical destination is
+#             absent. Everything already present is left byte-for-byte alone.
+#   --verify  Read-only: every prerequisite in scope is present as a regular
+#             file at its canonical destination.
+#   --list-material-names
+#             Read-only: the logical names in scope, one per line, and nothing
+#             else — the vocabulary a backup's recovery material is written in
+#             and checked against.
+#   --capture Read-only against the host: copy every host-scope prerequisite,
+#             as it is on this host and after the same safety checks --verify
+#             applies, into a root-only directory under its LOGICAL name. This
+#             is how `backup` gives a backup the material a clean-host
+#             recovery needs, without a second table ever describing it.
+#   --validate-recovery-material
+#             Read-only: judge a recovery-material archive before anything
+#             extracts it — exactly the host-scope logical names, as top-level
+#             regular files, and nothing else.
+#
+# THE SAME TABLE SERVES ALL SIX. The prerequisite table below is built once,
+# from the registry and the committed vhosts, and every mode reads it. That is
+# the whole point of putting capture and validation here rather than beside
+# `backup`: a backup can never be captured in a vocabulary the installer would
+# not recognise, and an archive can never be blessed against a list the
+# installer would not install from.
+#
+# THE INSTALLED COPY. Preparation runs this script from the trusted repository
+# checkout on a clean host; capture and validation run it from the installed
+# operational bundle on a live host, where a nightly backup and a restore test
+# have no checkout to reach for. install-target-operations installs it beside
+# the registry and the committed vhost sources under /home/www/rateguru, in the
+# same relative layout the checkout has — `../config` from this script's own
+# directory — so one script, resolving one configuration directory, serves
+# both places.
+#
+# THE SAFE-EXISTING-FILE CONTRACT. Prepare Host is a button an operator can
+# press by accident on a live host, so the rules are deliberately blunt:
+#
+#   destination absent, material supplied   -> INSTALL
+#   destination absent, no material         -> MISSING; apply fails closed and
+#                                              nothing is invented
+#   destination present, no material        -> PASS, untouched
+#   destination present, material IDENTICAL -> PASS, untouched (already
+#                                              converged; not even rewritten)
+#   destination present, material DIFFERENT -> CONFLICT; apply fails closed
+#
+# That last row is the important one. A differing .env, TLS private key,
+# htpasswd or rclone.conf means the supplied material and the live host
+# disagree, and the safe response is to say so — not to silently rotate a
+# credential every running process is holding. Rotation is a separate,
+# deliberate operation with its own blast radius; it is not a side effect of
+# re-running preparation.
+#
+# Secrets are compared, never read. A conflict is reported as "differs from the
+# supplied material": the content of neither side is ever printed, logged,
+# diffed or summarized, and no length, hash or prefix is disclosed either.
+#
+# Destinations are never supplied by a caller. Registry-owned paths come from
+# the target registry; Nginx-owned paths are parsed out of this repository's own
+# committed vhosts using the same directive contract install-bootstrap-services
+# gates on, so the two can never disagree about which files a host must have.
+#
+# This script never sources infrastructure/scripts/common — deliberately, and
+# for the same reason bootstrap-host-preflight does not: common aborts when
+# /home/www/rateguru/config/deployment.conf is unreadable, and the host scope
+# runs on a clean host where nothing is installed yet. The SOURCE registry in
+# this checkout is the authority, validated through the standalone `targets`
+# CLI exactly as the preflight validates it.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Locations and test seams -------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+REPO_ROOT="$(gated_default RATEGURU_TARGETPREREQ_REPO_ROOT "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)")"
+
+# The configuration directory beside this script: infrastructure/config in a
+# repository checkout, /home/www/rateguru/config in the installed operational
+# bundle. Both sit at exactly `../config` from the script's own directory, so
+# no layout switch exists to get wrong. A test pointing RATEGURU_TARGETPREREQ_
+# REPO_ROOT at a scratch checkout gets that checkout's own config directory.
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGETPREREQ_REPO_ROOT:-}" ]]; then
+    CONFIG_DIR="${REPO_ROOT}/infrastructure/config"
+else
+    CONFIG_DIR="$(cd -- "${SCRIPT_DIR}/../config" >/dev/null 2>&1 && pwd -P)" \
+        || CONFIG_DIR="${SCRIPT_DIR}/../config"
+fi
+
+EFFECTIVE_EUID="$(gated_default RATEGURU_TARGETPREREQ_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_TARGETPREREQ_FS_ROOT '')"
+INSTALL_BIN="$(gated_default RATEGURU_TARGETPREREQ_INSTALL_BIN install)"
+CHOWN_BIN="$(gated_default RATEGURU_TARGETPREREQ_CHOWN_BIN chown)"
+CHMOD_BIN="$(gated_default RATEGURU_TARGETPREREQ_CHMOD_BIN chmod)"
+STAT_BIN="$(gated_default RATEGURU_TARGETPREREQ_STAT_BIN stat)"
+TARGETS_CLI_BIN="$(gated_default RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+# Ownership enforcement is disabled only when the owning accounts do not exist,
+# which is exclusively a scratch test tree. Production always leaves this true.
+ENFORCE_OWNERSHIP="$(gated_default RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP true)"
+
+# The committed registry (infrastructure/config/deployment-targets.json in a
+# checkout) and the committed vhost sources, resolved through CONFIG_DIR so the
+# installed bundle's copies are found by the identical path.
+SOURCE_REGISTRY="${CONFIG_DIR}/deployment-targets.json"
+SRC_NGINX_DIR="${CONFIG_DIR}/nginx"
+
+# The same two shared mail-capture vhosts install-bootstrap-services validates
+# external prerequisites for. Listed rather than globbed, for exactly the
+# reason it lists them: a glob would silently turn a vhost nobody intended into
+# a host requirement.
+SRC_MAIL_NGINX_SOURCES=(
+    "${SRC_NGINX_DIR}/mailpit-staging"
+    "${SRC_NGINX_DIR}/mailtrap-local-staging"
+)
+
+REQUIRED_TOOLS=(jq awk cmp grep sed basename dirname mktemp mv rm tar find sort)
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+# physical PATH — the real filesystem location of a logical path. FS_ROOT is
+# empty in production, so this is the identity function there.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# --- Arguments ----------------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+MATERIAL_DIR=""
+MATERIAL_DIR_SEEN=false
+SCOPE="all"
+
+# Explicit authorization to install material for a target that is not active
+# yet. argv only: there is no environment variable for it, so a run either says
+# so on the command line or does not get it.
+PROVISIONING=false
+SCOPE_SEEN=false
+OUTPUT_DIR=""
+OUTPUT_DIR_SEEN=false
+ARCHIVE=""
+ARCHIVE_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-target-prerequisites --check  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
+  install-target-prerequisites --apply  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
+  install-target-prerequisites --verify --target TARGET_ID [--scope SCOPE]
+  install-target-prerequisites --list-material-names --target TARGET_ID [--scope SCOPE]
+  install-target-prerequisites --capture --target TARGET_ID --scope host --output-dir DIR
+  install-target-prerequisites --validate-recovery-material --target TARGET_ID --scope host --archive FILE
+
+All modes require root. A lifecycle=active target, unless --provisioning
+names a planned production one.
+
+  --target        Deployment target ID from the RateGuru target registry.
+  --scope         host   Nginx-referenced material under /etc, required BEFORE
+                         host bootstrap (install-bootstrap-services fails closed without it).
+                  target Material inside RateGuru identities and directories,
+                         installable only AFTER install-bootstrap-host-layout has created them.
+                  all    Both (default).
+  --material-dir  Root-owned 0700 directory holding operator-supplied material,
+                  one file per logical prerequisite name. Read only; never
+                  modified, and never left behind by this script.
+  --provisioning  Explicit authorization to act on a target that is not active
+                  yet. Valid only with --check, --apply or --verify, only with
+                  --scope target, and only for a lifecycle=planned,
+                  environment_class=production target. It narrows the contract
+                  rather than widening it: the host-global offsite credential is
+                  not a row a not-yet-active target may install, so rclone-config
+                  is excluded. Never installs host material, never changes the
+                  registry, never activates anything. Without it the active-only
+                  contract is exactly what it was.
+  --output-dir    --capture only: an existing, EMPTY, root-owned 0700 directory
+                  that receives one file per host-scope logical name.
+  --archive       --validate-recovery-material only: the recovery-material
+                  archive to judge. Read only; never extracted.
+
+Installs only what is absent. Never overwrites, rotates or deletes existing
+material, and never generates any. --list-material-names prints logical names
+only; --capture and --validate-recovery-material never print, log, hash or
+measure the content of any material.
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--list-material-names|--capture|--validate-recovery-material)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --output-dir)
+                if [[ "${OUTPUT_DIR_SEEN}" == true ]]; then
+                    fail "--output-dir given more than once"
+                fi
+
+                require_value "--output-dir" "$#" "${2-}"
+
+                OUTPUT_DIR="$2"
+                OUTPUT_DIR_SEEN=true
+                shift 2
+                ;;
+            --archive)
+                if [[ "${ARCHIVE_SEEN}" == true ]]; then
+                    fail "--archive given more than once"
+                fi
+
+                require_value "--archive" "$#" "${2-}"
+
+                ARCHIVE="$2"
+                ARCHIVE_SEEN=true
+                shift 2
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                require_value "--target" "$#" "${2-}"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --scope)
+                if [[ "${SCOPE_SEEN}" == true ]]; then
+                    fail "--scope given more than once"
+                fi
+
+                require_value "--scope" "$#" "${2-}"
+
+                case "$2" in
+                    host|target|all) SCOPE="$2" ;;
+                    *) fail "--scope must be host, target or all (got: $2)" ;;
+                esac
+
+                SCOPE_SEEN=true
+                shift 2
+                ;;
+            --provisioning)
+                PROVISIONING=true
+                shift
+                ;;
+            --material-dir)
+                if [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+                    fail "--material-dir given more than once"
+                fi
+
+                require_value "--material-dir" "$#" "${2-}"
+
+                MATERIAL_DIR="$2"
+                MATERIAL_DIR_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply, --verify, --list-material-names, --capture or --validate-recovery-material is required"
+    fi
+
+    if [[ "${TARGET_SEEN}" != true ]]; then
+        usage >&2
+        fail "--target is required"
+    fi
+
+    if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+        fail "--verify never consults supplied material; it inspects the canonical destinations only"
+    fi
+
+    # --provisioning authorizes exactly one thing: installing a target's OWN
+    # material before that target is active. It therefore refuses host scope
+    # outright — a target that is not operating yet has no business deciding
+    # what the host's TLS, htpasswd or mail material should be, and a run that
+    # asked for both would be a host operation wearing a target's argv.
+    if [[ "${PROVISIONING}" == true ]]; then
+        if [[ "${SCOPE}" != target ]]; then
+            fail "--provisioning is target scope only: pass --scope target. A target that is not active yet never installs host material"
+        fi
+
+        case "${MODE}" in
+            check|apply|verify) ;;
+            *) fail "--provisioning applies to --check, --apply and --verify only, not --${MODE}" ;;
+        esac
+    fi
+
+    case "${MODE}" in
+        list-material-names|capture|validate-recovery-material)
+            [[ "${MATERIAL_DIR_SEEN}" != true ]] \
+                || fail "--${MODE} never consults supplied material"
+            ;;
+    esac
+
+    # The two recovery-material modes are host-scope by construction. The
+    # environment file is a backup member of its own, and the deploy key and
+    # the rclone configuration are seed material a recovery supplies from
+    # GitHub; none of them is ever captured into, or expected from, a recovery
+    # archive, so a target or all scope here is a misunderstanding to refuse.
+    case "${MODE}" in
+        capture|validate-recovery-material)
+            [[ "${SCOPE}" == host ]] \
+                || fail "--${MODE} is host-scope only (--scope host): the recovery material a backup carries is the host-scope external material, never the environment file, the deploy key or the rclone configuration"
+            ;;
+    esac
+
+    if [[ "${MODE}" == capture ]]; then
+        [[ "${OUTPUT_DIR_SEEN}" == true ]] || fail "--capture requires --output-dir"
+    elif [[ "${OUTPUT_DIR_SEEN}" == true ]]; then
+        fail "--output-dir is only valid with --capture"
+    fi
+
+    if [[ "${MODE}" == validate-recovery-material ]]; then
+        [[ "${ARCHIVE_SEEN}" == true ]] || fail "--validate-recovery-material requires --archive"
+    elif [[ "${ARCHIVE_SEEN}" == true ]]; then
+        fail "--archive is only valid with --validate-recovery-material"
+    fi
+}
+
+require_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+require_root_mode() {
+    if [[ "${EFFECTIVE_EUID}" -ne 0 ]]; then
+        fail "--${MODE} must run as root"
+    fi
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}" "${INSTALL_BIN}" "${CHOWN_BIN}" "${CHMOD_BIN}" "${STAT_BIN}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    [[ -x "${TARGETS_CLI_BIN}" ]] \
+        || fail "targets CLI is not executable: ${TARGETS_CLI_BIN} — run from a full repository checkout"
+}
+
+# --- Registry (source, never the installed runtime copy) -----------------------
+
+TARGET_JSON=""
+
+# resolve_target — validates the whole registry through the standalone CLI,
+# then reads this target once. Lifecycle is enforced here: a planned target is
+# rejected before a single destination path is computed, so no production
+# secret can be written by this script while tits-guru stays lifecycle=planned.
+resolve_target() {
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] \
+        || fail "invalid target ID: ${TARGET_ID}"
+
+    [[ -f "${SOURCE_REGISTRY}" ]] \
+        || fail "target registry is unavailable: ${SOURCE_REGISTRY}"
+
+    "${TARGETS_CLI_BIN}" validate --file "${SOURCE_REGISTRY}" >/dev/null \
+        || fail "target registry failed validation: ${SOURCE_REGISTRY}"
+
+    TARGET_JSON="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}")" \
+        || fail "unknown target: ${TARGET_ID}"
+
+    local lifecycle environment
+    lifecycle="$(target_field .lifecycle)"
+    environment="$(target_field .environment_class)"
+
+    # Two gates, never both. Without --provisioning this is exactly the check
+    # it has always been. With it, the target must be the one shape a
+    # not-yet-operating target may be configured in — planned AND production —
+    # and an active target is refused just as firmly in the other direction:
+    # an operating target's material is installed by the ordinary path, not by
+    # an authorization meant for one that has never run.
+    if [[ "${PROVISIONING}" == true ]]; then
+        [[ "${lifecycle}" != active ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is lifecycle=active. An active target's material is installed without it"
+
+        [[ "${lifecycle}" == planned ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is lifecycle=${lifecycle}, and material is only ever installed ahead of operation for a planned target"
+
+        [[ "${environment}" == production ]] \
+            || fail "--provisioning refuses target ${TARGET_ID}: it is environment_class=${environment}, and this authorization exists for a new production brand only"
+    else
+        [[ "${lifecycle}" == active ]] \
+            || fail "target ${TARGET_ID} has lifecycle=${lifecycle}, not active — external material is never installed for a target that is not active"
+    fi
+
+    build_prerequisite_table
+}
+
+target_field() {
+    local value
+    value="$(printf '%s' "${TARGET_JSON}" | jq -r "$1 // empty")"
+
+    [[ -n "${value}" ]] || fail "target ${TARGET_ID} is missing $1 in ${SOURCE_REGISTRY}"
+
+    printf '%s\n' "${value}"
+}
+
+# --- Nginx-derived destinations -------------------------------------------------
+
+# nginx_external_prerequisites SRC_FILE — prints "CATEGORY|PATH" for every
+# external file the committed vhost references.
+#
+# Deliberately the same contract as install-bootstrap-services'
+# identically-named function: only absolute paths are external (relative
+# includes ship with the nginx package), and an absolute include carrying a
+# glob is a directory sweep rather than a single file. If the two ever diverged
+# this script would prepare a host that 5.4 still refuses to converge — so they
+# are kept identical on purpose, and a test pins them together.
+nginx_external_prerequisites() {
+    local src="$1" directive value
+
+    while read -r directive value; do
+        value="${value%;}"
+        [[ "${value}" == /* ]] || continue
+
+        case "${directive}" in
+            auth_basic_user_file) printf 'basic-auth|%s\n' "${value}" ;;
+            ssl_certificate)      printf 'tls-certificate|%s\n' "${value}" ;;
+            ssl_certificate_key)  printf 'tls-private-key|%s\n' "${value}" ;;
+            ssl_dhparam)          printf 'tls-dhparams|%s\n' "${value}" ;;
+            include)
+                case "${value}" in
+                    *'*'*|*'?'*|*'['*) ;;
+                    *) printf 'nginx-tls-options|%s\n' "${value}" ;;
+                esac
+                ;;
+        esac
+    done < <(awk '$1 ~ /^(auth_basic_user_file|ssl_certificate|ssl_certificate_key|ssl_dhparam|include)$/ { print $1, $2 }' "${src}")
+}
+
+# --- The prerequisite table -----------------------------------------------------
+#
+# Rows are SCOPE|NAME|DESTINATION|OWNER|GROUP|MODE|SECRET|DESCRIPTION.
+#
+# NAME is the logical material name, and is the only thing a caller outside this
+# repository ever has to know: GitHub uploads `material/<NAME>` and this script
+# decides where <NAME> belongs. Canonical destinations therefore never appear in
+# a workflow, an action or an environment variable.
+
+PREREQ_ROWS=()
+
+emit_row() {
+    PREREQ_ROWS+=("$1|$2|$3|$4|$5|$6|$7|$8")
+}
+
+build_prerequisite_table() {
+    PREREQ_ROWS=()
+
+    local target_root deploy_user runtime_user runtime_group nginx_site
+
+    target_root="$(target_field .application_root)"
+    deploy_user="$(target_field .deploy_user)"
+    runtime_user="$(target_field .runtime_user)"
+    runtime_group="$(target_field .runtime_group)"
+    nginx_site="$(target_field .nginx.site_name)"
+
+    # --- host scope: Nginx-referenced files, parsed out of the committed
+    # vhosts. The target's own site first, so its certificate keeps the
+    # unprefixed name; the shared mail-capture vhosts afterwards, contributing
+    # only paths the target's site did not already claim (the htpasswd and the
+    # shared TLS options are literally the same file for both).
+    #
+    # Built only when this run actually wants host rows. It used to be built
+    # unconditionally and filtered afterwards by rows_in_scope, which made a
+    # target-only run depend on host material it had no interest in: resolving
+    # the target's committed vhost, and through it the TLS, htpasswd and mail
+    # material the host owns. A production target has no committed vhost at all
+    # — its service configuration is rendered from the registry — so asking for
+    # its target-scope material alone aborted on a file that is correctly
+    # absent. Scope now decides what is derived, not merely what is printed.
+    if host_scope_wanted; then
+        build_host_prerequisite_rows "${nginx_site}"
+    fi
+
+    build_target_prerequisite_rows "${target_root}" "${deploy_user}" "${runtime_user}" "${runtime_group}"
+}
+
+# host_scope_wanted — whether this run needs the Nginx-derived host rows at all.
+host_scope_wanted() {
+    [[ "${SCOPE}" == host ]] || [[ "${SCOPE}" == all ]]
+}
+
+build_host_prerequisite_rows() {
+    local nginx_site="$1"
+    local category path mail_src
+
+    # Every vhost source is proved readable BEFORE it is parsed. A process
+    # substitution's failure never reaches the loop that consumes it, so a
+    # missing or unreadable vhost would simply contribute no rows — and a
+    # host-scope table that silently came out empty would make --verify report
+    # "all 0 external prerequisites present" and pass on a host with no TLS
+    # material at all. Fail-open in exactly the place that must not be.
+    require_vhost_source "${SRC_NGINX_DIR}/${nginx_site}"
+
+    while IFS='|' read -r category path; do
+        [[ -n "${category}" ]] || continue
+        emit_nginx_row "${category}" "${path}" "" "${TARGET_ID} vhost"
+    done < <(nginx_external_prerequisites "${SRC_NGINX_DIR}/${nginx_site}")
+
+    for mail_src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
+        require_vhost_source "${mail_src}"
+
+        while IFS='|' read -r category path; do
+            [[ -n "${category}" ]] || continue
+            emit_nginx_row "${category}" "${path}" "mail-" "shared mail-capture vhosts"
+        done < <(nginx_external_prerequisites "${mail_src}")
+    done
+
+    # The committed vhosts always reference external material; a table with no
+    # host-scope rows means the parse produced nothing and something is wrong
+    # with this checkout, not with the host.
+    local row host_rows=0
+    for row in ${PREREQ_ROWS[@]+"${PREREQ_ROWS[@]}"}; do
+        [[ "${row%%|*}" != host ]] || host_rows=$((host_rows + 1))
+    done
+
+    (( host_rows > 0 )) \
+        || fail "no external prerequisites could be derived from the committed vhosts — refusing to report a target as prepared against an empty contract"
+}
+
+# --- target scope: files inside RateGuru's own identities and directories.
+#
+# These are the only rows a target-only run derives, and they depend on nothing
+# but the registry: the target's own root, its runtime identity and its deploy
+# identity. Nothing here reads a committed vhost, a certificate or a mail
+# source, which is what lets a production target whose service configuration is
+# rendered be configured at all.
+build_target_prerequisite_rows() {
+    local target_root="$1" deploy_user="$2" runtime_user="$3" runtime_group="$4"
+
+    # The Laravel environment is the target's most sensitive file: it carries
+    # APP_KEY, the database password and every third-party token. Group-readable
+    # so the runtime group can read it, and nothing wider.
+    emit_row target laravel-env \
+        "${target_root}/shared/.env" \
+        "${runtime_user}" "${runtime_group}" 0640 secret \
+        "Laravel environment for ${TARGET_ID}"
+
+    emit_row target deploy-authorized-keys \
+        "/home/${deploy_user}/.ssh/authorized_keys" \
+        "${deploy_user}" "${deploy_user}" 0600 public \
+        "GitHub Actions deploy public key for ${deploy_user}"
+
+    # The one row in this scope that is not the target's at all: it is root's
+    # own host-global offsite credential, shared by every target on the machine,
+    # and it sits here only because it lives outside /etc and so cannot be host
+    # scope. That distinction does not matter while the caller is an active
+    # target whose backups need it — and it matters completely under
+    # --provisioning, where the caller is a target that is not operating yet and
+    # has no backup schedule to serve. Installing a host-global credential on
+    # the authority of "configure this one planned target" would let the narrow
+    # operation create the broadest secret on the host, so the row is simply not
+    # derived: an absent credential stays a host prerequisite for the operation
+    # that genuinely owns it, and an existing one is never touched either way.
+    if [[ "${PROVISIONING}" != true ]]; then
+        emit_row target rclone-config \
+            "/root/.config/rclone/rclone.conf" \
+            root root 0600 secret \
+            "Backblaze B2 credentials for offsite backups"
+    fi
+}
+
+# require_vhost_source PATH — a committed vhost this checkout must contain.
+require_vhost_source() {
+    local src="$1"
+
+    [[ -e "${src}" ]] || fail "committed Nginx vhost is missing: ${src} — run from a full repository checkout"
+    [[ ! -L "${src}" ]] || fail "committed Nginx vhost must not be a symlink: ${src}"
+    [[ -f "${src}" ]] || fail "committed Nginx vhost is not a regular file: ${src}"
+    [[ -r "${src}" ]] || fail "committed Nginx vhost is not readable: ${src}"
+}
+
+# emit_nginx_row CATEGORY PATH NAME_PREFIX DESCRIPTION — one row per distinct
+# destination path. A path already claimed by an earlier vhost is skipped
+# outright, so the htpasswd shared by the application and mail-capture sites is
+# one prerequisite rather than two under different names.
+emit_nginx_row() {
+    local category="$1" path="$2" prefix="$3" description="$4"
+    local row existing_path
+
+    for row in ${PREREQ_ROWS[@]+"${PREREQ_ROWS[@]}"}; do
+        existing_path="${row#*|}"           # drop SCOPE
+        existing_path="${existing_path#*|}" # drop NAME
+        existing_path="${existing_path%%|*}"
+        [[ "${existing_path}" != "${path}" ]] || return 0
+    done
+
+    # A private key is 0600; a certificate, dhparams file and TLS options
+    # snippet are public by nature and world-readable, exactly as the ACME
+    # tooling that normally produces them leaves them. The htpasswd is secret
+    # but has to be readable by the web server.
+    case "${category}" in
+        tls-private-key)
+            emit_row host "${prefix}${category}" "${path}" root root 0600 secret "TLS private key (${description})"
+            ;;
+        tls-certificate)
+            emit_row host "${prefix}${category}" "${path}" root root 0644 public "TLS certificate chain (${description})"
+            ;;
+        tls-dhparams)
+            emit_row host "${prefix}${category}" "${path}" root root 0644 public "TLS DH parameters (${description})"
+            ;;
+        nginx-tls-options)
+            emit_row host "${prefix}${category}" "${path}" root root 0644 public "shared Nginx TLS options (${description})"
+            ;;
+        basic-auth)
+            emit_row host "${prefix}${category}" "${path}" root www-data 0640 secret "Basic Auth hashes (${description})"
+            ;;
+        *)
+            fail "internal: unknown external prerequisite category: ${category}"
+            ;;
+    esac
+}
+
+# rows_in_scope — the table filtered to the requested scope, one row per line.
+rows_in_scope() {
+    local row scope
+
+    for row in ${PREREQ_ROWS[@]+"${PREREQ_ROWS[@]}"}; do
+        scope="${row%%|*}"
+
+        if [[ "${SCOPE}" == all ]] || [[ "${scope}" == "${SCOPE}" ]]; then
+            printf '%s\n' "${row}"
+        fi
+    done
+}
+
+# --- Material directory ----------------------------------------------------------
+
+# validate_material_dir — the staging directory GitHub uploaded into. It must be
+# root-only: material sitting in a world-readable directory would already have
+# leaked by the time this script read it.
+validate_material_dir() {
+    [[ -n "${MATERIAL_DIR}" ]] || return 0
+
+    [[ "${MATERIAL_DIR}" == /* ]] \
+        || fail "--material-dir must be an absolute path: ${MATERIAL_DIR}"
+
+    local dir
+    dir="$(physical "${MATERIAL_DIR}")"
+
+    [[ ! -L "${dir}" ]] || fail "--material-dir must not be a symlink: ${MATERIAL_DIR}"
+    [[ -d "${dir}" ]] || fail "--material-dir is not a directory: ${MATERIAL_DIR}"
+
+    local mode
+    mode="$("${STAT_BIN}" -c '%a' "${dir}")"
+
+    (( (8#${mode} & 8#077) == 0 )) \
+        || fail "--material-dir must not be readable by group or other (mode ${mode}): ${MATERIAL_DIR}"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        local owner
+        owner="$("${STAT_BIN}" -c '%u' "${dir}")"
+        [[ "${owner}" == "0" ]] \
+            || fail "--material-dir must be owned by root (uid ${owner}): ${MATERIAL_DIR}"
+    fi
+
+    log "material directory accepted: ${MATERIAL_DIR} (root-only, mode ${mode})"
+}
+
+# --- Per-row classification -------------------------------------------------------
+#
+# Exactly one of PRESENT / CONVERGED / INSTALLABLE / MISSING / CONFLICT, decided
+# without writing anything. Every mode classifies through this one function, so
+# --check can never describe a different world than --apply acts on.
+
+CLASSIFY_STATE=""
+CLASSIFY_REASON=""
+
+# Where an ACME client publishes its material. `live/<certificate>/<leaf>.pem`
+# is the stable path a vhost references; the file behind it is a numbered
+# version under `archive/<certificate>/`.
+ACME_LIVE_PREFIX="/etc/letsencrypt/live/"
+ACME_ARCHIVE_PREFIX="/etc/letsencrypt/archive/"
+
+# acme_expected_leaf NAME — the certbot filename this logical prerequisite must
+# be, or non-zero when the prerequisite may not be a link at all.
+acme_expected_leaf() {
+    case "$1" in
+        tls-certificate|mail-tls-certificate) printf 'fullchain\n' ;;
+        tls-private-key|mail-tls-private-key) printf 'privkey\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+# acme_certificate_name NAME DESTINATION — the <certificate> component of a
+# destination that is exactly `live/<certificate>/<expected leaf>.pem`, or
+# non-zero when the destination is not certbot-shaped for this prerequisite.
+acme_certificate_name() {
+    local name="$1" destination="$2" leaf certificate
+
+    leaf="$(acme_expected_leaf "${name}")" || return 1
+
+    [[ "${destination}" == "${ACME_LIVE_PREFIX}"*"/${leaf}.pem" ]] || return 1
+
+    certificate="${destination#"${ACME_LIVE_PREFIX}"}"
+    certificate="${certificate%"/${leaf}.pem"}"
+
+    # Exactly one path component, and no traversal: `..`, a slash or an empty
+    # name would each let a "live/<certificate>" prefix match something that is
+    # not a certificate directory at all.
+    [[ "${certificate}" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]] || return 1
+    [[ "${certificate}" != *".."* ]] || return 1
+
+    printf '%s\n' "${certificate}"
+}
+
+# destination_may_be_a_symlink NAME DESTINATION — whether this prerequisite's
+# canonical destination is allowed to be a link.
+#
+# Only where an ACME client actually publishes one, and the logical name alone
+# does not decide it: the destination itself has to be a certbot path,
+# `live/<certificate>/fullchain.pem` or `live/<certificate>/privkey.pem`, with
+# the leaf matching the prerequisite. Certbot writes those two as links into
+# its own archive, and rejecting them would make every host with real
+# certbot-managed TLS fail verification forever — but that is the entire
+# exception, not a general licence for the four TLS rows.
+#
+# Everything else must be a real file, and that is a security property rather
+# than tidiness. A target's shared/ directory is writable by the application's
+# own runtime user, so accepting a link there would let a compromised runtime
+# replace .env with a pointer at attacker-controlled material and have
+# preparation bless it as present and correct.
+destination_may_be_a_symlink() {
+    acme_certificate_name "$1" "$2" >/dev/null
+}
+
+# acme_link_is_managed NAME DESTINATION — the link must resolve to the file
+# certbot would have put behind it: `archive/<the same certificate>/<the same
+# leaf><version>.pem`.
+#
+# "Points somewhere inside /etc/letsencrypt" is not enough. Without tying the
+# archive directory to the certificate the live path names, and the filename to
+# the leaf, a link at an allowed path could be repointed at another
+# certificate's key — or at any other file in the tree — and preparation would
+# bless the substitution as correct state.
+acme_link_is_managed() {
+    local name="$1" destination="$2"
+    local leaf certificate resolved expected_prefix suffix version
+
+    leaf="$(acme_expected_leaf "${name}")" || return 1
+    certificate="$(acme_certificate_name "${name}" "${destination}")" || return 1
+
+    # Both sides canonicalized before comparison: a prefix test between a
+    # resolved path and an unresolved one is decided by whatever symlinks sit
+    # above the tree.
+    resolved="$(readlink -m -- "$(physical "${destination}")" 2>/dev/null || true)"
+    expected_prefix="$(readlink -m -- "$(physical "${ACME_ARCHIVE_PREFIX}${certificate}")" 2>/dev/null || true)"
+
+    [[ -n "${resolved}" ]] && [[ -n "${expected_prefix}" ]] || return 1
+
+    suffix="${resolved#"${expected_prefix}/"}"
+
+    # An unchanged value means the prefix did not match at all.
+    [[ "${suffix}" != "${resolved}" ]] || return 1
+
+    version="${suffix#"${leaf}"}"
+
+    [[ "${version}" != "${suffix}" ]] || return 1
+
+    version="${version%.pem}"
+
+    [[ "${version}" =~ ^[0-9]+$ ]]
+}
+
+classify_row() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
+    local dst material
+
+    dst="$(physical "${destination}")"
+    material=""
+
+    if [[ -n "${MATERIAL_DIR}" ]]; then
+        material="$(physical "${MATERIAL_DIR}")/${name}"
+    fi
+
+    if [[ -L "${dst}" ]]; then
+        if ! destination_may_be_a_symlink "${name}" "${destination}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published certificate/key material at ${ACME_LIVE_PREFIX}<certificate>/ may be: ${destination}"
+            return 0
+        fi
+
+        # For the ones that may be: it has to resolve to a regular file, and to
+        # the exact file certbot would have put behind it. Nothing here ever
+        # writes through it, because a destination that exists is never
+        # installed over.
+        if [[ ! -f "${dst}" ]]; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink that does not resolve to a regular file: ${destination}"
+            return 0
+        fi
+
+        if ! acme_link_is_managed "${name}" "${destination}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink that does not resolve to its own ${ACME_ARCHIVE_PREFIX}<certificate>/ file: ${destination}"
+            return 0
+        fi
+    fi
+
+    if [[ -e "${dst}" ]] && [[ ! -f "${dst}" ]]; then
+        CLASSIFY_STATE=CONFLICT
+        CLASSIFY_REASON="canonical destination exists but is not a regular file: ${destination}"
+        return 0
+    fi
+
+    if [[ -f "${dst}" ]]; then
+        # Metadata before content. A prerequisite that exists with the wrong
+        # owner, group or mode is not ready whatever its bytes say, and every
+        # other mode has always refused it — but this classifier judged only
+        # existence and content, so --check called it PRESENT while --verify,
+        # minutes later in the same preparation, correctly failed the identical
+        # file. That is exactly how a root-owned staging shared/.env was
+        # reported satisfied and then rejected at the end of the run.
+        #
+        # Reported as an ordinary CONFLICT rather than raised, so the rest of
+        # the table is still classified and the operator sees every row that
+        # needs attention in one pass instead of the first one only.
+        if ! row_metadata_is_correct "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="${METADATA_DRIFT_REASON}"
+            return 0
+        fi
+
+        if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
+            if cmp -s "${material}" "${dst}"; then
+                CLASSIFY_STATE=CONVERGED
+                CLASSIFY_REASON="already present and identical to the supplied material: ${destination}"
+            else
+                # Never says HOW they differ. Reporting a length, a hash or a
+                # first differing byte would leak information about material
+                # this script exists to protect.
+                CLASSIFY_STATE=CONFLICT
+                CLASSIFY_REASON="already present and DIFFERS from the supplied material: ${destination} — refusing to overwrite; rotation is a separate deliberate operation"
+            fi
+        else
+            CLASSIFY_STATE=PRESENT
+            CLASSIFY_REASON="already present; left untouched: ${destination}"
+        fi
+
+        return 0
+    fi
+
+    if [[ -n "${material}" ]] && [[ -L "${material}" ]]; then
+        CLASSIFY_STATE=CONFLICT
+        CLASSIFY_REASON="supplied material is a symlink: ${MATERIAL_DIR}/${name}"
+        return 0
+    fi
+
+    if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
+        CLASSIFY_STATE=INSTALLABLE
+        CLASSIFY_REASON="absent; will be installed from the supplied material: ${destination}"
+        return 0
+    fi
+
+    CLASSIFY_STATE=MISSING
+    CLASSIFY_REASON="absent and no material supplied: ${destination} — provide it; it is never generated here"
+}
+
+# --- Installation -----------------------------------------------------------------
+
+install_row() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" scope="$6"
+    local dst material dst_dir tmp
+
+    dst="$(physical "${destination}")"
+    material="$(physical "${MATERIAL_DIR}")/${name}"
+    dst_dir="$(dirname "${dst}")"
+
+    if [[ ! -d "${dst_dir}" ]]; then
+        # Host-scope destinations live under /etc and legitimately predate the
+        # packages that normally create them (an ACME client's
+        # /etc/letsencrypt/live/<host>, nginx's /etc/nginx): creating the
+        # directory root-owned and world-traversable is exactly what those
+        # packages would do, and is required for material to be in place before
+        # install-bootstrap-services runs.
+        #
+        # Target-scope destinations are different: their parents belong to
+        # RateGuru identities that install-bootstrap-host-layout creates with specific ownership and
+        # setgid modes. Creating one here would produce a directory that
+        # installer would then have to disagree with, so this fails closed instead.
+        if [[ "${scope}" != host ]]; then
+            fail "cannot install ${destination}: ${dst_dir} does not exist — its owner is created by host bootstrap; run prepare-host --apply, which orders this correctly"
+        fi
+
+        "${INSTALL_BIN}" -d -m 0755 -- "${dst_dir}" \
+            || fail "cannot create the parent directory for ${destination}: ${dst_dir}"
+
+        if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+            "${CHOWN_BIN}" -- root:root "${dst_dir}" \
+                || fail "cannot set ownership on ${dst_dir}"
+        fi
+
+        log "created parent directory ${dst_dir} (root:root 0755)"
+    fi
+
+    # Staged with the final mode already applied, so the file never exists at
+    # its real name with a wider mode than intended, not even momentarily.
+    tmp="$(mktemp "${dst}.XXXXXX")" || fail "cannot stage ${destination}"
+
+    if ! "${INSTALL_BIN}" -m "${mode}" -- "${material}" "${tmp}"; then
+        rm -f -- "${tmp}"
+        fail "failed to stage ${destination}"
+    fi
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        if ! "${CHOWN_BIN}" -- "${owner}:${group}" "${tmp}"; then
+            rm -f -- "${tmp}"
+            fail "cannot set ownership ${owner}:${group} on ${destination}"
+        fi
+    fi
+
+    # The GNU '=MODE' operator, never a plain numeric chmod: a plain numeric
+    # chmod preserves setgid, which is the class of bug the rest of the RateGuru
+    # installers pin against.
+    if ! "${CHMOD_BIN}" "=${mode}" "${tmp}"; then
+        rm -f -- "${tmp}"
+        fail "cannot pin mode ${mode} on ${destination}"
+    fi
+
+    # Last-moment re-check inside the same root process: if something created
+    # the destination between classification and now, stop rather than clobber.
+    if [[ -e "${dst}" ]] || [[ -L "${dst}" ]]; then
+        rm -f -- "${tmp}"
+        fail "refusing to overwrite ${destination}: it appeared after this run classified it as absent"
+    fi
+
+    if ! mv -n -- "${tmp}" "${dst}"; then
+        rm -f -- "${tmp}"
+        fail "failed to move the staged file into place: ${destination}"
+    fi
+
+    # `mv -n` exits 0 without moving anything when the destination appeared in
+    # the meantime, so success alone proves nothing. The staged file being gone
+    # is what proves the move actually happened; if it is still there, another
+    # process won the race and this run must not claim to have installed
+    # anything.
+    if [[ -e "${tmp}" ]]; then
+        rm -f -- "${tmp}"
+        fail "refusing to report ${destination} as installed: the destination appeared during the move and the supplied material was NOT written"
+    fi
+
+    log "INSTALLED ${name} -> ${destination} (${owner}:${group} ${mode}; content never read or logged)"
+}
+
+# --- Modes ---------------------------------------------------------------------------
+
+REPORT_MISSING=0
+REPORT_CONFLICTS=0
+REPORT_INSTALLABLE=0
+
+report_rows() {
+    local row scope name destination owner group mode secret description
+
+    REPORT_MISSING=0
+    REPORT_CONFLICTS=0
+    REPORT_INSTALLABLE=0
+
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        printf '%-11s %-6s %-24s %s\n' "${CLASSIFY_STATE}" "${scope}" "${name}" "${CLASSIFY_REASON}"
+
+        case "${CLASSIFY_STATE}" in
+            MISSING)     REPORT_MISSING=$((REPORT_MISSING + 1)) ;;
+            CONFLICT)    REPORT_CONFLICTS=$((REPORT_CONFLICTS + 1)) ;;
+            INSTALLABLE) REPORT_INSTALLABLE=$((REPORT_INSTALLABLE + 1)) ;;
+        esac
+    done < <(rows_in_scope)
+}
+
+run_check() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_material_dir
+
+    printf 'EXTERNAL PREREQUISITES for %s (scope=%s, read-only)\n\n' "${TARGET_ID}" "${SCOPE}"
+    report_rows
+
+    printf '\nSUMMARY\n'
+    printf 'installable %d\n' "${REPORT_INSTALLABLE}"
+    printf 'missing %d\n' "${REPORT_MISSING}"
+    printf 'conflicts %d\n' "${REPORT_CONFLICTS}"
+    printf '\n'
+
+    if (( REPORT_MISSING == 0 )) && (( REPORT_CONFLICTS == 0 )) && (( REPORT_INSTALLABLE == 0 )); then
+        printf 'TARGET PREREQUISITES READY: YES\n'
+        return 0
+    fi
+
+    printf 'TARGET PREREQUISITES READY: NO\n'
+    return 1
+}
+
+run_apply() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_material_dir
+
+    local row scope name destination owner group mode secret description
+
+    # Two passes, deliberately. The first classifies everything and refuses the
+    # whole run on any conflict or unsatisfiable prerequisite, so a partially
+    # supplied set can never leave the host half-converged with one new secret
+    # installed beside a conflicting old one.
+    #
+    # It also rejects the metadata of everything already present, for the same
+    # reason: a host with one row absent and another row's ownership wrong must
+    # not have the absent one installed before the wrong one is discovered. Any
+    # fail-closed condition, of any kind, is found before the first mutation.
+    #
+    # The metadata contract arrives through the classifier rather than beside
+    # it: row_metadata_is_correct is what turns drift into a CONFLICT, so the
+    # refusal below covers it and this pass has exactly one notion of what
+    # "not ready" means. Checking it separately here is what let --check and
+    # --apply drift apart in the first place.
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        case "${CLASSIFY_STATE}" in
+            CONFLICT|MISSING)
+                fail "external prerequisite ${name}: ${CLASSIFY_REASON}"
+                ;;
+        esac
+    done < <(rows_in_scope)
+
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        case "${CLASSIFY_STATE}" in
+            INSTALLABLE)
+                install_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${scope}"
+                ;;
+            CONVERGED)
+                log "SKIP ${name}: already present and identical to the supplied material — not rewritten"
+                ;;
+            PRESENT)
+                log "SKIP ${name}: already present; no material supplied and nothing changed"
+                ;;
+        esac
+    done < <(rows_in_scope)
+
+    verify_rows
+
+    log "PASS: external prerequisites satisfied for ${TARGET_ID} (scope=${SCOPE})"
+}
+
+# verify_row_metadata NAME DESTINATION OWNER GROUP MODE DESCRIPTION — the
+# ownership and mode contract the prerequisite table already declares, enforced
+# rather than merely recorded.
+#
+# Presence alone is not readiness, and "not world-readable" is not either. A
+# shared/.env that drifted to root:root 0600 is perfectly protected from
+# outsiders and completely unreadable by the PHP-FPM and queue workers that
+# have to read it; an htpasswd that lost its www-data group breaks Nginx the
+# same way; an authorized_keys or rclone.conf with the wrong owner is simply
+# ignored. Each of those is a target that verification would otherwise call
+# prepared and that would then fail on its first real use — so the declared
+# owner, group and mode are all checked exactly, with the fix in the message.
+#
+# stat dereferences (-L) on purpose: for the ACME material that legitimately is
+# a link, the file behind it is what any reader will actually open, and
+# certbot's own archive modes are exactly what this table declares.
+# row_metadata_is_correct NAME DESTINATION OWNER GROUP MODE DESCRIPTION — the
+# single read-only authority on whether an existing prerequisite satisfies the
+# ownership and mode the table declares.
+#
+# It is the ONLY place that comparison is made. --check classifies with it,
+# --apply refuses with it before its first mutation, --verify fails with it,
+# and --capture refuses to back up material it would not accept back. Three
+# independent implementations of the same contract is how --check came to
+# disagree with --verify about the same file on the same host.
+#
+# Returns 0 when the metadata is correct. On drift it returns non-zero and
+# leaves METADATA_DRIFT_REASON describing it, phrased to read after the
+# prerequisite's name so one wording serves both a report row and a refusal.
+# The reason names the expected and actual metadata and the command that fixes
+# it — never content, never a length, never a digest.
+#
+# Reads only: it stats the destination and returns. Nothing here writes, and
+# --check depends on that.
+METADATA_DRIFT_REASON=""
+
+row_metadata_is_correct() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
+    local dst actual_owner actual_group actual_mode
+
+    METADATA_DRIFT_REASON=""
+
+    dst="$(physical "${destination}")"
+
+    actual_mode="$("${STAT_BIN}" -L -c '%a' "${dst}")"
+
+    if (( 8#${actual_mode} != 8#${mode} )); then
+        METADATA_DRIFT_REASON="has mode ${actual_mode}, expected ${mode}: ${destination} (${description}) — run: chmod ${mode} ${destination}"
+
+        return 1
+    fi
+
+    # Ownership is compared only where the accounts exist to compare against.
+    # Production always does; a scratch tree used to exercise the rest of this
+    # contract does not, and inventing a verdict there would be a test artifact
+    # rather than a check.
+    [[ "${ENFORCE_OWNERSHIP}" == true ]] || return 0
+
+    actual_owner="$("${STAT_BIN}" -L -c '%U' "${dst}")"
+    actual_group="$("${STAT_BIN}" -L -c '%G' "${dst}")"
+
+    if [[ "${actual_owner}:${actual_group}" != "${owner}:${group}" ]]; then
+        METADATA_DRIFT_REASON="is owned by ${actual_owner}:${actual_group}, expected ${owner}:${group}: ${destination} (${description}) — the declared owner is the account that has to read it; run: chown ${owner}:${group} ${destination}"
+
+        return 1
+    fi
+
+    return 0
+}
+
+verify_row_metadata() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
+
+    row_metadata_is_correct "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}" \
+        || fail "external prerequisite ${name} ${METADATA_DRIFT_REASON}"
+}
+
+verify_rows() {
+    local row scope name destination owner group mode secret description dst count=0
+
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        dst="$(physical "${destination}")"
+
+        # -e and -f follow a symlink, which is exactly right for the ACME
+        # material that legitimately is one — but only for that material.
+        if [[ -L "${dst}" ]]; then
+            destination_may_be_a_symlink "${name}" "${destination}" \
+                || fail "external prerequisite ${name} is a symlink, and only ACME-published certificate/key material at ${ACME_LIVE_PREFIX}<certificate>/ may be: ${destination}"
+
+            acme_link_is_managed "${name}" "${destination}" \
+                || fail "external prerequisite ${name} is a symlink that does not resolve to its own ${ACME_ARCHIVE_PREFIX}<certificate>/ file: ${destination}"
+        fi
+
+        [[ -e "${dst}" ]] \
+            || fail "external prerequisite ${name} is absent: ${destination} (${description}) — provide it; it is never generated here"
+        [[ -f "${dst}" ]] \
+            || fail "external prerequisite ${name} is not a regular file: ${destination}"
+
+        verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        count=$((count + 1))
+    done < <(rows_in_scope)
+
+    # Presence, ownership and mode — never content, which is not read, not
+    # validated and not printed.
+    log "all ${count} external prerequisites in scope=${SCOPE} are present at their canonical destinations with the declared ownership and mode (content never read)"
+}
+
+run_verify() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    verify_rows
+}
+
+# --- Recovery material -------------------------------------------------------------
+#
+# The three modes below are what let a backup carry, and a clean-host recovery
+# consume, the host-scope external material a target needs — TLS, Basic Auth,
+# the shared Nginx TLS material — without any of it being typed into GitHub or
+# copied off a working host by hand. They read the same table every other
+# mode reads. Nothing in them writes to a canonical destination.
+#
+# The archive vocabulary is LOGICAL NAMES ONLY. A backup never decides where a
+# file will be written: the archive names `tls-private-key`, and whichever
+# trusted installer consumes it decides the destination, owner and mode from
+# its own table — exactly as it does for material GitHub supplies. That is
+# what keeps a captured backup from being able to plant a file anywhere.
+
+# material_names_in_scope — the logical names the current scope holds, in
+# table order, one per line.
+material_names_in_scope() {
+    local row
+    while IFS= read -r row; do
+        [[ -n "${row}" ]] || continue
+        row="${row#*|}"
+        printf '%s\n' "${row%%|*}"
+    done < <(rows_in_scope)
+}
+
+run_list_material_names() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+
+    # Names only, to stdout, nothing else: callers parse this output.
+    material_names_in_scope
+}
+
+# validate_output_dir — the capture directory: absolute, a real directory,
+# root-owned, exactly 0700, and EMPTY. Material sitting in a directory anyone
+# else could read would already have leaked by the time it was captured, and a
+# directory holding something else could not be distinguished from a capture.
+# The output directory is a REAL filesystem path named by the caller (backup's
+# working directory), not a logical host-layout path: FS_ROOT relocates the
+# prerequisites' destinations, never where their capture lands.
+validate_output_dir() {
+    [[ "${OUTPUT_DIR}" == /* ]] \
+        || fail "--output-dir must be an absolute path: ${OUTPUT_DIR}"
+
+    local dir="${OUTPUT_DIR}"
+
+    [[ ! -L "${dir}" ]] || fail "--output-dir must not be a symlink: ${OUTPUT_DIR}"
+    [[ -d "${dir}" ]] || fail "--output-dir is not a directory: ${OUTPUT_DIR}"
+
+    local mode
+    mode="$("${STAT_BIN}" -c '%a' "${dir}")"
+
+    (( 8#${mode} == 8#700 )) \
+        || fail "--output-dir must be mode 0700 (is ${mode}): ${OUTPUT_DIR}"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        local owner
+        owner="$("${STAT_BIN}" -c '%u' "${dir}")"
+        [[ "${owner}" == "0" ]] \
+            || fail "--output-dir must be owned by root (uid ${owner}): ${OUTPUT_DIR}"
+    fi
+
+    [[ -z "$(find "${dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]] \
+        || fail "--output-dir must be empty: ${OUTPUT_DIR}"
+}
+
+# run_capture — every host-scope prerequisite is proven present and safe with
+# the identical checks --verify applies (the certbot link rule included), then
+# its CONTENT is copied under its logical name. A link on the host becomes a
+# plain regular file in the capture: the archive carries material, never a
+# pointer. Content is never read by this script, never hashed, never measured
+# and never printed; the only thing logged is the logical name.
+#
+# Fails closed on anything that is not a clean capture — an absent
+# prerequisite, a conflict, a disallowed link, drifted ownership or mode —
+# because a backup that silently lacked one of these would be a backup no
+# clean-host recovery could use, reported as a success.
+run_capture() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_output_dir
+
+    local row scope name destination owner group mode secret description
+    local dst out count=0
+    local -a captured=()
+
+    # Everything is judged before anything is copied, so a refusal leaves the
+    # output directory exactly as empty as it was found.
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        case "${CLASSIFY_STATE}" in
+            PRESENT|CONVERGED)
+                ;;
+            MISSING)
+                fail "external prerequisite ${name} cannot be captured: ${CLASSIFY_REASON} — a backup without it could not seed a clean-host recovery, so no backup is written"
+                ;;
+            *)
+                fail "external prerequisite ${name} cannot be captured: ${CLASSIFY_REASON}"
+                ;;
+        esac
+
+        verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+    done < <(rows_in_scope)
+
+    while IFS='|' read -r scope name destination owner group mode secret description; do
+        [[ -n "${name}" ]] || continue
+
+        dst="$(physical "${destination}")"
+        out="${OUTPUT_DIR}/${name}"
+
+        [[ ! -e "${out}" ]] && [[ ! -L "${out}" ]] \
+            || fail "refusing to overwrite ${OUTPUT_DIR}/${name}: it appeared after the output directory was checked"
+
+        # `install` opens the source and writes its bytes: a certbot link is
+        # dereferenced and the capture is a regular file, staged 0600 from the
+        # first byte.
+        "${INSTALL_BIN}" -m 0600 -- "${dst}" "${out}" \
+            || fail "could not capture ${name} into ${OUTPUT_DIR}"
+
+        if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+            "${CHOWN_BIN}" -- root:root "${out}" \
+                || fail "could not set ownership on the captured ${name}"
+        fi
+
+        "${CHMOD_BIN}" "=0600" "${out}" \
+            || fail "could not pin mode 0600 on the captured ${name}"
+
+        captured+=("${name}")
+        count=$((count + 1))
+
+        log "CAPTURED ${name} (from ${destination}; content never read, hashed or logged)"
+    done < <(rows_in_scope)
+
+    (( count > 0 )) \
+        || fail "no host-scope prerequisite was captured for ${TARGET_ID} — refusing to report an empty capture as recovery material"
+
+    log "captured ${count} host-scope prerequisites for ${TARGET_ID} into ${OUTPUT_DIR} (root-only, 0600 each): ${captured[*]}"
+}
+
+# --- Recovery material archive validation ---------------------------------------------
+#
+# `tar -tzf` alone proves an archive is readable; it proves nothing about what
+# extraction would create. This is the pre-extraction gate for
+# recovery-material.tar.gz, and it is stricter than the storage archive's,
+# because the vocabulary is closed: every entry must be a TOP-LEVEL REGULAR
+# FILE named exactly as one of this target's host-scope prerequisites, each
+# name must appear once, every name must appear, and nothing else may.
+#
+# Refused, each by its own diagnosis: an absolute path, a `..` or `.`
+# component, a nested path or a directory entry (any slash at all), a symlink,
+# a hard link, a device node, a FIFO, a socket, a duplicate, an unknown name,
+# a missing name, an empty archive, and an archive tar cannot read.
+#
+# Two independent passes, because they read different things:
+#   1. names, from `tar -tzf`   — where extraction would write
+#   2. types, from `tar -tvzf`  — what extraction would create
+#
+# Nothing is extracted, and nothing about any member's content is printed.
+run_validate_recovery_material() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+
+    [[ "${ARCHIVE}" == /* ]] \
+        || fail "--archive must be an absolute path: ${ARCHIVE}"
+
+    # A real filesystem path (a staged backup's member), never relocated
+    # under FS_ROOT: only the prerequisites' destinations live there.
+    local archive="${ARCHIVE}"
+
+    [[ -e "${archive}" ]] || fail "recovery material archive is missing: ${ARCHIVE}"
+    [[ ! -L "${archive}" ]] || fail "recovery material archive must not be a symlink: ${ARCHIVE}"
+    [[ -f "${archive}" ]] || fail "recovery material archive must be a regular file: ${ARCHIVE}"
+    [[ -r "${archive}" ]] || fail "recovery material archive is not readable: ${ARCHIVE}"
+
+    local -a expected=()
+    mapfile -t expected < <(material_names_in_scope)
+
+    (( ${#expected[@]} > 0 )) \
+        || fail "no host-scope prerequisite is defined for ${TARGET_ID} — refusing to judge an archive against an empty vocabulary"
+
+    local listing
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable (not a gzip tar, or truncated): ${ARCHIVE}"
+
+    [[ -n "${listing}" ]] || fail "recovery material archive is empty: ${ARCHIVE}"
+
+    local entry known found
+    local -a seen=()
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        # GNU tar escapes non-printable characters in a listing with
+        # backslashes; a logical name never contains one, so a backslash (or
+        # any control character surviving into the listing) is rejected rather
+        # than interpreted.
+        [[ "${entry}" != *\\* ]] \
+            || fail "recovery material archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "recovery material archive entry contains a control character"
+
+        [[ "${entry}" != /* ]] \
+            || fail "recovery material archive contains an absolute path: ${entry}"
+
+        [[ "${entry}" != "." ]] && [[ "${entry}" != ".." ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+
+        [[ "${entry}" != *..* ]] \
+            || fail "recovery material archive contains a relative path component: ${entry}"
+
+        # Logical names are single path components. A slash anywhere is a
+        # nested path or a directory entry, and neither has any business here.
+        [[ "${entry}" != */* ]] \
+            || fail "recovery material archive contains a nested path or a directory entry, where only top-level logical names are allowed: ${entry}"
+
+        found=false
+        for known in "${expected[@]}"; do
+            if [[ "${entry}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "recovery material archive contains a file that is not a host-scope prerequisite of ${TARGET_ID}: ${entry}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${entry}" ]] \
+                || fail "recovery material archive contains ${entry} more than once"
+        done
+
+        seen+=("${entry}")
+    done <<< "${listing}"
+
+    for known in "${expected[@]}"; do
+        found=false
+        for entry in "${seen[@]:-}"; do
+            if [[ "${entry}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "recovery material archive is missing the host-scope prerequisite ${known} of ${TARGET_ID} — a clean-host recovery could not be prepared from it"
+    done
+
+    local verbose line
+    verbose="$(tar -tvzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${ARCHIVE}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string: '-' regular, 'd' directory, 'l'
+        # symlink, 'h' hardlink, 'c'/'b' device, 'p' FIFO, 's' socket.
+        case "${line:0:1}" in
+            -)
+                ;;
+            d)
+                fail "recovery material archive contains a directory entry — only top-level regular files are allowed"
+                ;;
+            l)
+                fail "recovery material archive contains a symbolic link — refusing to extract as root"
+                ;;
+            h)
+                fail "recovery material archive contains a hard link — refusing to extract as root"
+                ;;
+            c|b)
+                fail "recovery material archive contains a device node — refusing to extract as root"
+                ;;
+            p)
+                fail "recovery material archive contains a FIFO — refusing to extract as root"
+                ;;
+            s)
+                fail "recovery material archive contains a socket — refusing to extract as root"
+                ;;
+            *)
+                fail "recovery material archive contains an entry of an unrecognized type: ${line}"
+                ;;
+        esac
+    done <<< "${verbose}"
+
+    # The last line is the machine-facing summary a caller may quote: names
+    # only, never content, digest or size.
+    log "recovery material archive is acceptable for ${TARGET_ID} (content never read)"
+    printf '%d host-scope files for %s: %s\n' "${#expected[@]}" "${TARGET_ID}" "${expected[*]}"
+}
+
+main() {
+    parse_args "$@"
+
+    # --check reports readiness through its exit status (0 satisfied, 1 not),
+    # the same "exit 1 means the contract is not satisfied" verdict every other
+    # RateGuru installer uses and every orchestrator above them reads. Captured
+    # explicitly rather than left to `set -e`, so the intent is on the page.
+    local status=0
+
+    case "${MODE}" in
+        check)                      run_check || status=$? ;;
+        apply)                      run_apply ;;
+        verify)                     run_verify ;;
+        list-material-names)        run_list_material_names ;;
+        capture)                    run_capture ;;
+        validate-recovery-material) run_validate_recovery_material ;;
+    esac
+
+    exit "${status}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
