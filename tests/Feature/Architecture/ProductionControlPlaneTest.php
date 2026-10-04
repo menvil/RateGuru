@@ -795,9 +795,16 @@ it('requires the staging Environment to admit the release tag as well as develop
     foreach ($sources as $source) {
         $text = File::get(base_path($source));
 
-        if (! str_contains($text, 'staging` Environment')) {
-            continue;
-        }
+        // Asserted, never skipped. A `continue` here would let a listed source
+        // drop out of every check below by rewording one phrase — and the thing
+        // being checked is wording, so that is exactly how it would go.
+        expect($text)->toContain(
+            'staging` Environment',
+            // Pest's toContain is variadic, so this second string is a second
+            // needle rather than a message: both are required, which is what the
+            // guidance has to name to be guidance at all.
+            'allowed refs',
+        );
 
         // Scoped to the passage that actually discusses the staging restriction.
         // Searching the whole runbook for `v*` proves nothing — the production

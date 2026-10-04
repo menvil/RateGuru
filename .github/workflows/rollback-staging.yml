@@ -64,8 +64,15 @@ jobs:
   # So this closes the ordinary mistake — a branch left selected in the Run
   # workflow dropdown, a copied URL with the wrong ref — and does not close the
   # general case. What closes the general case is outside the YAML: restricting
-  # the `staging` Environment's allowed refs, so GitHub refuses the run before any
-  # job starts whatever the selected ref's workflow says.
+  # the `staging` Environment's allowed refs.
+  #
+  # Precisely what that buys, because it is easy to overstate: GitHub evaluates
+  # the allowlist per JOB, when a job that declares the Environment is about to
+  # start — not for the workflow as a whole. A disallowed ref can still run this
+  # workflow's Environment-free jobs, and on an older ref can run whatever
+  # unprotected jobs that ref happens to define. What it cannot do is start a job
+  # holding `staging`, which is where the credentials are. That is the boundary:
+  # the credentials, not the run.
   #
   # That restriction is the branch `develop` AND the tag pattern `v*`, not
   # `develop` alone: release.yml triggers on `v*` and verifies the artifact on
