@@ -766,3 +766,65 @@ it('never admits main into a staging gate, nor develop into a production one', f
         expect($run)->not->toContain('refs/heads/main');
     }
 });
+
+it('requires the staging Environment to admit the release tag as well as develop', function () {
+    // A near-miss worth a guard of its own. Restricting the `staging` Environment
+    // to `develop` looks like the obvious hardening and would refuse EVERY
+    // release: release.yml triggers on `v*`, and its staging verification job
+    // runs with `environment: staging`, so the artifact could never be verified
+    // and production could never be reached.
+    //
+    // The premise is asserted rather than assumed, so if release.yml ever stopped
+    // verifying on staging this guard would stop demanding the tag rule.
+    $release = controlPlaneWorkflow('release.yml');
+
+    expect($release['on'])->toBe(['push' => ['tags' => ['v*']]]);
+    expect(data_get($release, 'jobs.deploy-staging.environment'))->toBe('staging');
+
+    // So every place that tells an operator what to allow must say both.
+    $sources = ['infrastructure/runbooks/deployment-targets.md'];
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        if ($file === 'deploy-staging.yml') {
+            continue;
+        }
+
+        $sources[] = '.github/workflows/'.$file;
+    }
+
+    foreach ($sources as $source) {
+        $text = File::get(base_path($source));
+
+        if (! str_contains($text, 'staging` Environment')) {
+            continue;
+        }
+
+        // Scoped to the passage that actually discusses the staging restriction.
+        // Searching the whole runbook for `v*` proves nothing — the production
+        // section mentions it for its own reasons, so a develop-only staging
+        // instruction would pass while the file still "contained" the tag. That
+        // is exactly what a first version of this guard did.
+        if (str_ends_with($source, '.md')) {
+            $heading = '### Staging has the same gate, and the same gap';
+            $start = strpos($text, $heading);
+
+            expect($start)->not->toBeFalse("{$source} no longer has the staging Environment section this guard reads");
+
+            $next = strpos($text, "\n### ", $start + strlen($heading));
+            $passage = substr($text, $start, $next === false ? null : $next - $start);
+        } else {
+            $passage = $text;
+        }
+
+        // Whatever the wording, a develop-only instruction must not survive where
+        // someone is being told how to restrict this Environment.
+        expect(preg_match('/(deployment branches|allowed refs) to `develop`(?! `| and)/i', $passage))
+            ->toBe(0, "{$source} tells an operator to allow develop alone, which would refuse every release");
+
+        // The INSTRUCTION, not a mention. `v*` appears in this passage twice —
+        // once telling the operator what to add, once explaining why — and a
+        // guard satisfied by either would pass with the instruction deleted and
+        // only the explanation left. So the thing to add is what is required.
+        expect($passage)->toContain('the tag pattern `v*`');
+    }
+});

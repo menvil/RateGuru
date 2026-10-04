@@ -64,9 +64,13 @@ jobs:
   # So this closes the ordinary mistake — a branch left selected in the Run
   # workflow dropdown, a copied URL with the wrong ref — and does not close the
   # general case. What closes the general case is outside the YAML: restricting
-  # the `staging` Environment's deployment branches to `develop`, so GitHub
-  # refuses the run before any job starts whatever the selected ref's workflow
-  # says. That is an operator setting no pull request can apply; see
+  # the `staging` Environment's allowed refs, so GitHub refuses the run before any
+  # job starts whatever the selected ref's workflow says.
+  #
+  # That restriction is the branch `develop` AND the tag pattern `v*`, not
+  # `develop` alone: release.yml triggers on `v*` and verifies the artifact on
+  # staging through this same Environment, so a develop-only rule would refuse
+  # every release. It is an operator setting no pull request can apply; see
   # infrastructure/runbooks/deployment-targets.md. Until it is set, treat this
   # gate as a guard rail rather than a boundary.
   validate-ref:

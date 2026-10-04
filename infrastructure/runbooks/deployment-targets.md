@@ -157,16 +157,21 @@ check inside the YAML can prevent that — a job condition, a first failing step
 reusable workflow called with `uses:` all live at the selected ref.
 
 What closes it is the same thing that closes it for production: restricting the
-Environment's deployment branches, so GitHub refuses the run before any job
-starts whatever the selected ref says.
+Environment's allowed refs, so GitHub refuses the run before any job starts
+whatever the selected ref says. In *Settings → Environments → staging →
+Deployment branches and tags*, choose **Selected branches and tags** and add two
+rules — the branch `develop`, and the tag pattern `v*`.
 
-```text
-staging:
-  branch  develop
-```
+**Both rules, and the tag one is not optional.** `release.yml` triggers on `v*`,
+and its staging verification job runs with `environment: staging` — so a
+`develop`-only restriction would refuse every release at the point where the
+artifact is verified on staging, before it could ever reach production. This is
+the same shape as the production Environment, and for the same reason: the
+operational workflows run from a branch, the release path runs from a tag, and
+both need to reach their Environment.
 
-Until that is set, treat the staging gates as guard rails — they make the
-ordinary mistake impossible, and they are not a boundary.
+Until the restriction is set, treat the staging gates as guard rails — they make
+the ordinary mistake impossible, and they are not a boundary.
 
 ### What the gate is, and is not
 

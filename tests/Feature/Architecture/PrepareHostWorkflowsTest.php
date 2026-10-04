@@ -82,14 +82,6 @@ function phwPrepareStep(string $workflow): array
 }
 
 /**
- * A workflow's source without its main-only control-plane gate.
- *
- * The gate refuses every run ref but main; it selects nothing and checks
- * nothing out, so it has no place in a search for application-source inputs.
- * The gate itself — its text, its placement, what it admits — is asserted by
- * ProductionControlPlaneTest.
- */
-/**
  * The workflow with its control-plane gate removed.
  *
  * Both planes have one and they are marked differently — `main-only` for
