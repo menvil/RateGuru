@@ -64,21 +64,19 @@
 
 ### Filament admin panel (`/admin`)
 
-The Filament admin panel intentionally does NOT consume RateGuru's `--rg-*`
-tokens. `AdminPanelProvider` does not register `->viteTheme()`, so the panel
-loads Filament's own compiled stylesheet — the app's `resources/css/app.css`
-(which defines the tokens) is not present inside the admin shell. Filament's
-own brand/color customisation is wired through `->brandName('RateGuru')` and
-`->colors(['primary' => Color::Purple])` in the panel provider, not through
-Tailwind utility classes.
+The admin is a separate design system, Admin v2, defined by
+[`docs/design/admin/design-contract.md`](admin/design-contract.md). The two
+systems intentionally share no visual tokens:
 
-As a result, Blade views under `resources/views/filament/**` (e.g. the
-admin dashboard placeholder) use plain Tailwind utilities that ship inside
-Filament's bundle (`text-gray-500`, `dark:text-gray-400`, …) instead of
-`text-rg-muted` / `text-rg-text2`. Using `text-rg-*` here would silently
-render as unstyled text because the underlying CSS custom properties never
-reach the panel.
+| | Public UI | Admin v2 |
+|---|---|---|
+| Tokens | `--rg-*` (`resources/css/theme.css`) | `--rg-admin-*` (`resources/css/filament/admin/tokens.css`) |
+| Components | `x-ui.*` | `x-admin.ui.*` |
+| Developer kit | `/dev/ui-kit` | `/admin/dev/ui-kit` |
 
-If we ever introduce a Filament custom theme (`make:filament-theme` +
-`->viteTheme()`), this deviation should be revisited so the admin panel can
-share the same muted/text/border tokens as the public app.
+`AdminPanelProvider` registers an independent custom Filament theme with
+`->viteTheme('resources/css/filament/admin/theme.css')`. The public
+`resources/css/app.css` and its `--rg-*` tokens never reach the admin shell,
+so `text-rg-*` utilities do not belong in `resources/views/filament/**`; admin
+views use the Admin v2 components and tokens instead. Only the Inter typeface
+is shared.

@@ -1,0 +1,2331 @@
+/*
+ * Admin v2 components.
+ *
+ * Every rule here is scoped to a .rg-admin-* class, so nothing changes on a
+ * screen until its markup opts in. The existing Filament screens keep their
+ * look until each one is migrated. The x-admin.ui.* Blade components render
+ * these classes; tables, navigation and toasts are plain CSS primitives that a
+ * screen composes with its own grid template.
+ *
+ * Measurements follow docs/design/admin/design-contract.md; the reference ID
+ * of each element is noted above its rules.
+ */
+@layer components {
+    /* Root: any region drawn in Admin v2 */
+    .rg-admin {
+        color-scheme: light;
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        color: var(--rg-admin-text-strong);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    .rg-admin-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .rg-admin-mono {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    .rg-admin-tabular {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-overline {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* FND-04 · Icon */
+    .rg-admin-icon {
+        display: block;
+        flex-shrink: 0;
+    }
+
+    /* Keyboard focus, shared by every interactive primitive */
+    .rg-admin-button:focus-visible,
+    .rg-admin-icon-button:focus-visible,
+    .rg-admin-link:focus-visible,
+    .rg-admin-tab:focus-visible,
+    .rg-admin-nav-item:focus-visible,
+    .rg-admin-rail__item:focus-visible,
+    .rg-admin-breadcrumb__link:focus-visible,
+    .rg-admin-pagination__page:focus-visible,
+    .rg-admin-filter-chip__remove:focus-visible,
+    .rg-admin-toast__action:focus-visible,
+    .rg-admin-toast__close:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    /* ACT-01 · Button */
+    .rg-admin-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--rg-admin-space-2);
+        height: var(--rg-admin-control-md);
+        padding: 0 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        line-height: 1;
+        white-space: nowrap;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            color var(--rg-admin-transition-fast),
+            opacity var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-button--sm {
+        gap: 6px;
+        height: var(--rg-admin-control-sm);
+        padding: 0 var(--rg-admin-space-3);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-button--secondary:hover:not(:disabled, [aria-disabled='true']) {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-button--primary,
+    .rg-admin-button--danger {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        box-shadow: var(--rg-admin-shadow-button-dark);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    /* Danger is the primary button on a red fill: irreversible confirmations only. */
+    .rg-admin-button--danger {
+        border-color: var(--rg-admin-red-950);
+        background: var(--rg-admin-red-950);
+    }
+
+    .rg-admin-button--primary:hover:not(:disabled, [aria-disabled='true']),
+    .rg-admin-button--danger:hover:not(:disabled, [aria-disabled='true']) {
+        opacity: 0.88;
+    }
+
+    /* Text action: low-emphasis commands such as Discard or Clear selection. */
+    .rg-admin-button--ghost {
+        padding: 0 10px;
+        border-color: transparent;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        box-shadow: none;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-button--ghost:hover:not(:disabled, [aria-disabled='true']) {
+        background: var(--rg-admin-surface-pressed);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-button:active:not(:disabled, [aria-disabled='true']) {
+        transform: translateY(0.5px);
+    }
+
+    .rg-admin-button:disabled,
+    .rg-admin-button[aria-disabled='true'] {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* ACT-02 · Icon button */
+    .rg-admin-icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: var(--rg-admin-control-md);
+        height: var(--rg-admin-control-md);
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: var(--rg-admin-radius-control);
+        background: transparent;
+        color: var(--rg-admin-gray-500);
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-icon-button--sm {
+        width: var(--rg-admin-control-sm);
+        height: var(--rg-admin-control-sm);
+    }
+
+    .rg-admin-icon-button--outline {
+        border-color: var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-icon-button:hover:not(:disabled, [aria-disabled='true']) {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-icon-button:disabled,
+    .rg-admin-icon-button[aria-disabled='true'] {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* ACT-03 · Links */
+    .rg-admin-link {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+        text-decoration: underline;
+        text-decoration-color: var(--rg-admin-border-strong);
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-link:hover {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* A link that opens public content or leaves the admin: title + arrow-up-right. */
+    .rg-admin-link--external,
+    .rg-admin-link--arrow,
+    .rg-admin-link--quiet {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        text-decoration: none;
+    }
+
+    .rg-admin-link--external .rg-admin-icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-link--arrow {
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-link--quiet {
+        gap: var(--rg-admin-space-1);
+        font-size: var(--rg-admin-text-micro);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-link--quiet:hover {
+        color: var(--rg-admin-text-strong);
+    }
+
+    /* STS-01 · Badge */
+    .rg-admin-badge {
+        --rg-admin-badge-dot: var(--rg-admin-gray-400);
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-shrink: 0;
+        height: var(--rg-admin-badge-height);
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid transparent;
+        border-radius: var(--rg-admin-radius-badge);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-badge--success {
+        --rg-admin-badge-dot: var(--rg-admin-status-success-dot);
+
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-badge--warning {
+        --rg-admin-badge-dot: var(--rg-admin-status-warning-dot);
+
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-badge--danger {
+        --rg-admin-badge-dot: var(--rg-admin-status-danger-dot);
+
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-badge--neutral {
+        border-color: var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-badge--outline {
+        border-color: var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* Admin addition: system activity and unsaved AI output only. */
+    .rg-admin-badge--info {
+        --rg-admin-badge-dot: var(--rg-admin-status-info-dot);
+
+        background: var(--rg-admin-status-info-bg);
+        color: var(--rg-admin-status-info-fg);
+    }
+
+    /* STS-02 · Counter pill */
+    .rg-admin-badge--pill {
+        height: 22px;
+        min-width: 22px;
+        padding: 0 7px;
+        border-color: transparent;
+        border-radius: var(--rg-admin-radius-full);
+    }
+
+    .rg-admin-badge__dot {
+        width: 6px;
+        height: 6px;
+        flex-shrink: 0;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-badge-dot);
+    }
+
+    .rg-admin-badge-note {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+    }
+
+    .rg-admin-badge-note__text {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* STS-03 · Progress bar */
+    .rg-admin-progress {
+        display: flex;
+        height: 6px;
+        overflow: hidden;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-data-track);
+    }
+
+    .rg-admin-progress--summary {
+        height: 8px;
+    }
+
+    .rg-admin-progress__bar {
+        height: 100%;
+        background: var(--rg-admin-data-progress);
+    }
+
+    .rg-admin-progress__bar--complete {
+        background: var(--rg-admin-data-complete);
+    }
+
+    .rg-admin-progress__bar--missing {
+        background: var(--rg-admin-data-missing);
+    }
+
+    .rg-admin-progress__bar--invalid {
+        background: var(--rg-admin-data-invalid);
+    }
+
+    .rg-admin-progress__bar--running {
+        background: var(--rg-admin-data-running);
+    }
+
+    .rg-admin-progress-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-progress-legend__item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-progress-legend__swatch {
+        width: 6px;
+        height: 6px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-data-progress);
+    }
+
+    .rg-admin-progress-legend__swatch--missing {
+        background: var(--rg-admin-data-missing);
+    }
+
+    /* STS-05 · Locale chips */
+    .rg-admin-locale-chips {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-locale-chip {
+        display: inline-flex;
+        align-items: center;
+        height: 18px;
+        padding: 0 5px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-xs);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+        font-family: var(--rg-admin-font-mono);
+        font-size: 10px;
+        line-height: 16px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-transform: uppercase;
+    }
+
+    .rg-admin-locale-chip--missing {
+        border-color: transparent;
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-locale-chips__summary {
+        margin-left: var(--rg-admin-space-1);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* LAY-01 · Page header */
+    .rg-admin-page-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-6) 32px;
+        padding: 22px var(--rg-admin-page-gutter) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-page-header__title {
+        margin: 0;
+        font-size: var(--rg-admin-text-title);
+        line-height: var(--rg-admin-leading-title);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+    }
+
+    .rg-admin-page-header__description {
+        max-width: 640px;
+        margin: 6px 0 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-stats {
+        display: flex;
+        margin: 0;
+    }
+
+    .rg-admin-stat {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        padding: 0 var(--rg-admin-space-6);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-stat:first-child {
+        padding-left: 0;
+        border-left: 0;
+    }
+
+    .rg-admin-stat:last-child {
+        padding-right: 0;
+    }
+
+    .rg-admin-stat__label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-stat__value {
+        margin: 0;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    /* LAY-02 · Card and sections */
+    .rg-admin-card {
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-card--clip {
+        overflow: hidden;
+    }
+
+    .rg-admin-card__header {
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-card__title {
+        margin: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-card__description {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-card__body {
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-card__body + .rg-admin-card__body {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-card__footer {
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-radius: 0 0 var(--rg-admin-radius-card) var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* LAY-03 · Section label and detail rows */
+    .rg-admin-section-label {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-section-label__text {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-section-label--wide .rg-admin-section-label__text {
+        letter-spacing: var(--rg-admin-tracking-overline-wide);
+    }
+
+    .rg-admin-section-label__rule {
+        flex: 1;
+        height: 1px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-section-label__trailing {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-section-label__rule + .rg-admin-section-label__trailing {
+        margin-left: 0;
+    }
+
+    .rg-admin-detail-list {
+        margin: 0;
+    }
+
+    .rg-admin-detail-row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        min-height: var(--rg-admin-detail-row-height);
+    }
+
+    .rg-admin-detail-row__icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-detail-row__label {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-detail-row__value {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        margin: 0 0 0 auto;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .rg-admin-detail-row__value--mono {
+        overflow: hidden;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        text-overflow: ellipsis;
+    }
+
+    /* FRM-02 / FRM-03 · Field: label, control, hint or error */
+    .rg-admin-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .rg-admin-field__head {
+        display: flex;
+        align-items: baseline;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-label {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-field__tag {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-field__tag--required {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-field__counter {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-field__counter--over {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-hint {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-error {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    /* FRM-02 · Text field control */
+    .rg-admin-input {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        height: var(--rg-admin-input-md);
+        padding: 0 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        cursor: text;
+        transition:
+            border-color var(--rg-admin-transition-fast),
+            box-shadow var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-input__icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-input__control,
+    .rg-admin-search__control {
+        flex: 1;
+        width: 100%;
+        min-width: 0;
+        height: 22px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        outline: none;
+        background: transparent;
+        appearance: none;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        letter-spacing: var(--rg-admin-tracking-ui);
+    }
+
+    /* The whole frame focuses the field, not just the text line. */
+    .rg-admin-input__control {
+        height: 100%;
+    }
+
+    .rg-admin-input__control::placeholder,
+    .rg-admin-search__control::placeholder,
+    .rg-admin-textarea::placeholder {
+        color: var(--rg-admin-text-tertiary);
+        opacity: 1;
+    }
+
+    /* FRM-01 · Search field */
+    .rg-admin-search {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        height: var(--rg-admin-input-md);
+        padding: 0 var(--rg-admin-space-2) 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        cursor: text;
+        transition:
+            border-color var(--rg-admin-transition-fast),
+            box-shadow var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-search__icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-search__control {
+        font-size: var(--rg-admin-text-ui);
+    }
+
+    .rg-admin-search__control::-webkit-search-cancel-button {
+        display: none;
+    }
+
+    .rg-admin-kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 22px;
+        min-width: 22px;
+        padding: 0 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-tertiary);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        line-height: 1;
+    }
+
+    /* FRM-03 · Textarea */
+    .rg-admin-textarea {
+        display: block;
+        width: 100%;
+        min-height: 84px;
+        margin: 0;
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        outline: none;
+        resize: vertical;
+        transition:
+            border-color var(--rg-admin-transition-fast),
+            box-shadow var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-textarea--compact {
+        min-height: 42px;
+        padding-block: 9px;
+    }
+
+    /* A draft the system generated and nobody has saved yet. */
+    .rg-admin-textarea--info {
+        border-color: var(--rg-admin-status-info-border);
+        background: var(--rg-admin-status-info-field);
+    }
+
+    /* A manual change that is not saved yet. */
+    .rg-admin-textarea--changed {
+        border-color: var(--rg-admin-border-changed);
+    }
+
+    /*
+     * Focus: the reference only darkens the border, which is too faint to find
+     * with a keyboard, so the admin adds a halo.
+     */
+    .rg-admin-input:focus-within,
+    .rg-admin-search:focus-within,
+    .rg-admin-textarea:focus {
+        border-color: var(--rg-admin-focus-ring);
+        box-shadow: var(--rg-admin-focus-halo);
+    }
+
+    /* Errors win over every other state and keep their colour while focused. */
+    .rg-admin-input--invalid,
+    .rg-admin-input--invalid:focus-within,
+    .rg-admin-textarea--invalid,
+    .rg-admin-textarea--invalid:focus {
+        border-color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-input--disabled,
+    .rg-admin-search--disabled,
+    .rg-admin-textarea:disabled {
+        background: var(--rg-admin-surface-sunken);
+        box-shadow: none;
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
+    }
+
+    .rg-admin-textarea:disabled {
+        resize: none;
+    }
+
+    .rg-admin-input__control:disabled,
+    .rg-admin-search__control:disabled {
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
+    }
+
+    /* NAV-03 · Status tabs */
+    .rg-admin-tabs {
+        display: flex;
+        align-items: stretch;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        list-style: none;
+    }
+
+    .rg-admin-tab {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        height: 40px;
+        padding: 0 var(--rg-admin-space-3);
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-secondary);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-regular);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        white-space: nowrap;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .rg-admin-tab::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        border-radius: 2px;
+        background: transparent;
+    }
+
+    .rg-admin-tab:hover {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-tab[aria-current='page'],
+    .rg-admin-tab[aria-pressed='true'] {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-tab[aria-current='page']::after,
+    .rg-admin-tab[aria-pressed='true']::after {
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-tab__count {
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* FBK-02 · Inline notice */
+    .rg-admin-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-control);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-notice__icon {
+        padding-top: 1px;
+    }
+
+    .rg-admin-notice__body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-notice__actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: -5px -6px -5px 0;
+    }
+
+    .rg-admin-notice--info {
+        background: var(--rg-admin-status-info-bg);
+        color: var(--rg-admin-status-info-fg);
+    }
+
+    .rg-admin-notice--warning {
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-notice--danger {
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-notice--success {
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    /* Full-width variant under a card toolbar. */
+    .rg-admin-notice--strip {
+        align-items: center;
+        padding: 10px var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        border-radius: 0;
+    }
+
+    .rg-admin-notice--strip .rg-admin-notice__icon {
+        padding-top: 0;
+    }
+
+    .rg-admin-notice .rg-admin-button--ghost {
+        color: inherit;
+    }
+
+    .rg-admin-notice .rg-admin-button--ghost:hover:not(:disabled, [aria-disabled='true']) {
+        background: rgb(45 67 115 / 0.08);
+        color: inherit;
+    }
+
+    /* TBL-05 · Empty state */
+    .rg-admin-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: 32px var(--rg-admin-space-5);
+        text-align: center;
+    }
+
+    .rg-admin-empty-state__icon {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-empty-state__icon--success {
+        border-color: transparent;
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-empty-state__title {
+        margin: var(--rg-admin-space-1) 0 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-empty-state__body {
+        max-width: 380px;
+        margin: 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-empty-state__action {
+        margin-top: 6px;
+    }
+
+    /* TBL-06 · Loading skeleton: an opacity pulse, never a shimmer */
+    @keyframes rg-admin-pulse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.45;
+        }
+    }
+
+    .rg-admin-skeleton {
+        display: block;
+        flex-shrink: 0;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+        animation: rg-admin-pulse 1.2s ease-in-out infinite;
+    }
+
+    .rg-admin-skeleton--soft {
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-skeleton--box {
+        border-radius: var(--rg-admin-radius-item);
+    }
+
+    .rg-admin-skeleton--control {
+        border-radius: var(--rg-admin-radius-control);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rg-admin-skeleton {
+            animation: none;
+        }
+    }
+
+    /* TBL-01 · Table: rows are CSS grid; header and rows share one template */
+    .rg-admin-table {
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+    }
+
+    /* Never hide a column the moderator needs: the card scrolls instead. */
+    .rg-admin-table__scroll {
+        overflow-x: auto;
+    }
+
+    .rg-admin-table__grid {
+        min-width: var(--rg-admin-table-min-width, 0);
+    }
+
+    .rg-admin-table__row {
+        display: grid;
+        grid-template-columns: var(--rg-admin-table-columns);
+        align-items: center;
+        min-height: var(--rg-admin-table-row-height);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-table__grid > .rg-admin-table__row:last-child {
+        border-bottom: 0;
+    }
+
+    .rg-admin-table__row--head {
+        min-height: var(--rg-admin-table-header-height);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-table__row:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-table__row--selected,
+    .rg-admin-table__row--selected:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-table__cell {
+        min-width: 0;
+        padding: 0 var(--rg-admin-space-3);
+    }
+
+    .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-table__cell--padded {
+        padding-block: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-table__cell--end {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        padding-right: var(--rg-admin-space-4);
+        padding-left: var(--rg-admin-space-2);
+        text-align: right;
+    }
+
+    .rg-admin-table__row--head .rg-admin-table__cell--end {
+        padding-left: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-table__cell--numeric {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-table__primary {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-table__meta {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-table__meta--small {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-table__meta--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-table__none {
+        font-size: var(--rg-admin-text-body);
+        color: var(--rg-admin-text-disabled);
+    }
+
+    .rg-admin-table__thumb {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-table__person {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-avatar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+        color: var(--rg-admin-text-secondary);
+        font-size: 10px;
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: 0.02em;
+        line-height: 1;
+    }
+
+    .rg-admin-checkbox {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-xs);
+        accent-color: var(--rg-admin-surface-inverse);
+    }
+
+    /* TBL-02 · Table toolbar */
+    .rg-admin-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding: 14px var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-toolbar__search {
+        flex-shrink: 0;
+        width: 320px;
+        max-width: 100%;
+    }
+
+    .rg-admin-toolbar__count {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* FRM-10 · Active filter chip */
+    .rg-admin-filter-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 var(--rg-admin-space-1) 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-filter-chip__remove {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        color: var(--rg-admin-text-tertiary);
+        cursor: pointer;
+    }
+
+    .rg-admin-filter-chip__remove:hover {
+        background: var(--rg-admin-surface-pressed);
+        color: var(--rg-admin-text-strong);
+    }
+
+    /* TBL-04 · Row menu */
+    .rg-admin-menu {
+        width: 264px;
+        padding: 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-menu__item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: var(--rg-admin-space-2) 10px;
+        border-radius: var(--rg-admin-radius-item);
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-menu__item:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-menu__item .rg-admin-icon {
+        margin-top: 2px;
+    }
+
+    .rg-admin-menu__item--disabled {
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
+    }
+
+    .rg-admin-menu__item--disabled:hover {
+        background: transparent;
+    }
+
+    .rg-admin-menu__item--danger {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-menu__text {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rg-admin-menu__hint {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-menu__separator {
+        height: 1px;
+        margin: 6px -6px;
+        background: var(--rg-admin-border-default);
+    }
+
+    /* NAV-04 · Pagination footer */
+    .rg-admin-pagination {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-pagination__range {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-pagination__pages {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        margin: 0 0 0 auto;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-pagination__page {
+        display: grid;
+        place-items: center;
+        min-width: 32px;
+        height: 32px;
+        padding: 0 6px;
+        border: 1px solid transparent;
+        border-radius: var(--rg-admin-radius-control);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+        text-decoration: none;
+    }
+
+    .rg-admin-pagination__page:hover {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-pagination__page[aria-current='page'] {
+        border-color: var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-pagination__gap {
+        min-width: 24px;
+        text-align: center;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* NAV-01 · Sidebar */
+    .rg-admin-sidebar {
+        display: flex;
+        flex-direction: column;
+        width: var(--rg-admin-sidebar-width);
+        border-right: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-workspace {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-2) 10px;
+        border-radius: var(--rg-admin-radius-control);
+    }
+
+    .rg-admin-workspace__name {
+        display: block;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 22px;
+        font-weight: var(--rg-admin-weight-semibold);
+        letter-spacing: var(--rg-admin-tracking-ui);
+    }
+
+    .rg-admin-workspace__subtitle {
+        display: block;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .rg-admin-nav-section,
+    .rg-admin-nav-section__items {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-nav-section__label {
+        display: flex;
+        align-items: center;
+        height: 28px;
+        margin: 0;
+        padding: 0 10px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline-wide);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-nav-item {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        height: var(--rg-admin-nav-item-height);
+        padding: 0 10px 0 var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-control);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-regular);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        text-decoration: none;
+        transition: background-color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-nav-item:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-nav-item[aria-current='page'] {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-nav-item__label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Icon rail: the sidebar below 1280px */
+    .rg-admin-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        width: var(--rg-admin-rail-width);
+        margin: 0;
+        padding: var(--rg-admin-space-3) 0;
+        border-right: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+        list-style: none;
+    }
+
+    .rg-admin-rail__item {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 40px;
+        border-radius: var(--rg-admin-radius-control);
+        color: var(--rg-admin-text-secondary);
+        text-decoration: none;
+    }
+
+    .rg-admin-rail__item:hover,
+    .rg-admin-rail__item[aria-current='page'] {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-rail__dot {
+        position: absolute;
+        top: 7px;
+        right: 9px;
+        width: 8px;
+        height: 8px;
+        border: 2px solid var(--rg-admin-surface-card);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-status-warning-dot);
+    }
+
+    .rg-admin-rail__dot--danger {
+        background: var(--rg-admin-status-danger-dot);
+    }
+
+    .rg-admin-rail__separator {
+        width: 28px;
+        height: 1px;
+        margin: 6px 0;
+        background: var(--rg-admin-border-default);
+    }
+
+    /* NAV-02 · Top bar and breadcrumb */
+    .rg-admin-topbar {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        height: var(--rg-admin-topbar-height);
+        padding: 0 var(--rg-admin-space-6) 0 var(--rg-admin-page-gutter);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-topbar__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-left: auto;
+    }
+
+    .rg-admin-topbar__meta {
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-topbar__meta--unsaved {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-breadcrumb {
+        min-width: 0;
+    }
+
+    .rg-admin-breadcrumb__list {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        margin: 0;
+        padding: 0;
+        font-size: var(--rg-admin-text-ui);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        list-style: none;
+        white-space: nowrap;
+    }
+
+    .rg-admin-breadcrumb__item {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-breadcrumb__link {
+        color: var(--rg-admin-text-tertiary);
+        text-decoration: none;
+    }
+
+    .rg-admin-breadcrumb__link:hover {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-breadcrumb__current {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-breadcrumb__separator {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* FBK-01 · Toast */
+    .rg-admin-toast {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        max-width: 560px;
+        padding: 0 6px 0 14px;
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-inverse);
+        box-shadow: var(--rg-admin-shadow-popover);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-toast__text {
+        padding: 10px 0;
+    }
+
+    .rg-admin-toast__icon--success {
+        color: var(--rg-admin-toast-icon-success);
+    }
+
+    .rg-admin-toast__icon--error {
+        color: var(--rg-admin-toast-icon-error);
+    }
+
+    .rg-admin-toast__icon--info {
+        color: var(--rg-admin-toast-icon-info);
+    }
+
+    .rg-admin-toast__action {
+        height: 30px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: rgb(255 255 255 / 0.1);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        cursor: pointer;
+    }
+
+    .rg-admin-toast__action:hover {
+        background: rgb(255 255 255 / 0.18);
+    }
+
+    .rg-admin-toast__close {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-gray-400);
+        cursor: pointer;
+    }
+
+    .rg-admin-toast__close:hover {
+        background: rgb(255 255 255 / 0.1);
+    }
+
+    /* DOM-01 · Translation field states */
+    .rg-admin-translation-state {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-translation-state--generated {
+        background: var(--rg-admin-status-info-cell);
+    }
+
+    .rg-admin-translation-state__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-height: 24px;
+    }
+
+    .rg-admin-translation-state__note {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-state__foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px var(--rg-admin-space-2);
+    }
+
+    .rg-admin-translation-state__actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+    }
+
+    /* Dev UI kit page (/admin/dev/ui-kit) */
+    .rg-admin-kit {
+        min-height: 100vh;
+        background: var(--rg-admin-surface-app);
+    }
+
+    .rg-admin-kit__layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 100vh;
+    }
+
+    .rg-admin-kit__index {
+        display: none;
+    }
+
+    .rg-admin-kit__main {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-5);
+        min-width: 0;
+        max-width: 1120px;
+        padding: var(--rg-admin-space-6) var(--rg-admin-space-4) 96px;
+    }
+
+    @media (min-width: 860px) {
+        .rg-admin-kit__layout {
+            grid-template-columns: 248px minmax(0, 1fr);
+        }
+
+        .rg-admin-kit__index {
+            position: sticky;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: auto;
+            border-right: 1px solid var(--rg-admin-border-default);
+            background: var(--rg-admin-surface-card);
+        }
+
+        .rg-admin-kit__main {
+            padding: 40px 40px 96px;
+        }
+
+        .rg-admin-kit__search--narrow {
+            display: none;
+        }
+    }
+
+    .rg-admin-kit__index-head {
+        padding: var(--rg-admin-space-5) var(--rg-admin-space-5) 14px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__index-title {
+        margin: 0;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 22px;
+        font-weight: var(--rg-admin-weight-semibold);
+        letter-spacing: var(--rg-admin-tracking-ui);
+    }
+
+    .rg-admin-kit__index-subtitle {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__index-search {
+        padding: 14px 14px var(--rg-admin-space-1);
+    }
+
+    .rg-admin-kit__index-nav {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 14px;
+        padding: var(--rg-admin-space-2) 10px var(--rg-admin-space-6);
+    }
+
+    .rg-admin-kit__index-group {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-kit__index-label {
+        padding: 6px 10px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline-wide);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__index-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        padding: 0 10px;
+        border-radius: var(--rg-admin-radius-item);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        text-decoration: none;
+    }
+
+    .rg-admin-kit__index-link:hover {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-kit__index-link:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: -2px;
+    }
+
+    .rg-admin-kit__index-id {
+        flex-shrink: 0;
+        width: 52px;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-overline);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__index-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-kit__empty {
+        padding: var(--rg-admin-space-2) 10px;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__header {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-bottom: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-kit__overline {
+        margin: 0;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline-wide);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__title {
+        margin: 0;
+        font-size: 32px;
+        line-height: 40px;
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+    }
+
+    .rg-admin-kit__lead {
+        max-width: 760px;
+        margin: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: 24px;
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-kit__search--narrow {
+        max-width: 420px;
+        margin-top: 6px;
+    }
+
+    .rg-admin-kit__facts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .rg-admin-kit__fact {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-kit__fact + .rg-admin-kit__fact {
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__fact-value {
+        margin: 0;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-semibold);
+        word-break: break-all;
+    }
+
+    .rg-admin-kit__fact-note {
+        margin: 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-kit__source-component {
+        color: var(--rg-admin-status-success-fg);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-kit__source-primitive {
+        color: var(--rg-admin-text-secondary);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-kit__group {
+        padding-top: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-kit__group-title {
+        margin: 0;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+    }
+
+    .rg-admin-kit__group-description {
+        margin: 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-kit__spec {
+        scroll-margin-top: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-kit__spec-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 18px var(--rg-admin-space-5) var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__spec-id {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        height: 26px;
+        margin-top: -1px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-semibold);
+        letter-spacing: 0.02em;
+        text-decoration: none;
+    }
+
+    .rg-admin-kit__spec-id:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-kit__spec-id:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-kit__spec-heading {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-kit__spec-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--rg-admin-space-1) 10px;
+    }
+
+    .rg-admin-kit__spec-name {
+        margin: 0;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 24px;
+        font-weight: var(--rg-admin-weight-semibold);
+        letter-spacing: var(--rg-admin-tracking-ui);
+    }
+
+    .rg-admin-kit__spec-source {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__spec-source--component {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-kit__spec-purpose {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-kit__specimen {
+        overflow-x: auto;
+        padding: var(--rg-admin-space-6) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-kit__spec-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+    }
+
+    .rg-admin-kit__spec-column {
+        min-width: 0;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) 18px;
+    }
+
+    .rg-admin-kit__spec-column + .rg-admin-kit__spec-column {
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__spec-table {
+        margin: var(--rg-admin-space-2) 0 0;
+    }
+
+    .rg-admin-kit__spec-row {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr);
+        gap: var(--rg-admin-space-3);
+        padding: 6px 0;
+    }
+
+    .rg-admin-kit__spec-row + .rg-admin-kit__spec-row {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__spec-key {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-kit__spec-value {
+        margin: 0;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-caption);
+        word-break: break-word;
+    }
+
+    .rg-admin-kit__code {
+        max-height: 300px;
+        margin: var(--rg-admin-space-2) 0 0;
+        overflow: auto;
+        padding: var(--rg-admin-space-3) 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-sunken);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-caption);
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .rg-admin-kit__rules {
+        padding: 14px var(--rg-admin-space-5) var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-kit__rule-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        margin: var(--rg-admin-space-2) 0 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-kit__rule {
+        display: flex;
+        gap: 10px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+    }
+
+    .rg-admin-kit__rule .rg-admin-icon {
+        margin-top: 3px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* Specimen helpers: frames and captions around live components */
+    .rg-admin-kit__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-5) var(--rg-admin-space-7);
+    }
+
+    .rg-admin-kit__row--center {
+        align-items: center;
+    }
+
+    .rg-admin-kit__stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-kit__item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-kit__item--center {
+        align-items: center;
+    }
+
+    .rg-admin-kit__caption {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__labelled {
+        display: grid;
+        grid-template-columns: 90px minmax(0, 1fr);
+        align-items: center;
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-kit__labelled--wide {
+        grid-template-columns: 120px minmax(0, 1fr);
+        align-items: baseline;
+    }
+
+    .rg-admin-kit__wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-kit__frame {
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-kit__frame--clip {
+        overflow: hidden;
+    }
+
+    .rg-admin-kit__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-kit__grid--wide {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .rg-admin-kit__swatch {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        width: 92px;
+    }
+
+    .rg-admin-kit__swatch-chip {
+        height: 40px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+    }
+
+    .rg-admin-kit__swatch-name,
+    .rg-admin-kit__swatch-hex {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+    }
+
+    .rg-admin-kit__swatch-hex {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__status-swatch {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-kit__status-swatch-name {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-kit__status-swatch-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: var(--rg-admin-radius-full);
+    }
+
+    .rg-admin-kit__shape {
+        width: 52px;
+        height: 40px;
+        border: 1px solid var(--rg-admin-border-strong);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-kit__elevation {
+        width: 72px;
+        height: 40px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-kit__space {
+        border-radius: 3px;
+        background: var(--rg-admin-surface-inverse);
+        opacity: 0.85;
+    }
+
+    .rg-admin-kit__icon-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-kit__icon-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 6px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-kit__icon-name {
+        font-family: var(--rg-admin-font-mono);
+        font-size: 10px;
+        line-height: 14px;
+        text-align: center;
+        word-break: break-all;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-kit__type-sample {
+        margin: 0;
+    }
+
+    .rg-admin-kit__shell {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-6);
+    }
+
+    .rg-admin-kit__shell .rg-admin-sidebar,
+    .rg-admin-kit__shell .rg-admin-rail {
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-kit__shell .rg-admin-sidebar {
+        overflow: hidden;
+    }
+}
