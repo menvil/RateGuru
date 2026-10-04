@@ -321,15 +321,18 @@ jobs:
     runs-on: ubuntu-24.04
     # Its own job, because the Architecture suite is its own kind of test: it
     # reads committed files and drives real shell subprocesses against a
-    # simulated host, and not one of its 2360 tests touches the database. Run
+    # simulated host, and not one of its tests touches the database. Run
     # inside Feature it was re-executed by both compatibility jobs, where it
     # could not discover anything a database engine might disagree about, and a
     # failure there said "MariaDB" when it meant "a shell script changed".
     #
+    # No `needs`: the suite reads the checkout only and never downloads the
+    # built assets, and this is the longest job of the run, so waiting for the
+    # frontend build would only push the whole run's finish out by that much.
+    #
     # The cap exists so a hung external download can never occupy a runner for
     # the 6-hour default — it is not meant to bound a healthy run.
     timeout-minutes: 60
-    needs: frontend-build
     env:
       DB_CONNECTION: pgsql
       DB_HOST: 127.0.0.1
@@ -410,9 +413,28 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
+      # The same suite takes anywhere between 11 and 18 minutes depending on
+      # which hardware GitHub hands out, so a duration means nothing without
+      # the CPU it ran on. Recorded in the log, next to the timings.
+      - name: Record runner hardware
+        run: |
+          lscpu | grep -E '^(Model name|CPU\(s\)|Thread\(s\) per core)'
+          nproc
+
       - name: Run Architecture tests
         id: architecture
         run: php artisan test --parallel --testsuite=Architecture --log-junit architecture-junit.xml
+
+      # Per-file durations are the only way to tell a slow runner from a slow
+      # change, to see which files form the tail of the run, and to balance the
+      # suite across workers — so the report is kept, red runs included.
+      - name: Upload Architecture JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: architecture-junit
+          path: architecture-junit.xml
+          retention-days: 30
 
       - name: Collect architecture results
         id: architecture-results
@@ -775,6 +797,7 @@ jobs:
               `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & PostgreSQL | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('POSTGRES_MIGRATIONS')} migrations · seed passed`)} |`,
+              `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${value('ARCHITECTURE_TESTS')} tests passed`)} |`,
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
@@ -831,6 +854,7 @@ jobs:
           STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
           FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
@@ -840,6 +864,7 @@ jobs:
             "$STATIC_ANALYSIS_RESULT" \
             "$FRONTEND_BUILD_RESULT" \
             "$TESTS_RESULT" \
+            "$ARCHITECTURE_RESULT" \
             "$MARIADB_RESULT" \
             "$SQLITE_RESULT" \
             "$DEPENDENCY_AUDIT_RESULT"
