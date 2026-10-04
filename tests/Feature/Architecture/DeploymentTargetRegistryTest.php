@@ -642,6 +642,106 @@ it('fails on an absent, malformed or symlinked registry', function () {
     }
 });
 
+it('rejects a file that is not exactly one JSON document', function () {
+    // The validator reads the whole file in one pass, so a stray value before
+    // the registry, a second document after it, or no document at all are
+    // refused as not valid JSON — not read document by document, where the
+    // last one happened to decide the verdict and an empty file counted as
+    // valid on jq 1.6.
+    $registry = File::get(targetRegistryPath());
+
+    $cases = [
+        'an empty file' => '',
+        'a value before the registry' => "5 {$registry}",
+        'a second document after the registry' => "{$registry}{}",
+        'the registry twice' => "{$registry}{$registry}",
+    ];
+
+    foreach ($cases as $label => $contents) {
+        $path = sys_get_temp_dir().'/registry-documents-'.uniqid().'.json';
+        file_put_contents($path, $contents);
+
+        try {
+            [$exit, $output] = runTargetsCli(['validate', '--file', $path]);
+            expect($exit)->not->toBe(0, "should have rejected {$label}");
+            expect($output)->toContain('not valid JSON');
+        } finally {
+            @unlink($path);
+        }
+    }
+});
+
+it('rejects a NUL character anywhere in the registry', function () {
+    // NUL is the delimiter of the snapshot the validator reads, so one inside a
+    // key or a value would shift every record after it. Before the snapshot,
+    // bash dropped such bytes from a captured value with a warning and
+    // validated what was left — "act\u0000ive" passed as "active". Nothing in
+    // a registry legitimately contains one, so the whole file is refused.
+    $cases = [
+        'a string value' => '.targets["staging-main"].lifecycle = "act\u0000ive"',
+        'a target ID' => '.targets["stag\u0000ing"] = (.targets["staging-main"] | .id = "staging") | del(.targets["staging-main"])',
+        'a property name' => '.targets["staging-main"]["no\u0000te"] = "x"',
+        'a nested array entry' => '.targets["staging-main"].public_hostnames = ["x\u0000y.example"]',
+        'a property nobody validates' => '.targets["staging-main"].notes = {"deep": ["x\u0000y"]}',
+    ];
+
+    foreach ($cases as $label => $mutation) {
+        [$exit, $output] = validateMutatedRegistry($mutation);
+
+        expect($exit)->not->toBe(0, "should have rejected a NUL in {$label}");
+        expect($output)->toContain('NUL');
+    }
+});
+
+it('reads the registry with a single jq process', function () {
+    // Every rule used to run its own jq against the file — 136 processes for a
+    // two-target registry, in every shell that validates it. One snapshot
+    // process is the whole point of the loader; a second one is a regression.
+    $realJq = trim((string) shell_exec('command -v jq 2>/dev/null'));
+
+    if ($realJq === '') {
+        test()->markTestSkipped('jq is not available on this machine.');
+    }
+
+    $scratch = sys_get_temp_dir().'/jq-count-'.uniqid();
+    mkdir($scratch.'/bin', 0o755, true);
+
+    $log = $scratch.'/jq.log';
+    touch($log);
+
+    // Counts invocations, then delegates to the real jq.
+    file_put_contents($scratch.'/bin/jq', "#!/usr/bin/env bash\n"
+        .'echo call >> '.escapeshellarg($log)."\n"
+        .'exec '.escapeshellarg($realJq)." \"\$@\"\n");
+    chmod($scratch.'/bin/jq', 0o755);
+
+    $invalid = buildMutatedRegistry('.targets["staging-main"].release_retention = -1');
+
+    try {
+        foreach ([
+            'a valid registry' => [targetRegistryPath(), 0],
+            'an invalid registry' => [$invalid, 1],
+        ] as $label => [$path, $expectedExit]) {
+            file_put_contents($log, '');
+
+            exec(
+                'PATH='.escapeshellarg($scratch.'/bin:'.getenv('PATH')).' '
+                .escapeshellarg(targetsCli()).' validate --file '.escapeshellarg($path).' 2>&1',
+                $output,
+                $exit,
+            );
+
+            expect($exit)->toBe($expectedExit, implode("\n", $output));
+
+            $calls = substr_count(file_get_contents($log), "call\n");
+            expect($calls)->toBe(1, "validating {$label} should run jq once, ran it {$calls} times");
+        }
+    } finally {
+        @unlink($invalid);
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
 it('enforces runtime ownership and mode rules on the installed path', function () {
     $script = File::get(targetsCli());
 
