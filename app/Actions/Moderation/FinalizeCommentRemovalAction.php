@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Declares that a moderation-hidden comment will never return publicly.
- * The row may be live OR already author-soft-deleted (PR-D permits
+ * The row may be live OR already author-soft-deleted (the lifecycle permits
  * Hide -> author Delete; the row is still moderation evidence either
  * way), hence the withTrashed lookup. Sets only moderation_removed_at and
  * writes exactly one ModerationLog; nothing is physically deleted here.
@@ -39,7 +39,7 @@ final class FinalizeCommentRemovalAction
         }
 
         DB::transaction(function () use ($admin, $comment, $reason): void {
-            // Lock order: Actor User -> Comment (PR-F).
+            // Lock order: Actor User -> Comment.
             $lockedActor = $this->lockActor($admin);
 
             $locked = Comment::withTrashed()

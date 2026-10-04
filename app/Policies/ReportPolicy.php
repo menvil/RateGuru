@@ -19,7 +19,7 @@ class ReportPolicy
 
     private function canProcess(User $user): bool
     {
-        // Role AND lifecycle (PR-F): a sanctioned moderator/admin loses
+        // Role AND lifecycle: a sanctioned moderator/admin loses
         // report processing until restored to Active.
         return ($user->isModerator() || $user->isAdmin())
             && $user->canAccessPrivilegedPanel();

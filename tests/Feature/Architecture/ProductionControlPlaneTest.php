@@ -649,11 +649,76 @@ it('introduces no second GitHub Environment', function () {
     expect($environments)->toBe(['production-tits-guru', 'staging']);
 });
 
-it('never gives a staging workflow the main-only gate', function (string $file) {
-    // Staging runs from develop and from any ref an operator selects. A gate
-    // there would break the thing develop exists for.
+it('gates a staging operation on develop, never on main', function (string $file) {
+    // Staging has the same exposure for the same reason — the `staging`
+    // Environment restricts no refs, so a dispatch from an arbitrary branch would
+    // run THAT branch's YAML with staging's credentials — so it has the same
+    // shape of gate. What differs is the ref it admits: develop, never main.
+    //
+    // `deploy-staging.yml` is the one exception and is excluded below: it takes a
+    // ref input, and deploying an operator-selected ref to staging is the whole
+    // point of it.
     $workflow = controlPlaneWorkflow($file);
+    $gate = data_get($workflow, 'jobs.validate-ref');
+
+    expect($gate)->not->toBeNull("{$file} has no control-plane gate");
+    expect(data_get($gate, 'environment'))
+        ->toBeNull("{$file}: the gate must hold no GitHub Environment");
+
+    $run = (string) data_get($gate, 'steps.0.run');
+
+    expect($run)->toContain('refs/heads/develop');
+    expect($run)->not->toContain('refs/heads/main');
+    expect($run)->toContain('exit 1');
+
+    // Every Environment-bearing job downstream of it, at any depth.
+    $environmentJobs = collect(data_get($workflow, 'jobs'))
+        ->filter(static fn (array $job): bool => isset($job['environment']))
+        ->keys()
+        ->all();
+
+    expect($environmentJobs)->not->toBeEmpty("{$file} has no Environment job at all");
+
+    foreach ($environmentJobs as $job) {
+        expect(controlPlaneJobIsDownstreamOf($workflow, $job, 'validate-ref'))
+            ->toBeTrue("{$file}: job '{$job}' holds an Environment without being downstream of validate-ref");
+    }
+})->with(collect(controlPlaneWorkflowsByRef()['develop'])
+    // Excluded deliberately: it takes a ref input, so an arbitrary ref IS its
+    // purpose. Named here rather than filtered by a property, so removing the
+    // input would not silently exempt it.
+    ->reject(static fn (string $file): bool => $file === 'deploy-staging.yml')
+    ->values()
+    ->all());
+
+it('leaves staging deployment ungated, because selecting a ref is its purpose', function () {
+    // The exception, asserted as a property rather than left as an absence: if
+    // this ever gained a gate, the one workflow whose job is to deploy an
+    // operator-chosen ref would stop being able to.
+    $workflow = controlPlaneWorkflow('deploy-staging.yml');
 
     expect(data_get($workflow, 'jobs.validate-ref'))
-        ->toBeNull("{$file} must not be main-only: staging is where develop is verified");
-})->with(controlPlaneWorkflowsByRef()['develop']);
+        ->toBeNull('deploy-staging takes a ref input, so it must not be gated to one branch');
+    expect(data_get($workflow, 'on.workflow_dispatch.inputs.ref.required'))->toBeTrue();
+});
+
+it('never admits main into a staging gate, nor develop into a production one', function () {
+    // The two gates must not drift into each other. Read from source, both ways.
+    foreach (mainOnlyProductionWorkflows() as $file) {
+        $run = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+
+        expect($run)->toContain('refs/heads/main');
+        expect($run)->not->toContain('refs/heads/develop');
+    }
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        $run = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+
+        if ($run === '') {
+            continue;
+        }
+
+        expect($run)->toContain('refs/heads/develop');
+        expect($run)->not->toContain('refs/heads/main');
+    }
+});

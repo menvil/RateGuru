@@ -142,6 +142,39 @@ it('references no pull request from the operational surface', function () {
     expect($offenders)->toBe([], "pull request references in the operational surface:\n".implode("\n", $offenders));
 });
 
+it('references no release label from the application code', function () {
+    // The same rule as above, applied to app/. CLAUDE.md states it for the whole
+    // repository, but the guard only ever scanned the operational surface — and
+    // `app/` had quietly collected thirteen `PR-F` and `PR-E` labels, which is
+    // exactly what an unenforced rule does.
+    //
+    // The pattern covers the lettered form those labels take (`PR-F`,
+    // `(PR-E)`) alongside the numbered one, because a letter ages no better
+    // than a number: the behaviour is still right, the label still means
+    // nothing to anyone reading the file later.
+    $offenders = [];
+
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(base_path('app'), FilesystemIterator::SKIP_DOTS),
+    );
+
+    foreach ($files as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $relative = str_replace(base_path().'/', '', $file->getPathname());
+
+        foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
+            if (preg_match('/\bPR[ -](#\d+|[A-Z])\b|\bpull request #\d+/i', $line)) {
+                $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
+            }
+        }
+    }
+
+    expect($offenders)->toBe([], "release labels in application code:\n".implode("\n", $offenders));
+});
+
 it('names no test file or helper after the release step that produced it', function () {
     $files = collect(glob(base_path('tests/Feature/Architecture/*.php')) ?: [])
         ->map(static fn (string $path): string => basename($path))

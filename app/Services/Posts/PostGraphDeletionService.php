@@ -22,7 +22,7 @@ use RuntimeException;
  * ModerationContentPurgeService for finalized moderation removals).
  *
  * Must run inside the caller's transaction with the post row already
- * locked. Explicit FK-safe order (PR-C RESTRICT graph, leaves first):
+ * locked. Explicit FK-safe order (the RESTRICT graph, leaves first):
  * comment votes → comment-targeted reports → comments strictly
  * leaves-first (depth-agnostic) →
  * post votes / rating votes / saves / author answers / tag pivot →

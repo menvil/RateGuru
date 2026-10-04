@@ -16,7 +16,7 @@ class PostPolicy
     public function update(User $user, Post $post): bool
     {
         // Editing a draft is authoring: a sanctioned owner may not touch
-        // it even though the post never went public (PR-F).
+        // it even though the post never went public.
         return $user->canCreateContent()
             && $post->user_id === $user->id
             && $post->status === PostStatus::Draft;
@@ -89,7 +89,7 @@ class PostPolicy
 
     private function canModerate(User $user): bool
     {
-        // Role AND lifecycle (PR-F): a sanctioned moderator/admin loses
+        // Role AND lifecycle: a sanctioned moderator/admin loses
         // moderation capability until restored to Active.
         return ($user->isModerator() || $user->isAdmin())
             && $user->canAccessPrivilegedPanel();

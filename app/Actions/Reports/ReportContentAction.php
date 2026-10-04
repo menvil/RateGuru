@@ -209,7 +209,7 @@ final class ReportContentAction
     }
 
     /**
-     * Same stale-instance rule for posts (PR-E): an author-deleted or
+     * Same stale-instance rule for posts: an author-deleted or
      * moderation-hidden post is no longer publicly reportable — existing
      * reports remain, new ones are refused.
      */

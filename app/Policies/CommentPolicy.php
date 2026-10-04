@@ -13,7 +13,7 @@ class CommentPolicy
         // Author deletion is owner-only. Admins/moderators act through
         // hide/restore — deletion is an authored-content decision, not a
         // moderation shortcut, and there is deliberately no admin delete.
-        // Lifecycle capability required (PR-F): a sanctioned author cannot
+        // Lifecycle capability required: a sanctioned author cannot
         // manage their community content while restricted.
         return $user->canManageContent()
             && $comment->user_id === $user->id;
@@ -48,7 +48,7 @@ class CommentPolicy
 
     private function canModerate(User $user): bool
     {
-        // Role AND lifecycle (PR-F): a sanctioned moderator/admin loses
+        // Role AND lifecycle: a sanctioned moderator/admin loses
         // moderation capability until restored to Active.
         return ($user->isModerator() || $user->isAdmin())
             && $user->canAccessPrivilegedPanel();
