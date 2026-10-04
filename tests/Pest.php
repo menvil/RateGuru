@@ -1022,7 +1022,9 @@ function imageFitGeometry(mixed $page, string $selector): array
 |--------------------------------------------------------------------------
 |
 | Shared by FetchBackupTest, VerifyBackupTest, RestoreDatabaseTest,
-| RestoreStorageTest, RestoreTargetTest and RestoreServerPrimitivesScopeTest — five files that
+| RestoreStorageTest, RestoreServerPrimitivesScopeTest and the four
+| restore-target files (RestoreTargetTest, RestoreTargetRuntimeQuiesceTest,
+| RestoreTargetCodeAlignmentHoldTest, RestoreTargetInspectTest) — files that
 | all need the same scratch target tree, the same parity registry, the same
 | backup fixtures and the same self-contained stub host tooling. A helper used
 | by more than one test file has to live here rather than in any single one of
@@ -2216,6 +2218,155 @@ function setRestoreOperationPhase(string $workspace, string $phase): void
     $state['phase'] = $phase;
 
     file_put_contents($workspace.'/state.json', json_encode($state, JSON_PRETTY_PRINT));
+}
+
+/*
+|--------------------------------------------------------------------------
+| restore-target harness
+|--------------------------------------------------------------------------
+|
+| The fixture, the run and the observers the four restore-target test files
+| share: RestoreTargetTest (the whole restore), RestoreTargetRuntimeQuiesceTest,
+| RestoreTargetCodeAlignmentHoldTest and RestoreTargetInspectTest.
+*/
+
+function restoreTargetScript(): string
+{
+    return base_path('infrastructure/scripts/restore-target');
+}
+
+/**
+ * The full fixture: target tree, fake catalog, cron entry, local backup to
+ * restore from, and the emergency-backup template the `backup` stub copies.
+ *
+ * @return array<string, string>
+ */
+function restoreTargetFixture(string $scratch, array $options = []): array
+{
+    targetTreeFixture($scratch, [
+        'source_sha' => $options['current_source_sha'] ?? FIXTURE_SOURCE_SHA,
+        'release' => $options['current_release'] ?? FIXTURE_RELEASE,
+    ]);
+    installFakePostgres($scratch, $options['postgres'] ?? []);
+    installTargetRuntimeStubs($scratch);
+
+    // The backup being restored from, and a byte-identical template the
+    // emergency `backup` stub copies into place as the new latest backup.
+    buildBackupFixture($scratch.'/backups/parity', '20260115-120000', $options['backup'] ?? []);
+    buildBackupFixture($scratch.'/emergency-src', '20260116-090000');
+    exec('mv '.escapeshellarg($scratch.'/emergency-src/20260116-090000').' '.escapeshellarg($scratch.'/emergency-template'));
+
+    if (($options['scheduler'] ?? true) === true) {
+        mkdir($scratch.'/cron.d', 0o755, true);
+        file_put_contents(
+            $scratch.'/cron.d/parity-scheduler',
+            "* * * * * runtime cd /target/current && php artisan schedule:run\n",
+        );
+    }
+
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    return ['registry' => $registryPath, 'targets' => $targetsPath];
+}
+
+/**
+ * @return array{exit: int, output: string}
+ */
+function restoreTargetRun(string $scratch, array $arguments, array $envOverrides = []): array
+{
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    $env = infraScriptEnv($scratch, $registryPath, $targetsPath, array_merge(
+        fakePostgresEnv($scratch),
+        targetRuntimeEnv($scratch),
+        [
+            'RATEGURU_RESTORE_FETCH_BACKUP_BIN' => patchedInfraScript($scratch, 'fetch-backup'),
+            'RATEGURU_RESTORE_VERIFY_BACKUP_BIN' => patchedInfraScript($scratch, 'verify-backup'),
+            'RATEGURU_RESTORE_DATABASE_BIN' => patchedInfraScript($scratch, 'restore-database'),
+            'RATEGURU_RESTORE_STORAGE_BIN' => patchedInfraScript($scratch, 'restore-storage'),
+        ],
+        $envOverrides,
+    ));
+
+    [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'restore-target'), $arguments, $env);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+function restoreTargetApply(string $scratch, array $envOverrides = []): array
+{
+    return restoreTargetRun($scratch, [
+        '--apply', '--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000',
+    ], $envOverrides);
+}
+
+/** @return list<array<string, mixed>> */
+function restoreTargetHistory(string $scratch): array
+{
+    $path = $scratch.'/restores/restore-history.jsonl';
+
+    if (! is_file($path)) {
+        return [];
+    }
+
+    return array_map(
+        static fn (string $line): array => json_decode($line, true),
+        array_values(array_filter(preg_split('/\R/', trim(File::get($path))))),
+    );
+}
+
+function restoreTargetStorage(string $scratch): string
+{
+    return $scratch.'/target/shared/storage';
+}
+
+function restoreTargetMaintenanceActive(string $scratch): bool
+{
+    return is_file(restoreTargetStorage($scratch).'/framework/down');
+}
+
+function restoreTargetQueueState(string $scratch): string
+{
+    return trim(File::get($scratch.'/supervisor-state'));
+}
+
+function restoreTargetSchedulerPresent(string $scratch): bool
+{
+    return is_file($scratch.'/cron.d/parity-scheduler');
+}
+
+/** Runs an apply that ends held, and returns its operation ID. */
+function restoreTargetHeldOperation(string $scratch): string
+{
+    $result = restoreTargetApply($scratch);
+    expect($result['exit'])->toBe(0, $result['output']);
+    expect($result['output'])->toContain('CODE ALIGNMENT: REQUIRED');
+
+    $operations = operationIdsIn($result['output']);
+    expect($operations)->toHaveCount(1);
+
+    return $operations[0];
+}
+
+/** Deploys the aligned release, the way the controlled alignment deploy would. */
+function restoreTargetAlignCode(string $scratch): void
+{
+    $aligned = $scratch.'/target/releases/'.FIXTURE_RELEASE;
+    mkdir($aligned, 0o755, true);
+    file_put_contents($aligned.'/artisan', "<?php\n");
+    file_put_contents(
+        $aligned.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => FIXTURE_RELEASE, 'source_sha' => FIXTURE_SOURCE_SHA]),
+    );
+
+    unlink($scratch.'/target/current');
+    symlink($aligned, $scratch.'/target/current');
+}
+
+/** The marker restore-target writes for a held target. */
+function restoreGuardFile(string $scratch): string
+{
+    return $scratch.'/run/restores/parity-target/restore-guard';
 }
 
 /**
