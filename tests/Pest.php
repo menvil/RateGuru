@@ -3907,3 +3907,727 @@ function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOU
 
     symlink($root.'/releases/'.$release, $root.'/current');
 }
+
+/*
+|--------------------------------------------------------------------------
+| provision-target harness
+|--------------------------------------------------------------------------
+|
+| The simulated host that provision-target and every installer it delegates
+| to run against, shared by ProvisionTargetTest (the operation) and
+| ProvisionTargetPreconditionsTest (what it refuses before mutating anything):
+| the run and its logs; the fixture registry — one active staging target and
+| two planned production ones, among them the synthetic `demo-shop` brand;
+| the logging stubs that do the real work inside the scratch directory; the
+| fixture filesystem with its owner table and its staging neighbour.
+*/
+
+function provisionScript(): string
+{
+    return base_path('infrastructure/scripts/provision-target');
+}
+
+function provisionScratchDir(): string
+{
+    $dir = sys_get_temp_dir().'/provision-target-'.uniqid('', true).'-'.getmypid();
+
+    foreach (['', '/bin', '/fs', '/log', '/svc', '/toggles'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+function provisionCleanup(string $dir): void
+{
+    exec('rm -rf '.escapeshellarg($dir));
+}
+
+function provisionWriteStub(string $path, string $content): void
+{
+    file_put_contents($path, $content);
+    chmod($path, 0o755);
+}
+
+/**
+ * @param  list<string>  $arguments
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function provisionRun(array $arguments, array $env, ?string $script = null): array
+{
+    // The scratch bundle, not the repository's own copy. provision-target
+    // resolves its library, its registry and every installer relative to
+    // itself, so running the repository's copy against a fixture registry
+    // would test a bundle nobody ships: half this file, half that one. The
+    // fixture names its bundle, and this is a harness detail rather than
+    // something the script reads, so it never reaches the subprocess.
+    $script ??= $env['RATEGURU_PROVISION_BUNDLE_SCRIPT'] ?? provisionScript();
+    unset($env['RATEGURU_PROVISION_BUNDLE_SCRIPT']);
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(
+        array_merge(['bash', $script], $arguments),
+        $descriptors,
+        $pipes,
+        null,
+        $env,
+    );
+
+    expect($process)->not->toBeFalse('could not start the provision-target subprocess');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+function provisionLog(string $scratch, string $name): string
+{
+    $path = $scratch.'/log/'.$name;
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/**
+ * A synthetic production brand whose every identity, path, pool, socket,
+ * program, queue, scheduler and site name is unique and appears nowhere in
+ * this repository.
+ *
+ * @return array<string, mixed>
+ */
+function provisionDemoTarget(): array
+{
+    return [
+        'id' => 'demo-shop',
+        'lifecycle' => 'planned',
+        'environment_class' => 'production',
+        'application_root' => '/home/www/rateguru/production/demo-shop',
+        'runtime_user' => 'rateguru-demo-shop',
+        'runtime_group' => 'rateguru-demo-shop',
+        'deploy_user' => 'deploy-rateguru-demo-shop',
+        'code_group' => 'rateguru-demo-shop-code',
+        'incoming_artifacts' => '/home/deploy-rateguru-demo-shop/incoming',
+        'release_retention' => 10,
+        'database' => ['name' => 'rateguru_demo_shop', 'application_role' => 'rateguru_demo_shop_app'],
+        'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'demo-shop.internal'],
+        // Present in the registry and deliberately never rendered anywhere:
+        // provisioning must not be able to put a target on the public internet.
+        'public_hostnames' => ['demo-shop.example'],
+        'backup' => [
+            'namespace' => 'demo-shop',
+            'local_retention_days' => 30,
+            'offsite_retention_days' => 90,
+            'minimum_retained_backups' => 2,
+        ],
+        'php_fpm' => ['pool' => 'rateguru-demo-shop', 'socket' => '/run/php/rateguru-demo-shop.sock'],
+        'supervisor' => ['program' => 'rateguru-demo-shop-queue', 'queue' => 'rateguru-demo-shop'],
+        'scheduler' => ['name' => 'rateguru-demo-shop-scheduler'],
+        'nginx' => ['site_name' => 'rateguru-demo-shop', 'internal_hostname' => 'demo-shop.internal'],
+        'environment_template' => 'infrastructure/templates/environment/demo-shop.env.example',
+    ];
+}
+
+/**
+ * The fixture registry: the committed one plus demo-shop.
+ *
+ * @param  array<string, mixed>  $overrides  dot-free key => value applied to demo-shop
+ */
+function provisionRegistryJson(array $overrides = [], ?string $lifecycle = null): string
+{
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+
+    $demo = provisionDemoTarget();
+
+    foreach ($overrides as $key => $value) {
+        $demo[$key] = $value;
+    }
+
+    if ($lifecycle !== null) {
+        $demo['lifecycle'] = $lifecycle;
+    }
+
+    $registry['targets']['demo-shop'] = $demo;
+
+    return json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+}
+
+/**
+ * A scratch copy of the whole infrastructure tree, so the shipped orchestrator
+ * and the shipped installers run from one trusted bundle whose registry is the
+ * fixture's.
+ */
+function provisionRepo(string $scratch, string $registryJson, bool $widenActiveAllowlist = false): string
+{
+    $repo = $scratch.'/repo';
+
+    if (! is_dir($repo)) {
+        @mkdir($repo, 0o755, true);
+        exec('cp -R '.escapeshellarg(base_path('infrastructure')).' '.escapeshellarg($repo.'/infrastructure').' 2>&1', $out, $code);
+        expect($code)->toBe(0, 'could not copy the infrastructure tree: '.implode("\n", $out));
+    }
+
+    file_put_contents($repo.'/infrastructure/config/deployment-targets.json', $registryJson);
+
+    // The shipped validator allows exactly one named active target. The
+    // activation-parity test needs two, so it widens the allowlist in this
+    // scratch copy only — the shipped rule is asserted in its own test.
+    $targets = $repo.'/infrastructure/scripts/targets';
+    $source = File::get(base_path('infrastructure/scripts/targets'));
+
+    if ($widenActiveAllowlist) {
+        $source = str_replace(
+            '[[ "${lifecycle}" == "active" ]] && [[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]',
+            'false',
+            $source,
+        );
+        expect($source)->toContain("if false; then\n        problem \"\${target_id}: lifecycle=active is currently allowed");
+    }
+
+    file_put_contents($targets, $source);
+    chmod($targets, 0o755);
+
+    return $repo;
+}
+
+function provisionWriteStubs(string $scratch): void
+{
+    // stat: type from the real scratch filesystem (with a type-table override
+    // so a plain fixture file can present as a socket), owner/group from the
+    // fixture ownership table, mode real.
+    provisionWriteStub($scratch.'/bin/stat', <<<'STUB'
+        #!/bin/bash
+        path="${!#}"
+        if [[ -L "${path}" ]]; then ftype="symbolic link"
+        elif [[ -d "${path}" ]]; then ftype="directory"
+        elif [[ -S "${path}" ]]; then ftype="socket"
+        elif [[ -f "${path}" ]]; then
+            ftype="regular file"
+            row_t="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 == "TYPE" { print $3; exit }' "${STUB_TYPE_TABLE}" 2>/dev/null)"
+            [[ -n "${row_t}" ]] && ftype="${row_t}"
+        elif [[ -e "${path}" ]]; then ftype="other"
+        else exit 1; fi
+        mode="$(PATH="${STUB_REAL_PATH}" stat -c '%a' -- "${path}" 2>/dev/null)" \
+            || mode="$(PATH="${STUB_REAL_PATH}" stat -f '%Mp%Lp' "${path}" 2>/dev/null)" || exit 1
+        mode="$(printf '%o' $(( 8#${mode} )))"
+        row="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 != "TYPE" { print $2 "|" $3; found = 1; exit } END { exit !found }' "${STUB_OWNER_TABLE}" 2>/dev/null)" || row=""
+        if [[ -z "${row}" ]]; then
+            row="$(PATH="${STUB_REAL_PATH}" stat -c '%U|%G' -- "${path}" 2>/dev/null)" \
+                || row="$(PATH="${STUB_REAL_PATH}" stat -f '%Su|%Sg' "${path}" 2>/dev/null)" || exit 1
+        fi
+        printf '%s|%s|%s\n' "${ftype}" "${row}" "${mode}"
+        STUB);
+
+    // chown: records the invocation and upserts the ownership row for exactly
+    // the path given — never recursive, exactly like the real tool.
+    provisionWriteStub($scratch.'/bin/chown', <<<'STUB'
+        #!/bin/bash
+        printf 'chown %s\n' "$*" >> "${STUB_LOG}/chown.log"
+        owner_group=""; path=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --) ;;
+                -*) ;;
+                *) if [[ -z "${owner_group}" ]]; then owner_group="${arg}"; else path="${arg}"; fi ;;
+            esac
+        done
+        owner="${owner_group%%:*}"; group="${owner_group##*:}"
+        tmp="${STUB_OWNER_TABLE}.tmp"
+        PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 != p' "${STUB_OWNER_TABLE}" > "${tmp}" 2>/dev/null || : > "${tmp}"
+        printf '%s|%s|%s\n' "${path}" "${owner}" "${group}" >> "${tmp}"
+        PATH="${STUB_REAL_PATH}" mv "${tmp}" "${STUB_OWNER_TABLE}"
+        exit 0
+        STUB);
+
+    provisionWriteStub($scratch.'/bin/chmod', <<<'STUB'
+        #!/bin/bash
+        printf 'chmod %s\n' "$*" >> "${STUB_LOG}/chmod.log"
+        PATH="${STUB_REAL_PATH}" chmod "$@"
+        STUB);
+
+    provisionWriteStub($scratch.'/bin/install', <<<'STUB'
+        #!/bin/bash
+        printf 'install %s\n' "$*" >> "${STUB_LOG}/install.log"
+        PATH="${STUB_REAL_PATH}" install "$@"
+        STUB);
+
+    // groupadd/useradd/usermod: mutate the fixture group/passwd files the way
+    // the real shadow tools mutate /etc — never deleting, never renumbering.
+    provisionWriteStub($scratch.'/bin/groupadd', <<<'STUB'
+        #!/bin/bash
+        printf 'groupadd %s\n' "$*" >> "${STUB_LOG}/identity.log"
+        name="${!#}"
+        if PATH="${STUB_REAL_PATH}" grep -q "^${name}:" "${STUB_GROUP_FILE}"; then exit 9; fi
+        max="$(PATH="${STUB_REAL_PATH}" awk -F: 'BEGIN { m = 4999 } $3 > m && $3 < 60000 { m = $3 } END { print m }' "${STUB_GROUP_FILE}")"
+        printf '%s:x:%s:\n' "${name}" "$((max + 1))" >> "${STUB_GROUP_FILE}"
+        exit 0
+        STUB);
+
+    provisionWriteStub($scratch.'/bin/useradd', <<<'STUB'
+        #!/bin/bash
+        printf 'useradd %s\n' "$*" >> "${STUB_LOG}/identity.log"
+        login="${!#}"
+        gid_name=""; home=""; shell=""; prev=""
+        for arg in "$@"; do
+            case "${prev}" in
+                --gid) gid_name="${arg}" ;;
+                --home-dir) home="${arg}" ;;
+                --shell) shell="${arg}" ;;
+            esac
+            prev="${arg}"
+        done
+        if PATH="${STUB_REAL_PATH}" grep -q "^${login}:" "${STUB_PASSWD_FILE}"; then exit 9; fi
+        gid="$(PATH="${STUB_REAL_PATH}" awk -F: -v g="${gid_name}" '$1 == g { print $3; exit }' "${STUB_GROUP_FILE}")"
+        [[ -n "${gid}" ]] || exit 6
+        max="$(PATH="${STUB_REAL_PATH}" awk -F: 'BEGIN { m = 4999 } $3 > m && $3 < 60000 { m = $3 } END { print m }' "${STUB_PASSWD_FILE}")"
+        printf '%s:x:%s:%s::%s:%s\n' "${login}" "$((max + 1))" "${gid}" "${home}" "${shell}" >> "${STUB_PASSWD_FILE}"
+        exit 0
+        STUB);
+
+    provisionWriteStub($scratch.'/bin/usermod', <<<'STUB'
+        #!/bin/bash
+        printf 'usermod %s\n' "$*" >> "${STUB_LOG}/identity.log"
+        login="${!#}"
+        groups=""; prev=""
+        for arg in "$@"; do
+            if [[ "${prev}" == "--groups" || "${prev}" == "-G" ]]; then groups="${arg}"; fi
+            prev="${arg}"
+        done
+        tmp="${STUB_GROUP_FILE}.tmp"
+        PATH="${STUB_REAL_PATH}" awk -F: -v OFS=: -v g="${groups}" -v u="${login}" '
+            $1 == g {
+                if ($4 == "") { $4 = u }
+                else if (index("," $4 ",", "," u ",") == 0) { $4 = $4 "," u }
+            }
+            { print }
+        ' "${STUB_GROUP_FILE}" > "${tmp}"
+        PATH="${STUB_REAL_PATH}" mv "${tmp}" "${STUB_GROUP_FILE}"
+        exit 0
+        STUB);
+
+    // systemctl: stateful. A reload respawns the simulated Nginx workers with
+    // whatever supplementary groups www-data holds AT THAT MOMENT, which is
+    // exactly why a reload is what fixes stale workers on a real host.
+    provisionWriteStub($scratch.'/bin/systemctl', <<<'STUB'
+        #!/bin/bash
+        printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/systemctl.log"
+        respawn_nginx_workers() {
+            gids="$(PATH="${STUB_REAL_PATH}" awk -F: -v u=www-data '
+                $1 == u { own = $3 }
+                ($4 ~ ("(^|,)" u "(,|$)")) { extra = extra " " $3 }
+                END { printf "%s%s", own, extra }
+            ' "${STUB_GROUP_FILE}")"
+            PATH="${STUB_REAL_PATH}" rm -rf "${STUB_FS}/proc"
+            : > "${STUB_FS}/nginx-worker-pids.txt"
+            for pid in 9001 9002; do
+                PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/proc/${pid}"
+                printf 'Name:\tnginx\nGroups:\t%s \n' "${gids}" > "${STUB_FS}/proc/${pid}/status"
+                printf '%s\n' "${pid}" >> "${STUB_FS}/nginx-worker-pids.txt"
+            done
+        }
+        cmd=""; unit=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --quiet) ;;
+                *) if [[ -z "${cmd}" ]]; then cmd="${arg}"; else unit="${arg}"; fi ;;
+            esac
+        done
+        unit="${unit%.service}"
+        case "${cmd}" in
+            is-enabled) [[ -e "${STUB_SVC_STATE}/${unit}.enabled" ]] ;;
+            is-active)  [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] ;;
+            enable)  touch "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            disable) rm -f "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            start)
+                touch "${STUB_SVC_STATE}/${unit}.active"
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                ;;
+            stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
+            reload|restart)
+                [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                ;;
+            *) exit 0 ;;
+        esac
+        STUB);
+
+    provisionWriteStub($scratch.'/bin/pgrep', <<<'STUB'
+        #!/bin/bash
+        [[ -s "${STUB_FS}/nginx-worker-pids.txt" ]] || exit 1
+        PATH="${STUB_REAL_PATH}" cat "${STUB_FS}/nginx-worker-pids.txt"
+        STUB);
+
+    foreach (['nginx' => 'nginx', 'sshd' => 'sshd', 'php-fpm8.5' => 'php-fpm'] as $bin => $log) {
+        provisionWriteStub($scratch.'/bin/'.$bin, <<<STUB
+            #!/bin/bash
+            printf '{$log} %s\\n' "\$*" >> "\${STUB_LOG}/{$log}.log"
+            [[ -e "\${STUB_TOGGLES}/{$log}-t-fail" ]] && exit 1
+            exit 0
+            STUB);
+    }
+
+    provisionWriteStub($scratch.'/bin/supervisorctl', <<<'STUB'
+        #!/bin/bash
+        printf 'supervisorctl %s\n' "$*" >> "${STUB_LOG}/supervisorctl.log"
+        case "${1:-}" in
+            reread)
+                [[ -e "${STUB_TOGGLES}/supervisor-reread-fail" ]] && { echo "ERROR: CANT_REREAD bad config"; exit 0; }
+                echo "No config updates to processes"
+                ;;
+            status)
+                echo "${2:-unknown}: ERROR (no such process)"
+                exit 1
+                ;;
+        esac
+        exit 0
+        STUB);
+
+    // One stub per child installer the services installer coordinates but
+    // this operation does not exercise directly. Each answers verify from its
+    // own compliance toggle and records every invocation, so a test can prove
+    // both what was asked and what was never asked.
+    foreach ([
+        'runtime-installer', 'operations-installer', 'perimeter-installer',
+        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'nightwatch-installer',
+    ] as $child) {
+        provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
+            #!/bin/bash
+            me="$(basename "$0")"
+            printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/children.log"
+            case "$*" in
+                # The closed allowlist question, answered the way the real
+                # installer answers it: staging-main records a deployment
+                # marker, and no other target does.
+                *--supports-deployment-marker*)
+                    [[ "$*" == *"--target staging-main"* ]] && exit 0
+                    exit 1
+                    ;;
+                *--apply*)
+                    [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
+                    touch "${STUB_TOGGLES}/${me}-compliant"
+                    exit 0
+                    ;;
+                *)
+                    [[ -e "${STUB_TOGGLES}/${me}-compliant" ]] && exit 0
+                    exit 1
+                    ;;
+            esac
+            STUB);
+    }
+}
+
+function provisionOwnerTableAdd(string $scratch, string $physical, string $owner, string $group): void
+{
+    $table = $scratch.'/fs/owner-table.txt';
+    $rows = array_filter(
+        explode("\n", (string) @file_get_contents($table)),
+        fn (string $row): bool => $row !== '' && ! str_starts_with($row, $physical.'|'),
+    );
+    $rows[] = "{$physical}|{$owner}|{$group}";
+    file_put_contents($table, implode("\n", $rows)."\n");
+}
+
+/**
+ * @return array<string, array{0: string, 1: string}> physical => [owner, group]
+ */
+function provisionOwnerTableRows(string $scratch): array
+{
+    $rows = [];
+
+    foreach (explode("\n", (string) @file_get_contents($scratch.'/fs/owner-table.txt')) as $line) {
+        if ($line === '') {
+            continue;
+        }
+
+        [$path, $owner, $group] = explode('|', $line);
+        $rows[$path] = [$owner, $group];
+    }
+
+    return $rows;
+}
+
+/**
+ * The host roots install-bootstrap-host-layout treats as prerequisites in
+ * every target-scoped run: logical path => [owner, group, mode].
+ *
+ * @return array<string, array{0: string, 1: string, 2: int}>
+ */
+function provisionHostRoots(): array
+{
+    return [
+        '/home/www/rateguru' => ['root', 'root', 0o755],
+        '/home/www/rateguru/config' => ['root', 'root', 0o755],
+        '/home/www/rateguru/bin' => ['root', 'root', 0o755],
+        '/home/www/rateguru/backups' => ['root', 'root', 0o700],
+        '/home/www/rateguru/run' => ['root', 'root', 0o700],
+        '/var/log/rateguru' => ['root', 'root', 0o750],
+    ];
+}
+
+/**
+ * The active staging neighbour, built exactly as a converged host has it, so
+ * "provisioning a new target changed nothing about the live one" is proved
+ * against real state rather than against absence.
+ */
+function provisionBuildStagingNeighbour(string $scratch): void
+{
+    $fs = $scratch.'/fs';
+    $root = $fs.'/home/www/rateguru/staging';
+
+    foreach ([
+        '/releases/20240101120000', '/shared/storage/logs', '/shared/storage/app/public',
+        '/locks', '/deployments',
+    ] as $sub) {
+        @mkdir($root.$sub, 0o755, true);
+    }
+
+    chmod($root.'/releases', 0o2750);
+    chmod($root.'/shared', 0o2770);
+    chmod($root.'/shared/storage', 0o2770);
+    chmod($root.'/shared/storage/logs', 0o2770);
+    chmod($root.'/locks', 0o2750);
+    chmod($root.'/deployments', 0o2750);
+
+    file_put_contents($root.'/shared/.env', "APP_KEY=base64:STAGING-ENV-SENTINEL\n");
+    file_put_contents($root.'/shared/storage/app/public/upload.jpg', 'STAGING-UPLOAD-SENTINEL');
+    file_put_contents($root.'/shared/storage/logs/laravel.log', "STAGING-LOG-SENTINEL\n");
+    file_put_contents($root.'/releases/20240101120000/artisan', "<?php // STAGING-RELEASE-SENTINEL\n");
+    symlink($root.'/releases/20240101120000', $root.'/current');
+    symlink($root.'/releases/20240101120000', $root.'/previous');
+
+    @mkdir($fs.'/home/deploy-rateguru-staging/.ssh', 0o700, true);
+    @mkdir($fs.'/home/deploy-rateguru-staging/incoming', 0o750, true);
+    file_put_contents($fs.'/home/deploy-rateguru-staging/.ssh/authorized_keys', "ssh-ed25519 AAAA-STAGING-KEY sentinel\n");
+
+    foreach ([
+        '/etc/nginx/sites-available/rateguru-staging' => 'infrastructure/config/nginx/rateguru-staging',
+        '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf' => 'infrastructure/config/php-fpm/rateguru-staging.conf',
+        '/etc/supervisor/conf.d/rateguru-staging-queue.conf' => 'infrastructure/config/supervisor/rateguru-staging-queue.conf',
+        '/etc/cron.d/rateguru-staging-scheduler' => 'infrastructure/config/cron/rateguru-staging-scheduler',
+    ] as $installed => $committed) {
+        copy(base_path($committed), $fs.$installed);
+        chmod($fs.$installed, 0o644);
+        provisionOwnerTableAdd($scratch, $fs.$installed, 'root', 'root');
+    }
+
+    symlink('/etc/nginx/sites-available/rateguru-staging', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
+
+    touch($fs.'/run/php/rateguru-staging.sock');
+    chmod($fs.'/run/php/rateguru-staging.sock', 0o660);
+    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-staging.sock|TYPE|socket\n", FILE_APPEND);
+    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-staging.sock', 'www-data', 'www-data');
+}
+
+/**
+ * Build the simulated host and return the environment provision-target and
+ * every installer it delegates to run against.
+ *
+ * Options:
+ *   registry:             JSON override for the whole fixture registry
+ *   demoOverrides:        dot-free key => value applied to the demo-shop entry
+ *   demoLifecycle:        lifecycle override for demo-shop
+ *   widenActiveAllowlist: allow more than one active target in the scratch
+ *                         validator (activation-parity scenario only)
+ *   euid:                 string (default '0')
+ *   passwdExtra:          extra fixture /etc/passwd lines
+ *   groupExtra:           extra fixture /etc/group lines
+ *   omitHostRoots:        list<string> host roots NOT created
+ *
+ * @param  array<string, mixed>  $options
+ * @return array<string, string>
+ */
+function provisionFixture(string $scratch, array $options = []): array
+{
+    $fs = $scratch.'/fs';
+
+    $registryJson = $options['registry']
+        ?? provisionRegistryJson($options['demoOverrides'] ?? [], $options['demoLifecycle'] ?? null);
+
+    $repo = provisionRepo($scratch, $registryJson, (bool) ($options['widenActiveAllowlist'] ?? false));
+
+    foreach ([
+        '/home', '/var/log', '/etc/nginx/sites-available', '/etc/nginx/sites-enabled',
+        '/etc/php/8.5/fpm/pool.d', '/etc/supervisor/conf.d', '/etc/cron.d',
+        '/etc/ssh/sshd_config.d', '/usr/bin', '/run/php', '/var/backups',
+    ] as $sub) {
+        @mkdir($fs.$sub, 0o755, true);
+    }
+
+    touch($fs.'/usr/bin/php8.5');
+
+    file_put_contents($fs.'/owner-table.txt', '');
+    file_put_contents($fs.'/type-table.txt', '');
+
+    $omitted = $options['omitHostRoots'] ?? [];
+
+    foreach (provisionHostRoots() as $logical => [$owner, $group, $mode]) {
+        if (in_array($logical, $omitted, true)) {
+            continue;
+        }
+
+        @mkdir($fs.$logical, 0o755, true);
+        chmod($fs.$logical, $mode);
+        provisionOwnerTableAdd($scratch, $fs.$logical, $owner, $group);
+    }
+
+    // The shared namespace every production target sits in. Host
+    // infrastructure: root-owned and traversable, so a runtime user can reach
+    // its own tree through it. `legacyNamespace` reproduces the state a real
+    // host that predates the multi-target registry is actually in, where this
+    // directory was ONE production application's root.
+    @mkdir($fs.'/home/www/rateguru/production', 0o755, true);
+
+    if ($options['legacyNamespace'] ?? false) {
+        chmod($fs.'/home/www/rateguru/production', 0o2750);
+        provisionOwnerTableAdd($scratch, $fs.'/home/www/rateguru/production', 'deploy-rateguru', 'rateguru-production-code');
+    } else {
+        provisionOwnerTableAdd($scratch, $fs.'/home/www/rateguru/production', 'root', 'root');
+    }
+
+    file_put_contents($fs.'/etc-passwd', implode("\n", array_merge([
+        'root:x:0:0:root:/root:/bin/bash',
+        'www-data:x:33:33::/var/www:/usr/sbin/nologin',
+        'postgres:x:110:118::/var/lib/postgresql:/bin/bash',
+        'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/usr/sbin/nologin',
+        'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/bin/bash',
+    ], $options['passwdExtra'] ?? []))."\n");
+
+    file_put_contents($fs.'/etc-group', implode("\n", array_merge([
+        'root:x:0:',
+        'www-data:x:33:',
+        'postgres:x:118:',
+        'rateguru-staging:x:5001:',
+        'deploy-rateguru-staging:x:5002:',
+        'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+    ], $options['groupExtra'] ?? []))."\n");
+
+    provisionWriteStubs($scratch);
+    provisionBuildStagingNeighbour($scratch);
+
+    // The host's installed runtime registry. A prepared host has the same
+    // revision the trusted bundle carries; the tests that matter here are the
+    // ones that make it differ.
+    @mkdir($fs.'/home/www/rateguru/etc', 0o755, true);
+    file_put_contents(
+        $fs.'/home/www/rateguru/etc/deployment-targets.json',
+        $options['installedRegistryJson'] ?? File::get($repo.'/infrastructure/config/deployment-targets.json'),
+    );
+
+    // The demo pool's socket, as a running PHP-FPM would present it.
+    touch($fs.'/run/php/rateguru-demo-shop.sock');
+    chmod($fs.'/run/php/rateguru-demo-shop.sock', 0o660);
+    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-demo-shop.sock|TYPE|socket\n", FILE_APPEND);
+    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-demo-shop.sock', 'www-data', 'www-data');
+
+    // Nginx workers that predate every RateGuru code group — the state a real
+    // host is in before its first reload.
+    @mkdir($fs.'/proc/4101', 0o755, true);
+    file_put_contents($fs.'/proc/4101/status', "Name:\tnginx\nGroups:\t33 \n");
+    file_put_contents($fs.'/nginx-worker-pids.txt', "4101\n");
+
+    // Every base host service is already enabled and running: provisioning
+    // runs on a prepared host and never starts one.
+    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
+        touch($scratch.'/svc/'.$unit.'.enabled');
+        touch($scratch.'/svc/'.$unit.'.active');
+    }
+
+    // The host-wide children a target-scoped run never converges are already
+    // compliant, so their state can never be mistaken for something this
+    // operation did.
+    foreach ([
+        'runtime-installer', 'operations-installer', 'perimeter-installer',
+        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'nightwatch-installer',
+    ] as $child) {
+        touch($scratch.'/toggles/'.$child.'-compliant');
+    }
+
+    $realPath = getenv('PATH') ?: '/usr/bin:/bin';
+
+    return [
+        'PATH' => $realPath,
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+
+        // The orchestrator, run from the scratch bundle. There is deliberately
+        // no seam for the library or the registry it resolves: it reads the
+        // `common` and the `config/deployment-targets.json` beside itself, so
+        // the bundle under test is the one that decides what provisioning
+        // means.
+        'RATEGURU_PROVISION_BUNDLE_SCRIPT' => $repo.'/infrastructure/scripts/provision-target',
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => base_path('infrastructure/templates/deployment.conf.example'),
+
+        // The host's installed operational bundle, as a prerequisite rather
+        // than as an implementation: a verify gate that answers from its own
+        // compliance toggle, and the runtime registry it would have installed.
+        'RATEGURU_PROVISION_OPERATIONS_BIN' => $scratch.'/bin/operations-installer',
+        'RATEGURU_PROVISION_INSTALLED_REGISTRY' => $options['installedRegistry'] ?? $fs.'/home/www/rateguru/etc/deployment-targets.json',
+        'RATEGURU_TARGET_REGISTRY_FILE' => $repo.'/infrastructure/config/deployment-targets.json',
+        'RATEGURU_TARGETS_CLI' => $repo.'/infrastructure/scripts/targets',
+        'RATEGURU_PROVISION_EUID' => $options['euid'] ?? '0',
+        // The machine's lock. Targets share a host, so an apply claims it for
+        // the whole run; the fixture points it at the simulated host's own
+        // run root rather than the real one.
+        'RATEGURU_HOST_LOCK_ROOT' => $options['lockRoot'] ?? $fs.'/home/www/rateguru/run',
+        'RATEGURU_PROVISION_FS_ROOT' => $fs,
+        'RATEGURU_PROVISION_RUNTIME_BIN' => $scratch.'/bin/runtime-installer',
+        'RATEGURU_PROVISION_HOSTLAYOUT_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-host-layout',
+        'RATEGURU_PROVISION_SERVICES_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-services',
+
+        // The real host-layout installer, against the simulated host.
+        'RATEGURU_HOSTLAYOUT_EUID' => '0',
+        'RATEGURU_HOSTLAYOUT_FS_ROOT' => $fs,
+        'RATEGURU_HOSTLAYOUT_PASSWD_FILE' => $fs.'/etc-passwd',
+        'RATEGURU_HOSTLAYOUT_GROUP_FILE' => $fs.'/etc-group',
+        'RATEGURU_HOSTLAYOUT_SOURCE_REGISTRY' => $repo.'/infrastructure/config/deployment-targets.json',
+        'RATEGURU_HOSTLAYOUT_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_HOSTLAYOUT_INSTALL_BIN' => $scratch.'/bin/install',
+        'RATEGURU_HOSTLAYOUT_CHOWN_BIN' => $scratch.'/bin/chown',
+        'RATEGURU_HOSTLAYOUT_CHMOD_BIN' => $scratch.'/bin/chmod',
+        'RATEGURU_HOSTLAYOUT_GROUPADD_BIN' => $scratch.'/bin/groupadd',
+        'RATEGURU_HOSTLAYOUT_USERADD_BIN' => $scratch.'/bin/useradd',
+        'RATEGURU_HOSTLAYOUT_USERMOD_BIN' => $scratch.'/bin/usermod',
+
+        // The real services installer, against the same simulated host.
+        'RATEGURU_BOOTSTRAPSVC_EUID' => '0',
+        'RATEGURU_BOOTSTRAPSVC_FS_ROOT' => $fs,
+        'RATEGURU_BOOTSTRAPSVC_PASSWD_FILE' => $fs.'/etc-passwd',
+        'RATEGURU_BOOTSTRAPSVC_GROUP_FILE' => $fs.'/etc-group',
+        'RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY' => $repo.'/infrastructure/config/deployment-targets.json',
+        'RATEGURU_BOOTSTRAPSVC_PGREP_BIN' => $scratch.'/bin/pgrep',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_WORKER_WAIT_ATTEMPTS' => '2',
+        'RATEGURU_BOOTSTRAPSVC_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime-installer',
+        'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-host-layout',
+        'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
+        'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
+        'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
+        'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
+        'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
+        'RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN' => $scratch.'/bin/php-fpm8.5',
+        'RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_BOOTSTRAPSVC_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_BOOTSTRAPSVC_INSTALL_BIN' => $scratch.'/bin/install',
+        'RATEGURU_BOOTSTRAPSVC_CHOWN_BIN' => $scratch.'/bin/chown',
+        'RATEGURU_BOOTSTRAPSVC_CHMOD_BIN' => $scratch.'/bin/chmod',
+        'RATEGURU_BOOTSTRAPSVC_SOCKET_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_QUEUE_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_STABILITY_WAIT' => '0',
+        'RATEGURU_BOOTSTRAPSVC_RETRY_DELAY' => '0',
+
+        'STUB_LOG' => $scratch.'/log',
+        'STUB_REAL_PATH' => $realPath,
+        'STUB_OWNER_TABLE' => $fs.'/owner-table.txt',
+        'STUB_TYPE_TABLE' => $fs.'/type-table.txt',
+        'STUB_PASSWD_FILE' => $fs.'/etc-passwd',
+        'STUB_GROUP_FILE' => $fs.'/etc-group',
+        'STUB_SVC_STATE' => $scratch.'/svc',
+        'STUB_TOGGLES' => $scratch.'/toggles',
+        'STUB_FS' => $fs,
+    ];
+}
