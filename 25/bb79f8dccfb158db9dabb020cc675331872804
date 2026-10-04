@@ -1,0 +1,24 @@
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_49534cfaba4f0e 374,377-381
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_06cef6dcff507d 164-169
+  s_c7e782fafc9782::t_44a9d015f89c39 599-615,853-858
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_17670cc5c0ee54 551-567,2366-2423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "25bb79f8dccfb158db9dabb020cc675331872804",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
