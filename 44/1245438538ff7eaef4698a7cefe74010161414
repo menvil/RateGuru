@@ -1,0 +1,19 @@
+tests/Pest.php
+  s_6af81f501f0890::t_a839de52b5f512 3875-3880,3883,3888
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "441245438538ff7eaef4698a7cefe74010161414",
+  "prompts": {},
+  "sessions": {
+    "s_6af81f501f0890": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af39df99-b4e4-415c-a829-6d6948fc83c3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
