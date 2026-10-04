@@ -3788,3 +3788,122 @@ function trustedToolingRef(string $workflow): string
 
     return $refs[$name];
 }
+
+/*
+|--------------------------------------------------------------------------
+| recover-host harness
+|--------------------------------------------------------------------------
+|
+| The script, the run, the composed fixture, the apply and the simulated
+| recovery deployment the three recover-host test files share:
+| RecoverHostPreconditionsTest (what a recovery refuses before it starts),
+| RecoverHostTest (the apply, its hold, its guard and its compensation) and
+| RecoverHostResumeTest (--inspect, --resume and --verify).
+*/
+
+function recoverHostScript(): string
+{
+    return base_path('infrastructure/scripts/recover-host');
+}
+
+/**
+ * @return array{exit: int, output: string}
+ */
+function recoverHostRun(string $scratch, array $arguments, array $envOverrides = []): array
+{
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+
+    $env = infraScriptEnv($scratch, $registryPath, $targetsPath, array_merge(
+        fakePostgresEnv($scratch),
+        targetRuntimeEnv($scratch),
+        recoveryEnv($scratch),
+        $envOverrides,
+    ));
+
+    [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'recover-host'), $arguments, $env);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+/**
+ * A prepared, EMPTY replacement host with one exact offsite backup waiting for
+ * it: the only starting state a recovery accepts.
+ */
+function recoveryFixture(string $scratch, array $options = []): void
+{
+    preparedTargetTreeFixture($scratch, $options);
+    installFakePostgres($scratch, $options);
+    installTargetRuntimeStubs($scratch);
+    installFakePrepareHost($scratch);
+    offsiteRcloneStub($scratch);
+
+    file_put_contents($scratch.'/rclone.conf', "[rateguru-b2]\ntype = b2\n");
+    touch($scratch.'/rclone.log');
+
+    @mkdir($scratch.'/cron.d', 0o755, true);
+    file_put_contents($scratch.'/cron.d/parity-scheduler', "* * * * * root true\n");
+
+    // A prepared host's queue program is registered but has no application to
+    // run: the committed program keeps autostart=true and crash-loops until a
+    // deployment exists. FATAL is what that looks like, and it is not RUNNING.
+    file_put_contents($scratch.'/supervisor-state', ($options['queue_state'] ?? 'FATAL')."\n");
+
+    // Prepare Host installs the target's Supervisor program configuration and
+    // validates it; whether its GROUP is loaded into the running Supervisor is
+    // a separate question, and on a freshly prepared host it is not
+    // ('queue_group_absent'), because activation is deferred until a release
+    // exists.
+    @mkdir($scratch.'/supervisor-conf.d', 0o755, true);
+
+    if (($options['queue_config'] ?? true) === true) {
+        file_put_contents($scratch.'/supervisor-conf.d/parity-queue.conf', "[program:parity-queue]\nautostart=true\n");
+    }
+
+    if (($options['queue_group_absent'] ?? false) === true) {
+        touch($scratch.'/supervisor-group-absent');
+    }
+
+    // The prepared database exists and is EMPTY.
+    @mkdir($scratch.'/pg/tables', 0o755, true);
+    @mkdir($scratch.'/pg/migrations', 0o755, true);
+    file_put_contents($scratch.'/pg/tables/parity_db', ($options['prepared_tables'] ?? 0)."\n");
+    file_put_contents($scratch.'/pg/migrations/parity_db', "0\n");
+
+    recoveryOffsiteBackupFixture($scratch, $options['backup'] ?? '20260115-023000', $options['backup_options'] ?? []);
+}
+
+/**
+ * Runs a full --apply against the parity target. The operation ID the run
+ * generated is in its output: see recoveryOperationIdIn().
+ *
+ * @return array{exit: int, output: string}
+ */
+function recoveryApply(string $scratch, array $envOverrides = [], string $backupId = '20260115-023000'): array
+{
+    return recoverHostRun($scratch, [
+        '--apply', '--target', 'parity-target', '--backup', $backupId,
+    ], $envOverrides);
+}
+
+/** The operation ID from a run's machine-readable RATEGURU_RECOVER_RESULT line. */
+function recoveryOperationIdIn(string $output): string
+{
+    expect(preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $output, $matches))
+        ->toBe(1, "no machine-readable recovery result in:\n".$output);
+
+    return json_decode($matches[1], true)['operation'];
+}
+
+/** Simulates the controlled recovery deployment: a release, and current. */
+function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOURCE_SHA, string $release = FIXTURE_RELEASE): void
+{
+    $root = $scratch.'/target';
+    mkdir($root.'/releases/'.$release, 0o755, true);
+
+    file_put_contents(
+        $root.'/releases/'.$release.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => $release, 'source_sha' => $sourceSha]),
+    );
+
+    symlink($root.'/releases/'.$release, $root.'/current');
+}

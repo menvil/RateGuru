@@ -4368,23 +4368,27 @@ it('refuses an apply while a deployment lock is held for an active target', func
 
         // Hold the lock the way deploy holds it: an open descriptor with a
         // non-blocking exclusive flock, from a process that outlives the apply.
+        // The holder reports "held" once it owns the lock, so the apply never
+        // races it, and it is terminated as soon as the refusal is observed —
+        // a holder that is merely waited for makes the test as long as its
+        // sleep. `exec sleep` keeps the descriptor in the process that is
+        // terminated, so nothing outlives the test still holding the lock.
         $lockFile = $locks.'/deployment.lock';
-        $holder = popen('flock '.escapeshellarg($lockFile).' -c '.escapeshellarg('sleep 60').' 2>/dev/null', 'r');
+        $holder = proc_open(
+            ['bash', '-c', 'exec 9>>"$1"; flock -n 9 || exit 1; echo held; exec sleep 60', '_', $lockFile],
+            [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
+            $pipes,
+        );
         expect($holder)->not->toBeFalse('could not start the lock holder');
+        expect(rtrim((string) fgets($pipes[1])))->toBe('held', 'the lock holder never acquired the deployment lock');
 
-        // Wait for the holder to actually own it, rather than racing it.
-        $held = false;
-        for ($i = 0; $i < 100; $i++) {
-            exec('flock -n '.escapeshellarg($lockFile).' -c true 2>/dev/null', $probe, $probeExit);
-            if ($probeExit !== 0) {
-                $held = true;
-                break;
-            }
-            usleep(50_000);
+        try {
+            [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        } finally {
+            proc_terminate($holder);
+            fclose($pipes[1]);
+            proc_close($holder);
         }
-        expect($held)->toBeTrue('the lock holder never acquired the deployment lock');
-
-        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
         expect($exit)->not->toBe(0, $output);
         expect($output)
@@ -4397,8 +4401,6 @@ it('refuses an apply while a deployment lock is held for an active target', func
         expect(file_exists($vars['DST_DEPLOY']))->toBeFalse('an excluded apply must install nothing');
         expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeFalse();
         expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'the refusal must precede this run\'s backup directory');
-
-        pclose($holder);
     } finally {
         installOpsCleanup($scratch);
     }
