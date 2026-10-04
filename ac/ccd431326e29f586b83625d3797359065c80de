@@ -1,0 +1,33 @@
+tests/Browser/AdminPaginationBrowserTest.php
+  s_c0fe1399ff286f::t_df630489d64da5 1-33
+resources/css/app.css
+  s_c0fe1399ff286f::t_dc893dcfaa4696 19-40
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_c0fe1399ff286f::t_dc893dcfaa4696 198
+resources/views/livewire/settings/notification-preferences-form.blade.php
+  s_c0fe1399ff286f::t_dc893dcfaa4696 17
+resources/views/filament/admin/styles.blade.php
+  s_c0fe1399ff286f::t_e0d589c8465564 1-2,14-36
+  s_c0fe1399ff286f::t_a280aca50130fd 3-13
+tests/Browser/PointerCursorBrowserTest.php
+  s_c0fe1399ff286f::t_ba960ab542f1da 1-56,67-73
+  s_c0fe1399ff286f::t_df630489d64da5 57-66
+app/Providers/Filament/AdminPanelProvider.php
+  s_c0fe1399ff286f::t_e0d589c8465564 14,37-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "acccd431326e29f586b83625d3797359065c80de",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

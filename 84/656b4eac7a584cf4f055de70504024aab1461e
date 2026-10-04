@@ -1,0 +1,22 @@
+.github/workflows/provision-tits-guru.yml
+  s_c7e782fafc9782::t_a2474a060c06af 75-76,78-86
+tests/Feature/Architecture/ProvisionTitsGuruWorkflowTest.php
+  s_c7e782fafc9782::t_a2474a060c06af 120-121
+  s_c7e782fafc9782::t_5ddbbf3a8e9219 21-26,95-98,114-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "84656b4eac7a584cf4f055de70504024aab1461e",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

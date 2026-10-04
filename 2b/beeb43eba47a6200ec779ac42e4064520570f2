@@ -1,0 +1,93 @@
+app/Actions/Locale/ChangeLocaleAction.php
+  s_c0fe1399ff286f::t_831a021102c1e5 10,18-22,24-29,37,52-53
+app/Models/User.php
+  s_c0fe1399ff286f::t_831a021102c1e5 95-98,108
+docs/i18n/multilingual-ui.md
+  s_c0fe1399ff286f::t_3f141ab9b368b4 3,7,11-25,28-29,32-39,47-53,57,61,65
+  s_c0fe1399ff286f::t_1085465df1bf30 5,129,132
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_c0fe1399ff286f::t_c73bc41180338d 3-4,6,8-20,22-29,31-41,43-55,57-68,72-76,79,83-90,92-102,106-112,114-120,124-130,135-140,146-152,154-165,168-169,172-175,177-185,187-198,200-208,210-221,223,226
+  s_c0fe1399ff286f::t_42f12b022d4496 30,56,91,103,113,122,131,142,153,186,199,209,222
+  s_c0fe1399ff286f::t_0343cae85d4dda 42,77-78,80-82,167,176
+app/Actions/Users/UpdateUserLocaleAction.php
+  s_c0fe1399ff286f::t_9376d66f6fa7d7 15-17
+tests/Feature/Database/ProjectSettingsTableTest.php
+  s_c0fe1399ff286f::t_4999f628deb2ae 3-5,35,44-45
+  s_c0fe1399ff286f::t_deb27a3fe78a10 21,31-34,36-43
+app/Filament/Pages/ProjectSettingsPage.php
+  s_c0fe1399ff286f::t_56b1bf74dfa66e 12,72-74,128,130,132,232-244
+tests/Feature/Localization/RecipientLocaleTest.php
+  s_c0fe1399ff286f::t_8b731c0e6d0dc2 9,127-130,138-194
+app/Livewire/Settings/UserLocaleSettings.php
+  s_c0fe1399ff286f::t_9376d66f6fa7d7 19-21,27,38
+app/Support/Locale/LocaleManager.php
+  s_c0fe1399ff286f::t_741927d8587d40 146-147
+  s_c0fe1399ff286f::t_2a9ba662f2142a 5-24,27-33,44,52-63,65-68,71-145,148-153,165-168
+tests/Feature/Architecture/SupportedLocaleListTest.php
+  s_c0fe1399ff286f::t_6c3af7eacb02cc 18-19,110,114,119,135,187
+database/migrations/2026_09_30_120000_add_enabled_locales_to_project_settings_table.php
+  s_c0fe1399ff286f::t_f7782935121d29 1-33
+tests/Pest.php
+  s_c0fe1399ff286f::t_42f12b022d4496 3289-3304
+  s_c0fe1399ff286f::t_f7583b9172a95c 3,3258-3287
+app/Actions/Auth/RegisterSocialUserAction.php
+  s_c0fe1399ff286f::t_e828f2b45c687c 54
+resources/views/components/locale-switcher.blade.php
+  s_c0fe1399ff286f::t_9376d66f6fa7d7 2-4,16-18,20,37,46
+tests/Feature/I18n/LocalesConfigTest.php
+  s_c0fe1399ff286f::t_deb27a3fe78a10 8,10-15,18-23
+lang/README.md
+  s_c0fe1399ff286f::t_0bb4b4e9628e48 12-51,54-60,64-65,71-73
+config/locales.php
+  s_c0fe1399ff286f::t_ac475ae2ade3d4 4-8,10-14,16-18
+resources/views/livewire/settings/user-locale-settings.blade.php
+  s_c0fe1399ff286f::t_9376d66f6fa7d7 15-16
+app/Actions/Settings/UpdateProjectLocaleSettingsAction.php
+  s_c0fe1399ff286f::t_741927d8587d40 1-64
+app/Http/Controllers/Locale/ChangeLocaleController.php
+  s_c0fe1399ff286f::t_831a021102c1e5 12-14,17,19-30
+app/Support/Settings/ResolvedProjectSettings.php
+  s_c0fe1399ff286f::t_ac475ae2ade3d4 107-110,116-132
+tests/Feature/I18n/LocaleManagerTest.php
+  s_c0fe1399ff286f::t_e6a8c2cbe9576a 3,5,7-26,29,32,35-37,40-46,48-54,57-59,61,64-66,68-170
+app/Support/Settings/ProjectSettingsManager.php
+  s_c0fe1399ff286f::t_ac475ae2ade3d4 25,50,70-80
+app/Http/Middleware/SetLocale.php
+  s_c0fe1399ff286f::t_8b45b429e6267d 5,11-30,37,44,46-50,52-53,58-59
+tests/Feature/Actions/PresentationPreferenceActionsTest.php
+  s_c0fe1399ff286f::t_3d085192f602d5 36-46
+app/Models/ProjectSettings.php
+  s_c0fe1399ff286f::t_ac475ae2ade3d4 29,49
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_c0fe1399ff286f::t_56b1bf74dfa66e 6,8,12-15,20-25
+app/Actions/Auth/RegisterUserAction.php
+  s_c0fe1399ff286f::t_e828f2b45c687c 45
+tests/Feature/Filament/ProjectLanguageSettingsTest.php
+  s_c0fe1399ff286f::t_fe730ab9540a5c 1-134
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  s_c0fe1399ff286f::t_60af1313c24469 37-79
+tests/Feature/I18n/ChangeLocaleActionTest.php
+  s_c0fe1399ff286f::t_008f719024d316 3,5-7,9-15,17-18,23,28-29,31-32,35-36,38-43,45-60,62-64,66-92
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_c0fe1399ff286f::t_60af1313c24469 22-46
+tests/Feature/Actions/UpdateProjectLocaleSettingsActionTest.php
+  s_c0fe1399ff286f::t_d56ef1b69af395 1-90
+app/Http/Requests/ChangeLocaleRequest.php
+  s_c0fe1399ff286f::t_9376d66f6fa7d7 5,14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2bbeeb43eba47a6200ec779ac42e4064520570f2",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

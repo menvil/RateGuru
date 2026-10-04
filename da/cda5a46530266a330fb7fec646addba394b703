@@ -1,0 +1,32 @@
+infrastructure/runbooks/github-restore.md
+  s_c7e782fafc9782::t_5ab7d97db87ea3 63-64
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_89856240d1a55c 563-568
+  s_c7e782fafc9782::t_29c894c5904c66 507
+tests/Feature/Architecture/RollbackProductionWorkflowTest.php
+  s_c7e782fafc9782::t_a46cbaaaa78b5d 106
+infrastructure/runbooks/github-recover.md
+  s_c7e782fafc9782::t_d074b24def2b8c 217
+  s_c7e782fafc9782::t_7eb361cdc3d1b7 663-664
+infrastructure/runbooks/configure-target.md
+  s_c7e782fafc9782::t_b13ba94eaae670 77-85
+infrastructure/runbooks/prepare-host.md
+  s_c7e782fafc9782::t_ab8c46782e8710 452-453
+  s_c7e782fafc9782::t_7b000a6264b3ab 259-262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dacda5a46530266a330fb7fec646addba394b703",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

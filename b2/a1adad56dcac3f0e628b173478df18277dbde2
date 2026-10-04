@@ -1,0 +1,136 @@
+database/seeders/DefaultProjectSettingsSeeder.php
+  s_c0fe1399ff286f::t_8ba49bc1e0310a 11-28,35-44,47-49
+tests/Feature/Actions/UpdateProjectLocaleSettingsActionTest.php
+  s_c0fe1399ff286f::t_1cab7fcb16d5ea 9,11,20,23,32-39,44,46,52,58,64-65,67,69,75,78,86,89,91-93,96,100,104-105
+  s_c0fe1399ff286f::t_d1822aa655a3bb 70
+app/Support/Translations/MissingProjectTranslation.php
+  s_c0fe1399ff286f::t_09e500588c0be4 6
+tests/Feature/Localization/NotificationMessageLocaleTest.php
+  s_c0fe1399ff286f::t_3d241bfa773600 40-52
+app/Http/Middleware/SetLocale.php
+  s_c0fe1399ff286f::t_24b58e92b82e4e 14,19-28,30,32-33,50-62,66,72-73,78
+tests/Feature/I18n/LocalesConfigTest.php
+  s_c0fe1399ff286f::t_47adacd8ba14a7 37-44
+tests/Feature/I18n/LocaleManagerTest.php
+  s_c0fe1399ff286f::t_50418077f38617 11,14,40-57,69,87,98,103,108,110,122,132,140,145-146,148,156-158,160,162,165,167,170-172,192
+tests/Feature/Routes/StaticPageRouteTest.php
+  s_c0fe1399ff286f::t_4d4056bda84884 4,7-9,11,13-15,19-20,24,26,29-30,39-40,59-61,87-90,92,95-96,99,101-106,111-119,121-122,124-126,131-132,135,137-141,144-146,148-150,153-156,158,160-168
+app/Filament/Pages/ProjectSettingsPage.php
+  s_c0fe1399ff286f::t_057342f3e77104 12-13
+  s_c0fe1399ff286f::t_a98e054b9f3032 61-63,65,260-261,264,268
+tests/Feature/Actions/ApplyProjectPresetActionTest.php
+  s_c0fe1399ff286f::t_20e24b38f0281f 165,167-168,170-171,177,181,184,189-191,194-195,199,204-205,208-209,211-212,214-221
+tests/Feature/Database/ProjectSettingsTableTest.php
+  s_c0fe1399ff286f::t_ba3bd792f9975d 31-33
+  s_c0fe1399ff286f::t_22ee4ddfb1a5c0 36-55
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_c0fe1399ff286f::t_6faf6d2e085df5 70,77-79,83,86-88,91-92,95,98,101,104-105,108,111-113,115-119,121,183
+  s_c0fe1399ff286f::t_b63e683abfa1f7 52
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 41,55,69
+docs/admin/project-settings.md
+  s_c0fe1399ff286f::t_260b2e4e5c932b 14-15,35-36,38-47,56-57
+tests/Feature/Filament/ProjectLanguageSettingsTest.php
+  s_c0fe1399ff286f::t_6fd878620aac33 53
+  s_c0fe1399ff286f::t_f928a14c8bdbda 28
+  s_c0fe1399ff286f::t_f00643e2f4c734 16-18,63,67-70,77
+tests/Feature/Console/SetupProjectPresetCommandTest.php
+  s_c0fe1399ff286f::t_013fe193bc4d4e 83,91,94-95,97
+  s_c0fe1399ff286f::t_2a7eab3aeec3b7 8
+  s_c0fe1399ff286f::t_f928a14c8bdbda 82
+tests/Feature/I18n/ChangeLocaleActionTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 62
+tests/Feature/Localization/RecipientLocaleTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 133,152,158,185
+  s_c0fe1399ff286f::t_b8650f2d5c5f21 132,142,184,189
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 37
+  s_c0fe1399ff286f::t_479c78ff997e54 50-56,65-66,71
+  s_c0fe1399ff286f::t_3dbadbc80bdff8 57-64,67-70
+tests/Feature/Settings/ProjectSettingsLifetimeTest.php
+  s_c0fe1399ff286f::t_ba3bd792f9975d 56
+  s_c0fe1399ff286f::t_68a5db1fc701b1 55
+app/Actions/Translations/BackfillProjectTranslationsAction.php
+  s_c0fe1399ff286f::t_78dbad733d8e1f 26-27,30-33,40-49,52-53,102-120,174-177,195-196,198,202-204,206-209,211-227,229,231,234,244-268
+app/Support/Translations/ProjectTranslationCompleteness.php
+  s_c0fe1399ff286f::t_6d29f6cd1e05e8 20-21,27-29,56-58,69-70,72,86,104-107,109,113-114,118-119,121-122,124-126,130,133,147,160,184,202,214
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_c0fe1399ff286f::t_3cf0f8bbd30ad2 3,8,11-17,20,27-33,60-61,63-64,68,71,73-76,78-81,84-86,88-92,94-102,107-109,112-116,118-120,124,127-168,170-185,206,215-217,219,221-225,239,241-242,244,246,249-250,255,258-259,262-263
+  s_c0fe1399ff286f::t_e5fb31be3a2fd0 169
+  s_c0fe1399ff286f::t_f928a14c8bdbda 260
+app/Console/Commands/SetupProjectPresetCommand.php
+  s_c0fe1399ff286f::t_3e91d5031b27e0 60
+resources/views/components/locale-switcher.blade.php
+  s_c0fe1399ff286f::t_8589b268dfb22e 17-19,48
+tests/Feature/Actions/BackfillProjectTranslationsActionTest.php
+  s_c0fe1399ff286f::t_1f96f14fd3bf5e 113-125,163,166,168,171-174,210-241,246-261
+  s_c0fe1399ff286f::t_f928a14c8bdbda 265
+lang/README.md
+  s_c0fe1399ff286f::t_ed78854083f402 12-25,32-34,43-46,49-59,63,68-76,78-83
+tests/Pest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 3314-3316,3320,3322,3335
+app/Support/Settings/ProjectSettingsManager.php
+  s_c0fe1399ff286f::t_45b5debae0671c 7-14,67-69,77-81
+tests/Feature/Support/Settings/ProjectPresetsConfigTest.php
+  s_c0fe1399ff286f::t_ba3bd792f9975d 40-41
+tests/Feature/I18n/TranslatableFieldTest.php
+  s_c0fe1399ff286f::t_29ee0c71b41062 3,118-153
+docs/i18n/project-translation-lifecycle.md
+  s_c0fe1399ff286f::t_b214a9c4945818 3-40,48-62,68-73,83-84,92,98-104,106,108-110,112-115,117-120,125,132,134-135,141-155,158,160-162,166-176,180,184-189,207-208
+app/Support/Settings/ResolvedProjectSettings.php
+  s_c0fe1399ff286f::t_39d35f2748843e 73-76,78-80,86,90-91,95-96,152-153,155-157
+database/migrations/2026_10_01_100000_drop_default_locale_from_project_settings_table.php
+  s_c0fe1399ff286f::t_5009f2a2b01d33 3-5,7,9-12,14-19,22-25,27-30,32
+app/Actions/Contact/SendContactMessageAction.php
+  s_c0fe1399ff286f::t_01769630f014f8 40,50,54
+app/Actions/Settings/ApplyProjectPresetAction.php
+  s_c0fe1399ff286f::t_3e91d5031b27e0 24-28,30,50,59-60,64,78-80
+app/Filament/Pages/LanguagesPage.php
+  s_c0fe1399ff286f::t_4e5af68fe9cde5 31,40-42,45-47,92-93,126,128-131,134,151,154-155,159-160,165,167,189-193,195,197,199-201,204,206-208,239,268-269,271
+app/Actions/Settings/UpdateProjectLocaleSettingsAction.php
+  s_c0fe1399ff286f::t_52c715f3406e60 14-15,17-18,35,45,47-48,51-52,62,66
+config/locales.php
+  s_c0fe1399ff286f::t_982057002fd951 4-9,11-13,22-26
+tests/Feature/Localization/MailContentLocaleTest.php
+  s_c0fe1399ff286f::t_3d241bfa773600 49-61
+app/Support/Locale/LocaleManager.php
+  s_c0fe1399ff286f::t_95f606ee0acb46 12,18-24,26-28,49-62,74-75,88-89,92-94,105,107,123-124,128,138-139
+docs/i18n/multilingual-ui.md
+  s_c0fe1399ff286f::t_cb6b8b780f9f21 7,10,20-22,26,28,30,34,40,42,53-57
+infrastructure/runbooks/deployment-targets.md
+  s_c0fe1399ff286f::t_a2706b3b7dd64a 559-560,562-578,589-591
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_c0fe1399ff286f::t_39a7827bd4d612 27-34
+  s_c0fe1399ff286f::t_792d2ff91d37dd 20-21
+tests/Feature/Actions/PresentationPreferenceActionsTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 38
+tests/Feature/Seeders/DefaultProjectSettingsSeederTest.php
+  s_c0fe1399ff286f::t_f928a14c8bdbda 62
+  s_c0fe1399ff286f::t_56785f5e684deb 5,59,63,67,70,73-81,84-86
+resources/views/filament/pages/languages-missing.blade.php
+  s_c0fe1399ff286f::t_09e500588c0be4 29-30
+tests/Feature/Filament/LanguagesPageTest.php
+  s_c0fe1399ff286f::t_9d84552eaa2c3b 88,90-94
+  s_c0fe1399ff286f::t_f928a14c8bdbda 118
+  s_c0fe1399ff286f::t_8edade0e983738 14-16,30-35,76-79,82-85,89,95-102,110,125-127,129,131,133-138,140,145-146,148,152,160,171,173-176,179-184,187-189,191,193-194,197,199-201,203-208,211-213,215-220,223-224,235,238,243
+docs/admin/project-presets.md
+  s_c0fe1399ff286f::t_260b2e4e5c932b 124-132
+tests/Feature/Filament/ProjectStaticPagesTest.php
+  s_c0fe1399ff286f::t_9ec855bdb766c6 39-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b2a1adad56dcac3f0e628b173478df18277dbde2",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

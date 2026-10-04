@@ -1,0 +1,42 @@
+tests/Feature/Actions/ApplyProjectPresetActionTest.php
+  s_c0fe1399ff286f::t_cb63a8d694a814 4,15,165-233
+app/Actions/Settings/ApplyProjectPresetAction.php
+  s_c0fe1399ff286f::t_2423628da5180b 6,16,25-28,31,33,36-39,55,57-59,62-64,88-92
+  s_c0fe1399ff286f::t_935f13fe641902 29-30,32,34-35,56,60-61,93
+tests/Feature/Seeders/DefaultProjectSettingsSeederTest.php
+  s_c0fe1399ff286f::t_b0f00594b0cde2 4,57-77
+database/seeders/DefaultProjectSettingsSeeder.php
+  s_c0fe1399ff286f::t_9deebd6aee738a 6,45-48
+app/Providers/AppServiceProvider.php
+  s_c0fe1399ff286f::t_527a9e04901223 44-50
+tests/Feature/Settings/ProjectSettingsLifetimeTest.php
+  s_c0fe1399ff286f::t_8fc2edcfdc6726 1-108
+app/Support/Settings/ProjectSettingsManager.php
+  s_c0fe1399ff286f::t_9deebd6aee738a 78-80
+app/Console/Commands/SetupProjectPresetCommand.php
+  s_c0fe1399ff286f::t_2423628da5180b 6,61
+tests/Feature/Filament/ProjectLanguageSettingsTest.php
+  s_c0fe1399ff286f::t_b0f00594b0cde2 135-150
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_c0fe1399ff286f::t_b1f2828554a6c0 8,21-26,29-43
+tests/Feature/Console/SetupProjectPresetCommandTest.php
+  s_c0fe1399ff286f::t_b0f00594b0cde2 77-103
+app/Exceptions/Settings/InvalidProjectPresetException.php
+  s_c0fe1399ff286f::t_2423628da5180b 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1d7a24700d339af752ff24235db750601d7f8332",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+tests/Feature/Architecture/InstallTargetPrerequisitesTest.php
+  s_c7e782fafc9782::t_fcf162e2493ce2 1512-1555
+infrastructure/scripts/install-target-prerequisites
+  s_c7e782fafc9782::t_1f7b78ef89e309 232-240
+  s_c7e782fafc9782::t_27d9f14a2e27f3 213
+  s_c7e782fafc9782::t_11323dcc5e9f10 632-648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "695204a1db6c3935a9db30bb77598ed34f0d33f3",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

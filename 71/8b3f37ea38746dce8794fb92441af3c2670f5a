@@ -1,0 +1,33 @@
+app/Support/Translations/ProjectTranslationCompleteness.php
+  s_c0fe1399ff286f::t_fb2f6e2c78d20e 27-29,56-60,71-72,74,88,111-113,115,138,140,145-146,149-153,156,165,179,192,216,234,246-248
+docs/i18n/project-translation-lifecycle.md
+  s_c0fe1399ff286f::t_c4fd822da4a15c 59-60,74-86
+app/Filament/Pages/LanguagesPage.php
+  s_c0fe1399ff286f::t_12911a9b9055f8 12,294-295,297,309-311
+resources/views/filament/pages/languages-missing.blade.php
+  s_c0fe1399ff286f::t_12911a9b9055f8 29-40
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_c0fe1399ff286f::t_f5db934861513d 10,34-42,75-76,116-117,127-141,159-162
+app/Support/Translations/MissingTranslationReason.php
+  s_c0fe1399ff286f::t_1149d547e8f453 1-50
+app/Support/Translations/MissingProjectTranslation.php
+  s_c0fe1399ff286f::t_2b90c6c48c3fa1 6,23,25-29
+tests/Feature/Filament/LanguagesPageTest.php
+  s_c0fe1399ff286f::t_3337c892538c26 220-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "718b3f37ea38746dce8794fb92441af3c2670f5a",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

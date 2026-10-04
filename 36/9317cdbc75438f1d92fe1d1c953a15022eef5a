@@ -1,0 +1,22 @@
+tests/Feature/Routes/StaticPageRouteTest.php
+  s_c0fe1399ff286f::t_435482abf2de25 4-37,134-177
+app/Support/Settings/ResolvedProjectSettings.php
+  s_c0fe1399ff286f::t_a4655773d3b55b 72-87,96-97,101-102,168-169,171,173-179,181-182,187-198,200
+  s_c0fe1399ff286f::t_e0472114ec2e15 185-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "369317cdbc75438f1d92fe1d1c953a15022eef5a",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

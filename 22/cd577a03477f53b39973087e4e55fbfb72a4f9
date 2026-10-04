@@ -1,0 +1,29 @@
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_c7e782fafc9782::t_bbbc5867ca0542 1626-1629
+tests/Feature/Architecture/DeployTest.php
+  s_c7e782fafc9782::t_ce85c6ab844547 455-466,4096
+tests/Feature/Architecture/EnvironmentContractTest.php
+  s_c7e782fafc9782::t_ce85c6ab844547 127-133
+infrastructure/scripts/render-environment-templates
+  s_c7e782fafc9782::t_0939ed5b389cd8 275-283,286-293,296,315-324,327,348-365
+tests/Feature/Architecture/EnvironmentContractCompletenessTest.php
+  s_c7e782fafc9782::t_de297f023c0d89 137-145,152-153,163-170,315-325,410,870-872
+  s_c7e782fafc9782::t_0f5f0c472576cb 770-774,776-778
+  s_c7e782fafc9782::t_ea290b33aaddd2 1019-1133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "22cd577a03477f53b39973087e4e55fbfb72a4f9",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

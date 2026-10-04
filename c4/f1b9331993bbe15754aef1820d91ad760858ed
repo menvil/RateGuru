@@ -1,0 +1,246 @@
+tests/Feature/Architecture/SupportedLocaleListTest.php
+  s_c0fe1399ff286f::t_4a144f6edbafb1 1-9,14-51
+  s_c0fe1399ff286f::t_d10100fb9b0ea9 10
+  s_c0fe1399ff286f::t_8d29ee09032c9a 11-13
+app/Livewire/Comments/CommentVoting.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 31
+lang/en/auth.php
+  s_c0fe1399ff286f::t_c035018b414c96 7
+  s_c0fe1399ff286f::t_e6e3a5b02dd7b0 15-56
+lang/bg/follows.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 5-6,14-16
+tests/Feature/Requests/ControllerFormRequestsTest.php
+  s_c0fe1399ff286f::t_5d1aab4636d0ec 16
+tests/Feature/I18n/ProfileTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 5-18,20
+tests/Feature/Actions/PresentationPreferenceActionsTest.php
+  s_c0fe1399ff286f::t_5d1aab4636d0ec 39
+lang/bg/passwords.php
+  s_c0fe1399ff286f::t_879ba2e1a1a013 1-9
+lang/bg/profile.php
+  s_c0fe1399ff286f::t_d6d89220158016 32-39,41-44,53-57
+  s_c0fe1399ff286f::t_a775fcfd93f519 11,24,26,28
+lang/ru/passwords.php
+  s_c0fe1399ff286f::t_879ba2e1a1a013 1-9
+resources/views/auth/forgot-password.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 3,14,21
+resources/views/auth/verify-email.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 3,8,18,27
+app/Exceptions/Moderation/CannotModeratePostException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16
+app/Exceptions/Posts/CannotRestoreDeletedPostException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21,26
+app/Exceptions/Votes/CannotVoteException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21,26
+app/Services/Comments/CommentReplyService.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 36
+tests/Feature/Filament/TagResourceFormTest.php
+  s_c0fe1399ff286f::t_e7b8b35f1307a9 302-352
+app/Http/Middleware/SetAdminLocale.php
+  s_c0fe1399ff286f::t_e48e435afeb3b9 19-25
+  s_c0fe1399ff286f::t_5f85f757ef8f68 1-18,26-37
+tests/Feature/I18n/ChangeLocaleActionTest.php
+  s_c0fe1399ff286f::t_8d29ee09032c9a 5-6,9-10,12,16,19-20,22,26,29-30,33
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 6-10,14,16-20
+tests/Feature/Localization/RecipientLocaleTest.php
+  s_c0fe1399ff286f::t_aa49302cc26b32 129,132
+tests/Feature/Routes/StaticPageRouteTest.php
+  s_c0fe1399ff286f::t_aa49302cc26b32 76
+resources/views/components/feed/post-card.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 37,43,88,119,193
+app/Exceptions/Votes/CannotVoteCommentException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21,26
+lang/ru/validation.php
+  s_c0fe1399ff286f::t_9921c55be2e9d6 8-9,19-56
+app/Actions/Votes/VotePostAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 53
+tests/Feature/Localization/NotificationMessageLocaleTest.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 37
+docs/i18n/multilingual-ui.md
+  s_c0fe1399ff286f::t_62b1588cd93980 45-49,51-52,54-57,106-107
+app/Exceptions/Posts/CannotDeletePostException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21
+lang/en/passwords.php
+  s_c0fe1399ff286f::t_879ba2e1a1a013 1-9
+resources/views/livewire/posts/post-voting.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 9,41,82,117,135
+tests/Feature/I18n/LocalesConfigTest.php
+  s_c0fe1399ff286f::t_d10100fb9b0ea9 4-5,7-12
+tests/Feature/I18n/LocaleManagerTest.php
+  s_c0fe1399ff286f::t_8d29ee09032c9a 8-12,16,19-21,30
+lang/ru/auth.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 6,64
+  s_c0fe1399ff286f::t_e6e3a5b02dd7b0 15-56
+  s_c0fe1399ff286f::t_c035018b414c96 7
+resources/views/livewire/profile/edit-profile-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 85,88
+lang/ru/ui.php
+  s_c0fe1399ff286f::t_879ba2e1a1a013 222-228
+  s_c0fe1399ff286f::t_a775fcfd93f519 4,148
+  s_c0fe1399ff286f::t_7b4fd183d37d0f 63-73,96-101,125-139,164-170,189-192,235-253,283-284,311-323
+tests/Feature/I18n/ImportTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 3,5-7,9
+lang/ru/import.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 20
+resources/views/components/auth/divider.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 3
+app/Actions/Votes/VoteCommentAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 50
+app/Exceptions/Reports/CannotReportContentException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21,26,31
+app/Livewire/Comments/CommentForm.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 22,37
+lang/en/ui.php
+  s_c0fe1399ff286f::t_7b4fd183d37d0f 63-73,92-97,121-135,160-166,185-188,231-249,279-280,307-319
+  s_c0fe1399ff286f::t_879ba2e1a1a013 218-224
+lang/bg/ui.php
+  s_c0fe1399ff286f::t_7b4fd183d37d0f 63-73,92-97,121-135,160-166,185-188,231-249,279-280,307-319
+  s_c0fe1399ff286f::t_879ba2e1a1a013 218-224
+  s_c0fe1399ff286f::t_a775fcfd93f519 4,14,62,143-144,191,202-203,253,276-277
+resources/views/profile/partials/connected-accounts.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 115
+tests/Feature/Architecture/TranslationParityTest.php
+  s_c0fe1399ff286f::t_8d54b719fe8f18 16-17,19,22-28,30,62,64,71-80,92-95,101,103,109-112,119,127-137,144,163,166,169-172,174-176,194
+tests/Feature/Theme/RawColorGuardTest.php
+  s_c0fe1399ff286f::t_33c49a0fc98150 33
+resources/views/components/auth/panel.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 37
+tests/Feature/I18n/AdminLocaleTest.php
+  s_c0fe1399ff286f::t_b023615091b56f 21-31,58-60,73,96-97
+  s_c0fe1399ff286f::t_639a845439bae1 3,81
+  s_c0fe1399ff286f::t_e89dd4bff4a9cd 1-2,4-20,32-36,38,41-57,61-70,74-80,82-95,98-123
+  s_c0fe1399ff286f::t_ba0f2137654949 37,39-40
+  s_c0fe1399ff286f::t_e48e435afeb3b9 71-72
+lang/bg/auth.php
+  s_c0fe1399ff286f::t_e6e3a5b02dd7b0 15-56
+  s_c0fe1399ff286f::t_a775fcfd93f519 6,62-63,69-70
+  s_c0fe1399ff286f::t_c035018b414c96 7
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_c0fe1399ff286f::t_8d29ee09032c9a 5-6,12-13,15-16,20-21,24
+lang/bg/import.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 17,20
+lang/bg/saved_posts.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 7-12,14
+tests/Feature/Auth/RegistrationTest.php
+  s_c0fe1399ff286f::t_9464fbdc2cdd83 129-130
+app/Actions/Reports/ReportContentAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 75
+resources/views/components/comments/comment-item.blade.php
+  s_c0fe1399ff286f::t_4724554da83fee 86,98
+resources/views/auth/reset-password.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 10,17,24,35
+app/Actions/Auth/RegisterUserAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 51
+app/Livewire/Comments/CommentsSection.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 108
+tests/Feature/Localization/ContactMailLocaleTest.php
+  s_c0fe1399ff286f::t_aa49302cc26b32 43-45,51,54,58,118
+resources/views/livewire/theme/theme-switcher.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 3-5
+tests/Feature/Auth/AuthModalRegistrationTest.php
+  s_c0fe1399ff286f::t_9464fbdc2cdd83 83
+resources/views/livewire/profile/profile-page.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 184-185
+app/Models/User.php
+  s_c0fe1399ff286f::t_b9eb41189caa76 44-46,282
+resources/views/livewire/comments/comment-voting.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 8
+resources/views/auth/confirm-password.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 3,11,23
+resources/views/livewire/posts/post-show.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 60,67,115
+tests/Feature/I18n/SharingTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 3,5-10,12
+lang/bg/sharing.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 19
+lang/bg/mail.php
+  s_c0fe1399ff286f::t_c035018b414c96 6-8
+  s_c0fe1399ff286f::t_a775fcfd93f519 9,22
+tests/Feature/I18n/PublicUiTranslationTest.php
+  s_c0fe1399ff286f::t_cea4d9bdf64e7b 3-5,28-92
+lang/en/mail.php
+  s_c0fe1399ff286f::t_c035018b414c96 6-8
+app/Actions/Comments/AddCommentAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 54,63,67,72,76,117
+app/Filament/Resources/Tags/Schemas/TagForm.php
+  s_c0fe1399ff286f::t_ea54191f70f288 8-9,56-70
+app/Providers/Filament/AdminPanelProvider.php
+  s_c0fe1399ff286f::t_9de12d63d8708b 54
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 37,44,94,248-249,253-254
+tests/Feature/Localization/MailContentLocaleTest.php
+  s_c0fe1399ff286f::t_aa49302cc26b32 47,58,65,71,74-91
+lang/en/validation.php
+  s_c0fe1399ff286f::t_9921c55be2e9d6 8-9,19-56
+resources/views/profile/partials/delete-user-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 10,14,19,23,38,42,50,63,83,87
+tests/Feature/I18n/RecentlyDeletedTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 4,18,20
+app/Livewire/Voting/RatingVoting.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 67,80
+resources/views/profile/partials/update-password-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 34,38,47,53,59,65,78
+resources/views/profile/partials/update-profile-information-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 4,8,21,27,34,41,44,50,58,67
+app/Support/AbuseGuards/ActionRateLimiter.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 14,18
+lang/en/profile.php
+  s_c0fe1399ff286f::t_d6d89220158016 32-39,41-44,53-57
+lang/bg/validation.php
+  s_c0fe1399ff286f::t_9921c55be2e9d6 8-9,19-56
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_c0fe1399ff286f::t_73778cc6b28da4 129,161
+app/Livewire/Posts/PostVoting.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 51
+app/Actions/Rating/VoteRatingOptionAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 50
+tests/Feature/Support/Settings/ProjectPresetsConfigTest.php
+  s_c0fe1399ff286f::t_aa49302cc26b32 59,81
+tests/Feature/I18n/SavedPostsTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 3,5,21,23
+tests/Feature/I18n/FollowTranslationKeysTest.php
+  s_c0fe1399ff286f::t_8562920d25935c 3,5-20
+app/Exceptions/Rating/CannotVoteForRatingOptionException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 11,16,21,26,31,36
+lang/ru/sharing.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 17
+app/Exceptions/Comments/CannotCommentException.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 18,28,33,36,38
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  s_c0fe1399ff286f::t_8d29ee09032c9a 7,12,16-17,24
+resources/views/components/auth/modal.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 43
+app/Actions/Posts/CreatePostAction.php
+  s_c0fe1399ff286f::t_d6d797d7b7ccae 53
+lang/ru/profile.php
+  s_c0fe1399ff286f::t_a775fcfd93f519 20,28,58
+  s_c0fe1399ff286f::t_d6d89220158016 32-39,41-44,53-57
+resources/views/components/auth/register-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 32,49,64,78,92
+lang/README.md
+  s_c0fe1399ff286f::t_591a439c510f3b 12-21,25-26,32-65,69,71,73,80-83
+lang/ru/mail.php
+  s_c0fe1399ff286f::t_c035018b414c96 6-8
+  s_c0fe1399ff286f::t_a775fcfd93f519 22
+resources/views/components/auth/login-form.blade.php
+  s_c0fe1399ff286f::t_6f517bd214e14b 34,51,72,81,87
+tests/Feature/I18n/TranslationKeyGuardTest.php
+  s_c0fe1399ff286f::t_6fe0f3709b4f32 4-5,7-22,24-34,36-41,43-48,50-54,56-107,110-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c4f1b9331993bbe15754aef1820d91ad760858ed",
+  "prompts": {},
+  "sessions": {
+    "s_c0fe1399ff286f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ef497c-0d1b-4694-ba79-4405c61bde9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
