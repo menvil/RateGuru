@@ -1,0 +1,19 @@
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_6af81f501f0890::t_55ed51147379f1 4371-4375,4377-4381,4383,4385-4390
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1d75fd1d510c20eaf2a3a93f31d595c711bffaa9",
+  "prompts": {},
+  "sessions": {
+    "s_6af81f501f0890": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af39df99-b4e4-415c-a829-6d6948fc83c3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

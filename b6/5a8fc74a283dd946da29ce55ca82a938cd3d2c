@@ -1,0 +1,24 @@
+.github/workflows/ci.yml
+  s_6af81f501f0890::t_0149b7fcb11260 320,333-339,343-346
+  s_6af81f501f0890::t_7a45ed32a470f2 454
+  s_6af81f501f0890::t_eca384f2d0e820 801-817
+  s_6af81f501f0890::t_cef34f19ffa7db 433-438,441-453,455-457,460-461,466
+  s_6af81f501f0890::t_8286f31c683aeb 745-756
+  s_6af81f501f0890::t_a36e0a0423e106 840
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b65a8fc74a283dd946da29ce55ca82a938cd3d2c",
+  "prompts": {},
+  "sessions": {
+    "s_6af81f501f0890": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af39df99-b4e4-415c-a829-6d6948fc83c3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
