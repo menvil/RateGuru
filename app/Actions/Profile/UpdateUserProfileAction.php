@@ -75,7 +75,7 @@ final class UpdateUserProfileAction
                 if ($storedAvatar !== null) {
                     // The previous avatar asset is soft-deleted, but its
                     // physical file is intentionally left on disk — orphan
-                    // cleanup is deferred to PR-07. Only run this when a
+                    // cleanup is a separate, still-outstanding decision. Only run this when a
                     // replacement was actually stored — otherwise an
                     // ordinary profile edit with no new avatar would
                     // soft-delete the user's current, unchanged avatar.

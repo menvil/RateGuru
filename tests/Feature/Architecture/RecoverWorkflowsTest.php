@@ -1656,8 +1656,17 @@ it('gives staging and production one marker contract', function () {
     foreach (['start', 'continue-held'] as $mode) {
         $outputs = recoverWorkflowStageOutputs($mode);
 
-        expect(array_diff_key(githubWorkflowJobResults($production, outputs: $outputs), ['validate-ref' => true]))
-            ->toBe(githubWorkflowJobResults($staging, outputs: $outputs), "the two recoveries run different stages on {$mode}");
+        // Both sides carry a control-plane gate now — production admits main,
+        // staging admits develop — and each always succeeds on its own branch, so
+        // the gate's own result is dropped from both rather than making the graphs
+        // look like they run different stages.
+        $gate = ['validate-ref' => true];
+
+        expect(array_diff_key(githubWorkflowJobResults($production, outputs: $outputs), $gate))
+            ->toBe(
+                array_diff_key(githubWorkflowJobResults($staging, outputs: $outputs), $gate),
+                "the two recoveries run different stages on {$mode}",
+            );
     }
 });
 
@@ -1825,10 +1834,12 @@ it('keeps the two recovery workflows structurally identical apart from their ide
     [$production] = recoverWorkflow('recover-production.yml');
 
     // Same jobs, same order, same shared actions: production is not a second
-    // implementation, it is the same one at a different identity — plus, ahead
-    // of everything, the main-only control-plane gate that only production
-    // carries (pinned by ProductionControlPlaneTest).
-    expect(array_keys($production['jobs']))->toBe(['validate-ref', ...array_keys($staging['jobs'])]);
+    // implementation, it is the same one at a different identity — each ahead of
+    // everything carrying a control-plane gate, differing only in the ref it
+    // admits (main for production, develop for staging; both pinned by
+    // ProductionControlPlaneTest).
+    expect(array_keys($production['jobs']))->toBe(array_keys($staging['jobs']));
+    expect(array_keys($staging['jobs'])[0])->toBe('validate-ref');
 
     $usesOf = static fn (array $workflow): array => collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))

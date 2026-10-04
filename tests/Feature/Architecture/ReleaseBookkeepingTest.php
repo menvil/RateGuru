@@ -148,10 +148,12 @@ it('references no release label from the application code', function () {
     // `app/` had quietly collected thirteen `PR-F` and `PR-E` labels, which is
     // exactly what an unenforced rule does.
     //
-    // The pattern covers the lettered form those labels take (`PR-F`,
-    // `(PR-E)`) alongside the numbered one, because a letter ages no better
-    // than a number: the behaviour is still right, the label still means
-    // nothing to anyone reading the file later.
+    // The pattern covers three spellings, because the labels use all of them and
+    // a guard that catches two is a guard that teaches people the third. `PR #12`
+    // the numbered reference, `PR-F` the lettered phase, and `PR-06` the
+    // hyphenated number — which the first version of this guard missed, leaving
+    // three live examples in app/ untouched. None of them ages any better than
+    // the others: the behaviour stays right, the label stops meaning anything.
     $offenders = [];
 
     $files = new RecursiveIteratorIterator(
@@ -166,7 +168,7 @@ it('references no release label from the application code', function () {
         $relative = str_replace(base_path().'/', '', $file->getPathname());
 
         foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
-            if (preg_match('/\bPR[ -](#\d+|[A-Z])\b|\bpull request #\d+/i', $line)) {
+            if (preg_match('/\bPR[ -](#?\d+|[A-Z])\b|\bpull request #\d+/i', $line)) {
                 $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
             }
         }

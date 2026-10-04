@@ -234,10 +234,6 @@ function operationalFiles(): array
 }
 
 /**
- * The revision this branch is measured against: the pull request's own base
- * commit in CI, `origin/develop` locally, or null when neither is available.
- */
-/**
  * Is this run measuring a `develop → main` promotion?
  *
  * Every diff-based scope guard asks "what did THIS change touch", and answers it
@@ -256,6 +252,11 @@ function branchIsPromotionToMain(): bool
     return getenv('GITHUB_BASE_REF') === 'main';
 }
 
+/**
+ * The revision this branch is measured against: the pull request's own base
+ * commit in CI, `origin/develop` locally, or null when neither is available —
+ * which a promotion into `main` also resolves to, see above.
+ */
 function branchBaseRevision(): ?string
 {
     if (branchIsPromotionToMain()) {

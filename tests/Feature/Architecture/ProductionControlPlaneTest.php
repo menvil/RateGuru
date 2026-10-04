@@ -665,11 +665,35 @@ it('gates a staging operation on develop, never on main', function (string $file
     expect(data_get($gate, 'environment'))
         ->toBeNull("{$file}: the gate must hold no GitHub Environment");
 
+    // EXECUTED, not grepped. Substring checks on the gate's text pass just as
+    // happily against a gate that rejects develop and admits everything else —
+    // the one mistake a develop-only gate can actually make. So each staging
+    // gate runs, the same way the production ones do.
     $run = (string) data_get($gate, 'steps.0.run');
+    $script = tempnam(sys_get_temp_dir(), 'staging-gate-');
+    file_put_contents($script, "#!/usr/bin/env bash\n".$run);
 
-    expect($run)->toContain('refs/heads/develop');
-    expect($run)->not->toContain('refs/heads/main');
-    expect($run)->toContain('exit 1');
+    try {
+        foreach ([
+            'refs/heads/develop' => true,
+            'refs/heads/main' => false,
+            'refs/tags/v1.2.3' => false,
+            'refs/heads/feature/anything' => false,
+            'refs/heads/not-develop' => false,
+            'refs/tags/develop' => false,
+            '' => false,
+        ] as $ref => $allowed) {
+            $output = [];
+            exec('env RUN_REF='.escapeshellarg($ref).' bash '.escapeshellarg($script).' 2>&1', $output, $exit);
+
+            expect($exit === 0)->toBe(
+                $allowed,
+                "{$file}: ".($allowed ? "{$ref} must be allowed" : "{$ref} must be refused").":\n".implode("\n", $output),
+            );
+        }
+    } finally {
+        @unlink($script);
+    }
 
     // Every Environment-bearing job downstream of it, at any depth.
     $environmentJobs = collect(data_get($workflow, 'jobs'))
@@ -690,6 +714,26 @@ it('gates a staging operation on develop, never on main', function (string $file
     ->reject(static fn (string $file): bool => $file === 'deploy-staging.yml')
     ->values()
     ->all());
+
+it('uses a byte-identical gate in every gated staging workflow', function () {
+    // Five copies is five chances for one to drift, and the production side
+    // already learned that lesson: a behavioural check against one workflow let a
+    // relaxed gate elsewhere pass. Each copy is executed above; here they are
+    // pinned to each other, which is what makes a single divergent edit visible.
+    $gates = [];
+
+    foreach (controlPlaneWorkflowsByRef()['develop'] as $file) {
+        if ($file === 'deploy-staging.yml') {
+            continue;
+        }
+
+        $gates[$file] = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+    }
+
+    expect($gates)->toHaveCount(5);
+    expect(array_unique(array_values($gates)))
+        ->toHaveCount(1, 'the develop-only gate has drifted between workflows: '.implode(', ', array_keys($gates)));
+});
 
 it('leaves staging deployment ungated, because selecting a ref is its purpose', function () {
     // The exception, asserted as a property rather than left as an absence: if

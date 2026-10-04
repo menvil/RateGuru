@@ -101,11 +101,21 @@ jobs:
   # and deploying an operator-selected ref to staging is the whole point of it —
   # staging is where a branch is verified before it is promoted.
   #
-  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a branch
-  # left selected in the Run workflow dropdown, a copied URL with the wrong ref.
-  # It is NOT a boundary against someone who can already push an arbitrary
-  # branch, because they would author this very file on it. Who may push is a
-  # branch protection concern, a separate permission surface.
+  # WHAT THIS IS NOT, and this matters more than it reads.
+  #
+  # A gate written in the workflow can only bind refs whose workflow contains it.
+  # Dispatching a ref from BEFORE this gate existed runs that ref's unguarded job,
+  # with the Environment, and nothing here can prevent it — the same is true of
+  # anyone who can push a branch, who would simply author this file on it.
+  #
+  # So this closes the ordinary mistake — a branch left selected in the Run
+  # workflow dropdown, a copied URL with the wrong ref — and does not close the
+  # general case. What closes the general case is outside the YAML: restricting
+  # the `staging` Environment's deployment branches to `develop`, so GitHub
+  # refuses the run before any job starts whatever the selected ref's workflow
+  # says. That is an operator setting no pull request can apply; see
+  # infrastructure/runbooks/deployment-targets.md. Until it is set, treat this
+  # gate as a guard rail rather than a boundary.
   validate-ref:
     name: Refuse any ref but develop
     runs-on: ubuntu-24.04

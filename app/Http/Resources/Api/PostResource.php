@@ -31,7 +31,7 @@ final class PostResource extends JsonResource
             'image_sizes' => $responsiveImage?->sizes,
             'image_width' => $responsiveImage?->width,
             'image_height' => $responsiveImage?->height,
-            // No dedicated thumbnail variant is generated yet (PR-06);
+            // No dedicated thumbnail variant is generated yet;
             // this field is kept for API-contract stability and was already
             // always null under the previous schema.
             'thumbnail_url' => null,

@@ -89,10 +89,19 @@ function phwPrepareStep(string $workflow): array
  * The gate itself — its text, its placement, what it admits — is asserted by
  * ProductionControlPlaneTest.
  */
+/**
+ * The workflow with its control-plane gate removed.
+ *
+ * Both planes have one and they are marked differently — `main-only` for
+ * production, `develop-only` for staging — so the pattern covers either. The gate
+ * selects nothing and checks nothing out; it is stripped here so the
+ * application-source search below is about the preparation itself, and not about
+ * the gate's own job name and refusal message.
+ */
 function phwWithoutControlPlaneGate(string $source): string
 {
     return preg_replace(
-        '/^\s*# --- main-only control-plane gate \(begin\) ---\n.*?^\s*# --- main-only control-plane gate \(end\) ---\n/ms',
+        '/^\s*# --- (main|develop)-only control-plane gate \(begin\) ---\n.*?^\s*# --- (main|develop)-only control-plane gate \(end\) ---\n/ms',
         '',
         $source,
     );
