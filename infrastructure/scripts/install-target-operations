@@ -16,7 +16,8 @@
 #             verify-environment-contract), the two committed environment
 #             templates, the four
 #             committed Nginx vhost sources the prerequisite table is derived
-#             from, and the host-global deployment.conf, verify a staged copy
+#             from, the host-global deployment.conf and the deployment protocol
+#             contract, verify a staged copy
 #             before touching anything, install transactionally, then verify
 #             the installed result against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
@@ -24,15 +25,24 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Thirty-one files: the registry, the twenty-three scripts — targets,
+#   * Thirty-two files: the registry, the twenty-three scripts — targets,
 #     common and restore-common (sourced libraries), health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
 #     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
 #     The Restore Target Data restore primitives (fetch-backup, verify-backup,
 #     restore-database, restore-storage, restore-target), recover-host,
 #     install-target-prerequisites and verify-required-clis — the four
-#     committed Nginx vhost sources (config/nginx/*), and deployment.conf, the
-#     host-global (non-target-specific) configuration those scripts source.
+#     committed Nginx vhost sources (config/nginx/*), deployment.conf, the
+#     host-global (non-target-specific) configuration those scripts source, and
+#     the deployment protocol contract (config/deployment-protocol.json), which
+#     is where the installed engine's own `tooling.supported` comes from.
+#   * The protocol contract is installed here and nowhere else, which is the
+#     whole point of the handshake. An application artifact may declare the
+#     minimum protocol it requires; only this installer — running from the
+#     trusted checkout, as root, through Prepare Host — may state what the
+#     engine on this host actually supports. deploy never reads
+#     `tooling.supported` out of a candidate artifact, so a release cannot
+#     declare itself compatible.
 #   * install-target-prerequisites is installed for one specific reason: a
 #     schema 3 backup carries the target's host-scope external material,
 #     captured through that installer's own --capture mode so the backup is
@@ -76,8 +86,8 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these thirty-one files in these
-# thirty-one places with these exact permissions, nothing else. The one
+# this installer's whole job is to put these thirty-two files in these
+# thirty-two places with these exact permissions, nothing else. The one
 # directory it creates is config/nginx, which exists solely to hold four of
 # those files.
 #
@@ -127,6 +137,12 @@ SRC_TARGET_PREREQUISITES="${REPO_ROOT}/infrastructure/scripts/install-target-pre
 SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 SRC_VERIFY_ENV_CONTRACT="${REPO_ROOT}/infrastructure/scripts/verify-environment-contract"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+# The deployment protocol handshake. This installer is the only thing that may
+# establish what protocol the TRUSTED engine on this host understands: the
+# installed deploy reads tooling.supported from the installed copy below and
+# never from a candidate artifact, so an artifact can state what it requires and
+# can never state what the host supports.
+SRC_DEPLOYMENT_PROTOCOL="${REPO_ROOT}/infrastructure/config/deployment-protocol.json"
 # The committed Nginx vhost sources install-target-prerequisites parses its
 # host-scope prerequisite table out of: every target's own site, plus the two
 # shared mail-capture vhosts. Listed rather than globbed, for exactly the
@@ -181,6 +197,7 @@ DST_TARGET_PREREQUISITES="${DST_BIN_ROOT}/install-target-prerequisites"
 DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_VERIFY_ENV_CONTRACT="${DST_BIN_ROOT}/verify-environment-contract"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
+DST_DEPLOYMENT_PROTOCOL="${DST_CONFIG_ROOT}/deployment-protocol.json"
 # The one directory this installer owns: it exists solely to hold the four
 # vhost sources below, in the position install-target-prerequisites resolves
 # from its own installed location.
@@ -225,9 +242,14 @@ NGINX_SOURCES_ROOT_MODE="0755"
 # non-secret configuration shape as the vhost sources.
 ENV_TEMPLATE_MODE="0644"
 ENV_TEMPLATES_ROOT_MODE="0755"
+# The protocol contract carries no secret and is read by root-run deploy only.
+# What matters is that nothing but root may WRITE it: a host that could be told
+# it supports a protocol it does not would deploy an artifact its engine cannot
+# honour, which is the exact failure this handshake exists to prevent.
+DEPLOYMENT_PROTOCOL_MODE="0644"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the thirty-one files it installs. A named constant (not a literal
+# about: the thirty-two files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -394,13 +416,53 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all thirty-one source files are present regular files"
+    log "all thirty-two source files are present regular files"
+}
+
+# The inclusive upper bound on any protocol version, matching deploy's own
+# DEPLOYMENT_PROTOCOL_MAX and build-rateguru's protocol_max exactly — a parity
+# test reads the literal out of all three files, because three independent
+# ceilings would be three different contracts. 2147483647 is the signed 32-bit
+# maximum: a protocol version is a small monotonic counter that will never
+# approach it, and bounding it is what stops a contract stating a value that
+# overflows the arithmetic comparison deploy makes.
+DEPLOYMENT_PROTOCOL_MAX=2147483647
+
+# The deployment protocol contract decides whether a release may be deployed at
+# all, so a malformed one is refused here — during --check and during the apply
+# preflight — rather than installed and discovered by the first deploy that
+# consults it. Validated as shape, not as policy: this installer never decides
+# what the numbers should be, only that they are the kind of thing deploy can
+# compare.
+validate_source_deployment_protocol() {
+    jq -e '
+        if type != "object" then error("contract is not a JSON object")
+        elif .schema != 1 then error("unsupported contract schema")
+        elif (.artifact.minimum_required | type) != "number" then error("artifact.minimum_required is not a number")
+        elif (.artifact.minimum_required | floor) != .artifact.minimum_required then error("artifact.minimum_required is not an integer")
+        elif .artifact.minimum_required < 1 then error("artifact.minimum_required is below 1")
+        elif .artifact.minimum_required > $max then error("artifact.minimum_required is above the supported maximum")
+        elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
+        elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
+        elif .tooling.supported < 1 then error("tooling.supported is below 1")
+        elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
+        elif .artifact.minimum_required > .tooling.supported then error("artifact.minimum_required exceeds tooling.supported")
+        else true
+        end
+    ' --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" "${SRC_DEPLOYMENT_PROTOCOL}" >/dev/null 2>&1 \
+        || fail "source deployment protocol contract is invalid: ${SRC_DEPLOYMENT_PROTOCOL}"
+
+    local minimum supported
+    minimum="$(jq -r '.artifact.minimum_required' "${SRC_DEPLOYMENT_PROTOCOL}")"
+    supported="$(jq -r '.tooling.supported' "${SRC_DEPLOYMENT_PROTOCOL}")"
+
+    log "source deployment protocol contract is valid (artifacts require ${minimum}, this tooling supports up to ${supported})"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -466,6 +528,7 @@ run_source_validation() {
     validate_source_executable_modes
     validate_source_syntax
     validate_source_registry
+    validate_source_deployment_protocol
     check_required_tools
 }
 
@@ -519,6 +582,7 @@ verify_staged_candidates() {
     local staged_target_prerequisites="${stage_dir}/install-target-prerequisites"
     local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
+    local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"
 
     log "verifying staged candidates before installation"
 
@@ -535,6 +599,15 @@ verify_staged_candidates() {
         "RATEGURU_COMMON_FILE=${staged_common}"
         "RATEGURU_RESTORE_COMMON_FILE=${staged_restore_common}"
         "RATEGURU_DEPLOYMENT_CONF_FILE=${staged_deployment_conf}"
+        # The staged bundle must be judged against ITSELF. None of the staged
+        # invocations below currently reaches deploy's deployment protocol gate —
+        # they are `--help` and the lifecycle rejection, both of which return
+        # first, and this installer never invokes deploy for real — so this
+        # changes no outcome today. It is here because the alternative is a staged
+        # deploy that would consult the HOST's installed contract, which is the
+        # one file in the pair that has not been staged, and that would stop being
+        # harmless the moment anything moves earlier in deploy.
+        "RATEGURU_DEPLOYMENT_PROTOCOL_FILE=${staged_deployment_protocol}"
         "RATEGURU_TARGET_REGISTRY_FILE=${staged_registry}"
         "RATEGURU_TARGETS_CLI=${staged_targets}"
         "RATEGURU_HEALTH_CHECK_CLI=${staged_health_check}"
@@ -1136,12 +1209,13 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_ENV_TEMPLATE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${ENV_TEMPLATE_MODE}" "${SRC_ENV_TEMPLATE_STAGING}"
     verify_installed_regular_file "${DST_ENV_TEMPLATE_TITS_GURU}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${ENV_TEMPLATE_MODE}" "${SRC_ENV_TEMPLATE_TITS_GURU}"
     verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
+    verify_installed_regular_file "${DST_DEPLOYMENT_PROTOCOL}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_PROTOCOL_MODE}" "${SRC_DEPLOYMENT_PROTOCOL}"
     verify_nginx_sources_root
     verify_installed_regular_file "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_STAGING}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_PRODUCTION}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILPIT}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILTRAP}"
-    log "  ownership, mode and content: OK for all thirty-one files"
+    log "  ownership, mode and content: OK for all thirty-two files"
 
     # common and restore-common are sourced libraries, never CLIs —
     # verify_installed_regular_file already proved their mode is exactly
@@ -1167,6 +1241,22 @@ verify_installed_files() {
     # unescaped quote, for example) before it is ever actually sourced.
     bash -n "${DST_DEPLOYMENT_CONF}" || fail "bash -n failed for installed file: ${DST_DEPLOYMENT_CONF}"
     log "  bash -n: OK for installed deployment.conf"
+
+    # The installed protocol contract is what the installed deploy consults to
+    # decide whether a candidate release may be deployed at all. Byte parity
+    # with the source is already proven above; this asserts the property deploy
+    # actually depends on — that the installed copy is a contract it can read —
+    # the same way the installed registry is handed to its own validator.
+    #
+    # Defence in depth, and deliberately so: with byte parity proven above and
+    # the source validated before any of this runs, nothing should be able to
+    # reach here with an unusable installed contract. The check costs one jq
+    # invocation and stops that remaining true by accident if either of those two
+    # guards is ever reordered or relaxed.
+    jq -e --argjson max "${DEPLOYMENT_PROTOCOL_MAX}" '.schema == 1 and (.tooling.supported | type) == "number" and (.tooling.supported | floor) == .tooling.supported and .tooling.supported >= 1 and .tooling.supported <= $max' \
+        "${DST_DEPLOYMENT_PROTOCOL}" >/dev/null 2>&1 \
+        || fail "installed deployment protocol contract is not usable: ${DST_DEPLOYMENT_PROTOCOL}"
+    log "  installed deployment protocol contract: OK (tooling supports up to $(jq -r '.tooling.supported' "${DST_DEPLOYMENT_PROTOCOL}"))"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"
@@ -1606,12 +1696,13 @@ run_check() {
     log "  ${DST_RESTORE_TARGET}"
     log "  ${DST_VERIFY_REQUIRED_CLIS}"
     log "  ${DST_DEPLOYMENT_CONF}"
+    log "  ${DST_DEPLOYMENT_PROTOCOL}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The directories every one of the thirty-one destinations lives under.
-# This installer owns exactly thirty-one *files* — it never creates, chowns or chmods
+# The directories every one of the thirty-two destinations lives under.
+# This installer owns exactly thirty-two *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1663,9 +1754,57 @@ validate_destination_directories() {
 # would be worse than telling them to wait.
 #
 # Lock ordering: restore-target takes this lock first, then the target
-# deployment lock, then the backup lock. This installer takes only this one,
-# so no cycle is possible.
+# deployment lock, then the backup lock. This installer takes the first two in
+# that same order, so no cycle is possible — and every lock on both sides is
+# `flock -n`, so a disagreement could only ever fail closed, never deadlock.
 RESTORE_LOCK_FDS=()
+
+# The deployment lock of every active target, held for the whole of an --apply.
+#
+# WHY A BUNDLE SWAP MUST EXCLUDE A RUNNING DEPLOYMENT. Replacing the files is
+# ordered carefully — `deploy` before the protocol contract, so a host never
+# promises a protocol its engine lacks — but file order cannot help a deployment
+# that is ALREADY RUNNING: that process goes on executing the old script text
+# while reading whatever the contract file now says. `deploy` takes its lock and
+# only reaches the protocol gate some way later, after the restore interlock and
+# the artifact checksum, which on a large artifact is not a short window. An
+# --apply landing a higher `tooling.supported` inside it would hand the old
+# engine a claim that the host supports a protocol that engine cannot implement,
+# and the gate would accept a release on the strength of it.
+#
+# That is precisely the mismatch this whole handshake exists to prevent, so the
+# bundle swap excludes a running deployment outright rather than racing it.
+DEPLOYMENT_LOCK_FDS=()
+
+# active_target_application_roots — every active target's application root, in a
+# deterministic (target-id sorted) order, honouring the same STAGING_TARGET_ROOT
+# test seam classify_staging_deployment_state uses.
+active_target_application_roots() {
+    local id root
+
+    while IFS= read -r id; do
+        [[ -n "${id}" ]] || continue
+
+        if [[ "${id}" == "${STAGING_TARGET_ID}" ]] && [[ -n "${STAGING_TARGET_ROOT}" ]]; then
+            root="${STAGING_TARGET_ROOT}"
+        else
+            root="$(jq -r --arg id "${id}" '.targets[$id].application_root' "${SRC_REGISTRY}")"
+        fi
+
+        [[ -n "${root}" ]] && [[ "${root}" != null ]] \
+            || fail "cannot derive the ${id} application root from ${SRC_REGISTRY}"
+
+        printf '%s\n' "${root}"
+    done < <(
+        jq -r '
+            .targets
+            | to_entries
+            | map(select(.value.lifecycle == "active") | .key)
+            | sort
+            | .[]
+        ' "${SRC_REGISTRY}"
+    )
+}
 
 active_backup_namespaces() {
     jq -r '
@@ -1730,6 +1869,42 @@ acquire_restore_locks() {
     done < <(active_backup_namespaces)
 
     log "no restore and no recovery is in flight for any active target's backup namespace"
+}
+
+# acquire_deployment_locks — the second half of the exclusion, taken AFTER the
+# restore locks so this installer's order matches restore-target's own.
+#
+# Non-blocking, like every other lock here: a deployment in flight fails the
+# apply closed rather than queueing behind it. A target whose locks directory
+# does not exist yet cannot have a deployment in flight — `deploy` opens its lock
+# inside that directory and could not have got past it — and this installer
+# creates no directories, so none is conjured just to lock in.
+acquire_deployment_locks() {
+    local root lock_file lock_fd
+
+    while IFS= read -r root; do
+        [[ -n "${root}" ]] || continue
+
+        if [[ ! -d "${root}/locks" ]]; then
+            log "  no lock directory at ${root}/locks — no deployment can be in flight for that target"
+
+            continue
+        fi
+
+        lock_file="${root}/locks/deployment.lock"
+
+        exec {lock_fd}>"${lock_file}" \
+            || fail "could not open the deployment lock for ${root}: ${lock_file}"
+
+        if ! flock -n "${lock_fd}"; then
+            fail "a deployment, rollback, restore or recovery is running for ${root} — refusing to replace the operational bundle underneath it, because an already-running engine would go on executing the old scripts while reading the new protocol contract (${lock_file})"
+        fi
+
+        DEPLOYMENT_LOCK_FDS+=("${lock_fd}")
+        log "  deployment lock held for ${root}"
+    done < <(active_target_application_roots)
+
+    log "no deployment is in flight for any active target"
 }
 
 verify_preflight_target_health() {
@@ -1824,10 +1999,12 @@ perform_apply() {
     log "mode: apply"
 
     RESTORE_LOCK_FDS=()
+    DEPLOYMENT_LOCK_FDS=()
 
     run_source_validation
     classify_staging_deployment_state
     acquire_restore_locks
+    acquire_deployment_locks
     validate_destination_directories
     verify_preflight_target_health
 
@@ -1865,6 +2042,7 @@ perform_apply() {
     install -m 0600 "${SRC_ENV_TEMPLATE_STAGING}" "${STAGE_DIR}/env-template-staging"
     install -m 0600 "${SRC_ENV_TEMPLATE_TITS_GURU}" "${STAGE_DIR}/env-template-tits-guru"
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
+    install -m 0600 "${SRC_DEPLOYMENT_PROTOCOL}" "${STAGE_DIR}/deployment-protocol.json"
     install -m 0600 "${SRC_NGINX_SOURCE_STAGING}" "${STAGE_DIR}/nginx-rateguru-staging"
     install -m 0600 "${SRC_NGINX_SOURCE_PRODUCTION}" "${STAGE_DIR}/nginx-rateguru-production"
     install -m 0600 "${SRC_NGINX_SOURCE_MAILPIT}" "${STAGE_DIR}/nginx-mailpit-staging"
@@ -1923,6 +2101,10 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/env-template-staging" "${DST_ENV_TEMPLATE_STAGING}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${ENV_TEMPLATE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/env-template-tits-guru" "${DST_ENV_TEMPLATE_TITS_GURU}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${ENV_TEMPLATE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
+    # Last, with deployment.conf, and for the same reason: the protocol contract
+    # and the engine that reads it move as one. Installed before deploy, a host
+    # would briefly promise a protocol its engine does not yet implement.
+    install_regular_file_transactional "${STAGE_DIR}/deployment-protocol.json" "${DST_DEPLOYMENT_PROTOCOL}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_PROTOCOL_MODE}"
 
     log "files installed; verifying before committing"
 
@@ -1939,6 +2121,7 @@ perform_apply() {
     log "  env templates: ${DST_ENV_TEMPLATE_STAGING}, ${DST_ENV_TEMPLATE_TITS_GURU}"
     log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
+    log "  deployment protocol: ${DST_DEPLOYMENT_PROTOCOL}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
 }

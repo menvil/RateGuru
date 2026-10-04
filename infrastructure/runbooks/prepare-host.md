@@ -236,6 +236,110 @@ script resolves every file it needs beneath that one directory. No
 application artifact is built or uploaded, and no application ref is ever
 involved.
 
+## Deployment protocol compatibility
+
+An application artifact can be newer than the privileged operational bundle
+installed beside it. Prepare Host is what installs that bundle, and it is not
+part of an ordinary deployment, so a host can legitimately be running an older
+`deploy` than the release it is handed — and that engine can simply not
+implement behaviour the release was built expecting. This has happened here for
+real: an installed `deploy` lagged repository behaviour and silently skipped a
+step the release expected. Silently is the problem.
+
+So the two sides declare themselves and `deploy` compares them before it
+touches anything:
+
+| Side | Declaration | Where it comes from |
+| --- | --- | --- |
+| the artifact | minimum protocol required (`N`) | `release.json`'s `deployment_protocol_min`, written at build time from the application source's own `infrastructure/config/deployment-protocol.json` |
+| the host | maximum protocol supported (`M`) | `tooling.supported` in `/home/www/rateguru/config/deployment-protocol.json`, installed by `install-target-operations` — that is, by Prepare Host |
+
+```text
+N <= M → deploy proceeds
+N >  M → deploy refuses → run Prepare Host → retry deploy
+```
+
+A refusal names both numbers and the one operation that fixes it. `deploy`
+never updates the bundle itself: self-updating a privileged engine out of the
+artifact it is being asked to trust would make the artifact the authority on
+its own trustworthiness. An artifact may state what it requires; only this
+runbook's operation may state what a host supports.
+
+A protocol version is an integer in `1..2147483647`, and every place a version
+is accepted enforces the same range: the committed contract, the application
+source's copy at build time, the candidate's `deployment_protocol_min`, and the
+installed `tooling.supported`. The ceiling is not decoration. JSON has no
+integer limit, so an unbounded contract could state `9223372036854775808`;
+Bash signed arithmetic wraps that to `-9223372036854775808`, the comparison
+answers "not greater", and an artifact requiring a protocol nothing implements
+would deploy. A version outside the range is refused where it is read, before
+anything is compared.
+
+Two deliberate asymmetries:
+
+* **An artifact whose `release.json` is an object with no
+  `deployment_protocol_min` is protocol 1.** Releases built before this contract
+  existed must stay deployable — a clean-host recovery installs exactly such a
+  historical release — and `deploy` logs that it drew the legacy conclusion
+  rather than defaulting silently. That is the *only* legacy shape: a
+  `release.json` that is an array, string, number or boolean, or that is missing
+  entirely, is a broken artifact and refuses. An artifact has always carried a
+  `release.json`, and `assert_controlled_artifact_identity` already refuses one
+  without it.
+* **A missing or malformed contract on the HOST refuses the deployment, with no
+  fallback.** That file is installed by the same operation that installs the
+  engine reading it, so a broken one means the bundle is not in a state to
+  deploy onto. Run Prepare Host.
+
+An archive carrying both `release.json` and `./release.json` is refused outright:
+the two are the same path once extracted, so the gate would be reading one
+declaration while extraction left the other on disk, and there is no answer to
+which is the contract.
+
+The compatibility gate applies to a controlled restore or recovery alignment
+exactly as it does to an ordinary deployment, deliberately unlike the
+environment contract, which *is* exempt there. That exemption is about
+historical application *state*: a backup's `environment.env` belongs to the
+commit it was taken from and may legitimately predate keys that exist now. This
+is about whether the engine running right now can carry out the deployment at
+all — just as true when the release being installed is historical.
+
+### Protocol 1 is the bootstrap baseline
+
+Both numbers are `1` today, so no artifact *requires* anything new and no
+deployment outcome changes on account of a version comparison.
+
+**That is not the same as "nothing to do".** The protocol-aware `deploy` treats
+the installed contract as mandatory and refuses without it, so a host that
+already has an older bundle has no
+`/home/www/rateguru/config/deployment-protocol.json` and its next deployment
+fails closed with:
+
+```text
+the installed deployment protocol contract is missing:
+/home/www/rateguru/config/deployment-protocol.json. Run Prepare Host to install
+the trusted operational bundle, then retry deployment
+```
+
+> **Every existing host must run Prepare Host once, before its next deployment.**
+> That is the operation that installs the protocol-aware `deploy` together with
+> the contract it reads. Until it has run, deployments to that host refuse — by
+> design, because a host whose engine and contract disagree is exactly what this
+> handshake exists to catch.
+
+Prepare Host is idempotent and converges, so running it on an already-prepared
+host is safe and is the normal way to adopt this.
+
+Only once a host is prepared may a protocol ever be raised:
+
+> Never raise `artifact.minimum_required` above 1 until all hosts that may
+> deploy that artifact have first installed the protocol-aware operational
+> bundle via Prepare Host.
+
+There is deliberately no automatic host migration: raising the floor before the
+hosts have moved would hand them artifacts they must refuse. The order is
+always Prepare Host first, then the artifact.
+
 ## Credential separation
 
 Two credentials, two lifecycles, and neither substitutes for the other:

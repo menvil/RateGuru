@@ -67,6 +67,43 @@ function deployOpsDeploymentConfPath(): string
     return base_path('infrastructure/templates/deployment.conf.example');
 }
 
+function deployOpsDeploymentProtocolPath(): string
+{
+    return base_path('infrastructure/config/deployment-protocol.json');
+}
+
+/**
+ * What the committed contract says this tooling supports. Read, never pinned to
+ * a literal: these tests assert the handshake's behaviour, and raising the
+ * protocol is a deliberate separate decision that must not be able to break
+ * them by surprise.
+ */
+function deployOpsSupportedProtocol(): int
+{
+    return (int) data_get(
+        json_decode(File::get(deployOpsDeploymentProtocolPath()), true, 512, JSON_THROW_ON_ERROR),
+        'tooling.supported',
+    );
+}
+
+/**
+ * A trusted installed protocol contract declaring an arbitrary supported
+ * ceiling — the one thing a test cannot take from the repository, because the
+ * committed contract deliberately only ever describes the current protocol.
+ */
+function deployOpsInstalledProtocolContract(string $scratch, int $supported, int $minimum = 1): string
+{
+    $path = $scratch.'/installed-protocol-'.uniqid('', true).'.json';
+
+    file_put_contents($path, json_encode([
+        'schema' => 1,
+        'artifact' => ['minimum_required' => $minimum],
+        'tooling' => ['supported' => $supported],
+    ], JSON_PRETTY_PRINT)."\n");
+
+    return $path;
+}
+
 function deployOpsScratchDir(): string
 {
     $dir = sys_get_temp_dir().'/deploy-ops-'.uniqid('', true).'-'.getmypid();
@@ -166,6 +203,11 @@ function deployOpsBaseEnv(string $scratch, array $overrides = []): array
         'RATEGURU_DEPLOYMENT_CONF_FILE' => deployOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => deployOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => deployOpsTargetsCli(),
+        // The trusted protocol contract an installed bundle would carry. The
+        // committed file itself, never a fixture copy: deploy refuses to run
+        // without it, and a hand-written stand-in could drift from the contract
+        // the installer actually installs.
+        'RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsDeploymentProtocolPath(),
         // Slice 5.5 supervisor-activation wait tuning, shrunk so an
         // activation that will never reach RUNNING fails immediately
         // instead of sleeping through the production retry budget.
@@ -485,6 +527,21 @@ function deployOpsStagingTemplateKeyCount(): int
  *   'ship'                   false to declare a template and not ship it
  *   'registry'               raw registry contents, for a malformed one
  *
+ * $release also controls the artifact's release.json, which is where the
+ * deployment protocol handshake reads the minimum protocol the release requires:
+ *
+ *   (absent)                 no release.json at all — a legacy artifact, which
+ *                            is what every older test in this file builds
+ *   'protocol' => 1          release.json declaring deployment_protocol_min: 1
+ *   'protocol' => 'omitted'  a release.json with no deployment_protocol_min, the
+ *                            other legacy shape
+ *   'protocol' => '"1"'      raw JSON for the field, to build the non-integer
+ *                            declarations the gate must refuse
+ *   'release_json'           raw release.json contents, for a malformed one
+ *   'artifact_contract'      a deployment-protocol.json to put INSIDE the
+ *                            artifact, which deploy must never treat as
+ *                            authority over what the host supports
+ *
  * @return array{root: string, incoming: string, artifact: string, checksum: string}
  */
 function deployOpsBuildFixture(string $scratch, bool $laravel = false, array $release = []): array
@@ -555,6 +612,51 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false, array $re
         }
 
         $tarEntries = $laravel ? 'public artisan infrastructure' : 'public infrastructure';
+    }
+
+    // The artifact's own release.json, PRESENT by default — every artifact the
+    // build has ever produced carries one, and `deploy` refuses an artifact
+    // without one both at the protocol gate and, for a controlled alignment, at
+    // the identity check. A fixture without it would be a shape that does not
+    // exist. 'release_json' => false builds that shape deliberately, for the
+    // tests that prove the refusal.
+    if (($release['release_json'] ?? null) !== false) {
+        $metadata = is_string($release['release_json'] ?? null)
+            ? $release['release_json']
+            : null;
+
+        if ($metadata === null) {
+            $fields = ['"project": "rateguru"', '"release": "v0.0.0-20260101-000000-abc0000"'];
+
+            // 'omitted' is the legacy shape: an object with no declaration. The
+            // default carries the protocol this tooling supports, which is what
+            // a freshly built artifact declares.
+            $protocol = $release['protocol'] ?? deployOpsSupportedProtocol();
+
+            if ($protocol !== 'omitted') {
+                $fields[] = '"deployment_protocol_min": '.$protocol;
+            }
+
+            $metadata = '{'.implode(', ', $fields).'}';
+        }
+
+        file_put_contents($artifactSrc.'/release.json', $metadata);
+        $tarEntries .= ' release.json';
+    }
+
+    // A protocol contract carried inside the artifact. deploy must ignore it
+    // entirely: an artifact may state what it requires, never what the host
+    // supports.
+    if (isset($release['artifact_contract'])) {
+        @mkdir($artifactSrc.'/infrastructure/config', 0o755, true);
+        file_put_contents(
+            $artifactSrc.'/infrastructure/config/deployment-protocol.json',
+            $release['artifact_contract'],
+        );
+
+        if (! str_contains($tarEntries, 'infrastructure')) {
+            $tarEntries .= ' infrastructure';
+        }
     }
 
     $artifact = $incoming.'/release.tar.gz';
@@ -2614,11 +2716,21 @@ function deployOpsAlignmentArtifact(
     }
 
     if ($withReleaseJson) {
-        file_put_contents($source.'/release.json', json_encode(array_filter([
+        $metadata = array_filter([
             'project' => 'rateguru',
             'release' => $releaseId,
             'source_sha' => $sourceSha,
-        ], static fn ($value): bool => $value !== null)));
+        ], static fn ($value): bool => $value !== null);
+
+        // A historical artifact normally has no deployment_protocol_min at all,
+        // which is the case the controlled-mode tests rely on. Declaring one is
+        // how they prove the gate applies to an alignment rather than merely
+        // that nothing was declared.
+        if (array_key_exists('protocol', $release)) {
+            $metadata['deployment_protocol_min'] = $release['protocol'];
+        }
+
+        file_put_contents($source.'/release.json', json_encode($metadata));
         $entries .= ' release.json';
     }
 
@@ -3062,7 +3174,11 @@ it('refuses an artifact that was not built from the required commit, before swit
     }
 })->with([
     ['wrong-commit', ['sha' => DEPLOY_OPS_CURRENT_SHA], 'refusing to install code the data on this target does not belong to'],
-    ['no-release-json', ['release_json' => false], 'artifact contains no release.json'],
+    // Caught at the deployment protocol gate now, which runs before extraction
+    // rather than after it — so this case is refused strictly earlier than when
+    // assert_controlled_artifact_identity was the only thing asking. That check
+    // keeps its own branch for the same shape; nothing reaches it through here.
+    ['no-release-json', ['release_json' => false], 'contains no release.json'],
     ['no-source-sha', ['sha' => null], 'refusing to install code the data on this target does not belong to'],
     ['release-mismatch', ['release' => 'v9.9.9-20260101-000000-a81d7f2'], 'names release v9.9.9-20260101-000000-a81d7f2'],
 ]);
@@ -4250,6 +4366,837 @@ it('never prints a value from the environment file, and never writes it', functi
         clearstatcache();
         expect(File::get($envPath))->toBe($before, 'deploy must never write the canonical environment file');
         expect(filemtime($envPath))->toBe($mtimeBefore);
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The deployment protocol handshake
+// =============================================================================
+//
+// The environment contract closed one half of operational-bundle drift: the KEYS
+// a release needs. The other half is the engine itself. install-target-operations
+// is not part of an application deployment, so the installed `deploy` can be
+// older than the release it is handed and can simply not implement behaviour
+// that release was built expecting — which has happened here for real, silently.
+//
+// So the artifact declares the minimum protocol it requires (release.json's
+// deployment_protocol_min) and the installed bundle declares what it supports
+// (the trusted contract's tooling.supported). Required > supported refuses
+// before anything is touched, and tells the operator to run Prepare Host.
+
+it('deploys when the candidate requires exactly what the installed tooling supports', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => deployOpsSupportedProtocol()]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('deployment protocol compatible: candidate requires '.deployOpsSupportedProtocol()
+                .', installed tooling supports '.deployOpsSupportedProtocol())
+            ->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('deploys when the installed tooling supports more than the candidate requires', function () {
+    // The ordinary forward-compatible case: a host whose bundle is newer than
+    // the release. 1 <= 2, so nothing is in the way.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => 1]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 2)]],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('deployment protocol compatible: candidate requires 1, installed tooling supports 2')
+            ->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses a candidate that requires a protocol the installed tooling does not support', function () {
+    // THE regression this exists for, and the whole reason protocol 1 is a
+    // bootstrap baseline: the release needs behaviour this engine does not have.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, true, ['protocol' => 2]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'].' --migrate',
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+
+        // Actionable: what is wrong, and the one operation that fixes it.
+        expect($result['output'])
+            ->toContain('candidate requires deployment protocol 2, installed tooling supports 1')
+            ->toContain('run Prepare Host to update the trusted operational bundle, then retry deployment');
+
+        // And never an attempt to fix it here. Self-updating a privileged engine
+        // out of the artifact it is being asked to trust would make the artifact
+        // the authority on its own trustworthiness.
+        expect($result['output'])
+            ->not->toContain('install-target-operations')
+            ->not->toContain('updating the operational bundle');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses an incompatible candidate before history, extraction, migration or the current switch', function () {
+    // Position is the whole point: a refusal after the history row, the release
+    // directory or a migration would have already changed the target.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, true, ['protocol' => 2]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'].' --migrate',
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+
+        // The checksum and path checks ran first, so this is a refusal at the
+        // gate's position and not an earlier accident.
+        expect($result['output'])->toContain('validating artifact paths');
+
+        expect($result['output'])
+            ->not->toContain('extracting v1.0.0')
+            ->not->toContain('running database migrations')
+            ->not->toContain('switching current symlink')
+            // The environment contract is judged AFTER this gate, so an
+            // incompatible engine never gets as far as asking about keys.
+            ->not->toContain('environment contract');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))
+            ->toBeFalse('no history row may be written before the protocol gate passes');
+        expect(glob($fixture['root'].'/releases/*'))
+            ->toBe([], 'no release directory may exist after a protocol refusal');
+        expect(is_link($fixture['root'].'/current'))
+            ->toBeFalse('current must not be switched after a protocol refusal');
+        expect(deployOpsSupervisorctlLog($scratch))
+            ->not->toContain('supervisorctl start parity-queue:*');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('treats a candidate with no deployment_protocol_min as protocol 1 and says so', function (array $release, string $expected) {
+    // Releases built before this contract existed must stay deployable. A silent
+    // default would be indistinguishable from a value that was actually read, so
+    // the legacy conclusion is logged every time it is drawn.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, $release);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain($expected)
+            ->toContain('deployment protocol compatible: candidate requires 1')
+            ->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    // The one legacy shape: an OBJECT that simply does not carry the field.
+    'release.json without the field' => [
+        ['protocol' => 'omitted'],
+        'candidate release has no deployment_protocol_min; treating legacy artifact as protocol 1',
+    ],
+    // An empty object is the same shape reduced to nothing.
+    'an empty release.json object' => [
+        ['release_json' => '{}'],
+        'candidate release has no deployment_protocol_min; treating legacy artifact as protocol 1',
+    ],
+]);
+
+it('refuses a candidate whose deployment_protocol_min is not an integer of at least 1', function (string $raw) {
+    // Feature detection must not become a way for a BROKEN modern artifact to be
+    // waved through as an old one. Absent is legacy; present and unusable is a
+    // defect, and there is deliberately no fallback to 1 for it.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => $raw]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('declares an unusable deployment_protocol_min')
+            ->toContain('This is a broken artifact, not an older release')
+            ->not->toContain('treating legacy artifact as protocol 1')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'a string' => ['"1"'],
+    'a float' => ['1.5'],
+    'a boolean' => ['true'],
+    'null' => ['null'],
+    'zero' => ['0'],
+    'a negative' => ['-1'],
+]);
+
+it('refuses a candidate whose release.json is not valid JSON', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['release_json' => 'this is not json']);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('is not a single JSON object')
+            ->toContain('this is a broken artifact, not an older release')
+            ->not->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses to deploy at all when the trusted installed protocol contract is unusable', function (string $state, string $expected) {
+    // The host's own declaration is mandatory trusted configuration with no
+    // fallback. The legacy allowance is for ARTIFACTS, which were genuinely
+    // built before this contract and cannot be changed retroactively; this file
+    // is installed by the same operation that installs the engine reading it, so
+    // a broken one means the bundle is not in a state to deploy onto.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => 1]);
+
+        $installed = match ($state) {
+            'missing' => $scratch.'/no-such-protocol-contract.json',
+            'symlink' => (function () use ($scratch): string {
+                $path = $scratch.'/symlinked-protocol.json';
+                symlink(deployOpsDeploymentProtocolPath(), $path);
+
+                return $path;
+            })(),
+            'directory' => (function () use ($scratch): string {
+                $path = $scratch.'/protocol-as-a-directory.json';
+                mkdir($path, 0o755, true);
+
+                return $path;
+            })(),
+            default => (function () use ($scratch, $state): string {
+                $path = $scratch.'/broken-protocol-'.uniqid('', true).'.json';
+                file_put_contents($path, $state);
+
+                return $path;
+            })(),
+        };
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => $installed]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        // One refusal, naming the real reason — never a second invented
+        // diagnosis from carrying on with an empty supported version.
+        expect($result['output'])
+            ->not->toContain('installed tooling supports ;')
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'absent' => ['missing', 'the installed deployment protocol contract is missing'],
+    'a symlink' => ['symlink', 'the installed deployment protocol contract is a symlink'],
+    'a directory' => ['directory', 'the installed deployment protocol contract is not a regular file'],
+    'malformed JSON' => ['not json at all', 'the installed deployment protocol contract is not usable'],
+    'a wrong schema' => ['{"schema": 2, "tooling": {"supported": 1}}', 'the installed deployment protocol contract is not usable'],
+    'a string supported version' => ['{"schema": 1, "tooling": {"supported": "2"}}', 'the installed deployment protocol contract is not usable'],
+    'a float supported version' => ['{"schema": 1, "tooling": {"supported": 1.5}}', 'the installed deployment protocol contract is not usable'],
+    'a zero supported version' => ['{"schema": 1, "tooling": {"supported": 0}}', 'the installed deployment protocol contract is not usable'],
+    'no tooling section' => ['{"schema": 1, "artifact": {"minimum_required": 1}}', 'the installed deployment protocol contract is not usable'],
+]);
+
+it('never lets a candidate artifact decide what the host supports', function () {
+    // The authority question. This artifact requires protocol 9 and carries its
+    // own deployment-protocol.json claiming the tooling supports 99. If deploy
+    // read tooling.supported from anywhere but the installed trusted contract,
+    // a release could declare itself compatible with an engine that cannot
+    // honour it — which is the exact failure the handshake exists to prevent.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, [
+            'protocol' => 9,
+            'artifact_contract' => json_encode([
+                'schema' => 1,
+                'artifact' => ['minimum_required' => 9],
+                'tooling' => ['supported' => 99],
+            ]),
+        ]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('candidate requires deployment protocol 9, installed tooling supports 1')
+            ->not->toContain('supports 99')
+            ->not->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// --- the handshake applies to a controlled alignment too ---------------------
+//
+// Deliberately unlike the environment contract, which IS exempt. That exemption
+// is about historical APPLICATION STATE: a backup's environment.env belongs to
+// the SHA it was taken from and may legitimately predate keys that exist now.
+// This is about whether the engine running right now can carry out the
+// deployment at all, which is just as true when the release is historical.
+
+it('aligns a restore with a historical artifact that declares no protocol', function () {
+    // The common disaster-recovery shape: a release built long before the
+    // handshake existed. Protocol 1, compatible with any engine, so a valid
+    // recovery stays possible.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteHeldRestore($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('candidate release has no deployment_protocol_min; treating legacy artifact as protocol 1')
+            ->toContain('deployment protocol compatible: candidate requires 1')
+            // The environment contract is still exempt here — the two
+            // decisions are independent, and this proves they stayed that way.
+            ->toContain('controlled alignment: the current operational environment contract is deliberately NOT applied');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses a restore alignment whose artifact requires an unsupported protocol', function () {
+    // A historical artifact that DECLARES a protocol this engine does not
+    // implement cannot be installed by it, controlled or not.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact(
+            $scratch,
+            $fixture,
+            release: ['protocol' => 2],
+        );
+        deployOpsWriteHeldRestore($scratch);
+
+        $currentBefore = readlink($fixture['root'].'/current');
+        $historyBefore = deployOpsHistory($fixture['root']);
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('candidate requires deployment protocol 2, installed tooling supports 1')
+            ->toContain('run Prepare Host to update the trusted operational bundle');
+
+        // Before any mutation: the alignment never started, current is where it
+        // was, and no release directory appeared.
+        expect($result['output'])
+            ->not->toContain('extracting '.DEPLOY_OPS_ALIGNMENT_RELEASE)
+            ->not->toContain('switching current symlink');
+        expect(readlink($fixture['root'].'/current'))->toBe($currentBefore);
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+
+        // No alignment history row, and the hold is still the hold.
+        expect(array_column(deployOpsHistory($fixture['root']), 'event'))
+            ->toBe(array_column($historyBefore, 'event'));
+        expect(json_decode(File::get(deployOpsGuardPath($scratch)), true))
+            ->toMatchArray(['status' => 'held', 'operation' => DEPLOY_OPS_RESTORE_OPERATION]);
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses a recovery alignment whose artifact requires an unsupported protocol', function () {
+    // The same rule on the clean-host recovery path, which installs code onto a
+    // host that has none — the last place a half-performed deployment is wanted.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact(
+            $scratch,
+            $fixture,
+            release: ['protocol' => 2],
+        );
+        deployOpsWriteAwaitingCodeRecovery($scratch);
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --recovery-operation '.DEPLOY_OPS_RECOVERY_OPERATION,
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('candidate requires deployment protocol 2, installed tooling supports 1')
+            ->not->toContain('switching current symlink');
+
+        expect(glob($fixture['root'].'/releases/*'))->toBe([]);
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+
+        // Still awaiting code: a refusal is not a resume.
+        expect(json_decode(File::get(deployOpsRecoveryGuardPath($scratch)), true)['status'])
+            ->toBe('awaiting-code');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('reads the supported protocol only from the installed trusted contract', function () {
+    // The behavioural proof above covers one forged artifact. This covers the
+    // rule: `tooling.supported` is never mentioned anywhere in deploy except
+    // while reading DEPLOYMENT_PROTOCOL_FILE, so there is no second place for a
+    // future change to start trusting the artifact from.
+    $executable = executableSourceLines(File::get(deployOpsScript()));
+
+    preg_match_all('/^.*tooling\.supported.*$/m', $executable, $mentions);
+
+    expect($mentions[0])->not->toBeEmpty('deploy must read the supported protocol somewhere');
+
+    // Every mention sits inside the one jq program handed the installed file.
+    expect(preg_match_all(
+        '/jq -e \'[^\']*tooling\.supported[^\']*\'[^\n]*"\$\{DEPLOYMENT_PROTOCOL_FILE\}"/',
+        $executable,
+    ))->toBe(1, 'the supported protocol must be read from the installed contract, exactly once');
+
+    // Remove that one read, and nothing mentioning the field may be left.
+    $withoutInstalledRead = (string) preg_replace(
+        '/jq -e \'[^\']*\'[^\n]*"\$\{DEPLOYMENT_PROTOCOL_FILE\}"/s',
+        'READ_INSTALLED_CONTRACT',
+        $executable,
+    );
+
+    // What survives may only be a diagnostic naming the field, never a second
+    // read of it: no jq program anywhere else in deploy may mention it.
+    foreach (preg_split('/\R/', $withoutInstalledRead) ?: [] as $line) {
+        if (! str_contains($line, 'tooling.supported')) {
+            continue;
+        }
+
+        expect(str_contains($line, 'jq'))
+            ->toBeFalse("tooling.supported may only be read from the installed contract: {$line}");
+    }
+
+    // The installed path itself is the production one, with the usual gated seam.
+    expect($executable)
+        ->toContain('DEPLOYMENT_PROTOCOL_FILE_DEFAULT="/home/www/rateguru/config/deployment-protocol.json"')
+        ->toContain('RATEGURU_DEPLOYMENT_PROTOCOL_FILE');
+});
+
+// --- the protocol version is a bounded integer, everywhere it is accepted ----
+//
+// JSON has no integer limit and Bash signed arithmetic wraps, so an unbounded
+// contract made `(( required > supported ))` a fail-open: 9223372036854775808
+// becomes -9223372036854775808, the comparison answers "not greater", and an
+// artifact requiring a protocol nothing implements deploys. The bound closes it,
+// and both sides are re-proven in Bash before the comparison, because that is
+// the step that fails open rather than closed.
+
+it('declares one identical protocol ceiling at every site that accepts a version', function () {
+    // Three bash/YAML programs that cannot share a constant, so the literal is
+    // read out of all three. Three independent ceilings would be three different
+    // contracts, and the effective one would silently be whichever is lowest.
+    $declared = deploymentProtocolMaxDeclarations();
+
+    foreach ($declared as $site => $value) {
+        expect($value)->not->toBeNull("{$site} declares no protocol ceiling");
+    }
+
+    expect(array_unique(array_values($declared)))
+        ->toHaveCount(1, 'the protocol ceiling must be identical at every site: '.json_encode($declared));
+
+    // The signed 32-bit maximum: far enough below the 64-bit range that every
+    // intermediate value is exact, and unmistakably a bound.
+    expect(array_values($declared)[0])->toBe(2147483647);
+
+    // And the committed contract lives inside it.
+    $contract = deploymentProtocolContract();
+    expect($contract['artifact']['minimum_required'])->toBeGreaterThanOrEqual(1);
+    expect($contract['tooling']['supported'])->toBeLessThanOrEqual(2147483647);
+});
+
+it('deploys at the protocol ceiling itself', function () {
+    // The boundary is inclusive on both sides, and nothing about the largest
+    // permitted value is special to the comparison.
+    $max = array_values(deploymentProtocolMaxDeclarations())[0];
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => $max]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, $max)]],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('deployment protocol compatible: candidate requires '.$max.', installed tooling supports '.$max)
+            ->toContain('switching current symlink');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses the protocol ceiling against tooling that supports only 1', function () {
+    // The case the overflow hid: a huge-but-legal requirement must still be
+    // compared correctly, not wrap into "no bigger than 1".
+    $max = array_values(deploymentProtocolMaxDeclarations())[0];
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => $max]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsInstalledProtocolContract($scratch, 1)]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('candidate requires deployment protocol '.$max.', installed tooling supports 1')
+            ->toContain('run Prepare Host to update the trusted operational bundle')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses a candidate protocol above the ceiling, before any comparison', function (string $raw) {
+    // Refused while READING the declaration, so the value never reaches the
+    // arithmetic at all — including the two that wrap: 2147483648 is merely out
+    // of range, while 9223372036854775808 wraps to negative and would have been
+    // judged "not greater than 1".
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => $raw]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('declares an unusable deployment_protocol_min')
+            ->toContain('it must be an integer from 1 to 2147483647')
+            // Never a comparison, and never a legacy downgrade.
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('treating legacy artifact as protocol 1')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'one above the ceiling' => ['2147483648'],
+    'the signed 64-bit maximum' => ['9223372036854775807'],
+    // Wraps to -9223372036854775808 in Bash arithmetic.
+    'one above the signed 64-bit maximum' => ['9223372036854775808'],
+    'far beyond any integer type' => ['99999999999999999999999999'],
+]);
+
+it('refuses an installed supported protocol above the ceiling', function (string $raw) {
+    // The host side of the same bound. A contract claiming an unbounded ceiling
+    // is how a host would be told it supports everything.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => 1]);
+
+        $installed = $scratch.'/huge-supported-'.uniqid('', true).'.json';
+        file_put_contents(
+            $installed,
+            '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": '.$raw.'}}',
+        );
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+            ['env' => ['RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => $installed]],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('the installed deployment protocol contract is not usable')
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'one above the ceiling' => ['2147483648'],
+    'the signed 64-bit maximum' => ['9223372036854775807'],
+    'one above the signed 64-bit maximum' => ['9223372036854775808'],
+    'far beyond any integer type' => ['99999999999999999999999999'],
+]);
+
+// --- release.json must be a single top-level JSON object --------------------
+//
+// jq's has() ERRORS on an array, string, number or boolean, and `|| return 2`
+// treated that error as "the key is absent" — so every non-object release.json
+// was classified as a legacy artifact and deployed as protocol 1. An error and an
+// absent key are not the same answer.
+
+it('refuses a release.json that is valid JSON but not an object', function (string $json) {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['release_json' => $json]);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('is not a single JSON object')
+            ->toContain('this is a broken artifact, not an older release')
+            // The precise regression: this must never be read as legacy.
+            ->not->toContain('treating legacy artifact as protocol 1')
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+        expect(glob($fixture['root'].'/releases/*'))->toBe([]);
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    'an array' => ['[]'],
+    'a populated array' => ['[{"deployment_protocol_min": 1}]'],
+    'a string' => ['"foo"'],
+    'a number' => ['123'],
+    'true' => ['true'],
+    'false' => ['false'],
+    'null' => ['null'],
+    'not JSON at all' => ['this is not json'],
+    // jq reads a concatenated stream happily, and "which value won?" has no
+    // answer — so neither does this.
+    'a concatenated stream of objects' => ['{"deployment_protocol_min": 1}{"deployment_protocol_min": 99}'],
+    'an empty file' => [''],
+]);
+
+// --- one logical root release.json, or none at all --------------------------
+
+it('refuses an archive carrying both release.json and ./release.json', function () {
+    // The two names are the same path once extracted. Counting only the chosen
+    // spelling let this pass as unambiguous while the gate read one declaration
+    // and extraction would leave the other on disk.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['protocol' => 1]);
+
+        // Rebuild the artifact with both spellings, carrying different
+        // declarations so a wrong answer here would be an observable one.
+        $plain = $scratch.'/dual-plain';
+        $dotted = $scratch.'/dual-dotted';
+        mkdir($plain, 0o755, true);
+        mkdir($dotted, 0o755, true);
+        mkdir($plain.'/public', 0o755, true);
+        file_put_contents($plain.'/public/index.php', "<?php // fixture\n");
+        file_put_contents($plain.'/release.json', '{"deployment_protocol_min": 1}');
+        file_put_contents($dotted.'/release.json', '{"deployment_protocol_min": 99}');
+
+        $tar = $scratch.'/dual.tar';
+        exec('tar -C '.escapeshellarg($plain).' -cf '.escapeshellarg($tar).' release.json public 2>&1', $o1, $e1);
+        expect($e1)->toBe(0, implode("\n", $o1));
+        exec('tar -C '.escapeshellarg($dotted).' -rf '.escapeshellarg($tar).' ./release.json 2>&1', $o2, $e2);
+        expect($e2)->toBe(0, implode("\n", $o2));
+        exec('gzip -c '.escapeshellarg($tar).' > '.escapeshellarg($fixture['artifact']).' 2>&1', $o3, $e3);
+        expect($e3)->toBe(0, implode("\n", $o3));
+        exec(
+            'cd '.escapeshellarg($fixture['incoming'])
+                .' && sha256sum '.escapeshellarg(basename($fixture['artifact']))
+                .' > '.escapeshellarg(basename($fixture['checksum'])).' 2>&1',
+            $o4,
+            $e4,
+        );
+        expect($e4)->toBe(0, implode("\n", $o4));
+
+        // Both spellings really are in there.
+        $listing = [];
+        exec('tar -tzf '.escapeshellarg($fixture['artifact']), $listing);
+        expect($listing)->toContain('release.json')->toContain('./release.json');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'].' --migrate',
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('contains 2 root release.json entries')
+            ->toContain('extraction would leave a different one on disk than this gate read');
+
+        // Neither declaration was acted on, and nothing was touched.
+        expect($result['output'])
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('extracting v1.0.0')
+            ->not->toContain('running database migrations')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
+        expect(glob($fixture['root'].'/releases/*'))->toBe([]);
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses an artifact that carries no release.json at all', function () {
+    // Not a legacy shape. The build has written release.json since the first real
+    // deployment workflow, and assert_controlled_artifact_identity already
+    // refuses an artifact without one for the neighbouring reason that it cannot
+    // confirm which commit it is installing. A fallback for a class of artifact
+    // that has never existed would only be a way in.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch, false, ['release_json' => false]);
+
+        $listing = [];
+        exec('tar -tzf '.escapeshellarg($fixture['artifact']), $listing);
+        expect($listing)->not->toContain('release.json')->not->toContain('./release.json');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaaa111 --artifact '.$fixture['artifact']
+                .' --checksum '.$fixture['checksum'],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('contains no release.json')
+            ->toContain('a RateGuru release artifact always carries one')
+            ->not->toContain('treating legacy artifact as protocol 1')
+            ->not->toContain('deployment protocol compatible')
+            ->not->toContain('switching current symlink');
+
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse();
     } finally {
         deployOpsCleanup($scratch);
     }

@@ -974,6 +974,10 @@ function installOpsBaseVars(
         'SRC_ENV_TEMPLATE_STAGING' => base_path('infrastructure/templates/environment/staging.env.example'),
         'SRC_ENV_TEMPLATE_TITS_GURU' => base_path('infrastructure/templates/environment/tits-guru.env.example'),
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
+        // The committed protocol contract travels as-is for the same reason the
+        // templates do: it IS the handshake deploy judges a candidate by, and a
+        // fixture copy would be a second declaration of it.
+        'SRC_DEPLOYMENT_PROTOCOL' => base_path('infrastructure/config/deployment-protocol.json'),
         // The committed vhost sources travel as-is: they are the prerequisite
         // table the installed install-target-prerequisites derives its
         // destinations from.
@@ -1008,6 +1012,7 @@ function installOpsBaseVars(
         'DST_VERIFY_REQUIRED_CLIS' => $scratch.'/dst-bin/verify-required-clis',
         'DST_VERIFY_ENV_CONTRACT' => $scratch.'/dst-bin/verify-environment-contract',
         'DST_DEPLOYMENT_CONF' => $scratch.'/dst-config/deployment.conf',
+        'DST_DEPLOYMENT_PROTOCOL' => $scratch.'/dst-config/deployment-protocol.json',
         'DST_NGINX_SOURCES_ROOT' => $scratch.'/dst-config/nginx',
         'DST_NGINX_SOURCE_STAGING' => $scratch.'/dst-config/nginx/rateguru-staging',
         'DST_NGINX_SOURCE_PRODUCTION' => $scratch.'/dst-config/nginx/rateguru-production',
@@ -1107,7 +1112,7 @@ it('never sources common or deployment.conf itself', function () {
     }
 });
 
-it('documents exactly the thirty-one files it owns, and what it does not touch, in the runbook', function () {
+it('documents exactly the thirty-two files it owns, and what it does not touch, in the runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/install-target-operations.md'));
 
     expect($runbook)
@@ -1163,6 +1168,8 @@ it('documents exactly the thirty-one files it owns, and what it does not touch, 
         ->toContain('/home/www/rateguru/bin/restore-target')
         ->toContain('fixed, hardcoded constants')
         ->toContain('/home/www/rateguru/config/deployment.conf')
+        ->toContain('infrastructure/config/deployment-protocol.json')
+        ->toContain('/home/www/rateguru/config/deployment-protocol.json')
         ->toContain('Why tits-guru remains planned');
 });
 
@@ -1231,10 +1238,11 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all thirty-one source files are present regular files')
+        ->toContain('all thirty-two source files are present regular files')
         ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not')
         ->toContain('bash -n passed for all twenty-three source shell scripts')
         ->toContain('source registry is valid JSON')
+        ->toContain('source deployment protocol contract is valid')
         ->toContain('required host tools present')
         ->toContain('check passed');
 });
@@ -1292,8 +1300,9 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_COMMON' => $commonPath,
         'SRC_RESTORE_COMMON' => $restoreCommonPath,
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
-        // Data files, never executable: the committed vhost sources and the
-        // environment templates.
+        // Data files, never executable: the committed vhost sources, the
+        // environment templates and the deployment protocol contract.
+        'SRC_DEPLOYMENT_PROTOCOL' => base_path('infrastructure/config/deployment-protocol.json'),
         'SRC_ENV_TEMPLATE_STAGING' => base_path('infrastructure/templates/environment/staging.env.example'),
         'SRC_ENV_TEMPLATE_TITS_GURU' => base_path('infrastructure/templates/environment/tits-guru.env.example'),
         'SRC_NGINX_SOURCE_STAGING' => base_path('infrastructure/config/nginx/rateguru-staging'),
@@ -2484,7 +2493,7 @@ it('verify_backup_cycle_planned_target_rejected fails when the rejection happens
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all thirty-one files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all thirty-two files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2534,6 +2543,9 @@ it('a successful apply installs all thirty-one files with correct ownership, mod
             ['DST_NGINX_SOURCE_PRODUCTION', 'SRC_NGINX_SOURCE_PRODUCTION', '0644'],
             ['DST_NGINX_SOURCE_MAILPIT', 'SRC_NGINX_SOURCE_MAILPIT', '0644'],
             ['DST_NGINX_SOURCE_MAILTRAP', 'SRC_NGINX_SOURCE_MAILTRAP', '0644'],
+            // The deployment protocol contract: non-secret configuration the
+            // installed deploy reads, and nothing but root may write.
+            ['DST_DEPLOYMENT_PROTOCOL', 'SRC_DEPLOYMENT_PROTOCOL', '0644'],
         ] as [$dstKey, $srcKey, $mode]) {
             $dst = $vars[$dstKey];
             expect(file_exists($dst))->toBeTrue("{$dstKey} must exist");
@@ -3992,17 +4004,30 @@ it('installs on a host that has no operational run root at all', function () {
 it('takes no lock at all in --check or --verify', function () {
     $source = installOpsSource();
 
-    expect(preg_match_all('/^\s*acquire_restore_locks$/m', $source, $matches))
-        ->toBe(1, 'acquire_restore_locks must be called exactly once, from perform_apply');
+    // Both lock acquisitions: the data-operation locks and the per-target
+    // deployment locks. Each called exactly once, and only from perform_apply.
+    foreach (['acquire_restore_locks', 'acquire_deployment_locks'] as $acquire) {
+        expect(preg_match_all('/^\s*'.$acquire.'$/m', $source, $matches))
+            ->toBe(1, "{$acquire} must be called exactly once, from perform_apply");
 
-    expect(preg_match(
-        '/perform_apply\(\) \{.*?acquire_restore_locks/s',
-        $source,
-    ))->toBe(1, 'the only call site must be inside perform_apply');
+        expect(preg_match('/perform_apply\(\) \{.*?'.$acquire.'/s', $source))
+            ->toBe(1, "the only {$acquire} call site must be inside perform_apply");
+    }
 
-    // And it runs before any destination is validated or touched.
-    expect(mb_strpos($source, 'acquire_restore_locks'."\n".'    validate_destination_directories'))
-        ->not->toBeFalse();
+    // And both run before any destination is validated or touched. Asserted by
+    // POSITION rather than by textual adjacency: what matters is the ordering,
+    // and adjacency would break the next time anything is correctly inserted
+    // between them — as acquire_deployment_locks was.
+    $body = substr($source, mb_strpos($source, "\nperform_apply() {"));
+    $body = substr($body, 0, mb_strpos($body, "\n}\n"));
+
+    $lastLockAt = mb_strpos($body, '    acquire_deployment_locks');
+    expect($lastLockAt)->not->toBeFalse();
+
+    foreach (['    validate_destination_directories', 'STAGE_DIR="$(mktemp -d)"'] as $later) {
+        expect(mb_strpos($body, $later))
+            ->toBeGreaterThan($lastLockAt, trim($later).' must come after every lock is held');
+    }
 });
 
 it('keeps the target-only lifecycle contract and introduces no legacy selector alongside the new CLI', function () {
@@ -4038,4 +4063,433 @@ it('keeps the target-only lifecycle contract and introduces no legacy selector a
             ->not->toContain('rateguru-staging-deploy')
             ->not->toContain('rateguru-production-deploy');
     }
+});
+
+// =============================================================================
+// The deployment protocol contract is trusted host configuration
+// =============================================================================
+//
+// `deploy` reads `tooling.supported` from the installed copy and from nowhere
+// else — never from the candidate artifact it is being asked to trust. That
+// makes this installer the only thing that may state what protocol the engine on
+// a host understands, so the contract travels with the bundle, transactionally,
+// and is verified as strictly as the registry.
+
+it('names the protocol contract in the source and destination contract', function () {
+    // The paths themselves are part of the agreement: `deploy` has
+    // /home/www/rateguru/config/deployment-protocol.json compiled into it as the
+    // one place it will look, so this installer must put it exactly there.
+    $source = installOpsSource();
+
+    expect($source)
+        ->toContain('SRC_DEPLOYMENT_PROTOCOL="${REPO_ROOT}/infrastructure/config/deployment-protocol.json"')
+        ->toContain('DST_DEPLOYMENT_PROTOCOL="${DST_CONFIG_ROOT}/deployment-protocol.json"');
+
+    // And it is wired into all four lists, not merely declared: source
+    // validation, staging, the transactional install, and installed verification.
+    expect($source)
+        ->toContain('"${SRC_DEPLOYMENT_PROTOCOL}"; do')
+        ->toContain('install -m 0600 "${SRC_DEPLOYMENT_PROTOCOL}" "${STAGE_DIR}/deployment-protocol.json"')
+        ->toContain('install_regular_file_transactional "${STAGE_DIR}/deployment-protocol.json" "${DST_DEPLOYMENT_PROTOCOL}"')
+        ->toContain('verify_installed_regular_file "${DST_DEPLOYMENT_PROTOCOL}"');
+
+    // deploy's trusted path and this installer's destination are the same
+    // string, read from both files rather than asserted twice by hand.
+    expect(File::get(base_path('infrastructure/scripts/deploy')))
+        ->toContain('DEPLOYMENT_PROTOCOL_FILE_DEFAULT="/home/www/rateguru/config/deployment-protocol.json"');
+});
+
+it('the committed protocol contract is a valid contract with protocol 1 as the baseline', function () {
+    // Protocol 1 is the bootstrap baseline. Raising artifact.minimum_required
+    // above 1 before every host has installed the protocol-aware bundle through
+    // Prepare Host would hand those hosts an artifact they must refuse, so the
+    // ceiling is asserted here and lifting it is a deliberate edit to this test.
+    $contract = json_decode(
+        File::get(base_path('infrastructure/config/deployment-protocol.json')),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+
+    expect($contract['schema'])->toBe(1);
+    expect($contract['artifact']['minimum_required'])->toBe(1);
+    expect($contract['tooling']['supported'])->toBe(1);
+
+    // The shape the installer and deploy both depend on.
+    expect($contract['artifact']['minimum_required'])->toBeInt();
+    expect($contract['tooling']['supported'])->toBeInt();
+    expect($contract['artifact']['minimum_required'])
+        ->toBeLessThanOrEqual($contract['tooling']['supported']);
+});
+
+it('--check refuses a malformed source protocol contract before any mutation', function (string $contents, string $expected) {
+    // Validated as shape plus the one cross-field invariant the contract itself
+    // asserts: this installer does not choose what the protocol numbers should
+    // be, only that each is the kind of thing deploy can compare AND that the
+    // contract is internally consistent — a repository cannot require of
+    // artifacts a protocol its own tooling does not implement. Caught during
+    // --check and during the apply preflight, which runs before the ERR trap is
+    // armed and before the staging directory exists.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $broken = $scratch.'/broken-protocol.json';
+        file_put_contents($broken, $contents);
+        $vars['SRC_DEPLOYMENT_PROTOCOL'] = $broken;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_deployment_protocol');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain($expected);
+
+        // And the same contract refuses an apply before it touches anything.
+        installOpsPlaceHealthyHealthCheck($vars);
+        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($applyExit)->not->toBe(0, $applyOut);
+        expect($applyOut)
+            ->toContain('source deployment protocol contract is invalid')
+            ->not->toContain('files installed; verifying before committing');
+
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))
+            ->toBeFalse('a malformed source contract must never be installed');
+        expect(file_exists($vars['DST_DEPLOY']))
+            ->toBeFalse('nothing may be installed after the source contract is refused');
+
+        // The scratch tree pre-creates BACKUP_ROOT, so the proof is that no
+        // timestamped run directory was created inside it: perform_apply makes
+        // one only once staging has succeeded.
+        expect(glob($vars['BACKUP_ROOT'].'/*'))
+            ->toBe([], 'the refusal must precede this run\'s backup directory');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+})->with([
+    'not JSON' => ['this is not json', 'source deployment protocol contract is invalid'],
+    'not an object' => ['["schema"]', 'source deployment protocol contract is invalid'],
+    'a wrong schema' => ['{"schema": 2, "artifact": {"minimum_required": 1}, "tooling": {"supported": 1}}', 'source deployment protocol contract is invalid'],
+    'a string minimum' => ['{"schema": 1, "artifact": {"minimum_required": "1"}, "tooling": {"supported": 1}}', 'source deployment protocol contract is invalid'],
+    'a float minimum' => ['{"schema": 1, "artifact": {"minimum_required": 1.5}, "tooling": {"supported": 1}}', 'source deployment protocol contract is invalid'],
+    'a zero minimum' => ['{"schema": 1, "artifact": {"minimum_required": 0}, "tooling": {"supported": 1}}', 'source deployment protocol contract is invalid'],
+    'a string supported' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": "1"}}', 'source deployment protocol contract is invalid'],
+    'a zero supported' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 0}}', 'source deployment protocol contract is invalid'],
+    // The one cross-field rule: this repository cannot ask artifacts for a
+    // protocol its own tooling does not implement.
+    'a minimum beyond what the tooling supports' => ['{"schema": 1, "artifact": {"minimum_required": 2}, "tooling": {"supported": 1}}', 'source deployment protocol contract is invalid'],
+]);
+
+it('--verify fails when the installed protocol contract is missing or has drifted', function (string $state, string $expected) {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOut);
+
+        // The apply really did install it, byte-for-byte.
+        expect(file_get_contents($vars['DST_DEPLOYMENT_PROTOCOL']))
+            ->toBe(File::get(base_path('infrastructure/config/deployment-protocol.json')));
+
+        match ($state) {
+            'missing' => unlink($vars['DST_DEPLOYMENT_PROTOCOL']),
+            'drifted' => file_put_contents(
+                $vars['DST_DEPLOYMENT_PROTOCOL'],
+                '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 99}}',
+            ),
+            'unusable' => file_put_contents($vars['DST_DEPLOYMENT_PROTOCOL'], 'not json'),
+            'mode' => chmod($vars['DST_DEPLOYMENT_PROTOCOL'], 0o666),
+        };
+
+        [$verifyExit, $verifyOut] = installOpsRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($verifyExit)->not->toBe(0, $verifyOut);
+        expect($verifyOut)->toContain($expected);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+})->with([
+    // A host that has lost the contract cannot deploy at all — deploy fails
+    // closed on it — so --verify must say so rather than report a healthy bundle.
+    'missing' => ['missing', 'deployment-protocol.json'],
+    // The dangerous one: a hand-edited contract claiming support for protocols
+    // this engine does not implement. Byte parity against the committed source
+    // is what catches it.
+    'drifted' => ['drifted', 'deployment-protocol.json'],
+    'unusable' => ['unusable', 'deployment-protocol.json'],
+    // Group/other-writable would let a non-root account tell the host it
+    // supports anything.
+    'group-writable' => ['mode', 'deployment-protocol.json'],
+]);
+
+it('restores the previous installed protocol contract when an apply fails', function () {
+    // The contract is installed transactionally with everything else: a failure
+    // anywhere after it lands must leave the host's previous declaration intact,
+    // because that declaration still describes the engine that is still installed.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        // A pre-existing installed contract, as a host that has been prepared
+        // before would have.
+        $previous = '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 1}, "marker": "the previously installed contract"}';
+        file_put_contents($vars['DST_DEPLOYMENT_PROTOCOL'], $previous);
+        chmod($vars['DST_DEPLOYMENT_PROTOCOL'], 0o644);
+
+        // Fail the apply at the very end, after every file has been installed,
+        // so the rollback has the contract to undo.
+        installOpsWriteExecutable($vars['SRC_STATUS'], installOpsStatusStub(healthy: false));
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('rollback complete: previous files restored');
+
+        expect(file_get_contents($vars['DST_DEPLOYMENT_PROTOCOL']))
+            ->toBe($previous, 'a failed apply must restore the previously installed protocol contract');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('removes an installed protocol contract that did not exist before a failed apply', function () {
+    // The mirror case: on a host being prepared for the first time there is no
+    // previous declaration, and a failed apply must leave none — a contract
+    // without the engine it describes is worse than no contract at all.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeFalse();
+
+        installOpsWriteExecutable($vars['SRC_STATUS'], installOpsStatusStub(healthy: false));
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('rollback complete: previous files restored');
+
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))
+            ->toBeFalse('rollback must remove a protocol contract this run created');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('declares the same protocol ceiling deploy and the build declare', function () {
+    // This installer deliberately never sources common, and the build is YAML, so
+    // the ceiling is written three times. Three independent ceilings would be
+    // three different contracts, with the effective one silently the lowest.
+    $declared = deploymentProtocolMaxDeclarations();
+
+    expect($declared['install-target-operations'])->toBe($declared['deploy']);
+    expect($declared['install-target-operations'])->toBe($declared['build-rateguru']);
+    expect($declared['install-target-operations'])->toBe(2147483647);
+});
+
+it('refuses a source protocol contract whose versions exceed the ceiling', function (string $contents) {
+    // JSON has no integer limit; the comparison deploy makes does. A contract
+    // stating a version that cannot be compared is refused where it is validated,
+    // not discovered by the deployment that tries to use it.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $broken = $scratch.'/huge-protocol.json';
+        file_put_contents($broken, $contents);
+        $vars['SRC_DEPLOYMENT_PROTOCOL'] = $broken;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_deployment_protocol');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('source deployment protocol contract is invalid');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+})->with([
+    'a minimum one above the ceiling' => ['{"schema": 1, "artifact": {"minimum_required": 2147483648}, "tooling": {"supported": 2147483648}}'],
+    'a supported one above the ceiling' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 2147483648}}'],
+    'the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 9223372036854775807}}'],
+    // Wraps to a negative in Bash arithmetic, which is the whole reason for a bound.
+    'one above the signed 64-bit maximum' => ['{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 9223372036854775808}}'],
+]);
+
+it('accepts a source protocol contract exactly at the ceiling', function () {
+    // Inclusive: the bound is a limit, not an off-by-one.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $atCeiling = $scratch.'/ceiling-protocol.json';
+        file_put_contents(
+            $atCeiling,
+            '{"schema": 1, "artifact": {"minimum_required": 2147483647}, "tooling": {"supported": 2147483647}}',
+        );
+        $vars['SRC_DEPLOYMENT_PROTOCOL'] = $atCeiling;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_deployment_protocol');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('artifacts require 2147483647, this tooling supports up to 2147483647');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// An apply never replaces the bundle underneath a running deployment
+// =============================================================================
+//
+// Installing `deploy` before the protocol contract keeps a host from ever
+// promising a protocol its engine lacks — but file order cannot help a deployment
+// that is ALREADY RUNNING. That process goes on executing the old script text
+// while reading whatever the contract file now says, and `deploy` takes its lock
+// well before it reaches the protocol gate (the restore interlock and the
+// artifact checksum are in between). An apply landing a higher
+// `tooling.supported` inside that window would hand an old engine a claim the
+// host supports a protocol it cannot implement — the exact mismatch the
+// handshake exists to prevent. So the apply excludes a running deployment.
+
+it('refuses an apply while a deployment lock is held for an active target', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $locks = $vars['STAGING_TARGET_ROOT'].'/locks';
+        expect(@mkdir($locks, 0o755, true))->toBeTrue();
+
+        // Hold the lock the way deploy holds it: an open descriptor with a
+        // non-blocking exclusive flock, from a process that outlives the apply.
+        $lockFile = $locks.'/deployment.lock';
+        $holder = popen('flock '.escapeshellarg($lockFile).' -c '.escapeshellarg('sleep 60').' 2>/dev/null', 'r');
+        expect($holder)->not->toBeFalse('could not start the lock holder');
+
+        // Wait for the holder to actually own it, rather than racing it.
+        $held = false;
+        for ($i = 0; $i < 100; $i++) {
+            exec('flock -n '.escapeshellarg($lockFile).' -c true 2>/dev/null', $probe, $probeExit);
+            if ($probeExit !== 0) {
+                $held = true;
+                break;
+            }
+            usleep(50_000);
+        }
+        expect($held)->toBeTrue('the lock holder never acquired the deployment lock');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)
+            ->toContain('refusing to replace the operational bundle underneath it')
+            ->toContain('deployment.lock');
+
+        // Nothing was touched: the lock is taken before the destination
+        // directories are validated, before the backup directory, before staging.
+        expect($output)->not->toContain('files installed; verifying before committing');
+        expect(file_exists($vars['DST_DEPLOY']))->toBeFalse('an excluded apply must install nothing');
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeFalse();
+        expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'the refusal must precede this run\'s backup directory');
+
+        pclose($holder);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('takes the deployment lock after the restore locks, matching restore-target ordering', function () {
+    // Lock ordering is a property of the source, not of one run: restore-target
+    // takes the restore lock, then the deployment lock, then the backup lock, and
+    // this installer takes the first two in that same order. Every lock on both
+    // sides is `flock -n`, so a disagreement could only fail closed — but
+    // matching the order means it does not even do that.
+    // The call sites inside perform_apply, not the function definitions, which
+    // appear earlier in the file in an unrelated order.
+    $source = installOpsSource();
+    $body = substr($source, strpos($source, "\nperform_apply() {"));
+    $body = substr($body, 0, strpos($body, "\n}\n"));
+
+    $restoreAt = strpos($body, '    acquire_restore_locks');
+    $deploymentAt = strpos($body, '    acquire_deployment_locks');
+
+    expect($restoreAt)->not->toBeFalse('perform_apply must acquire the restore locks');
+    expect($deploymentAt)->not->toBeFalse('perform_apply must acquire the deployment locks');
+    expect($restoreAt)->toBeLessThan($deploymentAt, 'the restore locks must be taken first');
+
+    // And both before the first mutation: destination validation, the health
+    // probe and the staging directory all come after.
+    foreach ([
+        '    validate_destination_directories',
+        '    verify_preflight_target_health',
+        'STAGE_DIR="$(mktemp -d)"',
+    ] as $later) {
+        expect(strpos($body, $later))
+            ->toBeGreaterThan($deploymentAt, trim($later).' must come after the deployment locks');
+    }
+});
+
+it('applies cleanly when no deployment is in flight, and says so', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(@mkdir($vars['STAGING_TARGET_ROOT'].'/locks', 0o755, true))->toBeTrue();
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('deployment lock held for '.$vars['STAGING_TARGET_ROOT'])
+            ->toContain('no deployment is in flight for any active target');
+
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeTrue();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('applies on a host whose target has no lock directory yet', function () {
+    // A target that has never run an operational script cannot have a deployment
+    // in flight — `deploy` opens its lock inside that directory and could not
+    // have got past it — and this installer creates no directories, so a clean
+    // host is not blocked by a lock it has nowhere to take.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(is_dir($vars['STAGING_TARGET_ROOT'].'/locks'))->toBeFalse();
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('no lock directory at '.$vars['STAGING_TARGET_ROOT'].'/locks');
+        expect(is_dir($vars['STAGING_TARGET_ROOT'].'/locks'))
+            ->toBeFalse('this installer must never create a directory just to lock in it');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('stages the protocol contract into the staged bundle override set', function () {
+    // The staged bundle is judged against itself. No staged invocation reaches
+    // deploy's protocol gate today — they are `--help` and the lifecycle
+    // rejection, and this installer never invokes deploy for real — so this
+    // changes no outcome now. It is here so a staged deploy can never consult the
+    // HOST's contract, the one file of the pair that has not been staged.
+    $source = installOpsSource();
+
+    expect($source)
+        ->toContain('local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"')
+        ->toContain('"RATEGURU_DEPLOYMENT_PROTOCOL_FILE=${staged_deployment_protocol}"');
 });

@@ -192,7 +192,7 @@ runs:
         fi
 
         # --- core release.json fields (begin) ---
-        core_fields='["project","source_ref","source_sha","release","built_at","workflow_run_id","workflow_run_number"]'
+        core_fields='["project","source_ref","source_sha","release","built_at","workflow_run_id","workflow_run_number","deployment_protocol_min"]'
         # --- core release.json fields (end) ---
 
         reserved="$(
@@ -333,6 +333,78 @@ runs:
         infrastructure/scripts/verify-required-clis --release-root "${package_root}"
         # --- verify infrastructure CLI executable bits (end) ---
 
+        # The deployment protocol this release requires of whatever engine
+        # deploys it, read from the APPLICATION SOURCE's own committed
+        # contract — never a literal repeated here, so the contract file stays
+        # the single source and a build cannot claim a protocol the source did
+        # not declare.
+        #
+        # An application source that predates the contract legitimately has no
+        # such file. Trusted modern build tooling must still be able to package
+        # a historical commit, so that case resolves to protocol 1 explicitly
+        # and says so, rather than failing or guessing. A source that HAS the
+        # file is held to it: malformed is a broken source, not an old one.
+        # --- candidate deployment protocol (begin) ---
+        protocol_contract="infrastructure/config/deployment-protocol.json"
+
+        # The inclusive upper bound on a protocol version, identical to deploy's
+        # DEPLOYMENT_PROTOCOL_MAX and install-target-operations' own — a parity
+        # test reads the literal out of all three files. Without it a source
+        # could declare a value that overflows the arithmetic comparison deploy
+        # makes, and an artifact requiring a protocol nothing implements would
+        # deploy. 2147483647 is the signed 32-bit maximum.
+        protocol_max=2147483647
+
+        # An ABSENT contract is the one historical fallback. A contract path that
+        # exists must be a regular file and not a symlink: `-f` alone follows a
+        # link, so a link planted in the source tree could point at a file outside
+        # it and decide deployment_protocol_min, while the artifact carried only
+        # the link and no host could ever see what was read.
+        if [[ -L "${protocol_contract}" ]]; then
+          echo "${protocol_contract} is a symlink — a release must declare its protocol from its own tree" >&2
+          exit 1
+        fi
+
+        if [[ -e "${protocol_contract}" ]] && [[ ! -f "${protocol_contract}" ]]; then
+          echo "${protocol_contract} is not a regular file" >&2
+          exit 1
+        fi
+
+        if [[ -f "${protocol_contract}" ]]; then
+          # The WHOLE contract, not just the half this build reads. The same file
+          # is the single source install-target-operations validates, and it
+          # applies the cross-field invariant; a contract raising
+          # artifact.minimum_required past tooling.supported would otherwise build
+          # cleanly and ship a release.json that every host must refuse. Two
+          # validators of one source of truth must not be able to disagree.
+          if ! deployment_protocol_min="$(
+            jq -e --argjson max "${protocol_max}" '
+              if type != "object" then error("contract is not a JSON object")
+              elif .schema != 1 then error("unsupported contract schema")
+              elif (.artifact.minimum_required | type) != "number" then error("artifact.minimum_required is not a number")
+              elif (.artifact.minimum_required | floor) != .artifact.minimum_required then error("artifact.minimum_required is not an integer")
+              elif .artifact.minimum_required < 1 then error("artifact.minimum_required is below 1")
+              elif .artifact.minimum_required > $max then error("artifact.minimum_required is above the supported maximum")
+              elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
+              elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
+              elif .tooling.supported < 1 then error("tooling.supported is below 1")
+              elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
+              elif .artifact.minimum_required > .tooling.supported then error("artifact.minimum_required exceeds tooling.supported")
+              else .artifact.minimum_required
+              end
+            ' "${protocol_contract}"
+          )"; then
+            echo "${protocol_contract} is not a valid deployment protocol contract" >&2
+            exit 1
+          fi
+
+          echo "Candidate deployment protocol: ${deployment_protocol_min} (from ${protocol_contract})"
+        else
+          deployment_protocol_min=1
+          echo "application source has no ${protocol_contract}; declaring legacy minimum deployment protocol ${deployment_protocol_min}"
+        fi
+        # --- candidate deployment protocol (end) ---
+
         # The core identity every consumer depends on — the application's own
         # DeploymentMetadata, Sentry, deploy's active-release verification and
         # any future rebuild-from-source recovery — is written here, once.
@@ -347,6 +419,7 @@ runs:
           --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           --arg workflow_run_id "${GITHUB_RUN_ID}" \
           --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
+          --argjson deployment_protocol_min "${deployment_protocol_min}" \
           --argjson extra "${RELEASE_METADATA}" \
           '{
             project: $project,
@@ -355,7 +428,8 @@ runs:
             release: $release,
             built_at: $built_at,
             workflow_run_id: $workflow_run_id,
-            workflow_run_number: $workflow_run_number
+            workflow_run_number: $workflow_run_number,
+            deployment_protocol_min: $deployment_protocol_min
           } + $extra' \
           > "${package_root}/release.json"
 
