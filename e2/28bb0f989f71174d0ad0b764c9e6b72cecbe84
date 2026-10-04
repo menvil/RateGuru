@@ -1,0 +1,34 @@
+.github/workflows/prepare-staging-host.yml
+  s_c7e782fafc9782::t_532094db7c2b7d 64-70
+.github/workflows/repair-staging.yml
+  s_c7e782fafc9782::t_532094db7c2b7d 88-94
+.github/workflows/restore-staging.yml
+  s_c7e782fafc9782::t_532094db7c2b7d 114-120
+.github/workflows/recover-staging.yml
+  s_c7e782fafc9782::t_532094db7c2b7d 150-156
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_c044cdd0c62ff8 160-174
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_c7e782fafc9782::t_95eb1c4eb11b39 802-821
+  s_c7e782fafc9782::t_e85216d3d91cc4 824-827
+  ai_agent 828
+  s_c7e782fafc9782::t_c5d647a340e134 769-801,822-823,829-830
+.github/workflows/rollback-staging.yml
+  s_c7e782fafc9782::t_532094db7c2b7d 67-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e228bb0f989f71174d0ad0b764c9e6b72cecbe84",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
