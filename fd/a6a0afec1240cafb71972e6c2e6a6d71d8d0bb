@@ -1,0 +1,82 @@
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_c7e782fafc9782::t_3a60b8f483369a 175-177
+  s_c7e782fafc9782::t_dfc1749f5ab764 152-155,157-163,166-167,170-174,178-180
+tests/Feature/Architecture/BuildRateGuruActionTest.php
+  s_c7e782fafc9782::t_c300bfa6439a8a 247,277-281,313
+  s_c7e782fafc9782::t_df6df2031fd44a 596-804
+infrastructure/runbooks/prepare-host.md
+  s_c7e782fafc9782::t_28fcfa2e83f63b 239-299
+infrastructure/scripts/deploy
+  s_c7e782fafc9782::t_228be7a6a49a18 1646-1653
+  s_c7e782fafc9782::t_6d7261862d9ea7 1094
+  s_c7e782fafc9782::t_a626eafba0977b 1061-1062,1071-1080
+  s_c7e782fafc9782::t_326cdd82b87efc 71-82
+  s_c7e782fafc9782::t_3f908233722ba0 120-123
+  s_c7e782fafc9782::t_bce3a69d96b5f2 1029-1058,1060,1063-1070,1081-1093,1095-1114,1126-1145,1147-1171,1174-1185,1187-1206,1214-1220,1224-1226,1245,1247,1249-1258
+  s_c7e782fafc9782::t_0a851c1fb2d3c6 1172-1173,1186
+  s_c7e782fafc9782::t_d89dc0391c7111 1115-1125
+  s_c7e782fafc9782::t_4c954d5a156110 1146
+  s_c7e782fafc9782::t_5686a44a1355bc 1059
+  s_c7e782fafc9782::t_c960e2e0817448 1207-1211,1221-1223,1227-1244,1246,1248
+  s_c7e782fafc9782::t_8d318ccbd997c2 1212-1213
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_c7e782fafc9782::t_dfc1749f5ab764 79-80
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_c7e782fafc9782::t_8d95b5dbfd7c80 1171-1172
+  s_c7e782fafc9782::t_f211a2a15b1373 977-980,1015,1303-1305
+  s_c7e782fafc9782::t_6f7d920ef8afe6 1241,1245
+  s_c7e782fafc9782::t_c6e0b4ec2d1845 4054-4142,4149-4267
+  s_c7e782fafc9782::t_899615297ee025 4143-4148
+  s_c7e782fafc9782::t_731f37bcdf8ece 1115,2496,2546-2548
+infrastructure/config/deployment-protocol.json
+  s_c7e782fafc9782::t_647a23797ad862 1-9
+.github/actions/build-rateguru/action.yml
+  s_c7e782fafc9782::t_ad158e99807a84 336-372
+  s_c7e782fafc9782::t_a5dd80ffb2af47 195
+  s_c7e782fafc9782::t_6ee0dabbfc6c4c 387,396-397
+tests/Feature/Architecture/DeployTest.php
+  s_c7e782fafc9782::t_fd79d7d8b947be 206-210
+  s_c7e782fafc9782::t_c3061067d10997 530-544
+  s_c7e782fafc9782::t_94ac0bf32481f3 70-106
+  s_c7e782fafc9782::t_7b3bdad7bbc58f 4698-4829
+  s_c7e782fafc9782::t_22f9589de6a993 2709,2713-2723
+  s_c7e782fafc9782::t_02f9879189b4b7 4830-4847,4853,4857-4862
+  s_c7e782fafc9782::t_f4e51aa52066dd 4848-4852,4854-4856
+  s_c7e782fafc9782::t_255e6d03461bd8 4359-4697
+  s_c7e782fafc9782::t_58c2d5ff628cac 617-651
+infrastructure/scripts/install-target-operations
+  s_c7e782fafc9782::t_20e0f57c9ba175 1672,1677-1678
+  s_c7e782fafc9782::t_64931980dc5123 200
+  s_c7e782fafc9782::t_b505fcf48733cd 1932
+  s_c7e782fafc9782::t_4986618a765fa1 252
+  s_c7e782fafc9782::t_f89c65c0c154b6 1197
+  s_c7e782fafc9782::t_447f375cd6497b 520
+  s_c7e782fafc9782::t_9add0bd1f93d6f 1191
+  s_c7e782fafc9782::t_a4b2a65b9d7f4b 140-145
+  s_c7e782fafc9782::t_43634dc854511f 245-249
+  s_c7e782fafc9782::t_757ede23fd302f 1991-1994
+  s_c7e782fafc9782::t_59bc014e053111 419,425-454
+  s_c7e782fafc9782::t_985540d9d6795c 89-90
+  s_c7e782fafc9782::t_d772ac4d61ecbb 1224-1233
+  s_c7e782fafc9782::t_c546922cbe6514 2011
+  s_c7e782fafc9782::t_d64d72409354dd 19-20,28,35-45
+infrastructure/runbooks/install-target-operations.md
+  s_c7e782fafc9782::t_70367a47704f38 5-6,20,26,322
+  s_c7e782fafc9782::t_e48670a8047988 164,166-167,169-171,245-246,253-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fda6a0afec1240cafb71972e6c2e6a6d71d8d0bb",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

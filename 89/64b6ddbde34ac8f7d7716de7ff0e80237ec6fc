@@ -1,0 +1,38 @@
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_c7e782fafc9782::t_cf6d4b565cf308 4344-4412,4415,4418,4421-4427,4435-4495
+  s_c7e782fafc9782::t_f58a7f80884bfd 4126-4132
+  s_c7e782fafc9782::t_a3361b99b37392 4413-4414,4416-4417,4419-4420,4428-4434
+  s_c7e782fafc9782::t_e5eb827f992778 4007-4022,4024-4025,4027-4030
+.github/actions/build-rateguru/action.yml
+  s_c7e782fafc9782::t_d1acae74d3aa96 358-372,374-379,388-392
+infrastructure/runbooks/install-target-operations.md
+  s_c7e782fafc9782::t_4d3810515b283c 59-60,98,341,405
+  s_c7e782fafc9782::t_0bb766c6a6c14f 199-213,217,223,250,275,278,281
+infrastructure/scripts/install-target-operations
+  s_c7e782fafc9782::t_8fc461819652be 585,602-610
+  s_c7e782fafc9782::t_300998a18b211a 1874-1909,2002,2007
+  s_c7e782fafc9782::t_df72ababf6e12e 1757-1759,1762-1807
+tests/Feature/Architecture/BuildRateGuruActionTest.php
+  ai_agent 820-823,827-828
+  s_c7e782fafc9782::t_97fed109dad318 811-819,824-826,829-831
+  s_c7e782fafc9782::t_3427fd0b7b2fc5 616-625
+  s_c7e782fafc9782::t_28cb179c4fbc83 891-1024
+infrastructure/runbooks/prepare-host.md
+  s_c7e782fafc9782::t_7a64b823a6c366 309-333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8964b6ddbde34ac8f7d7716de7ff0e80237ec6fc",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
