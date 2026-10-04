@@ -272,9 +272,10 @@ it('runs the exact commit the recovered data belongs to, without a migration', f
         expect($deployStep['value'])->toBe('false', "{$file} allows a migration during a recovery");
         expect($deployStep['job'])->toBe('deploy');
 
-        // Trusted operational tooling always comes from develop, whatever
-        // commit is being rebuilt: the recovery must not be steerable by the
-        // historical application code it is recovering.
+        // Trusted operational tooling always comes from the workflow's own
+        // control plane — main for the production recovery, develop for staging —
+        // whatever commit is being rebuilt: the recovery must not be steerable by
+        // the historical application code it is recovering.
         foreach ((array) data_get($workflow, 'jobs') as $jobName => $job) {
             foreach ((array) data_get($job, 'steps', []) as $step) {
                 if (! str_starts_with((string) data_get($step, 'uses', ''), 'actions/checkout@')) {
@@ -293,7 +294,9 @@ it('runs the exact commit the recovered data belongs to, without a migration', f
                     continue;
                 }
 
-                expect($ref)->toBe('develop', "{$file}: {$jobName} takes its tooling from {$ref}, not develop");
+                $trusted = trustedToolingRef($file);
+
+                expect($ref)->toBe($trusted, "{$file}: {$jobName} takes its tooling from {$ref}, not {$trusted}");
             }
         }
     }
@@ -666,6 +669,18 @@ it('refuses a production recovery before an approval, a secret, a connection or 
         ->not->toContain('secrets.');
 
     // The refusal is a refusal, not a dry run that changes state and reports
-    // it would not have: nothing before it touches a machine.
-    expect(array_key_first((array) data_get($workflow, 'jobs')))->toBe('validate');
+    // it would not have: nothing before it touches a machine. The only job
+    // ahead of it is the main-only control-plane gate, which holds no
+    // Environment, reads no secret and checks nothing out.
+    $jobs = (array) data_get($workflow, 'jobs');
+    $before = array_slice($jobs, 0, (int) array_search('validate', array_keys($jobs), true), true);
+
+    expect(array_keys($before))->toBe(['validate-ref']);
+
+    foreach ($before as $name => $job) {
+        expect(data_get($job, 'environment'))->toBeNull("{$name} must hold no Environment");
+        expect(json_encode($job))
+            ->not->toContain('secrets.')
+            ->not->toContain('"uses"');
+    }
 });

@@ -185,11 +185,12 @@ it('requests only read permission', function () use ($repairWorkflows) {
 // Trusted tooling
 // =============================================================================
 
-it('always builds the bundle from develop, never from an operator-selectable ref', function () use ($repairWorkflows) {
+it('always builds the bundle from its control plane, never from an operator-selectable ref', function () use ($repairWorkflows) {
     foreach ($repairWorkflows as $workflow) {
         $checkout = repairCheckoutStep($workflow);
+        $trusted = trustedToolingRef($workflow);
 
-        expect($checkout['with']['ref'])->toBe('develop', "{$workflow} must check out develop");
+        expect($checkout['with']['ref'])->toBe($trusted, "{$workflow} must check out {$trusted}");
         expect($checkout['with']['persist-credentials'])->toBeFalse();
 
         // Pinned by commit SHA, like every other action use in this

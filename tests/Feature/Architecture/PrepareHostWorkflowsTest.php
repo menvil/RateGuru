@@ -47,21 +47,55 @@ function phwAction(): array
 }
 
 /**
+ * The job that prepares the host: the one holding the shared prepare action.
+ *
+ * Not simply the first job — the production workflow opens with the main-only
+ * control-plane gate, a job that holds no Environment and touches no host,
+ * which ProductionControlPlaneTest pins on its own.
+ *
+ * @return array<string, mixed>
+ */
+function phwPrepareJob(string $workflow): array
+{
+    $job = collect(phwWorkflow($workflow)['jobs'])
+        ->first(static fn (array $job): bool => collect($job['steps'] ?? [])
+            ->contains(static fn (array $step): bool => ($step['uses'] ?? null) === './.github/actions/prepare-rateguru-host'));
+
+    expect($job)->not->toBeNull("{$workflow} must have a job that calls the shared prepare action");
+
+    return $job;
+}
+
+/**
  * The single prepare step of a prepare workflow.
  *
  * @return array<string, mixed>
  */
 function phwPrepareStep(string $workflow): array
 {
-    $jobs = phwWorkflow($workflow)['jobs'];
-    $job = reset($jobs);
-
-    $step = collect($job['steps'])
+    $step = collect(phwPrepareJob($workflow)['steps'])
         ->firstWhere('uses', './.github/actions/prepare-rateguru-host');
 
     expect($step)->not->toBeNull("{$workflow} must call the shared prepare action");
 
     return $step;
+}
+
+/**
+ * A workflow's source without its main-only control-plane gate.
+ *
+ * The gate refuses every run ref but main; it selects nothing and checks
+ * nothing out, so it has no place in a search for application-source inputs.
+ * The gate itself — its text, its placement, what it admits — is asserted by
+ * ProductionControlPlaneTest.
+ */
+function phwWithoutControlPlaneGate(string $source): string
+{
+    return preg_replace(
+        '/^\s*# --- main-only control-plane gate \(begin\) ---\n.*?^\s*# --- main-only control-plane gate \(end\) ---\n/ms',
+        '',
+        $source,
+    );
 }
 
 // =============================================================================
@@ -114,8 +148,7 @@ it('fixes the target, its GitHub Environment and its environment class in each w
         'prepare-staging-host.yml' => ['staging-main', 'staging', 'staging'],
         'prepare-production-host.yml' => ['tits-guru', 'production-tits-guru', 'production'],
     ] as $file => [$target, $githubEnvironment, $environmentClass]) {
-        $jobs = phwWorkflow($file)['jobs'];
-        $job = reset($jobs);
+        $job = phwPrepareJob($file);
 
         expect($job['environment'])->toBe($githubEnvironment, "{$file} must pin the GitHub Environment");
 
@@ -128,14 +161,15 @@ it('fixes the target, its GitHub Environment and its environment class in each w
 it('has no application source input anywhere in the preparation path', function () {
     $sources = array_map('phwExecutable', [
         phwActionSource(),
-        File::get(base_path('.github/workflows/prepare-staging-host.yml')),
-        File::get(base_path('.github/workflows/prepare-production-host.yml')),
+        phwWithoutControlPlaneGate(File::get(base_path('.github/workflows/prepare-staging-host.yml'))),
+        phwWithoutControlPlaneGate(File::get(base_path('.github/workflows/prepare-production-host.yml'))),
     ]);
 
     foreach ($sources as $source) {
         foreach (['ref:', 'source-sha', 'source_sha', 'run-migrations', 'artifact-path', 'release-id'] as $forbidden) {
-            // `ref: develop` on the checkout step is the trusted TOOLING ref,
-            // and is the one legitimate occurrence.
+            // The `ref:` on the checkout step is the trusted TOOLING ref — main
+            // for production, develop for staging — and is the one legitimate
+            // occurrence.
             $occurrences = substr_count($source, $forbidden);
 
             if ($forbidden === 'ref:') {
@@ -153,17 +187,16 @@ it('has no application source input anywhere in the preparation path', function 
 // Trusted tooling
 // =============================================================================
 
-it('always prepares with tooling from develop, never from an application ref', function () {
+it('always prepares with tooling from its own control plane, never from an application ref', function () {
     foreach (['prepare-staging-host.yml', 'prepare-production-host.yml'] as $file) {
-        $jobs = phwWorkflow($file)['jobs'];
-        $job = reset($jobs);
+        $job = phwPrepareJob($file);
 
         $checkouts = collect($job['steps'])
             ->filter(static fn (array $step): bool => str_starts_with($step['uses'] ?? '', 'actions/checkout@'))
             ->values();
 
         expect($checkouts)->toHaveCount(1, "{$file} must check out exactly one tree");
-        expect($checkouts[0]['with']['ref'])->toBe('develop');
+        expect($checkouts[0]['with']['ref'])->toBe(trustedToolingRef($file));
         expect($checkouts[0]['with']['persist-credentials'])->toBeFalse();
     }
 });

@@ -101,12 +101,60 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
   # No GitHub Environment and no secret: input policy is decided before the
   # environment's own protection rules are ever consulted, so a malformed
   # request never becomes an approval request.
   validate:
     name: Validate restore request
     runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
     timeout-minutes: 5
 
     outputs:
@@ -229,13 +277,13 @@ jobs:
 
     steps:
       # Restore business logic stays entirely server-side; nothing from this
-      # checkout is deployed. It comes from develop rather than any release
-      # ref, because the shared restore action is privileged operational
-      # tooling.
+      # checkout is deployed. It comes from main — the production control
+      # plane — rather than from develop or any release ref, because the shared
+      # restore action is privileged operational tooling.
       - name: Checkout restore action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -415,14 +463,16 @@ jobs:
     steps:
       # Two checkouts, deliberately, and the separation is the whole trust
       # boundary. The build tooling is operational code and always comes from
-      # develop; the application is a historical commit that may predate every
+      # main; the application is a historical commit that may predate every
       # part of the current pipeline. Loading the build action out of the
       # historical commit would let restored data decide what the operational
-      # tooling does — so it never happens.
+      # tooling does — so it never happens. The historical ref below is the one
+      # checkout that must NOT become main: it is the exact source the backup
+      # names, and replacing it would silently restore different code.
       - name: Checkout trusted build tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -476,9 +526,10 @@ jobs:
       - name: Checkout deployment action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Deployment code is always taken from the trusted develop branch,
-          # never from the historical application ref being deployed.
-          ref: develop
+          # Deployment code is always taken from main, the production control
+          # plane — never from develop, and never from the historical
+          # application ref being deployed.
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -548,7 +599,7 @@ jobs:
       - name: Checkout restore action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 
@@ -600,7 +651,7 @@ jobs:
       - name: Checkout observability action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: develop
+          ref: main
           fetch-depth: 1
           persist-credentials: false
 

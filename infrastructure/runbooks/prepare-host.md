@@ -222,7 +222,7 @@ A clean host has no RateGuru repository, and no manual `git clone` is needed.
 GitHub Actions is the control plane:
 
 ```text
-checkout trusted develop
+checkout the trusted control plane (main for production, develop for staging)
   → tar the infrastructure/ directory (nothing else)
   → scp to the bootstrap user's 0700 staging directory
   → move into /root/rateguru-prepare-<run>, root:root, go-rwx

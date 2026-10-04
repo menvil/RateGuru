@@ -3704,3 +3704,63 @@ function deploymentProtocolContract(): array
         JSON_THROW_ON_ERROR,
     );
 }
+
+/**
+ * The branch each operational workflow's PRIVILEGED TOOLING checkout must come
+ * from — the control-plane contract, as a closed map.
+ *
+ *   develop  integration branch, and staging's source
+ *   main     the production control plane
+ *
+ * Production operational workflows take their tooling from main because the
+ * `production-tits-guru` GitHub Environment allows `main` and `v*` only, and
+ * deliberately not `develop`. A production workflow pointed at develop simply
+ * cannot run — and should not, because privileged production tooling has to be
+ * promoted through a develop -> main pull request before it may act on
+ * production. Staging stays on develop, which is the whole point of develop.
+ *
+ * This says nothing about APPLICATION code. A new release reaches production
+ * only through a `v*` tag whose commit is contained in main; main's HEAD is
+ * never deployed as an application.
+ *
+ * Closed on purpose: a new operational workflow has to be classified here
+ * deliberately, and ProductionControlPlaneTest proves the map covers every
+ * operational workflow in the repository and matches the YAML.
+ *
+ * @return array<string, string>
+ */
+function trustedToolingRefs(): array
+{
+    return [
+        // Production control plane.
+        'configure-tits-guru.yml' => 'main',
+        'provision-tits-guru.yml' => 'main',
+        'prepare-production-host.yml' => 'main',
+        'repair-production.yml' => 'main',
+        'restore-production.yml' => 'main',
+        'recover-production.yml' => 'main',
+        'rollback-production.yml' => 'main',
+        // Integration and staging.
+        'deploy-staging.yml' => 'develop',
+        'prepare-staging-host.yml' => 'develop',
+        'repair-staging.yml' => 'develop',
+        'restore-staging.yml' => 'develop',
+        'recover-staging.yml' => 'develop',
+        'rollback-staging.yml' => 'develop',
+    ];
+}
+
+/**
+ * The trusted tooling ref for one workflow, by file name or path.
+ */
+function trustedToolingRef(string $workflow): string
+{
+    $name = basename($workflow);
+    $refs = trustedToolingRefs();
+
+    // toHaveKey's second argument is an expected VALUE, not a message.
+    expect(array_key_exists($name, $refs))
+        ->toBeTrue("{$name} is not classified in trustedToolingRefs() — classify it as 'main' (production control plane) or 'develop' (integration and staging)");
+
+    return $refs[$name];
+}

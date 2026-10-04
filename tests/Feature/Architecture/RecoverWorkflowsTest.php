@@ -345,7 +345,7 @@ it('refuses a target that is not active before any GitHub Environment is entered
     // and it is asked of the repository's own registry through its own CLI —
     // no lifecycle rule is reimplemented in YAML.
     expect($names[0])->toBe('Validate the recovery request')
-        ->and(data_get($steps['Checkout the trusted target registry'], 'with.ref'))->toBe('develop')
+        ->and(data_get($steps['Checkout the trusted target registry'], 'with.ref'))->toBe(trustedToolingRef($file))
         ->and(data_get($steps['Checkout the trusted target registry'], 'with.persist-credentials'))->toBeFalse();
 
     expect($source)
@@ -847,7 +847,7 @@ it('prepares only a new recovery, and never one the server is already holding', 
 
     $steps = recoverWorkflowStepsByName($workflow, 'prepare');
 
-    expect(data_get($steps['Checkout trusted bootstrap tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted bootstrap tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     // A continuation must not prepare: preparation reconverges the target's
     // Supervisor program and scheduler entry, which is exactly what a recovery
@@ -873,7 +873,7 @@ it('recovers through the shared action and decides the rest from its result alon
     $steps = recoverWorkflowStepsByName($workflow, 'recover');
 
     expect(data_get($workflow, 'jobs.recover.environment'))->toBe($githubEnvironment);
-    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     $apply = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'apply');
     $inspect = collect($steps)->first(static fn (array $step): bool => data_get($step, 'with.mode') === 'inspect');
@@ -987,11 +987,13 @@ it('builds the exact required commit with trusted tooling and no privilege whats
     }
 
     // Two checkouts, and which is which is the whole point: the operational
-    // tooling always comes from develop, the application from the exact commit.
+    // tooling always comes from the control plane, the application from the
+    // exact commit the server named. The application ref must NEVER become the
+    // control-plane branch — that would silently recover different code.
     $tooling = $steps['Checkout trusted build tooling'];
     $application = $steps['Checkout the required historical application source'];
 
-    expect(data_get($tooling, 'with.ref'))->toBe('develop')
+    expect(data_get($tooling, 'with.ref'))->toBe(trustedToolingRef($file))
         ->and(data_get($tooling, 'with.persist-credentials'))->toBeFalse()
         ->and(data_get($tooling, 'with.path'))->toBeNull();
 
@@ -1023,7 +1025,10 @@ it('builds the exact required commit with trusted tooling and no privilege whats
         ->values()
         ->all();
 
-    expect($checkoutRefs)->toBe(['develop', '${{ needs.recover.outputs.required_source_sha }}']);
+    expect($checkoutRefs)->toBe([
+        trustedToolingRef($file),
+        '${{ needs.recover.outputs.required_source_sha }}',
+    ]);
 })->with('recover workflows');
 
 it('adds recovery provenance to the artifact without redefining its identity', function (
@@ -1075,9 +1080,9 @@ it('deploys through the one deploy action, to the replacement machine, without m
     expect(data_get($deploy, 'environment'))->toBe($githubEnvironment)
         ->and(data_get($deploy, 'if'))->toBe("\${{ needs.recover.outputs.deploy_required == 'yes' }}");
 
-    // Deployment tooling always comes from develop, never from the historical
-    // ref that is about to be installed.
-    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe('develop');
+    // Deployment tooling always comes from the control plane, never from the
+    // historical ref that is about to be installed.
+    expect(data_get($steps['Checkout deployment action'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     // Checked on this side before anything is uploaded — and deliberately NOT
     // the authorization: the server reads the required commit from the
@@ -1631,9 +1636,17 @@ it('gives staging and production one marker contract', function () {
         ->and(data_get($production, 'jobs.observability.needs'))
         ->toBe(data_get($staging, 'jobs.observability.needs'));
 
+    // Production alone opens with the main-only control-plane gate, a job that
+    // holds no Environment and that ProductionControlPlaneTest pins on its own;
+    // the one edge it adds is left out here so the two graphs can be compared.
+    $waitsFor = static fn (array $workflow, string $job): array => array_values(array_diff(
+        (array) data_get($workflow, "jobs.{$job}.needs"),
+        ['validate-ref'],
+    ));
+
     foreach (array_keys((array) data_get($staging, 'jobs')) as $job) {
-        expect(data_get($production, "jobs.{$job}.needs"))
-            ->toBe(data_get($staging, "jobs.{$job}.needs"), "the two recoveries disagree about what {$job} waits for");
+        expect($waitsFor($production, $job))
+            ->toBe($waitsFor($staging, $job), "the two recoveries disagree about what {$job} waits for");
 
         expect(preg_replace('/\s+/', ' ', (string) data_get($production, "jobs.{$job}.if")))
             ->toBe(preg_replace('/\s+/', ' ', (string) data_get($staging, "jobs.{$job}.if")), "the two recoveries disagree about when {$job} runs");
@@ -1643,7 +1656,7 @@ it('gives staging and production one marker contract', function () {
     foreach (['start', 'continue-held'] as $mode) {
         $outputs = recoverWorkflowStageOutputs($mode);
 
-        expect(githubWorkflowJobResults($production, outputs: $outputs))
+        expect(array_diff_key(githubWorkflowJobResults($production, outputs: $outputs), ['validate-ref' => true]))
             ->toBe(githubWorkflowJobResults($staging, outputs: $outputs), "the two recoveries run different stages on {$mode}");
     }
 });
@@ -1812,8 +1825,10 @@ it('keeps the two recovery workflows structurally identical apart from their ide
     [$production] = recoverWorkflow('recover-production.yml');
 
     // Same jobs, same order, same shared actions: production is not a second
-    // implementation, it is the same one at a different identity.
-    expect(array_keys($staging['jobs']))->toBe(array_keys($production['jobs']));
+    // implementation, it is the same one at a different identity — plus, ahead
+    // of everything, the main-only control-plane gate that only production
+    // carries (pinned by ProductionControlPlaneTest).
+    expect(array_keys($production['jobs']))->toBe(['validate-ref', ...array_keys($staging['jobs'])]);
 
     $usesOf = static fn (array $workflow): array => collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))
@@ -1954,7 +1969,7 @@ it('proves the replacement host is a clean, supported machine before it prepares
     expect(array_search('preflight', $jobs, true))->toBeLessThan(array_search('prepare', $jobs, true));
 
     $steps = recoverWorkflowStepsByName($workflow, 'preflight');
-    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe('develop');
+    expect(data_get($steps['Checkout trusted recovery tooling'], 'with.ref'))->toBe(trustedToolingRef($file));
 
     $step = collect($steps)->first(static fn (array $step): bool => data_get($step, 'uses') === './.github/actions/recovery-host-preflight');
 

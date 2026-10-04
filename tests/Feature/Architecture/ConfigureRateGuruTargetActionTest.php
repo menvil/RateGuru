@@ -265,11 +265,15 @@ it('is called by exactly one operator-facing workflow, for exactly one target', 
 
     expect($step['with']['deployment-target'])->toBe('tits-guru');
 
-    // Trusted tooling always comes from develop.
+    // Deliberately the LITERAL 'main', not trustedToolingRef(): this is an
+    // independent witness. Every assertion in ProductionControlPlaneTest derives
+    // its expectation from that one classification map, so a map entry flipped to
+    // 'develop' alongside the YAML would take all of them with it. This guard
+    // does not move.
     $checkout = collect($workflow['jobs']['configure']['steps'])
         ->first(fn (array $s): bool => str_starts_with($s['uses'] ?? '', 'actions/checkout@'));
 
-    expect($checkout['with']['ref'])->toBe('develop');
+    expect($checkout['with']['ref'])->toBe('main');
 });
 
 it('tells the operator what is still not true', function () {

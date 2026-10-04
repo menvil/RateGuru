@@ -208,7 +208,9 @@ by a backup rather than by a person. So the build job:
 * holds **no GitHub Environment**, and therefore no deploy SSH key, no Sentry
   token and no B2 credential;
 * has `permissions: contents: read` and nothing else;
-* checks out **operational tooling from `develop`** at the workspace root, and
+* checks out **operational tooling from its control plane** at the workspace
+  root — `main` for production, `develop` for staging, see
+  [Branches](deployment-targets.md#branches-which-ref-is-trusted-for-what) — and
   the **application at the exact required commit** into `application/`;
 * runs `./.github/actions/build-rateguru` from the *tooling* checkout, pointed
   at the application checkout with `expected-source-sha` set.

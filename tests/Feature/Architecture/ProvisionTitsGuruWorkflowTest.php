@@ -142,13 +142,13 @@ it('provisions with the privileged credential and never the deploy key', functio
     }
 });
 
-it('takes its tooling from develop and its logic from the shared action', function () {
+it('takes its tooling from the production control plane and its logic from the shared action', function () {
     [$workflow] = provisionWorkflow();
 
     $checkout = collect(data_get($workflow, 'jobs.provision.steps'))
         ->first(fn (array $step): bool => str_starts_with((string) data_get($step, 'uses'), 'actions/checkout@'));
 
-    expect(data_get($checkout, 'with.ref'))->toBe('develop')
+    expect(data_get($checkout, 'with.ref'))->toBe(trustedToolingRef('provision-tits-guru.yml'))
         ->and(data_get($checkout, 'with.persist-credentials'))->toBeFalse();
 
     // Exactly the shared action plus the pinned checkout: no second

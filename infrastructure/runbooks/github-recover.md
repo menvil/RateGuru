@@ -494,7 +494,9 @@ chosen by a *backup* rather than by a person. It therefore holds:
 * **no GitHub Environment** — and so no recovery credential, no deployment key,
   no Sentry token, no B2 credential and no Prepare material;
 * `permissions: contents: read`, and nothing else;
-* **two separate checkouts**: the operational tooling always from `develop`,
+* **two separate checkouts**: the operational tooling always from its control
+  plane — `main` for production, `develop` for staging, see
+  [Branches](deployment-targets.md#branches-which-ref-is-trusted-for-what) — and
   the application at the exact `required_source_sha`, in `application/`.
 
 Loading `build-rateguru` out of the historical commit would let recovered data

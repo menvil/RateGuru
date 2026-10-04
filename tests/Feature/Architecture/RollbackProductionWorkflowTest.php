@@ -21,10 +21,13 @@ beforeEach(function () {
 });
 
 it('rolls back production manually, through the same shared implementation', function () {
+    // The main-only control-plane gate comes first and the rollback waits for
+    // it; the gate itself is pinned by ProductionControlPlaneTest.
     expect(data_get($this->workflow, 'name'))->toBe('Rollback tits.guru')
         ->and(array_keys($this->workflow['on']))->toBe(['workflow_dispatch'])
         ->and($this->workflow['permissions'])->toBe(['contents' => 'read'])
-        ->and(array_keys($this->workflow['jobs']))->toBe(['rollback'])
+        ->and(array_keys($this->workflow['jobs']))->toBe(['validate-ref', 'rollback'])
+        ->and(data_get($this->workflow, 'jobs.rollback.needs'))->toBe(['validate-ref'])
         ->and(data_get($this->workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-24.04');
 
     $rollback = $this->stepsByName->get('Roll back tits-guru');
@@ -125,11 +128,11 @@ it('fails closed while production is unprovisioned, without weakening any gate',
     }
 });
 
-it('takes deployment tooling from develop and keeps the same closed secret set', function () {
+it('takes deployment tooling from the production control plane and keeps the same closed secret set', function () {
     $checkout = $this->stepsByName->get('Checkout rollback and observability actions');
 
     expect(data_get($checkout, 'uses'))->toMatch('/^actions\/checkout@[0-9a-f]{40}$/')
-        ->and(data_get($checkout, 'with.ref'))->toBe('develop')
+        ->and(data_get($checkout, 'with.ref'))->toBe(trustedToolingRef('rollback-production.yml'))
         ->and(data_get($checkout, 'with.persist-credentials'))->toBeFalse();
 
     expect($this->steps->filter(fn (array $step): bool => isset($step['run']))->all())->toBe([]);

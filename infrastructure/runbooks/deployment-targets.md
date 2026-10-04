@@ -35,6 +35,132 @@ The registry keeps them separate.
 `staging-main` rather than `staging` is deliberate: the name must not read as a
 class, because one day there may be a second staging instance.
 
+## Branches: which ref is trusted for what
+
+A target says *where*. A branch says *what is trusted to act there*, and the two
+are separate questions.
+
+```text
+feature/*
+    │ PR
+    ▼
+develop ──────────────► staging
+    │                   (verify here)
+    │ PR
+    ▼
+main  ────────────────► production control plane
+    │
+    │ v* tag on a commit contained in main
+    ▼
+Release to production
+```
+
+| Ref | What it is | What it may do |
+|---|---|---|
+| `develop` | the integration branch | staging: tooling and deployments |
+| `main` | production-ready, and the production **control plane** | run production operational workflows |
+| `v*` | a tag on a commit contained in `main` | the **only** way new application code reaches production |
+
+### Why main is allowed in the production Environment
+
+> **Prerequisite, not a description.** The `production-tits-guru` Environment's
+> allowlist is GitHub configuration, which no pull request can change. It must be
+> set by an operator — *Settings → Environments → production-tits-guru →
+> Selected branches and tags* — to `main` and `v*`, with `develop` removed, plus a
+> repository **tag ruleset protecting `v*`** (see below). Until the allowlist is
+> set, a production operational workflow running from `main` is **rejected by
+> GitHub before any job starts**. The order is: merge the `develop → main`
+> promotion, set the allowlist, add the tag ruleset, then run the workflow.
+
+`main` is allowed, and `develop` deliberately is not. That is not a convenience:
+the emergency and onboarding operations have to be runnable against production,
+and each of them is privileged infrastructure code rather than application code —
+
+* **Prepare** — bootstrap or re-converge the host;
+* **Repair** — re-converge a target's own surface;
+* **Restore** — put back data and align code to it;
+* **Recover** — rebuild a lost host;
+* **Rollback** — step back one release;
+* **Configure** / **Provision** — onboarding, while the target is still planned.
+
+Each takes its tooling from `main`, so privileged code must pass a
+`develop → main` pull request before it can act on production. Taking it from
+`develop` would mean anything merged for staging could immediately touch
+production, which is exactly the gap this model closes.
+
+### Allowing main is not a deploy path
+
+`main` being allowed does **not** mean `main`'s HEAD can be deployed. A new
+application release reaches production only as a `v*` tag, and
+`Release to production` proves, fail-closed, that the tagged commit is contained
+in `main` before it builds anything. The artifact verified on staging in that run
+is the byte-identical artifact promoted to production — there is no second build.
+
+Two checkouts deliberately stay off the control-plane branch, and must:
+
+* a **restore** or **recovery** builds the exact historical commit its backup
+  names, because the whole point is putting back the release the data belongs to;
+* a **release** builds the exact tagged commit, not a branch head.
+
+Replacing either with `main` would silently install different code than the
+operation promised. `tests/Feature/Architecture/ProductionControlPlaneTest.php`
+enforces all of the above, including those two exceptions.
+
+### One Environment, and a main-only gate in the repository
+
+`v*` has to be in the allowlist: `release.yml`'s `deploy-production` job uses this
+Environment and runs with `github.ref` at the tag, so without `v*` no release
+could deploy. And GitHub matches an Environment's allowlist against the ref of the
+**run**, while a `workflow_dispatch` ref may be a tag as well as a branch — so the
+allowlist alone would also admit a manual dispatch of a production operational
+workflow from a tag.
+
+**The decision is one Environment permitting `main` and `v*`, with the main-only
+rule enforced in the repository rather than by splitting the Environment.** Each of
+the seven manual production workflows carries a fail-closed gate:
+
+```text
+validate-ref          no environment:  refuses any ref but refs/heads/main
+      │
+      ▼
+<every job with environment: production-tits-guru>
+```
+
+The gate is a job of its own and holds **no** `environment:`, which is the load-
+bearing detail: a refused run never has the Environment's credentials available to
+it, because the job that owns them never begins. Every environment-bearing job in
+those workflows is downstream of it, at any depth — in `repair`, `restore` and
+`recover` the existing environment-free `validate` job depends on it, so the whole
+graph below inherits the gate without any other `needs` edge changing.
+
+`release.yml` is the deliberate exception and has no such gate: it runs from a
+`v*` tag by design. What stands in for the gate there is the ancestry proof — the
+tagged commit must be contained in `main`, checked fail-closed before anything is
+built — which is what keeps `v*` from being an independent entrance to production.
+
+### What the gate is, and is not
+
+Worth stating precisely, because an in-workflow check is easy to over-read.
+
+It stops **accidental and casual misuse**: a tag selected in the *Run workflow*
+dropdown, the habit of dispatching from `develop`, a copied URL with the wrong
+ref. That is the realistic failure, and it is now impossible.
+
+It is **not** a boundary against someone who can already create an arbitrary
+trusted tag. That person would author the gate itself at that tag, so no check
+living in the workflow can bind them. The boundary for that case is **who may
+create `v*`**, which is a GitHub tag ruleset and a separate permission surface:
+
+* protect `v*` with a repository ruleset, so creating one is at least as
+  privileged as merging to `main`;
+* and create a `v*` tag only on a commit already contained in `main` — which
+  `release.yml` additionally proves for itself, so a tag off `main` cannot deploy
+  even if it is created.
+
+The two together are the real shape of this: the repository gate makes the common
+mistake impossible, and the tag ruleset is what makes the privileged case
+privileged. Neither is claimed to do the other's job.
+
 ## Why staging-main and tits-guru are separate targets
 
 They share the RateGuru codebase and nothing else. Each has its own application
