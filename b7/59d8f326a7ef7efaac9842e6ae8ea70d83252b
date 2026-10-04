@@ -1,0 +1,40 @@
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_6af81f501f0890::t_09069ca0f7d677 758-759,764
+infrastructure/scripts/targets
+  s_6af81f501f0890::t_cd35229a8815a0 727
+  s_6af81f501f0890::t_07fc2287688261 839,845-849,855-859,866,877-880,882,890,898
+  s_6af81f501f0890::t_17ca2d5ed3c6ad 573,579-582
+  s_6af81f501f0890::t_8eb16b182a2fde 808-810
+  s_6af81f501f0890::t_80e4191cabe1dd 561
+  s_6af81f501f0890::t_d5ea32c1569368 692,698
+  s_6af81f501f0890::t_fda8d443b16f5b 796
+  s_6af81f501f0890::t_66281476e133a2 777
+  s_6af81f501f0890::t_ee050ce60916cb 916
+  s_6af81f501f0890::t_dc937092715af9 942-944,948
+  s_6af81f501f0890::t_e93b8f358f5929 597,603,606-608,614-615,623-625,631-632,640-642,648
+  s_6af81f501f0890::t_a7b7b6ca9fc193 263-421
+  s_6af81f501f0890::t_66a566ca5264c8 461-462,468,470,476-478,480-490,492
+  s_6af81f501f0890::t_074f529f73df9d 680
+  s_6af81f501f0890::t_a6385c872490bf 14-16
+  s_6af81f501f0890::t_be4c3e99f1228a 742-744
+  s_6af81f501f0890::t_75b98b943df853 710
+  s_6af81f501f0890::t_28da1770e76408 823-824
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_6af81f501f0890::t_e1e921b0e662d1 645-719
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b759d8f326a7ef7efaac9842e6ae8ea70d83252b",
+  "prompts": {},
+  "sessions": {
+    "s_6af81f501f0890": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af39df99-b4e4-415c-a829-6d6948fc83c3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
