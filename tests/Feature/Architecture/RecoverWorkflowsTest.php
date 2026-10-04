@@ -1636,9 +1636,17 @@ it('gives staging and production one marker contract', function () {
         ->and(data_get($production, 'jobs.observability.needs'))
         ->toBe(data_get($staging, 'jobs.observability.needs'));
 
+    // Production alone opens with the main-only control-plane gate, a job that
+    // holds no Environment and that ProductionControlPlaneTest pins on its own;
+    // the one edge it adds is left out here so the two graphs can be compared.
+    $waitsFor = static fn (array $workflow, string $job): array => array_values(array_diff(
+        (array) data_get($workflow, "jobs.{$job}.needs"),
+        ['validate-ref'],
+    ));
+
     foreach (array_keys((array) data_get($staging, 'jobs')) as $job) {
-        expect(data_get($production, "jobs.{$job}.needs"))
-            ->toBe(data_get($staging, "jobs.{$job}.needs"), "the two recoveries disagree about what {$job} waits for");
+        expect($waitsFor($production, $job))
+            ->toBe($waitsFor($staging, $job), "the two recoveries disagree about what {$job} waits for");
 
         expect(preg_replace('/\s+/', ' ', (string) data_get($production, "jobs.{$job}.if")))
             ->toBe(preg_replace('/\s+/', ' ', (string) data_get($staging, "jobs.{$job}.if")), "the two recoveries disagree about when {$job} runs");
@@ -1648,7 +1656,7 @@ it('gives staging and production one marker contract', function () {
     foreach (['start', 'continue-held'] as $mode) {
         $outputs = recoverWorkflowStageOutputs($mode);
 
-        expect(githubWorkflowJobResults($production, outputs: $outputs))
+        expect(array_diff_key(githubWorkflowJobResults($production, outputs: $outputs), ['validate-ref' => true]))
             ->toBe(githubWorkflowJobResults($staging, outputs: $outputs), "the two recoveries run different stages on {$mode}");
     }
 });
@@ -1817,8 +1825,10 @@ it('keeps the two recovery workflows structurally identical apart from their ide
     [$production] = recoverWorkflow('recover-production.yml');
 
     // Same jobs, same order, same shared actions: production is not a second
-    // implementation, it is the same one at a different identity.
-    expect(array_keys($staging['jobs']))->toBe(array_keys($production['jobs']));
+    // implementation, it is the same one at a different identity — plus, ahead
+    // of everything, the main-only control-plane gate that only production
+    // carries (pinned by ProductionControlPlaneTest).
+    expect(array_keys($production['jobs']))->toBe(['validate-ref', ...array_keys($staging['jobs'])]);
 
     $usesOf = static fn (array $workflow): array => collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))

@@ -21,10 +21,13 @@ beforeEach(function () {
 });
 
 it('rolls back production manually, through the same shared implementation', function () {
+    // The main-only control-plane gate comes first and the rollback waits for
+    // it; the gate itself is pinned by ProductionControlPlaneTest.
     expect(data_get($this->workflow, 'name'))->toBe('Rollback tits.guru')
         ->and(array_keys($this->workflow['on']))->toBe(['workflow_dispatch'])
         ->and($this->workflow['permissions'])->toBe(['contents' => 'read'])
-        ->and(array_keys($this->workflow['jobs']))->toBe(['rollback'])
+        ->and(array_keys($this->workflow['jobs']))->toBe(['validate-ref', 'rollback'])
+        ->and(data_get($this->workflow, 'jobs.rollback.needs'))->toBe(['validate-ref'])
         ->and(data_get($this->workflow, 'jobs.rollback.runs-on'))->toBe('ubuntu-24.04');
 
     $rollback = $this->stepsByName->get('Roll back tits-guru');

@@ -475,8 +475,10 @@ it('keeps the two restore workflows structurally identical apart from their iden
     [$production] = restoreWorkflow('restore-production.yml');
 
     // Same jobs, same order, same shared actions: production is not a second
-    // implementation, it is the same one at a different identity.
-    expect(array_keys($staging['jobs']))->toBe(array_keys($production['jobs']));
+    // implementation, it is the same one at a different identity — plus, ahead
+    // of everything, the main-only control-plane gate that only production
+    // carries (pinned by ProductionControlPlaneTest).
+    expect(array_keys($production['jobs']))->toBe(['validate-ref', ...array_keys($staging['jobs'])]);
 
     $usesOf = static fn (array $workflow): array => collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))

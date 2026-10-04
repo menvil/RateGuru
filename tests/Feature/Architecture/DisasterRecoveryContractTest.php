@@ -669,6 +669,18 @@ it('refuses a production recovery before an approval, a secret, a connection or 
         ->not->toContain('secrets.');
 
     // The refusal is a refusal, not a dry run that changes state and reports
-    // it would not have: nothing before it touches a machine.
-    expect(array_key_first((array) data_get($workflow, 'jobs')))->toBe('validate');
+    // it would not have: nothing before it touches a machine. The only job
+    // ahead of it is the main-only control-plane gate, which holds no
+    // Environment, reads no secret and checks nothing out.
+    $jobs = (array) data_get($workflow, 'jobs');
+    $before = array_slice($jobs, 0, (int) array_search('validate', array_keys($jobs), true), true);
+
+    expect(array_keys($before))->toBe(['validate-ref']);
+
+    foreach ($before as $name => $job) {
+        expect(data_get($job, 'environment'))->toBeNull("{$name} must hold no Environment");
+        expect(json_encode($job))
+            ->not->toContain('secrets.')
+            ->not->toContain('"uses"');
+    }
 });
