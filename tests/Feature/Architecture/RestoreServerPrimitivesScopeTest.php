@@ -771,14 +771,13 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
     ] as $path) {
         $source = File::get(base_path($path));
 
+        // One needle per call: a second argument is read as another needle (see
+        // the note above), and the negation then holds for any file at all.
         foreach ([
             'restore', 'backup_id', 'fetch-backup', 'restore-database',
             'restore-storage', 'recover-host', 'guard', 'pg_restore', 'rclone',
         ] as $forbidden) {
-            expect(mb_strtolower($source))->not->toContain(
-                $forbidden,
-                "{$path} must never grow a restore, recovery or offsite surface: {$forbidden}",
-            );
+            expect(mb_strtolower($source))->not->toContain($forbidden);
         }
     }
 

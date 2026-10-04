@@ -11,8 +11,9 @@
 # this script must run in the repository during CI where no such file exists.
 #
 # The registry is data, never code. It is read with jq only — never sourced,
-# never eval'd, never substituted into a shell command. Target IDs reach jq
-# through --arg, never by concatenation into a jq program.
+# never eval'd, never substituted into a shell command. Target IDs never reach
+# a jq program by concatenation: the snapshot program below iterates the keys
+# itself, and `show` passes its target through --arg.
 #
 # Usage:
 #   targets validate [--file PATH]
@@ -259,6 +260,176 @@ else
     REGISTRY_FILE="${REGISTRY_DEFAULT_FILE}"
 fi
 
+# --- registry snapshot ------------------------------------------------------
+#
+# Every rule below used to run its own jq process against the registry — 136 of
+# them for a two-target registry — once in every shell that validates it, which
+# is every operational script and every child it starts. Now ONE jq process
+# reads the file and emits every value the rules need as NUL-delimited
+# "key, value" pairs, and the rules read them from an associative array.
+#
+# Each value is written exactly as the per-value `jq -r` call used to print it:
+# raw text for strings, jq's own rendering for numbers and booleans, pretty
+# JSON for anything else. The reader then strips trailing newlines, which is
+# what `$(...)` did to each of the old captures, and the rules that split a
+# value into lines keep doing so. Every verdict therefore stays the same, with
+# two deliberate exceptions. A file holding anything other than exactly one JSON
+# document (an empty file, two documents, a stray value before the object) is
+# rejected as not valid JSON instead of being read document by document. And a
+# NUL character anywhere in the document — a key or a string value, however
+# deeply nested — is rejected outright: NUL is the record delimiter, so one
+# inside a key or value would shift every pair that follows it, and bash used to
+# drop such bytes from a capture with a warning and validate what was left.
+# Nothing in a registry legitimately contains one.
+#
+# Target IDs are never interpolated into the program. It iterates keys_unsorted
+# itself and labels each record with the key it came from; the only text spliced
+# into it is the constant property lists declared at the top of this file.
+#
+# Record keys, with SEP = 0x1f:
+#   D                 number of JSON documents in the file
+#   Y                 type of the (single) document
+#   Z                 "1" when a NUL character occurs anywhere in the document;
+#                     no further records are written then
+#   V / F             schema_version verdict ("ok"/"bad") / its rendered value
+#   S                 secret-like property names, one per line
+#   O / N             type of .targets / number of targets
+#   K                 target IDs, one per line
+#   P SEP id SEP path class of one property: "s" string, "i" integer, "f"
+#                     non-integer number, "A" absent, null or false, "o" other
+#   W SEP id SEP path the property's rendered value
+#   H SEP id SEP name public_hostnames facts: type, count, all, offending,
+#                     unique, entries
+#   C SEP jq-path     values shared by more than one target, one per line
+#   END               written last, so a jq failure leaves it absent
+
+declare -A SNAPSHOT=()
+SNAPSHOT_SEP=$'\x1f'
+SNAPSHOT_PROGRAM=""
+
+# Assembles the jq program into SNAPSHOT_PROGRAM by concatenation. Not through
+# `${program/PLACEHOLDER/...}`: since bash 5.2 an `&` in the replacement stands
+# for the matched text, and the hosts run 5.1.
+build_snapshot_program() {
+    local path entry jq_path
+
+    SNAPSHOT_PROGRAM='
+def rec(k; v): k, "\u0000", v, "\u0000";
+# split, not contains: jq 1.6 reads a NUL needle as an empty string in
+# contains, which then matches every string.
+def has_nul: ([.. | strings] + [paths | .[] | strings]) | any((split("\u0000") | length) > 1);
+def class:
+    if . == null then "A"
+    else .[0] as $v
+        | if $v == null or $v == false then "A"
+          elif ($v | type) == "string" then "s"
+          elif ($v | type) == "number" then (if $v == ($v | floor) then "i" else "f" end)
+          else "o"
+          end
+    end;
+def value: if . == null then "" else .[0] end;
+[inputs] as $docs
+| rec("D"; ($docs | length | tostring)),
+  if ($docs | length) == 1 then
+    $docs[0] as $r
+    | ($r | has_nul) as $nul
+    | rec("Y"; ($r | type)),
+      rec("Z"; (if $nul then "1" else "0" end)),
+      if ($r | type) == "object" and ($nul | not) then
+        rec("V"; if (($r.schema_version | type) == "number"
+                     and ($r.schema_version == ($expected | floor))
+                     and ($r.schema_version == $expected)) then "ok" else "bad" end),
+        rec("F"; ($r.schema_version // "missing")),
+        rec("S"; ([ $r | paths as $p
+                    | $p[-1]
+                    | select(type == "string")
+                    | select(test($pattern; "i"))
+                  ] | unique | join("\n"))),
+        rec("O"; ($r.targets | type)),
+        if ($r.targets | type) == "object" then
+          rec("N"; ($r.targets | length | tostring)),
+          rec("K"; ($r.targets | keys_unsorted | join("\n"))),
+          ( $r.targets | keys_unsorted[] as $id
+            | $r.targets[$id] as $t
+            | ("P" + $sep + $id + $sep) as $pk
+            | ("W" + $sep + $id + $sep) as $wk
+            | ("H" + $sep + $id + $sep) as $hk
+            | ( '
+
+    # One try per property: a target that is not an object, or a nested object
+    # that is a scalar, must fail that property alone — exactly what a failing
+    # per-property jq process did — and never abort the whole snapshot.
+    for path in "${REQUIRED_STRINGS[@]}" "${REQUIRED_POSITIVE_INTEGERS[@]}" "${REQUIRED_MINIMUM_COUNTS[@]}"; do
+        SNAPSHOT_PROGRAM+="(try [ (\$t | ${path}) ] catch null) as \$w | rec(\$pk + \"${path}\"; (\$w | class)), rec(\$wk + \"${path}\"; (\$w | value)), "
+    done
+
+    SNAPSHOT_PROGRAM+='empty ),
+              ( try ($t.public_hostnames | type) catch "error" ) as $ht
+            | rec($hk + "type"; $ht),
+              if $ht == "array" then
+                $t.public_hostnames as $ph
+                | all($ph[]; type == "string" and length > 0) as $all
+                | rec($hk + "count"; ($ph | length | tostring)),
+                  rec($hk + "all"; (if $all then "true" else "false" end)),
+                  rec($hk + "offending"; ([ $ph[]
+                      | select((type != "string") or (length == 0))
+                      | "\(type):\(tojson)"
+                    ] | join(", "))),
+                  rec($hk + "unique"; ($ph | unique | length | tostring)),
+                  rec($hk + "entries"; (if $all then ($ph | join("\n")) else "" end))
+              else empty end
+          ),
+          ( '
+
+    for entry in "${COLLISION_FIELDS[@]}"; do
+        jq_path="${entry%%|*}"
+        SNAPSHOT_PROGRAM+="rec(\"C\" + \$sep + \"${jq_path}\"; (try ([ \$r.targets[] | ${jq_path} | select(type == \"string\") ] | group_by(.) | map(select(length > 1) | .[0]) | join(\"\\n\")) catch \"\")), "
+    done
+
+    SNAPSHOT_PROGRAM+='empty )
+        else empty end
+      else empty end
+  else empty end,
+  rec("END"; "")
+'
+}
+
+# Fills SNAPSHOT from the registry in one jq process. Returns non-zero when jq
+# could not parse the file or died before writing the END record.
+load_snapshot() {
+    build_snapshot_program
+
+    local -a fields=()
+    mapfile -d '' -t fields < <(
+        jq -n -j \
+            --arg pattern "${SECRET_NAME_PATTERN}" \
+            --arg sep "${SNAPSHOT_SEP}" \
+            --argjson expected "${SCHEMA_VERSION}" \
+            "${SNAPSHOT_PROGRAM}" \
+            "${REGISTRY_FILE}" 2>/dev/null
+    )
+
+    local i=0 key value
+    while (( i + 1 < ${#fields[@]} )); do
+        key="${fields[i]}"
+        value="${fields[i + 1]}"
+
+        while [[ "${value}" == *$'\n' ]]; do
+            value="${value%$'\n'}"
+        done
+
+        SNAPSHOT["${key}"]="${value}"
+        i=$((i + 2))
+    done
+
+    [[ -n "${SNAPSHOT[END]+set}" ]]
+}
+
+# snapshot_get VAR KEY: stores the record's value in VAR, empty when absent.
+snapshot_get() {
+    printf -v "$1" '%s' "${SNAPSHOT["$2"]-}"
+}
+
 # --- file-level checks ------------------------------------------------------
 
 # A symlink is rejected everywhere: it lets the validated path and the read path
@@ -298,38 +469,42 @@ assert_registry_file() {
         fi
     fi
 
-    if ! jq -e 'type == "object"' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+    # Exactly one JSON document, and that document an object.
+    if ! load_snapshot || [[ "${SNAPSHOT[D]-}" != "1" ]] || [[ "${SNAPSHOT[Y]-}" != "object" ]]; then
         fail "target registry is not valid JSON: ${REGISTRY_FILE}"
+    fi
+
+    if [[ "${SNAPSHOT[Z]-}" == "1" ]]; then
+        fail "target registry must not contain NUL characters: ${REGISTRY_FILE}"
     fi
 }
 
 assert_schema_version() {
-    if ! jq -e --argjson expected "${SCHEMA_VERSION}" \
-        '(.schema_version | type) == "number"
-         and (.schema_version == ($expected | floor))
-         and (.schema_version == $expected)' \
-        "${REGISTRY_FILE}" >/dev/null 2>&1
-    then
+    if [[ "${SNAPSHOT[V]-}" != "ok" ]]; then
         local found
-        found="$(jq -r '.schema_version // "missing"' "${REGISTRY_FILE}" 2>/dev/null || printf 'unreadable')"
+        snapshot_get found "F"
 
         fail "unsupported target registry schema_version: ${found} (expected ${SCHEMA_VERSION})"
     fi
 }
 
-registry_target_ids() {
-    jq -r '.targets | keys_unsorted[]' "${REGISTRY_FILE}"
-}
-
-# Read one property for one target. Prints nothing and returns non-zero when
-# absent or null, so callers can distinguish "missing" from "empty".
+# target_property VAR TARGET_ID JQ_PATH: stores one property of one target in
+# VAR. Leaves it empty and returns non-zero when the property is absent, null or
+# false, so callers can distinguish "missing" from "empty".
 target_property() {
-    local target_id="$1"
-    local jq_path="$2"
+    local target_id="$2"
+    local jq_path="$3"
 
-    jq -e -r --arg id "${target_id}" \
-        "(.targets[\$id] | ${jq_path}) // empty" \
-        "${REGISTRY_FILE}" 2>/dev/null
+    local class
+    snapshot_get class "P${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${jq_path}"
+
+    if [[ -z "${class}" ]] || [[ "${class}" == "A" ]]; then
+        printf -v "$1" ''
+
+        return 1
+    fi
+
+    snapshot_get "$1" "W${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${jq_path}"
 }
 
 # --- value validators -------------------------------------------------------
@@ -398,15 +573,7 @@ is_positive_integer() {
 
 validate_secret_free() {
     local offenders
-    offenders="$(jq -r --arg pattern "${SECRET_NAME_PATTERN}" '
-        [ paths as $p
-          | $p[-1]
-          | select(type == "string")
-          | select(test($pattern; "i"))
-        ]
-        | unique
-        | .[]
-    ' "${REGISTRY_FILE}" 2>/dev/null || true)"
+    snapshot_get offenders "S"
 
     if [[ -n "${offenders}" ]]; then
         local name
@@ -418,13 +585,16 @@ validate_secret_free() {
 }
 
 validate_structure() {
-    if ! jq -e '(.targets | type) == "object"' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+    if [[ "${SNAPSHOT[O]-}" != "object" ]]; then
         problem "targets must be an object"
 
         return
     fi
 
-    if ! jq -e '(.targets | length) > 0' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+    local count
+    snapshot_get count "N"
+
+    if ! (( count > 0 )); then
         problem "targets must not be empty"
     fi
 }
@@ -439,24 +609,24 @@ validate_target() {
     fi
 
     local declared_id
-    if ! declared_id="$(target_property "${target_id}" '.id')"; then
+    if ! target_property declared_id "${target_id}" '.id'; then
         problem "${target_id}: missing id"
     elif [[ "${declared_id}" != "${target_id}" ]]; then
         problem "${target_id}: id property is ${declared_id}, must match its object key"
     fi
 
-    local path
+    local path class
     for path in "${REQUIRED_STRINGS[@]}"; do
         local value
-        if ! value="$(jq -e -r --arg id "${target_id}" \
-            "(.targets[\$id] | ${path}) as \$v
-             | if (\$v | type) != \"string\" then error(\"type\") else \$v end" \
-            "${REGISTRY_FILE}" 2>/dev/null)"
-        then
+        snapshot_get class "P${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
+
+        if [[ "${class}" != "s" ]]; then
             problem "${target_id}: ${path} is missing, null or not a string"
 
             continue
         fi
+
+        snapshot_get value "W${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
 
         if [[ -z "${value}" ]]; then
             problem "${target_id}: ${path} must not be empty"
@@ -465,17 +635,15 @@ validate_target() {
 
     for path in "${REQUIRED_POSITIVE_INTEGERS[@]}"; do
         local value
-        if ! value="$(jq -e -r --arg id "${target_id}" \
-            "(.targets[\$id] | ${path}) as \$v
-             | if (\$v | type) != \"number\" then error(\"type\")
-               elif (\$v != (\$v | floor)) then error(\"float\")
-               else \$v end" \
-            "${REGISTRY_FILE}" 2>/dev/null)"
-        then
+        snapshot_get class "P${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
+
+        if [[ "${class}" != "i" ]]; then
             problem "${target_id}: ${path} is missing, null or not an integer"
 
             continue
         fi
+
+        snapshot_get value "W${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
 
         if ! is_positive_integer "${value}"; then
             problem "${target_id}: ${path} must be a positive integer, got ${value}"
@@ -484,17 +652,15 @@ validate_target() {
 
     for path in "${REQUIRED_MINIMUM_COUNTS[@]}"; do
         local value
-        if ! value="$(jq -e -r --arg id "${target_id}" \
-            "(.targets[\$id] | ${path}) as \$v
-             | if (\$v | type) != \"number\" then error(\"type\")
-               elif (\$v != (\$v | floor)) then error(\"float\")
-               else \$v end" \
-            "${REGISTRY_FILE}" 2>/dev/null)"
-        then
+        snapshot_get class "P${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
+
+        if [[ "${class}" != "i" ]]; then
             problem "${target_id}: ${path} is missing, null or not an integer"
 
             continue
         fi
+
+        snapshot_get value "W${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}${path}"
 
         if ! is_positive_integer "${value}" || (( value < 2 )); then
             problem "${target_id}: ${path} must be an integer >= 2, got ${value}"
@@ -526,7 +692,7 @@ validate_target_service_names() {
         field="${entry%%|*}"
         label="${entry#*|}"
 
-        value="$(target_property "${target_id}" "${field}" || printf '')"
+        target_property value "${target_id}" "${field}" || true
 
         if [[ -n "${value}" ]] && ! is_safe_service_name "${value}"; then
             problem "${target_id}: ${label} must be a lowercase service name matching [a-z0-9][a-z0-9_-]{0,63} (it is rendered verbatim into service configuration): ${value}"
@@ -538,13 +704,13 @@ validate_target_service_names() {
     # not follow the same closed format would let a path be smuggled in
     # through php_fpm.socket while php_fpm.pool stayed innocent.
     local socket basename
-    socket="$(target_property "${target_id}" '.php_fpm.socket' || printf '')"
+    target_property socket "${target_id}" '.php_fpm.socket' || true
 
     if [[ -n "${socket}" ]] && [[ "${socket}" == *.sock ]]; then
         basename="${socket##*/}"
         basename="${basename%.sock}"
 
-        # No -n guard: "/run/php/.sock" strips to an empty basename, which is
+        # No -n check: "/run/php/.sock" strips to an empty basename, which is
         # exactly the value a closed format has to reject rather than skip.
         if ! is_safe_service_name "${basename}"; then
             problem "${target_id}: php_fpm.socket file name must be a lowercase service name matching [a-z0-9][a-z0-9_-]{0,63}.sock: ${socket}"
@@ -556,7 +722,7 @@ validate_target_enums() {
     local target_id="$1"
 
     local lifecycle
-    lifecycle="$(target_property "${target_id}" '.lifecycle' || printf '')"
+    target_property lifecycle "${target_id}" '.lifecycle' || true
 
     case "${lifecycle}" in
         active|planned|disabled)
@@ -573,7 +739,7 @@ validate_target_enums() {
     fi
 
     local environment_class
-    environment_class="$(target_property "${target_id}" '.environment_class' || printf '')"
+    target_property environment_class "${target_id}" '.environment_class' || true
 
     case "${environment_class}" in
         staging|production)
@@ -588,9 +754,9 @@ validate_target_paths() {
     local target_id="$1"
 
     local application_root incoming socket
-    application_root="$(target_property "${target_id}" '.application_root' || printf '')"
-    incoming="$(target_property "${target_id}" '.incoming_artifacts' || printf '')"
-    socket="$(target_property "${target_id}" '.php_fpm.socket' || printf '')"
+    target_property application_root "${target_id}" '.application_root' || true
+    target_property incoming "${target_id}" '.incoming_artifacts' || true
+    target_property socket "${target_id}" '.php_fpm.socket' || true
 
     if [[ -n "${application_root}" ]]; then
         if ! is_absolute_normalized_path "${application_root}"; then
@@ -623,7 +789,7 @@ validate_target_paths() {
     fi
 
     local template
-    template="$(target_property "${target_id}" '.environment_template' || printf '')"
+    target_property template "${target_id}" '.environment_template' || true
 
     if [[ -n "${template}" ]]; then
         if [[ "${template}" == /* ]]; then
@@ -642,7 +808,7 @@ validate_target_accounts() {
     local field
     for field in runtime_user runtime_group deploy_user code_group; do
         local value
-        value="$(target_property "${target_id}" ".${field}" || printf '')"
+        target_property value "${target_id}" ".${field}" || true
 
         if [[ -n "${value}" ]] && ! is_safe_account_name "${value}"; then
             problem "${target_id}: ${field} is not a safe Linux account name (<=32 chars): ${value}"
@@ -654,9 +820,9 @@ validate_target_accounts() {
     # runtime user ownership of the code it executes, which is precisely the
     # separation the staging model exists to maintain.
     local runtime_user runtime_group code_group
-    runtime_user="$(target_property "${target_id}" '.runtime_user' || printf '')"
-    runtime_group="$(target_property "${target_id}" '.runtime_group' || printf '')"
-    code_group="$(target_property "${target_id}" '.code_group' || printf '')"
+    target_property runtime_user "${target_id}" '.runtime_user' || true
+    target_property runtime_group "${target_id}" '.runtime_group' || true
+    target_property code_group "${target_id}" '.code_group' || true
 
     if [[ -n "${code_group}" ]]; then
         if [[ "${code_group}" == "${runtime_group}" ]]; then
@@ -669,8 +835,8 @@ validate_target_accounts() {
     fi
 
     local database_name database_role
-    database_name="$(target_property "${target_id}" '.database.name' || printf '')"
-    database_role="$(target_property "${target_id}" '.database.application_role' || printf '')"
+    target_property database_name "${target_id}" '.database.name' || true
+    target_property database_role "${target_id}" '.database.application_role' || true
 
     if [[ -n "${database_name}" ]] && ! is_safe_postgres_identifier "${database_name}"; then
         problem "${target_id}: database.name is not a safe PostgreSQL identifier: ${database_name}"
@@ -685,33 +851,34 @@ validate_target_network() {
     local target_id="$1"
 
     local health_url
-    health_url="$(target_property "${target_id}" '.health.url' || printf '')"
+    target_property health_url "${target_id}" '.health.url' || true
 
     if [[ "${health_url}" != "http://127.0.0.1/" ]]; then
         problem "${target_id}: health.url must be http://127.0.0.1/ (health checks go through the loopback vhost), got '${health_url}'"
     fi
 
-    local hostname
-    for hostname in \
-        "$(target_property "${target_id}" '.health.host_header' || printf '')" \
-        "$(target_property "${target_id}" '.nginx.internal_hostname' || printf '')"
-    do
+    local hostname host_header internal_hostname
+    target_property host_header "${target_id}" '.health.host_header' || true
+    target_property internal_hostname "${target_id}" '.nginx.internal_hostname' || true
+
+    for hostname in "${host_header}" "${internal_hostname}"; do
         if [[ -n "${hostname}" ]] && ! is_plain_hostname "${hostname}"; then
             problem "${target_id}: '${hostname}' is not a bare hostname (no scheme, path, port, wildcard or whitespace)"
         fi
     done
 
-    if ! jq -e --arg id "${target_id}" \
-        '(.targets[$id].public_hostnames | type) == "array"' \
-        "${REGISTRY_FILE}" >/dev/null 2>&1
-    then
+    local hostnames_key="H${SNAPSHOT_SEP}${target_id}${SNAPSHOT_SEP}"
+    local hostnames_type
+    snapshot_get hostnames_type "${hostnames_key}type"
+
+    if [[ "${hostnames_type}" != "array" ]]; then
         problem "${target_id}: public_hostnames must be an array"
 
         return
     fi
 
     local count
-    count="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames | length' "${REGISTRY_FILE}")"
+    snapshot_get count "${hostnames_key}count"
 
     if (( count < 1 )); then
         problem "${target_id}: public_hostnames must contain at least one hostname"
@@ -722,17 +889,12 @@ validate_target_network() {
     # Every element must be a non-empty string *before* any hostname check.
     # Without this, `tostring` would turn 123/true/null into "123"/"true"/"null",
     # each of which satisfies the bare-hostname pattern.
-    if ! jq -e --arg id "${target_id}" \
-        'all(.targets[$id].public_hostnames[]; type == "string" and length > 0)' \
-        "${REGISTRY_FILE}" >/dev/null 2>&1
-    then
+    local all_strings
+    snapshot_get all_strings "${hostnames_key}all"
+
+    if [[ "${all_strings}" != "true" ]]; then
         local offending
-        offending="$(jq -r --arg id "${target_id}" '
-            [ .targets[$id].public_hostnames[]
-              | select((type != "string") or (length == 0))
-              | "\(type):\(tojson)"
-            ] | join(", ")
-        ' "${REGISTRY_FILE}" 2>/dev/null || printf 'unreadable')"
+        snapshot_get offending "${hostnames_key}offending"
 
         problem "${target_id}: every public hostname must be a non-empty string (offending: ${offending})"
 
@@ -740,7 +902,7 @@ validate_target_network() {
     fi
 
     local unique_count
-    unique_count="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames | unique | length' "${REGISTRY_FILE}")"
+    snapshot_get unique_count "${hostnames_key}unique"
 
     if [[ "${unique_count}" != "${count}" ]]; then
         problem "${target_id}: public_hostnames contains duplicates"
@@ -748,7 +910,7 @@ validate_target_network() {
 
     # Safe to read as raw strings now that every element is known to be one.
     local entries
-    entries="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[]' "${REGISTRY_FILE}")"
+    snapshot_get entries "${hostnames_key}entries"
 
     while IFS= read -r hostname; do
         [[ -n "${hostname}" ]] || continue
@@ -766,12 +928,7 @@ validate_collisions() {
         local label="${entry#*|}"
 
         local duplicates
-        duplicates="$(jq -r "
-            [ .targets[] | ${jq_path} | select(type == \"string\") ]
-            | group_by(.)
-            | map(select(length > 1) | .[0])
-            | .[]
-        " "${REGISTRY_FILE}" 2>/dev/null || true)"
+        snapshot_get duplicates "C${SNAPSHOT_SEP}${jq_path}"
 
         local value
         while IFS= read -r value; do
@@ -797,11 +954,13 @@ assert_registry_valid() {
     validate_structure
 
     if (( ERROR_COUNT == 0 )); then
-        local target_id
+        local target_id target_ids
+        snapshot_get target_ids "K"
+
         while IFS= read -r target_id; do
             [[ -n "${target_id}" ]] || continue
             validate_target "${target_id}"
-        done < <(registry_target_ids)
+        done <<< "${target_ids}"
 
         validate_collisions
     fi
