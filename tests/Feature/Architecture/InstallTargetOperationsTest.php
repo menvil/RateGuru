@@ -4004,17 +4004,30 @@ it('installs on a host that has no operational run root at all', function () {
 it('takes no lock at all in --check or --verify', function () {
     $source = installOpsSource();
 
-    expect(preg_match_all('/^\s*acquire_restore_locks$/m', $source, $matches))
-        ->toBe(1, 'acquire_restore_locks must be called exactly once, from perform_apply');
+    // Both lock acquisitions: the data-operation locks and the per-target
+    // deployment locks. Each called exactly once, and only from perform_apply.
+    foreach (['acquire_restore_locks', 'acquire_deployment_locks'] as $acquire) {
+        expect(preg_match_all('/^\s*'.$acquire.'$/m', $source, $matches))
+            ->toBe(1, "{$acquire} must be called exactly once, from perform_apply");
 
-    expect(preg_match(
-        '/perform_apply\(\) \{.*?acquire_restore_locks/s',
-        $source,
-    ))->toBe(1, 'the only call site must be inside perform_apply');
+        expect(preg_match('/perform_apply\(\) \{.*?'.$acquire.'/s', $source))
+            ->toBe(1, "the only {$acquire} call site must be inside perform_apply");
+    }
 
-    // And it runs before any destination is validated or touched.
-    expect(mb_strpos($source, 'acquire_restore_locks'."\n".'    validate_destination_directories'))
-        ->not->toBeFalse();
+    // And both run before any destination is validated or touched. Asserted by
+    // POSITION rather than by textual adjacency: what matters is the ordering,
+    // and adjacency would break the next time anything is correctly inserted
+    // between them — as acquire_deployment_locks was.
+    $body = substr($source, mb_strpos($source, "\nperform_apply() {"));
+    $body = substr($body, 0, mb_strpos($body, "\n}\n"));
+
+    $lastLockAt = mb_strpos($body, '    acquire_deployment_locks');
+    expect($lastLockAt)->not->toBeFalse();
+
+    foreach (['    validate_destination_directories', 'STAGE_DIR="$(mktemp -d)"'] as $later) {
+        expect(mb_strpos($body, $later))
+            ->toBeGreaterThan($lastLockAt, trim($later).' must come after every lock is held');
+    }
 });
 
 it('keeps the target-only lifecycle contract and introduces no legacy selector alongside the new CLI', function () {
@@ -4110,10 +4123,13 @@ it('the committed protocol contract is a valid contract with protocol 1 as the b
 });
 
 it('--check refuses a malformed source protocol contract before any mutation', function (string $contents, string $expected) {
-    // Validated as shape, never as policy: this installer does not decide what
-    // the numbers should be, only that they are the kind of thing deploy can
-    // compare. Caught during --check and during the apply preflight, which runs
-    // before the ERR trap is armed and before the staging directory exists.
+    // Validated as shape plus the one cross-field invariant the contract itself
+    // asserts: this installer does not choose what the protocol numbers should
+    // be, only that each is the kind of thing deploy can compare AND that the
+    // contract is internally consistent — a repository cannot require of
+    // artifacts a protocol its own tooling does not implement. Caught during
+    // --check and during the apply preflight, which runs before the ERR trap is
+    // armed and before the staging directory exists.
     $scratch = installOpsScratchDir();
 
     try {
@@ -4324,4 +4340,156 @@ it('accepts a source protocol contract exactly at the ceiling', function () {
     } finally {
         installOpsCleanup($scratch);
     }
+});
+
+// =============================================================================
+// An apply never replaces the bundle underneath a running deployment
+// =============================================================================
+//
+// Installing `deploy` before the protocol contract keeps a host from ever
+// promising a protocol its engine lacks — but file order cannot help a deployment
+// that is ALREADY RUNNING. That process goes on executing the old script text
+// while reading whatever the contract file now says, and `deploy` takes its lock
+// well before it reaches the protocol gate (the restore interlock and the
+// artifact checksum are in between). An apply landing a higher
+// `tooling.supported` inside that window would hand an old engine a claim the
+// host supports a protocol it cannot implement — the exact mismatch the
+// handshake exists to prevent. So the apply excludes a running deployment.
+
+it('refuses an apply while a deployment lock is held for an active target', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $locks = $vars['STAGING_TARGET_ROOT'].'/locks';
+        expect(@mkdir($locks, 0o755, true))->toBeTrue();
+
+        // Hold the lock the way deploy holds it: an open descriptor with a
+        // non-blocking exclusive flock, from a process that outlives the apply.
+        $lockFile = $locks.'/deployment.lock';
+        $holder = popen('flock '.escapeshellarg($lockFile).' -c '.escapeshellarg('sleep 60').' 2>/dev/null', 'r');
+        expect($holder)->not->toBeFalse('could not start the lock holder');
+
+        // Wait for the holder to actually own it, rather than racing it.
+        $held = false;
+        for ($i = 0; $i < 100; $i++) {
+            exec('flock -n '.escapeshellarg($lockFile).' -c true 2>/dev/null', $probe, $probeExit);
+            if ($probeExit !== 0) {
+                $held = true;
+                break;
+            }
+            usleep(50_000);
+        }
+        expect($held)->toBeTrue('the lock holder never acquired the deployment lock');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)
+            ->toContain('refusing to replace the operational bundle underneath it')
+            ->toContain('deployment.lock');
+
+        // Nothing was touched: the lock is taken before the destination
+        // directories are validated, before the backup directory, before staging.
+        expect($output)->not->toContain('files installed; verifying before committing');
+        expect(file_exists($vars['DST_DEPLOY']))->toBeFalse('an excluded apply must install nothing');
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeFalse();
+        expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'the refusal must precede this run\'s backup directory');
+
+        pclose($holder);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('takes the deployment lock after the restore locks, matching restore-target ordering', function () {
+    // Lock ordering is a property of the source, not of one run: restore-target
+    // takes the restore lock, then the deployment lock, then the backup lock, and
+    // this installer takes the first two in that same order. Every lock on both
+    // sides is `flock -n`, so a disagreement could only fail closed — but
+    // matching the order means it does not even do that.
+    // The call sites inside perform_apply, not the function definitions, which
+    // appear earlier in the file in an unrelated order.
+    $source = installOpsSource();
+    $body = substr($source, strpos($source, "\nperform_apply() {"));
+    $body = substr($body, 0, strpos($body, "\n}\n"));
+
+    $restoreAt = strpos($body, '    acquire_restore_locks');
+    $deploymentAt = strpos($body, '    acquire_deployment_locks');
+
+    expect($restoreAt)->not->toBeFalse('perform_apply must acquire the restore locks');
+    expect($deploymentAt)->not->toBeFalse('perform_apply must acquire the deployment locks');
+    expect($restoreAt)->toBeLessThan($deploymentAt, 'the restore locks must be taken first');
+
+    // And both before the first mutation: destination validation, the health
+    // probe and the staging directory all come after.
+    foreach ([
+        '    validate_destination_directories',
+        '    verify_preflight_target_health',
+        'STAGE_DIR="$(mktemp -d)"',
+    ] as $later) {
+        expect(strpos($body, $later))
+            ->toBeGreaterThan($deploymentAt, trim($later).' must come after the deployment locks');
+    }
+});
+
+it('applies cleanly when no deployment is in flight, and says so', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(@mkdir($vars['STAGING_TARGET_ROOT'].'/locks', 0o755, true))->toBeTrue();
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('deployment lock held for '.$vars['STAGING_TARGET_ROOT'])
+            ->toContain('no deployment is in flight for any active target');
+
+        expect(file_exists($vars['DST_DEPLOYMENT_PROTOCOL']))->toBeTrue();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('applies on a host whose target has no lock directory yet', function () {
+    // A target that has never run an operational script cannot have a deployment
+    // in flight — `deploy` opens its lock inside that directory and could not
+    // have got past it — and this installer creates no directories, so a clean
+    // host is not blocked by a lock it has nowhere to take.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(is_dir($vars['STAGING_TARGET_ROOT'].'/locks'))->toBeFalse();
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('no lock directory at '.$vars['STAGING_TARGET_ROOT'].'/locks');
+        expect(is_dir($vars['STAGING_TARGET_ROOT'].'/locks'))
+            ->toBeFalse('this installer must never create a directory just to lock in it');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('stages the protocol contract into the staged bundle override set', function () {
+    // The staged bundle is judged against itself. No staged invocation reaches
+    // deploy's protocol gate today — they are `--help` and the lifecycle
+    // rejection, and this installer never invokes deploy for real — so this
+    // changes no outcome now. It is here so a staged deploy can never consult the
+    // HOST's contract, the one file of the pair that has not been staged.
+    $source = installOpsSource();
+
+    expect($source)
+        ->toContain('local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"')
+        ->toContain('"RATEGURU_DEPLOYMENT_PROTOCOL_FILE=${staged_deployment_protocol}"');
 });

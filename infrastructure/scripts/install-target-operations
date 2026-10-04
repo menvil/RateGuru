@@ -582,6 +582,7 @@ verify_staged_candidates() {
     local staged_target_prerequisites="${stage_dir}/install-target-prerequisites"
     local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
+    local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"
 
     log "verifying staged candidates before installation"
 
@@ -598,6 +599,15 @@ verify_staged_candidates() {
         "RATEGURU_COMMON_FILE=${staged_common}"
         "RATEGURU_RESTORE_COMMON_FILE=${staged_restore_common}"
         "RATEGURU_DEPLOYMENT_CONF_FILE=${staged_deployment_conf}"
+        # The staged bundle must be judged against ITSELF. None of the staged
+        # invocations below currently reaches deploy's deployment protocol gate —
+        # they are `--help` and the lifecycle rejection, both of which return
+        # first, and this installer never invokes deploy for real — so this
+        # changes no outcome today. It is here because the alternative is a staged
+        # deploy that would consult the HOST's installed contract, which is the
+        # one file in the pair that has not been staged, and that would stop being
+        # harmless the moment anything moves earlier in deploy.
+        "RATEGURU_DEPLOYMENT_PROTOCOL_FILE=${staged_deployment_protocol}"
         "RATEGURU_TARGET_REGISTRY_FILE=${staged_registry}"
         "RATEGURU_TARGETS_CLI=${staged_targets}"
         "RATEGURU_HEALTH_CHECK_CLI=${staged_health_check}"
@@ -1744,9 +1754,57 @@ validate_destination_directories() {
 # would be worse than telling them to wait.
 #
 # Lock ordering: restore-target takes this lock first, then the target
-# deployment lock, then the backup lock. This installer takes only this one,
-# so no cycle is possible.
+# deployment lock, then the backup lock. This installer takes the first two in
+# that same order, so no cycle is possible — and every lock on both sides is
+# `flock -n`, so a disagreement could only ever fail closed, never deadlock.
 RESTORE_LOCK_FDS=()
+
+# The deployment lock of every active target, held for the whole of an --apply.
+#
+# WHY A BUNDLE SWAP MUST EXCLUDE A RUNNING DEPLOYMENT. Replacing the files is
+# ordered carefully — `deploy` before the protocol contract, so a host never
+# promises a protocol its engine lacks — but file order cannot help a deployment
+# that is ALREADY RUNNING: that process goes on executing the old script text
+# while reading whatever the contract file now says. `deploy` takes its lock and
+# only reaches the protocol gate some way later, after the restore interlock and
+# the artifact checksum, which on a large artifact is not a short window. An
+# --apply landing a higher `tooling.supported` inside it would hand the old
+# engine a claim that the host supports a protocol that engine cannot implement,
+# and the gate would accept a release on the strength of it.
+#
+# That is precisely the mismatch this whole handshake exists to prevent, so the
+# bundle swap excludes a running deployment outright rather than racing it.
+DEPLOYMENT_LOCK_FDS=()
+
+# active_target_application_roots — every active target's application root, in a
+# deterministic (target-id sorted) order, honouring the same STAGING_TARGET_ROOT
+# test seam classify_staging_deployment_state uses.
+active_target_application_roots() {
+    local id root
+
+    while IFS= read -r id; do
+        [[ -n "${id}" ]] || continue
+
+        if [[ "${id}" == "${STAGING_TARGET_ID}" ]] && [[ -n "${STAGING_TARGET_ROOT}" ]]; then
+            root="${STAGING_TARGET_ROOT}"
+        else
+            root="$(jq -r --arg id "${id}" '.targets[$id].application_root' "${SRC_REGISTRY}")"
+        fi
+
+        [[ -n "${root}" ]] && [[ "${root}" != null ]] \
+            || fail "cannot derive the ${id} application root from ${SRC_REGISTRY}"
+
+        printf '%s\n' "${root}"
+    done < <(
+        jq -r '
+            .targets
+            | to_entries
+            | map(select(.value.lifecycle == "active") | .key)
+            | sort
+            | .[]
+        ' "${SRC_REGISTRY}"
+    )
+}
 
 active_backup_namespaces() {
     jq -r '
@@ -1811,6 +1869,42 @@ acquire_restore_locks() {
     done < <(active_backup_namespaces)
 
     log "no restore and no recovery is in flight for any active target's backup namespace"
+}
+
+# acquire_deployment_locks — the second half of the exclusion, taken AFTER the
+# restore locks so this installer's order matches restore-target's own.
+#
+# Non-blocking, like every other lock here: a deployment in flight fails the
+# apply closed rather than queueing behind it. A target whose locks directory
+# does not exist yet cannot have a deployment in flight — `deploy` opens its lock
+# inside that directory and could not have got past it — and this installer
+# creates no directories, so none is conjured just to lock in.
+acquire_deployment_locks() {
+    local root lock_file lock_fd
+
+    while IFS= read -r root; do
+        [[ -n "${root}" ]] || continue
+
+        if [[ ! -d "${root}/locks" ]]; then
+            log "  no lock directory at ${root}/locks — no deployment can be in flight for that target"
+
+            continue
+        fi
+
+        lock_file="${root}/locks/deployment.lock"
+
+        exec {lock_fd}>"${lock_file}" \
+            || fail "could not open the deployment lock for ${root}: ${lock_file}"
+
+        if ! flock -n "${lock_fd}"; then
+            fail "a deployment, rollback, restore or recovery is running for ${root} — refusing to replace the operational bundle underneath it, because an already-running engine would go on executing the old scripts while reading the new protocol contract (${lock_file})"
+        fi
+
+        DEPLOYMENT_LOCK_FDS+=("${lock_fd}")
+        log "  deployment lock held for ${root}"
+    done < <(active_target_application_roots)
+
+    log "no deployment is in flight for any active target"
 }
 
 verify_preflight_target_health() {
@@ -1905,10 +1999,12 @@ perform_apply() {
     log "mode: apply"
 
     RESTORE_LOCK_FDS=()
+    DEPLOYMENT_LOCK_FDS=()
 
     run_source_validation
     classify_staging_deployment_state
     acquire_restore_locks
+    acquire_deployment_locks
     validate_destination_directories
     verify_preflight_target_health
 

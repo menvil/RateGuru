@@ -355,7 +355,28 @@ runs:
         # deploy. 2147483647 is the signed 32-bit maximum.
         protocol_max=2147483647
 
+        # An ABSENT contract is the one historical fallback. A contract path that
+        # exists must be a regular file and not a symlink: `-f` alone follows a
+        # link, so a link planted in the source tree could point at a file outside
+        # it and decide deployment_protocol_min, while the artifact carried only
+        # the link and no host could ever see what was read.
+        if [[ -L "${protocol_contract}" ]]; then
+          echo "${protocol_contract} is a symlink — a release must declare its protocol from its own tree" >&2
+          exit 1
+        fi
+
+        if [[ -e "${protocol_contract}" ]] && [[ ! -f "${protocol_contract}" ]]; then
+          echo "${protocol_contract} is not a regular file" >&2
+          exit 1
+        fi
+
         if [[ -f "${protocol_contract}" ]]; then
+          # The WHOLE contract, not just the half this build reads. The same file
+          # is the single source install-target-operations validates, and it
+          # applies the cross-field invariant; a contract raising
+          # artifact.minimum_required past tooling.supported would otherwise build
+          # cleanly and ship a release.json that every host must refuse. Two
+          # validators of one source of truth must not be able to disagree.
           if ! deployment_protocol_min="$(
             jq -e --argjson max "${protocol_max}" '
               if type != "object" then error("contract is not a JSON object")
@@ -364,6 +385,11 @@ runs:
               elif (.artifact.minimum_required | floor) != .artifact.minimum_required then error("artifact.minimum_required is not an integer")
               elif .artifact.minimum_required < 1 then error("artifact.minimum_required is below 1")
               elif .artifact.minimum_required > $max then error("artifact.minimum_required is above the supported maximum")
+              elif (.tooling.supported | type) != "number" then error("tooling.supported is not a number")
+              elif (.tooling.supported | floor) != .tooling.supported then error("tooling.supported is not an integer")
+              elif .tooling.supported < 1 then error("tooling.supported is below 1")
+              elif .tooling.supported > $max then error("tooling.supported is above the supported maximum")
+              elif .artifact.minimum_required > .tooling.supported then error("artifact.minimum_required exceeds tooling.supported")
               else .artifact.minimum_required
               end
             ' "${protocol_contract}"

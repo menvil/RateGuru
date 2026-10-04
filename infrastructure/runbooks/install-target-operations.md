@@ -56,8 +56,8 @@ Exactly thirty-two files:
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these thirty-one files in these
-thirty-one places with these exact permissions. Nothing else. It never sources or
+installer's entire job is putting these thirty-two files in these
+thirty-two places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
 
@@ -95,7 +95,7 @@ check.
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the thirty-one files inside them. `--apply` validates both directories before
+the thirty-two files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -196,17 +196,31 @@ sudo infrastructure/scripts/install-target-operations --apply
    installer takes, it is non-blocking, and a host whose operational run root
    does not exist yet has no restore to serialize against — no directory is
    ever created just to lock inside it.
-3. Both destination directories are validated — exist, are real directories,
+3. The deployment lock is taken for every active target — the same
+   `<application root>/locks/deployment.lock` that `deploy`, `rollback`,
+   `restore-target` and `recover-host` each hold for the whole of their run,
+   taken in target-id order and after the restore locks so this installer's
+   ordering matches `restore-target`'s own. A deployment already in flight has
+   taken its lock but may not yet have reached its deployment protocol gate, and
+   it goes on executing the OLD scripts while reading whatever the contract file
+   now says — so an `--apply` overlapping it could hand an old engine a claim
+   that the host supports a protocol that engine cannot implement. This fails
+   closed with `a deployment, rollback, restore or recovery is running for
+   <root>` and installs nothing. Non-blocking, like the restore locks, and a
+   target with no `locks` directory yet cannot have a deployment in flight —
+   `deploy` opens its lock inside that directory — so nothing is created just to
+   lock in.
+4. Both destination directories are validated — exist, are real directories,
    not symlinks, `root:root`-owned, not group- or other-writable (see
    [above](#the-two-destination-directories-must-already-exist)) — before a
    backup directory is created or a single destination file changes.
-4. The **currently installed** `staging-main` health check is proven to work
+5. The **currently installed** `staging-main` health check is proven to work
    — `health-check --target staging-main`, with every `RATEGURU_*` test
    override explicitly unset — before a single destination file changes. If
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-5. The thirty-one source files are copied into a private, root-only temporary
+6. The thirty-two source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -233,7 +247,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    deletion, a remote restore test, a full backup cycle, a backup download,
    or a live data restore), so this step never mutates the real staging
    target and never contacts Backblaze B2.
-6. A timestamped backup directory is created (see below), and each
+7. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
@@ -258,13 +272,13 @@ sudo infrastructure/scripts/install-target-operations --apply
    socket or device — is refused outright, never followed, entered or
    silently replaced; a rejected destination is left untouched and is never
    backed up.
-7. The installed result is verified: exact ownership, exact mode, byte-for-byte
+8. The installed result is verified: exact ownership, exact mode, byte-for-byte
    content match against the committed source, `bash -n`, and
    `targets validate`/`targets list` against the installed registry.
-8. Runtime parity is verified against the real host, with **every**
+9. Runtime parity is verified against the real host, with **every**
    `RATEGURU_*` override explicitly unset (`env -u ...`) — see
    [Runtime parity](#runtime-parity-checks) below.
-9. Only once every one of the above passes is the change committed. Before
+10. Only once every one of the above passes is the change committed. Before
    that point, any failure rolls back every file this run touched — see
    [Rollback](#rollback) below.
 
@@ -324,7 +338,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
 | `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts; `rateguru-production` is named by no registered target and is carried for this installer's own byte-verification alone |
 
-None of the thirty-one may be group- or world-writable, and none may be a
+None of the thirty-two may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -388,7 +402,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the thirty-one destinations that need restoring. Confirm with:
+Repeat for each of the thirty-two destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify

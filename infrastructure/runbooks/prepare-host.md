@@ -306,8 +306,31 @@ all — just as true when the release being installed is historical.
 
 ### Protocol 1 is the bootstrap baseline
 
-Both numbers are `1` today, so no artifact depends on anything new and the
-handshake changes no behaviour until a protocol is actually raised.
+Both numbers are `1` today, so no artifact *requires* anything new and no
+deployment outcome changes on account of a version comparison.
+
+**That is not the same as "nothing to do".** The protocol-aware `deploy` treats
+the installed contract as mandatory and refuses without it, so a host that
+already has an older bundle has no
+`/home/www/rateguru/config/deployment-protocol.json` and its next deployment
+fails closed with:
+
+```text
+the installed deployment protocol contract is missing:
+/home/www/rateguru/config/deployment-protocol.json. Run Prepare Host to install
+the trusted operational bundle, then retry deployment
+```
+
+> **Every existing host must run Prepare Host once, before its next deployment.**
+> That is the operation that installs the protocol-aware `deploy` together with
+> the contract it reads. Until it has run, deployments to that host refuse — by
+> design, because a host whose engine and contract disagree is exactly what this
+> handshake exists to catch.
+
+Prepare Host is idempotent and converges, so running it on an already-prepared
+host is safe and is the normal way to adopt this.
+
+Only once a host is prepared may a protocol ever be raised:
 
 > Never raise `artifact.minimum_required` above 1 until all hosts that may
 > deploy that artifact have first installed the protocol-aware operational

@@ -613,6 +613,16 @@ it('builds an application tree that contains none of the deployment tooling, end
  */
 function buildRateGuruArchiveWithContract(string $scratch, ?string $contract): array
 {
+    // The same guard the sibling end-to-end build test uses: this runs the real
+    // archive step, which needs the real toolchain. Without it these tests fail
+    // on a machine missing jq instead of skipping, where every other test in this
+    // file that shells out skips.
+    foreach (['git', 'rsync', 'tar', 'jq', 'sha256sum'] as $tool) {
+        if (trim((string) shell_exec('command -v '.escapeshellarg($tool))) === '') {
+            test()->markTestSkipped("{$tool} is not available on this machine.");
+        }
+    }
+
     $source = $scratch.'/source';
     $runnerTemp = $scratch.'/runner-temp';
 
@@ -798,9 +808,27 @@ it('reads the required protocol from the source contract and never from a litera
     expect($block)->toContain('deployment_protocol_min=1');
     expect($block)->toContain('declaring legacy minimum deployment protocol');
 
-    // The build never reads the tooling half: what a host supports is the host's
-    // to state, and install-target-operations is what states it.
-    expect($run)->not->toContain('tooling.supported');
+    // The build VALIDATES tooling.supported — it is half of the contract's own
+    // internal consistency, and the build must not ship a release.json every host
+    // would refuse — but it never USES it. What a host supports is the host's to
+    // state, and install-target-operations is what states it, so the value the
+    // build records is the artifact half and nothing else.
+    expect($block)->toContain('else .artifact.minimum_required');
+    expect($run)->toContain('deployment_protocol_min: $deployment_protocol_min');
+
+    foreach (preg_split('/\R/', $run) ?: [] as $line) {
+        $trimmed = ltrim($line);
+
+        // Comments explain the rule; the rule itself is about executable lines.
+        if (! str_contains($line, 'tooling.supported') || str_starts_with($trimmed, '#')) {
+            continue;
+        }
+
+        // Every executable mention is a validation branch, never an assignment
+        // or a recorded field.
+        expect(str_contains($line, 'error('))
+            ->toBeTrue("tooling.supported may only be validated, never used: {$line}");
+    }
 });
 
 it('declares the same protocol ceiling deploy and the installer declare', function () {
@@ -858,5 +886,139 @@ it('builds an artifact declaring the ceiling itself', function () {
         expect($metadata['deployment_protocol_min'])->toBeInt();
     } finally {
         exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses a contract path that is a symlink', function () {
+    // `-f` follows links, so a link planted in the source tree could point at a
+    // file outside it and decide deployment_protocol_min — while the artifact
+    // carried only the link, and no host could ever see what was read. An ABSENT
+    // contract is the one historical fallback; a present one must be the source's
+    // own regular file.
+    foreach (['git', 'rsync', 'tar', 'jq', 'sha256sum'] as $tool) {
+        if (trim((string) shell_exec('command -v '.escapeshellarg($tool))) === '') {
+            test()->markTestSkipped("{$tool} is not available on this machine.");
+        }
+    }
+
+    $scratch = sys_get_temp_dir().'/build-protocol-symlink-'.uniqid('', true);
+    mkdir($scratch, 0o755, true);
+
+    try {
+        // An out-of-tree contract demanding a high protocol, reachable only
+        // through the link.
+        $outside = $scratch.'/outside-the-source.json';
+        file_put_contents($outside, '{"schema": 1, "artifact": {"minimum_required": 7}, "tooling": {"supported": 7}}');
+
+        // Build the source tree first, then replace the contract with a symlink.
+        buildRateGuruArchiveWithContract($scratch, '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 1}}');
+
+        $contract = $scratch.'/source/infrastructure/config/deployment-protocol.json';
+        unlink($contract);
+        symlink($outside, $contract);
+
+        $githubOutput = $scratch.'/github-output-symlink';
+        touch($githubOutput);
+
+        $script = 'set -Eeuo pipefail'."\n"
+            .'cd '.escapeshellarg($scratch.'/source')."\n"
+            .data_get(buildRateGuruStep('Build release archive'), 'run');
+
+        $env = [
+            'RUNNER_TEMP='.escapeshellarg($scratch.'/runner-temp'),
+            'GITHUB_OUTPUT='.escapeshellarg($githubOutput),
+            'GITHUB_RUN_ID=4242',
+            'GITHUB_RUN_NUMBER=7',
+            'SOURCE_REF=develop',
+            'RELEASE_VERSION=v0.0.0',
+            'WORKFLOW_ARTIFACT_PREFIX=rateguru-release',
+            'RELEASE_METADATA='.escapeshellarg('{}'),
+            'EXPECTED_SOURCE_SHA=',
+        ];
+
+        $output = [];
+        $exit = 0;
+        exec('env '.implode(' ', $env).' bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+        $text = implode("\n", $output);
+
+        expect($exit)->not->toBe(0, $text);
+        expect($text)->toContain('is a symlink — a release must declare its protocol from its own tree');
+
+        // Never the out-of-tree value, and never the legacy fallback either.
+        expect($text)
+            ->not->toContain('Candidate deployment protocol: 7')
+            ->not->toContain('declaring legacy minimum deployment protocol');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('fails the build on an internally inconsistent source contract', function (string $contract, string $why) {
+    // The build and install-target-operations validate the SAME single source, so
+    // they must not be able to disagree about it. A contract raising
+    // artifact.minimum_required past tooling.supported would otherwise build
+    // cleanly and ship a release.json every host must refuse — a failure
+    // discovered at deploy time for a mistake visible at build time.
+    $scratch = sys_get_temp_dir().'/build-protocol-inconsistent-'.uniqid('', true);
+    mkdir($scratch, 0o755, true);
+
+    try {
+        [$exit, $output, $metadata] = buildRateGuruArchiveWithContract($scratch, $contract);
+
+        expect($exit)->not->toBe(0, "{$why}:\n{$output}");
+        expect($output)->toContain(
+            'infrastructure/config/deployment-protocol.json is not a valid deployment protocol contract'
+        );
+        expect($metadata)->toBeNull('a refused contract must never produce an artifact');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+})->with([
+    'a minimum beyond what the tooling supports' => [
+        '{"schema": 1, "artifact": {"minimum_required": 2}, "tooling": {"supported": 1}}',
+        'requiring protocol 2 of artifacts while the tooling implements only 1',
+    ],
+    'a missing tooling section' => [
+        '{"schema": 1, "artifact": {"minimum_required": 1}}',
+        'a contract that never says what the tooling supports',
+    ],
+    'a string supported version' => [
+        '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": "1"}}',
+        'a supported version that is not a number',
+    ],
+    'a float supported version' => [
+        '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 1.5}}',
+        'a supported version that is not an integer',
+    ],
+    'a zero supported version' => [
+        '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 0}}',
+        'a supported version below 1',
+    ],
+    'a supported version above the ceiling' => [
+        '{"schema": 1, "artifact": {"minimum_required": 1}, "tooling": {"supported": 2147483648}}',
+        'a supported version above the shared ceiling',
+    ],
+]);
+
+it('validates the same contract invariants install-target-operations validates', function () {
+    // Stated as a property of both sources, so the two validators of the single
+    // source of truth cannot drift apart silently.
+    $run = data_get(buildRateGuruStep('Build release archive'), 'run');
+    $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
+
+    foreach ([
+        '.schema != 1',
+        '(.artifact.minimum_required | type) != "number"',
+        '.artifact.minimum_required < 1',
+        '.artifact.minimum_required > $max',
+        '(.tooling.supported | type) != "number"',
+        '.tooling.supported < 1',
+        '.tooling.supported > $max',
+        '.artifact.minimum_required > .tooling.supported',
+    ] as $invariant) {
+        expect(str_contains($run, $invariant))
+            ->toBeTrue("the build must validate: {$invariant}");
+        expect(str_contains($installer, $invariant))
+            ->toBeTrue("install-target-operations must validate: {$invariant}");
     }
 });
