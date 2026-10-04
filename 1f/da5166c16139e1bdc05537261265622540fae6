@@ -1,0 +1,29 @@
+tests/Feature/Architecture/DisasterRecoveryContractTest.php
+  s_c7e782fafc9782::t_ba1e575d0e0aab 275-278
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_c7e782fafc9782::t_c03f75ea81e8ce 81-90,92-93,95,97-111,181,373,381-390
+  s_c7e782fafc9782::t_60d619b352d3b4 211-246
+  s_c7e782fafc9782::t_a6ab345ad4cb9f 21-30,135-138
+infrastructure/runbooks/deployment-targets.md
+  s_c7e782fafc9782::t_3a91722e04576b 66-76,108-137
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_ba1e575d0e0aab 268-272,276
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_c7e782fafc9782::t_ba1e575d0e0aab 137-139,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1fda5166c16139e1bdc05537261265622540fae6",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
