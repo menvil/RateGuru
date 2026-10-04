@@ -15,7 +15,11 @@
 @php
     // required: true shows "Required", false shows "Optional", null shows neither.
     $id ??= 'rg-admin-field-'.\Illuminate\Support\Str::slug($name ?? $label);
-    $describedBy = $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null);
+    // The caller's own descriptions come first; the field adds its hint or error.
+    $describedBy = collect([
+        $attributes->get('aria-describedby'),
+        $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null),
+    ])->filter()->implode(' ');
 @endphp
 
 <div {{ $attributes->only(['class', 'style'])->class(['rg-admin-field']) }}>
@@ -42,8 +46,8 @@
             @required($required === true)
             @disabled($disabled)
             @if ($error !== null) aria-invalid="true" @endif
-            @if ($describedBy !== null) aria-describedby="{{ $describedBy }}" @endif
-            {{ $attributes->except(['class', 'style']) }}
+            @if ($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif
+            {{ $attributes->except(['class', 'style', 'aria-describedby']) }}
         />
     </div>
 

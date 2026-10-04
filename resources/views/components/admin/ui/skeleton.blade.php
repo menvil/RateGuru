@@ -27,6 +27,5 @@
         'rg-admin-skeleton--soft' => $tone === 'soft',
         'rg-admin-skeleton--box' => $shape === 'box',
         'rg-admin-skeleton--control' => $shape === 'control',
-    ]) }}
-    style="width: {{ $width }}; height: {{ $height }};"
+    ])->style(["width: {$width}", "height: {$height}"]) }}
 ></span>

@@ -52,9 +52,11 @@ Reusable admin components never hard-code Tailwind palette colours (`bg-gray-50`
 changes one file.
 
 The admin CSS is additive. Every Admin v2 rule is scoped to a `.rg-admin-*` class; nothing restyles Filament's
-own `.fi-*` components, so the existing screens keep their look until each one is migrated. The theme file holds
-exactly two intentional fixes to Filament components (pointer cursor on toggles, selects and file pickers; a
-frameless records-per-page chooser), kept unlayered as they were before.
+own `.fi-*` components, so the existing screens keep their design until each one is migrated. The theme file
+holds exactly two intentional fixes to Filament components (pointer cursor on toggles, selects and file pickers;
+a frameless records-per-page chooser), kept unlayered as they were before. Because the theme compiles Tailwind
+from `app/Filament` and `resources/views/filament`, utilities those views already used but Filament's prebuilt
+stylesheet lacked now take effect as written.
 
 ## Foundations
 

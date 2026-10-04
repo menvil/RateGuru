@@ -85,6 +85,26 @@ it('marks an invalid text field and says what to do instead of the hint', functi
         ->assertDontSee('Public as @biscuit_mum.');
 });
 
+it('keeps a caller\'s own description alongside the field\'s hint', function () {
+    $view = (string) $this->blade('<x-admin.ui.text-field label="Name" name="name" hint="Shown publicly." aria-describedby="name-policy" />');
+
+    expect(substr_count($view, 'aria-describedby='))->toBe(1)
+        ->and($view)->toContain('aria-describedby="name-policy rg-admin-field-name-hint"');
+
+    $view = (string) $this->blade('<x-admin.ui.textarea label="Note" name="note" :limit="10" aria-describedby="note-policy" />');
+
+    expect(substr_count($view, 'aria-describedby='))->toBe(1)
+        ->and($view)->toContain('aria-describedby="note-policy rg-admin-field-note-counter"');
+});
+
+it('counts characters the way the server does, as code points', function () {
+    // mb_strlen on the server and Array.from in the browser both count an
+    // emoji as one character; a UTF-16 .length would count it as two.
+    $this->blade('<x-admin.ui.textarea label="Note" name="note" :limit="10" value="🐶 Rex" />')
+        ->assertSee('5 / 10')
+        ->assertSee('length = Array.from($event.target.value).length', false);
+});
+
 it('really disables a disabled field', function () {
     $this->blade('<x-admin.ui.text-field label="Email" name="email" disabled />')
         ->assertSee('rg-admin-input--disabled', false)
@@ -135,6 +155,15 @@ it('renders status tabs as links with the current one marked, or as toggles', fu
         ->assertSee('aria-pressed="false"', false);
 });
 
+it('lets an in-place filter wire each toggle tab to its action', function () {
+    $this->blade('<x-admin.ui.tabs active="missing" :items="$items" />', ['items' => [
+        ['id' => 'missing', 'label' => 'Missing only', 'attributes' => ['wire:click' => "\$set('mode', 'missing')"]],
+        ['id' => 'all', 'label' => 'All', 'attributes' => ['wire:click' => "\$set('mode', 'all')"]],
+    ]])
+        ->assertSee('class="rg-admin-tab" wire:click="$set(\'mode\', \'missing\')" aria-pressed="true"', false)
+        ->assertSee('class="rg-admin-tab" wire:click="$set(\'mode\', \'all\')" aria-pressed="false"', false);
+});
+
 it('gives every notice tone its own icon, so the tone is not carried by colour alone', function (string $tone, string $path) {
     $this->blade('<x-admin.ui.inline-notice :tone="$tone">Explained.</x-admin.ui.inline-notice>', ['tone' => $tone])
         ->assertSee("rg-admin-notice--{$tone}", false)
@@ -157,6 +186,15 @@ it('hides skeleton bars from assistive technology', function () {
     $this->blade('<x-admin.ui.skeleton width="62%" height="10px" />')
         ->assertSee('aria-hidden="true"', false)
         ->assertSee('width: 62%; height: 10px;', false);
+});
+
+it('keeps a skeleton\'s size when the caller adds a style of its own', function () {
+    $view = (string) $this->blade('<x-admin.ui.skeleton width="40px" height="40px" style="margin-top: 4px" />');
+
+    expect(substr_count($view, 'style='))->toBe(1)
+        ->and($view)->toContain('margin-top: 4px')
+        ->toContain('width: 40px')
+        ->toContain('height: 40px');
 });
 
 it('draws a card with a header, a body and a read-only footer', function () {

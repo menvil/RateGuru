@@ -7,8 +7,11 @@ admin works, and every screen is either fully v1 or fully v2.
 ## Principles
 
 - **Incremental.** A screen is migrated in one change and stays usable before and after it.
-- **Additive CSS.** Admin v2 styles apply only through `.rg-admin-*` classes. Nothing restyles Filament's `.fi-*`
-  components globally, so screens not yet migrated keep their v1 look.
+- **Additive CSS.** Admin v2 styles apply only through `.rg-admin-*` classes; nothing restyles Filament's `.fi-*`
+  components globally. The theme's only rules for Filament's own components are the two fixes carried over from
+  the old inline stylesheet (pointer cursors, the frameless records-per-page chooser). One side effect is
+  intended: the theme compiles Tailwind from the admin's own views, so utilities that v1 views already used but
+  Filament's prebuilt stylesheet lacked (for example `space-y-2`, `lg:grid-cols-5`) now render as written.
 - **Filament stays.** Screens keep Filament's routing, authorization, Livewire, actions and notifications; v2
   replaces what they look like, not the framework under them.
 - **The kit first.** A screen is built from `x-admin.ui.*` components and `.rg-admin-*` primitives. Anything a
@@ -24,7 +27,7 @@ admin works, and every screen is either fully v1 or fully v2.
 - `design-contract.md`, `ui-review-checklist.md` and this plan are written.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
   the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its two fixes live in the theme.
-- The production UI kit lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
+- The live developer UI kit, local and testing only, lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
   NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01.
 - No existing screen, navigation item, translation form or database table changes.
 

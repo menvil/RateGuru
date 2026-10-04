@@ -29,7 +29,9 @@
 
     $id ??= 'rg-admin-field-'.\Illuminate\Support\Str::slug($name ?? $label);
     $length = mb_strlen((string) $value);
+    // The caller's own descriptions come first; the field adds its counter and message.
     $describedBy = collect([
+        $attributes->get('aria-describedby'),
         $limit !== null ? "{$id}-counter" : null,
         $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null),
     ])->filter()->implode(' ');
@@ -37,6 +39,7 @@
 
 <div
     {{ $attributes->only(['class', 'style'])->class(['rg-admin-field']) }}
+    {{-- Characters are counted as code points on both sides, as Laravel's max rule counts them. --}}
     @if ($limit !== null) x-data="{ length: @js($length), limit: @js((int) $limit) }" @endif
 >
     <div class="rg-admin-field__head">
@@ -72,8 +75,8 @@
         @disabled($disabled)
         @if ($error !== null) aria-invalid="true" @endif
         @if ($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif
-        @if ($limit !== null) x-on:input="length = $event.target.value.length" @endif
-        {{ $attributes->except(['class', 'style']) }}
+        @if ($limit !== null) x-on:input="length = Array.from($event.target.value).length" @endif
+        {{ $attributes->except(['class', 'style', 'aria-describedby']) }}
     >{{ $value }}</textarea>
 
     @if ($error !== null)
