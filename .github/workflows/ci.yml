@@ -121,6 +121,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The admin panel's Filament theme builds on Filament's own theme CSS,
+      # which ships inside vendor/filament, so the PHP dependencies have to be
+      # installed before Vite can compile it.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, gd, exif
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
