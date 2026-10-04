@@ -66,10 +66,11 @@ Release to production
 > **Prerequisite, not a description.** The `production-tits-guru` Environment's
 > allowlist is GitHub configuration, which no pull request can change. It must be
 > set by an operator — *Settings → Environments → production-tits-guru →
-> Selected branches and tags* — to `main` and `v*`, with `develop` removed. Until
-> that is done, a production operational workflow running from `main` is
-> **rejected by GitHub before any job starts**. The order is: merge the
-> `develop → main` promotion, set the allowlist, then run the workflow.
+> Selected branches and tags* — to `main` and `v*`, with `develop` removed, plus a
+> repository **tag ruleset protecting `v*`** (see below). Until the allowlist is
+> set, a production operational workflow running from `main` is **rejected by
+> GitHub before any job starts**. The order is: merge the `develop → main`
+> promotion, set the allowlist, add the tag ruleset, then run the workflow.
 
 `main` is allowed, and `develop` deliberately is not. That is not a convenience:
 the emergency and onboarding operations have to be runnable against production,
@@ -105,36 +106,60 @@ Replacing either with `main` would silently install different code than the
 operation promised. `tests/Feature/Architecture/ProductionControlPlaneTest.php`
 enforces all of the above, including those two exceptions.
 
-### The allowlist alone does not confine operational runs to main
-
-Worth stating plainly, because it is easy to read the allowlist as stronger than
-it is.
+### One Environment, and a main-only gate in the repository
 
 `v*` has to be in the allowlist: `release.yml`'s `deploy-production` job uses this
-Environment and runs with `github.ref` pointing at the tag, so without `v*` no
-release could ever deploy. But GitHub evaluates an Environment's allowlist against
-the **ref of the run**, and a `workflow_dispatch` ref may be a tag as well as a
-branch. So a manual dispatch of any production operational workflow at a ref
-matching `v*` also satisfies the allowlist — and the workflow definition that then
-executes is the one **at that tag**, before its own `ref: main` checkout of the
-tooling has any say.
+Environment and runs with `github.ref` at the tag, so without `v*` no release
+could deploy. And GitHub matches an Environment's allowlist against the ref of the
+**run**, while a `workflow_dispatch` ref may be a tag as well as a branch — so the
+allowlist alone would also admit a manual dispatch of a production operational
+workflow from a tag.
 
-A guard inside the workflow cannot close this, which is the important part:
-whoever can create the tag controls the YAML that would contain the guard. Two
-things actually close it, and both are GitHub configuration rather than code:
+**The decision is one Environment permitting `main` and `v*`, with the main-only
+rule enforced in the repository rather than by splitting the Environment.** Each of
+the seven manual production workflows carries a fail-closed gate:
 
-* **Tag protection** — a repository ruleset restricting who may create `v*` tags,
-  so pushing one is at least as privileged as merging to `main`. This is the
-  minimum, and is required before `tits-guru` is activated.
-* **A separate Environment for the release path** — give `release.yml`'s
-  `deploy-production` job its own Environment allowing `v*`, and reduce
-  `production-tits-guru` to `main` only. This removes the overlap entirely
-  rather than restricting who can exploit it, and is the stronger option.
+```text
+validate-ref          no environment:  refuses any ref but refs/heads/main
+      │
+      ▼
+<every job with environment: production-tits-guru>
+```
 
-Neither is done yet. `main`-only operational tooling is a real improvement over
-`develop` — privileged code now has to pass a `develop → main` pull request — and
-this remaining gap is named here so it is a decision on record rather than an
-assumption that the allowlist already prevents it.
+The gate is a job of its own and holds **no** `environment:`, which is the load-
+bearing detail: a refused run never has the Environment's credentials available to
+it, because the job that owns them never begins. Every environment-bearing job in
+those workflows is downstream of it, at any depth — in `repair`, `restore` and
+`recover` the existing environment-free `validate` job depends on it, so the whole
+graph below inherits the gate without any other `needs` edge changing.
+
+`release.yml` is the deliberate exception and has no such gate: it runs from a
+`v*` tag by design. What stands in for the gate there is the ancestry proof — the
+tagged commit must be contained in `main`, checked fail-closed before anything is
+built — which is what keeps `v*` from being an independent entrance to production.
+
+### What the gate is, and is not
+
+Worth stating precisely, because an in-workflow check is easy to over-read.
+
+It stops **accidental and casual misuse**: a tag selected in the *Run workflow*
+dropdown, the habit of dispatching from `develop`, a copied URL with the wrong
+ref. That is the realistic failure, and it is now impossible.
+
+It is **not** a boundary against someone who can already create an arbitrary
+trusted tag. That person would author the gate itself at that tag, so no check
+living in the workflow can bind them. The boundary for that case is **who may
+create `v*`**, which is a GitHub tag ruleset and a separate permission surface:
+
+* protect `v*` with a repository ruleset, so creating one is at least as
+  privileged as merging to `main`;
+* and create a `v*` tag only on a commit already contained in `main` — which
+  `release.yml` additionally proves for itself, so a tag off `main` cannot deploy
+  even if it is created.
+
+The two together are the real shape of this: the repository gate makes the common
+mistake impossible, and the tag ruleset is what makes the privileged case
+privileged. Neither is claimed to do the other's job.
 
 ## Why staging-main and tits-guru are separate targets
 

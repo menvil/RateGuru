@@ -22,12 +22,14 @@ use Symfony\Component\Yaml\Yaml;
  *               must be promoted through a develop -> main pull request before
  *               it may act on production.
  *
- *               The production-tits-guru Environment is to allow `main` and
- *               `v*`, and not `develop` — that allowlist is GitHub
- *               configuration no pull request can set, so it is an operator
- *               prerequisite rather than something this file can assert. What
- *               this file does assert is the half that lives in the repository:
- *               which ref each workflow checks out.
+ *               The production-tits-guru Environment allows `main` and `v*`,
+ *               and not `develop` — ONE Environment, by decision, with the
+ *               main-only rule enforced in the repository instead of by
+ *               splitting it. That allowlist is GitHub configuration no pull
+ *               request can set, so it is an operator prerequisite. What this
+ *               file asserts is the half that lives here: which ref each
+ *               workflow checks out, and the fail-closed main-only gate that
+ *               stands in front of every production Environment job.
  *
  *   APPLICATION A new release reaches production ONLY through a `v*` tag whose
  *               commit is contained in main. main's HEAD is never deployed as
@@ -162,8 +164,10 @@ it('names no production workflow that still mentions develop as a trusted source
             ->toBeTrue("{$file}:".($number + 1).' names develop outside a comment: '.trim($line));
 
         // And a comment may only name it to rule it out, or to describe the
-        // promotion path into main.
-        expect(preg_match('/(\bnot\b|\bnever\b|\brather than\b|\bNOT\b|\binstead of\b|\bintegration\b|->\s*main)/', $line))
+        // promotion path into main. The vocabulary is a list of negation markers
+        // rather than a judgement of meaning — deliberately crude, since the
+        // alternative is a guard nobody can satisfy without contorting prose.
+        expect(preg_match('/(\bnot\b|\bnever\b|\bneither\b|\bcannot\b|\brefus|\brather than\b|\bNOT\b|\binstead of\b|\bintegration\b|->\s*main)/', $line))
             ->toBe(1, "{$file}:".($number + 1).' still presents develop as a trusted production source: '.trim($line));
     }
 })->with(controlPlaneWorkflowsByRef()['main']);
@@ -428,3 +432,228 @@ it('leaves tits-guru planned, and leaves every fail-closed lifecycle gate alone'
     expect(File::get(base_path('infrastructure/scripts/common')))
         ->toContain('require_active_target');
 });
+
+// =============================================================================
+// Manual production operations run from main, and nowhere else
+// =============================================================================
+//
+// The production-tits-guru Environment permits `main` and `v*`, by decision:
+// `v*` has to be there, because Release to production runs with github.ref at
+// the tag, and no second Environment is introduced. But GitHub matches an
+// Environment's allowlist against the ref of the RUN, and a workflow_dispatch
+// ref may be a tag — so the allowlist alone would also admit a manual dispatch
+// of a production operational workflow from a tag.
+//
+// Each of those workflows therefore carries a repository-level, fail-closed
+// main-ref gate in a job of its own holding NO environment, which every
+// environment-bearing job is downstream of. A refused run never has the
+// Environment's credentials available to it, because the job that owns them
+// never begins.
+//
+// Scope, stated honestly: this stops accidental and casual misuse — a tag picked
+// in the Run workflow dropdown, a habit of dispatching from develop. It is NOT a
+// boundary against someone who can already create an arbitrary trusted tag, who
+// would author the gate itself at that tag. A GitHub tag ruleset over `v*` is
+// that boundary, and is a separate permission surface.
+
+/**
+ * The manual production operational workflows, pinned as a LITERAL list.
+ *
+ * Deliberately not derived from trustedToolingRefs(): the critical production
+ * expectations must not share a single source with the implementation they
+ * check, or one wrong entry would move the expectation along with the thing
+ * being expected.
+ *
+ * @return list<string>
+ */
+function mainOnlyProductionWorkflows(): array
+{
+    return [
+        'configure-tits-guru.yml',
+        'provision-tits-guru.yml',
+        'prepare-production-host.yml',
+        'repair-production.yml',
+        'restore-production.yml',
+        'recover-production.yml',
+        'rollback-production.yml',
+    ];
+}
+
+/**
+ * Is $job downstream of $ancestor through `needs`, at any depth?
+ */
+function controlPlaneJobIsDownstreamOf(array $workflow, string $job, string $ancestor): bool
+{
+    $needs = (array) data_get($workflow, "jobs.{$job}.needs");
+
+    foreach ($needs as $dependency) {
+        if ($dependency === $ancestor || controlPlaneJobIsDownstreamOf($workflow, $dependency, $ancestor)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+it('covers exactly the manual production operational workflows', function () {
+    // The literal list above and the classification map are two independent
+    // statements of the same fact, so this compares them rather than letting one
+    // stand in for the other. release.yml is deliberately absent from both: it is
+    // the application release path, is not dispatchable, and is not main-only.
+    $fromMap = array_keys(array_filter(trustedToolingRefs(), static fn (string $ref): bool => $ref === 'main'));
+
+    expect(mainOnlyProductionWorkflows())->toEqualCanonicalizing($fromMap);
+
+    expect(in_array('release.yml', mainOnlyProductionWorkflows(), true))
+        ->toBeFalse('release.yml runs from a v* tag and must never be given a main-only gate');
+});
+
+it('is dispatch-only, so there is no second way in', function (string $file) {
+    // A main-only gate on a workflow that also ran on a push would be a gate with
+    // a door beside it.
+    $workflow = controlPlaneWorkflow($file);
+
+    expect(array_keys($workflow['on']))->toBe(['workflow_dispatch'], "{$file} must be workflow_dispatch-only");
+})->with(mainOnlyProductionWorkflows());
+
+it('gates every production Environment job behind a main-ref check that holds no Environment', function (string $file) {
+    $workflow = controlPlaneWorkflow($file);
+
+    // The gate exists, and critically holds no environment of its own: that is
+    // what keeps a refused run from ever having production credentials available.
+    $gate = data_get($workflow, 'jobs.validate-ref');
+
+    expect($gate)->not->toBeNull("{$file} has no validate-ref gate job");
+    expect(data_get($gate, 'environment'))
+        ->toBeNull("{$file}: the gate must hold no GitHub Environment, or a refused run has already been granted one");
+    expect(data_get($gate, 'needs'))
+        ->toBeNull("{$file}: the gate must run first, so it depends on nothing");
+
+    // It compares against refs/heads/main and fails closed.
+    $run = (string) data_get($gate, 'steps.0.run');
+
+    expect($run)->toContain('refs/heads/main');
+    expect($run)->toContain('exit 1');
+    expect(data_get($gate, 'steps.0.env.RUN_REF'))->toBe('${{ github.ref }}');
+
+    // And EVERY environment-bearing job is downstream of it, at any depth.
+    $environmentJobs = collect(data_get($workflow, 'jobs'))
+        ->filter(static fn (array $job): bool => isset($job['environment']))
+        ->keys()
+        ->all();
+
+    expect($environmentJobs)->not->toBeEmpty("{$file} has no production Environment job at all");
+
+    foreach ($environmentJobs as $job) {
+        expect(controlPlaneJobIsDownstreamOf($workflow, $job, 'validate-ref'))
+            ->toBeTrue("{$file}: job '{$job}' holds an Environment without being downstream of validate-ref");
+    }
+})->with(mainOnlyProductionWorkflows());
+
+it('uses a byte-identical gate in every manual production workflow', function () {
+    // Seven copies of a guard is seven chances for one to drift. An earlier
+    // version of the behavioural test below extracted the gate from a single
+    // workflow, so relaxing another one's gate to admit tags passed every test —
+    // which is exactly the regression this contract exists to prevent. The copies
+    // are now pinned to each other, and the behaviour below is checked against
+    // each one individually.
+    $gates = [];
+
+    foreach (mainOnlyProductionWorkflows() as $file) {
+        $gates[$file] = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+    }
+
+    expect(array_unique(array_values($gates)))
+        ->toHaveCount(1, 'the main-only gate has drifted between workflows: '.implode(', ', array_keys($gates)));
+
+    // And the one text is the one that matters.
+    expect(reset($gates))
+        ->toContain('refs/heads/main')
+        ->toContain('exit 1');
+});
+
+it('refuses a tag ref, develop and any other branch, and admits only main', function (string $ref, bool $allowed) {
+    // Each workflow's OWN gate logic, executed — not one workflow's standing in
+    // for the rest. Extracted from the real YAML rather than restated, so this
+    // cannot pass against a gate that says something else.
+    foreach (mainOnlyProductionWorkflows() as $file) {
+        $run = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
+
+        $script = tempnam(sys_get_temp_dir(), 'control-plane-gate-');
+        file_put_contents($script, "#!/usr/bin/env bash\n".$run);
+
+        try {
+            exec('env RUN_REF='.escapeshellarg($ref).' bash '.escapeshellarg($script).' 2>&1', $output, $exit);
+
+            expect($exit === 0)->toBe(
+                $allowed,
+                "{$file}: ".($allowed ? "{$ref} must be allowed" : "{$ref} must be refused").":\n".implode("\n", $output),
+            );
+        } finally {
+            @unlink($script);
+            $output = [];
+        }
+    }
+})->with([
+    'main' => ['refs/heads/main', true],
+    // The ref the Environment allowlist would otherwise admit.
+    'a release tag' => ['refs/tags/v1.2.3', false],
+    'a pre-release tag' => ['refs/tags/v0.0.1-rc1', false],
+    'develop' => ['refs/heads/develop', false],
+    'a feature branch' => ['refs/heads/feature/anything', false],
+    // A branch whose name merely contains main.
+    'a branch named like main' => ['refs/heads/not-main', false],
+    'main as a tag' => ['refs/tags/main', false],
+    'an empty ref' => ['', false],
+]);
+
+it('leaves the release path on v*, with no main-ref gate and its ancestry proof intact', function () {
+    // The deliberate exception, and the reason the Environment keeps v*.
+    $workflow = controlPlaneWorkflow('release.yml');
+
+    expect($workflow['on'])->toBe(['push' => ['tags' => ['v*']]]);
+    expect(data_get($workflow, 'jobs.validate-ref'))
+        ->toBeNull('release.yml must not carry a main-only gate: it runs from a tag by design');
+
+    // What stands in for it is the ancestry proof — the tagged commit must be
+    // contained in main — which is what keeps v* from being an independent
+    // production entrance.
+    $run = (string) collect($workflow['jobs']['validate']['steps'])->firstWhere('id', 'release')['run'];
+
+    expect($run)->toContain('refs/remotes/origin/main');
+    expect($run)->toContain('--is-ancestor');
+    expect($run)->toContain('does not point to a commit contained in main');
+
+    // And production is still the Environment this decision keeps shared.
+    expect(data_get($workflow, 'jobs.deploy-production.environment'))->toBe('production-tits-guru');
+});
+
+it('introduces no second GitHub Environment', function () {
+    // The decision: one Environment permitting main and v*, with the main-only
+    // rule enforced in the repository instead of by splitting the Environment.
+    $environments = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
+        ->flatMap(static function (string $path): array {
+            $workflow = Yaml::parse(File::get($path));
+
+            return collect(data_get($workflow, 'jobs') ?? [])
+                ->map(static fn (array $job) => $job['environment'] ?? null)
+                ->filter()
+                ->values()
+                ->all();
+        })
+        ->unique()
+        ->sort()
+        ->values()
+        ->all();
+
+    expect($environments)->toBe(['production-tits-guru', 'staging']);
+});
+
+it('never gives a staging workflow the main-only gate', function (string $file) {
+    // Staging runs from develop and from any ref an operator selects. A gate
+    // there would break the thing develop exists for.
+    $workflow = controlPlaneWorkflow($file);
+
+    expect(data_get($workflow, 'jobs.validate-ref'))
+        ->toBeNull("{$file} must not be main-only: staging is where develop is verified");
+})->with(controlPlaneWorkflowsByRef()['develop']);
