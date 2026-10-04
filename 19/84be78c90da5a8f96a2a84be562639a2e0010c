@@ -1,0 +1,23 @@
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_0a4d1ffa860950 1899,1901,1916-1919
+  s_c7e782fafc9782::t_fb5076f2ab27c5 2201-2276,2281-2304,2306-2374
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_60b93d686cbfc4 490-523,526-530,532
+  s_c7e782fafc9782::t_e2ec31c70dd59d 584-603,934-939
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1984be78c90da5a8f96a2a84be562639a2e0010c",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
