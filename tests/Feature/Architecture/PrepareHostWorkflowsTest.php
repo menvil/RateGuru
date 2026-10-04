@@ -134,8 +134,9 @@ it('has no application source input anywhere in the preparation path', function 
 
     foreach ($sources as $source) {
         foreach (['ref:', 'source-sha', 'source_sha', 'run-migrations', 'artifact-path', 'release-id'] as $forbidden) {
-            // `ref: develop` on the checkout step is the trusted TOOLING ref,
-            // and is the one legitimate occurrence.
+            // The `ref:` on the checkout step is the trusted TOOLING ref — main
+            // for production, develop for staging — and is the one legitimate
+            // occurrence.
             $occurrences = substr_count($source, $forbidden);
 
             if ($forbidden === 'ref:') {
@@ -153,7 +154,7 @@ it('has no application source input anywhere in the preparation path', function 
 // Trusted tooling
 // =============================================================================
 
-it('always prepares with tooling from develop, never from an application ref', function () {
+it('always prepares with tooling from its own control plane, never from an application ref', function () {
     foreach (['prepare-staging-host.yml', 'prepare-production-host.yml'] as $file) {
         $jobs = phwWorkflow($file)['jobs'];
         $job = reset($jobs);

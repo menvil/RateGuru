@@ -63,10 +63,17 @@ Release to production
 
 ### Why main is allowed in the production Environment
 
-The `production-tits-guru` GitHub Environment permits `main` and `v*`, and
-deliberately **not** `develop`. That is not a convenience: the emergency and
-onboarding operations have to be runnable against production, and each of them
-is privileged infrastructure code rather than application code —
+> **Prerequisite, not a description.** The `production-tits-guru` Environment's
+> allowlist is GitHub configuration, which no pull request can change. It must be
+> set by an operator — *Settings → Environments → production-tits-guru →
+> Selected branches and tags* — to `main` and `v*`, with `develop` removed. Until
+> that is done, a production operational workflow running from `main` is
+> **rejected by GitHub before any job starts**. The order is: merge the
+> `develop → main` promotion, set the allowlist, then run the workflow.
+
+`main` is allowed, and `develop` deliberately is not. That is not a convenience:
+the emergency and onboarding operations have to be runnable against production,
+and each of them is privileged infrastructure code rather than application code —
 
 * **Prepare** — bootstrap or re-converge the host;
 * **Repair** — re-converge a target's own surface;
@@ -97,6 +104,37 @@ Two checkouts deliberately stay off the control-plane branch, and must:
 Replacing either with `main` would silently install different code than the
 operation promised. `tests/Feature/Architecture/ProductionControlPlaneTest.php`
 enforces all of the above, including those two exceptions.
+
+### The allowlist alone does not confine operational runs to main
+
+Worth stating plainly, because it is easy to read the allowlist as stronger than
+it is.
+
+`v*` has to be in the allowlist: `release.yml`'s `deploy-production` job uses this
+Environment and runs with `github.ref` pointing at the tag, so without `v*` no
+release could ever deploy. But GitHub evaluates an Environment's allowlist against
+the **ref of the run**, and a `workflow_dispatch` ref may be a tag as well as a
+branch. So a manual dispatch of any production operational workflow at a ref
+matching `v*` also satisfies the allowlist — and the workflow definition that then
+executes is the one **at that tag**, before its own `ref: main` checkout of the
+tooling has any say.
+
+A guard inside the workflow cannot close this, which is the important part:
+whoever can create the tag controls the YAML that would contain the guard. Two
+things actually close it, and both are GitHub configuration rather than code:
+
+* **Tag protection** — a repository ruleset restricting who may create `v*` tags,
+  so pushing one is at least as privileged as merging to `main`. This is the
+  minimum, and is required before `tits-guru` is activated.
+* **A separate Environment for the release path** — give `release.yml`'s
+  `deploy-production` job its own Environment allowing `v*`, and reduce
+  `production-tits-guru` to `main` only. This removes the overlap entirely
+  rather than restricting who can exploit it, and is the stronger option.
+
+Neither is done yet. `main`-only operational tooling is a real improvement over
+`develop` — privileged code now has to pass a `develop → main` pull request — and
+this remaining gap is named here so it is a decision on record rather than an
+assumption that the allowlist already prevents it.
 
 ## Why staging-main and tits-guru are separate targets
 

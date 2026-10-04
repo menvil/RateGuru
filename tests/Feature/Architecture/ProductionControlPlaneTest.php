@@ -18,12 +18,16 @@ use Symfony\Component\Yaml\Yaml;
  *
  *   TOOLING     A production operational workflow — Configure, Provision,
  *               Prepare, Repair, Restore, Recover, Rollback — takes its
- *               privileged infrastructure code from `main`. The
- *               production-tits-guru GitHub Environment allows `main` and `v*`
- *               and deliberately not `develop`, so a production workflow
- *               pointed at develop cannot run at all; and it should not,
- *               because privileged code must be promoted through a
- *               develop -> main pull request before it may act on production.
+ *               privileged infrastructure code from `main`, so privileged code
+ *               must be promoted through a develop -> main pull request before
+ *               it may act on production.
+ *
+ *               The production-tits-guru Environment is to allow `main` and
+ *               `v*`, and not `develop` — that allowlist is GitHub
+ *               configuration no pull request can set, so it is an operator
+ *               prerequisite rather than something this file can assert. What
+ *               this file does assert is the half that lives in the repository:
+ *               which ref each workflow checks out.
  *
  *   APPLICATION A new release reaches production ONLY through a `v*` tag whose
  *               commit is contained in main. main's HEAD is never deployed as
@@ -74,15 +78,37 @@ function controlPlaneCheckoutRefs(array $workflow): array
 }
 
 /**
- * The refs that are legitimately NOT the control-plane branch: an exact
- * historical commit a backup named, or an exact tag/commit being released.
+ * The ONE ref an operational workflow may legitimately take that is not its
+ * control-plane branch: the exact historical commit a restore or recovery was
+ * told to rebuild.
  *
- * Recognised by SHAPE — a workflow expression — rather than by step name, so a
- * renamed step cannot quietly become an exception.
+ * Deliberately narrow. An earlier version of this also admitted
+ * `needs.*.outputs.checkout_ref` and `github.ref`, which widened the production
+ * exception to cover two refs production has no business using — an
+ * operator-selected staging ref, and the release tag. Each exception here is a
+ * hole in the assertion, so each is named exactly, and the job that produces it
+ * is pinned too: only `restore` and `recover` may name a historical commit.
+ *
+ * Recognised by SHAPE rather than by step name, so a renamed step cannot quietly
+ * become an exception.
  */
-function controlPlaneProvenanceRef(string $ref): bool
+function controlPlaneHistoricalSourceRef(string $ref): bool
 {
-    return (bool) preg_match('/^\$\{\{\s*(needs\.[a-z-]+\.outputs\.(required_source_sha|source-sha|checkout_ref)|github\.ref)\s*\}\}$/', $ref);
+    return (bool) preg_match('/^\$\{\{\s*needs\.(restore|recover)\.outputs\.required_source_sha\s*\}\}$/', $ref);
+}
+
+/**
+ * Staging only: the ref an operator selected for a staging deployment, resolved
+ * by the workflow's own `resolve` job.
+ *
+ * Kept separate from the historical-source exception above, and never offered to
+ * a production workflow. Staging is where develop is verified, so deploying an
+ * arbitrary selected ref there is the point; production has no equivalent, and
+ * must not inherit one by sharing a matcher.
+ */
+function controlPlaneStagingSelectedRef(string $ref): bool
+{
+    return (bool) preg_match('/^\$\{\{\s*needs\.resolve\.outputs\.checkout_ref\s*\}\}$/', $ref);
 }
 
 /**
@@ -106,9 +132,10 @@ function controlPlaneWorkflowsByRef(): array
 // =============================================================================
 
 it('never takes production tooling from develop', function (string $file) {
-    // The rule the GitHub Environment already enforces, asserted here so it is
-    // caught in review rather than by a failed production run: the
-    // production-tits-guru Environment allows main and v*, not develop.
+    // Asserted here because it is the half that lives in the repository, and
+    // because a mistake should be caught in review rather than by a production
+    // run that GitHub refuses. The Environment allowlist is the operator's half
+    // and is a prerequisite, not something this can check.
     $refs = controlPlaneCheckoutRefs(controlPlaneWorkflow($file));
 
     expect($refs)->not->toBeEmpty("{$file} checks nothing out");
@@ -151,7 +178,7 @@ it('takes every privileged production checkout from main, except a named provena
     $refs = controlPlaneCheckoutRefs(controlPlaneWorkflow($file));
 
     foreach ($refs as $where => $ref) {
-        if (controlPlaneProvenanceRef($ref)) {
+        if (controlPlaneHistoricalSourceRef($ref)) {
             continue;
         }
 
@@ -180,6 +207,42 @@ it('keeps the historical source checkout in restore and recovery as the commit t
         );
     }
 })->with(['restore-production.yml', 'recover-production.yml']);
+
+it('pins the classification of every operational workflow literally', function () {
+    // The closed-world test below proves the map COVERS every operational
+    // workflow. It cannot prove each is classified CORRECTLY — flipping an entry
+    // to 'develop' and the YAML with it would satisfy every map-derived
+    // assertion in this file at once. So the map's own contents are pinned here,
+    // by name, independent of anything derived. Changing the control plane of a
+    // workflow has to be stated twice, deliberately.
+    expect(trustedToolingRefs())->toBe([
+        'configure-tits-guru.yml' => 'main',
+        'provision-tits-guru.yml' => 'main',
+        'prepare-production-host.yml' => 'main',
+        'repair-production.yml' => 'main',
+        'restore-production.yml' => 'main',
+        'recover-production.yml' => 'main',
+        'rollback-production.yml' => 'main',
+        'deploy-staging.yml' => 'develop',
+        'prepare-staging-host.yml' => 'develop',
+        'repair-staging.yml' => 'develop',
+        'restore-staging.yml' => 'develop',
+        'recover-staging.yml' => 'develop',
+        'rollback-staging.yml' => 'develop',
+    ]);
+
+    // Every production workflow is named `*production*` or is one of the two
+    // onboarding operations, and nothing else is production. Stated so a new
+    // production workflow cannot be classified as staging by a slip of the eye.
+    foreach (trustedToolingRefs() as $file => $ref) {
+        $looksProduction = str_contains($file, 'production') || str_contains($file, 'tits-guru');
+
+        expect($ref)->toBe(
+            $looksProduction ? 'main' : 'develop',
+            "{$file} is classified {$ref}, which does not match what its name says it is",
+        );
+    }
+});
 
 it('classifies every operational workflow in the repository', function () {
     // Closed-world: a new operational workflow must be classified deliberately,
@@ -307,13 +370,24 @@ it('keeps every staging control plane on develop', function (string $file) {
     expect($refs)->not->toBeEmpty("{$file} checks nothing out");
 
     foreach ($refs as $where => $ref) {
-        if (controlPlaneProvenanceRef($ref)) {
+        if (controlPlaneHistoricalSourceRef($ref) || controlPlaneStagingSelectedRef($ref)) {
             continue;
         }
 
         expect($ref)->toBe('develop', "{$file}: {$where} must take staging tooling from develop, not {$ref}");
     }
 })->with(controlPlaneWorkflowsByRef()['develop']);
+
+it('never offers a production workflow the operator-selected staging ref', function (string $file) {
+    // The exception that must stay staging's. A production workflow resolving an
+    // operator-chosen ref would be a production deploy path by another name.
+    $refs = controlPlaneCheckoutRefs(controlPlaneWorkflow($file));
+
+    foreach ($refs as $where => $ref) {
+        expect(controlPlaneStagingSelectedRef($ref))
+            ->toBeFalse("{$file}: {$where} resolves an operator-selected ref, which only staging may do");
+    }
+})->with(controlPlaneWorkflowsByRef()['main']);
 
 it('keeps staging deployment operator-triggered and defaulted to develop', function () {
     // Staging deployment is manual by design — an operator decides WHAT to

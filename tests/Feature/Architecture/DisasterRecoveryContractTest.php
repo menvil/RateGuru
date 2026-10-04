@@ -272,9 +272,10 @@ it('runs the exact commit the recovered data belongs to, without a migration', f
         expect($deployStep['value'])->toBe('false', "{$file} allows a migration during a recovery");
         expect($deployStep['job'])->toBe('deploy');
 
-        // Trusted operational tooling always comes from develop, whatever
-        // commit is being rebuilt: the recovery must not be steerable by the
-        // historical application code it is recovering.
+        // Trusted operational tooling always comes from the workflow's own
+        // control plane — main for the production recovery, develop for staging —
+        // whatever commit is being rebuilt: the recovery must not be steerable by
+        // the historical application code it is recovering.
         foreach ((array) data_get($workflow, 'jobs') as $jobName => $job) {
             foreach ((array) data_get($job, 'steps', []) as $step) {
                 if (! str_starts_with((string) data_get($step, 'uses', ''), 'actions/checkout@')) {
