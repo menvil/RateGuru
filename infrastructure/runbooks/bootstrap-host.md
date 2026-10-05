@@ -110,9 +110,12 @@ of the orchestrator.
 level. In particular the Phase 5.4 child verifies mail capture through
 `verify-mail-capture --read-only`, never its default `--e2e` mode — which
 sends real mail, deletes messages and stops/starts
-`staging-mailtrap-local.service`. Running the full mail acceptance is an
-explicit operator command (see [`mail-capture.md`](mail-capture.md)); no
-`bootstrap-host` mode ever triggers it, including `--apply`.
+`staging-mailtrap-local.service`. It verifies the mail gateway the same way,
+through `install-mail-gateway --verify`, never `verify-mail-gateway --e2e` —
+which submits mail through every listener and stops and starts Mailpit.
+Running either full mail acceptance is an explicit operator command (see
+[`mail-capture.md`](mail-capture.md) and [`mail-gateway.md`](mail-gateway.md));
+no `bootstrap-host` mode ever triggers it, including `--apply`.
 
 ### Safe interruption and re-run
 
