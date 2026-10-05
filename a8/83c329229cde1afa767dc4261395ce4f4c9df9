@@ -1,0 +1,50 @@
+docs/design/admin/design-contract.md
+  s_031a12c631fa3b::t_88ea889425057c 471-474,476-477,484-487,490
+  s_031a12c631fa3b::t_876a2b1f087ee4 271-273,488-489,557
+resources/css/filament/admin/components.css
+  s_031a12c631fa3b::t_6cfd59992ae95a 2700
+  s_031a12c631fa3b::t_a8be4d1022d1bd 2708-2709,2712-2713,2765-2766,2772-2776,2778-2781,2787-2812
+docs/design/admin/migration-plan.md
+  s_031a12c631fa3b::t_88ea889425057c 61-63
+  s_031a12c631fa3b::t_876a2b1f087ee4 73-74,84-86
+tests/Feature/Filament/LanguagesPageTest.php
+  s_031a12c631fa3b::t_a401e47ee6d8ae 835-836,868,876-878,905-906
+  s_031a12c631fa3b::t_6db6a2730100de 840-863
+  s_031a12c631fa3b::t_0872af16c94e9a 262,266-267,270-274,485-530,821,824,832-833,838,864-867,869-875,904
+app/Support/Translations/ProjectTranslationCompleteness.php
+  s_031a12c631fa3b::t_550395d5f59349 200-202,215
+app/Filament/Pages/LanguagesPage.php
+  s_031a12c631fa3b::t_a401e47ee6d8ae 329
+  s_031a12c631fa3b::t_93e25fb0436e51 23,90-97,133,144-151,316,323-324,384-394,462,551-555,557,566-575
+  s_031a12c631fa3b::t_2a6ea1ec68d41c 50-51
+resources/views/filament/pages/languages/row.blade.php
+  s_031a12c631fa3b::t_2a6ea1ec68d41c 5-6,15-19,43-45
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_031a12c631fa3b::t_550395d5f59349 220
+app/Support/Translations/MissingProjectTranslation.php
+  s_031a12c631fa3b::t_550395d5f59349 15,24,26-31
+resources/views/filament/pages/languages/missing.blade.php
+  s_031a12c631fa3b::t_66da0a69be727c 18-21,93-94,108-111
+  s_031a12c631fa3b::t_24d0cabe90bb49 7-11,17,27-28,83-86,88,90-92
+  s_031a12c631fa3b::t_a401e47ee6d8ae 87
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_031a12c631fa3b::t_0872af16c94e9a 189,290,419-435
+resources/views/filament/pages/languages.blade.php
+  s_031a12c631fa3b::t_2a6ea1ec68d41c 47-59,78-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a883c329229cde1afa767dc4261395ce4f4c9df9",
+  "prompts": {},
+  "sessions": {
+    "s_031a12c631fa3b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "43dee44d-6428-4d59-9afb-b31b43a9e803",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
