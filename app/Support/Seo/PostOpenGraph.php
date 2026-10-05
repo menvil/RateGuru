@@ -85,7 +85,13 @@ final class PostOpenGraph
 
     private function absoluteUrl(string $url): string
     {
-        if (Str::startsWith($url, ['http://', 'https://'])) {
+        // Case-insensitively, because a scheme is case-insensitive (RFC 3986
+        // §3.1) and nothing normalises what a disk or APP_URL was configured
+        // with. Matched case-sensitively, `HTTPS://host/image.jpg` fell through
+        // to absoluteAsset below and came back as `APP_URL/HTTPS://host/...` —
+        // a broken Open Graph image for a configuration the sharing verifier
+        // accepts, and rightly accepts.
+        if (Str::startsWith(Str::lower($url), ['http://', 'https://'])) {
             return $url;
         }
 

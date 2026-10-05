@@ -213,3 +213,43 @@ it('falls back to the static placeholder when every candidate record points at a
         ->assertOk()
         ->assertSee('<meta property="og:image" content="https://rateguru.test/images/og/rateguru-post-placeholder.png">', false);
 });
+
+it('serves an asset-backed open graph image whose disk URL spells its scheme in capitals', function () {
+    // A scheme is case-insensitive (RFC 3986 §3.1) and nothing normalises what a
+    // disk was configured with. Matched case-sensitively, `HTTPS://…` was not
+    // recognised as absolute and went through the relative-asset branch instead,
+    // coming back as `APP_URL/HTTPS://host/…` — a broken image URL for a
+    // configuration the sharing verifier accepts, and rightly accepts.
+    //
+    // Asserted through the rendered page rather than against the resolver alone,
+    // because the resolver is not what Facebook reads.
+    config(['app.url' => 'https://rateguru.test']);
+    Storage::fake('public', ['url' => 'HTTPS://cdn.rateguru.test/storage']);
+
+    $post = Post::factory()->published()->withImage(path: 'posts/capitals.jpg')->create();
+    Storage::disk('public')->put('posts/capitals.jpg', 'test-bytes');
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+
+    $response->assertSee('HTTPS://cdn.rateguru.test/storage/posts/capitals.jpg', false)
+        // Never the app URL with the absolute one glued onto it.
+        ->assertDontSee('https://rateguru.test/HTTPS:', false);
+
+    // And it is still recognised as secure, so the secure_url tag is emitted.
+    $response->assertSee('<meta property="og:image:secure_url"', false);
+});
+
+it('treats an uppercase HTTP disk URL as insecure rather than relative', function () {
+    // The other half: recognising the scheme case-insensitively must not make an
+    // uppercase plain-HTTP URL look secure.
+    config(['app.url' => 'https://rateguru.test']);
+    Storage::fake('public', ['url' => 'HTTP://cdn.rateguru.test/storage']);
+
+    $post = Post::factory()->published()->withImage(path: 'posts/insecure.jpg')->create();
+    Storage::disk('public')->put('posts/insecure.jpg', 'test-bytes');
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('HTTP://cdn.rateguru.test/storage/posts/insecure.jpg', false)
+        ->assertDontSee('<meta property="og:image:secure_url"', false);
+});
