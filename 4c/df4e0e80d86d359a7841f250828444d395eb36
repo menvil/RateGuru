@@ -1,0 +1,35 @@
+infrastructure/ROADMAP.md
+  s_396a0d86f508c4::t_28d33296293649 1743-1746
+tests/Feature/Architecture/MailGatewayTest.php
+  s_396a0d86f508c4::t_1974d911143499 766-768
+  s_396a0d86f508c4::t_b7b946d7ea2aac 73-76,139-143,147,181,233-234,456,499,532,554,595,613,652-653,657-658,663-694,696-707,709-711,713,718-731,774,803-804,806,1005,1101,1120-1124
+  s_396a0d86f508c4::t_66a6b1cbf08990 695,708,712,714-717
+infrastructure/runbooks/mail-gateway.md
+  s_396a0d86f508c4::t_28d33296293649 74-83
+infrastructure/scripts/status-mail-gateway
+  s_396a0d86f508c4::t_9a451a6f1f5ea3 92-103
+infrastructure/scripts/install-mail-gateway
+  s_396a0d86f508c4::t_9a451a6f1f5ea3 50-57,410-414,664-668,671,676,678-682,843,944-947,949,962
+  s_396a0d86f508c4::t_1974d911143499 670,672-675,677
+  s_396a0d86f508c4::t_46ff873d6d6432 391-392
+infrastructure/scripts/verify-mail-gateway
+  s_396a0d86f508c4::t_9a451a6f1f5ea3 394-396
+tests/Pest.php
+  s_396a0d86f508c4::t_9e9bda671fc912 1305-1436
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4cdf4e0e80d86d359a7841f250828444d395eb36",
+  "prompts": {},
+  "sessions": {
+    "s_396a0d86f508c4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a4ff6a48-e3de-4c10-8ac2-af06ebadc7cd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
