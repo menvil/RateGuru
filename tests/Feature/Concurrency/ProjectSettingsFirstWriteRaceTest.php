@@ -150,25 +150,29 @@ it('settles two concurrent first writes instead of failing one of them', functio
         ->map(fn (array $r, int $i): string => "competitor {$i}: status={$r['status']} {$r['output']} {$r['stderr']}")
         ->implode("\n");
 
-    foreach ($results as $index => $result) {
-        expect($result['status'])->toBe(0, "competitor {$index} must not fail the race:\n{$report}");
-    }
-
-    // And exactly one row exists: the point is that they agreed, not that both
-    // wrote.
-    //
-    // Both the read and the cleanup go through a connection of their own. The
-    // subprocesses COMMITTED, outside the transaction RefreshDatabase holds here,
-    // so a delete issued on the test's connection would be rolled back with
-    // everything else and the row would outlive the test.
+    // Every assertion is inside the try, because the subprocesses COMMITTED: a row
+    // surviving a failed assertion is committed state in this worker's own
+    // database that no transaction rolls back, and every later test starting from
+    // a fresh installation then fails on its primary key. Cleanup first, verdict
+    // second.
     try {
+        foreach ($results as $index => $result) {
+            expect($result['status'])->toBe(0, "competitor {$index} must not fail the race:\n{$report}");
+        }
+
+        // And exactly one row exists: the point is that they agreed, not that both
+        // wrote. Read through a connection of its own, for the same reason the
+        // cleanup is.
         expect(committedSettingsRowCount())->toBe(1, "exactly one settings row must exist:\n{$report}");
     } finally {
         committedConnection()->table('project_settings')->delete();
     }
+
+    expect(committedSettingsRowCount())->toBe(0, 'the race must leave the worker database as it found it');
+
 })->skip(
-    fn (): bool => config('database.default') === 'sqlite',
-    'SQLite runs the suite against an in-memory database that a subprocess cannot join, and concurrent write semantics there are not a deployed-runtime concern (docs/architecture/database-support.md).',
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only, and not as a convenience: the defect is PostgreSQL-specific — it locks no row that does not exist, so both competitors pass the lock and one insert hits the duplicate key, which is the observable failure this test exists to reproduce. InnoDB takes a gap lock on the same read and kills one transaction with a deadlock before a duplicate can happen, so the old implementation and the new one are indistinguishable there; SQLite runs the suite in memory, where a subprocess cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
 );
 
 it('leaves no settings row behind for the rest of the suite', function () {
@@ -178,6 +182,6 @@ it('leaves no settings row behind for the rest of the suite', function () {
     expect(committedSettingsRowCount())->toBe(0)
         ->and(ProjectSettings::query()->count())->toBe(0);
 })->skip(
-    fn (): bool => config('database.default') === 'sqlite',
-    'Paired with the race above, which does not run on SQLite.',
+    fn (): bool => config('database.default') !== 'pgsql',
+    'Paired with the race above, which runs on PostgreSQL only.',
 );
