@@ -4860,3 +4860,87 @@ function provisionWithMalformedEnv(string $scratch, string $shape): array
 
     return [$env, $root];
 }
+
+/*
+|--------------------------------------------------------------------------
+| install-target-perimeter renderers
+|--------------------------------------------------------------------------
+|
+| The sudoers rule and the backup cron are both rendered from the registry
+| by install-target-perimeter, and both are tested the same way: the
+| shipped renderer, sourced, driven by a registry (and, for the cron, a
+| schedule file) the test supplies. Running the real implementation is the
+| point — a reimplementation here would prove only that two copies agree.
+*/
+
+function perimeterRegistry(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+function perimeterBackupSchedules(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/backup-schedules.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Source install-target-perimeter with its registry and schedule file
+ * pointed at the given fixtures, then run $call. Output is stdout and stderr
+ * together, so a refusal's message is in it.
+ *
+ * @return array{0: int, 1: string}
+ */
+function perimeterRun(string $call, array $registry, ?array $schedules = null, string $prelude = ''): array
+{
+    $scratch = sys_get_temp_dir().'/perimeter-render-'.uniqid('', true);
+    @mkdir($scratch, 0o755, true);
+
+    $encode = fn (array $data): string => json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+    file_put_contents($scratch.'/registry.json', $encode($registry));
+    file_put_contents($scratch.'/backup-schedules.json', $encode($schedules ?? perimeterBackupSchedules()));
+
+    $harness = $scratch.'/render.sh';
+    file_put_contents($harness, implode("\n", [
+        'set -Eeuo pipefail',
+        'source '.escapeshellarg(base_path('infrastructure/scripts/install-target-perimeter')),
+        'SRC_REGISTRY='.escapeshellarg($scratch.'/registry.json'),
+        'SRC_BACKUP_SCHEDULES='.escapeshellarg($scratch.'/backup-schedules.json'),
+        $prelude,
+        $call,
+        '',
+    ]));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes, $scratch, [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+    ]);
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $exit = proc_close($process);
+
+    exec('rm -rf '.escapeshellarg($scratch));
+
+    return [$exit, $output];
+}
+
+function perimeterRender(array $registry, string $renderer = 'render_sudoers_candidate', ?array $schedules = null): string
+{
+    return perimeterRun($renderer, $registry, $schedules)[1];
+}
+
+/**
+ * The operational (runnable) lines of a cron file: everything that is not
+ * blank, a comment, or an environment assignment.
+ *
+ * @return list<string>
+ */
+function cronOperationalLines(string $cron): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', $cron),
+        fn (string $line): bool => ! preg_match('/^\s*(#|$)|^[A-Za-z_][A-Za-z0-9_]*=/', $line),
+    ));
+}

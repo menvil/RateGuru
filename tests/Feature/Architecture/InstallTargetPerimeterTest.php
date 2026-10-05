@@ -216,6 +216,7 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'SRC_WRAPPER_RESTORE' => $wrapperStub,
         'SRC_SUDOERS' => base_path('infrastructure/config/sudoers/rateguru-deploy'),
         'SRC_CRON' => base_path('infrastructure/config/cron/rateguru-backups'),
+        'SRC_BACKUP_SCHEDULES' => base_path('infrastructure/config/backup-schedules.json'),
         'SRC_COMMON' => base_path('infrastructure/scripts/common'),
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
@@ -445,7 +446,7 @@ it('check fails when the sudoers candidate grants a production deploy user acces
     }
 });
 
-it('check fails when the cron candidate has the wrong number of operational lines', function () {
+it('check fails when the cron candidate is missing an active target\'s jobs', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
@@ -462,8 +463,68 @@ it('check fails when the cron candidate has the wrong number of operational line
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
+        // The expected count comes from the registry — one active target, so
+        // three — rather than from a literal pinned to staging.
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('expected exactly three operational cron lines');
+        expect($output)->toContain('expected exactly 3 operational cron lines');
+        expect($output)->toContain('three for each of 1 active target(s)');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the cron candidate runs one job twice and another not at all', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/bad-cron';
+        file_put_contents($bad, <<<'CRON'
+            SHELL=/bin/bash
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+            30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
+            10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
+            40 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
+            CRON);
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_CRON'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('cron must run restore-test for active target staging-main exactly once, found 2');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the cron candidate schedules the planned tits-guru', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        // Exactly what an activated registry would render — handed to an
+        // installer whose registry still says planned.
+        $bad = $scratch.'/bad-cron';
+        file_put_contents($bad, File::get(base_path('infrastructure/config/cron/rateguru-backups')).<<<'CRON'
+
+            # Every night at 03:00 UTC, the full pipeline:
+            # local backup -> local restore-test -> B2 upload -> offsite retention apply -> offsite restore-test.
+            0 3 * * * root /home/www/rateguru/bin/backup-cycle --target tits-guru >> /var/log/rateguru/tits-guru-backup-cycle.log 2>&1
+
+            # Every Sunday, independently verify the local and offsite tits-guru backups.
+            10 5 * * 0 root /home/www/rateguru/bin/restore-test --target tits-guru >> /var/log/rateguru/tits-guru-local-restore-test.log 2>&1
+            40 5 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target tits-guru >> /var/log/rateguru/tits-guru-offsite-restore-test.log 2>&1
+
+            CRON);
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_CRON'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('cron runs a backup job for tits-guru, whose target is lifecycle=planned');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -494,13 +555,12 @@ it('recognizes an @-shortcut schedule (e.g. @daily) as an operational line, not 
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
-        // The three lines are correctly counted (no "wrong number of
-        // operational lines" failure); this candidate still fails because
-        // its schedule/log-path text doesn't match the hardcoded literal
-        // check further down — a separate, unrelated concern.
+        // The three lines are correctly counted (no "operational cron lines"
+        // failure); this candidate still fails because it is not what the
+        // reviewed schedule renders — a separate, unrelated concern.
         expect($exit)->not->toBe(0);
-        expect($output)->not->toContain('expected exactly three operational cron lines');
-        expect($output)->toContain('changed schedule or log path');
+        expect($output)->not->toContain('operational cron lines');
+        expect($output)->toContain('the committed backup cron is not what the registry and the reviewed backup schedules render');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -526,25 +586,25 @@ it('check fails when a cron candidate line still uses --environment', function (
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('does not use --target staging-main');
+        expect($output)->toContain('cron line still uses --environment');
     } finally {
         installPerimeterCleanup($scratch);
     }
 });
 
-it('check fails when a cron candidate changed the schedule or log path', function () {
+it('check fails when a cron candidate changed the schedule or log path', function (string $line) {
     $scratch = installPerimeterScratchDir();
 
     try {
-        $bad = $scratch.'/bad-cron';
-        file_put_contents($bad, <<<'CRON'
-            SHELL=/bin/bash
-            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        // Every line still names the right job for the right active target,
+        // so only the comparison with the render can catch these.
+        $committed = File::get(base_path('infrastructure/config/cron/rateguru-backups'));
+        $original = '30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1';
 
-            15 3 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
-            10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
-            40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
-            CRON);
+        expect($committed)->toContain($original);
+
+        $bad = $scratch.'/bad-cron';
+        file_put_contents($bad, str_replace($original, $line, $committed));
 
         $vars = installPerimeterBaseVars($scratch);
         $vars['SRC_CRON'] = $bad;
@@ -552,7 +612,56 @@ it('check fails when a cron candidate changed the schedule or log path', functio
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('changed schedule or log path');
+        expect($output)->toContain('the committed backup cron is not what the registry and the reviewed backup schedules render');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+})->with([
+    'schedule' => ['15 3 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1'],
+    'log path' => ['30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-main-backup-cycle.log 2>&1'],
+    'run as another user' => ['30 2 * * * deploy-rateguru-staging /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1'],
+]);
+
+it('check fails when the committed cron was edited by hand, even in a comment', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/hand-edited-cron';
+        file_put_contents($bad, str_replace(
+            '# Every night at 02:30 UTC',
+            '# Every night at 02:30 UTC (moved here by hand)',
+            File::get(base_path('infrastructure/config/cron/rateguru-backups')),
+        ));
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_CRON'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('regenerate it with render_backup_cron_candidate rather than editing it by hand');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the reviewed schedule changed but the committed cron was not regenerated', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $schedules = json_decode(File::get(base_path('infrastructure/config/backup-schedules.json')), true);
+        $schedules['targets']['staging-main']['backup_cycle_at'] = '02:45';
+
+        $moved = $scratch.'/backup-schedules.json';
+        file_put_contents($moved, json_encode($schedules, JSON_PRETTY_PRINT));
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_BACKUP_SCHEDULES'] = $moved;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('the committed backup cron is not what the registry and the reviewed backup schedules render');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -997,6 +1106,86 @@ it('a successful verify passes against a freshly applied perimeter', function ()
 
         expect($verifyExit)->toBe(0, $verifyOut);
         expect($verifyOut)->toContain('PASS: target-aware perimeter installed and verified');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply and verify are idempotent: a second apply changes nothing and verify passes after each', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $installed = ['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'];
+
+        $snapshot = function () use ($vars, $installed): array {
+            clearstatcache();
+
+            return array_map(
+                fn (string $key): array => [file_get_contents($vars[$key]), fileperms($vars[$key]), fileowner($vars[$key]), filegroup($vars[$key])],
+                array_combine($installed, $installed),
+            );
+        };
+
+        [$firstExit, $firstOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($firstExit)->toBe(0, $firstOut);
+
+        $afterFirst = $snapshot();
+
+        [$verifyExit, $verifyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
+        expect($verifyExit)->toBe(0, $verifyOut);
+        expect($verifyOut)->toContain('installed cron: three jobs for every active target and none for any other, and exactly the registry\'s render');
+
+        [$secondExit, $secondOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($secondExit)->toBe(0, $secondOut);
+        expect($secondOut)->toContain('apply complete');
+
+        expect($snapshot())->toBe($afterFirst);
+
+        [$reverifyExit, $reverifyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
+        expect($reverifyExit)->toBe(0, $reverifyOut);
+        expect($reverifyOut)->toContain('PASS: target-aware perimeter installed and verified');
+
+        // Still exactly six files, and the cron is still staging's three jobs
+        // alone: re-applying never schedules the planned target.
+        expect(array_merge(
+            glob($scratch.'/dest/usr/local/sbin/*'),
+            glob($scratch.'/dest/etc/sudoers.d/*'),
+            glob($scratch.'/dest/etc/cron.d/*'),
+        ))->toHaveCount(6);
+
+        expect(cronOperationalLines(file_get_contents($vars['DST_CRON'])))->toHaveCount(3)
+            ->each->toContain('--target staging-main ');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('checks the installed cron against the render itself, not only against the committed copy', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        [$applyExit, $applyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOut);
+
+        // In a full --verify the committed source is rejected first, so this
+        // drives the installed-file check directly: a hand edit that is still
+        // well-formed cron, naming the right job for the right active target,
+        // and that only the render can object to.
+        $edited = $scratch.'/edited-cron';
+        file_put_contents($edited, str_replace(
+            '30 2 * * * root',
+            '45 2 * * * root',
+            File::get(base_path('infrastructure/config/cron/rateguru-backups')),
+        ));
+        copy($edited, $vars['DST_CRON']);
+        chmod($vars['DST_CRON'], 0o644);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'validate_backup_cron "${DST_CRON}" installed');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('the installed backup cron is not what the registry and the reviewed backup schedules render');
     } finally {
         installPerimeterCleanup($scratch);
     }
