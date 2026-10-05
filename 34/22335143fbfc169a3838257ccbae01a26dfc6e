@@ -1,0 +1,30 @@
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_55c33db31bd196 371-387,395-400
+tests/Feature/Jobs/GenerateMediaVariantsJobTest.php
+  s_c7e782fafc9782::t_719af77ba63077 21-24,26
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_643684cc92fda7 2259-2283,2479-2588
+  s_c7e782fafc9782::t_a0cc798a87ca1f 563-567
+infrastructure/runbooks/configure-target.md
+  s_c7e782fafc9782::t_f93343d743fac9 159
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_858fd66b72b4d6 833-840
+  s_c7e782fafc9782::t_c8b23fb8fc38d6 520-536,540-552,674-680
+  s_c7e782fafc9782::t_a7d151293d3f18 623-659,808-819,821,1026-1037
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3422335143fbfc169a3838257ccbae01a26dfc6e",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
