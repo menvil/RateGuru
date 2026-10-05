@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\AuthModalMode;
+use App\Support\Auth\AuthReturnUrl;
 use App\Support\Auth\AuthSurfaceContext;
 
 /*
@@ -37,9 +39,23 @@ it('starts the OAuth flow in modal mode despite an unusable mode or return marke
     $response->assertRedirect();
     expect($response->headers->get('Location'))->toStartWith('https://accounts.google.com/');
 
-    // The surface itself was usable, so the modal is remembered — with the
-    // unusable part answered by its own documented fallback.
-    expect(AuthSurfaceContext::pull(session()->driver())->isModal())->toBeTrue();
+    // The surface itself was usable, so the modal is remembered — and the
+    // unusable part took its documented fallback, which is the thing worth
+    // asserting. isModal() alone would hold just as well for a context that came
+    // back with a wrong mode or a return path somewhere unexpected.
+    //
+    // Both are read through redirectAfterSocialFailure, the public path that
+    // surfaces them: it redirects to the remembered return path and flashes the
+    // remembered mode.
+    $remembered = AuthSurfaceContext::pull(session()->driver());
+
+    expect($remembered->isModal())->toBeTrue();
+
+    $failure = $remembered->redirectAfterSocialFailure('nope');
+
+    expect($failure->getTargetUrl())->toBe(url(AuthReturnUrl::FALLBACK))
+        ->and($failure->getSession()?->get(AuthSurfaceContext::FLASH_KEY))
+        ->toBe(['mode' => AuthModalMode::Login->value]);
 })->with([
     'mode as an array' => [[
         AuthSurfaceContext::SURFACE_FIELD => 'modal',

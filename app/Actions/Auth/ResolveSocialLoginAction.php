@@ -71,7 +71,7 @@ final class ResolveSocialLoginAction
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 
-            $account->refreshProviderEmail($identity->email);
+            $account->recordProviderEmail($identity->email, $identity->emailVerifiedByProvider);
 
             Auth::login($user);
 

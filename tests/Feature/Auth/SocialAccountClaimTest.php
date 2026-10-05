@@ -145,9 +145,12 @@ it('ends the session of whoever was signed in to the unconfirmed account before'
     $this->assertGuest();
 });
 
-it('only confirms an unconfirmed account that never had a password', function () {
+it('confirms an unconfirmed account that never had a password without reporting a password removal', function () {
+    // No password, so nothing is reported as removed — but "no password" is NOT
+    // a reason to trust what is already attached. See the claim-revocation cases
+    // below for what decides that.
     $user = User::factory()->unverified()->withoutPassword()->create(['email' => 'ivan@example.com']);
-    SocialAccount::factory()->for($user)->facebook()->create(['provider_user_id' => 'fb-1']);
+    SocialAccount::factory()->for($user)->facebook()->verifiedEmail('ivan@example.com')->create(['provider_user_id' => 'fb-1']);
     Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com', 'g-1'));
 
     $this->get(socialCallbackUrl('google'))
@@ -156,7 +159,106 @@ it('only confirms an unconfirmed account that never had a password', function ()
 
     $this->assertAuthenticatedAs($user);
     expect($user->fresh()->email_verified_at)->not->toBeNull()
+        // Kept, because that Facebook link can prove it owns this very address.
         ->and($user->socialAccounts()->count())->toBe(2);
+});
+
+/*
+ * What happens to a sign-in method that was already on an unconfirmed account
+ * when somebody else proves they own its address.
+ *
+ * The old rule asked whether a password had been removed, on the reasoning that
+ * a passwordless unconfirmed account was created through a provider and its link
+ * was probably the same person. That is exactly backwards:
+ * RegisterSocialUserAction creates an account from an address a provider has NOT
+ * confirmed — which is why the account is unconfirmed at all — and stores the
+ * link anyway. So the rule treated "nobody proved this address" as proof.
+ *
+ * It is evidence now: a link survives only if its own provider confirmed the
+ * same address.
+ */
+it('revokes a prior provider link that cannot prove it owns the claimed address', function (
+    string $state,
+    string $linkEmail,
+    bool $survives,
+) {
+    $user = User::factory()->unverified()->withoutPassword()->create(['email' => 'ivan@example.com']);
+
+    $link = SocialAccount::factory()->for($user)->facebook();
+    $link = match ($state) {
+        'verified' => $link->verifiedEmail($linkEmail),
+        'unverified' => $link->unverifiedEmail($linkEmail),
+        'legacy' => $link->legacyUnknownVerification($linkEmail),
+    };
+    $prior = $link->create(['provider_user_id' => 'fb-1']);
+
+    Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com', 'g-1'));
+
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+
+    expect($user->fresh()->email_verified_at)->not->toBeNull();
+
+    expect(SocialAccount::query()->whereKey($prior->getKey())->exists())
+        ->toBe($survives, "the prior {$state} link to {$linkEmail} should ".($survives ? 'survive' : 'be revoked'));
+
+    // Whatever happened to the old one, the identity that just proved the
+    // address is attached.
+    expect(SocialAccount::query()->where('user_id', $user->id)->where('provider_user_id', 'g-1')->exists())
+        ->toBeTrue('the claiming identity must remain');
+})->with([
+    'provider confirmed the same address' => ['verified', 'ivan@example.com', true],
+    'provider confirmed a different address' => ['verified', 'someone-else@example.com', false],
+    'provider explicitly did not confirm it' => ['unverified', 'ivan@example.com', false],
+    'written before the proof was recorded' => ['legacy', 'ivan@example.com', false],
+]);
+
+it('revokes a prior link that records no address at all', function () {
+    $user = User::factory()->unverified()->withoutPassword()->create(['email' => 'ivan@example.com']);
+    $prior = SocialAccount::factory()->for($user)->facebook()->create([
+        'provider_user_id' => 'fb-1',
+        'provider_email' => null,
+        'provider_email_verified' => null,
+    ]);
+
+    Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com', 'g-1'));
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+
+    expect(SocialAccount::query()->whereKey($prior->getKey())->exists())->toBeFalse();
+});
+
+it('revokes an untrusted prior link in the password-takeover case too', function () {
+    // The takeover path already removed every link. It must keep doing so for the
+    // ones that cannot prove the address, and — since the rule is now about proof
+    // rather than about the password — keep a provably-owned one.
+    $user = User::factory()->unverified()->create(['email' => 'ivan@example.com']);
+    $untrusted = SocialAccount::factory()->for($user)->facebook()->unverifiedEmail('ivan@example.com')->create(['provider_user_id' => 'fb-1']);
+
+    PasswordResetToken::create(['email' => 'ivan@example.com', 'token' => Hash::make('reset'), 'created_at' => now()]);
+
+    Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com', 'g-1'));
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+
+    $fresh = $user->fresh();
+    expect($fresh->password)->toBeNull()
+        ->and($fresh->email_verified_at)->not->toBeNull()
+        ->and($fresh->session_generation)->not->toBeNull()
+        ->and(PasswordResetToken::query()->where('email', 'ivan@example.com')->exists())->toBeFalse()
+        ->and(SocialAccount::query()->whereKey($untrusted->getKey())->exists())->toBeFalse();
+});
+
+it('records whether the provider confirmed the address it stores', function () {
+    // The proof the rule above reads has to be written in the first place, and
+    // written about the address actually stored.
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'ivan@company.test']));
+
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+
+    $link = SocialAccount::query()->sole();
+
+    expect($link->provider_email)->toBe('ivan@company.test')
+        // Google did not vouch: not a gmail address and no email_verified claim.
+        ->and($link->provider_email_verified)->toBeFalse()
+        ->and($link->user->email_verified_at)->toBeNull();
 });
 
 it('changes nothing when the account already holds another identity of that provider', function () {

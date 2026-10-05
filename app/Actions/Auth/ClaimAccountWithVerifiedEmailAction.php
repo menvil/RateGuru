@@ -8,6 +8,7 @@ use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\PasswordResetToken;
 use App\Models\Session;
+use App\Models\SocialAccount;
 use App\Models\User;
 use App\Support\Auth\SessionGeneration;
 use App\Support\Auth\SocialIdentityNormalizer;
@@ -97,31 +98,39 @@ final class ClaimAccountWithVerifiedEmailAction
                 Session::query()->where('user_id', $locked->id)->delete();
                 PasswordResetToken::query()->where('email', $email)->delete();
 
-                // And, when a PASSWORD was removed, every other provider link.
+                // And every other sign-in method that cannot prove it owns this
+                // address.
                 //
-                // That condition is the whole subtlety. A password on an
-                // unconfirmed account means somebody typed this address they did
-                // not control and chose a secret for it — a takeover — so every
-                // credential on it is the squatter's, provider links included.
-                // Leaving one behind leaves them a working sign-in, because
-                // ResolveSocialLoginAction signs in whatever account a known
-                // identity points at.
+                // The test used to be "was a password removed", on the reasoning
+                // that an unconfirmed account with no password was created through
+                // a provider, so an existing link was probably the same person
+                // arriving on a second provider. That reasoning does not hold, and
+                // the way it fails is a working sign-in for a stranger:
+                // RegisterSocialUserAction creates an account from an address the
+                // provider has NOT confirmed — leaving email_verified_at null,
+                // which is precisely why this operation is reachable — and stores
+                // the link anyway. So "no password" described exactly the case
+                // where nobody had proved the address, and treated it as proof.
                 //
-                // An unconfirmed account with NO password is the opposite case: it
-                // was created through a provider, so an existing link is most
-                // likely the same person arriving via a second provider. This
-                // operation deliberately only CONFIRMS such an account rather than
-                // taking it over, and deleting that link would lock out the person
-                // it belongs to. See the "only confirms an unconfirmed account
-                // that never had a password" case in SocialAccountClaimTest.
+                // What survives now is evidence, not inference: a link whose own
+                // provider confirmed the SAME address. A link the provider did not
+                // confirm, one pointing at a different mailbox, one with no address
+                // at all, and one written before this proof was recorded, are all
+                // revoked — the last of those because an absent record is not a
+                // record of consent. The cost is one re-link for a person whose
+                // link was genuinely theirs; the cost of the other choice is a
+                // stranger keeping access to a confirmed account.
                 //
-                // The link just established is excluded by key either way: it
-                // belongs to whoever is proving ownership now.
-                if ($passwordRemoved) {
-                    $locked->socialAccounts()
-                        ->whereKeyNot($linked->getKey())
-                        ->delete();
-                }
+                // The link just established is excluded by key: it belongs to
+                // whoever is proving ownership right now.
+                $locked->socialAccounts()
+                    ->whereKeyNot($linked->getKey())
+                    ->get()
+                    ->each(function (SocialAccount $other) use ($email): void {
+                        if (! $other->provesOwnershipOf($this->normalizer->normalizeEmail($email))) {
+                            $other->delete();
+                        }
+                    });
             }
 
             $user->setRawAttributes($locked->getAttributes(), true);
