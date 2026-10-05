@@ -273,10 +273,15 @@ it('keeps Recover Host a separate operation that the restore primitives never be
     // transport action. What must NEVER exist inside the restore primitives is
     // any of it: restore-target reads a backup's source_sha to DECIDE
     // alignment, and never builds, checks out or rebuilds anything.
-    $restore = File::get(base_path('infrastructure/scripts/restore-target'));
+    // Executable lines, and whole words: `vite` as a bare substring also occurs
+    // inside "invite", so this guard failed on a comment the first time it was
+    // able to fail at all. What it means is that restore-target never RUNS a build
+    // tool, which is a word-boundary question.
+    $restore = executableSourceLines(File::get(base_path('infrastructure/scripts/restore-target')));
 
-    foreach (['composer', 'npm ', 'node ', 'vite', 'build-rateguru', 'git clone', 'git checkout'] as $forbidden) {
-        expect($restore)->not->toContain($forbidden, "restore-target must never build: {$forbidden}");
+    foreach (['composer', 'npm', 'node', 'vite', 'build-rateguru', 'git clone', 'git checkout'] as $forbidden) {
+        expect(preg_match('/\b'.preg_quote($forbidden, '/').'\b/', $restore))
+            ->toBe(0, "restore-target must never build: {$forbidden}");
     }
 
     // And a live restore still requires a DEPLOYED target — the one structural
@@ -644,8 +649,8 @@ it('confines every restore concern in the shared library to its own sections', f
     // would be an operation hiding behind a name that promises only mutual
     // exclusion.
     foreach (['install ', 'chmod', 'chown', 'rm ', 'mkdir', 'jq ', 'curl', 'psql', 'systemctl'] as $forbidden) {
-        expect(executableSourceLines($lockSection))
-            ->not->toContain($forbidden, "the host infrastructure lock section must only lock: {$forbidden}");
+        expect(str_contains(executableSourceLines($lockSection), $forbidden))
+            ->toBeFalse("the host infrastructure lock section must only lock: {$forbidden}");
     }
 
     // A lifecycle gate reads and decides. It never writes the registry, never
