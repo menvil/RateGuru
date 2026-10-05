@@ -4,17 +4,27 @@ namespace App\Actions\Contact;
 
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Exceptions\Contact\ContactMessageHasNoRecipientException;
 use App\Mail\ContactMessageMail;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
+use App\Support\Observability\DomainLogger;
 use Illuminate\Support\Facades\Mail;
 
 final class SendContactMessageAction
 {
-    public function __construct(private readonly LocaleManager $locales) {}
+    public function __construct(
+        private readonly LocaleManager $locales,
+        private readonly DomainLogger $logger,
+    ) {}
 
     /**
      * @param  array{name: string, email: string, subject: string, message: string}  $message
+     *
+     * @throws ContactMessageHasNoRecipientException when the project has
+     *                                               nowhere to deliver to. Never swallowed: a visitor who is told their
+     *                                               message was sent has no reason to try again, so a dropped message is
+     *                                               lost for good.
      */
     public function handle(array $message): void
     {
@@ -45,14 +55,32 @@ final class SendContactMessageAction
             return;
         }
 
-        // No administrator to write to: fall back to the configured address,
-        // which is a mailbox rather than an account, so there is no preference
-        // to honour and the default language is the only honest choice.
-        $fallback = config('mail.contact_to') ?: config('mail.from.address');
+        // No administrator to write to: fall back to the configured contact
+        // mailbox, which is a mailbox rather than an account, so there is no
+        // preference to honour and the default language is the only honest
+        // choice.
+        //
+        // Deliberately NOT falling back further to mail.from.address. That is
+        // the address this project sends FROM — in the deployed targets a
+        // noreply one — and treating a sender as an inbox means contact
+        // messages arrive where nobody reads replies, or bounce, with the
+        // visitor told they were delivered either way.
+        $contactMailbox = trim((string) config('mail.contact_to'));
 
-        if (is_string($fallback) && $fallback !== '') {
-            Mail::to($fallback)->queue($this->mailFor($message, $this->locales->default()));
+        if ($contactMailbox === '') {
+            $this->logger->error('contact.no_recipient', [
+                // The one fact that is not already in the event name: whether
+                // there are administrator accounts that were all excluded
+                // (suspended, or without an address) or none at all. No visitor
+                // PII — this is a deployment fault, and the record of it should
+                // not become a copy of the message that triggered it.
+                'admin_accounts' => User::query()->where('role', UserRole::Admin)->count(),
+            ]);
+
+            throw ContactMessageHasNoRecipientException::becauseNoneIsConfigured();
         }
+
+        Mail::to($contactMailbox)->queue($this->mailFor($message, $this->locales->default()));
     }
 
     /**

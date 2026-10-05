@@ -252,3 +252,51 @@ it('keeps comment votes and reports when finalizing a comment', function () {
     expect(CommentVote::query()->count())->toBe(1)
         ->and(Report::query()->count())->toBe(1);
 });
+
+it('refuses a removal reason made only of Unicode whitespace', function (string $reason) {
+    // trim()'s character list is ASCII, so a non-breaking space — what a paste
+    // from a word processor or a chat client produces — used to satisfy the
+    // empty check and record an irreversible removal with no audit reason at all.
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    expect(fn () => app(FinalizePostRemovalAction::class)->handle($admin, $post, $reason))
+        ->toThrow(CannotFinalizeRemovalException::class);
+
+    expect(fn () => app(FinalizeCommentRemovalAction::class)->handle($admin, $comment, $reason))
+        ->toThrow(CannotFinalizeRemovalException::class);
+
+    expect($post->fresh()->moderation_removed_at)->toBeNull()
+        ->and($comment->fresh()->moderation_removed_at)->toBeNull();
+})->with([
+    'no-break space' => ["\u{00A0}"],
+    'ideographic space' => ["\u{3000}"],
+    'zero-width no-break space' => ["\u{FEFF}"],
+    'mixed with ASCII whitespace' => [" \t\u{00A0}\n"],
+]);
+
+it('keeps a real reason that merely has Unicode whitespace around it', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    app(FinalizePostRemovalAction::class)->handle($admin, $post, "\u{00A0}Repeated spam\u{00A0}");
+
+    expect($post->fresh()->moderation_removed_at)->not->toBeNull();
+
+    $log = ModerationLog::query()
+        ->where('action', ModerationActionType::FinalizePostRemoval)
+        ->latest('id')
+        ->firstOrFail();
+
+    expect($log->reason)->toBe('Repeated spam');
+});

@@ -7,6 +7,7 @@ use App\Filament\Resources\Categories\Pages\ListCategories;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\User;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
 it('allows only admins to access category management', function () {
@@ -151,4 +152,31 @@ it('orders category management deterministically by sort order and id', function
         ->toBe([$tied[1]->id, $tied[2]->id])
         ->and($thirdPage->getCollection()->pluck('id')->all())
         ->toBe([$last->id]);
+});
+
+it('lets an administrator actually sort the category table by a column', function () {
+    // The curated sort_order/id pair leaves no ties, so applied as part of the
+    // base query it made every sortable column decorative: the ORDER BY Filament
+    // appends for the clicked column could not move a single row.
+    $admin = User::factory()->admin()->create();
+
+    $zebra = Category::factory()->create(['name' => 'Zebra', 'sort_order' => 1]);
+    $apple = Category::factory()->create(['name' => 'Apple', 'sort_order' => 2]);
+    $mango = Category::factory()->create(['name' => 'Mango', 'sort_order' => 3]);
+
+    $this->actingAs($admin);
+
+    $ids = fn (Testable $page): array => $page
+        ->instance()
+        ->getFilteredSortedTableQuery()
+        ->pluck('id')
+        ->all();
+
+    $page = Livewire::test(ListCategories::class);
+
+    // Untouched: the curated order is still what you get by default.
+    expect($ids($page))->toBe([$zebra->id, $apple->id, $mango->id]);
+
+    expect($ids($page->sortTable('name')))->toBe([$apple->id, $mango->id, $zebra->id]);
+    expect($ids($page->sortTable('name', 'desc')))->toBe([$zebra->id, $mango->id, $apple->id]);
 });

@@ -49,6 +49,7 @@ return [
         'message' => 'Nachricht',
         'submit' => 'Nachricht senden',
         'sent' => 'Deine Nachricht wurde an die Administration gesendet.',
+        'undeliverable' => 'Deine Nachricht konnte nicht zugestellt werden, weil für diese Seite keine Kontaktadresse konfiguriert ist. Bitte versuche es später erneut.',
     ],
     'post' => [
         'upload' => 'Beitrag hochladen',

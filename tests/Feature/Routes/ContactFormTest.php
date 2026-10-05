@@ -71,3 +71,67 @@ it('uses the configured contact recipient when there are no active administrator
         fn (ContactMessageMail $mail): bool => $mail->hasTo('owner@example.test'),
     );
 });
+
+it('never treats the global sender address as a contact mailbox', function () {
+    Mail::fake();
+    config()->set('mail.contact_to', null);
+    config()->set('mail.from.address', 'noreply@staging.invalid');
+
+    $this->post(route('pages.contact.submit'), [
+        'name' => 'Fallback Sender',
+        'email' => 'sender@example.test',
+        'subject' => 'Nowhere to go',
+        'message' => 'There is no administrator and no contact mailbox.',
+    ]);
+
+    // MAIL_FROM_ADDRESS is where this project sends FROM — in the deployed
+    // targets a noreply address. Delivering a visitor's question there means
+    // nobody reads the reply, or it bounces.
+    Mail::assertNothingQueued();
+});
+
+it('tells the visitor when a contact message has nowhere to go, instead of claiming it was sent', function () {
+    Mail::fake();
+    config()->set('mail.contact_to', null);
+    config()->set('mail.from.address', 'noreply@staging.invalid');
+
+    $this->post(route('pages.contact.submit'), [
+        'name' => 'Fallback Sender',
+        'email' => 'sender@example.test',
+        'subject' => 'Nowhere to go',
+        'message' => 'There is no administrator and no contact mailbox.',
+    ])
+        ->assertRedirect(route('pages.contact'))
+        ->assertSessionMissing('contact_status')
+        ->assertSessionHas('contact_error', __('ui.contact.undeliverable'));
+
+    // And what was typed survives, so it can be sent once the project has
+    // somewhere to send it.
+    $this->followingRedirects()
+        ->post(route('pages.contact.submit'), [
+            'name' => 'Fallback Sender',
+            'email' => 'sender@example.test',
+            'subject' => 'Nowhere to go',
+            'message' => 'There is no administrator and no contact mailbox.',
+        ])
+        ->assertSee('data-testid="contact-error"', false);
+});
+
+it('still reaches an administrator when one exists, whatever the contact mailbox says', function () {
+    Mail::fake();
+    config()->set('mail.contact_to', null);
+
+    $admin = User::factory()->admin()->create(['email' => 'admin@example.test']);
+
+    $this->post(route('pages.contact.submit'), [
+        'name' => 'Jane Visitor',
+        'email' => 'jane@example.test',
+        'subject' => 'Still works',
+        'message' => 'An administrator is the first choice and needs no configuration.',
+    ])->assertSessionHas('contact_status');
+
+    Mail::assertQueued(
+        ContactMessageMail::class,
+        fn (ContactMessageMail $mail): bool => $mail->hasTo($admin->email),
+    );
+});

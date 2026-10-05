@@ -31,10 +31,16 @@ class CommentPolicy
     public function restore(User $user, Comment $comment): bool
     {
         // Restore only reverses a moderation hide. It must never resurrect
-        // an author-deleted comment.
+        // an author-deleted comment, and never a finalized removal: finalizing
+        // sets moderation_removed_at without soft-deleting, so a finalized
+        // comment is still a live Hidden row and the two checks above do not
+        // exclude it. RestoreCommentAction and the admin table both refuse
+        // one already — this makes the authorization layer agree with them
+        // rather than relying on the two below it.
         return $this->canModerate($user)
             && ! $comment->trashed()
-            && $comment->status === CommentStatus::Hidden;
+            && $comment->status === CommentStatus::Hidden
+            && $comment->moderation_removed_at === null;
     }
 
     /**

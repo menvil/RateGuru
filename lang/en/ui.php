@@ -49,6 +49,7 @@ return [
         'message' => 'Message',
         'submit' => 'Send message',
         'sent' => 'Your message has been sent to the administration.',
+        'undeliverable' => 'Your message could not be delivered right now, because this site has no contact address configured. Please try again later.',
     ],
     'post' => [
         'upload' => 'Upload post',

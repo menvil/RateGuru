@@ -18,6 +18,16 @@ the development commands and the three-engine CI compatibility matrix.
 
 ## Local Setup
 
+Install PHP 8.5 and PostgreSQL 18.4 through Homebrew, then start PostgreSQL.
+This comes first because every step below runs `composer` or `php artisan`:
+
+```bash
+brew install php
+brew install postgresql@18
+brew services start postgresql@18
+php -v
+```
+
 Clone the repository and install PHP dependencies:
 
 ```bash
@@ -31,15 +41,6 @@ Create the local environment file and application key:
 ```bash
 cp .env.example .env
 php artisan key:generate
-```
-
-Install PHP 8.5 and PostgreSQL 18.4 through Homebrew, then start PostgreSQL:
-
-```bash
-brew install php
-brew install postgresql@18
-brew services start postgresql@18
-php -v
 ```
 
 Create the non-production role and the separate development and test databases

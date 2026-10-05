@@ -18,7 +18,15 @@ class CategoriesTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(self::applyDefaultOrdering(...))
+            ->modifyQueryUsing(self::withPostCounts(...))
+            // The curated order, as a DEFAULT sort rather than part of the base
+            // query. Applied through modifyQueryUsing it was not a default at
+            // all: sort_order plus the unique id leaves no ties, so the ORDER BY
+            // Filament appends for the column an administrator clicked could
+            // never change a single row's position, and all five sortable
+            // columns here were decorative. As a default sort it is what you get
+            // until you ask for something else, which is what it was meant to be.
+            ->defaultSort(fn (Builder $query): Builder => $query->orderBy('sort_order')->orderBy('id'))
             ->columns([
                 TextColumn::make('name')
                     ->searchable()
@@ -78,8 +86,8 @@ class CategoriesTable
      * @param  Builder<Category>  $query
      * @return Builder<Category>
      */
-    private static function applyDefaultOrdering(Builder $query): Builder
+    private static function withPostCounts(Builder $query): Builder
     {
-        return $query->withCount('posts')->ordered();
+        return $query->withCount('posts');
     }
 }
