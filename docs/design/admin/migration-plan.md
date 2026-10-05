@@ -43,11 +43,13 @@ admin works, and every screen is either fully v1 or fully v2.
 - Navigation is regrouped into Overview, Moderation, Content, Localization, Configuration and System, read from
   Filament's registered navigation so access rules stay where they were.
 - Every v1 screen renders inside the v2 shell with its content unchanged; the panel is light only.
+- The search sits under the workspace as in the reference, with `⌘K` / `Ctrl+K`, drawing Filament's global
+  search over the records each user may find.
 - Deliberately not in this step (see the contract's
-  [Transitional omissions](design-contract.md#transitional-omissions)): the `⌘K` admin search, which becomes its
-  own task while Filament's existing global search stays in the top bar; the Translation Center item, which
-  arrives with its page; operational counts, which arrive with each screen's migration; and moving page headers
-  and actions, which happens per page.
+  [Transitional omissions](design-contract.md#transitional-omissions)): searching settings, pages, languages and
+  media, which waits for a product-wide search contract; the Translation Center item, which arrives with its page;
+  operational counts, which arrive with each screen's migration; and moving page headers and actions, which
+  happens per page.
 
 ### Phase 3 — Languages v2
 

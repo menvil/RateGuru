@@ -337,12 +337,31 @@ it('identifies the signed-in user and signs out through Filament\'s own logout',
     $this->assertGuest();
 });
 
-it('offers no workspace switcher, fake search or profile page', function () {
+it('offers no workspace switcher or profile page', function () {
     $html = $this->actingAs(User::factory()->admin()->create())->get('/admin')->getContent();
 
     expect($html)
         ->toContain('<span class="rg-admin-workspace__name">RateGuru</span>')
-        ->not->toContain('Search posts, users')
         ->not->toContain('Profile')
         ->not->toContain('Switch workspace');
+});
+
+it('puts the admin search under the workspace in the sidebar, not in the top bar', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())->get('/admin')->getContent();
+
+    $sidebar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-sidebar"'));
+    $topbar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-topbar"'), 4000);
+
+    expect($sidebar)->toContain('class="rg-admin-sidebar__search"')
+        ->and(strpos($sidebar, 'rg-admin-sidebar__header'))->toBeLessThan(strpos($sidebar, 'rg-admin-sidebar__search'))
+        ->and(strpos($sidebar, 'rg-admin-sidebar__search'))->toBeLessThan(strpos($sidebar, 'rg-admin-sidebar__nav'))
+        ->and($sidebar)->toContain('id="rg-admin-search"')
+        ->toContain('placeholder="Search posts, users"')
+        ->toContain('aria-keyshortcuts="Meta+K Control+K"')
+        ->toContain('class="rg-admin-kbd"')
+        // The shortcut lives on the sidebar, which can open itself first.
+        ->toContain('x-on:keydown.meta.k.window="focusSearch($event)"')
+        ->toContain('x-on:keydown.ctrl.k.window="focusSearch($event)"')
+        ->and($topbar)->not->toContain('rg-admin-search')
+        ->not->toContain('fi-global-search');
 });

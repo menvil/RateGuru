@@ -1795,13 +1795,119 @@
         box-shadow: var(--rg-admin-shadow-popover);
     }
 
+    /* As tall as the top bar, so the two hairlines run as one line. */
     .rg-admin-sidebar__header {
         display: flex;
         align-items: center;
         gap: var(--rg-admin-space-2);
         flex-shrink: 0;
-        padding: 9px var(--rg-admin-space-3);
+        height: var(--rg-admin-topbar-height);
+        padding: 0 var(--rg-admin-space-3);
         border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-sidebar__header .rg-admin-workspace {
+        padding-block: 0;
+    }
+
+    /* FRM-01 under the workspace, as in the reference sidebar. */
+    .rg-admin-sidebar__search {
+        position: relative;
+        flex-shrink: 0;
+        padding: var(--rg-admin-space-4) 19px 0;
+    }
+
+    .rg-admin-global-search .rg-admin-search {
+        width: 100%;
+    }
+
+    .rg-admin-search-results {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 19px;
+        left: 19px;
+        z-index: 1;
+        max-height: 420px;
+        overflow: auto;
+        padding: 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-search-results__list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-search-results__empty {
+        margin: 0;
+        padding: 14px 10px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-search-result {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 6px 10px;
+        border-radius: var(--rg-admin-radius-item);
+        color: var(--rg-admin-text-strong);
+        text-decoration: none;
+    }
+
+    /* Enter in the field opens the first result, so it reads as selected. */
+    .rg-admin-search-result--first,
+    .rg-admin-search-result:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-search-result:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: -2px;
+    }
+
+    .rg-admin-search-result__icon {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-search-result__text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-search-result__title,
+    .rg-admin-search-result__meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-search-result__title {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-search-result__meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
     }
 
     .rg-admin-sidebar__header .rg-admin-workspace {
@@ -2012,8 +2118,11 @@
             & .rg-admin-sidebar__header {
                 justify-content: center;
                 width: 100%;
-                height: 71px;
                 padding: 0;
+            }
+
+            & .rg-admin-sidebar__search {
+                display: none;
             }
 
             & .rg-admin-sidebar__header .rg-admin-workspace {
@@ -2155,10 +2264,6 @@
     .rg-admin-breadcrumb__current {
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .rg-admin-topbar__search {
-        min-width: 0;
     }
 
     @media (max-width: 1023.98px) {

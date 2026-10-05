@@ -55,8 +55,8 @@ The admin CSS is additive. Every Admin v2 rule is scoped to a `.rg-admin-*` clas
 own `.fi-*` components, so the existing screens keep their design until each one is migrated. The theme file
 holds the only rules that touch Filament's own elements, all unlayered: two fixes carried over from the old
 inline stylesheet (pointer cursor on toggles, selects and file pickers; a frameless records-per-page chooser),
-and two that fit Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
-replaces, and sizing Filament's global search results under the new top bar). Because the theme compiles Tailwind
+and one that fits Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
+replaces). Because the theme compiles Tailwind
 from `app/Filament` and `resources/views/filament`, utilities those views already used but Filament's prebuilt
 stylesheet lacked now take effect as written.
 
@@ -222,27 +222,34 @@ until each page is migrated, so a page can show both the shell's breadcrumb and 
 - **Rail tooltips:** one tooltip element names the icon under the pointer or keyboard focus; each link also keeps
   its label for screen readers, so the tooltip is never the only name.
 - **Workspace:** a static “RateGuru · Admin” identity. There is one workspace, so there is no switcher and no
-  chevron.
+  chevron. The sidebar header is as tall as the top bar (62), so their hairlines run as one line.
+- **Search:** under the workspace, as in the reference: the FRM-01 field (40 high, “Search posts, users”, a `⌘K`
+  hint, `Ctrl K` off macOS) drawing Filament's global search through `App\Livewire\Admin\GlobalSearch`. Which
+  resources are searched and what each user may find stay Filament's. `⌘K` / `Ctrl+K` focuses the field from
+  anywhere except a rich text editor, which keeps the shortcut for links; below 1280px it opens the sidebar first.
+  Results open beneath the field as in the reference — rows 44 high, a 28 icon of the record's kind, title
+  14/500, kind 12 tertiary — with the first one highlighted: Enter opens it, Down and Up move through the list,
+  Escape closes it.
 - **Account:** avatar initials, name and role of the signed-in user (no query; the user is already
   authenticated). The button opens a small menu with the name, email and **Sign out**, which posts to Filament's
   own logout route. There is no profile page, so none is offered.
 - **Breadcrumb:** section › destination, taken from the active navigation item without loading any record. On a
   create or edit page the destination is the last step, linked back to its list.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
-  migrated page will put its actions; then Filament's global search.
+  migrated page will put its actions.
 - **Light only:** the panel's dark mode is off. Admin v2 defines no dark theme, and with Filament's user menu
   gone a dark page inside a light shell would leave no way back.
 - **Layers:** top bar and sidebar 30, scrim 35, open drawer 36, rail tooltip 37 — all below Filament's modals (40)
-  and notifications (50).
+  and notifications (50). The search results list sits above the navigation inside the sidebar.
 
 ### Transitional omissions
 
 These are the current migration state, not changes to the target design:
 
-- **Global search.** The reference's sidebar search with `⌘K` is not built: there is no product-wide admin
-  search contract yet, and a navigation-only or partial search would be fake. Filament's existing global search,
-  which already finds posts, comments, users, tags, categories and rating groups, stays in the top bar unchanged
-  until the dedicated search task replaces it.
+- **Global search.** The sidebar search runs Filament's global search, so it finds records of the resources the
+  user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
+  settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
+  than a partial imitation.
 - **Translation Center** is not in the navigation. It appears in the Localization section when its page exists;
   there is no disabled or “coming soon” item.
 - **Operational counts** (posts pending, comments reported, reports open, missing translations, media critical)
@@ -467,7 +474,8 @@ the database before Save.
 | Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
 | Dialogs, drawers, row menus, combobox, toasts stack | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
-| Global search | sidebar search field with `⌘K` | Filament's global search in the top bar | see [Transitional omissions](#transitional-omissions) |
+| Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
+| Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
 
 ### Tertiary text contrast

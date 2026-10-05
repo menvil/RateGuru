@@ -55,16 +55,3 @@ input[type='file']:not(:disabled)::file-selector-button {
 .fi-sidebar-close-overlay {
     display: none !important;
 }
-
-/*
- * Filament's global search inside the Admin v2 top bar. Filament sizes the
- * results list only under its own .fi-topbar; this gives it the same size
- * under ours.
- */
-@media (min-width: 640px) {
-    .rg-admin-topbar .fi-global-search-results-ctn {
-        inset-inline-end: 0;
-        width: 100vw;
-        max-width: 24rem;
-    }
-}

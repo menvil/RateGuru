@@ -1,5 +1,4 @@
 @php
-    use Filament\Livewire\GlobalSearch;
     use Filament\Support\Facades\FilamentView;
     use Filament\View\PanelsRenderHook;
 @endphp
@@ -47,12 +46,6 @@
 
         <div class="rg-admin-topbar__actions">
             {{ FilamentView::renderHook(PanelsRenderHook::TOPBAR_END, scopes: $renderHookScopes) }}
-
-            @if ($hasGlobalSearch)
-                <div class="rg-admin-topbar__search">
-                    @livewire(GlobalSearch::class)
-                </div>
-            @endif
         </div>
     </header>
 </div>

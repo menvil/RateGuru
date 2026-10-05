@@ -15,7 +15,9 @@ use Livewire\Component;
  *
  * One markup serves every width: the 300px sidebar from 1280px up, the 68px
  * icon rail between 1024px and 1280px, and the same sidebar as an overlay
- * drawer when the rail is expanded or below 1024px. What it lists comes from
+ * drawer when the rail is expanded or below 1024px. Under the workspace sits
+ * the admin search (GlobalSearch), which ⌘K / Ctrl+K focuses from anywhere,
+ * opening the drawer first when the sidebar is collapsed. What it lists comes from
  * Filament's navigation through AdminShellNavigation, so a destination the
  * user may not open is never drawn. It runs no queries: the account block
  * reads the user already authenticated for this request.
@@ -32,6 +34,7 @@ final class Sidebar extends Component
             'sections' => AdminShellNavigation::sections(),
             'account' => $this->account(),
             'logoutUrl' => filament()->getLogoutUrl(),
+            'hasGlobalSearch' => filament()->isGlobalSearchEnabled(),
         ]);
     }
 

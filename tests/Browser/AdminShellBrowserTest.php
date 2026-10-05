@@ -171,3 +171,107 @@ it('signs out from the account menu through Filament\'s logout', function () {
 
     $page->assertPathIs('/admin/login');
 });
+
+it('lines the sidebar header up with the top bar at every width', function (int $width) {
+    actingAs(User::factory()->admin()->create());
+
+    $page = visit('/admin')->resize($width, 900)->wait(0.4);
+
+    expect($page->script(<<<'JS'
+        (() => ({
+            header: Math.round(document.querySelector('.rg-admin-sidebar__header').getBoundingClientRect().height),
+            topbar: Math.round(document.querySelector('.rg-admin-topbar').getBoundingClientRect().height),
+        }))()
+    JS))->toBe(['header' => 62, 'topbar' => 62]);
+})->with([1440, 1100]);
+
+it('focuses the sidebar search with Ctrl+K and opens the first result with Enter', function () {
+    actingAs(User::factory()->admin()->create());
+    Post::factory()->published()->create(['title' => 'Searchable sunset photo']);
+
+    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+
+    // The field sits under the workspace, above the navigation.
+    expect($page->script(<<<'JS'
+        (() => {
+            const top = (selector) => document.querySelector(selector).getBoundingClientRect().top
+
+            return top('.rg-admin-sidebar__header') < top('#rg-admin-search') && top('#rg-admin-search') < top('.rg-admin-sidebar__nav')
+        })()
+    JS))->toBeTrue();
+
+    $page->keys('.fi-main', 'Control+k')->wait(0.3);
+
+    expect($page->script('document.activeElement?.id ?? null'))->toBe('rg-admin-search');
+
+    $page->type('#rg-admin-search', 'Searchable sunset')->wait(1.2);
+    $page->assertVisible('#rg-admin-search-results')->assertSee('Searchable sunset photo');
+
+    $page->keys('#rg-admin-search', 'Enter')->wait(0.8);
+
+    $page->assertPathBeginsWith('/admin/posts');
+});
+
+it('opens the collapsed rail before focusing the search', function () {
+    actingAs(User::factory()->admin()->create());
+
+    $page = visit('/admin')->resize(1024, 800)->wait(0.4);
+
+    $page->keys('.fi-main', 'Control+k')->wait(0.3);
+
+    expect(adminShellLayout($page))->toMatchArray(['sidebar' => 300, 'open' => true])
+        ->and($page->script('document.activeElement?.id ?? null'))->toBe('rg-admin-search');
+});
+
+it('leaves Ctrl+K to a rich text editor', function () {
+    actingAs(User::factory()->admin()->create());
+
+    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+
+    $page->script(<<<'JS'
+        (() => {
+            const editor = document.createElement('div')
+            editor.id = 'editor-under-test'
+            editor.contentEditable = 'true'
+            editor.textContent = 'Rich text'
+            document.querySelector('.fi-main').prepend(editor)
+        })()
+    JS);
+
+    // Registered after the shell's own listener, so it sees the event once the shell is done with it.
+    $page->script(<<<'JS'
+        window.addEventListener('keydown', (event) => {
+            if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+                window.ctrlKDefaultPrevented = event.defaultPrevented
+            }
+        })
+    JS);
+
+    $page->keys('#editor-under-test', 'Control+k')->wait(0.3);
+
+    expect($page->script('document.activeElement?.id ?? null'))->toBe('editor-under-test')
+        ->and($page->script('window.ctrlKDefaultPrevented ?? null'))->toBeFalse();
+});
+
+it('opens a result with Enter only while the list is open and no IME composition is under way', function () {
+    actingAs(User::factory()->admin()->create());
+    Post::factory()->published()->create(['title' => 'Searchable sunset photo']);
+
+    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+
+    $page->type('#rg-admin-search', 'Searchable sunset')->wait(1.2);
+    $page->assertVisible('#rg-admin-search-results');
+
+    // Enter that confirms an IME composition is left to the input method.
+    expect($page->script(<<<'JS'
+        document.getElementById('rg-admin-search').dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }),
+        )
+    JS))->toBeTrue();
+
+    // With the list closed, Enter picks nothing.
+    $page->keys('#rg-admin-search', 'Escape')->wait(0.3);
+    $page->keys('#rg-admin-search', 'Enter')->wait(0.6);
+
+    $page->assertPathIs('/admin');
+});
