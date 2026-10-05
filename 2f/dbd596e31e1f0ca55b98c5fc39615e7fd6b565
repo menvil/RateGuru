@@ -1,0 +1,38 @@
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 262-263,353-354,468-469,581-582
+  s_c7e782fafc9782::t_c3915e6abf39b7 573-580
+tests/Feature/Architecture/ProvisionTargetPreconditionsTest.php
+  s_c7e782fafc9782::t_13a1577af37bcb 74-79,112-114
+  s_c7e782fafc9782::t_0a65531d3de79b 105-111,134-135
+  s_c7e782fafc9782::t_d3543b3b31f994 278-284
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 287-288
+tests/Feature/Architecture/RestoreTargetTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 668-669,728-733
+infrastructure/scripts/provision-target
+  s_c7e782fafc9782::t_297bbad4d0cc0d 657
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 652-653
+  s_c7e782fafc9782::t_d3543b3b31f994 276-284
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 742-743,767
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_c7e782fafc9782::t_4c9914214a75b6 3038-3049,3051-3054,3058-3064
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 1087-1092,3055-3056
+  s_c7e782fafc9782::t_df1c95e84ced23 4410-4414,4416-4417,4419-4420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2fdbd596e31e1f0ca55b98c5fc39615e7fd6b565",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
