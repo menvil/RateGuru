@@ -166,7 +166,8 @@ it('keeps one operator-facing workflow per environment, with no target selector 
                         continue;
                     }
 
-                    expect($value)->not->toContain('${{', "{$name}:{$jobName} computes its {$fixed} instead of fixing it");
+                    expect(str_contains($value, '${{'))
+                        ->toBeFalse("{$name}:{$jobName} computes its {$fixed} instead of fixing it");
                 }
             }
         }

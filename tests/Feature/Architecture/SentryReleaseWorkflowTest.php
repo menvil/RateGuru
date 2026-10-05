@@ -487,8 +487,8 @@ it('marks a rollback as a new deployment of the same immutable release', functio
     ] as $path => $rollbackStep) {
         $workflowSteps = collect(data_get(Yaml::parse(File::get(base_path($path))), 'jobs.rollback.steps'));
 
-        expect($workflowSteps->pluck('uses')->all())
-            ->not->toContain('./.github/actions/sentry-release', "{$path} still duplicates the Sentry marker");
+        expect(in_array('./.github/actions/sentry-release', $workflowSteps->pluck('uses')->all(), true))
+            ->toBeFalse("{$path} still duplicates the Sentry marker");
 
         expect($workflowSteps->pluck('name')->all())->toContain($rollbackStep);
     }

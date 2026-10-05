@@ -351,7 +351,8 @@ it('contains no recovery business logic', function () {
         'storage-app.tar.gz',
         'emergency',
     ] as $forbidden) {
-        expect($source)->not->toContain($forbidden, "the transport action must never: {$forbidden}");
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("the transport action must never: {$forbidden}");
     }
 });
 

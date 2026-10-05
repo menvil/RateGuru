@@ -846,7 +846,8 @@ it('never applies environment.env or server-configuration.tar.gz', function () {
         }
 
         foreach (['tar ', 'install ', 'cp ', 'mv ', '>'] as $mutation) {
-            expect($line)->not->toContain($mutation, "environment.env must only be compared: {$line}");
+            expect(str_contains($line, $mutation))
+                ->toBeFalse("environment.env must only be compared: {$line}");
         }
     }
 });

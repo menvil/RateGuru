@@ -47,8 +47,10 @@ it('never calls file_get_contents, fopen, or a raw curl_ function anywhere in th
         $source = file_get_contents($path);
         $relative = str_replace(app_path().'/', '', $path);
 
-        expect($source)->not->toContain('file_get_contents(', "Found file_get_contents( in {$relative}");
-        expect($source)->not->toContain('fopen(', "Found fopen( in {$relative}");
+        expect(str_contains($source, 'file_get_contents('))
+            ->toBeFalse("Found file_get_contents( in {$relative}");
+        expect(str_contains($source, 'fopen('))
+            ->toBeFalse("Found fopen( in {$relative}");
         expect($source)->not->toMatch('/\bcurl_[a-z_]+\s*\(/i', "Found a raw curl_*() call in {$relative}");
     }
 });
@@ -62,9 +64,10 @@ it('never uses the Http facade outside PinnedImportHttpTransport', function () {
         $source = file_get_contents($path);
         $relative = str_replace(app_path().'/', '', $path);
 
-        expect($source)
-            ->not->toContain('Http::', "Found Http:: in {$relative}")
-            ->not->toContain('Illuminate\Http\Client\Factory', "Found the Http client factory referenced directly in {$relative}");
+        expect(str_contains($source, 'Http::'))
+            ->toBeFalse("Found Http:: in {$relative}");
+        expect(str_contains($source, 'Illuminate\Http\Client\Factory'))
+            ->toBeFalse("Found the Http client factory referenced directly in {$relative}");
     }
 });
 

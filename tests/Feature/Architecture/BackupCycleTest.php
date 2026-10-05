@@ -971,7 +971,8 @@ it('writes a single compact-JSONL success record with the full schema for --targ
 
         $lines = array_values(array_filter(explode("\n", trim(File::get($result['historyFile'])))));
         expect($lines)->toHaveCount(1);
-        expect($lines[0])->not->toContain("\n", 'the record must be exactly one compact line, never pretty-printed');
+        expect(str_contains($lines[0], "\n"))
+            ->toBeFalse('the record must be exactly one compact line, never pretty-printed');
 
         $entry = json_decode($lines[0], true);
         expect($entry)->toMatchArray([
