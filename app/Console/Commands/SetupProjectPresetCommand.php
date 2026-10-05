@@ -48,12 +48,20 @@ class SetupProjectPresetCommand extends Command
         $this->info("Selected preset [{$presetKey}]: {$label}");
 
         if (! $this->option('force')) {
-            // Without a terminal, confirm() resolves to its default — false —
-            // and the run would report "cancelled" with a success status, so
-            // automation could not tell an unapplied preset from an applied one.
-            // Confirmation needs someone to confirm; otherwise say so and fail.
-            if (! $this->input->isInteractive()) {
-                $this->error('Applying a preset non-interactively requires --force.');
+            // Two different things have to be true before a question is worth
+            // asking, and isInteractive() is only the first of them.
+            //
+            // It reports whether --no-interaction was passed; Symfony's
+            // configureIO sets it from that flag and from shell verbosity, and
+            // never from the stream. So `rateguru:setup nature < /dev/null` — a
+            // cron entry, a deploy script, a CI step — arrived here with
+            // isInteractive() still true, reached confirm(), got its default of
+            // "no", printed "Setup cancelled." and exited 0. Automation could not
+            // tell that from an applied preset.
+            //
+            // The second thing is a terminal to read the answer from.
+            if (! $this->canAskForConfirmation()) {
+                $this->error('Applying a preset without a terminal requires --force.');
 
                 return self::FAILURE;
             }
@@ -89,5 +97,35 @@ class SetupProjectPresetCommand extends Command
         $this->info("Preset [{$presetKey}] applied successfully.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Can a question actually be answered on the other end of this run?
+     *
+     * The same predicate Laravel itself uses to decide whether Prompts may ask
+     * anything (Illuminate\Console\Concerns\ConfiguresPrompts::configurePrompts),
+     * deliberately reused rather than re-derived: a real terminal, or the test
+     * runner, where the question helper is mocked and a question is answerable
+     * without one. Diverging from it would mean this command disagreed with every
+     * other prompt in the application about what interactive means.
+     *
+     * The real non-TTY contract is covered by running the CLI as a subprocess with
+     * its stdin closed, which is the only way to exercise it honestly.
+     */
+    private function canAskForConfirmation(): bool
+    {
+        // --no-interaction is the caller's instruction and outranks everything:
+        // it means do not ask, including under the test runner.
+        if (! $this->input->isInteractive()) {
+            return false;
+        }
+
+        // Then something to read the answer from — a terminal, or the test
+        // runner, where the question helper is mocked and an answer is available
+        // without one. The second half is Laravel's own allowance for tests
+        // (ConfiguresPrompts::configurePrompts), reused rather than re-derived, so
+        // this command cannot disagree with every other prompt in the application
+        // about what interactive means.
+        return (defined('STDIN') && stream_isatty(STDIN)) || $this->laravel->runningUnitTests();
     }
 }
