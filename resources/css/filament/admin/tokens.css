@@ -1,0 +1,186 @@
+/*
+ * Admin v2 design tokens.
+ *
+ * Values come from the Dev UI kit reference
+ * (docs/design/admin/reference/original/RateGuru-Dev-UI-Kit.html) and are
+ * documented in docs/design/admin/design-contract.md. Every name carries the
+ * --rg-admin- prefix: the admin is its own design system and never reads the
+ * public --rg-* tokens, nor they these.
+ *
+ * Declaring tokens changes nothing on its own. Only the .rg-admin-* classes in
+ * components.css read them, so the existing Filament screens keep their look
+ * until each one is migrated.
+ */
+:root {
+    /* Palette. Ink and greys carry the interface; colour only means a status. */
+    --rg-admin-gray-0: #ffffff;
+    --rg-admin-gray-50: #f6f7fb;
+    --rg-admin-gray-100: #f3f4f9;
+    --rg-admin-gray-200: #e1e4eb;
+    --rg-admin-gray-300: #cacfd8;
+    --rg-admin-gray-400: #99a0ae;
+    --rg-admin-gray-500: #7a818e;
+    --rg-admin-gray-600: #525866;
+    --rg-admin-gray-950: #0e121b;
+    --rg-admin-red-50: #ffebec;
+    --rg-admin-red-300: #ff9aa2;
+    --rg-admin-red-500: #e5484d;
+    --rg-admin-red-950: #6e1a22;
+    --rg-admin-amber-50: #fffaec;
+    --rg-admin-amber-900: #7d5d17;
+    --rg-admin-green-50: #e1fbec;
+    --rg-admin-green-500: #21c06c;
+    --rg-admin-green-900: #1e6447;
+    --rg-admin-orange-500: #fd8549;
+    --rg-admin-orange-900: #7a4520;
+    --rg-admin-blue-25: #fafbfe;
+    --rg-admin-blue-50: #f4f7fd;
+    --rg-admin-blue-100: #eef2fb;
+    --rg-admin-blue-200: #c9d5ee;
+    --rg-admin-blue-900: #2d4373;
+
+    /* Text */
+    --rg-admin-text-strong: var(--rg-admin-gray-950);
+    --rg-admin-text-secondary: var(--rg-admin-gray-600);
+    /*
+     * Deliberately darker than the reference. The reference draws tertiary
+     * text in gray-400 #99A0AE, 2.63:1 on white and 2.45:1 on the app ground;
+     * #68707D reaches 5.0:1 and 4.67:1, WCAG AA for normal text, and stays
+     * lighter than secondary text. gray-400 itself keeps its reference value.
+     */
+    --rg-admin-text-tertiary: #68707d;
+    --rg-admin-text-disabled: var(--rg-admin-gray-300);
+    --rg-admin-text-inverse: var(--rg-admin-gray-0);
+
+    /* Surfaces */
+    --rg-admin-surface-app: var(--rg-admin-gray-50);
+    --rg-admin-surface-card: var(--rg-admin-gray-0);
+    --rg-admin-surface-sunken: var(--rg-admin-gray-50);
+    --rg-admin-surface-hover: var(--rg-admin-gray-50);
+    --rg-admin-surface-pressed: var(--rg-admin-gray-200);
+    --rg-admin-surface-pill: var(--rg-admin-gray-100);
+    --rg-admin-surface-inverse: var(--rg-admin-gray-950);
+
+    /* Borders */
+    --rg-admin-border-default: var(--rg-admin-gray-200);
+    --rg-admin-border-strong: var(--rg-admin-gray-300);
+    --rg-admin-border-changed: var(--rg-admin-gray-400);
+
+    /*
+     * Focus. The reference only darkens a field's border on focus, which is too
+     * faint to find with a keyboard; the admin adds a ring every focusable
+     * control shares.
+     */
+    --rg-admin-focus-ring: var(--rg-admin-gray-500);
+    --rg-admin-focus-halo: 0 0 0 3px rgb(14 18 27 / 0.08);
+
+    /* Status: text on a tint always uses the dark shade of the same hue. */
+    --rg-admin-status-success-bg: var(--rg-admin-green-50);
+    --rg-admin-status-success-fg: var(--rg-admin-green-900);
+    --rg-admin-status-success-dot: var(--rg-admin-green-500);
+    --rg-admin-status-warning-bg: var(--rg-admin-amber-50);
+    --rg-admin-status-warning-fg: var(--rg-admin-amber-900);
+    --rg-admin-status-warning-dot: var(--rg-admin-orange-500);
+    --rg-admin-status-danger-bg: var(--rg-admin-red-50);
+    --rg-admin-status-danger-fg: var(--rg-admin-red-950);
+    --rg-admin-status-danger-dot: var(--rg-admin-red-500);
+    --rg-admin-status-danger-solid: var(--rg-admin-red-500);
+    --rg-admin-status-info-bg: var(--rg-admin-blue-100);
+    --rg-admin-status-info-fg: var(--rg-admin-blue-900);
+    --rg-admin-status-info-dot: var(--rg-admin-blue-900);
+    --rg-admin-status-info-border: var(--rg-admin-blue-200);
+    --rg-admin-status-info-field: var(--rg-admin-blue-50);
+    --rg-admin-status-info-cell: var(--rg-admin-blue-25);
+    --rg-admin-status-due-fg: var(--rg-admin-orange-900);
+
+    /* Data: progress bars and range slots */
+    --rg-admin-data-track: var(--rg-admin-gray-200);
+    --rg-admin-data-progress: var(--rg-admin-gray-950);
+    --rg-admin-data-complete: var(--rg-admin-green-500);
+    --rg-admin-data-missing: var(--rg-admin-orange-500);
+    --rg-admin-data-invalid: var(--rg-admin-red-500);
+    --rg-admin-data-running: var(--rg-admin-blue-900);
+
+    /* Typography: one family, eight sizes */
+    --rg-admin-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --rg-admin-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --rg-admin-weight-regular: 400;
+    --rg-admin-weight-medium: 500;
+    --rg-admin-weight-semibold: 600;
+    --rg-admin-text-overline: 11px;
+    --rg-admin-text-micro: 12px;
+    --rg-admin-text-caption: 13px;
+    --rg-admin-text-body: 14px;
+    --rg-admin-text-ui: 15px;
+    --rg-admin-text-workspace: 16px;
+    --rg-admin-text-stat: 20px;
+    --rg-admin-text-title: 24px;
+    --rg-admin-leading-overline: 16px;
+    --rg-admin-leading-micro: 16px;
+    --rg-admin-leading-caption: 18px;
+    --rg-admin-leading-body: 22px;
+    --rg-admin-leading-ui: 20px;
+    --rg-admin-leading-stat: 28px;
+    --rg-admin-leading-title: 32px;
+    --rg-admin-tracking-tight: -0.02em;
+    --rg-admin-tracking-ui: -0.01em;
+    --rg-admin-tracking-overline: 0.04em;
+    --rg-admin-tracking-overline-wide: 0.12em;
+
+    /* Spacing: a 4px grid */
+    --rg-admin-space-1: 4px;
+    --rg-admin-space-2: 8px;
+    --rg-admin-space-3: 12px;
+    --rg-admin-space-4: 16px;
+    --rg-admin-space-5: 20px;
+    --rg-admin-space-6: 24px;
+    --rg-admin-space-7: 28px;
+
+    /* Layout */
+    --rg-admin-sidebar-width: 300px;
+    --rg-admin-rail-width: 68px;
+    --rg-admin-topbar-height: 62px;
+    --rg-admin-page-gutter: 28px;
+    --rg-admin-card-gap: 24px;
+    --rg-admin-detail-panel-width: 448px;
+    --rg-admin-detail-panel-width-wide: 480px;
+
+    /* Sizing */
+    --rg-admin-control-sm: 32px;
+    --rg-admin-control-md: 36px;
+    --rg-admin-input-md: 40px;
+    --rg-admin-nav-item-height: 40px;
+    --rg-admin-badge-height: 24px;
+    --rg-admin-table-header-height: 40px;
+    --rg-admin-table-row-height: 60px;
+    --rg-admin-menu-item-height: 36px;
+    --rg-admin-detail-row-height: 36px;
+    --rg-admin-icon-sm: 16px;
+    --rg-admin-icon-md: 18px;
+
+    /* Radii */
+    --rg-admin-radius-xs: 5px;
+    --rg-admin-radius-sm: 6px;
+    --rg-admin-radius-item: 8px;
+    --rg-admin-radius-md: 10px;
+    --rg-admin-radius-lg: 12px;
+    --rg-admin-radius-xl: 16px;
+    --rg-admin-radius-full: 999px;
+    --rg-admin-radius-badge: var(--rg-admin-radius-sm);
+    --rg-admin-radius-control: var(--rg-admin-radius-md);
+    --rg-admin-radius-popover: var(--rg-admin-radius-lg);
+    --rg-admin-radius-card: var(--rg-admin-radius-xl);
+
+    /* Elevation: cards are flat; only popovers, menus, drawers and toasts lift */
+    --rg-admin-shadow-xs: 0 1px 2px rgb(14 18 27 / 0.04);
+    --rg-admin-shadow-button-dark: 0 1px 2px rgb(14 18 27 / 0.24), inset 0 1px 0 rgb(255 255 255 / 0.08);
+    --rg-admin-shadow-popover: 0 16px 40px -8px rgb(14 18 27 / 0.14), 0 2px 6px rgb(14 18 27 / 0.04);
+    --rg-admin-scrim-drawer: rgb(14 18 27 / 0.2);
+    --rg-admin-scrim-dialog: rgb(14 18 27 / 0.28);
+    --rg-admin-toast-icon-success: var(--rg-admin-green-500);
+    --rg-admin-toast-icon-error: var(--rg-admin-red-300);
+    --rg-admin-toast-icon-info: var(--rg-admin-gray-400);
+
+    /* Motion */
+    --rg-admin-transition-fast: 120ms ease;
+}
