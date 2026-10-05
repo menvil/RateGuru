@@ -78,17 +78,27 @@ function racingFirstWrite(string $barrier, string $label): array
  */
 function racingEnvironment(): array
 {
-    $connection = config('database.default');
+    $name = (string) config('database.default');
 
-    return array_filter($_SERVER, 'is_string') + array_filter([
+    // The database name comes from the LIVE connection, not from config: under
+    // --parallel each worker runs against its own database (rateguru_test_test_N)
+    // and the connection knows which one, while the configured value is still the
+    // base name. A subprocess sent to the base database finds no tables at all.
+    //
+    // APP_ENV is pinned so the children behave like a deployment rather than
+    // inheriting the worker's testing environment.
+    // The explicit values come FIRST: PHP's `+` keeps the left operand, so putting
+    // the inherited environment first would let the worker's own DB_DATABASE — the
+    // base name, not this worker's — override everything resolved here.
+    return array_filter([
         'APP_ENV' => 'production',
-        'DB_CONNECTION' => (string) $connection,
-        'DB_HOST' => (string) config("database.connections.{$connection}.host"),
-        'DB_PORT' => (string) config("database.connections.{$connection}.port"),
-        'DB_DATABASE' => (string) config("database.connections.{$connection}.database"),
-        'DB_USERNAME' => (string) config("database.connections.{$connection}.username"),
-        'DB_PASSWORD' => (string) config("database.connections.{$connection}.password"),
-    ], fn (string $value): bool => $value !== '');
+        'DB_CONNECTION' => $name,
+        'DB_HOST' => (string) config("database.connections.{$name}.host"),
+        'DB_PORT' => (string) config("database.connections.{$name}.port"),
+        'DB_DATABASE' => (string) DB::connection()->getDatabaseName(),
+        'DB_USERNAME' => (string) config("database.connections.{$name}.username"),
+        'DB_PASSWORD' => (string) config("database.connections.{$name}.password"),
+    ], fn (string $value): bool => $value !== '') + array_filter($_SERVER, 'is_string');
 }
 
 /**

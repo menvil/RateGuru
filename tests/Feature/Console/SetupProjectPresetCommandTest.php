@@ -137,10 +137,11 @@ it('refuses a run whose stdin is not a terminal, without being told not to ask',
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         base_path(),
-        // Deliberately NOT APP_ENV=testing: runningUnitTests() is keyed off it,
-        // and setting it would hand the subprocess the very allowance this test
-        // exists to run without.
-        array_filter($_SERVER, 'is_string'),
+        // APP_ENV is pinned, not merely left unset: runningUnitTests() is keyed
+        // off it, and under --parallel the worker's own APP_ENV=testing is in
+        // $_SERVER and would be inherited — handing the subprocess the very
+        // allowance this test exists to run without.
+        ['APP_ENV' => 'production'] + array_filter($_SERVER, 'is_string'),
     );
 
     expect($process)->not->toBeFalse('the CLI subprocess must start');
