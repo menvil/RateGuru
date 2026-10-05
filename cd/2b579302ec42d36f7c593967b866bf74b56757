@@ -1,0 +1,29 @@
+app/Console/Commands/SetupProjectPresetCommand.php
+  s_c7e782fafc9782::t_e8a91ffd1b4891 51-62,64
+  s_c7e782fafc9782::t_85d2a2d454669b 101-102,104,114,116
+  s_c7e782fafc9782::t_513abe55798ac5 63,103,105-113,115
+  s_c7e782fafc9782::t_6f6f0a8290ad5e 117-129
+README.md
+  s_c7e782fafc9782::t_e8a91ffd1b4891 29-35,37
+app/Exceptions/Contact/ContactMessageHasNoRecipientException.php
+  s_c7e782fafc9782::t_fbbfb0e984c288 5,13
+tests/Feature/Console/SetupProjectPresetCommandTest.php
+  s_c7e782fafc9782::t_c8ecd72c7a525a 100-114,120-122,124-125,127-139,144-158
+  s_c7e782fafc9782::t_6f6f0a8290ad5e 140-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd2b579302ec42d36f7c593967b866bf74b56757",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
