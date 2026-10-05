@@ -463,17 +463,34 @@ jobs:
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --log-junit architecture-junit.xml | tee architecture-pest.log
 
-      # The planner decides what a leg runs from Pest's own test listing. If
-      # that listing ever stopped matching what the planner expects, every leg
-      # would silently run the whole suite — green, and four times as slow —
-      # so the leg has to say how many files it took out of a real total. A
-      # stale timings file costs balance, not coverage; it is a warning.
+      # The planner decides what a leg runs from Pest's own test listing. If that
+      # listing ever stopped matching what the planner expects, every leg would
+      # silently run the whole suite — green, and four times as slow.
+      #
+      # This step used to be `grep -E 'files? ran, out of [1-9][0-9]*'`, which
+      # matches "40 files ran, out of 40" exactly as happily as "11 files ran, out
+      # of 40": the numbers were printed and never read, so the failure it was
+      # meant to catch passed. The validator reads them, refuses a leg that ran
+      # nothing or ran everything, and writes them down for the cross-leg check
+      # below — which is the only place "the parts add up to the whole" can be
+      # established. Its own negative cases are covered by
+      # tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
+      #
+      # A stale timings file costs balance, not coverage; it stays a warning.
       - name: Check the shard ran its share
         run: |
-          grep -E 'files? ran, out of [1-9][0-9]*' architecture-pest.log
+          php tools/pest/bin/verify-shard-partition.php leg architecture-pest.log \
+            | tee "shard-${{ matrix.shard }}.txt"
           if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
             echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
           fi
+
+      - name: Upload shard partition report
+        uses: actions/upload-artifact@v7
+        with:
+          name: architecture-shard-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}.txt
+          retention-days: 7
 
       # Per-file durations are the only way to tell a slow runner from a slow
       # change, to see which files form the tail of a leg, and to rebalance the
@@ -485,6 +502,35 @@ jobs:
           name: architecture-junit-${{ matrix.shard }}
           path: architecture-junit.xml
           retention-days: 30
+
+  # Deliberately a job of its own, and deliberately NOT `if: always()`: a leg
+  # that failed proves nothing about the partition, and this must not turn a red
+  # suite into a second, confusing failure. It answers one question the legs
+  # cannot answer individually — did the four of them, between them, run every
+  # file exactly once.
+  verify-shard-partition:
+    name: Architecture shards partition the suite
+    runs-on: ubuntu-24.04
+    needs: [tests-architecture]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - name: Download shard partition reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: architecture-shard-*
+          merge-multiple: true
+
+      - name: Verify the legs partition the suite
+        run: php tools/pest/bin/verify-shard-partition.php combined shard-*.txt
 
   migrations-mariadb:
     name: Compatibility (MariaDB)
@@ -756,6 +802,7 @@ jobs:
       - migrations-mariadb
       - tests-sqlite
       - dependency-audit
+      - verify-shard-partition
     permissions:
       contents: read
       issues: write
@@ -917,8 +964,10 @@ jobs:
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
+          SHARD_PARTITION_RESULT: ${{ needs['verify-shard-partition'].result }}
         run: |
           for result in \
+            "$SHARD_PARTITION_RESULT" \
             "$CODE_STYLE_RESULT" \
             "$STATIC_ANALYSIS_RESULT" \
             "$FRONTEND_BUILD_RESULT" \

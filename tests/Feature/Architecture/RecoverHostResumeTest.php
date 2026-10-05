@@ -294,7 +294,13 @@ it('reads the journal as evidence, not as a place to find an encouraging word', 
 
         foreach ([
             'another target' => ['status' => 'completed', 'target' => 'other-target', 'operation' => $operation],
-            'another operation' => ['status' => 'completed', 'target' => 'parity-target', 'operation' => '20260115-041233-9be21c'],
+            // A DIFFERENT operation, which is the whole point of the case: the
+            // id below is the one every query in this loop asks about, so putting
+            // it here made the record say "this operation completed on this
+            // target" and recover-host was right to report it. The case proves
+            // the operation field is part of the match, so the record has to
+            // name another one.
+            'another operation' => ['status' => 'completed', 'target' => 'parity-target', 'operation' => '20260114-031122-1a2b3c'],
             'an unfinished attempt' => ['status' => 'failed-held', 'target' => 'parity-target', 'operation' => '20260115-041233-9be21c'],
         ] as $case => $overrides) {
             File::put($journal, json_encode([...$completed, ...$overrides])."\n");
@@ -303,8 +309,8 @@ it('reads the journal as evidence, not as a place to find an encouraging word', 
                 '--inspect', '--target', 'parity-target', '--operation', '20260115-041233-9be21c',
             ]);
 
-            expect($result['output'])
-                ->not->toContain('has already completed', "{$case} was read as this operation completing here");
+            expect(str_contains($result['output'], 'has already completed'))
+                ->toBeFalse("{$case} was read as this operation completing here");
         }
 
         // A journal that cannot be read answers "no", which is the direction

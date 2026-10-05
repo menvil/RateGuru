@@ -30,12 +30,23 @@ it('does not log an anonymization that an outer rollback undid', function () {
 
     $user = User::factory()->create();
 
-    DB::transaction(function () use ($user): void {
-        app(DeleteUserAccountAction::class)->execute($user);
+    // Thrown from inside the closure, not DB::rollBack() called by hand. That is
+    // the pattern the repository already uses for this situation (see
+    // CreatePostActionMediaVariantDispatchTest), and the reason is that
+    // DB::transaction performs its OWN rollback for an exception and discards the
+    // afterCommit callbacks as part of it. A bare DB::rollBack() unwinds to the
+    // previous savepoint level — RefreshDatabase holds one open on this
+    // connection — and leaves whether those callbacks still fire to transaction
+    // bookkeeping rather than to the contract under test.
+    try {
+        DB::transaction(function () use ($user): void {
+            app(DeleteUserAccountAction::class)->execute($user);
 
-        // The caller decides the whole operation did not happen.
-        DB::rollBack();
-    });
+            throw new RuntimeException('Simulated outer rollback.');
+        });
+    } catch (RuntimeException $exception) {
+        expect($exception->getMessage())->toBe('Simulated outer rollback.');
+    }
 
     expect(User::query()->whereKey($user->getKey())->firstOrFail()->status)
         ->not->toBe(UserStatus::Deleted)
