@@ -36,6 +36,13 @@ Exactly six files:
 | `infrastructure/config/sudoers/rateguru-deploy` | `/etc/sudoers.d/rateguru-deploy` | `root:root` | `0440` |
 | `infrastructure/config/cron/rateguru-backups` | `/etc/cron.d/rateguru-backups` | `root:root` | `0644` |
 
+The sudoers rule and the backup cron are both **rendered** — from the target
+registry, and for the cron also from the reviewed schedules in
+`infrastructure/config/backup-schedules.json` — and the committed copies are
+kept so every change to either is reviewable in a diff. The installer proves
+each committed copy is byte-for-byte its render; see
+[Backup cron](#backup-cron) for how to regenerate one.
+
 The backup cron entry is installed on every host, a recovered replacement
 machine included. On such a machine the entry stays exactly as installed and
 `backup-cycle` refuses every time it fires, because the recovery placed the
@@ -63,14 +70,19 @@ up, and rolled back on failure exactly like every install step: see
 - systemd timers, Nginx, PHP-FPM, Supervisor, Ansible, production
   provisioning, or `tits-guru`'s own (nonexistent) infrastructure.
 
-### Why there is no sudoers rule for tits-guru
+### Why there is no sudoers rule and no backup cron for tits-guru
 
-`tits-guru` is `lifecycle: planned` in the registry — declared, but not
-provisioned: no directory, no database, no deploy user account, nothing.
-Granting sudoers access for a deploy user that does not exist yet would be
-meaningless at best. When `tits-guru` is actually provisioned and flipped to
-`active`, its own sudoers rule is a reviewable one-line addition alongside
-that provisioning work — not something this installer adds preemptively.
+`tits-guru` is `lifecycle: planned` in the registry. Its account, directories
+and database may already exist; what withholds its deploy grant and its backup
+jobs is the lifecycle, not their absence. Both renderers emit `lifecycle=active`
+targets only, so `tits-guru` has neither — not because it is named in an
+exception, but because it is never emitted.
+
+Its backup **schedule** is already reviewed and committed, deliberately ahead
+of activation. When the reviewed transition flips `tits-guru` to `active`, the
+same renderers produce its sudoers rule and its three backup jobs; the
+transition regenerates both committed files, and the installer refuses until it
+does.
 
 ## The four generic wrappers
 
@@ -191,14 +203,67 @@ from a *deployment target*, and not affected by this perimeter) and the
 
 ## Backup cron
 
-`infrastructure/config/cron/rateguru-backups` keeps its exact schedule and
-log paths:
+`infrastructure/config/cron/rateguru-backups` holds three jobs for every
+`lifecycle=active` target — the nightly `backup-cycle`, and the weekly
+`restore-test` and `offsite-restore-test` — and nothing for any other target.
+It is rendered by `render_backup_cron_candidate` in the installer from two
+inputs, each owning one question:
+
+- **which targets, and what they are called** — the registry. Only `active`
+  targets are scheduled. Each job selects its target with `--target` alone,
+  and its log file is named by the target's backup namespace, read from the
+  registry — never by its environment class.
+- **when** — `infrastructure/config/backup-schedules.json`, one reviewed entry
+  per target, in UTC:
+
+  ```json
+  "tits-guru": {
+    "backup_cycle_at": "03:00",
+    "verification_weekday": "sunday",
+    "restore_test_at": "05:10",
+    "offsite_restore_test_at": "05:40"
+  }
+  ```
+
+  The file is a closed format: exactly those four keys per target, `HH:MM`
+  times, lowercase weekday names, and only targets the registry knows. No two
+  jobs, across every target in the file, may start in the same minute. A
+  target may — and should — have its schedule reviewed while it is still
+  planned; an `active` target without one is refused.
+
+Today that renders staging alone, with its schedules and log paths exactly as
+they have always been:
 
 ```cron
 30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
 10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
 40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
 ```
+
+`tits-guru`'s reviewed schedule — 03:00 UTC nightly, Sunday 05:10 and 05:40
+UTC for the two restore tests, logs under
+`/var/log/rateguru/tits-guru-*.log` — is in the schedule file but not in the
+cron, because `tits-guru` is planned. The `backup-cycle`, `restore-test` and
+`offsite-restore-test` scripts refuse a planned target on their own as well;
+the cron following lifecycle does not replace that gate, it means the gate is
+never the thing standing between a planned target and a nightly root job.
+
+### Regenerating the committed cron
+
+After changing a target's lifecycle or its reviewed schedule, regenerate the
+committed file from the repository root and commit the result alongside the
+change that caused it:
+
+```bash
+bash -c 'source infrastructure/scripts/install-target-perimeter && render_backup_cron_candidate' \
+    > infrastructure/config/cron/rateguru-backups
+```
+
+Sourcing the installer defines its functions without running it. The sudoers
+rule is regenerated the same way, with `render_sudoers_candidate` into
+`infrastructure/config/sudoers/rateguru-deploy`. Never edit either file by
+hand: `--check` refuses a committed copy that is not its render, comments
+included.
 
 `infrastructure/config/cron/rateguru-staging-scheduler` (the Laravel
 scheduler) is untouched — it is unrelated to this perimeter.
@@ -225,9 +290,10 @@ never blocks `--check`); that `deploy`, `rollback`, `cleanup`,
 validates and lists `staging-main` active/staging and `tits-guru`
 planned/production; the candidate sudoers file passes `visudo -cf` and
 grants staging (never `tits-guru`, never any other identity) access to only
-the four generic wrappers; the candidate cron file has exactly three
-operational lines, all using `--target staging-main`, with schedule and log
-paths unchanged; and — see
+the four generic wrappers; the candidate cron file runs each of the three
+backup jobs exactly once for every `active` target and names no other target,
+selects its target with `--target` on every line, and is byte-for-byte
+what the registry and the reviewed backup schedules render; and — see
 [Installed operations bundle staleness guard](#installed-operations-bundle-staleness-guard)
 below — that the real, installed seventeen-file target operations bundle at
 `/home/www/rateguru` is present, correctly owned and moded, and
@@ -282,8 +348,8 @@ operational scripts — this guard is what prevents that.
    wrappers, each staged wrapper's `--help` and a bare
    `--target tits-guru` probe (proving the planned-target rejection — see
    [Safe probes, never a real operation](#safe-probes-never-a-real-operation)
-   below), `visudo -cf` on the staged sudoers file, and the cron format
-   check on the staged cron file.
+   below), `visudo -cf` on the staged sudoers file, and the cron content
+   check and render comparison on the staged cron file.
 4. A timestamped backup directory is created, and each destination is
    installed in order — the four wrappers, then the sudoers file (only
    after its own fresh `visudo -cf` pass, immediately before install), then
@@ -298,8 +364,9 @@ operational scripts — this guard is what prevents that.
    references its generic installed operation path and contains no mention
    of the retired selector at all, that no wrapper contains `eval` or
    `bash -c`, that the installed sudoers passes `visudo -cf` and its content
-   check, that the installed cron passes the same format check, and that all
-   six legacy wrapper paths are now absent.
+   check, that the installed cron passes the same content check and is
+   byte-for-byte the render, and that all six legacy wrapper paths are now
+   absent.
 7. Runtime parity is verified — the same safe wrapper probes as step 3, now
    against the installed binaries.
 8. Only once every check above passes is the change committed. Any failure

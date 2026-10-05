@@ -1185,7 +1185,11 @@ concepts, not renamed or affected by this model.
 
 `infrastructure/config/cron/rateguru-backups` calls all three operational
 commands — the nightly `backup-cycle`, and the weekly `restore-test` /
-`offsite-restore-test` — with `--target staging-main`.
+`offsite-restore-test` — with `--target`, for every `lifecycle=active` target.
+Like the sudoers rule it is rendered: the registry decides which targets are
+scheduled, and `infrastructure/config/backup-schedules.json` holds each
+target's reviewed times. Today that is `staging-main` alone; `tits-guru`'s
+schedule is reviewed, and its jobs appear when it is activated.
 
 See [`target-perimeter.md`](target-perimeter.md) for the full installer
 contract (`install-target-perimeter`) that manages the three wrappers, the

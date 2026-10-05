@@ -1677,6 +1677,22 @@ Slices, in order:
    *Acceptance:* production mail is delivered and its failure paths are
    handled, and a production backup has been taken, uploaded and
    restore-tested.
+
+   **8.4A Production backup perimeter readiness — IMPLEMENTED, not yet
+   active.** The backup cron is rendered by `install-target-perimeter` the
+   way the deploy sudoers already was: the registry decides which targets are
+   scheduled (`lifecycle=active` only), and the new reviewed
+   `config/backup-schedules.json` decides when. The committed
+   `config/cron/rateguru-backups` is proved to be that render instead of
+   being checked against three hardcoded staging lines; it is byte-for-byte
+   unchanged, so staging's schedule and log paths are exactly what they were.
+   `tits-guru`'s schedule is reviewed — 03:00 UTC nightly `backup-cycle`,
+   Sunday 05:10 UTC `restore-test` and 05:40 UTC `offsite-restore-test`,
+   logs under `/var/log/rateguru/tits-guru-*` — but the target stays
+   `planned`, so it has no cron entry, and its entries appear only when the
+   reviewed activation flips the lifecycle and regenerates the committed
+   file. No production backup has been taken; the acceptance above is still
+   open.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,

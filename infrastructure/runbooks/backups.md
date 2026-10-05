@@ -383,10 +383,18 @@ child's exit code.
 `/etc/cron.d/rateguru-backups` (installed from
 `infrastructure/config/cron/rateguru-backups`) calls all three operational
 commands — the nightly `backup-cycle`, and the weekly `restore-test` /
-`offsite-restore-test` — with `--target staging-main`. Schedules and log
-paths are unchanged from before the registry-based model existed; see
-[`target-perimeter.md`](target-perimeter.md) for the full perimeter this
-belongs to.
+`offsite-restore-test` — with `--target`, for every `lifecycle=active` target
+and no other. The file is rendered from the registry and from the reviewed
+per-target times in `infrastructure/config/backup-schedules.json`, and each
+job logs to `/var/log/rateguru/<backup namespace>-*.log`.
+
+Today only `staging-main` is active, so the cron is staging's three jobs, with
+schedules and log paths unchanged from before the registry-based model
+existed. `tits-guru`'s schedule (03:00 UTC nightly; Sunday 05:10 and 05:40 UTC
+restore tests) is reviewed and committed, but the planned target has no cron
+entry until its reviewed activation; see
+[`target-perimeter.md`](target-perimeter.md#backup-cron) for the renderer and
+how the committed file is regenerated.
 
 ### Recovering from an immutable partial upload
 
