@@ -29,7 +29,7 @@ class ProjectSettingsPage extends Page
 {
     protected string $view = 'filament.pages.project-settings';
 
-    protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::SYSTEM;
+    protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::CONFIGURATION;
 
     protected static ?string $navigationLabel = null;
 

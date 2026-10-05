@@ -53,8 +53,10 @@ changes one file.
 
 The admin CSS is additive. Every Admin v2 rule is scoped to a `.rg-admin-*` class; nothing restyles Filament's
 own `.fi-*` components, so the existing screens keep their design until each one is migrated. The theme file
-holds exactly two intentional fixes to Filament components (pointer cursor on toggles, selects and file pickers;
-a frameless records-per-page chooser), kept unlayered as they were before. Because the theme compiles Tailwind
+holds the only rules that touch Filament's own elements, all unlayered: two fixes carried over from the old
+inline stylesheet (pointer cursor on toggles, selects and file pickers; a frameless records-per-page chooser),
+and two that fit Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
+replaces, and sizing Filament's global search results under the new top bar). Because the theme compiles Tailwind
 from `app/Filament` and `resources/views/filament`, utilities those views already used but Filament's prebuilt
 stylesheet lacked now take effect as written.
 
@@ -162,8 +164,8 @@ dialog and lightbox 300 → toasts 400.
 
 ## Shell and navigation
 
-The prototype's shell is the target of the shell migration; it is documented here and shown as specimens in the
-kit, but production still uses Filament's shell.
+This section is the target design from the prototype. Production builds it as described under
+[Production shell](#production-shell) below, which also lists what is deliberately not there yet.
 
 - **Frame:** sidebar 300 · main column. The main column is a top bar (62), an optional header band, then a
   scrolling body on the app ground with a 28 gutter.
@@ -193,6 +195,61 @@ kit, but production still uses Filament's shell.
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
   bottom save bar.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
+
+### Production shell
+
+Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
+until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
+
+- **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
+  `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
+  authentication, authorization, page and resource rendering, actions, modals and notifications. No Filament view
+  is published or copied, and Filament's own sidebar and top bar classes are not restyled.
+- **Navigation source:** Filament's registered navigation (`filament()->getNavigation()`), reshaped by
+  `App\Filament\Support\AdminShellNavigation`. Each resource and page still declares its section, label, sort
+  and access; the sidebar draws only what Filament considers visible for the signed-in user, so a destination a
+  user may not open is never offered. The section order is `AdminNavigationGroup::all()`. Nothing in the shell's
+  Blade hard-codes a URL or an authorization rule.
+- **Icons:** `AdminShellNavigation::ICONS` maps each destination (by its resource or page class) to its
+  `x-admin.ui.icon`, in one place; a test fails if a production destination has none.
+- **Widths:** one markup for every width. From 1280px the 300 sidebar; from 1024px the 68 rail (workspace mark,
+  expand button, icons with section separators, avatar); below 1024px no sidebar, and a menu button in the top
+  bar. The sidebar component's root is a spacer as wide as the sidebar inside Filament's layout row, so the page
+  beside it is never covered; the top bar shifts by the same width.
+- **Overlay:** the rail's expand button and the top bar's menu button open the same sidebar as a 300 overlay over
+  the drawer scrim. Escape, the scrim, the close button and following a link close it; focus returns to the button
+  that opened it. The scrim is not focusable.
+- **Rail tooltips:** one tooltip element names the icon under the pointer or keyboard focus; each link also keeps
+  its label for screen readers, so the tooltip is never the only name.
+- **Workspace:** a static “RateGuru · Admin” identity. There is one workspace, so there is no switcher and no
+  chevron.
+- **Account:** avatar initials, name and role of the signed-in user (no query; the user is already
+  authenticated). The button opens a small menu with the name, email and **Sign out**, which posts to Filament's
+  own logout route. There is no profile page, so none is offered.
+- **Breadcrumb:** section › destination, taken from the active navigation item without loading any record. On a
+  create or edit page the destination is the last step, linked back to its list.
+- **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
+  migrated page will put its actions; then Filament's global search.
+- **Light only:** the panel's dark mode is off. Admin v2 defines no dark theme, and with Filament's user menu
+  gone a dark page inside a light shell would leave no way back.
+- **Layers:** top bar and sidebar 30, scrim 35, open drawer 36, rail tooltip 37 — all below Filament's modals (40)
+  and notifications (50).
+
+### Transitional omissions
+
+These are the current migration state, not changes to the target design:
+
+- **Global search.** The reference's sidebar search with `⌘K` is not built: there is no product-wide admin
+  search contract yet, and a navigation-only or partial search would be fake. Filament's existing global search,
+  which already finds posts, comments, users, tags, categories and rating groups, stays in the top bar unchanged
+  until the dedicated search task replaces it.
+- **Translation Center** is not in the navigation. It appears in the Localization section when its page exists;
+  there is no disabled or “coming soon” item.
+- **Operational counts** (posts pending, comments reported, reports open, missing translations, media critical)
+  are not shown. The shell draws a badge whenever a navigation item provides one, but adds no count queries of
+  its own; each count arrives with the migration of its screen.
+- **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
+  actions are not moved into the top bar.
 
 ## Page anatomy
 
@@ -410,6 +467,8 @@ the database before Save.
 | Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
 | Dialogs, drawers, row menus, combobox, toasts stack | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
+| Global search | sidebar search field with `⌘K` | Filament's global search in the top bar | see [Transitional omissions](#transitional-omissions) |
+| Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
 
 ### Tertiary text contrast
 
@@ -438,7 +497,7 @@ built.
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all but STS-04 |
 | Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–03 |
-| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all (NAV-01 and NAV-02 as specimens) |
+| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
 | Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03 (TBL-04's menu as a static surface) |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | FBK-01 (static) and FBK-02 |

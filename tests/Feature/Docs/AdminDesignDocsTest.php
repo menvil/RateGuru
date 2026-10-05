@@ -64,3 +64,22 @@ it('describes the admin as its own design system in the public contract', functi
         ->toContain("->viteTheme('resources/css/filament/admin/theme.css')")
         ->not->toContain('does not register `->viteTheme()`');
 });
+
+it('records the shell as production and what it deliberately leaves out for now', function () {
+    $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
+    $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
+
+    expect($contract)
+        ->toContain('### Production shell')
+        ->toContain('### Transitional omissions')
+        ->toContain('**Global search.**')
+        ->toContain('**Translation Center** is not in the navigation')
+        ->toContain('**Operational counts**')
+        ->toContain('**Legacy page headers, breadcrumbs and actions**');
+
+    $phase2 = substr($plan, (int) strpos($plan, '### Phase 2'), 200);
+    $phase3 = substr($plan, (int) strpos($plan, '### Phase 3'), 200);
+
+    expect($phase2)->toContain('**Status: done.**')
+        ->and($phase3)->toContain('**Status: next.**');
+});

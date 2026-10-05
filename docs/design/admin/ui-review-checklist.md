@@ -54,6 +54,9 @@ reference and in `/admin/dev/ui-kit`.
 
 - [ ] Top bar: breadcrumb left, actions right, primary last; unsaved state next to Save.
 - [ ] Page header: title, one sentence, two to four operational stats; no vanity totals.
+- [ ] Destinations come from Filament's registered navigation; the shell's Blade hard-codes no URL and no access
+      rule, and every destination has its icon in `AdminShellNavigation::ICONS`.
+- [ ] No navigation item points at a page that does not exist yet; no disabled or “coming soon” items.
 - [ ] Status tabs show totals across all pages; the default tab is Pending on Posts, Open on Reports and All
       everywhere else.
 

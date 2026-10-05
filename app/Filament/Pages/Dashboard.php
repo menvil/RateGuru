@@ -3,8 +3,10 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\HasModerationDashboardWidgets;
+use App\Filament\Support\AdminNavigationGroup;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Support\Enums\Width;
+use UnitEnum;
 
 class Dashboard extends BaseDashboard
 {
@@ -14,9 +16,11 @@ class Dashboard extends BaseDashboard
 
     protected Width|string|null $maxContentWidth = Width::SevenExtraLarge;
 
+    protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::OVERVIEW;
+
     protected static ?string $navigationLabel = 'Dashboard';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 10;
 
     public function getTitle(): string
     {

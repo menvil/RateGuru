@@ -23,6 +23,8 @@ admin works, and every screen is either fully v1 or fully v2.
 
 ### Phase 0/1 — design contract, theme and UI kit
 
+**Status: done.**
+
 - The two references are filed under `docs/design/admin/reference/original/`.
 - `design-contract.md`, `ui-review-checklist.md` and this plan are written.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
@@ -33,20 +35,31 @@ admin works, and every screen is either fully v1 or fully v2.
 
 ### Phase 2 — Admin v2 shell and navigation
 
-- Replace Filament's sidebar and top bar with the v2 shell: the 300 sidebar with the navigation structure of the
-  contract, the 68 rail below 1280 px, the 62 top bar with breadcrumb, global search with `⌘K`, the user menu.
-- Operational counts in navigation (Posts pending, Comments reported, Reports open, Translation missing, Media
-  critical).
-- The toast stack (FBK-01) and the shared confirmation dialog (OVL-01) and drawer (OVL-02) as components.
-- v1 screens render inside the v2 shell unchanged.
+**Status: done.** The contract's [Production shell](design-contract.md#production-shell) describes what runs.
+
+- Filament's sidebar and top bar are replaced by `App\Livewire\Admin\Sidebar` and `Topbar`, registered through
+  the panel API: the 300 sidebar, the 68 rail from 1024 px, an overlay drawer below 1024 px, the 62 top bar with
+  breadcrumb, and an account menu that signs out through Filament.
+- Navigation is regrouped into Overview, Moderation, Content, Localization, Configuration and System, read from
+  Filament's registered navigation so access rules stay where they were.
+- Every v1 screen renders inside the v2 shell with its content unchanged; the panel is light only.
+- Deliberately not in this step (see the contract's
+  [Transitional omissions](design-contract.md#transitional-omissions)): the `⌘K` admin search, which becomes its
+  own task while Filament's existing global search stays in the top bar; the Translation Center item, which
+  arrives with its page; operational counts, which arrive with each screen's migration; and moving page headers
+  and actions, which happens per page.
 
 ### Phase 3 — Languages v2
+
+**Status: next.**
 
 - The Languages screen as in the prototype: page header with stats, status tabs, the languages table with
   application and project-content progress (STS-03), the missing-translations drawer, and the enable/disable
   confirmations (light, warning, blocked).
 - Business rules stay in `UpdateProjectLocaleSettingsAction` and the completeness services; only presentation
   moves.
+- The kit elements it is the first to need, built as components: the confirmation dialog (OVL-01), the drawer
+  (OVL-02) and the toast stack (FBK-01).
 
 ### Phase 4+ — Translation Center
 
@@ -54,7 +67,7 @@ In separate steps:
 
 1. **Translation Center** — target-language combobox (FRM-11), section filter and the Missing only / All
    segmented control (FRM-08), the three-column translation rows with DOM-01 states, context drawer, Save and
-   Save & next.
+   Save & next, and its item in the Localization section of the navigation.
 2. **AI suggestions** — a translation provider behind an interface, Generate missing, Regenerate, Save all
    generated. AI output stays a draft until an administrator saves it.
 3. **Workflow** — review states, if the product needs them.

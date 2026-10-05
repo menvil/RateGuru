@@ -3,7 +3,10 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
+use App\Livewire\Admin\Sidebar;
+use App\Livewire\Admin\Topbar;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -34,6 +37,15 @@ class AdminPanelProvider extends PanelProvider
                 'primary' => Color::Purple,
             ])
             ->viteTheme('resources/css/filament/admin/theme.css')
+            // The Admin v2 shell: our own sidebar and top bar around Filament's
+            // pages, which keep their content until each one is migrated.
+            ->sidebarLivewireComponent(Sidebar::class)
+            ->topbarLivewireComponent(Topbar::class)
+            ->navigationGroups(AdminNavigationGroup::all())
+            // Admin v2 is light only; a dark page inside a light shell, with
+            // the theme switcher gone along with Filament's user menu, would
+            // leave no way back.
+            ->darkMode(false)
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([

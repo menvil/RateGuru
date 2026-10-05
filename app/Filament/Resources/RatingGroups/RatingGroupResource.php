@@ -8,6 +8,7 @@ use App\Filament\Resources\RatingGroups\Pages\ListRatingGroups;
 use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
 use App\Filament\Resources\RatingGroups\Schemas\RatingGroupForm;
 use App\Filament\Resources\RatingGroups\Tables\RatingGroupsTable;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\RatingGroup;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -30,11 +31,11 @@ class RatingGroupResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'label';
 
-    protected static ?int $navigationSort = 7;
+    protected static ?int $navigationSort = 30;
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return AdminNavigationGroup::CONTENT;
     }
 
     public static function form(Schema $schema): Schema

@@ -1729,6 +1729,457 @@
         margin-left: auto;
     }
 
+    /*
+     * Admin v2 shell: the sidebar and top bar around every admin page,
+     * rendered by App\Livewire\Admin\Sidebar and Topbar.
+     *
+     * The sidebar component's root sits in Filament's layout row as a spacer
+     * as wide as the sidebar, so the page beside it is never covered; the
+     * sidebar itself is fixed inside it. The top bar shifts by the same width.
+     * Widths: full sidebar from 1280px, the 68px rail from 1024px, none below.
+     * Layers stay under Filament's modals (40) and notifications (50).
+     */
+    .rg-admin-shell-sidebar,
+    .rg-admin-shell-topbar {
+        --rg-admin-shell-offset: 0px;
+    }
+
+    @media (min-width: 1024px) {
+        .rg-admin-shell-sidebar,
+        .rg-admin-shell-topbar {
+            --rg-admin-shell-offset: var(--rg-admin-rail-width);
+        }
+    }
+
+    @media (min-width: 1280px) {
+        .rg-admin-shell-sidebar,
+        .rg-admin-shell-topbar {
+            --rg-admin-shell-offset: var(--rg-admin-sidebar-width);
+        }
+    }
+
+    .rg-admin-shell-sidebar {
+        flex-shrink: 0;
+        width: var(--rg-admin-shell-offset);
+    }
+
+    .rg-admin-shell-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        margin-left: var(--rg-admin-shell-offset);
+    }
+
+    .rg-admin-shell-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        background: var(--rg-admin-scrim-drawer);
+    }
+
+    .rg-admin-shell-sidebar .rg-admin-sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 30;
+        max-width: 100vw;
+        visibility: hidden;
+        transform: translateX(-100%);
+    }
+
+    .rg-admin-shell-sidebar .rg-admin-sidebar--open {
+        z-index: 36;
+        visibility: visible;
+        transform: none;
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-sidebar__header {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        flex-shrink: 0;
+        padding: 9px var(--rg-admin-space-3);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-sidebar__header .rg-admin-workspace {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-workspace__mark {
+        display: none;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-semibold);
+        line-height: 1;
+    }
+
+    .rg-admin-workspace__text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-sidebar__close,
+    .rg-admin-sidebar__expand,
+    .rg-admin-nav-section__separator,
+    .rg-admin-nav-item__dot {
+        display: none;
+    }
+
+    .rg-admin-shell-sidebar .rg-admin-sidebar--open .rg-admin-sidebar__close {
+        display: inline-flex;
+    }
+
+    .rg-admin-sidebar__nav {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-3) 14px;
+        scrollbar-width: thin;
+    }
+
+    .rg-admin-shell-tooltip {
+        position: fixed;
+        left: calc(var(--rg-admin-rail-width) + 8px);
+        z-index: 37;
+        padding: 4px var(--rg-admin-space-2);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+        pointer-events: none;
+        transform: translateY(-50%);
+    }
+
+    .rg-admin-nav-item {
+        position: relative;
+    }
+
+    .rg-admin-nav-item__icon {
+        flex-shrink: 0;
+    }
+
+    .rg-admin-sidebar__account {
+        position: relative;
+        flex-shrink: 0;
+        padding: 10px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-account {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        width: 100%;
+        padding: 6px var(--rg-admin-space-2);
+        border: 0;
+        border-radius: var(--rg-admin-radius-control);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-account:hover,
+    .rg-admin-account[aria-expanded='true'] {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-account__text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-account__name {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-account__role {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-account__chevron {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-avatar--lg {
+        width: 36px;
+        height: 36px;
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-account-menu {
+        position: absolute;
+        right: 10px;
+        bottom: calc(100% + 4px);
+        left: 10px;
+        z-index: 1;
+        padding: 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-account-menu__identity {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: var(--rg-admin-space-2) 10px;
+    }
+
+    .rg-admin-account-menu__name {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-account-menu__email {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-account-menu__item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: var(--rg-admin-space-2) 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-account-menu__item:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-account:focus-visible,
+    .rg-admin-account-menu__item:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: -2px;
+    }
+
+    /* The icon rail: from 1024px until the full sidebar fits, unless expanded. */
+    @media (min-width: 1024px) {
+        .rg-admin-shell-sidebar .rg-admin-sidebar {
+            visibility: visible;
+            transform: none;
+        }
+    }
+
+    @media (min-width: 1024px) and (max-width: 1279.98px) {
+        .rg-admin-shell-sidebar .rg-admin-sidebar:not(.rg-admin-sidebar--open) {
+            width: var(--rg-admin-rail-width);
+            align-items: center;
+
+            & .rg-admin-sidebar__header {
+                justify-content: center;
+                width: 100%;
+                height: 71px;
+                padding: 0;
+            }
+
+            & .rg-admin-sidebar__header .rg-admin-workspace {
+                flex: 0 0 auto;
+                padding: 0;
+            }
+
+            & .rg-admin-workspace__mark {
+                display: grid;
+            }
+
+            & .rg-admin-workspace__text {
+                display: none;
+            }
+
+            & .rg-admin-sidebar__expand {
+                display: flex;
+                justify-content: center;
+                padding-top: var(--rg-admin-space-3);
+            }
+
+            & .rg-admin-sidebar__nav {
+                align-items: center;
+                gap: var(--rg-admin-space-1);
+                width: 100%;
+                overflow-x: hidden;
+                padding: var(--rg-admin-space-2) 0 var(--rg-admin-space-3);
+                scrollbar-width: none;
+            }
+
+            & .rg-admin-nav-section__label {
+                display: none;
+            }
+
+            & .rg-admin-nav-section + .rg-admin-nav-section .rg-admin-nav-section__separator {
+                display: block;
+                width: 28px;
+                height: 1px;
+                margin: 6px auto;
+                background: var(--rg-admin-border-default);
+            }
+
+            & .rg-admin-nav-item {
+                justify-content: center;
+                width: 44px;
+                padding: 0;
+            }
+
+            & .rg-admin-nav-item__label,
+            & .rg-admin-nav-item__badge,
+            & .rg-admin-account__text,
+            & .rg-admin-account__chevron {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            & .rg-admin-nav-item__dot {
+                position: absolute;
+                top: 7px;
+                right: 9px;
+                display: block;
+                width: 8px;
+                height: 8px;
+                border: 2px solid var(--rg-admin-surface-card);
+                border-radius: var(--rg-admin-radius-full);
+                background: var(--rg-admin-text-tertiary);
+            }
+
+            & .rg-admin-nav-item__dot--warning {
+                background: var(--rg-admin-status-warning-dot);
+            }
+
+            & .rg-admin-nav-item__dot--danger {
+                background: var(--rg-admin-status-danger-dot);
+            }
+
+            & .rg-admin-sidebar__account {
+                display: flex;
+                justify-content: center;
+                width: 100%;
+                padding: 14px 0;
+            }
+
+            & .rg-admin-account {
+                justify-content: center;
+                width: auto;
+                padding: 2px;
+                border-radius: var(--rg-admin-radius-full);
+            }
+
+            & .rg-admin-account-menu {
+                right: auto;
+                bottom: 10px;
+                left: calc(100% + 8px);
+                width: 240px;
+            }
+
+        }
+    }
+
+    /* From 1280px the full sidebar is always there; nothing overlays it. */
+    @media (min-width: 1280px) {
+        .rg-admin-shell-sidebar .rg-admin-sidebar,
+        .rg-admin-shell-sidebar .rg-admin-sidebar--open {
+            z-index: 30;
+            box-shadow: none;
+        }
+
+        .rg-admin-shell-sidebar .rg-admin-sidebar--open .rg-admin-sidebar__close,
+        .rg-admin-shell-scrim {
+            display: none !important;
+        }
+    }
+
+    .rg-admin-shell-topbar .rg-admin-topbar {
+        min-width: 0;
+    }
+
+    .rg-admin-shell-topbar .rg-admin-topbar__menu {
+        display: none;
+        margin-left: -6px;
+    }
+
+    .rg-admin-breadcrumb__list {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .rg-admin-breadcrumb__section {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-breadcrumb__current {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .rg-admin-topbar__search {
+        min-width: 0;
+    }
+
+    @media (max-width: 1023.98px) {
+        .rg-admin-shell-topbar .rg-admin-topbar {
+            gap: var(--rg-admin-space-2);
+            padding: 0 var(--rg-admin-space-4) 0 var(--rg-admin-space-3);
+        }
+
+        .rg-admin-shell-topbar .rg-admin-topbar__menu {
+            display: inline-flex;
+        }
+    }
+
+    /* On a phone the breadcrumb is just the current page. */
+    @media (max-width: 639.98px) {
+        .rg-admin-shell-topbar .rg-admin-breadcrumb__item:not(:last-child),
+        .rg-admin-shell-topbar .rg-admin-breadcrumb__item .rg-admin-breadcrumb__separator {
+            display: none;
+        }
+    }
+
     /* Dev UI kit page (/admin/dev/ui-kit) */
     .rg-admin-kit {
         min-height: 100vh;

@@ -46,14 +46,14 @@ function publicDesignSystemUses(string $source): array
 function adminDesignSystemFiles(): iterable
 {
     return Finder::create()->files()
-        ->in([resource_path('views/components/admin'), resource_path('css/filament/admin')])
+        ->in([resource_path('views/components/admin'), resource_path('views/livewire/admin'), resource_path('css/filament/admin')])
         ->name(['*.blade.php', '*.css']);
 }
 
 it('finds the files it guards', function () {
     $files = collect(adminDesignSystemFiles())->map(fn (SplFileInfo $file): string => $file->getFilename());
 
-    expect($files)->toContain('button.blade.php', 'icon.blade.php', 'theme.css', 'tokens.css', 'components.css');
+    expect($files)->toContain('button.blade.php', 'icon.blade.php', 'sidebar.blade.php', 'topbar.blade.php', 'theme.css', 'tokens.css', 'components.css');
 });
 
 it('keeps Admin v2 off the public components, tokens and stylesheets', function () {
@@ -68,10 +68,10 @@ it('keeps Admin v2 off the public components, tokens and stylesheets', function 
     expect($problems)->toBe([]);
 });
 
-it('draws reusable admin components in Admin v2 tokens, not Tailwind palette colours', function () {
+it('draws reusable admin components and the shell in Admin v2 tokens, not Tailwind palette colours', function () {
     $problems = [];
 
-    foreach (Finder::create()->files()->in(resource_path('views/components/admin'))->name('*.blade.php') as $file) {
+    foreach (Finder::create()->files()->in([resource_path('views/components/admin'), resource_path('views/livewire/admin')])->name('*.blade.php') as $file) {
         if (preg_match_all(TAILWIND_PALETTE_COLOUR, $file->getContents(), $matches) > 0) {
             $problems[] = $file->getRelativePathname().' uses '.implode(', ', array_unique($matches[0]));
         }
