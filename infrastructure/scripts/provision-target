@@ -161,8 +161,12 @@ Usage:
   --check   Strictly read-only. Reports the target's identity and lifecycle,
             the host prerequisites, the state of this target's infrastructure,
             the mutations an --apply would perform, and the later-phase items
-            that stay deferred. Creates nothing. Exit 0 only when this
-            target's infrastructure is already provisioned.
+            that stay deferred. Creates nothing. Exit 0 only when structural
+            provisioning is satisfied AND no later-phase state makes
+            provisioning no longer applicable — a target that is correctly
+            provisioned and has since been configured reports its structure
+            and still exits non-zero, because --apply may no longer run
+            against it.
   --apply   Builds the whole plan first and refuses before the first mutation
             if anything is unsafe, then converges this target's layout and
             service configuration through their authoritative installers.
@@ -487,13 +491,78 @@ host_prerequisite_blocker() {
 # Nothing is ever deleted to make a target look clean. There is no rm -rf here,
 # no recursive re-ownership, and no "let me just move that aside".
 
+# configure_phase_env_present — does the target carry the canonical shared/.env?
+#
+# THIS IS NOT A PROBLEM, AND THAT DISTINCTION IS THE WHOLE POINT.
+#
+# Two different questions were being answered by one check, and conflating them
+# made the documented onboarding sequence impossible to perform:
+#
+#   Provision  -> operator creates canonical shared/.env -> Configure
+#
+# Configure requires the .env to already exist (it never creates one) AND
+# requires `provision-target --verify` to pass. While an existing .env counted as
+# a conflict, both states were refused: without the file Configure refuses for a
+# missing .env, with it Provision's verify refuses — so the sequence deadlocked.
+# A real run hit exactly that and stopped at the host, having changed nothing.
+#
+# The two questions, kept apart from here on:
+#
+#   "is this structure still provisioned?"   --verify. MONOTONIC: later onboarding
+#                                            material does not un-provision what
+#                                            Provision built.
+#   "is it still legal to run Provision?"    --check and --apply. PHASE-BOUNDED:
+#                                            once Configure-owned state exists,
+#                                            applying provisioning is no longer
+#                                            valid, and --apply fails closed.
+#
+# Nothing here ever deletes, moves, chmods or chowns the .env. It is operator-owned
+# canonical material, and this operation only ever reads what shape it is in.
+#
+# THREE STATES, NOT TWO, and the third is why this prints a word instead of
+# returning a status. configure-target requires a REGULAR FILE (`-f`), so
+# "something exists at that path" is not the same question as "the canonical
+# environment file is there":
+#
+#   absent      nothing at the path. Provision's own phase, nothing to say.
+#   file        a regular file, symlink to one included. Configure-phase
+#               material: verify stays satisfied, apply is over.
+#   malformed   a directory, a socket, a dangling symlink — present enough that
+#               Provision must not run over it, and not usable as the canonical
+#               file, so Configure will refuse too. Treating it as "present"
+#               would let verify pass a target Configure cannot proceed on;
+#               treating it as "absent" would invite Provision to apply over it.
+#               It is its own answer, and it fails closed in every mode.
+configure_phase_env_state() {
+    local shared_env
+    shared_env="$(physical "${SHARED_ENV}")"
+
+    if [[ -f "${shared_env}" ]]; then
+        printf 'file\n'
+
+        return 0
+    fi
+
+    if [[ -e "${shared_env}" ]] || [[ -L "${shared_env}" ]]; then
+        printf 'malformed\n'
+
+        return 0
+    fi
+
+    printf 'absent\n'
+}
+
 # deployment_state_problem — the reason this target already carries
 # deployment-owned state, or a non-zero return when it carries none.
+#
+# Deployment-owned state only: a `current` or `previous` pointer, or a release in
+# releases/. None is ever created by provisioning OR by Configure, so finding one
+# means something else owns this target, in every mode. The environment file is
+# deliberately NOT here — see configure_phase_env_present above.
 deployment_state_problem() {
-    local current previous shared_env releases
+    local current previous releases
     current="$(physical "${CURRENT_LINK}")"
     previous="$(physical "${PREVIOUS_LINK}")"
-    shared_env="$(physical "${SHARED_ENV}")"
     releases="$(physical "${RELEASES_ROOT}")"
 
     if [[ -e "${current}" ]] || [[ -L "${current}" ]]; then
@@ -504,12 +573,6 @@ deployment_state_problem() {
 
     if [[ -e "${previous}" ]] || [[ -L "${previous}" ]]; then
         printf 'previous already exists (%s): this target already carries a rollback pointer' "${PREVIOUS_LINK}"
-
-        return 0
-    fi
-
-    if [[ -e "${shared_env}" ]] || [[ -L "${shared_env}" ]]; then
-        printf 'shared/.env already exists (%s): the environment file is never created by infrastructure provisioning, so something else owns this target' "${SHARED_ENV}"
 
         return 0
     fi
@@ -549,7 +612,51 @@ report_new_target_safety() {
         return 1
     fi
 
-    item PASS "state:${TARGET_ID}" "no deployment-owned state: no current, no previous, no release in releases/, no environment file — a partly built target from an earlier attempt converges rather than blocking"
+    item PASS "state:${TARGET_ID}" "no deployment-owned state: no current, no previous, no release in releases/ — a partly built target from an earlier attempt converges rather than blocking"
+
+    # The environment file is reported per MODE, deliberately, because the two
+    # modes are asking different questions of it. --verify asks whether the
+    # structure is still provisioned, and a .env does not un-provision anything;
+    # --check asks whether Provision may still be applied, and once Configure-owned
+    # material exists the answer is no. Giving both the same answer is what
+    # deadlocked the onboarding sequence in the first place.
+    # Every branch below records its finding and returns 0 deliberately. A
+    # CONFLICT and a non-zero return say different things: the CONFLICT says
+    # provisioning may not be applied, a non-zero return says stop looking — and
+    # the structure is exactly what an operator is still owed an answer about.
+    # Suppressing the structural report would let --check announce a phase
+    # conflict while a deleted PHP-FPM pool, a broken Supervisor program or a
+    # missing directory went unmentioned behind it.
+    #
+    # The exit status is unaffected: a CONFLICT means provisioning_blocked, so
+    # the contract is unsatisfied and the mode still ends non-zero. And --apply
+    # does not reach this path for its safety at all — its own preflight refuses
+    # on the same file, in the same three states, before the first mutation.
+    case "$(configure_phase_env_state)" in
+        file)
+            if [[ "${MODE}" == verify ]]; then
+                item PASS "phase:${TARGET_ID}" "shared/.env is present (${SHARED_ENV}) and is a regular file, which belongs to the Configure phase and later — structural provisioning remains valid, and this operation never reads, writes or re-owns that file"
+            else
+                PROVISION_PHASE_OVER=true
+
+                item CONFLICT "phase:${TARGET_ID}" "provisioning may not be applied: shared/.env already exists (${SHARED_ENV}) and belongs to the Configure/later phase" \
+                    "nothing to apply here — the target is past the provisioning phase. Continue with configure-target, and never delete or move the .env to make provisioning runnable again"
+            fi
+            ;;
+
+        malformed)
+            # Fails closed in EVERY mode, --verify included, and that is the
+            # difference from the state above. configure-target requires a
+            # regular file, so a directory or a dangling symlink at this path is
+            # a target Configure cannot proceed on — letting verify pass it would
+            # hand Configure a green structural gate and then refuse it for the
+            # same file.
+            PROVISION_PHASE_OVER=true
+
+            item CONFLICT "phase:${TARGET_ID}" "shared/.env exists at ${SHARED_ENV} but is not a regular file — the canonical environment file configure-target requires, and provisioning must not be applied over it either" \
+                "inspect it on the host and resolve it by hand: this operation never deletes, moves, chmods or chowns that path, whatever shape it is in"
+            ;;
+    esac
 
     return 0
 }
@@ -563,6 +670,14 @@ report_new_target_safety() {
 
 CHILD_OUTPUT=""
 CHILD_STATUS=0
+
+# PROVISION_PHASE_OVER — may provisioning still be applied to this target?
+#
+# Set by the new-target safety report, read by the delegated structural report
+# below. It decides what a MISSING structural finding is allowed to SUGGEST: a
+# direct child-installer apply is the right remediation while Provision owns the
+# target, and is bypass advice once it does not.
+PROVISION_PHASE_OVER=false
 
 child_report() {
     local bin="$1"
@@ -690,8 +805,20 @@ report_child() {
         return 0
     fi
 
+    # The remediation depends on whether Provision still owns this target. A
+    # direct child-installer apply is the right instruction while it does, and is
+    # bypass advice once it does not: those installers answer to provisioning
+    # authorization, not to the phase boundary, so an operator following that
+    # hint after Configure-owned material exists would converge structure this
+    # operation has just refused to converge itself.
+    local remediation="${bin##*/} --apply --target ${TARGET_ID} --provisioning"
+
+    if [[ "${PROVISION_PHASE_OVER}" == true ]]; then
+        remediation="DIAGNOSTIC ONLY — do not repair this by calling the installer directly: that bypasses the phase boundary this run just refused. This target is past the provisioning phase; decide with its owner whether the structure is repaired under a reviewed operation"
+    fi
+
     item MISSING "${name}" "infrastructure this target does not have yet (${label})" \
-        "${bin##*/} --apply --target ${TARGET_ID} --provisioning"
+        "${remediation}"
 
     # `|| true` because this runs under `set -e` with `pipefail`, as the last
     # command of the function: a child that exited 1 while printing neither a
@@ -702,6 +829,14 @@ report_child() {
 
 report_target_infrastructure() {
     section "TARGET INFRASTRUCTURE (authoritative owners — never re-implemented)"
+
+    # Said once, above the findings rather than only beside each one, because an
+    # operator reading a MISSING line reaches for the installer named in it.
+    if [[ "${PROVISION_PHASE_OVER}" == true ]]; then
+        printf '  NOTE     this target is past the provisioning phase: everything below is DIAGNOSTIC.\n'
+        printf '           Nothing here may be repaired by calling a child installer directly — that\n'
+        printf '           bypasses the phase boundary this run has already refused.\n'
+    fi
 
     report_child "layout:install-bootstrap-host-layout" \
         "identities, code-group memberships, deploy home and .ssh, incoming artifacts, and this target's own directory entries" \
@@ -785,6 +920,12 @@ run_report() {
     report_target
     report_host_prerequisites
 
+    # A non-zero return here means "the structure cannot be meaningfully read",
+    # not "something is wrong" — deployment-owned state from another phase makes
+    # a structural verdict about THIS target's provisioning meaningless. Every
+    # other unsatisfied item, the phase conflict included, is recorded and the
+    # structure is still reported: a read-only mode that withholds the structural
+    # answer is worse than useless, because its summary reads as if it had looked.
     if report_new_target_safety; then
         report_target_infrastructure
     fi
@@ -879,6 +1020,21 @@ apply_gate() {
     if blocker="$(deployment_state_problem)"; then
         blockers+=("deployment-owned state: ${blocker}. Provisioning never deletes, moves or re-owns anything to make a target look new")
     fi
+
+    # Phase-bounded, and fail-closed. An existing canonical .env means onboarding
+    # has already moved past Provision, so applying provisioning is no longer a
+    # valid operation on this target — whatever its structure looks like. A path
+    # that is there but is not the canonical file refuses for a second reason as
+    # well: this operation cannot tell what it is. Both are refused before any
+    # mutation, and neither path is ever touched.
+    case "$(configure_phase_env_state)" in
+        file)
+            blockers+=("shared/.env already exists (${SHARED_ENV}): this target is past the provisioning phase, and provisioning is never applied over Configure-owned material. The file is never deleted, moved or re-owned to make provisioning runnable again")
+            ;;
+        malformed)
+            blockers+=("shared/.env exists at ${SHARED_ENV} but is not a regular file: provisioning is never applied over material it cannot identify, and the canonical environment file configure-target requires is not there either. Resolve it by hand — it is never deleted, moved or re-owned here")
+            ;;
+    esac
 
     local bin
     for bin in "${HOSTLAYOUT_BIN}" "${SERVICES_BIN}"; do

@@ -679,3 +679,94 @@ it('is registered as a required CLI and ships executable', function () {
 
     expect(is_executable(configureScript()))->toBeTrue();
 });
+
+// =============================================================================
+// The onboarding transition this operation sits on the far side of
+// =============================================================================
+
+it('does not refuse merely because the canonical environment file exists', function () {
+    // The deadlock this closes. This operation REQUIRES the canonical shared/.env
+    // and never creates one, and it gates on `provision-target --verify`. While
+    // verify counted an existing .env as a conflict, both states were refused:
+    // without the file this refuses for a missing .env, with it the gate refused.
+    // A real Configure run was stopped at the host by exactly that, on a correctly
+    // provisioned target.
+    //
+    // The fixture's .env is present by default, which IS the post-Provision state.
+    // What is asserted here is that the structural gate passes in it and that no
+    // refusal ever names the file's existence as the reason.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch, ['satisfied' => ['provision-target']]);
+        $envFile = $scratch.'/home/www/rateguru/production/tits-guru/shared/.env';
+
+        expect(file_exists($envFile))->toBeTrue('the post-Provision state has the operator\'s .env');
+
+        [$exit, $output] = configureRun(['--check', '--target', 'tits-guru'], $env);
+
+        expect($output)->toContain('provision-target --verify passes');
+        expect($output)->not->toContain('the target is not provisioned');
+
+        // And never the inverted reason, in any wording.
+        expect($output)
+            ->not->toContain('shared/.env already exists')
+            ->not->toContain('something else owns this target');
+
+        // Whatever else --check reports as still-outstanding, the structural gate
+        // is not what refused.
+        expect($exit)->toBeIn([0, 1]);
+        expect($output)->toContain('structure:provision-target');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('still refuses when the structure is genuinely not provisioned, env file or not', function () {
+    // The other half, and the reason the gate stays: relaxing what verify says
+    // about an .env must not relax what Configure does when the structure really
+    // is missing. The .env is present here too — so the refusal can only be the
+    // structural one.
+    $scratch = configureScratchDir();
+
+    try {
+        $env = configureFixture($scratch, ['satisfied' => []]);
+
+        expect(file_exists($scratch.'/home/www/rateguru/production/tits-guru/shared/.env'))->toBeTrue();
+
+        [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)
+            ->toContain('the target is not provisioned')
+            ->toContain('No material was installed and no database was created');
+
+        // Nothing downstream ran.
+        $children = configureLog($scratch);
+        expect($children)->not->toContain('install-target-prerequisites');
+        expect($children)->not->toContain('install-target-database');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
+
+it('leaves the verdict on provisioning to provision-target, in every mode', function () {
+    // One implementation of "is this target provisioned", and it is not here —
+    // which is what makes the monotonicity fix in provision-target the whole fix.
+    // Configure re-implements none of it, so it has no copy to keep in step.
+    //
+    // The behavioural proof that verify accepts a present .env lives with the
+    // script that decides it: see "verifies a provisioned target whose canonical
+    // .env is present" in ProvisionTargetTest.
+    $source = File::get(configureScript());
+
+    expect($source)->toContain('--verify');
+
+    // No second opinion about structure: no directory, identity or service check
+    // of its own, and above all no rule about the environment file's existence
+    // standing in for one.
+    foreach (['getent passwd', 'getent group', 'php-fpm', 'supervisorctl', 'systemctl'] as $forbidden) {
+        expect(str_contains(executableSourceLines($source), $forbidden))
+            ->toBeFalse("configure-target must not re-check structure itself: {$forbidden}");
+    }
+});

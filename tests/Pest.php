@@ -4631,3 +4631,131 @@ function provisionFixture(string $scratch, array $options = []): array
         'STUB_FS' => $fs,
     ];
 }
+
+/**
+ * Everything about `demo-shop` a converged host would have, for the
+ * idempotency and drift scenarios that start from an already-provisioned
+ * target rather than an empty one.
+ */
+function provisionSnapshotDemoState(string $scratch): array
+{
+    $fs = $scratch.'/fs';
+    $snapshot = [];
+
+    foreach ([
+        '/home/www/rateguru/production/demo-shop',
+        '/home/deploy-rateguru-demo-shop',
+        '/etc/nginx/sites-available/rateguru-demo-shop',
+        '/etc/nginx/sites-enabled/rateguru-demo-shop',
+        '/etc/php/8.5/fpm/pool.d/rateguru-demo-shop.conf',
+        '/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf',
+        '/etc/cron.d/rateguru-demo-shop-scheduler',
+    ] as $logical) {
+        $snapshot += provisionTreeSnapshot($fs.$logical);
+    }
+
+    return $snapshot;
+}
+
+/**
+ * Content + structure snapshot for mutation-free proofs.
+ *
+ * @return array<string, string>
+ */
+function provisionTreeSnapshot(string $path): array
+{
+    if (! file_exists($path) && ! is_link($path)) {
+        return [];
+    }
+
+    if (is_link($path)) {
+        return [$path => 'link:'.readlink($path)];
+    }
+
+    if (is_file($path)) {
+        return [$path => md5_file($path).':'.substr(sprintf('%o', fileperms($path)), -4)];
+    }
+
+    $snapshot = [$path => 'dir:'.substr(sprintf('%o', fileperms($path)), -4)];
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    foreach ($iterator as $entry) {
+        $entryPath = $entry->getPathname();
+
+        if (is_link($entryPath)) {
+            $snapshot[$entryPath] = 'link:'.readlink($entryPath);
+        } elseif ($entry->isFile()) {
+            $snapshot[$entryPath] = md5_file($entryPath).':'.substr(sprintf('%o', fileperms($entryPath)), -4);
+        } else {
+            $snapshot[$entryPath] = 'dir:'.substr(sprintf('%o', fileperms($entryPath)), -4);
+        }
+    }
+
+    ksort($snapshot);
+
+    return $snapshot;
+}
+
+/**
+ * One counter out of the report's SUMMARY block.
+ *
+ * Reads the summary rather than counting item lines, because the summary is the
+ * number the exit status is derived from — and because an item line's label can
+ * appear inside indented child output too.
+ */
+function provisionSummaryCount(string $output, string $label): int
+{
+    $summary = substr($output, (int) strrpos($output, 'SUMMARY'));
+
+    expect(preg_match('/^'.preg_quote($label, '/').': (\d+)$/m', $summary, $matches))
+        ->toBe(1, "the report must carry a {$label} counter:\n{$summary}");
+
+    return (int) $matches[1];
+}
+
+/**
+ * A provisioned target, then the canonical environment file an operator writes
+ * before Configure — the exact state the real run was in.
+ */
+function provisionWithCanonicalEnv(string $scratch): array
+{
+    $env = provisionFixture($scratch);
+
+    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+    expect($exit)->toBe(0, $output);
+
+    $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
+    @mkdir($root.'/shared', 0o755, true);
+    file_put_contents($root.'/shared/.env', "APP_KEY=base64:OPERATOR-WROTE-THIS\n");
+
+    return [$env, $root];
+}
+
+/**
+ * A provisioned target whose shared/.env path is NOT the regular file
+ * configure-target requires: the two shapes an operator actually produces by
+ * accident, or that a half-finished recovery leaves behind.
+ *
+ * @return array{0: array<string, string>, 1: string}
+ */
+function provisionWithMalformedEnv(string $scratch, string $shape): array
+{
+    $env = provisionFixture($scratch);
+
+    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+    expect($exit)->toBe(0, $output);
+
+    $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
+    @mkdir($root.'/shared', 0o755, true);
+
+    match ($shape) {
+        'directory' => mkdir($root.'/shared/.env', 0o755, true),
+        'dangling symlink' => symlink($root.'/shared/.env.that-was-never-created', $root.'/shared/.env'),
+    };
+
+    return [$env, $root];
+}
