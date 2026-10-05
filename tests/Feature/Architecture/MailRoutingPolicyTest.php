@@ -22,11 +22,6 @@ use Symfony\Component\Yaml\Yaml;
  * no public SMTP listener, an untouched capture slice, and environment
  * templates that still describe the endpoint a host actually has.
  */
-function mailRoutingScript(): string
-{
-    return base_path('infrastructure/scripts/mail-routing');
-}
-
 /** @return array<string, mixed> */
 function mailRoutingPolicy(): array
 {
@@ -54,109 +49,6 @@ function mailRoutingPolicyWith(array $set = [], array $forget = []): array
     }
 
     return $policy;
-}
-
-/**
- * A synthetic production brand's policy. Its identity, its domains and its port
- * appear nowhere in the shipped implementation or the committed configuration.
- *
- * @return array<string, mixed>
- */
-function mailRoutingDemoShopPolicy(): array
-{
-    return [
-        'submission' => ['host' => '127.0.0.1', 'port' => 2599],
-        'delivery_mode' => 'held',
-        'mail_domain' => 'demo-shop.example',
-        'default_from' => 'hello@demo-shop.example',
-        'bounce_domain' => 'bounce.demo-shop.example',
-        'reply_domain' => 'reply.demo-shop.example',
-    ];
-}
-
-/**
- * The committed registry plus the synthetic demo-shop target.
- *
- * @param  array<string, mixed>  $overrides
- * @return array<string, mixed>
- */
-function mailRoutingDemoShopRegistry(array $overrides = []): array
-{
-    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
-}
-
-function mailRoutingJson(array $data): string
-{
-    return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
-}
-
-/**
- * Run the shipped CLI. A policy or registry given here is written to a scratch
- * file and passed with --file / --registry; one left null is the committed
- * file, reached through the script's own defaults. A string policy is written
- * verbatim, for documents that are not a valid policy to begin with.
- *
- * stdout and stderr are kept apart: a refusal must print nothing on stdout,
- * and a plan must be nothing but JSON.
- *
- * @param  list<string>  $arguments
- * @param  array<string, mixed>|string|null  $policy
- * @param  array<string, mixed>|null  $registry
- * @return array{status: int, stdout: string, stderr: string}
- */
-function mailRoutingRun(array $arguments, array|string|null $policy = null, ?array $registry = null, ?string $script = null): array
-{
-    $scratch = sys_get_temp_dir().'/mail-routing-'.bin2hex(random_bytes(6));
-
-    expect(@mkdir($scratch, 0o755, true))->toBeTrue("could not create scratch directory: {$scratch}");
-
-    try {
-        if ($policy !== null) {
-            file_put_contents($scratch.'/mail-routing.json', is_string($policy) ? $policy : mailRoutingJson($policy));
-            $arguments = [...$arguments, '--file', $scratch.'/mail-routing.json'];
-        }
-
-        if ($registry !== null) {
-            file_put_contents($scratch.'/deployment-targets.json', mailRoutingJson($registry));
-            $arguments = [...$arguments, '--registry', $scratch.'/deployment-targets.json'];
-        }
-
-        $process = proc_open(
-            ['bash', $script ?? mailRoutingScript(), ...$arguments],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            $scratch,
-            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
-        );
-
-        expect($process)->not->toBeFalse('could not start mail-routing');
-
-        $stdout = (string) stream_get_contents($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-
-        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
-    } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
-    }
-}
-
-/**
- * The rendered plan, decoded — after proving the render succeeded cleanly.
- *
- * @param  array<string, mixed>|string|null  $policy
- * @param  array<string, mixed>|null  $registry
- * @return array<string, mixed>
- */
-function mailRoutingPlan(array|string|null $policy = null, ?array $registry = null): array
-{
-    $run = mailRoutingRun(['render-plan'], $policy, $registry);
-
-    expect($run['status'])->toBe(0, "render-plan failed:\n".$run['stderr']);
-    expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
-
-    return json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
 }
 
 /** @return array<string, mixed> */
@@ -1008,22 +900,37 @@ it('refuses a policy reached through a symlink', function () {
     }
 });
 
-it('is repository tooling: never installed on a host and never run against one', function () {
+it('is repository tooling that only the mail gateway consumes, from the bundle it runs in', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-routing');
     expect(requiredCliManifestNames())->not->toContain('mail-routing');
 
-    // No installer, orchestrator, workflow or action reaches it, or the policy.
+    // Never part of the operational bundle installed on a host.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations'))))
+        ->not->toContain('mail-routing');
+
+    // Its only consumers are the gateway's installer and its verifier, each
+    // running the copy next to itself. No workflow, action, orchestrator or
+    // other installer invokes it: the plan has exactly one reader.
+    $consumers = [
+        'infrastructure/scripts/install-mail-gateway',
+        'infrastructure/scripts/verify-mail-gateway',
+    ];
+
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json'], true)) {
+        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers], true)) {
             continue;
         }
 
-        $code = executableSourceLines(File::get($path));
+        expect(str_contains(executableSourceLines(File::get($path)), 'mail-routing'))
+            ->toBeFalse("{$relative} reaches mail-routing — only the mail gateway reads the plan");
+    }
 
-        expect(str_contains($code, 'mail-routing'))
-            ->toBeFalse("{$relative} reaches mail-routing — nothing on a host may consume the plan before a gateway exists");
+    foreach ($consumers as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))
+            ->toContain('${SCRIPT_DIR}/mail-routing')
+            ->toContain('render-plan');
     }
 });
 
@@ -1045,8 +952,22 @@ it('configures no public SMTP listener anywhere in the repository', function () 
             ->toBe(0, "mail transfer agent configuration committed: {$relative}");
     }
 
+    // Only the gateway's own three scripts speak a mail transfer agent's
+    // language; its configuration is rendered on the host, never committed.
+    // What it renders is proved loopback-only in MailGatewayTest.
+    $gateway = [
+        'infrastructure/scripts/install-mail-gateway',
+        'infrastructure/scripts/verify-mail-gateway',
+        'infrastructure/scripts/status-mail-gateway',
+    ];
+
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
+
+        if (in_array($relative, $gateway, true)) {
+            continue;
+        }
+
         $code = mb_strtolower(executableSourceLines(File::get($path)));
 
         foreach (['postfix', 'postconf', 'postmap', 'postsuper', 'inet_interfaces', 'smtpd_', 'exim4'] as $needle) {
@@ -1138,39 +1059,48 @@ it('routes staging capture into the Mailpit listener that is actually configured
     }
 });
 
-it('keeps every environment template on the endpoint a host has today', function () {
-    // CURRENT: staging submits straight to Mailpit.
-    $staging = envFileValues('infrastructure/templates/environment/staging.env.example');
+it('names the gateway in the staging template, and no endpoint for a target with no route', function () {
+    $plan = mailRoutingPlan();
+    $staging = mailRoutingListener($plan, 'staging-main');
 
-    expect($staging['MAIL_MAILER'])->toBe('smtp');
-    expect($staging['MAIL_HOST'])->toBe('127.0.0.1');
-    expect($staging['MAIL_PORT'])->toBe('1025');
-    expect($staging['MAIL_FROM_ADDRESS'])->toBe('noreply@staging.invalid');
+    // The gateway is committed host infrastructure, so the reviewed staging
+    // template names its listener — exactly the one the plan gives staging.
+    $template = envFileValues('infrastructure/templates/environment/staging.env.example');
 
-    // CURRENT: tits-guru has no mail configuration at all.
+    expect($template['MAIL_MAILER'])->toBe('smtp');
+    expect($template['MAIL_HOST'])->toBe($staging['listen']['host']);
+    expect($template['MAIL_PORT'])->toBe((string) $staging['listen']['port']);
+    expect($template['MAIL_FROM_ADDRESS'])->toBe('noreply@'.$staging['sender']['allowed_domain']);
+
+    // tits-guru is planned and held: no route, so its template names no
+    // endpoint, and no template anywhere names a held listener.
     $titsGuru = envFileValues('infrastructure/templates/environment/tits-guru.env.example');
 
     foreach (['MAIL_MAILER', 'MAIL_HOST', 'MAIL_PORT', 'MAIL_FROM_ADDRESS'] as $key) {
-        expect($titsGuru[$key])->toBe('', "tits-guru.env.example sets {$key} before its gateway exists");
+        expect($titsGuru[$key])->toBe('', "tits-guru.env.example sets {$key} while its mail has no route");
     }
 
-    // No deployed template names a gateway endpoint as its current one: nothing
-    // listens there yet.
-    $gatewayPorts = array_map(static fn (array $listener): string => (string) $listener['listen']['port'], mailRoutingPlan()['listeners']);
+    $heldPorts = collect($plan['listeners'])
+        ->where('delivery_mode', 'held')
+        ->map(static fn (array $listener): string => (string) $listener['listen']['port'])
+        ->all();
 
     foreach (glob(base_path('infrastructure/templates/environment/*.env.example')) ?: [] as $path) {
         $values = envFileValues(str_replace(base_path().'/', '', $path));
 
-        expect(in_array($values['MAIL_PORT'] ?? '', $gatewayPorts, true))
-            ->toBeFalse(basename($path).' claims a mail gateway that is not installed');
+        expect(in_array($values['MAIL_PORT'] ?? '', $heldPorts, true))
+            ->toBeFalse(basename($path).' names a held listener as its mail endpoint');
     }
 
-    // The contract the templates are generated from says the same.
+    // The contract the templates are generated from: staging moved, and
+    // production did not.
     $contract = collect(json_decode(File::get(base_path('infrastructure/config/environment-contract.json')), true)['keys'])
         ->keyBy('key');
 
     expect($contract['MAIL_HOST']['value'])->toBe(['by_environment_class' => ['staging' => '127.0.0.1', 'production' => '']]);
-    expect($contract['MAIL_PORT']['value'])->toBe(['by_environment_class' => ['staging' => '1025', 'production' => '']]);
+    expect($contract['MAIL_PORT']['value'])->toBe(['by_environment_class' => ['staging' => '2525', 'production' => '']]);
+    expect($contract['MAIL_MAILER']['value'])->toBe(['by_environment_class' => ['staging' => 'smtp', 'production' => '']]);
+    expect($contract['MAIL_FROM_ADDRESS']['value'])->toBe(['by_environment_class' => ['staging' => 'noreply@staging.invalid', 'production' => '']]);
 });
 
 it('needs no application change to move a target onto its gateway', function () {
@@ -1187,27 +1117,37 @@ it('needs no application change to move a target onto its gateway', function () 
         ->toContain("'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com')");
 });
 
-it('documents current and future mail values apart, and the future ones match the plan', function () {
+it('documents the template, the host and the future apart, and the template and the future match the plan', function () {
     $runbook = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/runbooks/mail-routing.md')));
 
     expect($runbook)
-        ->toContain('### CURRENT runtime values (what is installed today)')
-        ->toContain('### FUTURE gateway values (NOT installed — do not set them yet)')
-        ->toContain('MAIL_MAILER=smtp MAIL_HOST=127.0.0.1 MAIL_PORT=1025 MAIL_FROM_ADDRESS=noreply@staging.invalid')
         ->toContain('Laravel staging → gateway 127.0.0.1:2525 → Mailpit 127.0.0.1:1025 → Mailtrap Local')
         ->toContain('There is **no public SMTP listener**')
-        ->toContain('**No secret in the routing policy.**');
+        ->toContain('**No secret in the routing policy.**')
+        ->toContain('never written by code');
 
-    // The future values are what the plan says each listener is.
     $plan = mailRoutingPlan();
     $staging = mailRoutingListener($plan, 'staging-main');
     $titsGuru = mailRoutingListener($plan, 'tits-guru');
 
-    $future = mb_substr($runbook, (int) mb_strpos($runbook, '### FUTURE gateway values'));
+    $section = static function (string $heading, ?string $next) use ($runbook): string {
+        $start = mb_strpos($runbook, $heading);
+        expect($start)->not->toBeFalse("the runbook lost its section: {$heading}");
 
-    expect($future)
-        ->toContain("MAIL_MAILER=smtp MAIL_HOST={$staging['listen']['host']} MAIL_PORT={$staging['listen']['port']}")
-        ->toContain("MAIL_MAILER=smtp MAIL_HOST={$titsGuru['listen']['host']} MAIL_PORT={$titsGuru['listen']['port']} MAIL_FROM_ADDRESS={$titsGuru['sender']['default_from']}");
+        $end = $next === null ? false : mb_strpos($runbook, $next, (int) $start);
+
+        return $end === false ? mb_substr($runbook, (int) $start) : mb_substr($runbook, (int) $start, $end - $start);
+    };
+
+    $template = $section('### The committed staging template names the gateway', '### CURRENT runtime values');
+    $current = $section('### CURRENT runtime values (what the staging host runs today)', '### FUTURE gateway values');
+    $future = $section('### FUTURE gateway values (not set — tits-guru has no route yet)', '## Adding a target');
+
+    // The template is the plan's staging listener; the host is still on the
+    // direct path until its operator cuts over; the future is tits-guru's.
+    expect($template)->toContain("MAIL_MAILER=smtp MAIL_HOST={$staging['listen']['host']} MAIL_PORT={$staging['listen']['port']} MAIL_FROM_ADDRESS=noreply@staging.invalid");
+    expect($current)->toContain('MAIL_MAILER=smtp MAIL_HOST=127.0.0.1 MAIL_PORT=1025 MAIL_FROM_ADDRESS=noreply@staging.invalid');
+    expect($future)->toContain("MAIL_MAILER=smtp MAIL_HOST={$titsGuru['listen']['host']} MAIL_PORT={$titsGuru['listen']['port']} MAIL_FROM_ADDRESS={$titsGuru['sender']['default_from']}");
 });
 
 it('records the mail-routing foundation in the roadmap as implemented, not installed and not accepted', function () {

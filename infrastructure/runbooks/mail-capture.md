@@ -305,13 +305,21 @@ Installed layout:
 
 ## Laravel staging configuration
 
-`infrastructure/templates/environment/staging.env.example` points staging mail
-at Mailpit:
+Staging mail reaches Mailpit by one of two paths, and Mailpit cannot tell them
+apart — this slice is unchanged by either:
+
+- **Through the mail gateway** — what
+  `infrastructure/templates/environment/staging.env.example` now declares. The
+  application submits to the host-global Postfix gateway on `127.0.0.1:2525`,
+  which queues the message and delivers it here, to `127.0.0.1:1025`, retrying
+  while Mailpit is down. See [`mail-gateway.md`](mail-gateway.md).
+- **Directly** — `MAIL_PORT=1025`, the accepted path a host stays on until its
+  operator cuts over to the gateway, and the path a cutover rolls back to.
 
 ```dotenv
 MAIL_MAILER=smtp
 MAIL_HOST=127.0.0.1
-MAIL_PORT=1025
+MAIL_PORT=2525   # the gateway; 1025 submits to Mailpit directly
 MAIL_USERNAME=
 MAIL_PASSWORD=
 MAIL_SCHEME=
@@ -323,7 +331,8 @@ MAIL_FROM_NAME="${APP_NAME}"
 reads (`'scheme' => env('MAIL_SCHEME')`). `MAIL_ENCRYPTION` is a legacy name
 that Laravel no longer consults, so setting it has no effect. It is left empty
 here on purpose: Mailpit's loopback listener speaks plain SMTP, and an empty
-value keeps the transport on `smtp://` rather than forcing `smtps://`.
+value keeps the transport on `smtp://` rather than forcing `smtps://`. The
+gateway's loopback listener speaks plain SMTP too.
 
 Production mail settings are intentionally left unchanged.
 
@@ -524,9 +533,11 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 
 ## Troubleshooting
 
-- **Nothing captured:** confirm `MAIL_HOST=127.0.0.1` / `MAIL_PORT=1025` in the
-  staging `.env`, `systemctl is-active staging-mailpit.service`, and
-  `status-mail-capture` listener output.
+- **Nothing captured:** confirm `MAIL_HOST=127.0.0.1` and the port in the
+  staging `.env` (`2525` through the gateway, `1025` directly),
+  `systemctl is-active staging-mailpit.service`, and `status-mail-capture`
+  listener output. Through the gateway, `status-mail-gateway` shows whether the
+  message is deferred in its queue.
 - **Mirror empty but Mailpit has the message:** Mailtrap Local is down or
   relay failed — check `journalctl -u staging-mailpit.service` (unfiltered; the
   relay error may be logged below `err` priority). This is expected to be

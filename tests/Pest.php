@@ -1302,6 +1302,138 @@ function envFileValues(string $path): array
     return $out;
 }
 
+/*
+|--------------------------------------------------------------------------
+| The mail routing CLI, as its tests and the mail gateway's tests drive it
+|--------------------------------------------------------------------------
+|
+| MailRoutingPolicyTest proves the policy; MailGatewayTest renders Postfix
+| from the plans it produces. Both run the shipped mail-routing script the
+| same way, with the same synthetic demo-shop target, so the runner lives
+| here once.
+*/
+
+function mailRoutingScript(): string
+{
+    return base_path('infrastructure/scripts/mail-routing');
+}
+
+/**
+ * A synthetic production brand's policy. Its identity, its domains and its port
+ * appear nowhere in the shipped implementation or the committed configuration.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopPolicy(): array
+{
+    return [
+        'submission' => ['host' => '127.0.0.1', 'port' => 2599],
+        'delivery_mode' => 'held',
+        'mail_domain' => 'demo-shop.example',
+        'default_from' => 'hello@demo-shop.example',
+        'bounce_domain' => 'bounce.demo-shop.example',
+        'reply_domain' => 'reply.demo-shop.example',
+    ];
+}
+
+/**
+ * The committed registry plus the synthetic demo-shop target.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopRegistry(array $overrides = []): array
+{
+    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
+}
+
+function mailRoutingJson(array $data): string
+{
+    return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
+}
+
+/**
+ * Run the shipped CLI. A policy or registry given here is written to a scratch
+ * file and passed with --file / --registry; one left null is the committed
+ * file, reached through the script's own defaults. A string policy is written
+ * verbatim, for documents that are not a valid policy to begin with.
+ *
+ * stdout and stderr are kept apart: a refusal must print nothing on stdout,
+ * and a plan must be nothing but JSON.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ * @return array{status: int, stdout: string, stderr: string}
+ */
+function mailRoutingRun(array $arguments, array|string|null $policy = null, ?array $registry = null, ?string $script = null): array
+{
+    $scratch = sys_get_temp_dir().'/mail-routing-'.bin2hex(random_bytes(6));
+
+    expect(@mkdir($scratch, 0o755, true))->toBeTrue("could not create scratch directory: {$scratch}");
+
+    try {
+        if ($policy !== null) {
+            file_put_contents($scratch.'/mail-routing.json', is_string($policy) ? $policy : mailRoutingJson($policy));
+            $arguments = [...$arguments, '--file', $scratch.'/mail-routing.json'];
+        }
+
+        if ($registry !== null) {
+            file_put_contents($scratch.'/deployment-targets.json', mailRoutingJson($registry));
+            $arguments = [...$arguments, '--registry', $scratch.'/deployment-targets.json'];
+        }
+
+        $process = proc_open(
+            ['bash', $script ?? mailRoutingScript(), ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $scratch,
+            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
+        );
+
+        expect($process)->not->toBeFalse('could not start mail-routing');
+
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+}
+
+/**
+ * The rendered plan, decoded — after proving the render succeeded cleanly.
+ *
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ * @return array<string, mixed>
+ */
+function mailRoutingPlan(array|string|null $policy = null, ?array $registry = null): array
+{
+    return json_decode(mailRoutingPlanJson($policy, $registry), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * The rendered plan exactly as the CLI printed it on stdout — after proving the
+ * render succeeded and wrote nothing on stderr, so a diagnostic can never end
+ * up inside a plan file a test hands on.
+ *
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ */
+function mailRoutingPlanJson(array|string|null $policy = null, ?array $registry = null): string
+{
+    $run = mailRoutingRun(['render-plan'], $policy, $registry);
+
+    expect($run['status'])->toBe(0, "render-plan failed:\n".$run['stderr']);
+    expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
+
+    return $run['stdout'];
+}
+
 /**
  * The keys a template declares, in FILE ORDER.
  *
@@ -3804,6 +3936,7 @@ function trustedToolingRefs(): array
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
+        'verify-staging-mail-gateway.yml' => 'develop',
     ];
 }
 
@@ -4381,7 +4514,7 @@ function provisionWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
         'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
-        'nightwatch-installer',
+        'nightwatch-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -4394,6 +4527,10 @@ function provisionWriteStubs(string $scratch): void
                 *--supports-deployment-marker*)
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
+                    ;;
+                *--check*)
+                    [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
+                    exit 0
                     ;;
                 *--apply*)
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
@@ -4690,6 +4827,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        // Present so that a target-scoped run touching the host-global mail
+        // gateway would be recorded, not silently run the real installer.
+        'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',

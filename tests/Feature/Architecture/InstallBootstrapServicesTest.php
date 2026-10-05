@@ -289,7 +289,7 @@ function bsvcWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
         'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
-        'verify-mail-capture', 'nightwatch-installer',
+        'verify-mail-capture', 'nightwatch-installer', 'mail-gateway-installer',
     ] as $child) {
         bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -302,6 +302,12 @@ function bsvcWriteStubs(string $scratch): void
                 *--supports-deployment-marker*)
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
+                    ;;
+                # The mail gateway's plan question, which no other child is
+                # asked: it passes unless the toggle says the plan is refused.
+                *--check*)
+                    [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
+                    exit 0
                     ;;
                 *--apply*)
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
@@ -505,7 +511,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
             'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
-            'nightwatch-installer',
+            'nightwatch-installer', 'mail-gateway-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
         }
@@ -538,6 +544,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
@@ -775,6 +782,9 @@ it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, ch
             'nightwatch-installer --apply-deployment-marker --target staging-main',
             'verify-mail-capture',
             'mail-capture-installer --apply',
+            // After capture, never before: capture is where it delivers.
+            'mail-gateway-installer --verify',
+            'mail-gateway-installer --apply',
         ];
         $position = -1;
         foreach ($order as $entry) {
@@ -1918,6 +1928,8 @@ it('leaves host mode exactly as it was: no --target, no target vocabulary anywhe
         expect($output)->toContain('SSH deploy restriction');
         expect($output)->toContain('config-test:sshd');
         expect($output)->toContain('mail-capture:verify-mail-capture');
+        expect($output)->toContain('mail-gateway:plan');
+        expect($output)->toContain('mail-gateway:install-mail-gateway');
 
         // The two things that only exist in target mode must not leak into it.
         expect($output)->not->toContain('HOST-REQ');
@@ -1944,6 +1956,7 @@ it('narrows to one target and leaves every host-wide family out of scope', funct
         expect($output)->not->toContain('SSH deploy restriction');
         expect($output)->not->toContain('config-test:sshd');
         expect($output)->not->toContain('mail-capture:verify-mail-capture');
+        expect($output)->not->toContain('mail-gateway');
 
         // The operations and perimeter families are not reported at all —
         // see the health-circularity test below for why verifying them from
@@ -1988,9 +2001,63 @@ it('gates a target apply on that target layout only, not on the whole host layou
             expect($children)->not->toContain($child.' --apply');
         }
 
+        // The host-global mail gateway is not even asked: no target owns it.
+        expect($children)->not->toContain('mail-gateway-installer');
+
         // The per-target ACL owner is still delegated to, at target scope.
         expect($children)->toContain('public-storage-installer');
         expect($children)->toContain('--target staging-main');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses a host apply before its first mutation when the mail gateway could never be converged', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        touch($scratch.'/toggles/mail-gateway-installer-check-fail');
+
+        // --check names it as a conflict no apply resolves.
+        [, $check] = bsvcRun(['--check'], $env);
+        expect($check)->toContain('CONFLICT mail-gateway:plan');
+
+        file_put_contents($scratch.'/log/children.log', '');
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('install-mail-gateway --check refuses');
+
+        // Asked before anything else was converged: no child applied anything.
+        $children = bsvcLog($scratch, 'children.log');
+        expect($children)->toContain('mail-gateway-installer --check');
+        expect($children)->not->toContain('--apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('never runs the mutating gateway acceptance, in any mode', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'clean']);
+
+        foreach (['--check', '--verify', '--apply'] as $mode) {
+            bsvcRun([$mode], $env);
+        }
+
+        $calls = array_filter(
+            preg_split('/\R/', bsvcLog($scratch, 'children.log')),
+            static fn (string $line): bool => str_starts_with($line, 'mail-gateway-installer'),
+        );
+
+        expect($calls)->not->toBe([], 'the gateway child was never reached — the assertion would be vacuous');
+
+        foreach ($calls as $call) {
+            expect($call)->toMatch('/^mail-gateway-installer --(check|verify|apply)$/');
+        }
     } finally {
         bsvcCleanup($scratch);
     }

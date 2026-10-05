@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+#
+# status-mail-gateway — read-only status of the host-global mail gateway.
+#
+# Prints the installed package, the RateGuru ownership marker, the service
+# state, the exact listeners, each listener's route as Postfix itself reads it
+# from the INSTALLED configuration, the queue counts by queue, and recent
+# gateway warnings. It changes nothing, submits nothing, and prints no message
+# body, no address and no credential: the queue is reported as counts only.
+#
+# Usage: status-mail-gateway
+
+set -uo pipefail
+
+POSTFIX_UNIT="postfix.service"
+POSTFIX_INSTANCE_UNIT="postfix@-.service"
+OWNERSHIP_MARKER="/var/lib/rateguru-mail-gateway/ownership"
+
+case "${1:-}" in
+    -h|--help)
+        printf 'Usage: status-mail-gateway\n\nRead-only status of the RateGuru mail gateway. Changes nothing.\n'
+        exit 0
+        ;;
+    "")
+        ;;
+    *)
+        printf 'ERROR: unknown argument: %s\n' "$1" >&2
+        exit 1
+        ;;
+esac
+
+section() {
+    printf '\n== %s\n' "$1"
+}
+
+section "package"
+# shellcheck disable=SC2016
+version="$(dpkg-query -W -f='${Status} ${Version}' postfix 2>/dev/null || true)"
+printf '  postfix: %s\n' "${version:-not installed}"
+
+if [[ -f "${OWNERSHIP_MARKER}" ]]; then
+    printf '  ownership marker: state=%s\n' "$(sed -n 's/^state=//p' "${OWNERSHIP_MARKER}" | tail -n 1)"
+else
+    printf '  ownership marker: absent (no RateGuru-installed gateway on this host)\n'
+fi
+
+section "service"
+printf '  %s: %s\n' "${POSTFIX_UNIT}" "$(systemctl is-enabled "${POSTFIX_UNIT}" 2>/dev/null || echo not-found)"
+for property in ActiveState SubState NRestarts; do
+    printf '  %s %s=%s\n' "${POSTFIX_INSTANCE_UNIT}" "${property}" \
+        "$(systemctl show "${POSTFIX_INSTANCE_UNIT}" --property="${property}" --value 2>/dev/null || echo unknown)"
+done
+
+if ! command -v postconf >/dev/null 2>&1; then
+    section "routes"
+    printf '  postconf is not installed — nothing more to report\n'
+    exit 0
+fi
+
+section "listeners (inet services in the installed master.cf, and what is bound)"
+mapfile -t endpoints < <(postconf -M 2>/dev/null | awk '$2 == "inet" { print $1 }')
+bound="$(ss -ltnH 2>/dev/null | awk '{ print $4 }')"
+for endpoint in "${endpoints[@]}"; do
+    if grep -qxF "${endpoint}" <<<"${bound}"; then
+        printf '  %s  listening\n' "${endpoint}"
+    else
+        printf '  %s  NOT listening\n' "${endpoint}"
+    fi
+done
+for port in 25 465 587; do
+    grep -qE ":${port}\$" <<<"${bound}" && printf '  WARNING: something listens on port %s\n' "${port}"
+done
+
+section "routes (as Postfix reads them)"
+for endpoint in "${endpoints[@]}"; do
+    name="$(postconf -P "${endpoint}/inet/syslog_name" 2>/dev/null | sed -n 's/^[^=]*= *//p')"
+    filter="$(postconf -P "${endpoint}/inet/content_filter" 2>/dev/null | sed -n 's/^[^=]*= *//p')"
+    recipients="$(postconf -P "${endpoint}/inet/smtpd_recipient_restrictions" 2>/dev/null | sed -n 's/^[^=]*= *//p')"
+
+    if [[ "${recipients}" == *static:HOLD* ]]; then
+        route="HELD — accepted into the hold queue, no delivery route"
+    elif [[ -n "${filter}" ]]; then
+        route="capture, queued -> ${filter#*:}"
+    else
+        route="no route rendered"
+    fi
+    printf '  %s  %s  %s\n' "${endpoint}" "${name#postfix/}" "${route}"
+done
+printf '  unclassified mail: default_transport=%s\n' "$(postconf -h default_transport 2>/dev/null | cut -d: -f1)"
+
+section "queue (counts only)"
+# An empty answer must mean an empty queue, never a tool that could not run.
+if ! command -v postqueue >/dev/null 2>&1; then
+    printf '  unknown (postqueue not installed)\n'
+elif ! command -v jq >/dev/null 2>&1; then
+    printf '  unknown (jq not installed)\n'
+elif ! queue="$(postqueue -j 2>/dev/null)"; then
+    printf '  unknown (postqueue could not read the queue)\n'
+elif [[ -z "${queue}" ]]; then
+    printf '  empty\n'
+else
+    jq -r '.queue_name' <<<"${queue}" 2>/dev/null | sort | uniq -c | sed 's/^ */  /' \
+        || printf '  unknown (the queue listing could not be parsed)\n'
+fi
+
+section "recent warnings and errors (last hour)"
+journalctl -u "${POSTFIX_INSTANCE_UNIT}" -p warning --since '-1h' --no-pager 2>/dev/null | tail -n 20 || true

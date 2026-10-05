@@ -1,0 +1,464 @@
+#!/usr/bin/env bash
+#
+# verify-mail-gateway — verification of the host-global mail gateway, in two
+# explicitly separated modes.
+#
+#   --read-only  STRICTLY READ-ONLY. No SMTP submission, no queue change, no
+#                reload or restart. It is install-mail-gateway --verify — the
+#                one implementation of the gateway contract — so the installed
+#                files are compared with the current render of the reviewed
+#                policy, Postfix parses them, the service is enabled and stably
+#                running, the listeners are exactly the plan's loopback
+#                endpoints, no public SMTP port is open, every capture
+#                destination is listening, held mail has no route and
+#                unclassified mail cannot be delivered. This is what host
+#                bootstrap verification uses.
+#
+#   --e2e        MUTATING operator acceptance (root). Everything --read-only
+#                checks, then real submissions, driven by the plan rather than
+#                by a list of targets:
+#                  A. every capture listener: a message from its own sender
+#                     domain is queued by Postfix and reaches the canonical
+#                     Mailpit copy and the Mailtrap Local mirror;
+#                  B. every listener refuses a sender outside its own domain —
+#                     a foreign domain and every other listener's domain;
+#                  C. every held listener: the message is accepted, its exact
+#                     queue entry sits in HOLD, and it never reaches Mailpit;
+#                  D. with Mailpit stopped, a capture message is accepted and
+#                     deferred, and once Mailpit is back Postfix delivers that
+#                     exact message, and the mirror still follows.
+#                It sends mail, stops and starts staging-mailpit.service, and
+#                removes ONLY what it created: its own Mailpit/Mailtrap messages
+#                by their unique token, and its own Postfix queue entries by
+#                their exact queue ID. It never flushes or empties the queue.
+#                Mailpit is put back the way it was on every exit.
+#
+# There is no default mode: a mutating acceptance run is always asked for by
+# name.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+INSTALLER="${SCRIPT_DIR}/install-mail-gateway"
+MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
+POLICY_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
+REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+
+# The staging capture backend this acceptance knows how to observe. It is owned
+# by install-mail-capture; these are its accepted endpoints, the same ones
+# verify-mail-capture checks.
+MAILPIT_UNIT="staging-mailpit.service"
+MAILPIT_SMTP="127.0.0.1:1025"
+MAILPIT_API="http://127.0.0.1:8025"
+MAILTRAP_API="http://127.0.0.1:3550"
+
+POLL_TIMEOUT="30"
+
+PLAN_FILE=""
+TOKENS=()
+QUEUE_IDS=()
+MAILPIT_STOPPED=false
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+ok() { printf '  PASS %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*" >&2; }
+fail() { bad "$*"; exit 1; }
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-mail-gateway --read-only
+  verify-mail-gateway --e2e
+  verify-mail-gateway --help
+
+  --read-only  Strictly read-only: install-mail-gateway --verify. No SMTP, no
+               queue change, no service change. What host bootstrap uses.
+  --e2e        Mutating operator acceptance (root): capture delivery into
+               Mailpit and its mirror, sender isolation on every listener, held
+               mail in HOLD and nowhere else, and queued retry across a Mailpit
+               outage. Removes only the messages and queue entries it created.
+USAGE
+}
+
+require_tools() {
+    local tool
+    for tool in curl jq systemctl postqueue postsuper; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- SMTP over /dev/tcp --------------------------------------------------------
+#
+# smtp_submit HOST PORT FROM TO TOKEN — one transaction. Sets SMTP_STAGE to the
+# command a refusal came at (connect, ehlo, mail, rcpt, data, message) or to
+# "queued", SMTP_REPLY to the last server reply and SMTP_QUEUE_ID to the queue ID
+# Postfix names in its final reply. Returns 0 only when the message was queued.
+
+SMTP_STAGE=""
+SMTP_REPLY=""
+SMTP_QUEUE_ID=""
+
+_smtp_reply() {
+    local fd="$1" want="$2" line
+    SMTP_REPLY=""
+    while IFS= read -r -t 15 -u "${fd}" line; do
+        line="${line%$'\r'}"
+        SMTP_REPLY="${line}"
+        [[ "${line:3:1}" == "-" ]] && continue
+        [[ "${line:0:1}" == "${want}" ]] && return 0
+        return 1
+    done
+    return 1
+}
+
+_smtp_step() {
+    # _smtp_step STAGE WANT [COMMAND]
+    local stage="$1" want="$2"
+    SMTP_STAGE="${stage}"
+    if [[ $# -ge 3 ]]; then
+        printf '%s\r\n' "$3" >&4
+    fi
+    _smtp_reply 4 "${want}"
+}
+
+smtp_submit() {
+    local host="$1" port="$2" from="$3" to="$4" token="$5"
+    SMTP_STAGE="connect"
+    SMTP_REPLY=""
+    SMTP_QUEUE_ID=""
+
+    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+
+    if _smtp_step connect 2 \
+        && _smtp_step ehlo 2 "EHLO mail-gateway-verify" \
+        && _smtp_step mail 2 "MAIL FROM:<${from}>" \
+        && _smtp_step rcpt 2 "RCPT TO:<${to}>" \
+        && _smtp_step data 3 "DATA"
+    then
+        {
+            printf 'From: <%s>\r\n' "${from}"
+            printf 'To: <%s>\r\n' "${to}"
+            printf 'Subject: %s\r\n' "${token}"
+            printf 'X-RateGuru-Mail-Gateway-Verify: %s\r\n' "${token}"
+            printf '\r\n'
+            printf 'RateGuru mail gateway acceptance message %s\r\n' "${token}"
+            printf '.\r\n'
+        } >&4
+
+        if _smtp_step message 2; then
+            SMTP_QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
+            SMTP_STAGE="queued"
+            printf 'QUIT\r\n' >&4 || true
+        fi
+    fi
+
+    exec 4>&- 4<&- 2>/dev/null || true
+    [[ "${SMTP_STAGE}" == queued ]]
+}
+
+new_token() {
+    printf 'mgverify%s%s\n' "$(date -u '+%Y%m%d%H%M%S')" "${RANDOM}${RANDOM}"
+}
+
+# --- Mailpit and Mailtrap Local (read-only queries, token-scoped deletes) ------
+
+api_count() {
+    local n
+    n="$(curl -fsS --noproxy '*' --max-time 10 "$1/api/v1/search?query=$2" 2>/dev/null | jq -r '.messages | length' 2>/dev/null || echo 0)"
+    [[ "${n}" =~ ^[0-9]+$ ]] || n=0
+    printf '%s\n' "${n}"
+}
+
+poll_present() {
+    local base="$1" token="$2" waited=0
+    while (( waited < POLL_TIMEOUT )); do
+        (( $(api_count "${base}" "${token}") > 0 )) && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+wait_for_api() {
+    local url="$1" waited=0
+    while (( waited < POLL_TIMEOUT )); do
+        curl -fsS --noproxy '*' --max-time 5 "${url}" >/dev/null 2>&1 && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+delete_by_token() {
+    # delete_by_token BASE TOKEN ID-KEY PAYLOAD-KEY — removes only messages that
+    # carry this run's unique token.
+    local base="$1" token="$2" idkey="$3" payloadkey="$4" ids json
+    ids="$(curl -fsS --noproxy '*' --max-time 10 "${base}/api/v1/search?query=${token}" 2>/dev/null \
+        | jq -r ".messages[].${idkey}" 2>/dev/null || true)"
+    [[ -n "${ids}" ]] || return 0
+    json="$(jq -R . <<<"${ids}" | jq -sc --arg key "${payloadkey}" '{($key): .}')"
+    curl -fsS --noproxy '*' --max-time 10 -X DELETE -H 'Content-Type: application/json' \
+        -d "${json}" "${base}/api/v1/messages" >/dev/null 2>&1 || true
+}
+
+# --- Postfix queue (read-only lookups, ID-scoped deletes) ----------------------
+
+# queue_state QUEUE_ID — the queue the entry is in (incoming, active, deferred,
+# hold), or empty when Postfix no longer holds it.
+queue_state() {
+    postqueue -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+}
+
+wait_queue_state() {
+    local id="$1" want="$2" waited=0
+    while (( waited < POLL_TIMEOUT )); do
+        [[ "$(queue_state "${id}")" == "${want}" ]] && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+wait_queue_gone() {
+    local id="$1" waited=0
+    while (( waited < POLL_TIMEOUT )); do
+        [[ -z "$(queue_state "${id}")" ]] && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+remember_queue_id() {
+    [[ -n "${SMTP_QUEUE_ID}" ]] || fail "Postfix accepted the message but named no queue ID (${SMTP_REPLY})"
+    QUEUE_IDS+=("${SMTP_QUEUE_ID}")
+}
+
+cleanup() {
+    local status=$? token id
+
+    if [[ "${MAILPIT_STOPPED}" == true ]]; then
+        log "restoring ${MAILPIT_UNIT}"
+        systemctl start "${MAILPIT_UNIT}" >/dev/null 2>&1 || bad "could not restart ${MAILPIT_UNIT} — start it by hand"
+    fi
+
+    # Only this run's queue entries, by exact ID; anything else in the queue is
+    # not ours to touch.
+    for id in "${QUEUE_IDS[@]:-}"; do
+        [[ -n "${id}" ]] || continue
+        [[ -n "$(queue_state "${id}")" ]] || continue
+        postsuper -d "${id}" >/dev/null 2>&1 || bad "could not remove queue entry ${id} — remove it with: postsuper -d ${id}"
+    done
+
+    for token in "${TOKENS[@]:-}"; do
+        [[ -n "${token}" ]] || continue
+        delete_by_token "${MAILPIT_API}" "${token}" "ID" "IDs"
+        delete_by_token "${MAILTRAP_API}" "${token}" "id" "ids"
+    done
+
+    [[ -n "${PLAN_FILE}" ]] && rm -f "${PLAN_FILE}"
+    exit "${status}"
+}
+
+# --- Read-only -------------------------------------------------------------------
+
+run_read_only() {
+    [[ -x "${INSTALLER}" ]] || fail "install-mail-gateway is not executable next to this script: ${INSTALLER}"
+    "${INSTALLER}" --verify
+}
+
+# --- End-to-end acceptance ---------------------------------------------------------
+
+load_plan() {
+    [[ -x "${MAIL_ROUTING_CLI}" ]] || fail "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full repository bundle"
+    PLAN_FILE="$(mktemp)"
+    "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
+        || fail "mail-routing render-plan refused the reviewed policy"
+}
+
+# listeners MODE — "identity<TAB>host<TAB>port<TAB>allowed_domain<TAB>sender<TAB>route"
+# for every listener in MODE ("any" for all).
+listeners() {
+    jq -r --arg mode "$1" '
+        .listeners[]
+        | select($mode == "any" or .delivery_mode == $mode)
+        | [.identity, .listen.host, (.listen.port | tostring), .sender.allowed_domain,
+           (.sender.default_from // "mail-gateway-verify@\(.sender.allowed_domain)"),
+           (if .route then "\(.route.host):\(.route.port)" else "-" end)]
+        | @tsv
+    ' "${PLAN_FILE}"
+}
+
+check_capture_delivery() {
+    local identity host port domain sender route token
+    while IFS=$'\t' read -r identity host port domain sender route; do
+        [[ -n "${identity}" ]] || continue
+        [[ "${route}" == "${MAILPIT_SMTP}" ]] \
+            || fail "${identity} captures into ${route}; this acceptance observes only the staging Mailpit at ${MAILPIT_SMTP}"
+
+        token="$(new_token)"
+        TOKENS+=("${token}")
+        smtp_submit "${host}" "${port}" "mail-gateway-verify@${domain}" "mail-gateway-verify@${domain}" "${token}" \
+            || fail "A ${identity}: the gateway did not queue a message from its own domain (${SMTP_STAGE}: ${SMTP_REPLY})"
+        remember_queue_id
+        ok "A ${identity}: Postfix queued the message on ${host}:${port} (${SMTP_QUEUE_ID})"
+
+        poll_present "${MAILPIT_API}" "${token}" || fail "A ${identity}: ${token} did not reach Mailpit"
+        ok "A ${identity}: the canonical copy is in Mailpit"
+        poll_present "${MAILTRAP_API}" "${token}" || fail "A ${identity}: ${token} did not reach the Mailtrap Local mirror"
+        ok "A ${identity}: the mirrored copy is in Mailtrap Local"
+        wait_queue_gone "${SMTP_QUEUE_ID}" || fail "A ${identity}: ${SMTP_QUEUE_ID} is still in the Postfix queue after delivery"
+        ok "A ${identity}: ${SMTP_QUEUE_ID} left the queue once delivered"
+    done < <(listeners capture)
+}
+
+check_sender_isolation() {
+    local identity host port domain sender route other token
+    local -a domains=()
+    mapfile -t domains < <(jq -r '.listeners[].sender.allowed_domain' "${PLAN_FILE}")
+
+    while IFS=$'\t' read -r identity host port domain sender route; do
+        [[ -n "${identity}" ]] || continue
+
+        for other in "foreign-${domain}" "${domains[@]}"; do
+            [[ "${other}" != "${domain}" ]] || continue
+            token="$(new_token)"
+            TOKENS+=("${token}")
+
+            if smtp_submit "${host}" "${port}" "intruder@${other}" "mail-gateway-verify@${domain}" "${token}"; then
+                remember_queue_id
+                fail "B ${identity}: a sender from ${other} was accepted on ${host}:${port}"
+            fi
+            [[ "${SMTP_STAGE}" == mail && "${SMTP_REPLY}" == 5* ]] \
+                || fail "B ${identity}: a sender from ${other} was not refused at MAIL FROM (${SMTP_STAGE}: ${SMTP_REPLY})"
+            ok "B ${identity}: a sender from ${other} is refused on ${host}:${port} (${SMTP_REPLY%% *})"
+        done
+    done < <(listeners any)
+}
+
+check_held() {
+    local identity host port domain sender route token
+    while IFS=$'\t' read -r identity host port domain sender route; do
+        [[ -n "${identity}" ]] || continue
+
+        token="$(new_token)"
+        TOKENS+=("${token}")
+        smtp_submit "${host}" "${port}" "${sender}" "mail-gateway-verify@${domain}" "${token}" \
+            || fail "C ${identity}: the held listener did not accept a message from ${sender} (${SMTP_STAGE}: ${SMTP_REPLY})"
+        remember_queue_id
+        ok "C ${identity}: accepted from ${sender} on ${host}:${port} (${SMTP_QUEUE_ID})"
+
+        wait_queue_state "${SMTP_QUEUE_ID}" hold || fail "C ${identity}: ${SMTP_QUEUE_ID} is not in the HOLD queue (it is in: $(queue_state "${SMTP_QUEUE_ID}"))"
+        ok "C ${identity}: ${SMTP_QUEUE_ID} is in HOLD"
+
+        sleep 3
+        [[ "$(queue_state "${SMTP_QUEUE_ID}")" == hold ]] || fail "C ${identity}: ${SMTP_QUEUE_ID} left HOLD"
+        (( $(api_count "${MAILPIT_API}" "${token}") == 0 )) || fail "C ${identity}: held mail reached Mailpit"
+        ok "C ${identity}: it stays in HOLD and is not in Mailpit — there is no route"
+
+        postsuper -d "${SMTP_QUEUE_ID}" hold >/dev/null 2>&1 \
+            || fail "C ${identity}: could not remove the synthetic held entry ${SMTP_QUEUE_ID}"
+        ok "C ${identity}: removed the synthetic held entry ${SMTP_QUEUE_ID}, and only it"
+    done < <(listeners held)
+}
+
+check_capture_retry() {
+    local identity host port domain sender route token id
+    IFS=$'\t' read -r identity host port domain sender route < <(listeners capture | head -n 1) || true
+    [[ -n "${identity:-}" ]] || { ok "D no capture listener in the plan — nothing to retry"; return 0; }
+
+    systemctl is-active --quiet "${MAILPIT_UNIT}" || fail "D ${MAILPIT_UNIT} is not active before the outage test"
+
+    log "stopping ${MAILPIT_UNIT} to prove the gateway queues across an outage"
+    MAILPIT_STOPPED=true
+    systemctl stop "${MAILPIT_UNIT}"
+
+    token="$(new_token)"
+    TOKENS+=("${token}")
+    smtp_submit "${host}" "${port}" "mail-gateway-verify@${domain}" "mail-gateway-verify@${domain}" "${token}" \
+        || fail "D ${identity}: the gateway did not accept mail while Mailpit was down (${SMTP_STAGE}: ${SMTP_REPLY})"
+    remember_queue_id
+    id="${SMTP_QUEUE_ID}"
+    ok "D ${identity}: accepted while Mailpit is down (${id})"
+
+    wait_queue_state "${id}" deferred || fail "D ${identity}: ${id} was not deferred while Mailpit was down (it is in: $(queue_state "${id}"))"
+    ok "D ${identity}: ${id} is deferred, not lost"
+
+    log "starting ${MAILPIT_UNIT} again"
+    systemctl start "${MAILPIT_UNIT}"
+    MAILPIT_STOPPED=false
+    wait_for_api "${MAILPIT_API}/api/v1/info" || fail "D Mailpit did not come back"
+
+    # Exactly this message, not the queue. Whether it was delivered is what the
+    # polling below decides: Postfix may already have retried it on its own.
+    postqueue -i "${id}" >/dev/null 2>&1 || true
+
+    poll_present "${MAILPIT_API}" "${token}" || fail "D ${identity}: ${id} did not reach Mailpit after it came back"
+    ok "D ${identity}: Postfix retried and ${id} reached Mailpit"
+    poll_present "${MAILTRAP_API}" "${token}" || fail "D ${identity}: the mirror did not follow after the outage"
+    ok "D ${identity}: the Mailtrap Local mirror follows"
+    wait_queue_gone "${id}" || fail "D ${identity}: ${id} is still queued after delivery"
+    ok "D ${identity}: ${id} left the queue once delivered"
+}
+
+run_e2e() {
+    [[ "${EUID}" -eq 0 ]] || fail "--e2e must run as root (it stops and starts Mailpit and removes its own queue entries)"
+    require_tools
+    trap cleanup EXIT
+
+    log "verifying the mail gateway (end-to-end acceptance; MUTATING)"
+    run_read_only
+
+    wait_for_api "${MAILPIT_API}/api/v1/info" || fail "the Mailpit API is not available"
+    wait_for_api "${MAILTRAP_API}/api/v1/version" || fail "the Mailtrap Local API is not available"
+
+    load_plan
+
+    check_capture_delivery
+    check_sender_isolation
+    check_held
+    check_capture_retry
+
+    log "end-to-end acceptance passed; removing the synthetic messages"
+}
+
+# --- Entry point -------------------------------------------------------------------
+
+main() {
+    local mode=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --read-only|--e2e)
+                [[ -z "${mode}" ]] || { usage >&2; fail "mode given more than once"; }
+                mode="${1#--}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    case "${mode}" in
+        read-only)
+            run_read_only
+            ;;
+        e2e)
+            run_e2e
+            ;;
+        *)
+            usage >&2
+            fail "a mode is required: --read-only or --e2e (the mutating acceptance is never a default)"
+            ;;
+    esac
+}
+
+main "$@"

@@ -9,8 +9,9 @@
 # prepared host into the configured RateGuru service host required for
 # deployment: the installed operational bundle, the target perimeter, the
 # committed SSH restriction, the active-target Nginx/PHP-FPM/Supervisor/cron
-# configuration, the public-storage ACL, the shared staging mail capture, and
-# the enablement of the required host services.
+# configuration, the public-storage ACL, the shared staging mail capture, the
+# host-global mail gateway in front of it, and the enablement of the required
+# host services.
 #
 # Modes (all root-only — the prerequisite gates run other root-only verifies,
 # and even the read-only inspection must see root-owned state exactly as the
@@ -26,7 +27,8 @@
 #             converges in dependency order: service-support directory,
 #             target operations bundle, perimeter, SSH restriction, PHP-FPM
 #             pool, active-target Nginx, Supervisor, scheduler cron,
-#             public-storage ACL, mail capture, base services — validating
+#             public-storage ACL, mail capture, mail gateway, base
+#             services — validating
 #             every configuration family before its service is ever
 #             reloaded, and ending with the authoritative --verify report.
 #   --verify  Read-only. The authoritative install-bootstrap-services contract gate: exits 0
@@ -55,7 +57,15 @@
 #                                `verify-mail-capture --read-only` — never
 #                                its mutating --e2e acceptance mode, which
 #                                sends mail and bounces the mirror service
-#                                and stays an explicit operator command.
+#                                and stays an explicit operator command;
+#   install-mail-gateway         owns the host-global mail gateway end to end
+#                                (package, rendered configuration, service,
+#                                ownership marker), rendered from the reviewed
+#                                mail routing plan and converged AFTER mail
+#                                capture, because capture is where its staging
+#                                route delivers. Verified through its own
+#                                read-only --verify — never the mutating
+#                                `verify-mail-gateway --e2e` acceptance.
 # This installer directly owns only the service files that have committed
 # sources but no dedicated installer: the active-target Nginx site (plus its
 # enabled symlink), the PHP-FPM pool, the Supervisor queue program, the
@@ -247,6 +257,9 @@ PUBLIC_STORAGE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PUBLIC_STORA
 NIGHTWATCH_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN "${SCRIPT_DIR}/install-nightwatch-agent")"
 MAIL_CAPTURE_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-capture")"
 VERIFY_MAIL_CAPTURE_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
+# The host-global mail gateway. Host scope only: no target owns it, so a
+# target-scoped repair or provisioning run never reports, verifies or touches it.
+MAIL_GATEWAY_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-gateway")"
 
 # Host tools.
 SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN systemctl)"
@@ -406,9 +419,9 @@ All modes require root.
             public-storage ACL. This target's own layout is verified at the
             same scope, and the base services are checked but never started.
             Everything host-wide — the operations bundle, the sudo perimeter,
-            the SSH restriction, mail capture and the material their vhosts
-            reference — is out of scope entirely: not reported, not verified,
-            not touched. Without it, this installer is exactly the host
+            the SSH restriction, mail capture, the mail gateway and the
+            material their vhosts reference — is out of scope entirely: not
+            reported, not verified, not touched. Without it, this installer is exactly the host
             service bootstrap it has always been.
 
   --provisioning
@@ -1982,6 +1995,36 @@ report_child_contracts() {
         report_child_state "mail-capture:verify-mail-capture" \
             "shared-host-service Mailpit/Mailtrap Local (never per-target; read-only probe)" \
             "${VERIFY_MAIL_CAPTURE_BIN}" --read-only
+
+        # After capture, as it is converged: capture is where the gateway's
+        # staging route delivers, so the gateway is only healthy once capture
+        # is. In --check the plan is asked separately, because "not installed
+        # yet" and "could never be installed" are different answers.
+        if [[ "${MODE}" == check ]]; then
+            report_mail_gateway_plan
+        fi
+
+        report_child_state "mail-gateway:install-mail-gateway" \
+            "host-global mail gateway rendered from the reviewed mail routing plan (never per-target; read-only verify)" \
+            "${MAIL_GATEWAY_INSTALLER_BIN}" --verify
+    fi
+}
+
+# report_mail_gateway_plan — whether --apply could converge the gateway at all:
+# the reviewed policy renders, and no mail transport agent RateGuru does not own
+# is in the way. A failure is a CONFLICT in every mode: no apply resolves it.
+report_mail_gateway_plan() {
+    if [[ ! -x "${MAIL_GATEWAY_INSTALLER_BIN}" ]]; then
+        item CONFLICT "mail-gateway:plan" "not executable: ${MAIL_GATEWAY_INSTALLER_BIN}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${MAIL_GATEWAY_INSTALLER_BIN}" --check >/dev/null 2>&1; then
+        item PASS "mail-gateway:plan" "install-mail-gateway --check: the reviewed mail routing plan renders and the gateway can be converged"
+    else
+        item CONFLICT "mail-gateway:plan" "install-mail-gateway --check refuses (an invalid routing plan, or a mail transport agent RateGuru does not own)" \
+            "run install-mail-gateway --check for the reason; --apply never takes over an existing mail transport agent"
     fi
 }
 
@@ -2272,7 +2315,7 @@ contract_satisfied() {
 
 run_contract_report() {
     printf 'RateGuru bootstrap services installer (%s mode)\n' "${MODE}"
-    printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture; directly owns the active-target service files\n'
+    printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture, mail gateway; directly owns the active-target service files\n'
 
     if provisioning; then
         printf 'Scope: planned production target %s only — host-wide families are out of scope entirely, base services are inspected and never started, and this run never activates the target\n' "${TARGET_SCOPE}"
@@ -3080,6 +3123,38 @@ converge_mail_capture() {
         || fail "verify-mail-capture --read-only still fails after install-mail-capture --apply"
 }
 
+# converge_mail_gateway — after mail capture, never before it: the gateway's
+# own apply verifies that every capture destination is listening, and it is
+# not healthy until it is. The skip probe and the confirmation are its
+# read-only --verify; the mutating `verify-mail-gateway --e2e` acceptance is an
+# operator action, never part of convergence.
+converge_mail_gateway() {
+    if "${MAIL_GATEWAY_INSTALLER_BIN}" --verify >/dev/null 2>&1; then
+        action "child:mail-gateway already compliant (install-mail-gateway --verify passes) — skipped, no service reloaded"
+        return 0
+    fi
+
+    action "child:install-mail-gateway --apply (host-global; owns the package, the rendered configuration, the service and its ownership marker)"
+    "${MAIL_GATEWAY_INSTALLER_BIN}" --apply \
+        || fail "install-mail-gateway --apply failed — aborting before any later component (its own transaction restored its configuration and service state)"
+
+    "${MAIL_GATEWAY_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
+        || fail "install-mail-gateway --verify still fails after install-mail-gateway --apply"
+}
+
+# apply_gate_mail_gateway — host scope, before the first mutation: a routing
+# plan that does not render, or a mail transport agent RateGuru does not own,
+# would stop the run near its end; it stops it here, with nothing changed.
+apply_gate_mail_gateway() {
+    target_scoped && return 0
+
+    [[ -x "${MAIL_GATEWAY_INSTALLER_BIN}" ]] \
+        || fail "install-mail-gateway is not executable: ${MAIL_GATEWAY_INSTALLER_BIN} — run from a full repository checkout"
+
+    "${MAIL_GATEWAY_INSTALLER_BIN}" --check >/dev/null 2>&1 \
+        || fail "install-mail-gateway --check refuses (run it for the reason) — nothing was changed"
+}
+
 # --- Apply --------------------------------------------------------------------
 
 # apply_gate_prerequisites — the authoritative earlier-slice verifies, never
@@ -3213,6 +3288,9 @@ perform_apply() {
     # committed vhosts being activated reference them.
     gate_external_prerequisites
 
+    # 4b. The mail gateway's plan and ownership, for the same reason.
+    apply_gate_mail_gateway
+
     # Destination safety.
     apply_gate_destinations
 
@@ -3297,12 +3375,14 @@ perform_apply() {
         converge_deployment_marker "${target_id}"
     done
 
-    # 14-15. Shared mail capture and base service enablement. Host-wide, and
-    # for the same reason: mail capture is shared by every target, and
+    # 14-15. Shared mail capture, the mail gateway in front of it, and base
+    # service enablement. Host-wide, and for the same reason: mail capture and
+    # the gateway are shared by every target, and
     # enabling PostgreSQL or Redis is a host decision. A target-scoped run
     # verifies them as prerequisites and changes neither.
     if ! target_scoped; then
         converge_mail_capture
+        converge_mail_gateway
 
         ensure_service_enabled_active postgresql
         ensure_service_enabled_active redis-server
