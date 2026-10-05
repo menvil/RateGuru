@@ -3,18 +3,20 @@
 The host-global Postfix gateway every target submits its mail to, rendered from
 the reviewed mail routing policy. The policy, and why the submission port is a
 target's identity, are in [`mail-routing.md`](mail-routing.md); this runbook is
-how the gateway is installed, verified, accepted and cut over to.
+how the gateway is installed, verified and accepted, and how its direct outbound
+transport works and stays switched off.
 
 ## Status
 
 | What | State |
 |------|-------|
 | `install-mail-gateway` / `verify-mail-gateway` / `status-mail-gateway` | **Implemented**, part of host bootstrap |
-| Gateway on the staging host | **Not installed yet** — the next Prepare staging host installs it |
-| Real-host acceptance (`verify-mail-gateway --e2e`) | **Not run yet** |
-| Staging application mail | **Still direct to Mailpit** (`MAIL_PORT=1025` in the host's `shared/.env`) until the operator cutover below |
-| `tits-guru` | `lifecycle=planned`; its listener exists and **holds** everything; nothing is delivered |
-| Production outbound delivery | **Does not exist** |
+| Gateway on the staging host | **Installed and accepted** — Postfix 3.6.4, configuration exactly the reviewed render, verified on the real host |
+| Real-host acceptance (`verify-mail-gateway --e2e`) | **Passed** on the real staging host — see [Real-host acceptance](#real-host-acceptance) |
+| Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
+| `tits-guru` | `lifecycle=planned`, `delivery_mode=held`; its listener exists and **holds** everything; nothing is delivered |
+| Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, not activated**: no target uses it, and `config/mail-outbound.json` keeps direct delivery **disabled** on the host, so no outbound route can be rendered or installed |
+| Production outbound delivery | **None**: no route to the Internet exists on any host |
 
 ## What is installed
 
@@ -28,6 +30,11 @@ tits-guru (not deployed) ─▶ 127.0.0.1:2526 ┤    listener = routing identit
               2526 (held)    → HOLD queue    → no route, ever
               anything else  → error(8)      → never delivered
 ```
+
+That is the whole gateway on the real host today. The direct outbound route
+described [below](#direct-outbound-implemented-switched-off) is implemented but
+appears in no target's policy and is disabled for the host, so nothing in it is
+rendered.
 
 One Postfix instance for the host, owned end to end by
 `infrastructure/scripts/install-mail-gateway`:
@@ -52,8 +59,10 @@ One Postfix instance for the host, owned end to end by
   and `virtual_transport` are all `error:`; `relayhost`, `mydestination`,
   `relay_domains` and `transport_maps` are empty; there is no generic `smtp`,
   `relay`, `local`, `virtual` or `lmtp` delivery agent. Mail with no rendered
-  route — a local `sendmail`, a cron report, anything — is undeliverable. There
-  is no Internet delivery in this gateway at all.
+  route — a local `sendmail`, a cron report, anything — is undeliverable. The
+  only smtp clients are the ones the plan's own listeners name, and on the real
+  host today that is the staging capture transport alone: there is no Internet
+  delivery in it at all.
 - **Sender policy.** The port chooses the target; the envelope sender is then
   checked against that target's domain, **exactly** (a subdomain is a different
   identity): `2525` accepts only `@staging.invalid`, `2526` only `@tits.guru`.
@@ -67,6 +76,96 @@ Nothing else under `/etc/postfix` is RateGuru's. The routes are never restated
 in the installer: it runs `infrastructure/scripts/mail-routing render-plan`
 from the same bundle and only spells the plan in Postfix syntax, and a delivery
 mode it has no spelling for is a refusal.
+
+## Direct outbound (implemented, switched off)
+
+A production target's mail is eventually delivered by the gateway itself,
+straight to each recipient's mail servers — self-hosted direct SMTP, with no
+provider, relay host, smart host or credential. The capability exists; it is
+not active anywhere.
+
+```
+Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outbound-<target> (smtp)
+                                                         │  next hop = recipient's own domain
+                                                         ▼
+                                              recipient domain MX ─▶ Internet
+```
+
+**Two contracts, and both must agree.**
+
+1. The target's policy says `delivery_mode: "outbound"` with
+   `outbound: {"kind": "direct"}`, beside the same reviewed identity a held
+   policy carries (`mail_domain`, `default_from`, `bounce_domain`,
+   `reply_domain`). Only a production target may use it, and `direct` is the
+   only kind: a relay through a provider is added only by the change that
+   implements one. See [`mail-routing.md`](mail-routing.md).
+2. The **host's** outbound contract, `infrastructure/config/mail-outbound.json`:
+
+   ```json
+   {
+     "schema_version": 1,
+     "direct": {
+       "enabled": false,
+       "mta_hostname": ""
+     }
+   }
+   ```
+
+   Every brand on a host shares its source IP address, and an address has
+   exactly one PTR name. So the name direct delivery greets receiving servers
+   with (`HELO`/`EHLO`) is the **host's** physical MTA identity, kept here once,
+   and never a target's `From` domain or anything in a target's policy.
+   `enabled: false` means direct delivery does not exist on this host;
+   `mta_hostname` may then be empty. `enabled: true` requires a lowercase,
+   fully qualified public hostname — never under `.invalid`, `.test`,
+   `.localhost`, `.example`, `.local`, `.localdomain`, `.internal`, `.alt`,
+   `.onion` or `.arpa`, because a receiving server compares it with the PTR of
+   the sending address. The file holds no credential; there is nowhere in it to
+   put one.
+
+**Fail closed before anything changes.** `install-mail-gateway` judges the host
+contract in every mode, before it renders. A plan with a direct route on a host
+whose contract says `enabled: false` — or `enabled: true` with an empty or
+invalid hostname — is refused by `--check`, `--apply` and `--verify` alike,
+before a file is written or a service touched. So changing a target's policy
+from `held` to `outbound` can never by itself put mail on the Internet: the
+host's identity has to be enabled deliberately as well. Host bootstrap runs
+`--check` before its first mutation, so Prepare Host stops there too.
+
+**What is rendered when both agree**, per outbound target:
+
+- its listener sets `content_filter = rateguru-outbound-<target>:` — its own
+  transport, and **no next hop**;
+- `main.cf` sets `default_filter_nexthop =` (empty). Postfix's queue manager
+  then uses each recipient's own domain as the next hop of a filter that names
+  none (`qmgr_message.c` in Postfix 3.6.4: an empty filter next hop falls back
+  to `default_filter_nexthop`, then to the recipient's domain, and only for a
+  recipient with no domain to `$myhostname`). The smtp client therefore looks up
+  the **recipient domain's MX** and delivers there, one queue per domain,
+  deferring and retrying like any Postfix delivery;
+- one dedicated `rateguru-outbound-<target>` smtp(8) service in `master.cf`,
+  named by that listener and by nothing else:
+  - `smtp_helo_name` = the host's `mta_hostname`;
+  - `smtp_tls_security_level = may` — opportunistic STARTTLS whenever the
+    receiving server offers it, never required, because many legitimate MX
+    servers do not offer authenticated TLS (`smtp_tls_loglevel = 1` logs it);
+  - `smtp_sasl_auth_enable = no` and an empty `smtp_fallback_relay` — no
+    SMTP AUTH and no relay of any kind.
+
+Nothing else moves: `relayhost` stays empty, every fallback transport stays
+`error:`, the generic `smtp` and `relay` services stay absent or `error`, the
+listeners stay on loopback and IPv4 (`inet_protocols = ipv4` makes the outbound
+client IPv4 too), and unclassified mail stays undeliverable. A plan with no
+outbound target renders **byte for byte** what it rendered before outbound
+routes existed, so the real host does not drift.
+
+**Not in this capability** — each needs its own reviewed change before any
+target is switched to `outbound`: the real MTA hostname and its PTR/rDNS, SPF,
+DKIM keys and signing, DMARC, the production Return-Path and bounce reception,
+reply routing, a support mailbox, the production `MAIL_*` values, a controlled
+real canary delivery, header verification at the large mailbox providers, and
+sender reputation warm-up. Until then the real `mail-outbound.json` stays
+`enabled: false` and `tits-guru` stays `held`.
 
 ## Ownership and the package
 
@@ -138,29 +237,42 @@ current render, Postfix parses them, `postfix.service` is enabled and
 `postfix@-.service` stably running, the listeners are exactly the plan's
 loopback endpoints, nothing listens on 25/465/587, no gateway port is bound off
 loopback, every capture destination is listening, held mail has no route and
-unclassified mail cannot be delivered. No SMTP, no queue change, no reload.
+unclassified mail cannot be delivered. The smtp clients are exactly the plan's
+transports, and for an outbound target its transport is the only one its
+listener names, greets with the host's `mta_hostname`, uses `may` TLS, has no
+SMTP AUTH and no fallback relay, and `default_filter_nexthop` is empty. No SMTP,
+no queue change, no reload.
 
 `--e2e` (root) runs all of that, then, for every listener in the plan:
 
 - **A — capture:** a message from the listener's own domain is queued by
   Postfix and reaches Mailpit (canonical) and Mailtrap Local (mirror);
 - **B — sender isolation:** a foreign domain, and every other listener's
-  domain, is refused at `MAIL FROM`;
+  domain, is refused at `MAIL FROM`. The probe stops there — `RSET` and `QUIT`
+  whatever the reply — so it never names a recipient or sends a message, even
+  to a gateway that wrongly accepted the sender;
 - **C — held:** a message from `noreply@tits.guru` is accepted, its exact queue
   entry is in HOLD, it is not in Mailpit, and that one entry is then removed;
 - **D — outage:** Mailpit is stopped, a staging message is accepted and
   deferred, Mailpit is started again, that exact message is retried
-  (`postqueue -i <id>`) and reaches Mailpit and its mirror.
+  (`postqueue -i <id>`) and reaches Mailpit and its mirror;
+- **E — outbound:** nothing is submitted. A message an outbound listener
+  accepted would leave the host for the Internet, so B is its whole acceptance
+  here, and `smtp_submit` refuses any endpoint that is not a capture or held
+  listener before it opens a connection. A real outbound delivery is a
+  deliberate production canary, never this diagnostic.
 
 It removes only what it created — its Mailpit/Mailtrap messages by their unique
 token, its queue entries by their exact queue ID — and never flushes or empties
 the queue. Mailpit is put back the way it was on every exit.
 
-From GitHub: the **Verify staging mail gateway** workflow runs exactly
-`verify-mail-gateway --e2e` on the staging host from a temporary trusted bundle
-(develop only, the `staging` Environment, the bootstrap credential, the
-`rateguru-staging-deployment` concurrency group). It never edits an environment
-file and never deploys. Ordinary Prepare never runs the mutating acceptance.
+`--e2e` is a low-level specialist primitive, run on the host as root when a
+deep check of the gateway is wanted. There is no GitHub workflow for it: the
+one-time manual workflow that ran it for the real-host acceptance has done its
+job and was removed. Ordinary Prepare never runs the mutating acceptance. A
+single generic "Verify staging infrastructure" operation will orchestrate checks
+like this one once several deep or disruptive subsystem checks exist — not one
+workflow per subsystem.
 
 ## Status
 
@@ -169,31 +281,55 @@ sudo infrastructure/scripts/status-mail-gateway
 ```
 
 Read-only: package and version, ownership marker, service state, listeners,
-each listener's route as Postfix reads it from the installed configuration,
-queue counts by queue (counts only — no address, no body), and the last hour
-of gateway warnings. Logs: `journalctl -u postfix@-.service`.
+each listener's route as Postfix reads it from the installed configuration —
+an outbound one as `outbound, queued -> direct SMTP -> recipient MX` with its
+transport, HELO name and TLS level — queue counts by queue (counts only — no
+address, no body), and the last hour of gateway warnings. Logs:
+`journalctl -u postfix@-.service`.
 
 ## Staging cutover
 
-The committed staging environment contract now names the gateway
-(`MAIL_PORT=2525` in `staging.env.example`). The host's own `shared/.env` is
-operator-owned and **is never changed by code** — the cutover is an operator
-action, in this order:
+**Done.** The committed staging environment contract names the gateway
+(`MAIL_PORT=2525` in `staging.env.example`), and the real staging host runs it.
+The host's own `shared/.env` is operator-owned and **is never changed by code**;
+the cutover was an operator action, in this order:
 
-1. **Prepare staging host** — installs and verifies the gateway.
-2. **Verify staging mail gateway** — the end-to-end acceptance passes.
-3. The operator changes the host's `shared/.env`:
+1. **Prepare staging host** installed and verified the gateway.
+2. The end-to-end acceptance (`verify-mail-gateway --e2e`) passed on the host.
+3. The operator changed the host's `shared/.env`:
    `MAIL_PORT=1025` → `MAIL_PORT=2525` (`MAIL_MAILER=smtp`,
-   `MAIL_HOST=127.0.0.1` and `MAIL_FROM_ADDRESS=noreply@staging.invalid` are
+   `MAIL_HOST=127.0.0.1` and `MAIL_FROM_ADDRESS=noreply@staging.invalid` were
    unchanged).
-4. **Deploy to staging** again, so deploy's `artisan config:cache` reads the new
-   value.
-5. Trigger one real application-generated staging email.
-6. Confirm it appears in Mailpit and in Mailtrap Local.
+4. **Deploy to staging** ran again, so deploy's `artisan config:cache` read the
+   new value.
+5. A real application-generated staging email — a Laravel password reset — was
+   sent.
+6. It arrived in Mailpit and in Mailtrap Local.
 
 **Rollback:** set the host's `shared/.env` back to `MAIL_PORT=1025` and deploy
 staging again. The application then bypasses the gateway and returns to the
-previously accepted direct-to-Mailpit path; the gateway can stay installed.
+earlier direct-to-Mailpit path; the gateway can stay installed.
+
+## Real-host acceptance
+
+The gateway was accepted on the real staging host:
+
+- the RateGuru-owned Postfix 3.6.4 package, the configuration exactly the
+  reviewed render, and the service, all verified;
+- no public SMTP listener;
+- capture: `127.0.0.1:2525` → Postfix queue → `127.0.0.1:1025` Mailpit →
+  Mailtrap Local mirror;
+- sender isolation on every listener;
+- `tits-guru` on `127.0.0.1:2526` → HOLD;
+- Mailpit stopped → the message deferred in Postfix's queue → retried and
+  delivered once Mailpit was back;
+- the staging cutover above, ending in a real Laravel password-reset email that
+  arrived in Mailpit and in Mailtrap Local.
+
+That acceptance covered capture and hold only. The direct outbound transport
+has had no real-host acceptance, and cannot have one while it is disabled: its
+first real delivery is a controlled production canary, after the production
+mail identity exists.
 
 ## Troubleshooting
 
@@ -206,5 +342,10 @@ previously accepted direct-to-Mailpit path; the gateway can stay installed.
   automatically, or one message at a time with `postqueue -i <queue-id>`.
 - **A message is refused with `554 5.7.1 ... Sender address rejected`:** the
   envelope sender is not exactly the listener's domain.
+- **`--check` refuses with "direct outbound delivery is not enabled on this
+  host":** a target's policy says `outbound` with `kind: direct`, and
+  `config/mail-outbound.json` still says `enabled: false`. That refusal is the
+  safety interlock, not a fault: enable direct delivery only once the host's
+  public MTA identity — its hostname and PTR — exists.
 - **Never** run `postqueue -f`, `postsuper -d ALL` or `postsuper -H ALL` to
   "fix" a held queue: held mail has no route by design.

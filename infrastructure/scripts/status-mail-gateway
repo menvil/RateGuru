@@ -6,7 +6,9 @@
 # state, the exact listeners, each listener's route as Postfix itself reads it
 # from the INSTALLED configuration, the queue counts by queue, and recent
 # gateway warnings. It changes nothing, submits nothing, and prints no message
-# body, no address and no credential: the queue is reported as counts only.
+# body, no address and no credential: the queue is reported as counts only. An
+# outbound route is shown as the direct transport it is, with the HELO identity
+# and TLS policy Postfix reads for it — never a recipient or its domain.
 #
 # Usage: status-mail-gateway
 
@@ -79,6 +81,11 @@ for endpoint in "${endpoints[@]}"; do
 
     if [[ "${recipients}" == *static:HOLD* ]]; then
         route="HELD — accepted into the hold queue, no delivery route"
+    elif [[ "${filter}" == rateguru-outbound-*: ]]; then
+        transport="${filter%:}"
+        helo="$(postconf -P "${transport}/unix/smtp_helo_name" 2>/dev/null | sed -n 's/^[^=]*= *//p')"
+        tls="$(postconf -P "${transport}/unix/smtp_tls_security_level" 2>/dev/null | sed -n 's/^[^=]*= *//p')"
+        route="outbound, queued -> direct SMTP -> recipient MX (${transport}, HELO ${helo:-unset}, TLS ${tls:-unset})"
     elif [[ -n "${filter}" ]]; then
         route="capture, queued -> ${filter#*:}"
     else

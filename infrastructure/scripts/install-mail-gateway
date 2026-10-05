@@ -17,9 +17,22 @@
 #
 # The plan is read from the mail-routing CLI shipped in the SAME bundle this
 # script runs from, never from a copy, and no policy rule is restated here. What
-# this file adds is Postfix: how a listener, a capture route and a held mode are
-# spelled in main.cf and master.cf. A delivery mode it has no spelling for is a
-# refusal, never a default.
+# this file adds is Postfix: how a listener, a capture route, a held mode and a
+# direct outbound route are spelled in main.cf and master.cf. A delivery mode or
+# route kind it has no spelling for is a refusal, never a default.
+#
+# THE HOST'S OUTBOUND CONTRACT. infrastructure/config/mail-outbound.json is the
+# one thing this file reads besides the plan, because it is not a target's: it
+# is the host's physical delivery identity. Every brand on a host shares its
+# source address, and an address has exactly one PTR name, so the name a direct
+# route greets receiving servers with (the MTA hostname) belongs to the host and
+# appears in no target's policy. The contract says whether direct delivery is
+# enabled on this host at all, and under which name. It is judged here, in every
+# mode and before anything is rendered: a plan with a direct route on a host
+# whose contract leaves direct delivery disabled — or enabled without a valid
+# public hostname — is refused before a file or a service is touched, so
+# switching a target's policy to outbound can never by itself put mail on the
+# Internet.
 #
 # THE GATEWAY. One Postfix instance for the whole host:
 #
@@ -31,18 +44,26 @@
 #     destination is down;
 #   * held: the listener places every message it accepts on the HOLD queue, and
 #     nothing in the configuration names a route for it;
+#   * outbound, direct: the listener sets a content filter naming the target's
+#     own smtp client and NO next hop. With default_filter_nexthop empty, the
+#     queue manager then uses each recipient's own domain as the next hop, so
+#     that client looks up the recipient domain's MX and delivers there — per
+#     recipient domain, queued and retried, with STARTTLS whenever the receiving
+#     server offers it, no relay host, no smart host and no SMTP AUTH. The
+#     client greets with the host's MTA hostname, never a target's domain. No
+#     other listener names it, and nothing else can reach it;
 #   * the envelope sender must belong exactly to the target's allowed domain (or
 #     be empty); anything else is refused at MAIL FROM. The sender authorizes, it
 #     never selects;
 #   * everything else is undeliverable: the default, relay, local and virtual
 #     transports are all error(8), there is no relayhost, no destination domain,
 #     no transport map, no generic smtp client and no smtp/submission/smtps
-#     listener. Mail with no rendered route cannot reach the Internet, because
-#     the Internet is not a place this configuration can deliver to.
+#     listener. Mail with no rendered route cannot reach the Internet: the only
+#     smtp clients are the ones the plan's listeners name.
 #
-# Loopback only, IPv4 only, no SMTP AUTH, no TLS: the boundary is the host and
-# the per-target port. Postfix itself binds nothing public — the firewall is
-# never what makes this safe.
+# Listeners on loopback only, IPv4 only, no SMTP AUTH, no TLS: the boundary is
+# the host and the per-target port. Postfix itself binds nothing public — the
+# firewall is never what makes this safe.
 #
 # THE PACKAGE. --apply may install Ubuntu's postfix package, and does it so the
 # daemon can never run in a state RateGuru did not choose:
@@ -114,6 +135,9 @@ FS_ROOT="$(gated_default RATEGURU_MAILGW_FS_ROOT '')"
 MAIL_ROUTING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_ROUTING_CLI "${SCRIPT_DIR}/mail-routing")"
 POLICY_FILE="$(gated_default RATEGURU_MAILGW_POLICY_FILE "${REPO_ROOT}/infrastructure/config/mail-routing.json")"
 REGISTRY_FILE="$(gated_default RATEGURU_MAILGW_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+
+# The host's own outbound contract, from this bundle.
+OUTBOUND_FILE="$(gated_default RATEGURU_MAILGW_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
 
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
@@ -217,11 +241,14 @@ Usage:
             the current render, Postfix accepts it, the service is enabled and
             stably active, the listeners are exactly the plan's loopback
             endpoints, no public SMTP port is open, every capture destination is
-            listening, held mail has no route and unclassified mail cannot be
-            delivered.
+            listening, held mail has no route, each outbound route is its
+            target's own direct smtp client and nothing else's, and
+            unclassified mail cannot be delivered.
 
 The routes come from infrastructure/scripts/mail-routing render-plan in the same
-bundle; this installer only spells them in Postfix.
+bundle; this installer only spells them in Postfix. A direct outbound route is
+refused in every mode unless infrastructure/config/mail-outbound.json enables
+direct delivery on this host under a valid public MTA hostname.
 USAGE
 }
 
@@ -240,13 +267,138 @@ require_tools() {
     done
 }
 
+# --- The host's outbound contract ---------------------------------------------------
+#
+# mail-outbound.json, schema 1, exactly:
+#
+#   { "schema_version": 1, "direct": { "enabled": <bool>, "mta_hostname": "<name>" } }
+#
+#   enabled=false  direct delivery does not exist on this host: no plan with a
+#                  direct route renders. mta_hostname may be empty.
+#   enabled=true   mta_hostname is the host's public MTA identity — the name its
+#                  PTR record gives, which every direct route greets with.
+#
+# It holds no credential: direct delivery has none, and the closed shape leaves
+# nowhere to put one.
+
+OUTBOUND_SCHEMA_VERSION=1
+
+# Emits one JSON array of problems with the contract and with the plan's use of
+# it; empty when the plan may be rendered. Run on a single-document,
+# control-character-free, duplicate-free object. The plan arrives as data.
+# shellcheck disable=SC2016
+OUTBOUND_CONTRACT_PROGRAM='
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def hostname_re: "(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
+
+# Names that never resolve on the public DNS, or resolve only privately. A
+# receiving server checks that the name a client greets with and the PTR of its
+# address agree; under one of these they never can.
+def private_tlds: ["alt", "arpa", "example", "internal", "invalid", "local", "localdomain", "localhost", "onion", "test"];
+
+def hostname_problem:
+    if type != "string" then
+        "must be a string, got \(tojson)"
+    elif length > 253 or (anchored(hostname_re) | not) then
+        "must be a lowercase fully qualified hostname, got \(tojson)"
+    elif (split(".") | last) as $tld | any(private_tlds[]; . == $tld) then
+        "\(tojson) is under the reserved .\(split(".") | last) domain, which never resolves publicly — a direct MTA identity must be a public name its PTR can match"
+    else empty end;
+
+. as $contract
+| [
+    (if keys != ["direct", "schema_version"] then
+         "mail-outbound.json must be exactly {schema_version, direct}, found \(keys | tojson)"
+     else empty end),
+    (if (.schema_version | type) != "number" or .schema_version != $schema_version then
+         "unsupported mail-outbound.json schema_version: \(.schema_version | tojson) (expected \($schema_version))"
+     else empty end),
+    (if has("direct") | not then empty
+     elif (.direct | type) != "object" then
+         "direct must be an object {enabled, mta_hostname}, got \(.direct | tojson)"
+     elif (.direct | keys) != ["enabled", "mta_hostname"] then
+         "direct must be exactly {enabled, mta_hostname}, found \(.direct | keys | tojson)"
+     else
+         (if (.direct.enabled | type) != "boolean" then
+              "direct.enabled must be true or false, got \(.direct.enabled | tojson)"
+          else empty end),
+         (if .direct.enabled == true and .direct.mta_hostname == "" then
+              "direct.enabled is true but direct.mta_hostname is empty — direct delivery needs the public MTA identity of this host, the name its PTR record gives"
+          elif .direct.mta_hostname == "" then
+              empty
+          else
+              .direct.mta_hostname | hostname_problem | "direct.mta_hostname \(.)"
+          end)
+     end),
+
+    # A direct route exists only on a host that enabled direct delivery.
+    ((if ($contract.direct | type) == "object" then $contract.direct.enabled else null end) as $enabled
+      | $plan[0].listeners[]
+      | select((.route | type) == "object" and .route.kind == "direct")
+      | if $enabled == true then
+            empty
+        else
+            "\(.identity): its mail routing plan delivers by direct SMTP, but direct outbound delivery is not enabled on this host (mail-outbound.json direct.enabled is \($enabled | tojson)) — no outbound route is rendered, installed or verified until the MTA identity of this host is in place and direct delivery is enabled"
+        end)
+  ]
+'
+
+# assert_outbound_contract PLAN CONTRACT — the contract file itself, then its
+# rules and the plan's use of it. Diagnostics on stderr; a refusal exits before
+# anything is rendered, so --check, --apply and --verify all stop here, with
+# nothing changed. A symlink is refused: it lets the reviewed path and the read
+# path diverge.
+assert_outbound_contract() {
+    local plan="$1" path="$2"
+
+    [[ ! -L "${path}" ]] || fail "the host outbound contract must not be a symlink: ${path}"
+    [[ -e "${path}" ]] || fail "the host outbound contract is unavailable: ${path} — run from a full repository bundle"
+    [[ -f "${path}" && -r "${path}" ]] || fail "the host outbound contract must be a readable regular file: ${path}"
+
+    local documents
+    documents="$(jq -n '[inputs] | length' "${path}" 2>/dev/null)" \
+        || fail "the host outbound contract is not valid JSON: ${path}"
+    [[ "${documents}" == "1" ]] \
+        || fail "the host outbound contract must hold exactly one JSON document, found ${documents}: ${path}"
+
+    jq -e 'type == "object"' "${path}" >/dev/null \
+        || fail "the host outbound contract must be a JSON object: ${path}"
+
+    # Its hostname is spliced into master.cf, so not even a control character
+    # inside a key reaches the rules below.
+    jq -e '[paths | .[] | strings] + [.. | strings] | all(.[]; explode | all(.[]; . >= 32 and . != 127))' "${path}" >/dev/null \
+        || fail "the host outbound contract must not contain control characters in any key or value: ${path}"
+
+    # A key declared twice is kept once, silently, by every JSON parser.
+    local streamed parsed
+    streamed="$(jq -c --stream '.' "${path}" | wc -l)" || fail "could not read the host outbound contract: ${path}"
+    parsed="$(jq -c 'tostream' "${path}" | wc -l)" || fail "could not read the host outbound contract: ${path}"
+    (( streamed == parsed )) \
+        || fail "the host outbound contract declares the same key twice in one object — only one of them would ever be read: ${path}"
+
+    local problems count
+    problems="$(jq -c --slurpfile plan "${plan}" --argjson schema_version "${OUTBOUND_SCHEMA_VERSION}" \
+        "${OUTBOUND_CONTRACT_PROGRAM}" "${path}")" \
+        || fail "could not evaluate the host outbound contract: ${path}"
+    count="$(jq 'length' <<<"${problems}")"
+
+    if (( count > 0 )); then
+        jq -r '.[] | "INVALID: " + .' <<<"${problems}" >&2
+        fail "the host outbound contract refuses this gateway (${count} problem(s)): ${path} — nothing was rendered, and nothing on the host was changed"
+    fi
+}
+
 # --- Rendering (Postfix spelling of the plan) -------------------------------------
 #
-# Pure: plan in, two files out. Both are byte-for-byte functions of the plan, so
-# --verify can re-render and compare. The guard below is not policy — the plan
-# was judged by mail-routing — it only proves every value the renderer splices
-# into Postfix syntax is a plain token, so nothing in the plan can become a
-# second directive.
+# Pure: plan and outbound contract in, two files out. Both are byte-for-byte
+# functions of those two, so --verify can re-render and compare. The guard
+# below is not policy — the plan was judged by mail-routing — it only proves
+# every value the renderer splices into Postfix syntax is a plain token, so
+# nothing in the plan can become a second directive.
+#
+# A plan with no outbound listener renders exactly what it rendered before
+# outbound routes existed: every outbound line below is conditional on one.
 
 # The programs are single-quoted on purpose: every `$name` in them is a jq
 # variable or Postfix's own `$parameter` reference, and none may ever be
@@ -258,6 +410,9 @@ def port: type == "number" and . == floor and . >= 1 and . <= 65535;
 def endpoint: "\(.host):\(.port)";
 def param: "rateguru_" + (.identity | gsub("-"; "_"));
 def capture_transport: "rateguru-capture-" + .identity;
+def outbound_transport: "rateguru-outbound-" + .identity;
+def is_direct: .delivery_mode == "outbound" and (.route | type) == "object" and .route.kind == "direct";
+def has_outbound: any(.listeners[]; .delivery_mode == "outbound");
 def pad($n): . + (" " * ([$n - length, 1] | max));
 def service($name; $type; $private; $unpriv; $chroot; $wakeup; $maxproc; $command):
     ($name | pad(15)) + ($type | pad(6)) + ($private | pad(8)) + ($unpriv | pad(8))
@@ -267,14 +422,17 @@ def no_route: "error:5.7.1 RateGuru mail gateway: no delivery route for this mai
 
 # shellcheck disable=SC2016
 PLAN_GUARD_PROGRAM="${RENDER_DEFINITIONS}"'
-.schema_version == 1
+.schema_version == 2
 and (.listeners | type == "array" and length > 0)
 and all(.listeners[];
     (.identity | token) and (.identity | test("\\A[a-z0-9-]+\\z"))
     and (.listen | type == "object") and (.listen.host | token) and (.listen.port | port)
     and (.delivery_mode | token)
     and (.sender | type == "object") and (.sender.allowed_domain | token)
-    and (.route == null or ((.route | type == "object") and (.route.kind | token) and (.route.host | token) and (.route.port | port))))
+    and (.route == null
+         or ((.route | type == "object") and (.route.kind | token)
+             and (if .route.kind == "direct" then (.route | keys) == ["kind"]
+                  else (.route.host | token) and (.route.port | port) end))))
 '
 
 # shellcheck disable=SC2016
@@ -338,10 +496,22 @@ MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
     "",
     "# Each target'"'"'s sender authorization, applied by its own listener.",
     (.listeners[]
-        | "\(param)_sender_restrictions = check_sender_access inline:{ \(.sender.allowed_domain)=OK, <>=OK }, reject")
+        | "\(param)_sender_restrictions = check_sender_access inline:{ \(.sender.allowed_domain)=OK, <>=OK }, reject"),
+    (if has_outbound then
+         "",
+         "# Direct outbound. An outbound listener names its own smtp client as a",
+         "# content filter with no next hop, and with this empty the queue manager",
+         "# uses each recipient'"'"'s own domain as that next hop, so the client looks",
+         "# up the recipient domain'"'"'s MX. The client itself, its HELO identity and",
+         "# its opportunistic STARTTLS are in master.cf; nothing here routes mail.",
+         "default_filter_nexthop ="
+     else empty end)
 )
 '
 
+# The host outbound contract arrives as $outbound, already judged by
+# assert_outbound_contract; the direct route refuses to render without it all
+# the same.
 # shellcheck disable=SC2016
 MASTER_CF_PROGRAM="${RENDER_DEFINITIONS}"'
 def listener:
@@ -356,9 +526,31 @@ def listener:
         elif .delivery_mode == "held" and .route == null then
             "  -o smtpd_recipient_restrictions=check_client_access,static:HOLD,permit_mynetworks,reject",
             "  -o content_filter="
+        elif is_direct then
+            # No next hop: each recipient domain is its own, resolved by MX.
+            "  -o content_filter=\(outbound_transport):"
         else
             error("no Postfix rendering is defined for delivery mode \(.delivery_mode | tojson) of \(.identity)")
         end
+    );
+
+def direct_helo:
+    $outbound[0].direct as $direct
+    | if ($direct | type) == "object" and $direct.enabled == true and ($direct.mta_hostname | token) then
+          $direct.mta_hostname
+      else
+          error("direct outbound delivery is not enabled on this host — refusing to render a direct route")
+      end;
+
+def outbound_route:
+    (
+        service(outbound_transport; "unix"; "-"; "-"; "n"; "-"; "-"; "smtp"),
+        "  -o syslog_name=postfix/\(outbound_transport)",
+        "  -o smtp_helo_name=\(direct_helo)",
+        "  -o smtp_tls_security_level=may",
+        "  -o smtp_tls_loglevel=1",
+        "  -o smtp_sasl_auth_enable=no",
+        "  -o smtp_fallback_relay="
     );
 
 def capture_route:
@@ -377,8 +569,14 @@ def capture_route:
     "#",
     "# The only inet services are the per-target loopback listeners: there is no",
     "# smtp, submission or smtps listener. The only delivery agents are one",
-    "# capture transport per capture target; there is no generic smtp, relay,",
-    "# local, virtual or lmtp transport for anything to fall through to.",
+    (if has_outbound then
+         "# capture transport per capture target and one direct outbound transport",
+         "# per outbound target; there is no generic smtp, relay, local, virtual or",
+         "# lmtp transport for anything to fall through to."
+     else
+         "# capture transport per capture target; there is no generic smtp, relay,",
+         "# local, virtual or lmtp transport for anything to fall through to."
+     end),
     "#",
     "# service type  private unpriv  chroot  wakeup  maxproc command + args",
     "",
@@ -388,6 +586,14 @@ def capture_route:
     "# --- capture routes: queued, then delivered to the capture destination",
     (.listeners[] | select(.delivery_mode == "capture") | capture_route),
     "",
+    (if has_outbound then
+         "# --- outbound routes: queued, then delivered by the target'"'"'s own smtp client",
+         "# straight to each recipient domain'"'"'s MX. No relay host, no smart host, no",
+         "# SMTP AUTH; STARTTLS whenever the receiving server offers it. The HELO",
+         "# name is the host'"'"'s MTA identity, never a target'"'"'s domain.",
+         (.listeners[] | select(is_direct) | outbound_route),
+         ""
+     else empty end),
     "# --- Postfix internal services. Every service the package master.cf repair",
     "# appends when missing is present, so a postfix upgrade adds nothing.",
     service("pickup"; "unix"; "n"; "-"; "n"; "60"; "1"; "pickup"),
@@ -415,17 +621,21 @@ def capture_route:
 )
 '
 
-# render_gateway_config PLAN OUT_DIR — writes OUT_DIR/main.cf and
+# render_gateway_config PLAN OUTBOUND OUT_DIR — judges the host outbound
+# contract and the plan's use of it, then writes OUT_DIR/main.cf and
 # OUT_DIR/master.cf. Called as a plain statement, never inside $(...) or on the
-# left of ||, so a jq failure stops the run instead of leaving a half file.
+# left of ||, so a refusal or a jq failure stops the run instead of leaving a
+# half file.
 render_gateway_config() {
-    local plan="$1" out="$2"
+    local plan="$1" outbound="$2" out="$3"
 
     jq -e "${PLAN_GUARD_PROGRAM}" "${plan}" >/dev/null \
         || fail "the mail routing plan does not have the shape this renderer spells in Postfix — refusing to render around it"
 
+    assert_outbound_contract "${plan}" "${outbound}"
+
     jq -r "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
-    jq -r "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+    jq -r --slurpfile outbound "${outbound}" "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
 }
 
 # --- The plan -----------------------------------------------------------------------
@@ -455,7 +665,7 @@ prepare_candidate() {
     "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
         || fail "mail-routing render-plan refused the reviewed policy (diagnostics above) — nothing was rendered"
 
-    render_gateway_config "${PLAN_FILE}" "${CANDIDATE_DIR}"
+    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${CANDIDATE_DIR}"
 }
 
 # Newline-separated plan facts, read once from the rendered plan.
@@ -469,6 +679,25 @@ plan_ports() {
 
 plan_capture_destinations() {
     jq -r '.listeners[] | select(.delivery_mode == "capture") | "\(.route.host):\(.route.port)"' "${PLAN_FILE}" || true
+}
+
+# Every smtp client the plan names: one capture transport per capture target and
+# one outbound transport per outbound target. Nothing else may run smtp(8).
+plan_smtp_transports() {
+    jq -r '.listeners[]
+        | if .delivery_mode == "capture" then "rateguru-capture-\(.identity)"
+          elif .delivery_mode == "outbound" then "rateguru-outbound-\(.identity)"
+          else empty end' "${PLAN_FILE}" || true
+}
+
+plan_outbound_count() {
+    jq '[.listeners[] | select(.delivery_mode == "outbound")] | length' "${PLAN_FILE}" 2>/dev/null || echo 0
+}
+
+# The MTA identity the host contract names; empty when direct delivery is
+# disabled. Read only after assert_outbound_contract accepted the contract.
+outbound_mta_hostname() {
+    jq -r 'if .direct.enabled == true then .direct.mta_hostname else "" end' "${OUTBOUND_FILE}" 2>/dev/null || true
 }
 
 # --- Package and ownership state -----------------------------------------------------
@@ -594,6 +823,11 @@ postfix_contract_problems() {
         [[ -z "${value}" ]] || printf '%s is "%s", not empty — the gateway has no global route\n' "${name}" "${value}"
     done
 
+    # An outbound filter names no next hop, so this decides where its mail
+    # goes: empty means each recipient's own domain, anything else a relay.
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h default_filter_nexthop 2>/dev/null || true)"
+    [[ -z "${value}" ]] || printf 'default_filter_nexthop is "%s", not empty — an outbound route would deliver there instead of to the recipient domain MX\n' "${value}"
+
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_interfaces 2>/dev/null || true)"
     [[ "${value}" == 127.0.0.1 ]] || printf 'inet_interfaces is "%s", not 127.0.0.1\n' "${value}"
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_protocols 2>/dev/null || true)"
@@ -612,27 +846,48 @@ postfix_contract_problems() {
     [[ "${actual}" == "${expected}" ]] \
         || printf 'inet services are [%s], the plan names [%s]\n' "${actual//$'\n'/ }" "${expected//$'\n'/ }"
 
+    # The smtp clients are exactly the plan's transports: no generic smtp or
+    # relay client, and no outbound transport the plan does not name.
+    expected="$(plan_smtp_transports | sort)"
+    actual="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$8 == "smtp" { print $1 }' | sort || true)"
+    [[ "${actual}" == "${expected}" ]] \
+        || printf 'smtp delivery agents are [%s], the plan names [%s] — no other smtp client may exist\n' "${actual//$'\n'/ }" "${expected//$'\n'/ }"
+
     # Each listener's route, read back per service.
-    local identity endpoint mode route filter recipients
+    local identity endpoint mode route filter recipients transport helo
+    helo="$(outbound_mta_hostname)"
     while IFS=$'\t' read -r identity endpoint mode route; do
         [[ -n "${identity}" ]] || continue
         filter="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/content_filter" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
         recipients="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/smtpd_recipient_restrictions" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
 
-        case "${mode}" in
-            capture)
+        case "${mode}:${route}" in
+            capture:*)
                 [[ "${filter}" == "rateguru-capture-${identity}:[${route%:*}]:${route##*:}" ]] \
                     || printf '%s (%s) routes to "%s", not its capture destination %s\n' "${identity}" "${endpoint}" "${filter}" "${route}"
                 ;;
-            held)
+            held:*)
                 [[ -z "${filter}" ]] || printf '%s (%s) is held but names a route: %s\n' "${identity}" "${endpoint}" "${filter}"
                 [[ "${recipients}" == *static:HOLD* ]] || printf '%s (%s) is held but does not place its mail on hold\n' "${identity}" "${endpoint}"
                 ;;
+            outbound:direct)
+                # Its own transport and no next hop, so the recipient domain
+                # decides; every other listener was checked against its own.
+                transport="rateguru-outbound-${identity}"
+                [[ "${filter}" == "${transport}:" ]] \
+                    || printf '%s (%s) routes to "%s", not its own direct transport %s with no next hop\n' "${identity}" "${endpoint}" "${filter}" "${transport}:"
+                [[ "${recipients}" != *static:HOLD* ]] \
+                    || printf '%s (%s) is outbound but places its mail on hold\n' "${identity}" "${endpoint}"
+                outbound_transport_problems "${dir}" "${identity}" "${transport}" "${helo}"
+                ;;
             *)
-                printf '%s has delivery mode %s, which this gateway has no spelling for\n' "${identity}" "${mode}"
+                printf '%s has delivery mode %s with route %s, which this gateway has no spelling for\n' "${identity}" "${mode}" "${route}"
                 ;;
         esac
-    done < <(jq -r '.listeners[] | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode, (if .route then "\(.route.host):\(.route.port)" else "-" end)] | @tsv' "${PLAN_FILE}")
+    done < <(jq -r '.listeners[]
+        | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode,
+           (if .route == null then "-" elif .route.kind == "direct" then "direct" else "\(.route.host):\(.route.port)" end)]
+        | @tsv' "${PLAN_FILE}")
 
     # `postfix check` also inspects ownership and permissions; root only.
     if [[ "${EFFECTIVE_UID}" == 0 ]]; then
@@ -642,6 +897,34 @@ postfix_contract_problems() {
             printf 'postfix check reports: %s\n' "${warnings}"
         fi
     fi
+}
+
+# outbound_transport_problems DIR IDENTITY TRANSPORT HELO — the target's
+# direct smtp client, read back from master.cf: exactly one, greeting with the
+# host's MTA identity, STARTTLS when offered and never required, no SMTP AUTH
+# and no fallback relay.
+outbound_transport_problems() {
+    local dir="$1" identity="$2" transport="$3" helo="$4" count value
+
+    count="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk -v t="${transport}" '$1 == t' | wc -l | tr -d ' ' || true)"
+    [[ "${count}" == 1 ]] || printf '%s has %s services named %s, not exactly one\n' "${identity}" "${count:-0}" "${transport}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk -v t="${transport}" '$1 == t { print $2 "/" $8 }' | head -n 1 || true)"
+    [[ "${value}" == unix/smtp ]] || printf '%s is "%s", not a unix smtp client\n' "${transport}" "${value}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${transport}/unix/smtp_helo_name" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ -n "${helo}" && "${value}" == "${helo}" ]] \
+        || printf '%s greets as "%s", not the host MTA identity "%s" from mail-outbound.json\n' "${transport}" "${value}" "${helo}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${transport}/unix/smtp_tls_security_level" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ "${value}" == may ]] \
+        || printf '%s has smtp_tls_security_level "%s", not may — opportunistic STARTTLS, never required\n' "${transport}" "${value}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${transport}/unix/smtp_sasl_auth_enable" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ "${value}" == no ]] || printf '%s has smtp_sasl_auth_enable "%s" — direct delivery has no SMTP AUTH\n' "${transport}" "${value}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${transport}/unix/smtp_fallback_relay" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ -z "${value}" ]] || printf '%s has a fallback relay "%s" — direct delivery has no relay\n' "${transport}" "${value}"
 }
 
 # --- Runtime --------------------------------------------------------------------------
@@ -802,6 +1085,15 @@ report_contract() {
 
     printf 'install-mail-gateway --%s\n' "${MODE}"
     item PASS "plan" "mail-routing render-plan accepted the reviewed policy (${listener_count} listener(s)); the gateway is rendered from it"
+
+    local helo outbound_count
+    helo="$(outbound_mta_hostname)"
+    outbound_count="$(plan_outbound_count)"
+    if [[ -n "${helo}" ]]; then
+        item PASS "outbound:direct" "direct delivery enabled on this host as ${helo}; ${outbound_count} outbound route(s) in the plan"
+    else
+        item PASS "outbound:direct" "direct delivery disabled on this host (mail-outbound.json); the plan has no outbound route, and none could be rendered"
+    fi
 
     if [[ -n "${others}" ]]; then
         item CONFLICT "mta:other" "another mail transport agent is installed (${others//$'\n'/, }) — it is not RateGuru's, and installing Postfix would remove it"

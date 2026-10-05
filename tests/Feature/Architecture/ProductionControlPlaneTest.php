@@ -233,7 +233,6 @@ it('pins the classification of every operational workflow literally', function (
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
-        'verify-staging-mail-gateway.yml' => 'develop',
     ]);
 
     // Every production workflow is named `*production*` or is one of the two

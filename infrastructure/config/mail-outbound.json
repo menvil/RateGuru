@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "direct": {
+    "enabled": false,
+    "mta_hostname": ""
+  }
+}

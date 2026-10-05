@@ -1725,9 +1725,9 @@ Slices, in order:
    staging still submits straight to Mailpit. Production mail is not
    accepted. See [`runbooks/mail-routing.md`](runbooks/mail-routing.md).
 
-   **8.4B.2 Local mail gateway and the staging capture route — IMPLEMENTED,
-   not yet installed or accepted on the real host.** One host-global Postfix
-   gateway, owned end to end by `scripts/install-mail-gateway`
+   **8.4B.2 Local mail gateway and the staging capture route — IMPLEMENTED
+   AND ACCEPTED on the real staging host.** One host-global Postfix gateway,
+   owned end to end by `scripts/install-mail-gateway`
    (`--check`/`--apply`/`--verify`) and rendered from `mail-routing
    render-plan` in the same bundle — the installer spells the plan in Postfix
    and restates no policy rule. It listens on exactly the plan's loopback
@@ -1743,35 +1743,83 @@ Slices, in order:
    preseeded with no configuration of its own — so no daemon can start before
    RateGuru's configuration exists, and no package upgrade rewrites it — with
    service starts suppressed (a host's own policy-rc.d is preserved), behind a
-   non-secret ownership marker: a Postfix
-   or other MTA RateGuru did not install fails every mode closed, and an
-   interrupted RateGuru installation resumes. Apply is transactional and
-   validated by Postfix before anything is installed. Host bootstrap converges
-   it after mail capture, which it delivers into; target-scoped repair and
-   provisioning never touch it. `scripts/verify-mail-gateway --e2e` is the
-   mutating operator acceptance — capture into Mailpit and its mirror, sender
-   isolation, HOLD, and retry across a Mailpit outage, removing only its own
-   messages and queue entries — run by the manual **Verify staging mail
-   gateway** workflow; ordinary Prepare never runs it. The committed staging
-   template now names the gateway (`MAIL_PORT=2525`); the host's own `.env`
-   is untouched. `mail-routing` itself now runs on Ubuntu 22.04's jq 1.6,
-   which reserves a parameter name it used. *Acceptance, on the real host and
-   in this order:* Prepare staging host → Verify staging mail gateway → the
-   operator sets `MAIL_PORT=2525` in the staging `shared/.env` → deploy
-   staging → one real application-generated mail → it is in Mailpit and
-   Mailtrap Local. Rollback is `MAIL_PORT=1025` and a redeploy. A rehearsal
-   in a local Ubuntu 22.04 container with systemd, real Postfix 3.6.4, Mailpit
-   and Mailtrap Local passed; it is not this acceptance. See
+   non-secret ownership marker: a Postfix or other MTA RateGuru did not
+   install fails every mode closed, and an interrupted RateGuru installation
+   resumes. Apply is transactional and validated by Postfix before anything is
+   installed. Host bootstrap converges it after mail capture, which it
+   delivers into; target-scoped repair and provisioning never touch it.
+   `scripts/verify-mail-gateway --e2e` is the mutating low-level acceptance
+   primitive — capture into Mailpit and its mirror, sender isolation, HOLD,
+   and retry across a Mailpit outage, removing only its own messages and queue
+   entries; ordinary Prepare never runs it. `mail-routing` runs on Ubuntu
+   22.04's jq 1.6, which reserves a parameter name it used.
+
+   *Accepted on the real staging host:* the RateGuru-owned Postfix 3.6.4
+   package, a configuration exactly equal to the reviewed render, and the
+   service, all verified; no public SMTP listener; the capture path
+   (`127.0.0.1:2525` → Postfix queue → Mailpit on `127.0.0.1:1025` → the
+   Mailtrap Local mirror); sender isolation; `tits-guru` on `127.0.0.1:2526`
+   held; a Mailpit outage deferring the message in Postfix's queue and the
+   retry delivering it once Mailpit was back. The operator then changed the
+   staging `shared/.env` to `MAIL_PORT=2525`, staging was redeployed, and a
+   real Laravel password-reset email arrived in Mailpit and in Mailtrap Local.
+   Staging application mail now runs through the gateway; rollback is
+   `MAIL_PORT=1025` and a redeploy. The one-time manual GitHub workflow that
+   ran the acceptance was removed once it had served its purpose;
+   `verify-mail-gateway --e2e` stays as the primitive a future single generic
+   staging-infrastructure acceptance operation will orchestrate, rather than
+   one workflow per subsystem. See
    [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
 
-   **8.4B.3 Production outbound transport — planned.** Replace `held` with
-   the real outbound transport for production, only once that transport is
-   implemented and reviewed; the new delivery mode is added to the policy
-   validator and the gateway renderer in that change, never before.
+   **8.4B.3 Self-hosted direct outbound SMTP capability — IMPLEMENTED, not
+   activated.** The way a production target's mail will leave the host,
+   built and proved while nothing uses it. `mail-routing` schema 2 adds the
+   production-only delivery mode `outbound` with exactly one kind,
+   `outbound: {"kind": "direct"}` — no relay kind exists until one is
+   implemented — and judges an outbound policy's identity by the same rules as
+   a held one, with mail, bounce and reply domains unique across held and
+   outbound targets together; schema 1 is refused, never reinterpreted.
+   `held` still may not be active; `outbound` may. The physical identity
+   direct delivery greets receiving servers with is the host's, not a
+   target's — every brand on a host shares one source address and an address
+   has one PTR name — so it lives once, in the new host-global
+   `config/mail-outbound.json` (`direct.enabled`, `direct.mta_hostname`; no
+   credential). The gateway renders each outbound target's own
+   `rateguru-outbound-<target>` smtp(8) client, selected only by that target's
+   listener through a content filter with no next hop; with
+   `default_filter_nexthop` empty, Postfix's queue manager uses each
+   recipient's own domain as the next hop, so delivery goes to the recipient
+   domain's MX — proved against Postfix 3.6.4's `qmgr_message.c`, not assumed.
+   The client greets with the host's MTA hostname, offers STARTTLS
+   opportunistically (`smtp_tls_security_level = may`) and has no SMTP AUTH,
+   no relayhost and no fallback relay; every fallback transport stays
+   error(8). A direct route on a host whose contract keeps direct delivery
+   disabled — or enables it without a valid public hostname — fails
+   `--check`, `--apply` and `--verify` before any file or service is touched,
+   so flipping a target to `outbound` cannot by itself send mail. A plan with
+   no outbound target renders byte for byte what it did before, so the real
+   host does not drift. `verify-mail-gateway --e2e` never submits a message to
+   an outbound listener: its sender probes stop at `MAIL FROM`.
+   `status-mail-gateway` shows an outbound route as direct SMTP to the
+   recipient MX. Proved with a synthetic `demo-shop` target, and rehearsed in a
+   disposable Ubuntu 22.04 container with real Postfix 3.6.4 against a
+   controlled DNS and SMTP sink on an Internet-less network — evidence, not
+   acceptance. *Unchanged on purpose:* `tits-guru` is still `held` and
+   `lifecycle=planned`, the real `mail-outbound.json` keeps direct delivery
+   disabled, no host has an outbound route, no production environment value,
+   DNS record, PTR, SPF, DKIM or DMARC changed, and no email was sent to the
+   public Internet. See [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
 
-   **8.4B.4 Mail identity and DNS signing policy — planned.** SPF, DKIM and
-   DMARC for the production mail domain, bounce reception on its bounce
-   domain and reply routing on its reply domain.
+   **8.4B.4 Production mail identity and tits-guru outbound — planned.** The
+   real public MTA hostname and its PTR/rDNS, verified; SPF; DKIM keys and
+   signing; DMARC; the production Return-Path and bounce identity, and bounce
+   reception on the bounce domain; reply routing on the reply domain and a
+   support mailbox; then `direct.enabled` with that hostname, `tits-guru` from
+   `held` to `outbound`, the production `.env` mail values
+   (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
+   `MAIL_FROM_ADDRESS=noreply@tits.guru`), a controlled real canary delivery
+   with its headers verified at the large mailbox providers, and sender
+   reputation warm-up.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,

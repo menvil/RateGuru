@@ -10,7 +10,8 @@
 #                policy, Postfix parses them, the service is enabled and stably
 #                running, the listeners are exactly the plan's loopback
 #                endpoints, no public SMTP port is open, every capture
-#                destination is listening, held mail has no route and
+#                destination is listening, held mail has no route, each
+#                outbound route is its own target's direct smtp client and
 #                unclassified mail cannot be delivered. This is what host
 #                bootstrap verification uses.
 #
@@ -21,17 +22,28 @@
 #                     domain is queued by Postfix and reaches the canonical
 #                     Mailpit copy and the Mailtrap Local mirror;
 #                  B. every listener refuses a sender outside its own domain —
-#                     a foreign domain and every other listener's domain;
+#                     a foreign domain and every other listener's domain — at
+#                     MAIL FROM. The probe never gets past MAIL FROM: it sends
+#                     no recipient and no message, whatever the reply, so even
+#                     a gateway that wrongly accepted the sender is left with
+#                     nothing to queue;
 #                  C. every held listener: the message is accepted, its exact
 #                     queue entry sits in HOLD, and it never reaches Mailpit;
 #                  D. with Mailpit stopped, a capture message is accepted and
 #                     deferred, and once Mailpit is back Postfix delivers that
-#                     exact message, and the mirror still follows.
+#                     exact message, and the mirror still follows;
+#                  E. every outbound listener: NOTHING is submitted. A message
+#                     it accepted would leave the host for the Internet, so its
+#                     only acceptance here is B. A real outbound delivery is a
+#                     deliberate production canary, never this diagnostic.
 #                It sends mail, stops and starts staging-mailpit.service, and
 #                removes ONLY what it created: its own Mailpit/Mailtrap messages
 #                by their unique token, and its own Postfix queue entries by
 #                their exact queue ID. It never flushes or empties the queue.
 #                Mailpit is put back the way it was on every exit.
+#
+# A whole message is only ever submitted to a capture or held listener of the
+# plan: smtp_submit refuses any other endpoint before it opens a connection.
 #
 # There is no default mode: a mutating acceptance run is always asked for by
 # name.
@@ -76,9 +88,11 @@ Usage:
   --read-only  Strictly read-only: install-mail-gateway --verify. No SMTP, no
                queue change, no service change. What host bootstrap uses.
   --e2e        Mutating operator acceptance (root): capture delivery into
-               Mailpit and its mirror, sender isolation on every listener, held
-               mail in HOLD and nowhere else, and queued retry across a Mailpit
-               outage. Removes only the messages and queue entries it created.
+               Mailpit and its mirror, sender isolation on every listener (at
+               MAIL FROM only), held mail in HOLD and nowhere else, and queued
+               retry across a Mailpit outage. Never submits a message to an
+               outbound listener. Removes only the messages and queue entries
+               it created.
 USAGE
 }
 
@@ -95,6 +109,13 @@ require_tools() {
 # command a refusal came at (connect, ehlo, mail, rcpt, data, message) or to
 # "queued", SMTP_REPLY to the last server reply and SMTP_QUEUE_ID to the queue ID
 # Postfix names in its final reply. Returns 0 only when the message was queued.
+# Only a capture or held listener of the plan is ever submitted to; any other
+# endpoint is refused with SMTP_STAGE=refused before a connection is opened.
+#
+# smtp_probe_sender HOST PORT FROM — connect, EHLO and MAIL FROM, then RSET and
+# QUIT, whatever the reply. Sets SMTP_STAGE and SMTP_REPLY the same way, and
+# returns 0 only when the sender was accepted. It never names a recipient and
+# never sends a message, so it is safe on every listener, outbound included.
 
 SMTP_STAGE=""
 SMTP_REPLY=""
@@ -123,11 +144,30 @@ _smtp_step() {
     _smtp_reply 4 "${want}"
 }
 
+# submission_allowed HOST PORT — the endpoint is a capture or held listener of
+# the loaded plan. An outbound listener would deliver whatever it accepted to
+# the Internet, and an endpoint the plan does not name is not this gateway's.
+submission_allowed() {
+    [[ -n "${PLAN_FILE}" && -f "${PLAN_FILE}" ]] || return 1
+
+    jq -e --arg host "$1" --arg port "$2" '
+        any(.listeners[];
+            .listen.host == $host and (.listen.port | tostring) == $port
+            and (.delivery_mode == "capture" or .delivery_mode == "held"))
+    ' "${PLAN_FILE}" >/dev/null 2>&1
+}
+
 smtp_submit() {
     local host="$1" port="$2" from="$3" to="$4" token="$5"
     SMTP_STAGE="connect"
     SMTP_REPLY=""
     SMTP_QUEUE_ID=""
+
+    if ! submission_allowed "${host}" "${port}"; then
+        SMTP_STAGE="refused"
+        SMTP_REPLY="${host}:${port} is not a capture or held listener of the plan — no message is ever submitted to it"
+        return 1
+    fi
 
     exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
 
@@ -156,6 +196,28 @@ smtp_submit() {
 
     exec 4>&- 4<&- 2>/dev/null || true
     [[ "${SMTP_STAGE}" == queued ]]
+}
+
+smtp_probe_sender() {
+    local host="$1" port="$2" from="$3" accepted=1
+    SMTP_STAGE="connect"
+    SMTP_REPLY=""
+
+    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+
+    if _smtp_step connect 2 \
+        && _smtp_step ehlo 2 "EHLO mail-gateway-verify"
+    then
+        _smtp_step mail 2 "MAIL FROM:<${from}>" && accepted=0
+
+        # The reply decides nothing here: the transaction is abandoned either
+        # way, before a recipient could be named.
+        printf 'RSET\r\n' >&4 || true
+        printf 'QUIT\r\n' >&4 || true
+    fi
+
+    exec 4>&- 4<&- 2>/dev/null || true
+    return "${accepted}"
 }
 
 new_token() {
@@ -286,7 +348,7 @@ listeners() {
         | select($mode == "any" or .delivery_mode == $mode)
         | [.identity, .listen.host, (.listen.port | tostring), .sender.allowed_domain,
            (.sender.default_from // "mail-gateway-verify@\(.sender.allowed_domain)"),
-           (if .route then "\(.route.host):\(.route.port)" else "-" end)]
+           (if .route == null then "-" elif .route.kind == "direct" then "direct" else "\(.route.host):\(.route.port)" end)]
         | @tsv
     ' "${PLAN_FILE}"
 }
@@ -315,7 +377,7 @@ check_capture_delivery() {
 }
 
 check_sender_isolation() {
-    local identity host port domain sender route other token
+    local identity host port domain sender route other
     local -a domains=()
     mapfile -t domains < <(jq -r '.listeners[].sender.allowed_domain' "${PLAN_FILE}")
 
@@ -324,12 +386,9 @@ check_sender_isolation() {
 
         for other in "foreign-${domain}" "${domains[@]}"; do
             [[ "${other}" != "${domain}" ]] || continue
-            token="$(new_token)"
-            TOKENS+=("${token}")
 
-            if smtp_submit "${host}" "${port}" "intruder@${other}" "mail-gateway-verify@${domain}" "${token}"; then
-                remember_queue_id
-                fail "B ${identity}: a sender from ${other} was accepted on ${host}:${port}"
+            if smtp_probe_sender "${host}" "${port}" "intruder@${other}"; then
+                fail "B ${identity}: a sender from ${other} was accepted at MAIL FROM on ${host}:${port} (the probe named no recipient and sent nothing)"
             fi
             [[ "${SMTP_STAGE}" == mail && "${SMTP_REPLY}" == 5* ]] \
                 || fail "B ${identity}: a sender from ${other} was not refused at MAIL FROM (${SMTP_STAGE}: ${SMTP_REPLY})"
@@ -362,6 +421,14 @@ check_held() {
             || fail "C ${identity}: could not remove the synthetic held entry ${SMTP_QUEUE_ID}"
         ok "C ${identity}: removed the synthetic held entry ${SMTP_QUEUE_ID}, and only it"
     done < <(listeners held)
+}
+
+check_outbound() {
+    local identity host port domain sender route
+    while IFS=$'\t' read -r identity host port domain sender route; do
+        [[ -n "${identity}" ]] || continue
+        ok "E ${identity}: outbound (${route}) on ${host}:${port} — no message submitted; a message accepted here would leave the host, so its acceptance here is B alone, and a real delivery is a deliberate production canary"
+    done < <(listeners outbound)
 }
 
 check_capture_retry() {
@@ -419,6 +486,7 @@ run_e2e() {
     check_capture_delivery
     check_sender_isolation
     check_held
+    check_outbound
     check_capture_retry
 
     log "end-to-end acceptance passed; removing the synthetic messages"
@@ -461,4 +529,8 @@ main() {
     esac
 }
 
-main "$@"
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped probes rather than a copy of them.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

@@ -35,9 +35,6 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
-        // The staging mail gateway's operator acceptance, added later and
-        // guarded by MailGatewayTest.
-        'verify-staging-mail-gateway.yml',
     ]);
 
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
@@ -62,10 +59,6 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
-        // The staging mail gateway acceptance's transport, guarded by
-        // MailGatewayTest: it runs the gateway's operator acceptance and
-        // installs nothing.
-        'verify-rateguru-mail-gateway',
     ]);
 
     $wrappers = collect(glob(base_path('infrastructure/config/wrappers/*')) ?: [])
