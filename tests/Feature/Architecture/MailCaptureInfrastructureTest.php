@@ -13,27 +13,14 @@ function mailCaptureSource(string $path): string
 }
 
 /**
- * Parse an env/`KEY=VALUE` file into an ordered map, ignoring blank and
- * commented lines. Values are returned verbatim (trailing CR stripped).
+ * An env/`KEY=VALUE` file under infrastructure/, as an ordered map — the shared
+ * parser, addressed the way the rest of this file addresses its sources.
  *
  * @return array<string, string>
  */
 function mailCaptureEnvValues(string $path): array
 {
-    $out = [];
-
-    foreach (preg_split('/\R/', mailCaptureSource($path)) as $line) {
-        $trimmed = trim($line);
-
-        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
-            continue;
-        }
-
-        [$key, $value] = explode('=', $trimmed, 2);
-        $out[trim($key)] = rtrim($value, "\r");
-    }
-
-    return $out;
+    return envFileValues('infrastructure/'.$path);
 }
 
 /**

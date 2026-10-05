@@ -1,0 +1,553 @@
+#!/usr/bin/env bash
+#
+# mail-routing — the reviewed mail routing policy: validation, and the plan a
+# local mail gateway would follow.
+#
+#   mail-routing validate    [--file PATH] [--registry PATH]
+#   mail-routing render-plan [--file PATH] [--registry PATH]
+#
+# THE MODEL. An application never decides where its mail goes. It submits every
+# message to a local gateway, on a loopback port that belongs to its target
+# alone, and the gateway routes it by that target's reviewed policy. The port a
+# message arrived on therefore says WHO sent it: the submission endpoint is the
+# routing identity. The sender domain is a second contract the gateway enforces
+# on top of that, never the selector — a From header is whatever the client
+# wrote, and a target chosen by it is a target chosen by the client.
+#
+# WHAT LIVES WHERE. deployment-targets.json stays the only place a target's
+# existence, lifecycle and environment class are declared. This script reads
+# them from there, and the policy never repeats them. The policy,
+# infrastructure/config/mail-routing.json, holds only what the registry cannot:
+# each target's gateway endpoint, delivery mode and mail identity. Every target
+# in the registry has exactly one policy, and every policy belongs to a target
+# in the registry.
+#
+# DELIVERY MODES. A closed set, and each one exists because something uses it:
+#
+#   capture  Delivered to a loopback capture service and never off the host.
+#            The only mode of a staging target.
+#   held     The production identity is reviewed and a gateway endpoint is
+#            reserved, but NO route exists: nothing is ever delivered. The only
+#            mode of a production target until its outbound transport has been
+#            implemented and reviewed. A held target may not be active — an
+#            active target whose mail can never leave is a live site silently
+#            losing its mail.
+#
+# A mode is added by the change that implements it, never ahead of it as an
+# unused placeholder: a value the validator accepts is a value somebody can
+# configure.
+#
+# WHAT IT IS NOT. A policy contract, not an installer. It writes nothing,
+# starts nothing, sends nothing and runs no command derived from the policy.
+# `render-plan` prints a JSON description of what a gateway would do; it holds no
+# shell command and no secret, and nothing on a host reads it yet.
+#
+# Repository tooling: run from a checkout by a developer or by CI, and
+# deliberately absent from the operational bundle installed on a host.
+#
+# The policy is data, never code. It is read with jq only — never sourced, never
+# eval'd — and every rule runs inside jq against the exact JSON values. Nothing
+# is judged after a trip through a shell variable: a command substitution strips
+# trailing newlines and bash drops NUL bytes, so a value checked there is not
+# the value in the file. Target IDs reach jq as data, never by concatenation
+# into a program or a command.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+POLICY_DEFAULT_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
+REGISTRY_DEFAULT_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+TARGETS_CLI="${SCRIPT_DIR}/targets"
+
+SCHEMA_VERSION=1
+
+# Property names that would mean a credential reached committed, world-readable
+# data. The policy's shape is closed, so such a key is refused regardless; this
+# names the actual reason instead of calling it merely unexpected.
+SECRET_NAME_PATTERN='password|passwd|secret|token|private_?key|credential|dsn|api_?key|access_?key|auth|username|login|sasl'
+
+# --- the rules ----------------------------------------------------------------
+#
+# Shared by both programs below. Every pattern is anchored with \A and \z, not ^
+# and $: in jq's regex dialect `$` also matches before a trailing newline, so
+# "127.0.0.1\n" would satisfy a `^...$` loopback check.
+#
+# The programs are single-quoted on purpose: every `$name` in them is a jq
+# variable, and none may ever be expanded by the shell.
+# shellcheck disable=SC2016
+POLICY_DEFINITIONS='
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+
+def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def domain_re: "(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def local_part_re: "[a-z0-9]+(?:[._-][a-z0-9]+)*";
+def octet_re: "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+def loopback_re: "127\\." + octet_re + "\\." + octet_re + "\\." + octet_re;
+
+# The same closed format the registry holds a target ID to.
+def is_target_id: type == "string" and anchored("[a-z0-9][a-z0-9-]{1,31}");
+
+# Lowercase, at least two labels, no trailing dot, no wildcard, and a final
+# label that is not all digits, so an IP address is never mistaken for a domain.
+def is_domain: type == "string" and length <= 253 and anchored(domain_re);
+
+def is_address:
+    type == "string"
+    and anchored(local_part_re + "@" + domain_re)
+    and ((split("@") | .[0] | length) <= 64)
+    and ((split("@") | .[1] | length) <= 253);
+
+def is_port($min): type == "number" and . == floor and . >= $min and . <= 65535;
+
+def endpoint: "\(.host):\(.port)";
+
+# Every target submits to the gateway on this address. Loopback only, and one
+# address for all of them: the port alone is the identity.
+def gateway_host: "127.0.0.1";
+
+# A submission port is never a privileged one. The well-known SMTP ports are
+# where a public listener lives, and a gateway endpoint must not be one
+# configuration slip away from becoming one.
+def first_submission_port: 1024;
+
+# The reserved TLD that can never resolve, so mail claiming it can never be
+# delivered: what a capture identity must use, and a production one must not.
+def non_deliverable_tld: "invalid";
+
+def mode_properties: {
+    capture: ["allowed_from_domain", "capture", "delivery_mode", "submission"],
+    held: ["bounce_domain", "default_from", "delivery_mode", "mail_domain", "reply_domain", "submission"]
+};
+
+# What a held policy may never carry: anything naming somewhere to deliver to.
+def destination_properties: ["capture", "destination", "nexthop", "outbound", "relay", "relayhost", "route", "smarthost", "transport"];
+
+def class_modes: {
+    staging: {
+        modes: ["capture"],
+        reason: "a staging target never delivers: its mail is captured on the host, so it cannot declare production delivery"
+    },
+    production: {
+        modes: ["held"],
+        reason: "capture would send production mail into the staging capture service, and no outbound transport exists yet, so production mail is held"
+    }
+};
+'
+
+# Emits one JSON array of problems; empty when the policy is valid. Run only on a
+# single-document, control-character-free, duplicate-free object whose
+# schema_version and top-level shape are already proved, against a registry
+# `targets validate` has already accepted.
+# shellcheck disable=SC2016
+POLICY_RULES="${POLICY_DEFINITIONS}"'
+# Every rule is a generator of problem strings. Each one is parenthesized where
+# it is combined: in jq `a, b | c` means `(a, b) | c`, so an unbracketed rule
+# would swallow every rule before it.
+
+def endpoint_problems($label; host_ok; $host_rule; $min_port):
+    if type != "object" then
+        "\($label) must be an object {host, port}, got \(tojson)"
+    elif keys != ["host", "port"] then
+        "\($label) must be exactly {host, port}, found \(keys | tojson)"
+    else
+        (if (.host | type == "string") and (.host | host_ok) then empty
+         else "\($label).host must be \($host_rule), got \(.host | tojson)" end),
+        (if .port | is_port($min_port) then empty
+         else "\($label).port must be an integer from \($min_port) to 65535, got \(.port | tojson)" end)
+    end;
+
+def shape_problems($id; $mode; $p):
+    mode_properties[$mode] as $expected
+    | ($p | keys) as $present
+    | (($expected - $present)[] | "\($id): a \($mode) policy must declare \(.)"),
+      (($present - $expected)[] as $key
+        | if $mode == "held" and any(destination_properties[]; . == $key) then
+              "\($id): held mail has no delivery destination, so it may not declare \($key | tojson) — held is neither capture nor a route"
+          else
+              "\($id): unexpected property \($key | tojson) in a \($mode) policy"
+          end);
+
+# A property the policy does not declare at all is reported once, by
+# shape_problems, rather than again here as a malformed value.
+def submission_problems($id; $p):
+    if $p | has("submission") then
+        $p.submission
+        | endpoint_problems("\($id): submission"; . == gateway_host; "exactly \(gateway_host) — the gateway listens on loopback only"; first_submission_port)
+    else empty end;
+
+def capture_problems($id; $p):
+    (if $p | has("allowed_from_domain") then
+         $p.allowed_from_domain
+         | if is_domain | not then
+               "\($id): allowed_from_domain is not a lowercase domain name: \(tojson)"
+           elif endswith("." + non_deliverable_tld) | not then
+               "\($id): allowed_from_domain must be under the reserved .\(non_deliverable_tld) TLD, so captured mail never carries a deliverable identity: \(tojson)"
+           else empty end
+     else empty end),
+    (if $p | has("capture") then
+         $p.capture
+         | endpoint_problems("\($id): capture"; anchored(loopback_re); "an IPv4 loopback address — captured mail never leaves the host"; 1)
+     else empty end);
+
+def held_problems($id; $p):
+    (("mail_domain", "bounce_domain", "reply_domain") as $key
+      | select($p | has($key))
+      | $p[$key] as $value
+      | if $value | is_domain | not then
+            "\($id): \($key) is not a lowercase domain name: \($value | tojson)"
+        elif $value | endswith("." + non_deliverable_tld) then
+            "\($id): \($key) \($value | tojson) is under the reserved .\(non_deliverable_tld) TLD — a production identity must be deliverable, and that TLD is what staging capture uses"
+        elif $key != "mail_domain" and ($p.mail_domain | is_domain) and ($value | endswith("." + $p.mail_domain) | not) then
+            "\($id): \($key) \($value | tojson) must be a subdomain of mail_domain \($p.mail_domain | tojson), so bounces and replies stay aligned with the identity they belong to"
+        else empty end),
+    (if $p | has("default_from") then
+         $p.default_from
+         | if is_address | not then
+               "\($id): default_from is not a lowercase mail address: \(tojson)"
+           elif ($p.mail_domain | is_domain) and (split("@") | .[1]) != $p.mail_domain then
+               "\($id): default_from \(tojson) must be an address at mail_domain \($p.mail_domain | tojson)"
+           else empty end
+     else empty end);
+
+def registry_problems($id; $mode; $target):
+    $target.environment_class as $class
+    | (if class_modes[$class].modes | any(.[]; . == $mode) then empty
+       else "\($id): environment_class \($class) allows delivery_mode \(class_modes[$class].modes | join(" or ")), not \($mode) — \(class_modes[$class].reason)" end),
+      (if $mode == "held" and $target.lifecycle == "active" then
+           "\($id): lifecycle=active with held mail — an active target must have a delivery route and held has none; it stays inactive until its outbound transport is reviewed"
+       else empty end);
+
+def policy_problems($id; $p; $target):
+    if ($p | type) != "object" then
+        "\($id): policy must be an object, got \($p | tojson)"
+    elif ($p.delivery_mode | type) != "string" or (mode_properties | has($p.delivery_mode) | not) then
+        "\($id): delivery_mode must be one of \(mode_properties | keys | join(", ")), got \($p.delivery_mode | tojson)"
+    else
+        $p.delivery_mode as $mode
+        | shape_problems($id; $mode; $p),
+          submission_problems($id; $p),
+          (if $mode == "capture" then capture_problems($id; $p) else held_problems($id; $p) end),
+          registry_problems($id; $mode; $target)
+    end;
+
+$registry[0].targets as $targets
+| .targets as $policies
+
+# The cross-target rules reason only about policies that name a real target and
+# are objects; anything else is already reported on its own, and pairing it with
+# a real target would only repeat that problem under another name. Sorted, so a
+# message names its targets in the same order however the file is written.
+| ([$policies
+    | to_entries[]
+    | select(.key | is_target_id)
+    | select(.key as $id | $targets | has($id))
+    | select(.value | type == "object")]
+   | sort_by(.key)) as $known
+
+| [
+    # A credential, wherever it is nested.
+    ([paths | .[] | strings | select(test($secret_pattern; "i"))]
+      | unique[]
+      | "the policy holds a secret-like property name \(tojson) — credentials never belong in committed routing policy"),
+
+    # Each policy on its own, in target order.
+    ($policies
+      | keys[] as $id
+      | if $id | is_target_id | not then
+            "invalid target ID \($id | tojson): it must match [a-z0-9][a-z0-9-]{1,31}"
+        elif $targets | has($id) | not then
+            "\($id): not a target in the deployment registry — a policy for a target that does not exist routes nothing, and a misspelt one leaves the real target without a policy"
+        else
+            policy_problems($id; $policies[$id]; $targets[$id])
+        end),
+
+    # Every target in the registry is routed by review, never by default.
+    ((($targets | keys) - ($policies | keys))[]
+      | "\(.): is in the deployment registry but has no mail routing policy — every target needs exactly one reviewed policy"),
+
+    # The port is the routing identity, so no two targets may share one.
+    ([$known[]
+        | select(.value.submission | type == "object")
+        | select(.value.submission.port | is_port(1))
+        | {id: .key, port: .value.submission.port}]
+      | group_by(.port)[]
+      | select(length > 1)
+      | "submission port \(.[0].port) is claimed by more than one target: \(map(.id) | join(", ")) — the port is the routing identity, so each target needs its own"),
+
+    # A capture destination that is a gateway endpoint resubmits the mail: to the
+    # same target it loops, to another it arrives as that target.
+    ([$known[]
+        | select(.value.submission | type == "object")
+        | {id: .key, endpoint: (.value.submission | endpoint)}] as $gateways
+      | $known[]
+      | select(.value.delivery_mode == "capture")
+      | select(.value.capture | type == "object")
+      | .key as $id
+      | (.value.capture | endpoint) as $destination
+      | $gateways[]
+      | select(.endpoint == $destination)
+      | if .id == $id then
+            "\($id): capture destination \($destination) is its own submission endpoint — mail would loop back into the gateway"
+        else
+            "\($id): capture destination \($destination) is the submission endpoint of \(.id) — its mail would be resubmitted as \(.id)"
+        end),
+
+    # A production identity belongs to one target: bounces and replies are
+    # attributed by domain, so a shared one could not be routed back.
+    ([$known[]
+        | select(.value.delivery_mode == "held")
+        | .key as $id
+        | .value as $p
+        | ("mail_domain", "bounce_domain", "reply_domain") as $key
+        | select($p[$key] | is_domain)
+        | {domain: $p[$key], owner: "\($id) \($key)"}]
+      | group_by(.domain)[]
+      | select(length > 1)
+      | "mail identity domain \(.[0].domain) is claimed more than once: \(map(.owner) | join(", "))")
+  ]
+'
+
+# The gateway plan: one listener per target, in target order, with keys sorted
+# by jq -S. Holds only addresses, ports, domains and closed vocabulary — never a
+# command, a path or a secret.
+# shellcheck disable=SC2016
+RENDER_PROGRAM="${POLICY_DEFINITIONS}"'
+$registry[0].targets as $targets
+| {
+    schema_version: .schema_version,
+    listeners: [
+        .targets
+        | keys[] as $id
+        | .[$id] as $p
+        | {
+              identity: $id,
+              environment_class: $targets[$id].environment_class,
+              lifecycle: $targets[$id].lifecycle,
+              listen: {host: $p.submission.host, port: $p.submission.port},
+              delivery_mode: $p.delivery_mode
+          }
+          + if $p.delivery_mode == "capture" then
+                {
+                    sender: {allowed_domain: $p.allowed_from_domain},
+                    route: {kind: "capture", host: $p.capture.host, port: $p.capture.port}
+                }
+            elif $p.delivery_mode == "held" then
+                {
+                    sender: {
+                        allowed_domain: $p.mail_domain,
+                        default_from: $p.default_from,
+                        bounce_domain: $p.bounce_domain,
+                        reply_domain: $p.reply_domain
+                    },
+                    route: null
+                }
+            else
+                error("no plan is defined for delivery mode \($p.delivery_mode | tojson)")
+            end
+    ]
+  }
+'
+
+log() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  mail-routing validate    [--file PATH] [--registry PATH]
+  mail-routing render-plan [--file PATH] [--registry PATH]
+
+  validate     Check the mail routing policy against itself and against the
+               deployment target registry. Read-only; exit 0 only when valid.
+  render-plan  Validate, then print the gateway plan the policy describes as JSON
+               on stdout. Read-only; prints nothing when the policy is invalid.
+
+  --file PATH      the policy    (default: infrastructure/config/mail-routing.json)
+  --registry PATH  the registry  (default: infrastructure/config/deployment-targets.json)
+USAGE
+}
+
+# --- argument parsing -----------------------------------------------------------
+
+COMMAND=""
+POLICY_FILE="${POLICY_DEFAULT_FILE}"
+REGISTRY_FILE="${REGISTRY_DEFAULT_FILE}"
+FILE_SEEN=false
+REGISTRY_SEEN=false
+
+if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 1
+fi
+
+case "${1}" in
+    validate|render-plan)
+        COMMAND="${1}"
+        shift
+        ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'ERROR: unknown command: %s\n' "${1}" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        --file)
+            [[ "${FILE_SEEN}" != true ]] || fail "--file given more than once"
+            [[ $# -ge 2 ]] || fail "--file requires a value"
+            [[ -n "${2}" ]] || fail "--file requires a non-empty value"
+
+            POLICY_FILE="${2}"
+            FILE_SEEN=true
+            shift 2
+            ;;
+        --registry)
+            [[ "${REGISTRY_SEEN}" != true ]] || fail "--registry given more than once"
+            [[ $# -ge 2 ]] || fail "--registry requires a value"
+            [[ -n "${2}" ]] || fail "--registry requires a non-empty value"
+
+            REGISTRY_FILE="${2}"
+            REGISTRY_SEEN=true
+            shift 2
+            ;;
+        *)
+            fail "unknown argument: ${1}"
+            ;;
+    esac
+done
+
+# --- validation -----------------------------------------------------------------
+
+# The file itself, before anything reads it as a policy. A symlink is refused:
+# it lets the reviewed path and the read path diverge.
+assert_policy_document() {
+    local path="${POLICY_FILE}"
+
+    [[ ! -L "${path}" ]] || fail "mail routing policy must not be a symlink: ${path}"
+    [[ -e "${path}" ]] || fail "mail routing policy is unavailable: ${path}"
+    [[ -f "${path}" ]] || fail "mail routing policy must be a regular file: ${path}"
+    [[ -r "${path}" ]] || fail "mail routing policy is not readable: ${path}"
+
+    local documents
+    documents="$(jq -n '[inputs] | length' "${path}" 2>/dev/null)" \
+        || fail "mail routing policy is not valid JSON: ${path}"
+
+    [[ "${documents}" == "1" ]] \
+        || fail "mail routing policy must hold exactly one JSON document, found ${documents}: ${path}"
+
+    jq -e 'type == "object"' "${path}" >/dev/null \
+        || fail "mail routing policy must be a JSON object: ${path}"
+
+    # No key or value in a routing policy has any use for a control character,
+    # and every message below quotes values back to the operator.
+    jq -e '[paths | .[] | strings] + [.. | strings] | all(.[]; explode | all(.[]; . >= 32 and . != 127))' "${path}" >/dev/null \
+        || fail "mail routing policy must not contain control characters in any key or value: ${path}"
+
+    # A key declared twice in one object is kept once by every JSON parser — the
+    # last one, silently — so the policy a reviewer read is not the policy that
+    # runs. --stream reports every occurrence; tostream only the survivors.
+    local streamed parsed
+    streamed="$(jq -c --stream '.' "${path}" | wc -l)" \
+        || fail "could not read mail routing policy: ${path}"
+    parsed="$(jq -c 'tostream' "${path}" | wc -l)" \
+        || fail "could not read mail routing policy: ${path}"
+
+    (( streamed == parsed )) \
+        || fail "mail routing policy declares the same key twice in one object — only one of them would ever be read: ${path}"
+}
+
+# The registry is judged by its own validator, never re-derived here: mail
+# routing is only ever checked against a registry `targets` accepts.
+assert_registry_valid() {
+    [[ -x "${TARGETS_CLI}" ]] \
+        || fail "the target registry validator is not executable: ${TARGETS_CLI} — run from a full repository checkout"
+
+    "${TARGETS_CLI}" validate --file "${REGISTRY_FILE}" >/dev/null \
+        || fail "the deployment target registry is invalid, so no mail routing can be judged against it: ${REGISTRY_FILE}"
+}
+
+# Schema and top-level shape: every rule after this one assumes schema 1.
+assert_policy_shape() {
+    local path="${POLICY_FILE}"
+
+    if ! jq -e --argjson expected "${SCHEMA_VERSION}" \
+        '(.schema_version | type) == "number" and .schema_version == $expected' "${path}" >/dev/null
+    then
+        fail "unsupported mail routing schema_version: $(jq -c '.schema_version' "${path}") (expected ${SCHEMA_VERSION}): ${path}"
+    fi
+
+    jq -e 'keys == ["schema_version", "targets"]' "${path}" >/dev/null \
+        || fail "mail routing policy must be exactly {schema_version, targets}, found $(jq -c 'keys' "${path}"): ${path}"
+
+    jq -e '(.targets | type) == "object" and (.targets | length) > 0' "${path}" >/dev/null \
+        || fail "mail routing policy targets must be a non-empty object: ${path}"
+}
+
+# The single validation path. Both commands run it before producing anything, so
+# render-plan can never describe a policy validate rejects. Diagnostics go to
+# stderr, so a failing run prints nothing on stdout.
+assert_policy_valid() {
+    command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+    assert_policy_document
+    assert_registry_valid
+    assert_policy_shape
+
+    local problems count
+    problems="$(jq -c \
+        --slurpfile registry "${REGISTRY_FILE}" \
+        --arg secret_pattern "${SECRET_NAME_PATTERN}" \
+        "${POLICY_RULES}" "${POLICY_FILE}")" \
+        || fail "could not evaluate mail routing policy: ${POLICY_FILE}"
+
+    count="$(jq 'length' <<<"${problems}")"
+
+    if (( count > 0 )); then
+        jq -r '.[] | "INVALID: " + .' <<<"${problems}" >&2
+        printf 'ERROR: mail routing policy is invalid (%d problem(s)): %s\n' "${count}" "${POLICY_FILE}" >&2
+
+        exit 1
+    fi
+}
+
+# --- commands -------------------------------------------------------------------
+
+command_validate() {
+    assert_policy_valid
+
+    log "mail routing policy is valid: ${POLICY_FILE}"
+}
+
+command_render_plan() {
+    assert_policy_valid
+
+    # Rendered whole before a byte is printed, so a failure never leaves half a
+    # plan on stdout.
+    local plan
+    plan="$(jq -S --slurpfile registry "${REGISTRY_FILE}" "${RENDER_PROGRAM}" "${POLICY_FILE}")"
+
+    printf '%s\n' "${plan}"
+}
+
+case "${COMMAND}" in
+    validate)
+        command_validate
+        ;;
+    render-plan)
+        command_render_plan
+        ;;
+esac

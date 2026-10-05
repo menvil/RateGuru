@@ -1693,6 +1693,37 @@ Slices, in order:
    reviewed activation flips the lifecycle and regenerates the committed
    file. No production backup has been taken; the acceptance above is still
    open.
+
+   **8.4B.1 Generic mail-routing foundation — IMPLEMENTED, not installed and
+   not accepted on a real host.** The reviewed routing contract a local mail
+   gateway will follow, written before any mail transfer agent is allowed
+   onto a host. `config/mail-routing.json` gives every registry target exactly
+   one policy: its own loopback submission endpoint — the routing identity,
+   never the sender domain — a delivery mode, and its mail identity, while
+   lifecycle and environment class stay in `deployment-targets.json`. Two
+   modes exist, because two are used: `staging-main` is `capture`
+   (`127.0.0.1:2525` into the existing Mailpit on `127.0.0.1:1025`), and
+   `tits-guru` is `held` (`127.0.0.1:2526`, `noreply@tits.guru`, bounce
+   domain `bounce.tx.tits.guru`, reply domain `reply.tits.guru`) — reviewed,
+   with no route anywhere, so it cannot deliver and may not be active.
+   `scripts/mail-routing validate` / `render-plan` is repository tooling that
+   proves the contract and prints the gateway plan as JSON; it installs
+   nothing, and genericity is proved against a synthetic `demo-shop` target
+   the script never names. Nothing on a host changed: no Postfix, no listener
+   on 2525 or 2526, no environment file, no DNS, SPF, DKIM or DMARC, and
+   staging still submits straight to Mailpit. Production mail is not
+   accepted. See [`runbooks/mail-routing.md`](runbooks/mail-routing.md).
+
+   **8.4B.2 Local mail gateway for staging — next.** Install the gateway and
+   route staging through it into the existing capture
+   (Laravel → `127.0.0.1:2525` → Mailpit → Mailtrap Local), with the staging
+   environment moving from port 1025 to 2525 in the same change, rehearsed on
+   the real host.
+
+   **8.4B.3 Production outbound delivery — planned.** Replace `held` with
+   the real outbound transport for production only once that transport is
+   implemented and reviewed, together with SPF/DKIM/DMARC, bounce and reply
+   handling.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,

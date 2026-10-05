@@ -1228,7 +1228,14 @@ each increment.
 1. Add the object to `infrastructure/config/deployment-targets.json` with
    `lifecycle: "planned"`.
 2. Run `targets validate` and fix every reported problem.
-3. Provision the real infrastructure in its own reviewed change.
-4. Flip to `active` and extend the validation allowlist in the same change.
+3. Add the target's reviewed mail routing policy to
+   `infrastructure/config/mail-routing.json` — its own loopback submission
+   port, and `held` for a production target — and run
+   `infrastructure/scripts/mail-routing validate`, which refuses a registry
+   target without one. See [`mail-routing.md`](mail-routing.md).
+4. Provision the real infrastructure in its own reviewed change.
+5. Flip to `active` and extend the validation allowlist in the same change.
+   A production target's mail must have a real route by then: `mail-routing
+   validate` refuses an active target whose mail is still `held`.
 
-Never flip a target to `active` before step 3.
+Never flip a target to `active` before step 4.
