@@ -1,0 +1,19 @@
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_0a5cecf498a4dd::t_f401c8d2e472a5 733
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7a8f51e9f7acdabbbd0064339d80d28bb88fe57e",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
