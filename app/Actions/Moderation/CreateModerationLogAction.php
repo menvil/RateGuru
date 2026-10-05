@@ -5,6 +5,7 @@ namespace App\Actions\Moderation;
 use App\Enums\ModerationActionType;
 use App\Models\ModerationLog;
 use App\Models\User;
+use App\Support\Moderation\ModerationReason;
 use Illuminate\Database\Eloquent\Model;
 
 final class CreateModerationLogAction
@@ -16,7 +17,13 @@ final class CreateModerationLogAction
         ?string $reason = null,
         array $metadata = [],
     ): ModerationLog {
-        $reason = $reason !== null ? trim($reason) : null;
+        // ModerationReason, not trim(): trim()'s character list includes "\0"
+        // and excludes every Unicode blank, so the two disagreed about what an
+        // empty reason is — and a NUL-only reason passed the finalizers' guard
+        // and then became NULL here, which is an irreversible removal with no
+        // audit reason at all. One definition, used by whoever writes and
+        // whoever guards.
+        $reason = $reason !== null ? ModerationReason::normalize($reason) : null;
         $reason = $reason === '' ? null : $reason;
 
         return ModerationLog::create([
