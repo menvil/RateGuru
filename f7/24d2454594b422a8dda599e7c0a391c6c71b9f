@@ -1,0 +1,29 @@
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_68bd935861719d::t_037565ccbdfc2b 43-52,54-55
+resources/views/components/admin/ui/icon.blade.php
+  s_68bd935861719d::t_037565ccbdfc2b 57-59,74,80
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_68bd935861719d::t_037565ccbdfc2b 22-28,105-108
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_037565ccbdfc2b 416
+resources/views/components/admin/ui/textarea.blade.php
+  ai_agent 37
+resources/views/components/admin/ui/text-field.blade.php
+  ai_agent 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f724d2454594b422a8dda599e7c0a391c6c71b9f",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
