@@ -4225,6 +4225,34 @@ function provisionWriteStubs(string $scratch): void
                 printf '%s\n' "${pid}" >> "${STUB_FS}/nginx-worker-pids.txt"
             done
         }
+        # PHP-FPM creates a pool's socket when it loads that pool's configuration,
+        # and never before. The fixture used to place the sockets itself, which is a
+        # state no host can be in — a socket for a pool that does not exist yet —
+        # and it meant a verification could pass without anything having produced
+        # them. They are produced here instead, from the pool files actually
+        # installed, so "pool configured and reloaded" is the only way to get one.
+        sync_fpm_sockets() {
+            local conf listen owner group mode
+            PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/run/php"
+            for conf in "${STUB_FS}"/etc/php/*/fpm/pool.d/*.conf; do
+                [[ -f "${conf}" ]] || continue
+                listen="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                [[ "${listen}" == /run/php/*.sock ]] || continue
+                owner="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.owner[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                group="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.group[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                mode="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.mode[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                PATH="${STUB_REAL_PATH}" touch "${STUB_FS}${listen}"
+                PATH="${STUB_REAL_PATH}" chmod "${mode:-0660}" "${STUB_FS}${listen}"
+                # The stat stub reads the type from this table for regular files,
+                # and the owner from the owner table, so both have to say socket.
+                PATH="${STUB_REAL_PATH}" grep -v "^${STUB_FS}${listen}|" "${STUB_TYPE_TABLE}" > "${STUB_TYPE_TABLE}.tmp" 2>/dev/null || : > "${STUB_TYPE_TABLE}.tmp"
+                printf '%s|TYPE|socket\n' "${STUB_FS}${listen}" >> "${STUB_TYPE_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_TYPE_TABLE}.tmp" "${STUB_TYPE_TABLE}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${STUB_FS}${listen}|" "${STUB_OWNER_TABLE}" > "${STUB_OWNER_TABLE}.tmp" 2>/dev/null || : > "${STUB_OWNER_TABLE}.tmp"
+                printf '%s|%s|%s\n' "${STUB_FS}${listen}" "${owner:-www-data}" "${group:-www-data}" >> "${STUB_OWNER_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_OWNER_TABLE}.tmp" "${STUB_OWNER_TABLE}"
+            done
+        }
         cmd=""; unit=""
         for arg in "$@"; do
             case "${arg}" in
@@ -4241,11 +4269,18 @@ function provisionWriteStubs(string $scratch): void
             start)
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
                 ;;
-            stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
+            stop)
+                rm -f "${STUB_SVC_STATE}/${unit}.active"
+                if [[ "${unit}" == *fpm* ]]; then PATH="${STUB_REAL_PATH}" rm -f "${STUB_FS}"/run/php/*.sock; fi
+                ;;
             reload|restart)
                 [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
+                # A reload that fails loads nothing, so it creates no socket.
+                [[ -e "${STUB_TOGGLES}/${unit}-reload-fail" ]] && exit 1
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
                 ;;
             *) exit 0 ;;
         esac
@@ -4413,10 +4448,6 @@ function provisionBuildStagingNeighbour(string $scratch): void
 
     symlink('/etc/nginx/sites-available/rateguru-staging', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
 
-    touch($fs.'/run/php/rateguru-staging.sock');
-    chmod($fs.'/run/php/rateguru-staging.sock', 0o660);
-    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-staging.sock|TYPE|socket\n", FILE_APPEND);
-    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-staging.sock', 'www-data', 'www-data');
 }
 
 /**
@@ -4515,10 +4546,6 @@ function provisionFixture(string $scratch, array $options = []): array
     );
 
     // The demo pool's socket, as a running PHP-FPM would present it.
-    touch($fs.'/run/php/rateguru-demo-shop.sock');
-    chmod($fs.'/run/php/rateguru-demo-shop.sock', 0o660);
-    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-demo-shop.sock|TYPE|socket\n", FILE_APPEND);
-    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-demo-shop.sock', 'www-data', 'www-data');
 
     // Nginx workers that predate every RateGuru code group — the state a real
     // host is in before its first reload.
@@ -4546,7 +4573,7 @@ function provisionFixture(string $scratch, array $options = []): array
 
     $realPath = getenv('PATH') ?: '/usr/bin:/bin';
 
-    return [
+    $env = [
         'PATH' => $realPath,
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
@@ -4630,6 +4657,56 @@ function provisionFixture(string $scratch, array $options = []): array
         'STUB_TOGGLES' => $scratch.'/toggles',
         'STUB_FS' => $fs,
     ];
+
+    // The sockets of the pools this host already has, produced the way a host
+    // produces them: by loading the installed pool configuration. The base
+    // services above are marked active by touching their state files, which does
+    // not go through the stub, so the first load is performed explicitly here.
+    //
+    // It matters that this is a RELOAD and not a `touch`: a fixture that places
+    // the sockets itself describes a host that cannot exist — a pool socket with
+    // no pool — and lets a post-apply verification pass without anything having
+    // created one.
+    provisionReloadPhpFpm($env);
+
+    return $env;
+}
+
+/**
+ * Runs the fixture's own systemctl stub, so service state changes the harness
+ * needs go through the same code path a run under test would use.
+ *
+ * @param  array<string, string>  $env
+ */
+function provisionReloadPhpFpm(array $env): void
+{
+    // Into a log of its own, deliberately. Tests read ${STUB_LOG}/systemctl.log to
+    // assert what the RUN did — "check mode reloads nothing" among them — and the
+    // fixture's own setup is not something the run did. Writing there would make
+    // every such assertion fail on the harness rather than on the code.
+    $setupLog = $env['STUB_LOG'].'/fixture-setup';
+    @mkdir($setupLog, 0o755, true);
+
+    $process = proc_open(
+        [$env['RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN'], 'reload', 'php8.5-fpm'],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        ['STUB_LOG' => $setupLog] + $env + ['PATH' => $env['STUB_REAL_PATH']],
+    );
+
+    if ($process === false) {
+        throw new RuntimeException('the fixture could not run its own systemctl stub');
+    }
+
+    $output = (string) stream_get_contents($pipes[1]).(string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+
+    if ($status !== 0) {
+        throw new RuntimeException("the fixture's php-fpm reload failed ({$status}): {$output}");
+    }
 }
 
 /**
