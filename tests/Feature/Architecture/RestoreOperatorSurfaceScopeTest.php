@@ -442,8 +442,7 @@ it('keeps the operator surface out of the primitives that swap the data', functi
             'assert_runtime_still_held',
             'workflow_dispatch',
         ] as $operatorSurface) {
-            expect($source)->not->toContain(
-                $operatorSurface,
+            expect(str_contains($source, $operatorSurface))->toBeFalse(
                 "{$primitive} must carry no operator surface: {$operatorSurface}",
             );
         }

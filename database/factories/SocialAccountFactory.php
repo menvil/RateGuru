@@ -28,6 +28,39 @@ class SocialAccountFactory extends Factory
         return $this->state(fn () => ['provider' => SocialProvider::Google]);
     }
 
+    /**
+     * A link whose provider confirmed the address it records — the only shape
+     * that survives somebody else claiming the account by proving that address.
+     */
+    public function verifiedEmail(string $email): static
+    {
+        return $this->state(fn (): array => [
+            'provider_email' => $email,
+            'provider_email_verified' => true,
+        ]);
+    }
+
+    /** A link the provider explicitly did not vouch for. */
+    public function unverifiedEmail(string $email): static
+    {
+        return $this->state(fn (): array => [
+            'provider_email' => $email,
+            'provider_email_verified' => false,
+        ]);
+    }
+
+    /**
+     * A row written before provider_email_verified existed: an address, and no
+     * record either way of whether it was confirmed.
+     */
+    public function legacyUnknownVerification(string $email): static
+    {
+        return $this->state(fn (): array => [
+            'provider_email' => $email,
+            'provider_email_verified' => null,
+        ]);
+    }
+
     public function facebook(): static
     {
         return $this->state(fn () => ['provider' => SocialProvider::Facebook]);

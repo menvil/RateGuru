@@ -10,22 +10,22 @@ final readonly class AccountClaim
         public User $user,
         /**
          * The account's email was unconfirmed, so it was confirmed here and the
-         * sessions, remember token and password-reset tokens on it were revoked.
+         * credentials on it were revoked: sessions, remember token,
+         * password-reset tokens, and every provider link that cannot prove it
+         * owns this address.
          *
-         * Note what this does NOT claim on its own: provider links survive, which
-         * is correct for an account created through a provider — an existing link
-         * there is most likely the same person on a second provider, and removing
-         * it would lock them out. Links are revoked only alongside a password; see
-         * $passwordRemoved.
+         * A link survives only on evidence — its own provider confirmed the same
+         * address. Absence of a password is NOT evidence: an account can be
+         * created from an address a provider never confirmed, which is how it
+         * comes to be unconfirmed in the first place.
          */
         public bool $secured,
         /**
          * A password set by whoever created the unconfirmed account was removed.
          *
-         * This is the takeover case: a password on an unconfirmed address means
-         * somebody chose a secret for an address they did not control, so every
-         * credential on the account was theirs. Provider links are revoked here
-         * too — otherwise removing the password would still leave them a way in.
+         * Reported separately because the person signing in is told about it —
+         * they can set a new one. It is no longer what decides whether provider
+         * links are revoked; see $secured.
          */
         public bool $passwordRemoved,
     ) {}

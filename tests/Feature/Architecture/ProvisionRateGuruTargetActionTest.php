@@ -76,8 +76,8 @@ it('has no input that could deploy, restore, or carry a secret', function (strin
     // infrastructure that carries no secret; everything else belongs to a
     // later operation, and nothing here can perform one because nothing here
     // accepts its inputs.
-    expect(array_keys(provisionAction()['inputs']))
-        ->not->toContain($forbidden, "provisioning must not be able to accept: {$forbidden}");
+    expect(in_array($forbidden, array_keys(provisionAction()['inputs']), true))
+        ->toBeFalse("provisioning must not be able to accept: {$forbidden}");
 })->with([
     // deployment
     'ref', 'branch', 'tag', 'commit', 'source-sha', 'release', 'artifact',
@@ -186,8 +186,8 @@ it('runs check, apply and verify through the server primitive, and reads only it
 });
 
 it('never invokes any operation but provisioning on the host', function (string $forbidden) {
-    expect(provisionActionExecutable())
-        ->not->toContain($forbidden, "the provisioning transport must not invoke: {$forbidden}");
+    expect(str_contains(provisionActionExecutable(), $forbidden))
+        ->toBeFalse("the provisioning transport must not invoke: {$forbidden}");
 })->with([
     'scripts/deploy', 'scripts/rollback', 'scripts/restore-target',
     'scripts/recover-host', 'scripts/prepare-host', 'scripts/repair-target',

@@ -6,9 +6,6 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Support\Settings\ProjectSettingsManager;
-use Illuminate\Contracts\Console\Kernel;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 it('applies a complete preset through the setup command', function () {
     $this->artisan('rateguru:setup', ['preset' => 'nature'])
@@ -100,30 +97,118 @@ it('sets up a new project with the same static pages as every other bootstrap', 
     expect(ProjectSettings::firstOrFail()->static_pages)->toBe(app(ProjectSettingsManager::class)->defaults()['static_pages']);
 });
 
-it('refuses to apply a preset non-interactively without --force, instead of reporting success', function () {
-    // Without a terminal, confirm() resolves to its own default — false — so the
-    // command used to print "Setup cancelled." and exit 0. A deployment script
-    // could not tell that from an applied preset.
-    $input = new ArrayInput(['command' => 'rateguru:setup', 'preset' => 'nature']);
-    $input->setInteractive(false);
-    $output = new BufferedOutput;
+/*
+ * Two different contracts, and the command used to satisfy neither.
+ *
+ *   --no-interaction   the caller SAYS not to ask
+ *   no terminal        there is nobody to ask
+ *
+ * isInteractive() reports only the first. So `rateguru:setup nature < /dev/null`
+ * reached confirm(), took its default of "no", printed "Setup cancelled." and
+ * exited 0 — indistinguishable, to a deploy script, from an applied preset.
+ */
 
-    $status = app(Kernel::class)->handle($input, $output);
+it('refuses --no-interaction without --force instead of reporting success', function () {
+    $this->artisan('rateguru:setup', ['preset' => 'nature', '--no-interaction' => true])
+        ->expectsOutputToContain('requires --force')
+        ->assertExitCode(1);
 
-    expect($status)->toBe(1)
-        ->and($output->fetch())->toContain('requires --force');
-
-    // And nothing was applied.
     expect(ProjectSettings::query()->count())->toBe(0)
         ->and(Category::query()->count())->toBe(0);
 });
 
-it('applies a preset non-interactively when --force says so', function () {
-    $input = new ArrayInput(['command' => 'rateguru:setup', 'preset' => 'nature', '--force' => true]);
-    $input->setInteractive(false);
+it('applies a preset with --no-interaction when --force says so', function () {
+    $this->artisan('rateguru:setup', ['preset' => 'nature', '--no-interaction' => true, '--force' => true])
+        ->assertExitCode(0);
 
-    $status = app(Kernel::class)->handle($input, new BufferedOutput);
+    expect(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
+});
 
-    expect($status)->toBe(0)
-        ->and(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
+it('does not report a declined confirmation as success', function () {
+    // The half of the contract that depends on detecting nothing. The guard above
+    // can still be wrong — runningUnitTests() is keyed off APP_ENV, so a deploy
+    // script running with APP_ENV=testing and no terminal passes it, reaches the
+    // question and takes its default of "no" — so the exit code has to say what
+    // happened rather than how it was asked.
+    $this->artisan('rateguru:setup', ['preset' => 'nature'])
+        ->expectsConfirmation(
+            'Apply preset [nature]? This replaces project settings, categories, rating configuration, and tags.',
+            'no',
+        )
+        ->expectsOutput('Setup cancelled.')
+        ->assertExitCode(1);
+
+    expect(ProjectSettings::query()->count())->toBe(0)
+        ->and(Category::query()->count())->toBe(0);
+});
+
+it('refuses a terminal-less run that claims the testing environment', function () {
+    // APP_ENV=testing used to be enough to pass the guard, because it reused
+    // Laravel's "a terminal OR runningUnitTests()" rule for Prompts — and
+    // runningUnitTests() reads APP_ENV, which is not evidence about stdin. A real
+    // subprocess with its stdin closed has no terminal and no mocked question
+    // helper, whatever APP_ENV says, and it is refused by the input's own type.
+    //
+    // Asserted on BOTH halves: the clear refusal, and the exit code — the second
+    // would hold even if the guard were wrong again, because a declined
+    // confirmation returns FAILURE.
+    $process = proc_open(
+        [PHP_BINARY, 'artisan', 'rateguru:setup', 'nature'],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        base_path(),
+        ['APP_ENV' => 'testing'] + array_filter($_SERVER, 'is_string'),
+    );
+
+    expect($process)->not->toBeFalse('the CLI subprocess must start');
+
+    try {
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+    } finally {
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+    }
+
+    $output = $stdout.$stderr;
+
+    expect($status)->not->toBe(0, "a run that applied nothing must not exit 0:\n{$output}")
+        ->and($output)->toContain('requires --force')
+        ->and($output)->not->toContain('applied successfully');
+});
+
+it('refuses a run whose stdin is not a terminal, without being told not to ask', function () {
+    // Run as a real subprocess with stdin closed, because that is the only way to
+    // exercise this honestly: in-process the question helper is mocked and the
+    // test runner legitimately counts as answerable. No --no-interaction flag is
+    // passed — the absence of a terminal is the whole point.
+    //
+    // Nothing is written on this path: the refusal happens before the preset
+    // action is reached, which the exit code and the untouched tables below pin.
+    $process = proc_open(
+        [PHP_BINARY, 'artisan', 'rateguru:setup', 'nature'],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        base_path(),
+        // APP_ENV is pinned, not merely left unset: runningUnitTests() is keyed
+        // off it, and under --parallel the worker's own APP_ENV=testing is in
+        // $_SERVER and would be inherited — handing the subprocess the very
+        // allowance this test exists to run without.
+        ['APP_ENV' => 'production'] + array_filter($_SERVER, 'is_string'),
+    );
+
+    expect($process)->not->toBeFalse('the CLI subprocess must start');
+
+    try {
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+    } finally {
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+    }
+
+    expect($status)->toBe(1, "the run must refuse:\n{$stdout}{$stderr}")
+        ->and($stdout.$stderr)->toContain('requires --force');
 });

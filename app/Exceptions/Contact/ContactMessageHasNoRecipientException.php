@@ -2,7 +2,7 @@
 
 namespace App\Exceptions\Contact;
 
-use DomainException;
+use RuntimeException;
 
 /**
  * Nobody to deliver a contact message to: the project has no active
@@ -10,7 +10,7 @@ use DomainException;
  * configured. A deployment problem, never the visitor's mistake — but the
  * visitor is the one who must not be told their message was sent.
  */
-final class ContactMessageHasNoRecipientException extends DomainException
+final class ContactMessageHasNoRecipientException extends RuntimeException
 {
     public static function becauseNoneIsConfigured(): self
     {

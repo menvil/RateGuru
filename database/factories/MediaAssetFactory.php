@@ -67,6 +67,26 @@ class MediaAssetFactory extends Factory
         ]);
     }
 
+    /**
+     * Dimensions that were never recorded, with everything derived from them
+     * absent too.
+     *
+     * A row with width/height null but aspect_ratio and orientation still filled
+     * in is a state the application cannot produce — those two are computed FROM
+     * the dimensions — so a fixture shaped that way tests something that does not
+     * exist. This is the shape of an asset stored before dimensions were probed;
+     * failed() below is the same absence arriving by a different route.
+     */
+    public function dimensionless(): static
+    {
+        return $this->state(fn (): array => [
+            'width' => null,
+            'height' => null,
+            'aspect_ratio' => null,
+            'orientation' => null,
+        ]);
+    }
+
     public function failed(): static
     {
         return $this->state(fn (): array => [

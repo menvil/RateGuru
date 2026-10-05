@@ -243,6 +243,12 @@ it('refuses before any mutation when the target is not provisioned', function ()
     try {
         $env = configureFixture($scratch, ['satisfied' => []]);
 
+        // The canonical .env is present, which the fixture provides by default:
+        // relaxing what provision-target --verify says about that file must not
+        // relax what Configure does when the structure really is missing, so the
+        // refusal here can only ever be the structural one.
+        expect(file_exists($scratch.'/home/www/rateguru/production/tits-guru/shared/.env'))->toBeTrue();
+
         [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
 
         expect($exit)->toBe(1);
@@ -717,34 +723,6 @@ it('does not refuse merely because the canonical environment file exists', funct
         // is not what refused.
         expect($exit)->toBeIn([0, 1]);
         expect($output)->toContain('structure:provision-target');
-    } finally {
-        configureCleanup($scratch);
-    }
-});
-
-it('still refuses when the structure is genuinely not provisioned, env file or not', function () {
-    // The other half, and the reason the gate stays: relaxing what verify says
-    // about an .env must not relax what Configure does when the structure really
-    // is missing. The .env is present here too — so the refusal can only be the
-    // structural one.
-    $scratch = configureScratchDir();
-
-    try {
-        $env = configureFixture($scratch, ['satisfied' => []]);
-
-        expect(file_exists($scratch.'/home/www/rateguru/production/tits-guru/shared/.env'))->toBeTrue();
-
-        [$exit, $output] = configureRun(['--apply', '--target', 'tits-guru'], $env);
-
-        expect($exit)->toBe(1);
-        expect($output)
-            ->toContain('the target is not provisioned')
-            ->toContain('No material was installed and no database was created');
-
-        // Nothing downstream ran.
-        $children = configureLog($scratch);
-        expect($children)->not->toContain('install-target-prerequisites');
-        expect($children)->not->toContain('install-target-database');
     } finally {
         configureCleanup($scratch);
     }

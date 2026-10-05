@@ -76,13 +76,34 @@ final class ClaimAccountWithVerifiedEmailAction
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 
-            // Every linking rule applies: the identity is never taken from
-            // another account and never replaces one of the same provider.
-            // A refusal rolls back everything below with it.
-            $linked = $this->linkSocialAccount->execute($locked, $identity);
-
             $secured = ! $locked->hasVerifiedEmail();
             $passwordRemoved = $secured && $locked->hasPassword();
+
+            // Revoked BEFORE the link, not after, and this ordering is the whole
+            // point of it.
+            //
+            // LinkSocialAccountAction refuses an identity of a provider the account
+            // already holds a DIFFERENT subject for — correctly, as a connect
+            // operation: it must never silently replace somebody's Google account
+            // with another. But a claim is not a connect. Running it first meant an
+            // unconfirmed account carrying an unproven Google link refused the real
+            // owner arriving with a confirmed Google identity: the claim aborted,
+            // the account stayed unconfirmed, and the link that could prove nothing
+            // kept working. The one case the new model exists for was the one case
+            // it could not reach.
+            //
+            // So the credentials that cannot prove they own this address go first,
+            // including one of the incoming provider, and the link then happens
+            // against an account with nothing in its way.
+            if ($secured) {
+                $this->revokeUnprovenIdentities($locked, $identity);
+            }
+
+            // Every linking rule still applies to what is left: the identity is
+            // never taken from another account, and a provider whose remaining
+            // identity DID prove this address is still a conflict rather than a
+            // replacement. A refusal rolls back everything with it.
+            $linked = $this->linkSocialAccount->execute($locked, $identity);
 
             if ($secured) {
                 $email = (string) $locked->email;
@@ -96,32 +117,6 @@ final class ClaimAccountWithVerifiedEmailAction
 
                 Session::query()->where('user_id', $locked->id)->delete();
                 PasswordResetToken::query()->where('email', $email)->delete();
-
-                // And, when a PASSWORD was removed, every other provider link.
-                //
-                // That condition is the whole subtlety. A password on an
-                // unconfirmed account means somebody typed this address they did
-                // not control and chose a secret for it — a takeover — so every
-                // credential on it is the squatter's, provider links included.
-                // Leaving one behind leaves them a working sign-in, because
-                // ResolveSocialLoginAction signs in whatever account a known
-                // identity points at.
-                //
-                // An unconfirmed account with NO password is the opposite case: it
-                // was created through a provider, so an existing link is most
-                // likely the same person arriving via a second provider. This
-                // operation deliberately only CONFIRMS such an account rather than
-                // taking it over, and deleting that link would lock out the person
-                // it belongs to. See the "only confirms an unconfirmed account
-                // that never had a password" case in SocialAccountClaimTest.
-                //
-                // The link just established is excluded by key either way: it
-                // belongs to whoever is proving ownership now.
-                if ($passwordRemoved) {
-                    $locked->socialAccounts()
-                        ->whereKeyNot($linked->getKey())
-                        ->delete();
-                }
             }
 
             $user->setRawAttributes($locked->getAttributes(), true);
@@ -142,5 +137,48 @@ final class ClaimAccountWithVerifiedEmailAction
         ]);
 
         return $claim;
+    }
+
+    /**
+     * Removes every sign-in identity on this account that cannot prove it owns the
+     * address being claimed.
+     *
+     * A link survives only on evidence: its own provider confirmed the SAME
+     * address. One the provider did not confirm, one pointing at a different
+     * mailbox, one with no address at all, and one written before that proof was
+     * recorded are all revoked — the last because an absent record is not a record
+     * of consent. The cost is one re-link for a person whose link was genuinely
+     * theirs; the cost of the other choice is a stranger keeping access to an
+     * account its owner has just confirmed.
+     *
+     * Two identities of the incoming provider need saying separately:
+     *
+     *  - the same subject is the incoming identity itself, arriving again. Left
+     *    alone: the link below refreshes its recorded proof.
+     *  - a different subject that CANNOT prove the address is revoked, which is
+     *    what makes the claim possible at all — otherwise linking refuses and the
+     *    unproven link outlives the owner's attempt to take the account back.
+     *  - a different subject that CAN prove it is left in place, and the link then
+     *    refuses. Two providers' confirmations of one address pointing at two
+     *    subjects is a contradiction between authorities, not something to resolve
+     *    by preferring whoever happened to sign in second.
+     */
+    private function revokeUnprovenIdentities(User $locked, SocialIdentity $identity): void
+    {
+        $claimed = $this->normalizer->normalizeEmail($identity->email);
+
+        foreach ($locked->socialAccounts()->get() as $other) {
+            $sameProvider = $other->provider === $identity->provider;
+
+            if ($sameProvider && $other->provider_user_id === $identity->providerUserId) {
+                continue;
+            }
+
+            if ($other->provesOwnershipOf($claimed)) {
+                continue;
+            }
+
+            $other->delete();
+        }
     }
 }

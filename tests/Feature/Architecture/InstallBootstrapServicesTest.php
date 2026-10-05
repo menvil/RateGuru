@@ -2860,7 +2860,8 @@ it('never renders a public hostname, a TLS listener or a certificate path', func
         $public = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR)['targets']['tits-guru']['public_hostnames'][0];
 
         foreach ($rendered as $family => $bytes) {
-            expect($bytes)->not->toContain($public, "{$family} must not carry a public hostname");
+            expect(str_contains($bytes, $public))
+                ->toBeFalse("{$family} must not carry a public hostname");
         }
 
         expect($rendered['NGINX'])

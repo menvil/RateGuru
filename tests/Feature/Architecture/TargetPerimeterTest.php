@@ -620,7 +620,8 @@ it('never uses eval or bash -c anywhere in any wrapper', function () {
             }
 
             expect($trimmed)->not->toMatch('/(^|[;&|]\s*)eval\b/', "{$wrapper} must never use eval: {$line}");
-            expect($trimmed)->not->toContain('bash -c', "{$wrapper} must never use bash -c: {$line}");
+            expect(str_contains($trimmed, 'bash -c'))
+                ->toBeFalse("{$wrapper} must never use bash -c: {$line}");
         }
     }
 });

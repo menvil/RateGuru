@@ -60,7 +60,7 @@ final class LinkSocialAccountAction
             if ($current !== null) {
                 if ($current->provider_user_id === $identity->providerUserId) {
                     // Already connected: a repeat is a no-op, not a conflict.
-                    $current->refreshProviderEmail($identity->email);
+                    $current->recordProviderEmail($identity->email, $identity->emailVerifiedByProvider);
 
                     return $current;
                 }
@@ -92,6 +92,9 @@ final class LinkSocialAccountAction
                     'provider' => $identity->provider,
                     'provider_user_id' => $identity->providerUserId,
                     'provider_email' => $identity->email,
+                    'provider_email_verified' => $identity->email === null
+                        ? null
+                        : $identity->emailVerifiedByProvider,
                 ]);
             } catch (UniqueConstraintViolationException) {
                 // The account row is locked, so its (user_id, provider) slot

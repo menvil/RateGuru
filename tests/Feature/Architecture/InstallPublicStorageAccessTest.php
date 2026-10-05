@@ -1270,7 +1270,8 @@ it('never creates, contacts or provisions anything for tits-guru during a succes
             if ($path === $scratch.'/registry.json') {
                 continue; // the registry legitimately mentions tits-guru as planned
             }
-            expect($path)->not->toContain('tits-guru', "no tits-guru path should exist under the scratch target tree: {$path}");
+            expect(str_contains($path, 'tits-guru'))
+                ->toBeFalse("no tits-guru path should exist under the scratch target tree: {$path}");
         }
     } finally {
         psaCleanup($scratch);

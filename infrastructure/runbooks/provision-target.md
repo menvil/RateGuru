@@ -393,11 +393,14 @@ program or a directory that has gone missing since is named rather than hidden b
 the conflict. The exit stays non-zero either way.
 
 Past the phase boundary those structural findings are **diagnostic**, and the report
-says so. It deliberately stops printing the `-> apply:` hint that names the child
-installer directly: those installers answer to provisioning authorization rather than
-to the phase gate, so following that hint would converge exactly what this run has
-just refused to converge. Repairing structure on a target that is past provisioning is
-a decision for its owner, under a reviewed operation.
+says so. The `-> apply:` line is still printed for each of them — `--check` prints one
+for every non-PASS finding that carries a remediation, which the structural ones do and
+the `DEFERRED` items deliberately do not — but what it carries changes: instead of a
+child installer command it carries a refusal to give one. Those installers answer to
+provisioning authorization rather than to the phase gate, so following such a command
+would converge exactly what this run has just refused to converge. Repairing structure
+on a target that is past provisioning is a decision for its owner, under a reviewed
+operation.
 
 What `--verify` must still refuse is deployment-owned state a planned target never
 legitimately holds: a `current` or `previous` pointer, or a release in `releases/`.
