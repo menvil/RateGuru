@@ -83,7 +83,7 @@ it('is not offered in the admin navigation', function () {
         ->assertDontSee(ADMIN_UI_KIT_URL);
 });
 
-it('draws static specimens without touching the database', function () {
+it('draws its specimens without touching the database', function () {
     $this->actingAs(User::factory()->admin()->create());
 
     DB::enableQueryLog();
@@ -99,7 +99,7 @@ it('presents itself as the Admin v2 reference for developers', function () {
         ->assertOk()
         ->assertSee('RateGuru Admin v2 · reference for developers')
         ->assertSee('Dev UI kit')
-        ->assertSeeInOrder(['Foundations', 'Actions', 'Status', 'Forms', 'Navigation', 'Layout', 'Tables', 'Feedback', 'Localization domain']);
+        ->assertSeeInOrder(['Foundations', 'Actions', 'Status', 'Forms', 'Navigation', 'Layout', 'Tables', 'Overlays and feedback', 'Localization domain']);
 });
 
 it('uses only reference IDs that the Dev UI kit reference defines', function () {
@@ -171,4 +171,58 @@ it('shows the errors that keep a translation from being saved', function () {
         ->toContain('28 / 24')
         ->toContain('rg-admin-textarea--invalid')
         ->toContain('aria-invalid="true"');
+});
+
+it('opens live confirmation dialogs at each level, built from the confirmation dialog component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    $dialogs = adminUiKitSpecimen($html, 'OVL-01');
+
+    expect($dialogs)
+        ->toContain('Blade component · x-admin.ui.confirm-dialog')
+        ->toContain('Light')
+        ->toContain('Warning')
+        ->toContain('Blocked')
+        // Each level opens a real dialog, not a picture of one.
+        ->toContain("x-if=\"dialog === 'light'\"")
+        ->toContain("x-if=\"dialog === 'warning'\"")
+        ->toContain("x-if=\"dialog === 'blocked'\"")
+        ->toContain('role="dialog"')
+        ->toContain('aria-modal="true"')
+        ->toContain('rg-admin-dialog__icon--warning')
+        ->toContain('Enable anyway')
+        // The blocked dialog explains and offers a way out, without a confirm.
+        ->toContain('Dogs can’t be deleted')
+        ->toContain('Deactivate it instead');
+
+    expect(substr_count($dialogs, 'role="dialog"'))->toBe(3);
+});
+
+it('opens a live drawer built from the drawer component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'OVL-02'))
+        ->toContain('Blade component · x-admin.ui.drawer')
+        ->toContain('Open live drawer')
+        ->toContain('class="rg-admin-drawer"')
+        ->toContain('role="dialog"')
+        ->toContain('aria-labelledby="kit-drawer-title"')
+        ->toContain('Edit category')
+        ->toContain('rg-admin-drawer__footer');
+});
+
+it('raises real toasts on the kit\'s one toast stack', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FBK-01'))
+        ->toContain('Blade component · x-admin.ui.toast-stack')
+        ->toContain('Show success toast')
+        ->toContain("\$dispatch('rg-admin-toast', { message: '3 posts approved and published', tone: 'success' })")
+        ->and(substr_count($html, 'class="rg-admin rg-admin-toast-stack"'))->toBe(1);
 });

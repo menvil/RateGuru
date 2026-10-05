@@ -200,6 +200,7 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
+Languages is the first page migrated: its content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -226,7 +227,8 @@ until each page is migrated, so a page can show both the shell's breadcrumb and 
 - **Search:** under the workspace, as in the reference: the FRM-01 field (40 high, “Search posts, users”, a `⌘K`
   hint, `Ctrl K` off macOS) drawing Filament's global search through `App\Livewire\Admin\GlobalSearch`. Which
   resources are searched and what each user may find stay Filament's. `⌘K` / `Ctrl+K` focuses the field from
-  anywhere except a rich text editor, which keeps the shortcut for links; below 1280px it opens the sidebar first.
+  anywhere except a rich text editor, which keeps the shortcut for links, and an open dialog or drawer, which keeps
+  focus inside itself; below 1280px it opens the sidebar first.
   Results open beneath the field as in the reference — rows 44 high, a 28 icon of the record's kind, title
   14/500, kind 12 tertiary — with the first one highlighted: Enter opens it, Down and Up move through the list,
   Escape closes it.
@@ -236,11 +238,17 @@ until each page is migrated, so a page can show both the shell's breadcrumb and 
 - **Breadcrumb:** section › destination, taken from the active navigation item without loading any record. On a
   create or edit page the destination is the last step, linked back to its list.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
-  migrated page will put its actions.
+  migrated page puts its actions. A page without a permanent action, such as Languages, leaves it empty.
+- **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
+  (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
+  centres on the main column at every width. A page raises a toast with a browser event; see
+  [Overlays and feedback](#overlays-and-feedback).
 - **Light only:** the panel's dark mode is off. Admin v2 defines no dark theme, and with Filament's user menu
   gone a dark page inside a light shell would leave no way back.
 - **Layers:** top bar and sidebar 30, scrim 35, open drawer 36, rail tooltip 37 — all below Filament's modals (40)
-  and notifications (50). The search results list sits above the navigation inside the sidebar.
+  and notifications (50). The search results list sits above the navigation inside the sidebar. The Admin v2
+  overlays of a migrated screen follow the reference ladder above all of these: content drawer 200 (its scrim
+  included), confirmation dialog 300, toasts 400. A migrated screen has no Filament modal left for them to meet.
 
 ### Transitional omissions
 
@@ -256,13 +264,24 @@ These are the current migration state, not changes to the target design:
   are not shown. The shell draws a badge whenever a navigation item provides one, but adds no count queries of
   its own; each count arrives with the migration of its screen.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
-  actions are not moved into the top bar.
+  actions are not moved into the top bar. Languages is migrated and has none of them left.
+- **Missing-translation links.** Target design: a missing item in the Languages drawer opens Translation Center.
+  Current bridge: until Translation Center exists, the Languages drawer keeps links to the existing editors —
+  Project settings for settings and static pages, the category, tag and rating group edit pages, and a rating
+  option's group — so no editing capability is lost. The Translation Center step (Phase 4 of the
+  [migration plan](migration-plan.md)) replaces these links with Translation Center filters. This is the migration
+  state, not a change to the target design.
 
 ## Page anatomy
 
 - **Page header (LAY-01):** band padding 22 28 20, white, bottom hairline. Title 24/32 500; one sentence of
   description 14/20 gray-600, max 640; two to four operational stats on the right, separated by vertical
-  hairlines with 24 padding. No decorative charts or vanity totals.
+  hairlines with 24 padding. No decorative charts or vanity totals. On a phone the stats take two columns.
+- **A migrated screen in production:** its Filament page draws the whole view in Admin v2 (`.rg-admin-screen`)
+  instead of inside Filament's page wrapper, so Filament's heading, breadcrumbs and action modals are not on it and
+  the LAY-01 band is the page's only heading. It sets `$maxContentWidth = 'rg-admin-main'`, the class Filament puts
+  on its `<main>`, so the band runs edge to edge under the top bar and the content sits on the app ground with the
+  28 gutter (16 on a phone). Nothing restyles a `.fi-*` class for it.
 - **Status tabs (NAV-03):** 40 high above the table card; 15px labels with a 12/500 count; 2px ink underline on the
   active tab. Counts are totals across all pages. Default tab: Posts → Pending, Reports → Open, others → All.
 - **Card (LAY-02):** white, hairline, radius 16, no shadow. Header 16 20 with title 15/500 and subtitle 13
@@ -281,6 +300,8 @@ These are the current migration state, not changes to the target design:
 - **Cells:** padding 0 12, first cell 16; two lines: 14/500 primary and 12–13 tertiary meta; actions cell
   right-aligned with padding 0 16 0 8 and 6 between buttons.
 - **Overflow:** the grid has a `min-width`; the card scrolls horizontally. Never hide a column the moderator needs.
+  The scroll container is positioned, so screen-reader-only text in the cells scrolls with it instead of widening
+  the page.
 - **Toolbar (TBL-02):** padding 14 16, gap 10, wraps. Order: search (320) · filters (button + chevron-down, “Field:
   value”) · segmented control · active filter chips (28 high, radius 8, sunken, removable) · result count on the
   right (13 tertiary, “3 posts match”).
@@ -383,6 +404,27 @@ Grid templates used in the prototype, for reference:
   danger (`triangle-alert`, 500, irreversible dialogs only), success (`circle-check`); a full-width strip variant
   under a card toolbar.
 
+In production the confirmation dialog, the drawer and the toast stack are Blade components:
+
+- **`x-admin.ui.confirm-dialog` (OVL-01)** and **`x-admin.ui.drawer` (OVL-02)** are open for as long as they are
+  rendered; the screen decides when to draw them, usually from Livewire state, and they know nothing about what
+  they confirm or list. Escape, the scrim, the close button and a Cancel that calls `dismiss()` hide them at once
+  and dispatch a `dismiss` event for the screen to forget them (`x-on:dismiss="$wire.closeConfirmation()"`); an
+  action that replaces one overlay with another calls `hide()`. Both are `role="dialog"` with `aria-modal`, named by
+  their title (the dialog also described by its body). While one is open, Alpine's focus trap (`x-trap`, already
+  in the Livewire runtime) moves focus inside, keeps it there and returns it to the trigger on close; the rest of
+  the page is hidden from assistive technology and does not scroll. When the trigger has left the page by then —
+  its row filtered away by the change it confirmed — focus goes to the page's heading. Both sit on
+  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light) and
+  `warning` tones; a blocked dialog is one with no confirm action. The drawer is 448 wide, or 480 with `wide`,
+  never wider than the screen, with an optional `leading` and `footer`.
+- **`x-admin.ui.toast-stack` (FBK-01)** is drawn once per page by the shell. A page raises a toast with a browser
+  event — `$this->dispatch('rg-admin-toast', message: '…', tone: 'success')` from Livewire, or `$dispatch` from
+  Alpine — with the tone `success`, `error` or `info`. At most three stay on screen, each for 5.2 s, waiting while
+  the pointer or keyboard focus is on the stack. A status region (success, info) and an alert region (error), always
+  present, announce each message once; the toasts themselves are not live regions. A toast is never the only record
+  of a lasting error: the screen shows it too.
+
 ## Localization
 
 Localization is the first production vertical of Admin v2:
@@ -412,6 +454,32 @@ stay exactly as they are.
   application catalog blocks enabling and explains why; disabling explains that preferences and stored
   translations are kept.
 - The missing-translations drawer is 480 wide, groups items by section and links each to Translation Center.
+
+**Languages** (production, migrated): `/admin/languages` (`App\Filament\Pages\LanguagesPage`) is drawn entirely in
+Admin v2, without Filament's table, actions, modals or notifications. Business rules stay in
+`UpdateProjectLocaleSettingsAction`, `LocaleManager`, `TranslationCatalogInspector` and
+`ProjectTranslationCompleteness`; every Livewire method checks the language against what is installed and offered
+now, and the action remains the final safeguard.
+
+- Header stats: Installed (installed languages), Enabled (offered languages, English included), Project translations
+  (translated ÷ required over every installed language except English, disabled ones included, rounded down; 100%
+  when nothing needs translating) and Missing (the missing project translations of the same languages).
+- Tabs All · Enabled · Disabled · Incomplete, counted over every installed language; Incomplete is an application
+  catalog that breaks the contract or project content without a translation. The tab is in the query string
+  (`?status=…`, none for All) and in the browser history. No search field and no pagination: installed languages
+  are a bounded configuration list, and global search is in the sidebar.
+- Rows as in the prototype, with these differences. Status shows Enabled (success, dot) or Disabled (neutral) with
+  “Offered to visitors” / “Not offered to visitors”; English adds Default (outline) and “Reference language”.
+  Application prints “100% · valid”, or “N% · catalog invalid” on a red bar for any catalog with issues, whatever
+  its percentage. Missing opens the drawer from “N missing ›”, or from “Catalog issue ›” when only the catalog is
+  wrong. Enable for a broken catalog stays visible, disabled, with “Fix the release first.”
+- Confirmations: enabling a complete language is light; enabling with missing project content is a warning with
+  Review missing (which opens the drawer and enables nothing) and Enable anyway; disabling is a warning that says
+  where visitors go and that their preference and the stored translations are kept. No reason is asked for.
+- The drawer lists the catalog's issues first (the first 50, then “… and N more”), then the missing content by
+  section in the domain's order, each item with its field and an Edit link to its current editor (see
+  [Transitional omissions](#transitional-omissions)).
+- Results are Admin v2 toasts: “German enabled”, “German disabled”, and an error toast for a refusal.
 
 **Translation Center** (prototype):
 
@@ -473,7 +541,12 @@ the database before Save.
 | Status tabs | Sable Tabs use `role="tab"` without tab panels | links with `aria-current` or toggles with `aria-pressed` | they filter a list rather than switch panels |
 | Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
-| Dialogs, drawers, row menus, combobox, toasts stack | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
+| Row menus, combobox | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
+| Disable language confirmation | *firm*: a required reason | a warning confirmation with no reason field | nothing stores a reason for a language change; asking for one and discarding it would be for show |
+| Confirmation footnote | “Recorded in the … log as …” | none on Languages | no log records a language change |
+| Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
+| Languages toolbar and top bar | search field, “Open Translation Center” | neither | a bounded list; Translation Center does not exist yet |
+| Toast Undo | reversible actions toast with Undo | no Undo in the stack yet | no migrated action is reversible without confirmation; it arrives with the first one |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
@@ -508,7 +581,7 @@ built.
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
 | Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03 (TBL-04's menu as a static surface) |
-| Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | FBK-01 (static) and FBK-02 |
+| Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
 | Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
 
 The [migration plan](migration-plan.md) says when the remaining elements are built.

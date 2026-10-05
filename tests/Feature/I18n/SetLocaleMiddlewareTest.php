@@ -172,7 +172,7 @@ it('takes a visitor whose chosen language is disabled to their browser language,
     expect($visitor->fresh()->locale)->toBe($chosen);
 
     $this->actingAs(User::factory()->admin()->create());
-    Livewire::test(LanguagesPage::class)->callTableAction('disable', $chosen);
+    Livewire::test(LanguagesPage::class)->call('disableLanguage', $chosen);
     app(ProjectSettingsManager::class)->flush();
 
     $this->actingAs($visitor)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="'.$browser.'"', false);
@@ -180,7 +180,7 @@ it('takes a visitor whose chosen language is disabled to their browser language,
         ->and($visitor->fresh()->locale)->toBe($chosen);
 
     $this->actingAs(User::factory()->admin()->create());
-    Livewire::test(LanguagesPage::class)->callTableAction('enable', $chosen);
+    Livewire::test(LanguagesPage::class)->call('enableLanguage', $chosen);
     app(ProjectSettingsManager::class)->flush();
 
     $this->actingAs($visitor)->withHeaders(acceptLanguage($browser))->get(route('feed'))->assertOk()->assertSee('lang="'.$chosen.'"', false);

@@ -81,7 +81,7 @@ it('shows each desktop page inside the shell with its own destination marked', f
 })->with([
     'dashboard' => ['/admin', 'Dashboard', 'Pending posts'],
     'posts' => ['/admin/posts', 'Posts', 'Author'],
-    'languages' => ['/admin/languages', 'Languages', 'How languages work'],
+    'languages' => ['/admin/languages', 'Languages', 'Manage which installed languages are available to visitors'],
     'project settings' => ['/admin/project-settings', 'Project settings', 'Project Settings'],
 ]);
 
@@ -95,7 +95,7 @@ it('navigates from the sidebar', function () {
     // server handles every request in one process, where Filament keeps the
     // first request as the "original" one. Each page's marked item is checked
     // on its own visit above.
-    $page->assertPathIs('/admin/languages')->assertSee('How languages work');
+    $page->assertPathIs('/admin/languages')->assertSee('Manage which installed languages are available to visitors');
 });
 
 it('names the rail\'s icons, and expands it into the full sidebar that Escape closes', function () {

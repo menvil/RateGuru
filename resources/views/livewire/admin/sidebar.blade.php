@@ -4,6 +4,10 @@
     rail's expand button and the top bar's menu button open the same sidebar
     as a 300px overlay over a scrim; Escape, the scrim, the close button and
     following a link close it, and focus returns to the button that opened it.
+
+    It also carries the page's one toast stack (FBK-01): the shell is on every
+    admin page, and the stack centres itself on the main column from the same
+    width the sidebar takes.
 --}}
 <div
     class="rg-admin rg-admin-shell-sidebar"
@@ -44,8 +48,9 @@
         focusSearch(event) {
             const search = document.getElementById('rg-admin-search')
 
-            // A rich text editor keeps ⌘K / Ctrl+K for inserting a link.
-            if (! search || event.defaultPrevented || event.target.isContentEditable) {
+            // A rich text editor keeps ⌘K / Ctrl+K for inserting a link, and
+            // an open dialog or drawer keeps focus inside itself.
+            if (! search || event.defaultPrevented || event.target.isContentEditable || event.target.closest?.('[aria-modal=true]')) {
                 return
             }
 
@@ -223,4 +228,6 @@
             </div>
         @endif
     </aside>
+
+    <x-admin.ui.toast-stack />
 </div>
