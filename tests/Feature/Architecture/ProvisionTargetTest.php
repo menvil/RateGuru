@@ -275,7 +275,10 @@ it('provisions the whole target from the registry alone, and proves every generi
         expect($children)
             ->not->toContain('operations-installer --apply')
             ->not->toContain('perimeter-installer --apply')
-            ->not->toContain('mail-capture-installer --apply');
+            ->not->toContain('mail-capture-installer --apply')
+            // The host-global mail gateway is not asked at all: provisioning a
+            // planned target never installs, verifies or rewrites it.
+            ->not->toContain('mail-gateway-installer');
 
         // No base service was enabled or started: this host was already
         // prepared, and provisioning never starts one.

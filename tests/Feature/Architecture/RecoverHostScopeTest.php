@@ -549,6 +549,9 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The staging mail gateway's operator acceptance, added later and
+        // guarded by MailGatewayTest.
+        'verify-staging-mail-gateway.yml',
     ]);
 });
 

@@ -1675,8 +1675,10 @@ Slices, in order:
    backup/offsite/retention/restore-test policy. The existing staging
    Mailpit/Mailtrap capture remains staging-only and is not changed by this.
    *Acceptance:* production mail is delivered and its failure paths are
-   handled, and a production backup has been taken, uploaded and
-   restore-tested.
+   handled. The production backup POLICY and perimeter are made ready here,
+   before activation; the first real production backup is accepted in 8.6,
+   because it cannot exist before the target is active and deployed (see
+   8.4A).
 
    **8.4A Production backup perimeter readiness — IMPLEMENTED, not yet
    active.** The backup cron is rendered by `install-target-perimeter` the
@@ -1691,8 +1693,17 @@ Slices, in order:
    logs under `/var/log/rateguru/tits-guru-*` — but the target stays
    `planned`, so it has no cron entry, and its entries appear only when the
    reviewed activation flips the lifecycle and regenerates the committed
-   file. No production backup has been taken; the acceptance above is still
-   open.
+   file.
+
+   This is readiness, not backup acceptance, and it cannot be anything more
+   yet: `tits-guru` is `lifecycle=planned`, `backup-cycle` runs only for a
+   `lifecycle=active` target, and no production application release exists
+   to back up. That gate is deliberate and is not weakened to take a backup
+   early. The first real `backup-cycle --target tits-guru` — local backup,
+   local restore-test, B2 upload, retention and offsite restore-test — runs in
+   8.6, after activation and the first real production deploy and before any
+   public traffic. That run is the production backup acceptance. No
+   production backup has been taken.
 
    **8.4B.1 Generic mail-routing foundation — IMPLEMENTED, not installed and
    not accepted on a real host.** The reviewed routing contract a local mail
@@ -1714,16 +1725,51 @@ Slices, in order:
    staging still submits straight to Mailpit. Production mail is not
    accepted. See [`runbooks/mail-routing.md`](runbooks/mail-routing.md).
 
-   **8.4B.2 Local mail gateway for staging — next.** Install the gateway and
-   route staging through it into the existing capture
-   (Laravel → `127.0.0.1:2525` → Mailpit → Mailtrap Local), with the staging
-   environment moving from port 1025 to 2525 in the same change, rehearsed on
-   the real host.
+   **8.4B.2 Local mail gateway and the staging capture route — IMPLEMENTED,
+   not yet installed or accepted on the real host.** One host-global Postfix
+   gateway, owned end to end by `scripts/install-mail-gateway`
+   (`--check`/`--apply`/`--verify`) and rendered from `mail-routing
+   render-plan` in the same bundle — the installer spells the plan in Postfix
+   and restates no policy rule. It listens on exactly the plan's loopback
+   endpoints, `127.0.0.1:2525` (staging-main) and `127.0.0.1:2526`
+   (tits-guru), IPv4 only, with no smtp, submission or smtps listener and
+   nothing on 25, 465 or 587. Capture is store-and-forward: the staging
+   listener's content filter queues the message and delivers it to Mailpit on
+   `127.0.0.1:1025`, retrying while Mailpit is down. Held is the HOLD queue
+   with no route. Everything else is undeliverable — every fallback transport
+   is error(8), with no relayhost and no destination domain — so there is no
+   Internet delivery at all. The envelope sender must be exactly the
+   listener's domain; no SMTP AUTH, no TLS on loopback. The package goes in
+   preseeded local-only with service starts suppressed (a host's own
+   policy-rc.d is preserved), behind a non-secret ownership marker: a Postfix
+   or other MTA RateGuru did not install fails every mode closed, and an
+   interrupted RateGuru installation resumes. Apply is transactional and
+   validated by Postfix before anything is installed. Host bootstrap converges
+   it after mail capture, which it delivers into; target-scoped repair and
+   provisioning never touch it. `scripts/verify-mail-gateway --e2e` is the
+   mutating operator acceptance — capture into Mailpit and its mirror, sender
+   isolation, HOLD, and retry across a Mailpit outage, removing only its own
+   messages and queue entries — run by the manual **Verify staging mail
+   gateway** workflow; ordinary Prepare never runs it. The committed staging
+   template now names the gateway (`MAIL_PORT=2525`); the host's own `.env`
+   is untouched. `mail-routing` itself now runs on Ubuntu 22.04's jq 1.6,
+   which reserves a parameter name it used. *Acceptance, on the real host and
+   in this order:* Prepare staging host → Verify staging mail gateway → the
+   operator sets `MAIL_PORT=2525` in the staging `shared/.env` → deploy
+   staging → one real application-generated mail → it is in Mailpit and
+   Mailtrap Local. Rollback is `MAIL_PORT=1025` and a redeploy. A rehearsal
+   in a local Ubuntu 22.04 container with systemd, real Postfix 3.6.4, Mailpit
+   and Mailtrap Local passed; it is not this acceptance. See
+   [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
 
-   **8.4B.3 Production outbound delivery — planned.** Replace `held` with
-   the real outbound transport for production only once that transport is
-   implemented and reviewed, together with SPF/DKIM/DMARC, bounce and reply
-   handling.
+   **8.4B.3 Production outbound transport — planned.** Replace `held` with
+   the real outbound transport for production, only once that transport is
+   implemented and reviewed; the new delivery mode is added to the policy
+   validator and the gateway renderer in that change, never before.
+
+   **8.4B.4 Mail identity and DNS signing policy — planned.** SPF, DKIM and
+   DMARC for the production mail domain, bounce reception on its bounce
+   domain and reply routing on its reply domain.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,
@@ -1733,7 +1779,12 @@ Slices, in order:
    rollback, and deploy again; queue, scheduler and health; observability;
    backup, offsite and restore-test; the mail delivery and bounce path; and
    target isolation from staging. No infrastructure operation performed
-   during go-live should be happening for the first time.
+   during go-live should be happening for the first time. This is where the
+   first real `backup-cycle --target tits-guru` runs — after activation and
+   the first real production deploy, before any public traffic — and must
+   complete local backup, local restore-test, B2 upload, retention and
+   offsite restore-test: the production backup acceptance 8.4A prepared
+   for.
 7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
    production activation and its final verification: public health, backup,
    monitoring and mail, confirmed on the live site. Closes Phase 8.

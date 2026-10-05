@@ -1,0 +1,1231 @@
+#!/usr/bin/env bash
+#
+# install-mail-gateway — the host-global Postfix mail gateway, rendered from the
+# reviewed mail routing plan.
+#
+#   install-mail-gateway --check    read-only: would --apply converge, and what
+#   install-mail-gateway --apply    install/converge the gateway (root)
+#   install-mail-gateway --verify   read-only: the authoritative contract (root)
+#
+# WHERE THE ROUTES COME FROM. Nothing here decides where a target's mail goes.
+# The dependency runs one way only:
+#
+#   deployment-targets.json + mail-routing.json
+#       -> mail-routing validate / render-plan    (the policy, and its only judge)
+#       -> install-mail-gateway                   (this file: Postfix syntax only)
+#       -> /etc/postfix/main.cf, /etc/postfix/master.cf
+#
+# The plan is read from the mail-routing CLI shipped in the SAME bundle this
+# script runs from, never from a copy, and no policy rule is restated here. What
+# this file adds is Postfix: how a listener, a capture route and a held mode are
+# spelled in main.cf and master.cf. A delivery mode it has no spelling for is a
+# refusal, never a default.
+#
+# THE GATEWAY. One Postfix instance for the whole host:
+#
+#   * one smtpd listener per target, on the target's own loopback submission
+#     endpoint — the port the message arrived on is the routing identity;
+#   * capture: the listener sets a content filter naming the target's own
+#     transport and its capture destination, so the message is QUEUED by Postfix
+#     and then delivered to the destination — retried, not lost, while the
+#     destination is down;
+#   * held: the listener places every message it accepts on the HOLD queue, and
+#     nothing in the configuration names a route for it;
+#   * the envelope sender must belong exactly to the target's allowed domain (or
+#     be empty); anything else is refused at MAIL FROM. The sender authorizes, it
+#     never selects;
+#   * everything else is undeliverable: the default, relay, local and virtual
+#     transports are all error(8), there is no relayhost, no destination domain,
+#     no transport map, no generic smtp client and no smtp/submission/smtps
+#     listener. Mail with no rendered route cannot reach the Internet, because
+#     the Internet is not a place this configuration can deliver to.
+#
+# Loopback only, IPv4 only, no SMTP AUTH, no TLS: the boundary is the host and
+# the per-target port. Postfix itself binds nothing public — the firewall is
+# never what makes this safe.
+#
+# THE PACKAGE. --apply may install Ubuntu's postfix package, and does it so the
+# daemon can never run in a state RateGuru did not choose:
+#
+#   * debconf is preseeded "Local only", IPv4, no relayhost — so even if service
+#     activation were not suppressed, the package's own configuration would bind
+#     loopback alone;
+#   * a policy-rc.d is in place for the duration of the package installation, so
+#     the maintainer scripts start nothing. One that already existed is preserved
+#     and put back, and one left behind by an interrupted run is recognised and
+#     removed;
+#   * the rendered configuration is validated by Postfix itself before it is
+#     installed, and the service is enabled and started only after that.
+#
+# OWNERSHIP. Before the package is installed an ownership marker is written to
+# /var/lib/rateguru-mail-gateway. A Postfix — or any other mail transport agent
+# — present on a host WITHOUT that marker is not RateGuru's, and every mode
+# fails closed on it: an existing MTA is never taken over, rewritten or removed.
+# A marker in state=installing is a partial installation this installer started,
+# and --apply resumes it.
+#
+# TRANSACTION. --apply renders into a private directory, validates, records the
+# managed files and the service's boot/running state, installs complete
+# candidates atomically, reloads or starts only after validation, and verifies
+# the running gateway — listeners, routes, the capture destination — before it
+# commits. Any failure before that restores the previous files and runtime
+# state, and a rollback that could not finish says so and fails. Backups hold
+# configuration only, under /var/backups/rateguru-mail-gateway/<timestamp>/:
+# never the queue, never a message.
+#
+# Test overrides: every RATEGURU_MAILGW_* variable below is honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, the gate every installer here
+# uses. RATEGURU_MAILGW_FS_ROOT prefixes every host path so the real code runs
+# against a simulated host.
+
+set -Eeuo pipefail
+umask 022
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — the override when allowed and set, else the
+# default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILGW_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MAILGW_FS_ROOT '')"
+
+# The policy and its one implementation, from this bundle.
+MAIL_ROUTING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_ROUTING_CLI "${SCRIPT_DIR}/mail-routing")"
+POLICY_FILE="$(gated_default RATEGURU_MAILGW_POLICY_FILE "${REPO_ROOT}/infrastructure/config/mail-routing.json")"
+REGISTRY_FILE="$(gated_default RATEGURU_MAILGW_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+
+SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
+APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
+DPKG_BIN="$(gated_default RATEGURU_MAILGW_DPKG_BIN dpkg)"
+DPKG_QUERY_BIN="$(gated_default RATEGURU_MAILGW_DPKG_QUERY_BIN dpkg-query)"
+DEBCONF_SET_SELECTIONS_BIN="$(gated_default RATEGURU_MAILGW_DEBCONF_SET_SELECTIONS_BIN debconf-set-selections)"
+POSTCONF_BIN="$(gated_default RATEGURU_MAILGW_POSTCONF_BIN postconf)"
+POSTFIX_BIN="$(gated_default RATEGURU_MAILGW_POSTFIX_BIN postfix)"
+SS_BIN="$(gated_default RATEGURU_MAILGW_SS_BIN ss)"
+
+# Owner of every managed file. root:root on a host; the test seam lets the real
+# install path run unprivileged.
+FILE_OWNER="$(gated_default RATEGURU_MAILGW_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_MAILGW_FILE_GROUP root)"
+
+# Bounded waits; anything that is not a positive integer falls back, so a stray
+# variable can never disable a gate.
+RUNTIME_WAIT="$(gated_default RATEGURU_MAILGW_RUNTIME_WAIT 30)"
+STABILITY_WAIT="$(gated_default RATEGURU_MAILGW_STABILITY_WAIT 4)"
+[[ "${RUNTIME_WAIT}" =~ ^[1-9][0-9]*$ ]] || RUNTIME_WAIT=30
+[[ "${STABILITY_WAIT}" =~ ^[1-9][0-9]*$ ]] || STABILITY_WAIT=4
+
+# --- Host contract --------------------------------------------------------------
+
+POSTFIX_PACKAGE="postfix"
+POSTFIX_DIR="/etc/postfix"
+MAIN_CF="${POSTFIX_DIR}/main.cf"
+MASTER_CF="${POSTFIX_DIR}/master.cf"
+MANAGED_FILES=("${MAIN_CF}" "${MASTER_CF}")
+MANAGED_FILE_MODE="644"
+
+# Ubuntu runs Postfix as postfix@-.service, pulled in at boot by the
+# postfix.service wrapper the package enables.
+POSTFIX_UNIT="postfix.service"
+POSTFIX_INSTANCE_UNIT="postfix@-.service"
+
+STATE_DIR="/var/lib/rateguru-mail-gateway"
+OWNERSHIP_MARKER="${STATE_DIR}/ownership"
+PRESERVED_POLICY_RC="${STATE_DIR}/policy-rc.d.preserved"
+POLICY_RC="/usr/sbin/policy-rc.d"
+POLICY_RC_MARKER="# rateguru-mail-gateway: package service starts suppressed until the gateway configuration is in place"
+BACKUP_ROOT="/var/backups/rateguru-mail-gateway"
+
+# The ports a public SMTP service lives on. Nothing on a RateGuru host may listen
+# on them.
+PUBLIC_SMTP_PORTS=(25 465 587)
+
+# A deterministic identity, so the rendered files depend on the plan alone.
+GATEWAY_HOSTNAME="mail-gateway.rateguru.invalid"
+
+# --- Output ---------------------------------------------------------------------
+
+MODE=""
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_DRIFT=0
+COUNT_CONFLICT=0
+COUNT_DEFERRED=0
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+# item STATUS NAME DETAIL — one report line, the shape every bootstrap installer
+# prints.
+item() {
+    local status="$1" name="$2" detail="$3"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        DRIFT)    COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+}
+
+action() {
+    printf 'APPLY    %s\n' "$*"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-mail-gateway --check
+  install-mail-gateway --apply
+  install-mail-gateway --verify
+
+  --check   Read-only. Renders the gateway from the reviewed mail routing plan,
+            validates it (with Postfix's own parser when Postfix is installed),
+            and reports what --apply would install or change. Exit 0 when
+            --apply can converge; non-zero on a conflict it must not resolve.
+  --apply   Install or converge the host-global gateway (root). May install the
+            postfix package, with service starts suppressed until the rendered
+            configuration has been validated.
+  --verify  Read-only (root). Exit 0 only when the installed gateway is exactly
+            the current render, Postfix accepts it, the service is enabled and
+            stably active, the listeners are exactly the plan's loopback
+            endpoints, no public SMTP port is open, every capture destination is
+            listening, held mail has no route and unclassified mail cannot be
+            delivered.
+
+The routes come from infrastructure/scripts/mail-routing render-plan in the same
+bundle; this installer only spells them in Postfix.
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "install-mail-gateway --${MODE} must run as root"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- Rendering (Postfix spelling of the plan) -------------------------------------
+#
+# Pure: plan in, two files out. Both are byte-for-byte functions of the plan, so
+# --verify can re-render and compare. The guard below is not policy — the plan
+# was judged by mail-routing — it only proves every value the renderer splices
+# into Postfix syntax is a plain token, so nothing in the plan can become a
+# second directive.
+
+# The programs are single-quoted on purpose: every `$name` in them is a jq
+# variable or Postfix's own `$parameter` reference, and none may ever be
+# expanded by the shell.
+# shellcheck disable=SC2016
+RENDER_DEFINITIONS='
+def token: type == "string" and test("\\A[a-z0-9][a-z0-9@._:-]*\\z");
+def port: type == "number" and . == floor and . >= 1 and . <= 65535;
+def endpoint: "\(.host):\(.port)";
+def param: "rateguru_" + (.identity | gsub("-"; "_"));
+def capture_transport: "rateguru-capture-" + .identity;
+def pad($n): . + (" " * ([$n - length, 1] | max));
+def service($name; $type; $private; $unpriv; $chroot; $wakeup; $maxproc; $command):
+    ($name | pad(15)) + ($type | pad(6)) + ($private | pad(8)) + ($unpriv | pad(8))
+    + ($chroot | pad(8)) + ($wakeup | pad(8)) + ($maxproc | pad(8)) + $command;
+def no_route: "error:5.7.1 RateGuru mail gateway: no delivery route for this mail";
+'
+
+# shellcheck disable=SC2016
+PLAN_GUARD_PROGRAM="${RENDER_DEFINITIONS}"'
+.schema_version == 1
+and (.listeners | type == "array" and length > 0)
+and all(.listeners[];
+    (.identity | token) and (.identity | test("\\A[a-z0-9-]+\\z"))
+    and (.listen | type == "object") and (.listen.host | token) and (.listen.port | port)
+    and (.delivery_mode | token)
+    and (.sender | type == "object") and (.sender.allowed_domain | token)
+    and (.route == null or ((.route | type == "object") and (.route.kind | token) and (.route.host | token) and (.route.port | port))))
+'
+
+# shellcheck disable=SC2016
+MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
+(
+    "# RateGuru mail gateway — main.cf",
+    "#",
+    "# Rendered by infrastructure/scripts/install-mail-gateway from the plan that",
+    "# infrastructure/scripts/mail-routing renders out of the reviewed",
+    "# infrastructure/config/mail-routing.json. Never edit it on a host: the next",
+    "# --apply replaces it, and --verify reports any difference.",
+    "#",
+    "# Fail closed: every transport a message could fall through to is error(8),",
+    "# and there is no relayhost, no destination domain and no transport map. A",
+    "# message is delivered only by the route its listener names in master.cf.",
+    "",
+    "compatibility_level = 3.6",
+    "myhostname = '"${GATEWAY_HOSTNAME}"'",
+    "myorigin = $myhostname",
+    "smtpd_banner = $myhostname ESMTP",
+    "biff = no",
+    "append_dot_mydomain = no",
+    "readme_directory = no",
+    "",
+    "# Loopback and IPv4 only. The listeners themselves are in master.cf.",
+    "inet_interfaces = 127.0.0.1",
+    "inet_protocols = ipv4",
+    "mynetworks = 127.0.0.0/8",
+    "",
+    "# No destination this host delivers for, and nowhere to relay to.",
+    "mydestination =",
+    "relay_domains =",
+    "relayhost =",
+    "transport_maps =",
+    "sender_dependent_relayhost_maps =",
+    "sender_dependent_default_transport_maps =",
+    "content_filter =",
+    "alias_maps =",
+    "alias_database =",
+    "",
+    "# Undeliverable unless a listener routed it.",
+    "default_transport = \(no_route)",
+    "relay_transport = \(no_route)",
+    "local_transport = \(no_route)",
+    "virtual_transport = \(no_route)",
+    "",
+    "# No authentication and no TLS: the boundary is the host and the port.",
+    "smtpd_sasl_auth_enable = no",
+    "smtp_sasl_auth_enable = no",
+    "smtpd_tls_security_level = none",
+    "smtp_tls_security_level = none",
+    "",
+    "# Loopback clients only, and an exact match on the sender domain: a",
+    "# subdomain is a different identity.",
+    "smtpd_client_restrictions = permit_mynetworks, reject",
+    "smtpd_relay_restrictions = permit_mynetworks, reject",
+    "smtpd_recipient_restrictions =",
+    "parent_domain_matches_subdomains =",
+    "smtpd_null_access_lookup_key = <>",
+    "disable_vrfy_command = yes",
+    "",
+    "# Each target'"'"'s sender authorization, applied by its own listener.",
+    (.listeners[]
+        | "\(param)_sender_restrictions = check_sender_access inline:{ \(.sender.allowed_domain)=OK, <>=OK }, reject")
+)
+'
+
+# shellcheck disable=SC2016
+MASTER_CF_PROGRAM="${RENDER_DEFINITIONS}"'
+def listener:
+    (
+        service(.listen | endpoint; "inet"; "n"; "-"; "n"; "-"; "-"; "smtpd"),
+        "  -o syslog_name=postfix/rateguru-\(.identity)",
+        "  -o smtpd_delay_reject=no",
+        "  -o smtpd_reject_unlisted_recipient=no",
+        "  -o smtpd_sender_restrictions=$\(param)_sender_restrictions",
+        if .delivery_mode == "capture" and (.route | type) == "object" and .route.kind == "capture" then
+            "  -o content_filter=\(capture_transport):[\(.route.host)]:\(.route.port)"
+        elif .delivery_mode == "held" and .route == null then
+            "  -o smtpd_recipient_restrictions=check_client_access,static:HOLD,permit_mynetworks,reject",
+            "  -o content_filter="
+        else
+            error("no Postfix rendering is defined for delivery mode \(.delivery_mode | tojson) of \(.identity)")
+        end
+    );
+
+def capture_route:
+    (
+        service(capture_transport; "unix"; "-"; "-"; "n"; "-"; "-"; "smtp"),
+        "  -o syslog_name=postfix/\(capture_transport)",
+        "  -o smtp_tls_security_level=none",
+        "  -o smtp_sasl_auth_enable=no"
+    );
+
+(
+    "# RateGuru mail gateway — master.cf",
+    "#",
+    "# Rendered by infrastructure/scripts/install-mail-gateway from the reviewed",
+    "# mail routing plan. Never edit it on a host.",
+    "#",
+    "# The only inet services are the per-target loopback listeners: there is no",
+    "# smtp, submission or smtps listener. The only delivery agents are one",
+    "# capture transport per capture target; there is no generic smtp, relay,",
+    "# local, virtual or lmtp transport for anything to fall through to.",
+    "#",
+    "# service type  private unpriv  chroot  wakeup  maxproc command + args",
+    "",
+    "# --- target listeners: the port is the routing identity",
+    (.listeners[] | listener),
+    "",
+    "# --- capture routes: queued, then delivered to the capture destination",
+    (.listeners[] | select(.delivery_mode == "capture") | capture_route),
+    "",
+    "# --- Postfix internal services",
+    service("pickup"; "unix"; "n"; "-"; "n"; "60"; "1"; "pickup"),
+    service("cleanup"; "unix"; "n"; "-"; "n"; "-"; "0"; "cleanup"),
+    service("qmgr"; "unix"; "n"; "-"; "n"; "300"; "1"; "qmgr"),
+    service("rewrite"; "unix"; "-"; "-"; "n"; "-"; "-"; "trivial-rewrite"),
+    service("bounce"; "unix"; "-"; "-"; "n"; "-"; "0"; "bounce"),
+    service("defer"; "unix"; "-"; "-"; "n"; "-"; "0"; "bounce"),
+    service("trace"; "unix"; "-"; "-"; "n"; "-"; "0"; "bounce"),
+    service("verify"; "unix"; "-"; "-"; "n"; "-"; "1"; "verify"),
+    service("flush"; "unix"; "n"; "-"; "n"; "1000?"; "0"; "flush"),
+    service("proxymap"; "unix"; "-"; "-"; "n"; "-"; "-"; "proxymap"),
+    service("proxywrite"; "unix"; "-"; "-"; "n"; "-"; "1"; "proxymap"),
+    service("showq"; "unix"; "n"; "-"; "n"; "-"; "-"; "showq"),
+    service("error"; "unix"; "-"; "-"; "n"; "-"; "-"; "error"),
+    service("retry"; "unix"; "-"; "-"; "n"; "-"; "-"; "error"),
+    service("discard"; "unix"; "-"; "-"; "n"; "-"; "-"; "discard"),
+    service("anvil"; "unix"; "-"; "-"; "n"; "-"; "1"; "anvil"),
+    service("scache"; "unix"; "-"; "-"; "n"; "-"; "1"; "scache"),
+    service("postlog"; "unix-dgram"; "n"; "-"; "n"; "-"; "1"; "postlogd")
+)
+'
+
+# render_gateway_config PLAN OUT_DIR — writes OUT_DIR/main.cf and
+# OUT_DIR/master.cf. Called as a plain statement, never inside $(...) or on the
+# left of ||, so a jq failure stops the run instead of leaving a half file.
+render_gateway_config() {
+    local plan="$1" out="$2"
+
+    jq -e "${PLAN_GUARD_PROGRAM}" "${plan}" >/dev/null \
+        || fail "the mail routing plan does not have the shape this renderer spells in Postfix — refusing to render around it"
+
+    jq -r "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
+    jq -r "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+}
+
+# --- The plan -----------------------------------------------------------------------
+
+WORK_DIR=""
+PLAN_FILE=""
+CANDIDATE_DIR=""
+
+cleanup_work_dir() {
+    [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
+    return 0
+}
+
+# prepare_candidate — the plan from mail-routing, and its Postfix rendering,
+# in a private directory. mail-routing validates before it renders and prints
+# nothing when the policy is invalid, so an invalid policy stops here.
+prepare_candidate() {
+    [[ -x "${MAIL_ROUTING_CLI}" ]] \
+        || fail "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full repository bundle; this installer never re-derives the policy"
+
+    WORK_DIR="$(mktemp -d)"
+    chmod 0700 "${WORK_DIR}"
+    PLAN_FILE="${WORK_DIR}/plan.json"
+    CANDIDATE_DIR="${WORK_DIR}/candidate"
+    mkdir -m 0700 "${CANDIDATE_DIR}"
+
+    "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
+        || fail "mail-routing render-plan refused the reviewed policy (diagnostics above) — nothing was rendered"
+
+    render_gateway_config "${PLAN_FILE}" "${CANDIDATE_DIR}"
+}
+
+# Newline-separated plan facts, read once from the rendered plan.
+plan_endpoints() {
+    jq -r '.listeners[] | "\(.listen.host):\(.listen.port)"' "${PLAN_FILE}" || true
+}
+
+plan_ports() {
+    jq -r '.listeners[] | .listen.port' "${PLAN_FILE}" || true
+}
+
+plan_capture_destinations() {
+    jq -r '.listeners[] | select(.delivery_mode == "capture") | "\(.route.host):\(.route.port)"' "${PLAN_FILE}" || true
+}
+
+# --- Package and ownership state -----------------------------------------------------
+
+# package_status — installed | absent | partial (any other dpkg state: unpacked,
+# half-configured, config-files, ...).
+package_status() {
+    local status
+    # dpkg-query's own ${field} syntax, never the shell's.
+    # shellcheck disable=SC2016
+    status="$("${DPKG_QUERY_BIN}" -W -f='${Status}' "${POSTFIX_PACKAGE}" 2>/dev/null || true)"
+
+    case "${status}" in
+        "install ok installed")
+            printf 'installed\n'
+            ;;
+        ""|*" not-installed")
+            printf 'absent\n'
+            ;;
+        *)
+            printf 'partial\n'
+            ;;
+    esac
+}
+
+package_version() {
+    # shellcheck disable=SC2016
+    "${DPKG_QUERY_BIN}" -W -f='${Version}' "${POSTFIX_PACKAGE}" 2>/dev/null || true
+}
+
+# Installed packages, other than Postfix, that provide a mail transport agent.
+# Installing Postfix next to one would have apt remove it.
+other_mail_transport_agents() {
+    # shellcheck disable=SC2016
+    "${DPKG_QUERY_BIN}" -W -f='${Package}\t${Status}\t${Provides}\n' 2>/dev/null \
+        | awk -F'\t' -v self="${POSTFIX_PACKAGE}" '
+            $1 != self && $2 == "install ok installed" && $3 ~ /(^|[ ,])mail-transport-agent([ ,(]|$)/ { print $1 }
+        ' || true
+}
+
+marker_state() {
+    local marker
+    marker="$(physical "${OWNERSHIP_MARKER}")"
+
+    [[ -f "${marker}" && ! -L "${marker}" ]] || return 0
+    sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1 || true
+}
+
+# ownership — fresh | owned | unmanaged.
+#   fresh      no marker, no package, no /etc/postfix: --apply installs it;
+#   owned      the marker is present (installing or installed);
+#   unmanaged  Postfix, or its configuration, exists without the marker.
+ownership() {
+    local state
+    state="$(marker_state)"
+
+    if [[ "${state}" == installing || "${state}" == installed ]]; then
+        printf 'owned\n'
+    elif [[ "$(package_status)" != absent ]] || [[ -e "$(physical "${POSTFIX_DIR}")" ]]; then
+        printf 'unmanaged\n'
+    else
+        printf 'fresh\n'
+    fi
+}
+
+write_marker() {
+    local state="$1" marker tmp
+    marker="$(physical "${OWNERSHIP_MARKER}")"
+
+    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${STATE_DIR}")"
+    tmp="${marker}.tmp.$$"
+    {
+        printf '# RateGuru mail gateway ownership marker. Non-secret.\n'
+        printf '#\n'
+        printf '# Written by install-mail-gateway before it installs the postfix package,\n'
+        printf '# so a partial installation it started is recognisable and resumable, and\n'
+        printf '# a Postfix without this file is never taken over. Do not edit.\n'
+        printf 'owner=rateguru\n'
+        printf 'component=mail-gateway\n'
+        printf 'state=%s\n' "${state}"
+    } > "${tmp}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+    chmod 0644 "${tmp}"
+    mv -f "${tmp}" "${marker}"
+}
+
+# A policy-rc.d carrying our marker outlived the run that installed it — every
+# package service start on the host is still suppressed.
+leftover_start_suppression() {
+    local path
+    path="$(physical "${POLICY_RC}")"
+
+    [[ -f "${path}" ]] && grep -qF "${POLICY_RC_MARKER}" "${path}"
+}
+
+# --- Postfix's own judgement of a configuration directory ---------------------------
+
+# postfix_contract_problems DIR — Postfix parses DIR and reads back the values
+# the fail-closed contract depends on, so what is asserted is what Postfix will
+# actually use, not what a file happens to say. Prints one problem per line.
+postfix_contract_problems() {
+    local dir="$1" warnings value name
+
+    if ! warnings="$("${POSTCONF_BIN}" -c "${dir}" -n 2>&1 >/dev/null)"; then
+        printf 'postconf cannot parse main.cf: %s\n' "${warnings}"
+        return 0
+    fi
+    [[ -z "${warnings}" ]] || printf 'postconf reports: %s\n' "${warnings}"
+
+    if ! warnings="$("${POSTCONF_BIN}" -c "${dir}" -M 2>&1 >/dev/null)"; then
+        printf 'postconf cannot parse master.cf: %s\n' "${warnings}"
+        return 0
+    fi
+    [[ -z "${warnings}" ]] || printf 'postconf reports: %s\n' "${warnings}"
+
+    for name in default_transport relay_transport local_transport virtual_transport; do
+        value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
+        [[ "${value}" == error:* ]] || printf '%s is "%s", not the error transport — unrouted mail could be delivered\n' "${name}" "${value}"
+    done
+
+    for name in relayhost mydestination relay_domains transport_maps content_filter sender_dependent_relayhost_maps sender_dependent_default_transport_maps; do
+        value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
+        [[ -z "${value}" ]] || printf '%s is "%s", not empty — the gateway has no global route\n' "${name}" "${value}"
+    done
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_interfaces 2>/dev/null || true)"
+    [[ "${value}" == 127.0.0.1 ]] || printf 'inet_interfaces is "%s", not 127.0.0.1\n' "${value}"
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_protocols 2>/dev/null || true)"
+    [[ "${value}" == ipv4 ]] || printf 'inet_protocols is "%s", not ipv4\n' "${value}"
+
+    for name in smtpd_sasl_auth_enable smtp_sasl_auth_enable; do
+        value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
+        [[ "${value}" == no ]] || printf '%s is "%s" — the gateway has no SMTP AUTH\n' "${name}" "${value}"
+    done
+
+    # The inet services are exactly the plan's endpoints: no smtp, submission
+    # or smtps listener, and no listener the plan does not name.
+    local expected actual
+    expected="$(plan_endpoints | sort)"
+    actual="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$2 == "inet" { print $1 }' | sort || true)"
+    [[ "${actual}" == "${expected}" ]] \
+        || printf 'inet services are [%s], the plan names [%s]\n' "${actual//$'\n'/ }" "${expected//$'\n'/ }"
+
+    # Each listener's route, read back per service.
+    local identity endpoint mode route filter recipients
+    while IFS=$'\t' read -r identity endpoint mode route; do
+        [[ -n "${identity}" ]] || continue
+        filter="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/content_filter" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+        recipients="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/smtpd_recipient_restrictions" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+
+        case "${mode}" in
+            capture)
+                [[ "${filter}" == "rateguru-capture-${identity}:[${route%:*}]:${route##*:}" ]] \
+                    || printf '%s (%s) routes to "%s", not its capture destination %s\n' "${identity}" "${endpoint}" "${filter}" "${route}"
+                ;;
+            held)
+                [[ -z "${filter}" ]] || printf '%s (%s) is held but names a route: %s\n' "${identity}" "${endpoint}" "${filter}"
+                [[ "${recipients}" == *static:HOLD* ]] || printf '%s (%s) is held but does not place its mail on hold\n' "${identity}" "${endpoint}"
+                ;;
+            *)
+                printf '%s has delivery mode %s, which this gateway has no spelling for\n' "${identity}" "${mode}"
+                ;;
+        esac
+    done < <(jq -r '.listeners[] | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode, (if .route then "\(.route.host):\(.route.port)" else "-" end)] | @tsv' "${PLAN_FILE}")
+
+    # `postfix check` also inspects ownership and permissions; root only.
+    if [[ "${EFFECTIVE_UID}" == 0 ]]; then
+        if ! warnings="$("${POSTFIX_BIN}" -c "${dir}" check 2>&1)"; then
+            printf 'postfix check failed: %s\n' "${warnings}"
+        elif [[ -n "${warnings}" ]]; then
+            printf 'postfix check reports: %s\n' "${warnings}"
+        fi
+    fi
+}
+
+# --- Runtime --------------------------------------------------------------------------
+
+service_property() {
+    "${SYSTEMCTL_BIN}" show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+service_is_running() {
+    [[ "$(service_property "$1" ActiveState)" == active && "$(service_property "$1" SubState)" == running ]]
+}
+
+service_restart_count() {
+    local count
+    count="$(service_property "$1" NRestarts)"
+    [[ "${count}" =~ ^[0-9]+$ ]] || count=0
+    printf '%s\n' "${count}"
+}
+
+wait_service_running() {
+    local unit="$1" waited=0
+    while (( waited < RUNTIME_WAIT )); do
+        service_is_running "${unit}" && return 0
+        [[ "$(service_property "${unit}" ActiveState)" == failed ]] && return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+tcp_listeners() {
+    "${SS_BIN}" -ltnH 2>/dev/null | awk '{ print $4 }' || true
+}
+
+wait_listener() {
+    local endpoint="$1" waited=0
+    while (( waited < RUNTIME_WAIT )); do
+        grep -qxF "${endpoint}" <<<"$(tcp_listeners)" && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+# runtime_problems — the running gateway, read-only. One problem per line.
+runtime_problems() {
+    local listeners endpoint port local_address public_port
+
+    [[ "$("${SYSTEMCTL_BIN}" is-enabled "${POSTFIX_UNIT}" 2>/dev/null || true)" == enabled ]] \
+        || printf '%s is not enabled for boot\n' "${POSTFIX_UNIT}"
+
+    if ! wait_service_running "${POSTFIX_INSTANCE_UNIT}"; then
+        printf '%s is not active and running (ActiveState=%s SubState=%s)\n' "${POSTFIX_INSTANCE_UNIT}" \
+            "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" "$(service_property "${POSTFIX_INSTANCE_UNIT}" SubState)"
+        return 0
+    fi
+
+    local before after
+    before="$(service_restart_count "${POSTFIX_INSTANCE_UNIT}")"
+    sleep "${STABILITY_WAIT}"
+    after="$(service_restart_count "${POSTFIX_INSTANCE_UNIT}")"
+    service_is_running "${POSTFIX_INSTANCE_UNIT}" \
+        || printf '%s did not stay running for %ss\n' "${POSTFIX_INSTANCE_UNIT}" "${STABILITY_WAIT}"
+    (( after <= before )) \
+        || printf '%s restarted during the %ss stability window (NRestarts %s -> %s)\n' "${POSTFIX_INSTANCE_UNIT}" "${STABILITY_WAIT}" "${before}" "${after}"
+
+    while IFS= read -r endpoint; do
+        [[ -n "${endpoint}" ]] || continue
+        wait_listener "${endpoint}" || printf 'nothing listens on the gateway endpoint %s\n' "${endpoint}"
+    done < <(plan_endpoints)
+
+    listeners="$(tcp_listeners)"
+
+    # No public SMTP port is open on the host at all, and no gateway port is
+    # bound anywhere but loopback.
+    while IFS= read -r local_address; do
+        [[ -n "${local_address}" ]] || continue
+        port="${local_address##*:}"
+
+        for public_port in "${PUBLIC_SMTP_PORTS[@]}"; do
+            [[ "${port}" == "${public_port}" ]] \
+                && printf 'something listens on %s — no SMTP service may listen on port %s\n' "${local_address}" "${public_port}"
+        done
+
+        if grep -qxF "${port}" <<<"$(plan_ports)" && ! grep -qxF "${local_address}" <<<"$(plan_endpoints)"; then
+            printf 'gateway port %s is bound on %s, not only on loopback\n' "${port}" "${local_address}"
+        fi
+    done <<<"${listeners}"
+
+    # Every capture destination is there to deliver to.
+    while IFS= read -r endpoint; do
+        [[ -n "${endpoint}" ]] || continue
+        grep -qxF "${endpoint}" <<<"${listeners}" \
+            || printf 'capture destination %s is not listening — its mail would only queue\n' "${endpoint}"
+    done < <(plan_capture_destinations)
+}
+
+# --- Managed files ------------------------------------------------------------------------
+
+file_owner_mode() {
+    stat -c '%U:%G %a' "$1" 2>/dev/null || true
+}
+
+# managed_file_state LOGICAL — PASS | MISSING | DRIFT, against the candidate.
+managed_file_state() {
+    local logical="$1" path candidate
+    path="$(physical "${logical}")"
+    candidate="${CANDIDATE_DIR}/$(basename "${logical}")"
+
+    if [[ ! -e "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! cmp -s "${candidate}" "${path}" \
+        || [[ "$(file_owner_mode "${path}")" != "${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# --- Check and verify -----------------------------------------------------------------------
+
+report_problems() {
+    local name="$1" problems="$2" failure_status="$3" detail_pass="$4"
+
+    if [[ -z "${problems}" ]]; then
+        item PASS "${name}" "${detail_pass}"
+        return 0
+    fi
+
+    local problem
+    while IFS= read -r problem; do
+        [[ -n "${problem}" ]] || continue
+        item "${failure_status}" "${name}" "${problem}"
+    done <<<"${problems}"
+}
+
+report_contract() {
+    local owner package others listener_count
+    owner="$(ownership)"
+    package="$(package_status)"
+    others="$(other_mail_transport_agents)"
+    listener_count="$(jq '.listeners | length' "${PLAN_FILE}")"
+
+    printf 'install-mail-gateway --%s\n' "${MODE}"
+    item PASS "plan" "mail-routing render-plan accepted the reviewed policy (${listener_count} listener(s)); the gateway is rendered from it"
+
+    if [[ -n "${others}" ]]; then
+        item CONFLICT "mta:other" "another mail transport agent is installed (${others//$'\n'/, }) — it is not RateGuru's, and installing Postfix would remove it"
+    fi
+
+    case "${owner}" in
+        owned)
+            item PASS "ownership" "RateGuru ownership marker present (state=$(marker_state))"
+            [[ "${MODE}" == check || "$(marker_state)" == installed ]] \
+                || item CONFLICT "ownership:state" "the marker says state=$(marker_state): an installation RateGuru started is unfinished — --apply resumes it"
+            ;;
+        fresh)
+            if [[ "${MODE}" == check ]]; then
+                item MISSING "ownership" "no Postfix on this host — --apply installs the postfix package with service starts suppressed"
+            else
+                item MISSING "ownership" "the gateway is not installed"
+            fi
+            ;;
+        unmanaged)
+            item CONFLICT "ownership" "Postfix (package ${package}, or ${POSTFIX_DIR}) exists without the RateGuru ownership marker — refusing to take over a mail transport agent RateGuru did not install"
+            ;;
+    esac
+
+    if leftover_start_suppression; then
+        if [[ "${MODE}" == check ]]; then
+            item DRIFT "package:start-suppression" "a policy-rc.d from an interrupted run still suppresses package service starts — --apply restores the host's own"
+        else
+            item CONFLICT "package:start-suppression" "a policy-rc.d from an interrupted run still suppresses package service starts on this host"
+        fi
+    fi
+
+    if [[ "${package}" == installed ]]; then
+        item PASS "package" "${POSTFIX_PACKAGE} $(package_version) installed"
+        if [[ "${MODE}" == check ]]; then
+            report_problems "config:candidate" "$(postfix_contract_problems "${CANDIDATE_DIR}")" CONFLICT \
+                "Postfix accepts the rendered configuration, and reads it back fail-closed"
+        fi
+    elif [[ "${MODE}" == check ]]; then
+        item MISSING "package" "${POSTFIX_PACKAGE} is ${package} — --apply installs it, preseeded local-only, with service starts suppressed"
+        item DEFERRED "config:candidate" "Postfix is not installed yet, so its own parser runs during --apply, before the configuration is installed"
+    else
+        item MISSING "package" "${POSTFIX_PACKAGE} is ${package}"
+    fi
+
+    local logical state
+    for logical in "${MANAGED_FILES[@]}"; do
+        state="$(managed_file_state "${logical}")"
+        case "${state}" in
+            PASS)    item PASS "file:${logical}" "matches the current render, ${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ;;
+            MISSING) item MISSING "file:${logical}" "absent — --apply installs the current render" ;;
+            DRIFT)   item DRIFT "file:${logical}" "differs from the current render (content, type, owner or mode) — --apply replaces it" ;;
+        esac
+    done
+
+    if [[ "${MODE}" == verify ]]; then
+        if [[ "${package}" == installed ]]; then
+            report_problems "config:installed" "$(postfix_contract_problems "$(physical "${POSTFIX_DIR}")")" CONFLICT \
+                "Postfix reads the installed configuration back fail-closed: listeners, routes and holds exactly as planned"
+        fi
+        report_problems "runtime" "$(runtime_problems)" CONFLICT \
+            "enabled, stably running, listening on exactly the plan's loopback endpoints, no public SMTP port open, every capture destination listening"
+    elif [[ "${owner}" != owned ]]; then
+        # Before an install: a gateway port somebody else already holds would
+        # make --apply fail after the package is in.
+        local endpoint
+        while IFS= read -r endpoint; do
+            [[ -n "${endpoint}" ]] || continue
+            grep -q ":${endpoint##*:}\$" <<<"$(tcp_listeners)" \
+                && item CONFLICT "port:${endpoint}" "already in use by another process — the gateway cannot listen there"
+        done < <(plan_endpoints)
+    fi
+
+    printf 'SUMMARY  pass=%d missing=%d drift=%d conflict=%d deferred=%d\n' \
+        "${COUNT_PASS}" "${COUNT_MISSING}" "${COUNT_DRIFT}" "${COUNT_CONFLICT}" "${COUNT_DEFERRED}"
+}
+
+run_check() {
+    require_tools jq stat
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+    report_contract
+
+    (( COUNT_CONFLICT == 0 )) || exit 1
+}
+
+run_verify() {
+    require_root
+    require_tools jq stat
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+    report_contract
+
+    (( COUNT_CONFLICT + COUNT_MISSING + COUNT_DRIFT + COUNT_DEFERRED == 0 )) || exit 1
+}
+
+# --- Apply: package start suppression ------------------------------------------------------
+
+SUPPRESSION_INSTALLED=false
+
+restore_start_suppression() {
+    local path preserved
+    path="$(physical "${POLICY_RC}")"
+    preserved="$(physical "${PRESERVED_POLICY_RC}")"
+
+    if [[ -f "${path}" ]] && grep -qF "${POLICY_RC_MARKER}" "${path}"; then
+        rm -f "${path}"
+    fi
+
+    if [[ -e "${preserved}" || -L "${preserved}" ]]; then
+        [[ ! -e "${path}" && ! -L "${path}" ]] \
+            || fail "both a preserved policy-rc.d (${preserved}) and a live one (${path}) exist — resolve which is the host's own by hand"
+        mv -f "${preserved}" "${path}"
+        action "restored the host's own policy-rc.d"
+    fi
+
+    SUPPRESSION_INSTALLED=false
+}
+
+install_start_suppression() {
+    local path preserved tmp
+    path="$(physical "${POLICY_RC}")"
+    preserved="$(physical "${PRESERVED_POLICY_RC}")"
+
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        [[ ! -e "${preserved}" && ! -L "${preserved}" ]] \
+            || fail "a policy-rc.d is already preserved at ${preserved} — refusing to overwrite the host's own"
+        mv -f "${path}" "${preserved}"
+        action "preserved the host's own policy-rc.d while the package installs"
+    fi
+
+    SUPPRESSION_INSTALLED=true
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.tmp.$$"
+    printf '#!/bin/sh\n%s\nexit 101\n' "${POLICY_RC_MARKER}" > "${tmp}"
+    chmod 0755 "${tmp}"
+    mv -f "${tmp}" "${path}"
+}
+
+preseed_package() {
+    # Local only, IPv4, no relayhost: defense in depth. If the maintainer
+    # scripts ever did start the daemon, it would bind loopback alone.
+    printf '%s\n' \
+        "postfix postfix/main_mailer_type select Local only" \
+        "postfix postfix/protocols select ipv4" \
+        "postfix postfix/relayhost string" \
+        "postfix postfix/mynetworks string 127.0.0.0/8" \
+        "postfix postfix/mailname string ${GATEWAY_HOSTNAME}" \
+        | "${DEBCONF_SET_SELECTIONS_BIN}"
+}
+
+install_package() {
+    local status
+    status="$(package_status)"
+    [[ "${status}" != installed ]] || return 0
+
+    action "installing the ${POSTFIX_PACKAGE} package (preseeded local-only, service starts suppressed)"
+    preseed_package
+    install_start_suppression
+
+    # A package an interrupted run left unpacked or half-configured is finished
+    # first; apt refuses to work around it.
+    if [[ "${status}" == partial ]]; then
+        DEBIAN_FRONTEND=noninteractive "${DPKG_BIN}" --configure "${POSTFIX_PACKAGE}" || true
+    fi
+
+    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" update
+    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" install -y \
+        --no-install-recommends --no-remove \
+        -o Dpkg::Options::=--force-confdef \
+        -o Dpkg::Options::=--force-confold \
+        "${POSTFIX_PACKAGE}"
+
+    restore_start_suppression
+
+    [[ "$(package_status)" == installed ]] \
+        || fail "the ${POSTFIX_PACKAGE} package is not installed after apt-get install"
+
+    # Belt and braces: the configuration that will run is not installed yet.
+    if [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" == active ]]; then
+        action "stopping the package's own Postfix before the gateway configuration is installed"
+        "${SYSTEMCTL_BIN}" stop "${POSTFIX_INSTANCE_UNIT}"
+    fi
+}
+
+# --- Apply: transaction -----------------------------------------------------------------------
+
+BACKUP_DIR=""
+ROLLBACK_RESTORE=()
+ROLLBACK_REMOVE=()
+APPLY_COMMITTED=false
+MAIN_BASHPID=""
+FILES_CHANGED=false
+UNIT_ENABLED_BEFORE=""
+INSTANCE_ACTIVE_BEFORE=""
+
+capture_runtime_state() {
+    UNIT_ENABLED_BEFORE="$("${SYSTEMCTL_BIN}" is-enabled "${POSTFIX_UNIT}" 2>/dev/null || true)"
+    [[ -n "${UNIT_ENABLED_BEFORE}" ]] || UNIT_ENABLED_BEFORE="not-found"
+
+    INSTANCE_ACTIVE_BEFORE=inactive
+    [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" == active ]] && INSTANCE_ACTIVE_BEFORE=active
+
+    action "pre-apply state: ${POSTFIX_UNIT} ${UNIT_ENABLED_BEFORE}, ${POSTFIX_INSTANCE_UNIT} ${INSTANCE_ACTIVE_BEFORE}"
+}
+
+record_target() {
+    local path="$1" backup
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
+        install -d -m 0700 "$(dirname "${backup}")"
+        cp -a "${path}" "${backup}"
+        ROLLBACK_RESTORE+=("${path}")
+    else
+        ROLLBACK_REMOVE+=("${path}")
+    fi
+}
+
+install_managed_file() {
+    local logical="$1" path candidate tmp
+    path="$(physical "${logical}")"
+    candidate="${CANDIDATE_DIR}/$(basename "${logical}")"
+
+    record_target "${path}"
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.rateguru-tmp.$$"
+    install -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m "0${MANAGED_FILE_MODE}" "${candidate}" "${tmp}"
+    mv -f "${tmp}" "${path}"
+    FILES_CHANGED=true
+}
+
+restore_runtime_state() {
+    local status=0
+
+    # The package never got as far as installing its unit: there is no service
+    # state to put back.
+    if [[ -z "$("${SYSTEMCTL_BIN}" is-enabled "${POSTFIX_UNIT}" 2>/dev/null || true)" ]]; then
+        return 0
+    fi
+
+    case "${UNIT_ENABLED_BEFORE}" in
+        enabled|enabled-runtime) "${SYSTEMCTL_BIN}" enable "${POSTFIX_UNIT}" >/dev/null 2>&1 || status=1 ;;
+        disabled|not-found)      "${SYSTEMCTL_BIN}" disable "${POSTFIX_UNIT}" >/dev/null 2>&1 || status=1 ;;
+        masked|masked-runtime)   "${SYSTEMCTL_BIN}" mask "${POSTFIX_UNIT}" >/dev/null 2>&1 || status=1 ;;
+    esac
+
+    if [[ "${INSTANCE_ACTIVE_BEFORE}" == active ]]; then
+        "${SYSTEMCTL_BIN}" restart "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
+        [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" == active ]] || status=1
+    else
+        "${SYSTEMCTL_BIN}" stop "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
+        [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" != active ]] || status=1
+    fi
+
+    return "${status}"
+}
+
+rollback() {
+    action "rolling back the managed configuration and the service state"
+    local status=0 path backup
+
+    for path in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${path}" ]] || continue
+        rm -f "${path}" || { action "ERROR: could not remove ${path}"; status=1; }
+    done
+
+    for path in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${path}" ]] || continue
+        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
+        if [[ -e "${backup}" || -L "${backup}" ]]; then
+            rm -f "${path}"
+            cp -a "${backup}" "${path}" || { action "ERROR: could not restore ${path}"; status=1; }
+        else
+            action "ERROR: no backup of ${path}; it was left as installed"
+            status=1
+        fi
+    done
+
+    restore_runtime_state || status=1
+
+    if (( status != 0 )); then
+        action "ERROR: rollback INCOMPLETE — the previous configuration or service state was not fully restored; backups remain in ${BACKUP_DIR}"
+        return 1
+    fi
+
+    action "rollback complete: configuration and service state restored (backups in ${BACKUP_DIR})"
+}
+
+on_apply_error() {
+    local code=$?
+
+    # errtrace carries this trap into every $(...) as well; only the apply's own
+    # shell may roll back, or a failing probe in a subshell would do it twice.
+    [[ "${BASHPID}" == "${MAIN_BASHPID}" ]] || exit "${code}"
+
+    trap - ERR EXIT
+
+    # Never leave every package service start on the host suppressed.
+    if [[ "${SUPPRESSION_INSTALLED}" == true ]]; then
+        ( restore_start_suppression ) || action "ERROR: could not restore the host's policy-rc.d — check ${POLICY_RC} by hand"
+    fi
+
+    if [[ "${APPLY_COMMITTED}" == false && -n "${BACKUP_DIR}" ]]; then
+        rollback || true
+    fi
+
+    cleanup_work_dir
+    action "apply FAILED (exit ${code}); the ownership marker stays, so a re-run resumes"
+    exit "${code}"
+}
+
+perform_apply() {
+    require_root
+    require_tools jq stat cmp install
+
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+
+    action "validating the plan and the host before any mutation"
+
+    local others
+    others="$(other_mail_transport_agents)"
+    [[ -z "${others}" ]] \
+        || fail "another mail transport agent is installed (${others//$'\n'/, }) — it is not RateGuru's, and installing Postfix would remove it. Nothing was changed"
+
+    local owner
+    owner="$(ownership)"
+    [[ "${owner}" != unmanaged ]] \
+        || fail "Postfix (package $(package_status), or ${POSTFIX_DIR}) exists on this host without the RateGuru ownership marker — refusing to take over a mail transport agent RateGuru did not install. Nothing was changed"
+
+    if [[ "${owner}" == fresh ]]; then
+        local endpoint
+        while IFS= read -r endpoint; do
+            [[ -n "${endpoint}" ]] || continue
+            ! grep -q ":${endpoint##*:}\$" <<<"$(tcp_listeners)" \
+                || fail "gateway port ${endpoint##*:} is already in use by another process — nothing was changed"
+        done < <(plan_endpoints)
+    fi
+
+    # A policy-rc.d an interrupted run left behind is undone before anything
+    # else, so this host's package activity is its own again.
+    if leftover_start_suppression; then
+        action "removing the package start suppression an interrupted run left behind"
+        restore_start_suppression
+    fi
+
+    BACKUP_DIR="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-$$"
+    install -d -m 0700 "$(physical "${BACKUP_ROOT}")" "${BACKUP_DIR}"
+    action "configuration backups for this run: ${BACKUP_DIR}"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    capture_runtime_state
+
+    # The marker goes down before the package does, so an installation this run
+    # starts is recognisable as RateGuru's if it is interrupted.
+    [[ "$(marker_state)" == installed ]] || write_marker installing
+
+    install_package
+
+    # Postfix judges the candidate before a single managed file is touched.
+    local problems
+    problems="$(postfix_contract_problems "${CANDIDATE_DIR}")"
+    [[ -z "${problems}" ]] \
+        || fail "Postfix does not accept the rendered gateway configuration: ${problems//$'\n'/; }"
+
+    local logical
+    for logical in "${MANAGED_FILES[@]}"; do
+        if [[ "$(managed_file_state "${logical}")" != PASS ]]; then
+            action "installing ${logical}"
+            install_managed_file "${logical}"
+        fi
+    done
+
+    problems="$(postfix_contract_problems "$(physical "${POSTFIX_DIR}")")"
+    [[ -z "${problems}" ]] \
+        || fail "the installed gateway configuration does not validate: ${problems//$'\n'/; }"
+
+    action "enabling ${POSTFIX_UNIT} for boot"
+    "${SYSTEMCTL_BIN}" enable "${POSTFIX_UNIT}" \
+        || fail "could not enable ${POSTFIX_UNIT} for boot"
+
+    if [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" != active ]]; then
+        action "starting ${POSTFIX_INSTANCE_UNIT}"
+        "${SYSTEMCTL_BIN}" start "${POSTFIX_INSTANCE_UNIT}"
+        "${SYSTEMCTL_BIN}" start "${POSTFIX_UNIT}"
+    elif [[ "${FILES_CHANGED}" == true ]]; then
+        action "reloading ${POSTFIX_INSTANCE_UNIT} with the new configuration"
+        "${SYSTEMCTL_BIN}" reload "${POSTFIX_INSTANCE_UNIT}"
+    else
+        action "gateway configuration unchanged — ${POSTFIX_INSTANCE_UNIT} left running as it is"
+    fi
+
+    problems="$(runtime_problems)"
+    [[ -z "${problems}" ]] \
+        || fail "the running gateway is not healthy: ${problems//$'\n'/; }"
+
+    [[ "$(marker_state)" == installed ]] || write_marker installed
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+    cleanup_work_dir
+
+    action "apply complete — gateway installed, validated and running; run 'install-mail-gateway --verify' or 'verify-mail-gateway --read-only' to confirm"
+}
+
+# --- Entry point ---------------------------------------------------------------------------
+
+parse_args() {
+    [[ $# -gt 0 ]] || { usage >&2; fail "one of --check, --apply or --verify is required"; }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        check)
+            run_check
+            ;;
+        verify)
+            run_verify
+            ;;
+        apply)
+            perform_apply
+            ;;
+    esac
+}
+
+# Sourcing defines the renderer without running anything, so the tests drive the
+# shipped functions rather than a copy of them.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

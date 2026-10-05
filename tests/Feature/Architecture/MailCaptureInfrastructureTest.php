@@ -709,7 +709,7 @@ it('exposes no public SMTP listener anywhere in the slice', function () {
     }
 });
 
-it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
+it('points staging Laravel mail at loopback SMTP that ends in Mailpit', function () {
     $env = mailCaptureEnvValues('templates/environment/staging.env.example');
 
     // Exact values, including the deliberately empty credential/scheme keys.
@@ -723,13 +723,23 @@ it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
 
     expect($env['MAIL_MAILER'])->toBe('smtp');
     expect($env['MAIL_HOST'])->toBe('127.0.0.1');
-    expect($env['MAIL_PORT'])->toBe('1025');
     expect($env['MAIL_USERNAME'])->toBe('');
     expect($env['MAIL_PASSWORD'])->toBe('');
-    // Empty, so the transport stays plain `smtp://` for Mailpit's loopback.
+    // Empty, so the transport stays plain `smtp://` on loopback.
     expect($env['MAIL_SCHEME'])->toBe('');
     expect($env['MAIL_FROM_ADDRESS'])->toBe('noreply@staging.invalid');
     expect($env['MAIL_FROM_NAME'])->toBe('"${APP_NAME}"');
+
+    // The template names the mail gateway's staging listener, and that
+    // listener's capture route is exactly Mailpit's SMTP listener: staging
+    // mail still lands here, queued in front instead of submitted directly.
+    $staging = json_decode(mailCaptureSource('config/mail-routing.json'), true)['targets']['staging-main'];
+    $mailpit = mailCaptureEnvValues('config/mail-capture/mailpit.env');
+
+    expect($env['MAIL_PORT'])->toBe((string) $staging['submission']['port']);
+    expect($staging['delivery_mode'])->toBe('capture');
+    expect($staging['capture']['host'].':'.$staging['capture']['port'])->toBe($mailpit['MP_SMTP_BIND_ADDR']);
+    expect($mailpit['MP_SMTP_BIND_ADDR'])->toBe('127.0.0.1:1025');
 });
 
 it('wires staging mail to the env key config/mail.php actually reads', function () {

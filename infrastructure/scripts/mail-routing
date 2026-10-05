@@ -146,16 +146,16 @@ POLICY_RULES="${POLICY_DEFINITIONS}"'
 # it is combined: in jq `a, b | c` means `(a, b) | c`, so an unbracketed rule
 # would swallow every rule before it.
 
-def endpoint_problems($label; host_ok; $host_rule; $min_port):
+def endpoint_problems($what; host_ok; $host_rule; $min_port):
     if type != "object" then
-        "\($label) must be an object {host, port}, got \(tojson)"
+        "\($what) must be an object {host, port}, got \(tojson)"
     elif keys != ["host", "port"] then
-        "\($label) must be exactly {host, port}, found \(keys | tojson)"
+        "\($what) must be exactly {host, port}, found \(keys | tojson)"
     else
         (if (.host | type == "string") and (.host | host_ok) then empty
-         else "\($label).host must be \($host_rule), got \(.host | tojson)" end),
+         else "\($what).host must be \($host_rule), got \(.host | tojson)" end),
         (if .port | is_port($min_port) then empty
-         else "\($label).port must be an integer from \($min_port) to 65535, got \(.port | tojson)" end)
+         else "\($what).port must be an integer from \($min_port) to 65535, got \(.port | tojson)" end)
     end;
 
 def shape_problems($id; $mode; $p):

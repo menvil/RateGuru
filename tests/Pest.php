@@ -3804,6 +3804,7 @@ function trustedToolingRefs(): array
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
+        'verify-staging-mail-gateway.yml' => 'develop',
     ];
 }
 
@@ -4381,7 +4382,7 @@ function provisionWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
         'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
-        'nightwatch-installer',
+        'nightwatch-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -4394,6 +4395,10 @@ function provisionWriteStubs(string $scratch): void
                 *--supports-deployment-marker*)
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
+                    ;;
+                *--check*)
+                    [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
+                    exit 0
                     ;;
                 *--apply*)
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
@@ -4690,6 +4695,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        // Present so that a target-scoped run touching the host-global mail
+        // gateway would be recorded, not silently run the real installer.
+        'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',

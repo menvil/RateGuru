@@ -92,6 +92,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
+        // The mail gateway's operator acceptance transport: it runs exactly
+        // verify-mail-gateway --e2e on the staging host and installs nothing.
+        'verify-rateguru-mail-gateway',
     ]);
 });
 
@@ -120,6 +123,9 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The mail gateway acceptance has a capture backend to accept against
+        // on staging only, so it has one workflow, not one per environment.
+        'verify-staging-mail-gateway.yml',
     ]);
 
     // No workflow may let an operator type, choose or otherwise supply a

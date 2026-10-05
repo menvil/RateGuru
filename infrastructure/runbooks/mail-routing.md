@@ -8,15 +8,16 @@ leaves the application, and the repository tooling that proves the contract.
 | What | State |
 |------|-------|
 | Routing policy `infrastructure/config/mail-routing.json` | **Implemented**, reviewed |
-| `infrastructure/scripts/mail-routing validate` / `render-plan` | **Implemented**, repository tooling only |
-| Local mail gateway on a host | **Not installed.** No Postfix, no listener on `127.0.0.1:2525` or `127.0.0.1:2526` |
-| Staging mail path | **Unchanged**: Laravel → Mailpit `127.0.0.1:1025` → Mailtrap Local |
-| Production mail (`tits-guru`) | **Held**: identity reviewed, no route exists, nothing is delivered |
-| Real-host acceptance | **Not accepted.** Nothing here has run on a host |
+| `infrastructure/scripts/mail-routing validate` / `render-plan` | **Implemented**; repository tooling, run from the trusted bundle, never installed on a host |
+| Local mail gateway | **Implemented** as committed host infrastructure — `install-mail-gateway`, converged by Prepare Host; see [`mail-gateway.md`](mail-gateway.md) |
+| Gateway on the real staging host | **Not installed or accepted yet** — the next Prepare staging host installs it, then the operator acceptance runs |
+| Staging application mail | **Still direct**: the host's `shared/.env` says `MAIL_PORT=1025` (Laravel → Mailpit → Mailtrap Local) until the operator cutover |
+| Production mail (`tits-guru`) | **Held**: identity reviewed, its listener holds everything, no route exists, nothing is delivered |
 
-This is a policy and a rendering contract, not an installer. It was written
-first so that the routing rules are reviewed before any mail transfer agent is
-allowed onto a host. Nothing on any host reads it yet.
+The policy is the contract; `install-mail-gateway` turns its rendered plan into
+Postfix configuration and never re-derives a rule of its own. It was written
+first so that the routing rules were reviewed before any mail transfer agent was
+allowed onto a host.
 
 ## Architecture
 
@@ -205,8 +206,8 @@ target order, what a gateway would do:
 
 The plan is deterministic — the same policy renders the same bytes, however the
 file is ordered — and holds only addresses, ports, domains and closed
-vocabulary: no shell command, no path and no secret. It is the contract the
-gateway installer will be built against, not an installer itself.
+vocabulary: no shell command, no path and no secret. It is the one input the
+gateway installer renders Postfix from; the plan itself installs nothing.
 
 ## Environment contract: current and future values
 
@@ -215,10 +216,23 @@ Laravel's `smtp` mailer (`config/mail.php`) already reads `MAIL_HOST`,
 from `MAIL_FROM_ADDRESS`. Moving a target onto the gateway is therefore an
 environment change only — no application change is needed.
 
-### CURRENT runtime values (what is installed today)
+### The committed staging template names the gateway
 
-Staging submits **directly to Mailpit**, as
-`infrastructure/templates/environment/staging.env.example` declares:
+The reviewed desired endpoint, generated into
+`infrastructure/templates/environment/staging.env.example` from
+`environment-contract.json`:
+
+```dotenv
+MAIL_MAILER=smtp
+MAIL_HOST=127.0.0.1
+MAIL_PORT=2525
+MAIL_FROM_ADDRESS=noreply@staging.invalid
+```
+
+### CURRENT runtime values (what the staging host runs today)
+
+The host's own `shared/.env` is operator-owned and **never written by code**. It
+still submits **directly to Mailpit**:
 
 ```dotenv
 MAIL_MAILER=smtp
@@ -227,20 +241,14 @@ MAIL_PORT=1025
 MAIL_FROM_ADDRESS=noreply@staging.invalid
 ```
 
-`tits-guru` has no mail configuration: its template leaves `MAIL_MAILER`,
-`MAIL_HOST`, `MAIL_PORT` and `MAIL_FROM_ADDRESS` empty.
+Deploy compares a host's `.env` with the template by key, never by value, so
+both run. The operator moves the host to `MAIL_PORT=2525` only after the gateway
+is installed and its acceptance has passed — the ordered cutover, and its
+rollback, are in [`mail-gateway.md`](mail-gateway.md#staging-cutover).
 
-### FUTURE gateway values (NOT installed — do not set them yet)
+### FUTURE gateway values (not set — tits-guru has no route yet)
 
-Staging, once the gateway is installed and staging is routed through it:
-
-```dotenv
-MAIL_MAILER=smtp
-MAIL_HOST=127.0.0.1
-MAIL_PORT=2525
-```
-
-`tits-guru`, once its gateway endpoint is ready:
+`tits-guru`, once it has a delivery route and is activated:
 
 ```dotenv
 MAIL_MAILER=smtp
@@ -249,17 +257,16 @@ MAIL_PORT=2526
 MAIL_FROM_ADDRESS=noreply@tits.guru
 ```
 
-Nothing listens on `2525` or `2526` today, so setting either now would make a
-target's mail fail rather than reroute it. The environment templates keep the
-CURRENT values: a template that named the gateway would claim a runtime state
-no host has. They change in the same reviewed change that installs the gateway
-on the host, never before it.
+Its template keeps `MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT` and
+`MAIL_FROM_ADDRESS` empty: the target is planned, not deployed, and its listener
+holds everything it accepts, so naming it as a working endpoint would claim a
+delivery path that does not exist.
 
 Two `2525`s elsewhere in the repository are unrelated framework defaults:
 `config/mail.php` falls back to `env('MAIL_PORT', 2525)`, and the root
 `.env.example` sets `MAIL_PORT=2525` beside `MAIL_MAILER=log` for local
-development. Neither is a deployed value: every deployed template sets
-`MAIL_PORT` explicitly.
+development. That they match staging's gateway port is a coincidence: every
+deployed template sets `MAIL_PORT` explicitly.
 
 ## Adding a target
 
@@ -278,9 +285,10 @@ No code changes: nothing in `mail-routing` names a target, a domain or a port.
 ## Security model
 
 - **Loopback only.** Every gateway endpoint is `127.0.0.1`, and every capture
-  destination is in `127.0.0.0/8`. There is **no public SMTP listener**, and
-  nothing in this change creates one: no Postfix, no systemd unit, no firewall
-  rule and no Nginx `stream` block exists for mail.
+  destination is in `127.0.0.0/8`. There is **no public SMTP listener**: the
+  gateway binds exactly the plan's loopback endpoints and has no smtp,
+  submission or smtps listener, nothing listens on 25, 465 or 587, and no
+  firewall rule or Nginx `stream` block exists for mail.
 - **Submission ports are unprivileged.** A gateway endpoint is never on a port
   below 1024, so it can never be confused with a well-known public SMTP port.
 - **No secret in the routing policy.** Its shape is closed and every value has
@@ -291,24 +299,23 @@ No code changes: nothing in `mail-routing` names a target, a domain or a port.
 
 ## What comes next
 
-The roadmap orders this work; none of it is done here.
+The roadmap orders this work.
 
-1. **Install the local gateway and route staging through it** (ROADMAP
-   8.4B.2). The gateway is installed on the host, listening on
-   `127.0.0.1:2525`, and staging moves from `MAIL_PORT=1025` to
-   `MAIL_PORT=2525` in the same change:
+1. **The local gateway, with staging routed through it** (ROADMAP 8.4B.2) —
+   implemented: the gateway is committed host infrastructure and the staging
+   template names `127.0.0.1:2525`. Its real-host acceptance is the operator
+   sequence in [`mail-gateway.md`](mail-gateway.md#staging-cutover):
 
    ```
    Laravel staging → gateway 127.0.0.1:2525 → Mailpit 127.0.0.1:1025 → Mailtrap Local
    ```
 
-   Mailpit and Mailtrap Local are unchanged by it, and the transition is
-   rehearsed on the real host.
+   Mailpit and Mailtrap Local are unchanged by it.
 2. **Production outbound delivery** (ROADMAP 8.4B.3). `held` is replaced by a
    real outbound transport for production, only once that transport is
    implemented and reviewed. The new delivery mode is added to the validator in
    that change.
-3. **Deliverability and inbound handling**, alongside it: SPF, DKIM and DMARC
-   for `tits.guru`, TLS for the outbound connection, a bounce receiver for
+3. **Mail identity and DNS signing policy** (ROADMAP 8.4B.4): SPF, DKIM and
+   DMARC for `tits.guru`, TLS for the outbound connection, a bounce receiver for
    `bounce.tx.tits.guru` and reply routing for `reply.tits.guru`. No DNS record,
    key, certificate, MX or relay has been created for any of them.

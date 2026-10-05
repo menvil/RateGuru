@@ -1,0 +1,137 @@
+name: Verify staging mail gateway
+
+# The operator acceptance of the host-global mail gateway on the staging host,
+# and nothing else: infrastructure/scripts/verify-mail-gateway --e2e, run from
+# trusted develop tooling.
+#
+# Manual-only, and deliberately without a single operator input. The
+# environment is staging, the host is the one staging is bound to, and the
+# tooling comes from develop — structural properties of this workflow, not
+# choices. There is no target selector because the gateway belongs to the host,
+# not to a target.
+#
+# WHY IT IS SEPARATE FROM PREPARE. Prepare Host installs and converges the
+# gateway, and its verification is read-only: it never submits mail. This run is
+# MUTATING on purpose — it sends real messages through every listener, holds one,
+# stops and starts Mailpit to prove the gateway queues across an outage — so it
+# is an explicit operator action, never something ordinary preparation does. It
+# removes only the messages and queue entries it created.
+#
+# It never edits an environment file, never deploys application code and never
+# installs or converges anything.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The same logical domain every other staging host mutation uses: this run stops
+# and starts the capture service a staging deployment's mail goes through, so it
+# must never overlap a staging deploy, rollback, preparation, restore or recovery.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- develop-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # A workflow_dispatch ref may be any branch or tag, and the `staging`
+  # Environment does not restrict refs — so without this, dispatching from an
+  # arbitrary branch would run THAT branch's workflow definition with staging's
+  # bootstrap and deploy credentials. Checking out `develop` for the tooling does
+  # not help: the YAML deciding what to do with those credentials is the YAML at
+  # the dispatched ref.
+  #
+  # This operation takes no ref input, because it has nothing to select: it
+  # converges the host or the target from the committed tooling. So develop is the
+  # only ref it has any reason to run from, and anything else is refused before a
+  # single job holding the Environment starts. Because this job holds no
+  # Environment, a refused run never has those credentials available to it at all.
+  #
+  # `deploy-staging.yml` deliberately has NO such gate: it DOES take a ref input,
+  # and deploying an operator-selected ref to staging is the whole point of it —
+  # staging is where a branch is verified before it is promoted.
+  #
+  # WHAT THIS IS NOT, and this matters more than it reads.
+  #
+  # A gate written in the workflow can only bind refs whose workflow contains it.
+  # Dispatching a ref from BEFORE this gate existed runs that ref's unguarded job,
+  # with the Environment, and nothing here can prevent it — the same is true of
+  # anyone who can push a branch, who would simply author this file on it.
+  #
+  # So this closes the ordinary mistake — a branch left selected in the Run
+  # workflow dropdown, a copied URL with the wrong ref — and does not close the
+  # general case. What closes the general case is outside the YAML: restricting
+  # the `staging` Environment's allowed refs.
+  #
+  # Precisely what that buys, because it is easy to overstate: GitHub evaluates
+  # the allowlist per JOB, when a job that declares the Environment is about to
+  # start — not for the workflow as a whole. A disallowed ref can still run this
+  # workflow's Environment-free jobs, and on an older ref can run whatever
+  # unprotected jobs that ref happens to define. What it cannot do is start a job
+  # holding `staging`, which is where the credentials are. That is the boundary:
+  # the credentials, not the run.
+  #
+  # That restriction is the branch `develop` AND the tag pattern `v*`, not
+  # `develop` alone: release.yml triggers on `v*` and verifies the artifact on
+  # staging through this same Environment, so a develop-only rule would refuse
+  # every release. It is an operator setting no pull request can apply; see
+  # infrastructure/runbooks/deployment-targets.md. Until it is set, treat this
+  # gate as a guard rail rather than a boundary.
+  validate-ref:
+    name: Refuse any ref but develop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/develop
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/develop" ]]; then
+            echo "This staging operation runs from develop and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with develop selected. To deploy a particular ref to staging, use Deploy to staging, which takes one." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- develop-only control-plane gate (end) ---
+  verify:
+    name: Accept the staging mail gateway end to end
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    environment: staging
+    timeout-minutes: 15
+
+    steps:
+      # Operational tooling always comes from the trusted develop branch. There
+      # is no application source in this operation at all.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run the mail gateway acceptance on the staging host
+        uses: ./.github/actions/verify-rateguru-mail-gateway
+        with:
+          environment: staging
+
+          # The physical host binding of the staging deployment configuration —
+          # the gateway runs on the host staging-main is bound to.
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential Prepare Host uses, never the
+          # restricted deploy credential: the acceptance needs root.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}

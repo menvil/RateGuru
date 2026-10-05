@@ -542,7 +542,7 @@
             "classification": "target",
             "value": {
                 "by_environment_class": {
-                    "staging": "1025",
+                    "staging": "2525",
                     "production": ""
                 }
             }
