@@ -730,7 +730,7 @@ it('uses a byte-identical gate in every gated staging workflow', function () {
         $gates[$file] = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
     }
 
-    expect($gates)->toHaveCount(6);
+    expect($gates)->toHaveCount(5);
     expect(array_unique(array_values($gates)))
         ->toHaveCount(1, 'the develop-only gate has drifted between workflows: '.implode(', ', array_keys($gates)));
 });
