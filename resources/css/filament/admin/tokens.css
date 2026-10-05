@@ -42,7 +42,13 @@
     /* Text */
     --rg-admin-text-strong: var(--rg-admin-gray-950);
     --rg-admin-text-secondary: var(--rg-admin-gray-600);
-    --rg-admin-text-tertiary: var(--rg-admin-gray-400);
+    /*
+     * Deliberately darker than the reference. The reference draws tertiary
+     * text in gray-400 #99A0AE, 2.63:1 on white and 2.45:1 on the app ground;
+     * #68707D reaches 5.0:1 and 4.67:1, WCAG AA for normal text, and stays
+     * lighter than secondary text. gray-400 itself keeps its reference value.
+     */
+    --rg-admin-text-tertiary: #68707d;
     --rg-admin-text-disabled: var(--rg-admin-gray-300);
     --rg-admin-text-inverse: var(--rg-admin-gray-0);
 

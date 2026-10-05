@@ -86,6 +86,6 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Checked at 1440, 1280 and 1024 px; no horizontal page scroll outside tables.
 - [ ] Every focusable control shows a visible focus state.
 - [ ] State is never encoded by colour alone.
-- [ ] Tertiary text (gray-400, below AA contrast) never carries essential information found nowhere else; see the
-      contract's open question on tertiary contrast.
+- [ ] Tertiary text uses `--rg-admin-text-tertiary` (`#68707D`, WCAG AA on white and on the app ground), never
+      the reference's gray-400.
 - [ ] Buttons are buttons, links are links; no ARIA roles without their keyboard behaviour.

@@ -114,7 +114,8 @@ final class AdminUiKit extends Page
                     ['Card', '--rg-admin-surface-card · #FFFFFF'],
                     ['Hairline', '--rg-admin-border-default · #E1E4EB'],
                     ['Strong border', '--rg-admin-border-strong · #CACFD8'],
-                    ['Text', 'strong #0E121B · secondary #525866 · tertiary #99A0AE'],
+                    ['Text', 'strong #0E121B · secondary #525866 · tertiary #68707D'],
+                    ['Tertiary text', '#68707D, 5.0:1 on white · reference gray-400 #99A0AE is 2.63:1, below AA'],
                     ['Success', '--rg-admin-status-success-bg / -fg · dot green-500'],
                     ['Warning', '--rg-admin-status-warning-bg / -fg · dot orange-500'],
                     ['Danger', '--rg-admin-status-danger-bg / -fg · dot red-500'],
@@ -205,7 +206,7 @@ final class AdminUiKit extends Page
                     ['Library', 'lucide@0.460.0 geometry, inlined · no package'],
                     ['Stroke', '1.75 (3 inside checkboxes)'],
                     ['Sizes', 'nav 18 · button 14–16 · table 15–18 · inline 12'],
-                    ['Colour', 'inherits currentColor · nav gray-600 · rows gray-400'],
+                    ['Colour', 'inherits currentColor · nav secondary · rows tertiary'],
                     ['Unknown name', 'throws: a typo fails loudly, never a blank'],
                 ],
                 'code' => <<<'BLADE'
@@ -282,7 +283,7 @@ final class AdminUiKit extends Page
                 'purpose' => 'Navigation inside text, opening public content, and low-emphasis actions such as Clear selection or Discard.',
                 'specs' => [
                     ['Inline link', 'ink 500 · underline offset 3 · decoration gray-300'],
-                    ['Public content', 'title link + arrow-up-right 14 gray-400'],
+                    ['Public content', 'title link + arrow-up-right 14 tertiary'],
                     ['Quiet link', '12/500 gray-600 + arrow-up-right 12'],
                     ['Arrow link', '13/500 ink + arrow-right 14'],
                     ['Text action', 'x-admin.ui.button variant ghost · 13/500 · 32 h · hover gray-200'],
@@ -410,7 +411,7 @@ final class AdminUiKit extends Page
                 'purpose' => 'Filters the current table as you type. The placeholder names what can be searched.',
                 'specs' => [
                     ['Height', '40 · radius 10 · 15px text'],
-                    ['Icon', 'search 18 gray-400'],
+                    ['Icon', 'search 18 tertiary'],
                     ['Width', 'toolbar 320 · sidebar full'],
                     ['Shortcut', 'Kbd ⌘K on global search only'],
                     ['Focus', 'border gray-500 + 3 px halo'],
@@ -436,8 +437,8 @@ final class AdminUiKit extends Page
                 'specs' => [
                     ['Field', '40 h · radius 10 · 14px text'],
                     ['Label', '13/500 · 6 above · for= the input'],
-                    ['Tag', 'Required (orange-900) / Optional (gray-400) · 12'],
-                    ['Hint', '12 gray-400 · 6 below · aria-describedby'],
+                    ['Tag', 'Required (orange-900) / Optional (tertiary) · 12'],
+                    ['Hint', '12 tertiary · 6 below · aria-describedby'],
                     ['Error', 'replaces the hint · red-950 + icon · aria-invalid'],
                     ['Focus', 'border gray-500 + 3 px halo'],
                     ['Disabled', 'real disabled · sunken · not-allowed'],
@@ -521,7 +522,7 @@ final class AdminUiKit extends Page
                     ['Breadcrumb', 'section › page; last item current'],
                     ['Actions', 'gap 10 · primary last'],
                     ['Unsaved', '13px orange-900 “2 unsaved changes”'],
-                    ['Meta', '13px gray-400 “Updated 09:41”'],
+                    ['Meta', '13px tertiary “Updated 09:41”'],
                 ],
                 'code' => <<<'BLADE'
                     <header class="rg-admin-topbar">
@@ -612,7 +613,7 @@ final class AdminUiKit extends Page
                 'purpose' => 'The container for tables, forms and summaries. Sections inside are split by full-width hairlines.',
                 'specs' => [
                     ['Card', 'white · hairline · radius 16 · no shadow'],
-                    ['Header', 'padding 16 20 · title 15/500 · sub 13 gray-400'],
+                    ['Header', 'padding 16 20 · title 15/500 · sub 13 tertiary'],
                     ['Section', 'padding 16 20 · hairline between'],
                     ['Summary footer', 'sunken gray-50 for read-only notes'],
                     ['Grid', 'two columns: fluid + 448 panel · gap 24'],
@@ -633,7 +634,7 @@ final class AdminUiKit extends Page
                 'kind' => 'primitive',
                 'purpose' => 'Read-only facts in panels and drawers: account details, asset properties, a language’s catalog.',
                 'specs' => [
-                    ['Row', 'min 36 · icon 16 gray-400 · label 14 gray-600 · value 14/500 right'],
+                    ['Row', 'min 36 · icon 16 tertiary · label 14 gray-600 · value 14/500 right'],
                     ['Label', '11px overline · rule optional · trailing 13px value'],
                     ['Mono values', 'IDs and paths 12px mono, ellipsis + title'],
                     ['Semantics', 'dl / dt / dd'],
@@ -659,7 +660,7 @@ final class AdminUiKit extends Page
                 'purpose' => 'All list screens share one table built from CSS grid rows. Header and rows use the same column template, which each screen sets for itself.',
                 'specs' => [
                     ['Structure', 'div rows · role table/row/columnheader/cell · one grid template'],
-                    ['Header', '40 h · overline 11px gray-400 · bottom hairline'],
+                    ['Header', '40 h · overline 11px tertiary · bottom hairline'],
                     ['Row', 'min 56–64 · bottom hairline'],
                     ['States', 'hover gray-50 · selected sunken + checked box'],
                     ['Cells', 'padding 0 12 · first 16 · two lines: 14 primary + 12–13 meta'],
@@ -693,7 +694,7 @@ final class AdminUiKit extends Page
                     ['Order', 'search · filters · segmented · chips · count right'],
                     ['Filter', 'Button md + chevron-down · “Field: value”'],
                     ['Chip', '28 h · radius 8 · sunken · remove 20 with label'],
-                    ['Count', '13px gray-400 · “3 posts match”'],
+                    ['Count', '13px tertiary · “3 posts match”'],
                 ],
                 'code' => <<<'BLADE'
                     <div class="rg-admin-toolbar">
@@ -713,7 +714,7 @@ final class AdminUiKit extends Page
                     ['Trigger', 'icon button ellipsis ghost sm'],
                     ['Menu', '248–272 w · radius 12 · padding 6 · shadow-popover'],
                     ['Item', 'icon 16 + 14px label + optional 12px hint'],
-                    ['Disabled', 'gray-400 · kept visible · hint gives the reason'],
+                    ['Disabled', 'tertiary · kept visible · hint gives the reason'],
                     ['Destructive', 'red-950 · after a separator'],
                 ],
                 'code' => <<<'BLADE'
@@ -735,7 +736,7 @@ final class AdminUiKit extends Page
                 'specs' => [
                     ['Icon', '40 circle · sunken (success tint for done) · 18 icon'],
                     ['Title', '15/500'],
-                    ['Body', '13/18 gray-400 · max 380'],
+                    ['Body', '13/18 tertiary · max 380'],
                     ['Action', 'only when the user can change the outcome (Clear filters)'],
                 ],
                 'code' => <<<'BLADE'

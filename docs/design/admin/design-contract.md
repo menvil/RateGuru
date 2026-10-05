@@ -72,12 +72,22 @@ besides ink, no colour on large surfaces. Text on a tint always uses the dark sh
 | `--rg-admin-gray-100` | `#F3F4F9` | pill surface, segmented track |
 | `--rg-admin-gray-200` | `#E1E4EB` | hairline, progress track, pressed text action |
 | `--rg-admin-gray-300` | `#CACFD8` | strong border, “—” empty value |
-| `--rg-admin-gray-400` | `#99A0AE` | tertiary text, row icons, edited-field border |
+| `--rg-admin-gray-400` | `#99A0AE` | edited-field border, info icons on ink; the reference's tertiary text colour (production text uses `--rg-admin-text-tertiary`, below) |
 | `--rg-admin-gray-500` | `#7A818E` | ghost icon buttons, focus ring |
 | `--rg-admin-gray-600` | `#525866` | secondary text, nav icons |
 | `--rg-admin-gray-950` | `#0E121B` | ink: strong text, primary buttons, toasts |
 
-Semantic aliases: `--rg-admin-text-strong|secondary|tertiary|inverse`,
+Text tokens:
+
+| Token | Value | Contrast on white / app ground |
+|---|---|---|
+| `--rg-admin-text-strong` | `#0E121B` (gray-950) | 18.73:1 / 17.50:1 |
+| `--rg-admin-text-secondary` | `#525866` (gray-600) | 7.13:1 / 6.66:1 |
+| `--rg-admin-text-tertiary` | `#68707D` (production; reference gray-400 `#99A0AE`) | 5.00:1 / 4.67:1 |
+| `--rg-admin-text-inverse` | `#FFFFFF` (gray-0) | on ink |
+
+Tertiary text deliberately departs from the reference; see
+[Tertiary text contrast](#tertiary-text-contrast). Other semantic aliases:
 `--rg-admin-surface-app|card|sunken|hover|pill|inverse|pressed`, `--rg-admin-border-default|strong|changed`.
 
 ### Status colours
@@ -143,7 +153,7 @@ dialog and lightbox 300 → toasts 400.
   needs it.
 - Stroke 1.75; 3 inside checkboxes.
 - Sizes: navigation 18, buttons 14–16, table 15–18, inline 12.
-- Colour inherits `currentColor`; navigation gray-600, rows gray-400.
+- Colour inherits `currentColor`; navigation gray-600 (secondary), rows tertiary.
 - Navigation icons: `layout-grid` Dashboard · `image` Posts · `message-square` Comments · `flag` Reports ·
   `users` Users · `folder` Categories · `tag` Tags · `star` Rating groups · `globe` Languages · `languages`
   Translation Center · `settings-2` Project settings · `hard-drive` Media diagnostics.
@@ -179,7 +189,7 @@ kit, but production still uses Filament's shell.
   waiting, red for critical) instead of counts, labels as tooltips (“Posts · 8 pending”). An expand button opens
   the full sidebar as an overlay with a drawer scrim.
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
-  actions on the right with gap 10 and the primary action last. Meta text 13 gray-400 (“Updated 09:41”); unsaved
+  actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
   bottom save bar.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
@@ -192,9 +202,9 @@ kit, but production still uses Filament's shell.
 - **Status tabs (NAV-03):** 40 high above the table card; 15px labels with a 12/500 count; 2px ink underline on the
   active tab. Counts are totals across all pages. Default tab: Posts → Pending, Reports → Open, others → All.
 - **Card (LAY-02):** white, hairline, radius 16, no shadow. Header 16 20 with title 15/500 and subtitle 13
-  gray-400; sections split by full-width hairlines; a sunken footer for read-only notes. Edit screens use two
+  tertiary; sections split by full-width hairlines; a sunken footer for read-only notes. Edit screens use two
   columns: fluid plus a 448 panel, gap 24.
-- **Detail rows (LAY-03):** min 36; icon 16 gray-400, label 14 gray-600, value 14/500 right-aligned; IDs and paths
+- **Detail rows (LAY-03):** min 36; icon 16 tertiary, label 14 gray-600, value 14/500 right-aligned; IDs and paths
   in 12px mono with ellipsis and a title. Section labels are 11px overlines with an optional rule and a 13px
   trailing value.
 
@@ -202,14 +212,14 @@ kit, but production still uses Filament's shell.
 
 - **Structure (TBL-01):** CSS grid rows; header and rows share one `grid-template-columns`, which each screen sets
   for itself. Production renders `role="table"`, `row`, `columnheader` and `cell` on the grid.
-- **Header:** 40 high, 11px overline gray-400, bottom hairline.
+- **Header:** 40 high, 11px overline tertiary, bottom hairline.
 - **Rows:** min 56–64, bottom hairline, hover gray-50; a selected row is sunken and shows a checked box.
 - **Cells:** padding 0 12, first cell 16; two lines: 14/500 primary and 12–13 tertiary meta; actions cell
   right-aligned with padding 0 16 0 8 and 6 between buttons.
 - **Overflow:** the grid has a `min-width`; the card scrolls horizontally. Never hide a column the moderator needs.
 - **Toolbar (TBL-02):** padding 14 16, gap 10, wraps. Order: search (320) · filters (button + chevron-down, “Field:
   value”) · segmented control · active filter chips (28 high, radius 8, sunken, removable) · result count on the
-  right (13 gray-400, “3 posts match”).
+  right (13 tertiary, “3 posts match”).
 - **Bulk bar (TBL-03):** min 52, sunken, under the toolbar; “3 selected”, one primary sm action with the eligible
   count (“Approve selected (2)”), a note about skipped rows, “Clear selection” on the right.
 - **Row actions (TBL-04):** the one or two most used actions for the row's status inline as secondary sm buttons;
@@ -219,7 +229,7 @@ kit, but production still uses Filament's shell.
   click, scroll and Escape.
 - **Pagination (NAV-04):** footer padding 12 16, 13 gray-600; “1–25 of 1,231” tabular; pages 32 min with the
   current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25.
-- **Empty states (TBL-05):** 40 circle icon, title 15/500, body 13/18 gray-400 max 380. A finished queue (“The
+- **Empty states (TBL-05):** 40 circle icon, title 15/500, body 13/18 tertiary max 380. A finished queue (“The
   queue is clear”) differs from a search with no results (“No posts match these filters” + Clear filters); an
   action only when it changes the outcome.
 - **Loading (TBL-06):** skeleton rows in the real row's grid; bars gray-200 and gray-100, radius full, 8–10 high;
@@ -243,9 +253,9 @@ Grid templates used in the prototype, for reference:
 
 ## Forms
 
-- **Search (FRM-01):** 40 high, radius 10, search icon 18 gray-400, 15px text; filters as you type, no submit
+- **Search (FRM-01):** 40 high, radius 10, search icon 18 tertiary, 15px text; filters as you type, no submit
   button; the placeholder names what is searched (“Search username, name or email”). `⌘K` only on global search.
-- **Text field (FRM-02):** label 13/500 6 above; field 40 high, radius 10; hint 12 gray-400 6 below; an error
+- **Text field (FRM-02):** label 13/500 6 above; field 40 high, radius 10; hint 12 tertiary 6 below; an error
   replaces the hint in red-950 and says what to do, not just what is wrong.
 - **Textarea (FRM-03):** padding 10 12, 14/22, min 84 in dialogs, 64 in panels; a “Required” (due colour until
   valid) or “Optional” tag and a right-aligned 12px tabular counter (“0 / 500”); preset chips 28 high, radius 8,
@@ -304,7 +314,7 @@ Grid templates used in the prototype, for reference:
   and destructive actions on the left. Escape or the scrim closes it. Reports docks the same 448 panel inside the
   layout.
 - **Toast (FBK-01):** ink surface, white 14px, radius 12, popover shadow; icon green for success, `#FF9AA2` for
-  errors, gray-400 for info; Undo only for reversible actions.
+  errors, gray-400 for info (on ink); Undo only for reversible actions.
 - **Inline notice (FBK-02):** radius 10, padding 10 12, 13/18, icon 16. Info (`info`), warning (`circle-alert`),
   danger (`triangle-alert`, 500, irreversible dialogs only), success (`circle-check`); a full-width strip variant
   under a card toolbar.
@@ -397,19 +407,24 @@ the database before Save.
 | Text field size | FRM-02 spec table says 15px | 14px, as the reference's rendered TextField and every textarea | follows the rendered component |
 | Ghost button | not a Button variant; drawn as a text action (ACT-03) | `variant="ghost"` of `x-admin.ui.button`, 8px radius | one component for all buttons |
 | Status tabs | Sable Tabs use `role="tab"` without tab panels | links with `aria-current` or toggles with `aria-pressed` | they filter a list rather than switch panels |
+| Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
 | Dialogs, drawers, row menus, combobox, toasts stack | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
 
-### Open question: tertiary text contrast
+### Tertiary text contrast
 
-The reference draws tertiary text — meta lines, hints, overlines, table headers, placeholders — in gray-400
-`#99A0AE`. That is 2.63:1 on white and 2.45:1 on the gray-50 ground, below the WCAG AA 4.5:1 for text of this
-size. gray-500 `#7A818E` reaches only 3.92:1; gray-600 `#525866` (7.13:1) is already the secondary colour, so
-moving tertiary text there would flatten the hierarchy the design relies on.
+The reference draws tertiary text — meta lines, hints, overlines, table headers, placeholders and the icons
+beside them — in gray-400 `#99A0AE`. That is 2.63:1 on white and 2.45:1 on the `#F6F7FB` app ground, below
+WCAG AA's 4.5:1 for normal text.
 
-Production follows the reference for now, with one rule: tertiary text never carries information that is
-essential and available nowhere else. The colour is a design decision to settle before the shell migration puts
-tertiary text on every screen; changing it is one token, `--rg-admin-text-tertiary`.
+Production deliberately draws it in `#68707D` instead: `--rg-admin-text-tertiary` is `#68707D`, which reaches
+5.00:1 on white and 4.67:1 on the app ground. It stays visibly lighter than secondary text (`#525866`, 7.13:1),
+so the three-step hierarchy of strong, secondary and tertiary text is kept.
+
+The reference palette is unchanged: `--rg-admin-gray-400` is still `#99A0AE` and is used where contrast rules
+for text do not apply (the edited-field border, icons on the ink toast). Accessibility takes precedence over an
+exact reproduction of the reference for functional text. A test checks both contrast ratios and the palette
+value.
 
 ## Reference ID registry
 

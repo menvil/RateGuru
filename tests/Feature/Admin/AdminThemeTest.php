@@ -9,6 +9,49 @@ use App\Models\User;
  */
 const ADMIN_THEME_ENTRY = 'resources/css/filament/admin/theme.css';
 
+/**
+ * The colour an Admin v2 token resolves to, following var() references through
+ * tokens.css, as a lowercase #rrggbb.
+ */
+function adminThemeTokenColour(string $token): string
+{
+    $tokens = (string) file_get_contents(resource_path('css/filament/admin/tokens.css'));
+
+    expect(preg_match('/^\s*'.preg_quote($token, '/').':\s*([^;]+);/m', $tokens, $match))
+        ->toBe(1, "tokens.css does not declare {$token}");
+
+    $value = trim($match[1]);
+
+    if (preg_match('/^var\((--[a-z0-9-]+)\)$/', $value, $reference) === 1) {
+        return adminThemeTokenColour($reference[1]);
+    }
+
+    expect($value)->toMatch('/^#[0-9a-f]{6}$/i', "{$token} is not a plain #rrggbb colour");
+
+    return strtolower($value);
+}
+
+/** WCAG 2 relative luminance of a #rrggbb colour. */
+function wcagRelativeLuminance(string $hex): float
+{
+    $channels = array_map(function (string $pair): float {
+        $channel = hexdec($pair) / 255;
+
+        return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+    }, str_split(ltrim($hex, '#'), 2));
+
+    return 0.2126 * $channels[0] + 0.7152 * $channels[1] + 0.0722 * $channels[2];
+}
+
+/** WCAG 2 contrast ratio between two #rrggbb colours. */
+function wcagContrastRatio(string $foreground, string $background): float
+{
+    $lighter = max(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
+    $darker = min(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
+
+    return ($lighter + 0.05) / ($darker + 0.05);
+}
+
 it('gives the admin panel its own Vite theme', function () {
     expect(filament()->getPanel('admin')->getViteTheme())->toBe(ADMIN_THEME_ENTRY);
 });
@@ -83,4 +126,51 @@ it('keeps the theme additive: Admin v2 rules never restyle Filament components',
     expect($selectors)->not->toBeEmpty()
         ->and($selectors->reject(fn (string $selector): bool => str_starts_with($selector, '.rg-admin'))->values()->all())->toBe([])
         ->and($components)->not->toContain('.fi-');
+});
+
+it('measures contrast the way WCAG does', function () {
+    // The helper is only as good as its maths: pin it to known ratios.
+    expect(round(wcagContrastRatio('#000000', '#ffffff'), 2))->toBe(21.0)
+        ->and(round(wcagContrastRatio('#ffffff', '#ffffff'), 2))->toBe(1.0)
+        ->and(round(wcagContrastRatio('#99a0ae', '#ffffff'), 2))->toBe(2.63)
+        ->and(round(wcagContrastRatio('#68707d', '#f6f7fb'), 2))->toBe(4.67);
+});
+
+it('draws tertiary text with WCAG AA contrast on cards and on the app ground', function () {
+    // The reference draws tertiary text in gray-400, 2.63:1 on white. The
+    // admin deliberately departs from it for text people have to read.
+    $tertiary = adminThemeTokenColour('--rg-admin-text-tertiary');
+
+    foreach (['#ffffff', '#f6f7fb'] as $background) {
+        expect(wcagContrastRatio($tertiary, $background))->toBeGreaterThanOrEqual(4.5);
+    }
+
+    foreach (['--rg-admin-surface-card', '--rg-admin-surface-app', '--rg-admin-surface-sunken'] as $surface) {
+        expect(wcagContrastRatio($tertiary, adminThemeTokenColour($surface)))->toBeGreaterThanOrEqual(4.5);
+    }
+
+    expect($tertiary)->toBe('#68707d');
+});
+
+it('keeps strong, secondary and tertiary text readable and distinct', function () {
+    $strong = adminThemeTokenColour('--rg-admin-text-strong');
+    $secondary = adminThemeTokenColour('--rg-admin-text-secondary');
+    $tertiary = adminThemeTokenColour('--rg-admin-text-tertiary');
+
+    foreach ([$strong, $secondary, $tertiary] as $text) {
+        expect(wcagContrastRatio($text, '#ffffff'))->toBeGreaterThanOrEqual(4.5)
+            ->and(wcagContrastRatio($text, '#f6f7fb'))->toBeGreaterThanOrEqual(4.5);
+    }
+
+    // Each step of the hierarchy is lighter than the one above it.
+    expect(wcagContrastRatio($tertiary, '#ffffff'))->toBeLessThan(wcagContrastRatio($secondary, '#ffffff'))
+        ->and(wcagContrastRatio($secondary, '#ffffff'))->toBeLessThan(wcagContrastRatio($strong, '#ffffff'));
+});
+
+it('keeps the reference palette as delivered', function () {
+    // Tertiary text departs from gray-400; gray-400 itself does not change.
+    expect(adminThemeTokenColour('--rg-admin-gray-400'))->toBe('#99a0ae')
+        ->and(adminThemeTokenColour('--rg-admin-gray-600'))->toBe('#525866')
+        ->and(adminThemeTokenColour('--rg-admin-gray-50'))->toBe('#f6f7fb')
+        ->and(adminThemeTokenColour('--rg-admin-text-tertiary'))->not->toBe(adminThemeTokenColour('--rg-admin-gray-400'));
 });
