@@ -18,8 +18,12 @@ beforeEach(function () {
 it('has the expected retry configuration', function () {
     $job = new GenerateMediaVariantsJob(1);
 
-    expect($job->tries)->toBe(3)
+    // One more attempt than there are backoff tiers, because Laravel waits
+    // BETWEEN attempts: with tries === count(backoff) the last tier is
+    // unreachable config that reads like policy.
+    expect($job->tries)->toBe(4)
         ->and($job->backoff)->toBe([10, 60, 300])
+        ->and($job->tries)->toBe(count($job->backoff) + 1)
         ->and($job->timeout)->toBe(120);
 });
 

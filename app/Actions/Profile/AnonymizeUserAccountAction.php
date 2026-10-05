@@ -149,10 +149,17 @@ final class AnonymizeUserAccountAction
         });
 
         if ($anonymized) {
+            // Deferred to the outermost commit, not emitted here. The
+            // transaction above is a savepoint when a caller wraps this action
+            // — DeleteUserAccountAction does, for exactly this reason — so an
+            // outer rollback would otherwise leave a log line claiming an
+            // anonymization the database never kept. With no surrounding
+            // transaction, afterCommit runs the callback immediately.
+            //
             // Deliberately PII-free: no old email/username/tokens.
-            $this->logger->info('profile.account_anonymized', [
+            DB::afterCommit(fn () => $this->logger->info('profile.account_anonymized', [
                 'user_id' => $user->getKey(),
-            ]);
+            ]));
         }
     }
 

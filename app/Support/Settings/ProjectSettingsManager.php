@@ -89,6 +89,41 @@ class ProjectSettingsManager
         ]);
     }
 
+    /**
+     * The settings row, locked for writing, created from the bootstrap if an
+     * installation does not have one yet.
+     *
+     * MUST be called inside the caller's transaction: the lock it takes is held
+     * until that transaction ends, and the create-then-lock sequence below is
+     * only race-free under one.
+     *
+     * Two steps rather than one, because PostgreSQL locks no row that does not
+     * exist: two first saves both saw null and both inserted id 1, and one of
+     * them failed on the duplicate key. firstOrCreate settles which one creates
+     * it — Eloquent catches the unique violation and re-reads — and the lock is
+     * then taken on a row that is really there.
+     *
+     * Lives here rather than in each writer because there were two copies of it,
+     * and a bootstrap that differs between the writers that use it would give a
+     * new project different initial values depending on which page was opened
+     * first.
+     */
+    public function lockedRow(): ProjectSettings
+    {
+        $row = ProjectSettings::query()->lockForUpdate()->find(1);
+
+        if ($row !== null) {
+            return $row;
+        }
+
+        ProjectSettings::unguarded(fn () => ProjectSettings::query()->firstOrCreate(
+            ['id' => 1],
+            $this->defaults(),
+        ));
+
+        return ProjectSettings::query()->lockForUpdate()->findOrFail(1);
+    }
+
     public function featureEnabled(string $key): bool
     {
         return $this->current()->featureFlag($key);
