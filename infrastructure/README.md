@@ -135,6 +135,13 @@ infrastructure, and moves out once a second project exists.
   instruction);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
+- the mail routing contract: every target's own loopback gateway endpoint,
+  its delivery mode (`capture` for staging, `held` for production until an
+  outbound transport is reviewed) and its mail identity, in
+  `config/mail-routing.json`, validated and rendered as a gateway plan by the
+  repository-only `infrastructure/scripts/mail-routing`. No gateway is
+  installed yet, and staging still submits straight to Mailpit — see
+  [`runbooks/mail-routing.md`](runbooks/mail-routing.md);
 - Nginx configuration;
 - PHP-FPM pools;
 - Supervisor queue workers;

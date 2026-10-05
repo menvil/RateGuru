@@ -476,6 +476,10 @@ function sourcedLibraryNames(): array
  * way for tooling to write a target's canonical shared/.env, which is the
  * operator's to own.
  *
+ * `mail-routing` is the second, for a plainer reason: it validates the reviewed
+ * mail routing policy and renders the plan a mail gateway would follow, and no
+ * host has a gateway that reads that plan yet. It describes; it installs nothing.
+ *
  * So a script listed here must stay out of required-clis.txt and out of the
  * operational bundle, and the guards that inventory infrastructure/scripts/ know
  * to expect exactly that rather than reporting it as unclassified.
@@ -484,7 +488,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['render-environment-templates'];
+    return ['mail-routing', 'render-environment-templates'];
 }
 
 /**
@@ -1267,6 +1271,35 @@ function parityRegistryFixture(string $scratch, array $options = []): array
     expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
 
     return $cache[$key] = [$registryPath, $targetsPath];
+}
+
+/**
+ * A `KEY=VALUE` file — an environment template, or a service's env file — as an
+ * ordered map, ignoring blank and commented lines. Values are returned verbatim
+ * (trailing CR stripped), quotes included.
+ *
+ * @return array<string, string>
+ */
+function envFileValues(string $path): array
+{
+    $full = base_path($path);
+
+    expect(File::exists($full))->toBeTrue("missing env file: {$path}");
+
+    $out = [];
+
+    foreach (preg_split('/\R/', File::get($full)) as $line) {
+        $trimmed = trim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        [$key, $value] = explode('=', $trimmed, 2);
+        $out[trim($key)] = rtrim($value, "\r");
+    }
+
+    return $out;
 }
 
 /**
