@@ -1,0 +1,28 @@
+tests/Feature/Concurrency/CategoryDeletionAndSettingsLockTest.php
+  s_c7e782fafc9782::t_5470b7c4538b21 76,82
+  s_c7e782fafc9782::t_4ba2880fda1c09 1-75,77-81,83-108
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_c7e782fafc9782::t_ced8a396c5ed98 29-43
+app/Actions/Categories/DeleteCategoryAction.php
+  s_c7e782fafc9782::t_9330c54e4d5c49 18,25-41
+app/Actions/Settings/UpdateProjectLocaleSettingsAction.php
+  s_c7e782fafc9782::t_ced8a396c5ed98 63-77
+app/Models/Category.php
+  s_c7e782fafc9782::t_ece61434f776b1 11,21-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f196a11d4e44550adc44bc2576316759e9719311",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
