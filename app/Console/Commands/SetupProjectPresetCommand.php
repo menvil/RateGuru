@@ -7,6 +7,7 @@ use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
 use Illuminate\Console\Command;
+use Symfony\Component\Console\Input\ArgvInput;
 
 class SetupProjectPresetCommand extends Command
 {
@@ -71,7 +72,20 @@ class SetupProjectPresetCommand extends Command
             )) {
                 $this->warn('Setup cancelled.');
 
-                return self::SUCCESS;
+                // FAILURE, not SUCCESS, and this is the half of the contract that
+                // does not depend on detecting anything.
+                //
+                // The guard above can still be wrong: runningUnitTests() is keyed off
+                // APP_ENV, so a real deploy script running with APP_ENV=testing and no
+                // terminal passes it, reaches this question and gets its default of
+                // "no". Reporting that as success is what made an unapplied preset
+                // indistinguishable from an applied one, and no amount of environment
+                // sniffing is a safe thing to rest that on.
+                //
+                // So the command's exit code says what happened rather than how it
+                // was asked: the preset was not applied. A person who answers "no"
+                // interactively gets the same answer, which is the honest one.
+                return self::FAILURE;
             }
         }
 
@@ -102,30 +116,35 @@ class SetupProjectPresetCommand extends Command
     /**
      * Can a question actually be answered on the other end of this run?
      *
-     * The same predicate Laravel itself uses to decide whether Prompts may ask
-     * anything (Illuminate\Console\Concerns\ConfiguresPrompts::configurePrompts),
-     * deliberately reused rather than re-derived: a real terminal, or the test
-     * runner, where the question helper is mocked and a question is answerable
-     * without one. Diverging from it would mean this command disagreed with every
-     * other prompt in the application about what interactive means.
+     * Laravel answers the same question for Prompts as "a terminal, OR
+     * runningUnitTests()" (ConfiguresPrompts::configurePrompts), and this command
+     * copied that — which is wrong here. runningUnitTests() reads APP_ENV, and
+     * APP_ENV is not evidence about stdin: `APP_ENV=testing php artisan
+     * rateguru:setup nature < /dev/null` has no terminal and no mocked question
+     * helper, and that spelling passed it.
      *
-     * The real non-TTY contract is covered by running the CLI as a subprocess with
-     * its stdin closed, which is the only way to exercise it honestly.
+     * The input's own TYPE is the honest signal. A real command line arrives as
+     * ArgvInput and can only be answered by a stream, so it needs a terminal. The
+     * test harness invokes commands through Illuminate\Console\Application::call,
+     * which builds an ArrayInput, and there the answer comes from the harness
+     * rather than from any stream. Nothing here consults the environment.
+     *
+     * This decides the MESSAGE, not the safety: a declined or unanswerable
+     * confirmation returns FAILURE either way, so a guard that guessed wrong could
+     * never report an unapplied preset as applied.
      */
     private function canAskForConfirmation(): bool
     {
         // --no-interaction is the caller's instruction and outranks everything:
-        // it means do not ask, including under the test runner.
+        // it means do not ask, including under the test harness.
         if (! $this->input->isInteractive()) {
             return false;
         }
 
-        // Then something to read the answer from — a terminal, or the test
-        // runner, where the question helper is mocked and an answer is available
-        // without one. The second half is Laravel's own allowance for tests
-        // (ConfiguresPrompts::configurePrompts), reused rather than re-derived, so
-        // this command cannot disagree with every other prompt in the application
-        // about what interactive means.
-        return (defined('STDIN') && stream_isatty(STDIN)) || $this->laravel->runningUnitTests();
+        if ($this->input instanceof ArgvInput) {
+            return defined('STDIN') && stream_isatty(STDIN);
+        }
+
+        return true;
     }
 }

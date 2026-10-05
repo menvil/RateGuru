@@ -124,6 +124,60 @@ it('applies a preset with --no-interaction when --force says so', function () {
     expect(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
 });
 
+it('does not report a declined confirmation as success', function () {
+    // The half of the contract that depends on detecting nothing. The guard above
+    // can still be wrong — runningUnitTests() is keyed off APP_ENV, so a deploy
+    // script running with APP_ENV=testing and no terminal passes it, reaches the
+    // question and takes its default of "no" — so the exit code has to say what
+    // happened rather than how it was asked.
+    $this->artisan('rateguru:setup', ['preset' => 'nature'])
+        ->expectsConfirmation(
+            'Apply preset [nature]? This replaces project settings, categories, rating configuration, and tags.',
+            'no',
+        )
+        ->expectsOutput('Setup cancelled.')
+        ->assertExitCode(1);
+
+    expect(ProjectSettings::query()->count())->toBe(0)
+        ->and(Category::query()->count())->toBe(0);
+});
+
+it('refuses a terminal-less run that claims the testing environment', function () {
+    // APP_ENV=testing used to be enough to pass the guard, because it reused
+    // Laravel's "a terminal OR runningUnitTests()" rule for Prompts — and
+    // runningUnitTests() reads APP_ENV, which is not evidence about stdin. A real
+    // subprocess with its stdin closed has no terminal and no mocked question
+    // helper, whatever APP_ENV says, and it is refused by the input's own type.
+    //
+    // Asserted on BOTH halves: the clear refusal, and the exit code — the second
+    // would hold even if the guard were wrong again, because a declined
+    // confirmation returns FAILURE.
+    $process = proc_open(
+        [PHP_BINARY, 'artisan', 'rateguru:setup', 'nature'],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        base_path(),
+        ['APP_ENV' => 'testing'] + array_filter($_SERVER, 'is_string'),
+    );
+
+    expect($process)->not->toBeFalse('the CLI subprocess must start');
+
+    try {
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+    } finally {
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+    }
+
+    $output = $stdout.$stderr;
+
+    expect($status)->not->toBe(0, "a run that applied nothing must not exit 0:\n{$output}")
+        ->and($output)->toContain('requires --force')
+        ->and($output)->not->toContain('applied successfully');
+});
+
 it('refuses a run whose stdin is not a terminal, without being told not to ask', function () {
     // Run as a real subprocess with stdin closed, because that is the only way to
     // exercise this honestly: in-process the question helper is mocked and the

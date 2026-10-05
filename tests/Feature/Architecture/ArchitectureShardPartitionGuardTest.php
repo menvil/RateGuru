@@ -306,6 +306,19 @@ it('is wired into the Architecture job, both per leg and across them', function 
     expect($ci['jobs']['verify-shard-partition']['needs'])->toBe(['tests-architecture'])
         ->and($ci['jobs']['verify-shard-partition'])->not->toHaveKey('if');
 
-    // And its result has to reach the run's verdict.
+    // And its result has to reach the run's verdict — which is two things, not one:
+    // the job has to be a dependency, and the step that decides the run's outcome
+    // has to actually read it. A `needs` entry on its own only makes the summary
+    // wait for the job.
     expect($ci['jobs']['ci-summary']['needs'])->toContain('verify-shard-partition');
+
+    $verdict = collect($ci['jobs']['ci-summary']['steps'])->firstWhere('name', 'Verify CI result');
+
+    expect($verdict)->not->toBeNull();
+
+    expect($verdict['env'])->toHaveKey('SHARD_PARTITION_RESULT')
+        ->and($verdict['env']['SHARD_PARTITION_RESULT'])->toContain("needs['verify-shard-partition'].result");
+
+    expect(str_contains($verdict['run'], '$SHARD_PARTITION_RESULT'))
+        ->toBeTrue("the verdict must read the shard partition result:\n{$verdict['run']}");
 });

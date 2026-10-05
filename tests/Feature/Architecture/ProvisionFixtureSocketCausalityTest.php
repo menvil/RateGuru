@@ -99,6 +99,17 @@ it('creates no socket when the reload fails, and the verification says so', func
         [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
 
         expect($exit)->not->toBe(0, "a failed reload must fail the apply:\n{$output}");
+
+        // The run has to have REACHED the reload, or "no socket" says nothing: an
+        // apply that failed earlier would satisfy the assertion below without the
+        // reload having been attempted at all.
+        // str_contains, not toContain($needle, $message): Pest reads the second
+        // argument as another needle. The positive form at least fails loudly for it
+        // — which is how this one was caught, while a negative one would have passed
+        // in silence.
+        expect(str_contains(provisionLog($scratch, 'systemctl.log'), 'reload php8.5-fpm'))
+            ->toBeTrue('the apply must have attempted the reload this test makes fail');
+
         expect(File::exists(demoShopSocket($scratch)))->toBeFalse('a failed reload loads no pool, so it creates no socket');
     } finally {
         provisionCleanup($scratch);
@@ -122,6 +133,41 @@ it('fails verification when the socket a provisioned pool should have is gone', 
 
         expect($exit)->toBe(1, "a provisioned target with no pool socket is not provisioned:\n{$output}");
         expect($output)->toContain('rateguru-demo-shop.sock');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('drops the socket of a pool whose configuration is gone, and keeps the others', function () {
+    // The other direction of the same contract. PHP-FPM unlinks the socket of a pool
+    // it no longer loads, so a reload that only ever CREATED would leave one behind —
+    // a verification passing on evidence of a pool that does not exist. And the
+    // reconciliation is scoped: a pool that is still installed keeps its socket.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+        expect($exit)->toBe(0, $output);
+
+        expect(File::exists(demoShopSocket($scratch)))->toBeTrue()
+            ->and(File::exists(stagingSocket($scratch)))->toBeTrue();
+
+        // Somebody removes the pool. Until a reload, the socket is still there —
+        // which is also true of a real host.
+        File::delete($scratch.'/fs/etc/php/8.5/fpm/pool.d/rateguru-demo-shop.conf');
+
+        provisionReloadPhpFpm($env);
+
+        expect(File::exists(demoShopSocket($scratch)))
+            ->toBeFalse('a reload must drop the socket of a pool it no longer loads');
+
+        // The pool that is still installed is untouched, and so is its table row.
+        expect(File::exists(stagingSocket($scratch)))->toBeTrue()
+            ->and(File::get($scratch.'/fs/type-table.txt'))
+            ->toContain(stagingSocket($scratch).'|TYPE|socket')
+            ->not->toContain(demoShopSocket($scratch).'|TYPE|socket');
     } finally {
         provisionCleanup($scratch);
     }

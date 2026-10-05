@@ -394,8 +394,9 @@ the conflict. The exit stays non-zero either way.
 
 Past the phase boundary those structural findings are **diagnostic**, and the report
 says so. The `-> apply:` line is still printed for each of them — `--check` prints one
-for every item that is not PASS — but what it carries changes: instead of a child
-installer command it carries a refusal to give one. Those installers answer to
+for every non-PASS finding that carries a remediation, which the structural ones do and
+the `DEFERRED` items deliberately do not — but what it carries changes: instead of a
+child installer command it carries a refusal to give one. Those installers answer to
 provisioning authorization rather than to the phase gate, so following such a command
 would converge exactly what this run has just refused to converge. Repairing structure
 on a target that is past provisioning is a decision for its owner, under a reviewed

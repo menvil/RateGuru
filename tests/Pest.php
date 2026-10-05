@@ -4226,14 +4226,23 @@ function provisionWriteStubs(string $scratch): void
             done
         }
         # PHP-FPM creates a pool's socket when it loads that pool's configuration,
-        # and never before. The fixture used to place the sockets itself, which is a
-        # state no host can be in — a socket for a pool that does not exist yet —
-        # and it meant a verification could pass without anything having produced
-        # them. They are produced here instead, from the pool files actually
-        # installed, so "pool configured and reloaded" is the only way to get one.
+        # and never before — and drops the socket of a pool whose configuration is
+        # gone. The fixture used to place the sockets itself, which is a state no
+        # host can be in — a socket for a pool that does not exist yet — and it meant
+        # a verification could pass without anything having produced them.
+        #
+        # So a reload RECONCILES: after it, the sockets under /run/php are exactly
+        # the ones the installed pools declare. Creating without removing would have
+        # left a socket behind for a pool somebody deleted, which is the same kind of
+        # impossible state in the other direction — a verification passing on
+        # evidence of a pool that no longer exists.
+        #
+        # /run/php is PHP-FPM's own directory here, so the reconciliation is scoped
+        # to it: table rows for anything outside it are never touched.
         sync_fpm_sockets() {
-            local conf listen owner group mode
+            local conf listen owner group mode declared socket
             PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/run/php"
+            declared=""
             for conf in "${STUB_FS}"/etc/php/*/fpm/pool.d/*.conf; do
                 [[ -f "${conf}" ]] || continue
                 listen="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
@@ -4250,6 +4259,21 @@ function provisionWriteStubs(string $scratch): void
                 PATH="${STUB_REAL_PATH}" mv "${STUB_TYPE_TABLE}.tmp" "${STUB_TYPE_TABLE}"
                 PATH="${STUB_REAL_PATH}" grep -v "^${STUB_FS}${listen}|" "${STUB_OWNER_TABLE}" > "${STUB_OWNER_TABLE}.tmp" 2>/dev/null || : > "${STUB_OWNER_TABLE}.tmp"
                 printf '%s|%s|%s\n' "${STUB_FS}${listen}" "${owner:-www-data}" "${group:-www-data}" >> "${STUB_OWNER_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_OWNER_TABLE}.tmp" "${STUB_OWNER_TABLE}"
+                declared="${declared} ${STUB_FS}${listen}"
+            done
+
+            # Whatever is left in /run/php that no installed pool declares is the
+            # socket of a pool that is gone, and a reload is where PHP-FPM unlinks it.
+            for socket in "${STUB_FS}"/run/php/*.sock; do
+                [[ -e "${socket}" ]] || continue
+                case " ${declared} " in
+                    *" ${socket} "*) continue ;;
+                esac
+                PATH="${STUB_REAL_PATH}" rm -f "${socket}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${socket}|" "${STUB_TYPE_TABLE}" > "${STUB_TYPE_TABLE}.tmp" 2>/dev/null || : > "${STUB_TYPE_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_TYPE_TABLE}.tmp" "${STUB_TYPE_TABLE}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${socket}|" "${STUB_OWNER_TABLE}" > "${STUB_OWNER_TABLE}.tmp" 2>/dev/null || : > "${STUB_OWNER_TABLE}.tmp"
                 PATH="${STUB_REAL_PATH}" mv "${STUB_OWNER_TABLE}.tmp" "${STUB_OWNER_TABLE}"
             done
         }

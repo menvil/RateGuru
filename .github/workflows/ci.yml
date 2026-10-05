@@ -517,8 +517,15 @@ jobs:
     needs: [tests-architecture]
     timeout-minutes: 5
     steps:
+      # No persisted credentials: this job reads downloaded artifacts and runs one
+      # PHP script, and performs no git operation that needs a token. The
+      # privileged workflows in this repository check out that way as a matter of
+      # course; the rest of ci.yml predates the habit and is left to a change of
+      # its own rather than widened here.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

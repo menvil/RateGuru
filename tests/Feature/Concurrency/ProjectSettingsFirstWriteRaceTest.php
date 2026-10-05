@@ -196,9 +196,14 @@ it('settles two concurrent first writes instead of failing one of them', functio
 
     // Both competitors must have announced themselves at the read, or there was no
     // race to observe and the verdict below means nothing.
+    //
+    // str_contains, not ->not->toContain($needle, $message): Pest takes the second
+    // argument as another needle, so the message form passes whatever the subject
+    // says. This change audits 35 assertions written that way, and I wrote a
+    // thirty-sixth here.
     foreach ($results as $index => $result) {
-        expect($result['output'].$result['stderr'])
-            ->not->toContain('never reached the missing-row read', "competitor {$index} raced nobody");
+        expect(str_contains($result['output'].$result['stderr'], 'never reached the missing-row read'))
+            ->toBeFalse("competitor {$index} raced nobody");
     }
 
     $report = collect($results)
