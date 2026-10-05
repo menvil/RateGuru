@@ -32,9 +32,12 @@
         <x-admin.ui.inline-notice tone="warning">
             Links to /c/small-pets will stop working after you save.
         </x-admin.ui.inline-notice>
-        <x-admin.ui.inline-notice tone="danger">
-            This can’t be undone. After finalizing, no moderator or admin can restore this post.
-        </x-admin.ui.inline-notice>
+        <div class="rg-admin-kit__stack" style="gap: 4px">
+            <x-admin.ui.inline-notice tone="danger">
+                This can’t be undone. After finalizing, no moderator or admin can restore this post.
+            </x-admin.ui.inline-notice>
+            <span class="rg-admin-kit__caption">danger · inside irreversible confirmation dialogs only</span>
+        </div>
         <x-admin.ui.inline-notice tone="success">
             Valid. 2 more options can be activated.
         </x-admin.ui.inline-notice>

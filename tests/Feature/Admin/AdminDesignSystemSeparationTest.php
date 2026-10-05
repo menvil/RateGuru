@@ -22,12 +22,12 @@ function publicDesignSystemPatterns(): array
         'a public x-ui component' => '/<x-ui[.:]|x-ui::/',
         'a public --rg-* token' => '/--rg-(?!admin-)[a-z0-9]/',
         // Filament's own theme sits at vendor/filament/filament/resources/css/theme.css.
-        'the public theme stylesheet' => '/(?:(?<!filament\/)resources\/css\/|[\'"]\.\.\/)(?:theme|app)\.css/',
+        'the public theme stylesheet' => '/(?:(?<!filament\/)resources\/css\/|[\'"](?:\.\.\/)+)(?:theme|app)\.css/',
     ];
 }
 
 /** A Tailwind palette colour, which a reusable admin component must take from a token instead. */
-const TAILWIND_PALETTE_COLOUR = '/(?<![\w-])(?:[a-z]+:)*(?:bg|text|border|ring|fill|stroke|outline|divide|from|via|to|shadow|accent|caret|decoration|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|black|white)(?:-\d{2,3})?(?:\/\d+)?(?![\w-])/';
+const TAILWIND_PALETTE_COLOUR = '/(?<![\w-])(?:[a-z0-9-]+:)*(?:bg|text|border|ring|fill|stroke|outline|divide|from|via|to|shadow|accent|caret|decoration|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|black|white)(?:-\d{2,3})?(?:\/\d+)?(?![\w-])/';
 
 /**
  * The kinds of public design-system use found in some admin source.
@@ -107,12 +107,16 @@ it('recognises what it guards against, and nothing more', function () {
         ->and(publicDesignSystemUses('color: var(--rg-muted);'))->toBe(['a public --rg-* token'])
         ->and(publicDesignSystemUses("@import '../theme.css';"))->toBe(['the public theme stylesheet'])
         ->and(publicDesignSystemUses("@import 'resources/css/app.css';"))->toBe(['the public theme stylesheet'])
+        ->and(publicDesignSystemUses("@import '../../theme.css';"))->toBe(['the public theme stylesheet'])
+        ->and(publicDesignSystemUses("@import '../../app.css';"))->toBe(['the public theme stylesheet'])
         ->and(publicDesignSystemUses('color: var(--rg-admin-text-strong); <x-admin.ui.button />'))->toBe([])
         ->and(publicDesignSystemUses("@import '../../../../vendor/filament/filament/resources/css/theme.css';"))->toBe([])
         ->and(publicDesignSystemUses("@import './tokens.css';"))->toBe([]);
 
     expect(preg_match(TAILWIND_PALETTE_COLOUR, 'class="bg-gray-50"'))->toBe(1)
         ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="dark:text-gray-400"'))->toBe(1)
+        ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="group-hover:text-red-500"'))->toBe(1)
+        ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="md:group-hover:bg-zinc-50/80"'))->toBe(1)
         ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="border-red-950/40"'))->toBe(1)
         ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="text-white"'))->toBe(1)
         ->and(preg_match(TAILWIND_PALETTE_COLOUR, 'class="rg-admin-badge--success"'))->toBe(0)

@@ -66,21 +66,23 @@
             </nav>
         </div>
 
-        <ul class="rg-admin-rail" aria-label="Icon rail specimen, below 1280 px">
-            @foreach ($rail as [$label, $icon, $dot, $separated])
-                @if ($separated)
-                    <li class="rg-admin-rail__separator" aria-hidden="true"></li>
-                @endif
-                <li>
-                    <a class="rg-admin-rail__item" href="#NAV-01" aria-label="{{ $label }}" title="{{ $label }}" @if ($loop->first) aria-current="page" @endif>
-                        <x-admin.ui.icon :name="$icon" :size="18" />
-                        @if ($dot !== null)
-                            <span @class(['rg-admin-rail__dot', 'rg-admin-rail__dot--danger' => $dot === 'danger'])></span>
-                        @endif
-                    </a>
-                </li>
-            @endforeach
-        </ul>
+        <nav aria-label="Icon rail specimen, below 1280 px">
+            <ul class="rg-admin-rail">
+                @foreach ($rail as [$label, $icon, $dot, $separated])
+                    @if ($separated)
+                        <li class="rg-admin-rail__separator" aria-hidden="true"></li>
+                    @endif
+                    <li>
+                        <a class="rg-admin-rail__item" href="#NAV-01" aria-label="{{ $label }}" title="{{ $label }}" @if ($loop->first) aria-current="page" @endif>
+                            <x-admin.ui.icon :name="$icon" :size="18" />
+                            @if ($dot !== null)
+                                <span @class(['rg-admin-rail__dot', 'rg-admin-rail__dot--danger' => $dot === 'danger'])></span>
+                            @endif
+                        </a>
+                    </li>
+                @endforeach
+            </ul>
+        </nav>
     </div>
 @endcomponent
 

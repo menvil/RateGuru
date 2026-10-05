@@ -196,19 +196,30 @@
 @endcomponent
 
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['TBL-06']])
+    {{-- The same grid as TBL-01, so every placeholder sits in the column it stands in for. --}}
     <div class="rg-admin-table" aria-busy="true">
         <span class="rg-admin-sr-only">Loading posts…</span>
-        @foreach (['62%', '48%', '70%'] as $width)
-            <div class="rg-admin-kit__row rg-admin-kit__row--center" style="flex-wrap: nowrap; gap: 16px; height: 60px; padding: 0 16px; {{ $loop->first ? '' : 'border-top: 1px solid var(--rg-admin-border-default)' }}">
-                <x-admin.ui.skeleton width="18px" height="18px" shape="box" tone="soft" />
-                <x-admin.ui.skeleton width="40px" height="40px" shape="box" tone="soft" />
-                <div class="rg-admin-kit__stack" style="flex: 1; gap: 8px">
-                    <x-admin.ui.skeleton :width="$width" height="10px" />
-                    <x-admin.ui.skeleton width="30%" height="8px" tone="soft" />
-                </div>
-                <x-admin.ui.skeleton width="72px" height="22px" shape="box" tone="soft" />
-                <x-admin.ui.skeleton width="120px" height="32px" shape="control" tone="soft" />
+        <div class="rg-admin-table__scroll">
+            <div class="rg-admin-table__grid" style="{{ $columns }}">
+                @foreach (['62%', '48%', '70%'] as $width)
+                    <div class="rg-admin-table__row" aria-hidden="true">
+                        <div class="rg-admin-table__cell"><x-admin.ui.skeleton width="18px" height="18px" shape="box" tone="soft" /></div>
+                        <div class="rg-admin-table__cell"><x-admin.ui.skeleton width="40px" height="40px" shape="box" tone="soft" /></div>
+                        <div class="rg-admin-table__cell rg-admin-kit__stack" style="gap: 8px">
+                            <x-admin.ui.skeleton :width="$width" height="10px" />
+                            <x-admin.ui.skeleton width="30%" height="8px" tone="soft" />
+                        </div>
+                        <div class="rg-admin-table__cell rg-admin-kit__stack" style="gap: 8px">
+                            <x-admin.ui.skeleton width="70%" height="10px" />
+                            <x-admin.ui.skeleton width="45%" height="8px" tone="soft" />
+                        </div>
+                        <div class="rg-admin-table__cell"><x-admin.ui.skeleton width="72px" height="22px" shape="box" tone="soft" /></div>
+                        <div class="rg-admin-table__cell"><x-admin.ui.skeleton width="32px" height="22px" shape="box" tone="soft" /></div>
+                        <div class="rg-admin-table__cell"><x-admin.ui.skeleton width="80%" height="10px" /></div>
+                        <div class="rg-admin-table__cell rg-admin-table__cell--end"><x-admin.ui.skeleton width="120px" height="32px" shape="control" tone="soft" /></div>
+                    </div>
+                @endforeach
             </div>
-        @endforeach
+        </div>
     </div>
 @endcomponent

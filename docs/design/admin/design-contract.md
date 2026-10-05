@@ -400,6 +400,17 @@ the database before Save.
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
 | Dialogs, drawers, row menus, combobox, toasts stack | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
 
+### Open question: tertiary text contrast
+
+The reference draws tertiary text — meta lines, hints, overlines, table headers, placeholders — in gray-400
+`#99A0AE`. That is 2.63:1 on white and 2.45:1 on the gray-50 ground, below the WCAG AA 4.5:1 for text of this
+size. gray-500 `#7A818E` reaches only 3.92:1; gray-600 `#525866` (7.13:1) is already the secondary colour, so
+moving tertiary text there would flatten the hierarchy the design relies on.
+
+Production follows the reference for now, with one rule: tertiary text never carries information that is
+essential and available nowhere else. The colour is a design decision to settle before the shell migration puts
+tertiary text on every screen; changing it is one token, `--rg-admin-text-tertiary`.
+
 ## Reference ID registry
 
 The Dev UI kit reference names 41 elements. IDs never change and are never reused. The production kit at

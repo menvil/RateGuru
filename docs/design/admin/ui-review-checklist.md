@@ -9,7 +9,8 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Built from `x-admin.ui.*` components and `.rg-admin-*` primitives only; no `x-ui.*`.
 - [ ] Colour, spacing, radii and shadows come from `--rg-admin-*` tokens; no public `--rg-*` tokens, no Tailwind
       palette classes (`bg-gray-50`, `text-gray-600`, …) in reusable admin components.
-- [ ] No global `.fi-*` overrides; screens not being migrated look exactly as before.
+- [ ] No `.fi-*` overrides beyond the two fixes the contract documents (pointer cursors, the frameless
+      records-per-page chooser); screens not being migrated keep their design.
 - [ ] Anything new is added to the kit under its reference ID in the same change.
 
 ## Foundations [FND-01 – FND-04]
@@ -20,7 +21,8 @@ reference and in `/admin/dev/ui-kit`.
       and the workspace name; no 700.
 - [ ] Sentence case everywhere; uppercase only in 11px overlines.
 - [ ] Figures use tabular numbers; IDs, keys, slugs and paths use mono.
-- [ ] Spacing on the 4px grid; gutter 28, card gap 24.
+- [ ] Spacing from the 4px grid and the contract's measurements, including its listed exceptions (6 above and
+      below field labels, 10 between toolbar items, 14 and 22 paddings); gutter 28, card gap 24.
 - [ ] Cards have no shadow; only popovers, menus, drawers, dialogs and toasts are elevated.
 - [ ] Icons are Lucide outlines from `x-admin.ui.icon`; no emoji; flags only next to language names.
 
@@ -52,7 +54,8 @@ reference and in `/admin/dev/ui-kit`.
 
 - [ ] Top bar: breadcrumb left, actions right, primary last; unsaved state next to Save.
 - [ ] Page header: title, one sentence, two to four operational stats; no vanity totals.
-- [ ] Status tabs show totals across all pages; the default tab is the work queue.
+- [ ] Status tabs show totals across all pages; the default tab is Pending on Posts, Open on Reports and All
+      everywhere else.
 
 ## Tables [TBL-01 – TBL-06]
 
@@ -83,4 +86,6 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Checked at 1440, 1280 and 1024 px; no horizontal page scroll outside tables.
 - [ ] Every focusable control shows a visible focus state.
 - [ ] State is never encoded by colour alone.
+- [ ] Tertiary text (gray-400, below AA contrast) never carries essential information found nowhere else; see the
+      contract's open question on tertiary contrast.
 - [ ] Buttons are buttons, links are links; no ARIA roles without their keyboard behaviour.

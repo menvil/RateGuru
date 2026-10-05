@@ -31,9 +31,9 @@ it('renders buttons as real buttons, links as links, and disabled ones as disabl
     $this->blade('<x-admin.ui.button href="/admin/languages">Open</x-admin.ui.button>')
         ->assertSee('<a href="/admin/languages"', false);
 
-    $this->blade('<x-admin.ui.button href="/admin/languages" disabled>Open</x-admin.ui.button>')
-        ->assertSee('disabled', false)
-        ->assertDontSee('href=', false);
+    expect((string) $this->blade('<x-admin.ui.button href="/admin/languages" disabled>Open</x-admin.ui.button>'))
+        ->toMatch('/<button\b[^>]*\sdisabled[\s>\/]/')
+        ->not->toContain('href=');
 
     $this->blade('<x-admin.ui.button variant="danger" size="sm" icon="check">Finalize removal</x-admin.ui.button>')
         ->assertSee('rg-admin-button--danger', false)
@@ -106,9 +106,11 @@ it('counts characters the way the server does, as code points', function () {
 });
 
 it('really disables a disabled field', function () {
-    $this->blade('<x-admin.ui.text-field label="Email" name="email" disabled />')
-        ->assertSee('rg-admin-input--disabled', false)
-        ->assertSee('disabled', false);
+    $view = (string) $this->blade('<x-admin.ui.text-field label="Email" name="email" disabled />');
+
+    // The input itself carries the attribute; the frame's class alone would not disable anything.
+    expect($view)->toContain('rg-admin-input--disabled')
+        ->toMatch('/<input\b[^>]*\sdisabled[\s>\/]/');
 });
 
 it('counts a textarea against its limit and marks it once over', function () {
