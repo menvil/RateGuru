@@ -19,6 +19,13 @@ it('draws decorative icons hidden from assistive technology, and named ones as i
         ->assertDontSee('aria-hidden', false);
 });
 
+it('keeps an icon with a blank label decorative', function () {
+    $this->blade('<x-admin.ui.icon name="flag" label="" />')
+        ->assertSee('aria-hidden="true"', false)
+        ->assertDontSee('role="img"', false)
+        ->assertDontSee('<title>', false);
+});
+
 it('fails loudly on an icon it does not have', function () {
     $this->blade('<x-admin.ui.icon name="no-such-icon" />');
 })->throws(ViewException::class, 'Unknown admin icon [no-such-icon]');
@@ -95,6 +102,10 @@ it('keeps a caller\'s own description alongside the field\'s hint', function () 
 
     expect(substr_count($view, 'aria-describedby='))->toBe(1)
         ->and($view)->toContain('aria-describedby="note-policy rg-admin-field-note-counter"');
+
+    // "0" is a valid ID reference and must survive the merge.
+    expect((string) $this->blade('<x-admin.ui.text-field label="Code" name="code" aria-describedby="0" />'))
+        ->toContain('aria-describedby="0"');
 });
 
 it('counts characters the way the server does, as code points', function () {

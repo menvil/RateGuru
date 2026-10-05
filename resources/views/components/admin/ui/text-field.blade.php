@@ -19,7 +19,7 @@
     $describedBy = collect([
         $attributes->get('aria-describedby'),
         $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null),
-    ])->filter()->implode(' ');
+    ])->reject(fn (mixed $id): bool => $id === null || $id === '')->implode(' ');
 @endphp
 
 <div {{ $attributes->only(['class', 'style'])->class(['rg-admin-field']) }}>

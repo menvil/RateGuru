@@ -413,7 +413,7 @@ tertiary text on every screen; changing it is one token, `--rg-admin-text-tertia
 
 ## Reference ID registry
 
-The Dev UI kit reference names 41 elements. IDs never change and are never reused. The production kit at
+The Dev UI kit reference names 42 elements. IDs never change and are never reused. The production kit at
 `/admin/dev/ui-kit` shows the elements built so far under the same IDs; nothing is shown under an ID that is not
 built.
 

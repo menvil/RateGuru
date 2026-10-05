@@ -34,7 +34,7 @@
         $attributes->get('aria-describedby'),
         $limit !== null ? "{$id}-counter" : null,
         $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null),
-    ])->filter()->implode(' ');
+    ])->reject(fn (mixed $id): bool => $id === null || $id === '')->implode(' ');
 @endphp
 
 <div

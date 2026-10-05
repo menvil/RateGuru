@@ -54,6 +54,9 @@
     if (! array_key_exists($name, $icons)) {
         throw new InvalidArgumentException("Unknown admin icon [{$name}].");
     }
+
+    // A blank label names nothing, so the icon stays decorative.
+    $named = filled($label);
 @endphp
 
 <svg
@@ -68,10 +71,10 @@
     stroke-linecap="round"
     stroke-linejoin="round"
     focusable="false"
-    @if ($label !== null)
+    @if ($named)
         role="img"
         aria-label="{{ $label }}"
     @else
         aria-hidden="true"
     @endif
->@if ($label !== null)<title>{{ $label }}</title>@endif{!! $icons[$name] !!}</svg>
+>@if ($named)<title>{{ $label }}</title>@endif{!! $icons[$name] !!}</svg>

@@ -40,10 +40,19 @@ it('names both reference files as the source of truth', function () {
 it('plans the migration one vertical at a time, starting with localization', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
+    $steps = [
+        '### Phase 0/1 — design contract, theme and UI kit',
+        '### Phase 2 — Admin v2 shell and navigation',
+        '### Phase 3 — Languages v2',
+        '### Phase 4+ — Translation Center',
+        '### Then — freeze Admin UI Kit v1',
+        '### Then — the remaining sections',
+    ];
+    $positions = array_map(fn (string $step): int|false => strpos($plan, $step), $steps);
+
     expect($plan)->toContain('Admin v1 → Admin v2')
-        ->and($plan)->toContain('Languages v2')
-        ->and($plan)->toContain('Translation Center')
-        ->and($plan)->toContain('freeze Admin UI Kit v1');
+        ->and($positions)->not->toContain(false)
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all());
 });
 
 it('describes the admin as its own design system in the public contract', function () {
