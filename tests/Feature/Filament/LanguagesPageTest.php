@@ -869,7 +869,8 @@ it('reads the project content once per render, however many parts of the screen 
 
     DB::enableQueryLog();
     $page->call('showMissing', $target);
-    $categoryReads = collect(DB::getQueryLog())->filter(fn (array $query): bool => preg_match('/from\s+"?categories"?/i', $query['query']) === 1);
+    // Identifier quoting differs by engine: "categories" on PostgreSQL and SQLite, `categories` on MariaDB.
+    $categoryReads = collect(DB::getQueryLog())->filter(fn (array $query): bool => preg_match('/from\s+["`]?categories["`]?(\s|$)/i', $query['query']) === 1);
 
     expect(languagesDrawer($page))->not->toBeNull()
         ->and($categoryReads)->toHaveCount(1);
