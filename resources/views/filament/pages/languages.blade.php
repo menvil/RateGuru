@@ -44,6 +44,19 @@
         <x-admin.ui.tabs label="Language status" :active="$status" :items="$tabs" />
 
         <div class="rg-admin-table">
+            <div class="rg-admin-toolbar">
+                <x-admin.ui.search-field
+                    class="rg-admin-toolbar__search"
+                    placeholder="Search language or locale code"
+                    name="search"
+                    id="rg-admin-languages-search"
+                    :value="$search"
+                    wire:model.live.debounce.250ms="search"
+                />
+                {{-- Always present, so a screen reader hears the new count while focus stays in the field. --}}
+                <span class="rg-admin-toolbar__count" role="status">{{ number_format(count($rows)) }} of {{ number_format($stats['installed']) }} installed</span>
+            </div>
+
             <div class="rg-admin-table__scroll">
                 <div class="rg-admin-table__grid" role="table" aria-label="Installed languages" style="{{ $columns }}">
                     <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
@@ -62,8 +75,15 @@
                 </div>
             </div>
 
-            {{-- The default language is always enabled, so only these two tabs can be empty. --}}
-            @if ($rows === [] && $status === 'incomplete')
+            {{-- Without a search, the default language is always enabled, so only these two tabs can be empty. --}}
+            @if ($rows === [] && $search !== '')
+                <x-admin.ui.empty-state title="No installed language matches “{{ $search }}”">
+                    Search by English name, native name or locale code{{ $status === 'all' ? '' : ', or look under All' }}.
+                    <x-slot:action>
+                        <x-admin.ui.button size="sm" wire:click="$set('search', '')">Clear search</x-admin.ui.button>
+                    </x-slot:action>
+                </x-admin.ui.empty-state>
+            @elseif ($rows === [] && $status === 'incomplete')
                 <x-admin.ui.empty-state icon="circle-check" tone="success" title="Every language is complete">
                     Every application catalog is valid and every piece of project content has a translation.
                 </x-admin.ui.empty-state>

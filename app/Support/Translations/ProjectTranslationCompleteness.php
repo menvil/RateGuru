@@ -197,7 +197,9 @@ final class ProjectTranslationCompleteness
 
     /**
      * A translatable model field: required when its reference text is not
-     * blank, translated for a language when that language's entry is.
+     * blank, translated for a language when that language's entry is. The
+     * item carries that reference text, so whoever lists it can show what
+     * the translation is made from.
      *
      * @return array{0: MissingProjectTranslation, 1: Closure(string): bool}|null
      */
@@ -210,7 +212,7 @@ final class ProjectTranslationCompleteness
         $translations = is_array($translations) ? $translations : [];
 
         return [
-            $item,
+            $item->withReference((string) $reference),
             fn (string $locale): bool => $locale === self::REFERENCE || TranslatableField::isPresent($translations[$locale] ?? null),
         ];
     }

@@ -2608,12 +2608,6 @@
         color: var(--rg-admin-text-secondary);
     }
 
-    .rg-admin-languages__badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-
     .rg-admin-languages__progress {
         display: flex;
         flex-direction: column;
@@ -2703,7 +2697,7 @@
     .rg-admin-languages__summary {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: var(--rg-admin-space-3);
         padding: 14px var(--rg-admin-space-5);
         border-bottom: 1px solid var(--rg-admin-border-default);
     }
@@ -2711,12 +2705,12 @@
     .rg-admin-languages__drawer-section {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding: 14px 0 var(--rg-admin-space-2);
+        gap: var(--rg-admin-space-1);
+        padding-top: 14px;
     }
 
-    .rg-admin-languages__drawer-section + .rg-admin-languages__drawer-section {
-        border-top: 1px solid var(--rg-admin-border-default);
+    .rg-admin-languages__drawer-section:last-child {
+        padding-bottom: var(--rg-admin-space-3);
     }
 
     .rg-admin-languages__drawer-section > .rg-admin-section-label,
@@ -2768,19 +2762,54 @@
         min-width: 0;
     }
 
-    .rg-admin-languages__item-label {
+    .rg-admin-languages__item-name,
+    .rg-admin-languages__item-reference {
         overflow: hidden;
-        font-size: var(--rg-admin-text-body);
-        line-height: 20px;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
+    .rg-admin-languages__item-name {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
     .rg-admin-languages__item-field {
-        font-family: var(--rg-admin-font-mono);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-languages__item-reference {
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* ACT-03 text action, at the drawer's size: a link to the editor of the content. */
+    .rg-admin-languages__edit-source {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+        height: 28px;
+        padding: 0 var(--rg-admin-space-2);
+        border-radius: var(--rg-admin-radius-item);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-languages__edit-source:hover {
+        background: var(--rg-admin-surface-pressed);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-languages__edit-source:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
     }
 
     .rg-admin-languages__drawer-note {

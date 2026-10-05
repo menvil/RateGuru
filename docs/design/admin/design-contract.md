@@ -268,7 +268,9 @@ These are the current migration state, not changes to the target design:
 - **Missing-translation links.** Target design: a missing item in the Languages drawer opens Translation Center.
   Current bridge: until Translation Center exists, the Languages drawer keeps links to the existing editors —
   Project settings for settings and static pages, the category, tag and rating group edit pages, and a rating
-  option's group — so no editing capability is lost. The Translation Center step (Phase 4 of the
+  option's group — so no editing capability is lost. Each item's Edit source opens that editor. Translate on each
+  item and Translate all missing in the footer are already in place as in the reference, but disabled, with the
+  reason (“…opens Translation Center, which is not built yet”), and they link nowhere. The Translation Center step (Phase 4 of the
   [migration plan](migration-plan.md)) replaces these links with Translation Center filters. This is the migration
   state, not a change to the target design.
 
@@ -466,19 +468,26 @@ now, and the action remains the final safeguard.
   when nothing needs translating) and Missing (the missing project translations of the same languages).
 - Tabs All · Enabled · Disabled · Incomplete, counted over every installed language; Incomplete is an application
   catalog that breaks the contract or project content without a translation. The tab is in the query string
-  (`?status=…`, none for All) and in the browser history. No search field and no pagination: installed languages
-  are a bounded configuration list, and global search is in the sidebar.
+  (`?status=…`, none for All) and in the browser history.
+- The table card's toolbar (TBL-02) searches the English name, native name and locale code within the open tab
+  (“Search language or locale code”, `?q=…`) and counts the result (“4 of 4 installed”); a search with no result
+  offers Clear search. No pagination: installed languages are a bounded configuration list.
 - Rows as in the prototype, with these differences. Status shows Enabled (success, dot) or Disabled (neutral) with
-  “Offered to visitors” / “Not offered to visitors”; English adds Default (outline) and “Reference language”.
+  “Offered to visitors” / “Not offered to visitors”; English shows Default (success, dot) and “Reference language”,
+  two lines like every other row.
   Application prints “100% · valid”, or “N% · catalog invalid” on a red bar for any catalog with issues, whatever
   its percentage. Missing opens the drawer from “N missing ›”, or from “Catalog issue ›” when only the catalog is
   wrong. Enable for a broken catalog stays visible, disabled, with “Fix the release first.”
 - Confirmations: enabling a complete language is light; enabling with missing project content is a warning with
   Review missing (which opens the drawer and enables nothing) and Enable anyway; disabling is a warning that says
   where visitors go and that their preference and the stored translations are kept. No reason is asked for.
-- The drawer lists the catalog's issues first (the first 50, then “… and N more”), then the missing content by
-  section in the domain's order, each item with its field and an Edit link to its current editor (see
-  [Transitional omissions](#transitional-omissions)).
+- The drawer is headed “Missing in German — Deutsch” with “18 of 104 project strings missing · disabled”. It lists
+  the catalog's issues first (the first 50, then “… and N more”), then the missing content by section in the
+  domain's order. Each item reads “Entity · Field” (the field left out where it would repeat the entity, as for a
+  project setting) over “EN “…”” — the start of the English text it is translated from — with an Edit source link
+  to its current editor and a disabled Translate; the footer has a disabled Translate all missing (see
+  [Transitional omissions](#transitional-omissions)). The English text comes with the
+  missing item from `ProjectTranslationCompleteness`; what it counts is unchanged.
 - Results are Admin v2 toasts: “German enabled”, “German disabled”, and an error toast for a refusal.
 
 **Translation Center** (prototype):
@@ -545,7 +554,7 @@ the database before Save.
 | Disable language confirmation | *firm*: a required reason | a warning confirmation with no reason field | nothing stores a reason for a language change; asking for one and discarding it would be for show |
 | Confirmation footnote | “Recorded in the … log as …” | none on Languages | no log records a language change |
 | Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
-| Languages toolbar and top bar | search field, “Open Translation Center” | neither | a bounded list; Translation Center does not exist yet |
+| Languages top bar and drawer actions | “Open Translation Center”, Translate per item, “Show all in Translation Center”, “Translate all missing” | Translate and Translate all missing drawn disabled, with the reason; no “Open Translation Center” and no “Show all” | Translation Center does not exist yet; the drawer already has its final layout |
 | Toast Undo | reversible actions toast with Undo | no Undo in the stack yet | no migrated action is reversible without confirmation; it arrives with the first one |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |

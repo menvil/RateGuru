@@ -186,7 +186,7 @@ it('warns about missing translations, and reviews them instead of enabling', fun
         ->and(languagesRowText($page, $withheld))->toContain('Disabled')
         ->and(offeredLocales())->not->toContain($withheld);
 
-    $page->assertSee("Missing in {$label}")->assertSee('Georgian food');
+    $page->assertSee("Missing in {$label} — ".config("locales.supported.{$withheld}.native"))->assertSee('Georgian food');
 });
 
 it('disables a language after explaining what happens to its visitors, and English cannot be disabled', function () {
@@ -287,7 +287,7 @@ it('opens the missing-translations drawer from the row, 480 wide, and closes it 
                     sections: [...drawer.querySelectorAll('section h3')].map((h) => h.textContent.trim()),
                 }
             })()
-        JS))->toMatchArray(['width' => 480, 'right' => 0, 'scrim' => true, 'name' => "Missing in {$label}"]);
+        JS))->toMatchArray(['width' => 480, 'right' => 0, 'scrim' => true, 'name' => "Missing in {$label} — ".config("locales.supported.{$target}.native")]);
 
     expect($page->script('[...document.querySelectorAll(".rg-admin-drawer section h3")].map((h) => h.textContent.trim())'))
         ->toContain('Project Settings', 'Categories')
@@ -415,4 +415,22 @@ it('moves focus to the page heading when the confirmed change takes the row out 
 
     expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'rows' => []])
         ->and(languagesFocused($page))->toBe('rg-admin-languages-title');
+});
+
+it('narrows the table as you type, keeping the search in the URL', function () {
+    [, $withheld] = twoTranslatedLocales();
+    $native = config("locales.supported.{$withheld}.native");
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page->script('window.notReloaded = true');
+
+    $page->type('#rg-admin-languages-search', mb_substr($native, 0, 3))->wait(1);
+
+    expect(languagesScreen($page)['rows'])->toBe([$withheld])
+        ->and($page->script('document.querySelector(".rg-admin-toolbar__count").textContent.trim()'))->toBe('1 of '.count(supportedLocales()).' installed')
+        ->and($page->script('window.notReloaded ?? false'))->toBeTrue();
+    $page->assertQueryStringHas('q');
+
+    $page->clear('#rg-admin-languages-search')->wait(1);
+    expect(languagesScreen($page)['rows'])->toBe(supportedLocales());
 });

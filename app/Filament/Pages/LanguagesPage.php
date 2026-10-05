@@ -20,6 +20,7 @@ use App\Support\Translations\TranslationCatalogReport;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use UnitEnum;
@@ -46,8 +47,8 @@ use UnitEnum;
  *
  * Drawn entirely in Admin v2: the view renders the whole screen itself rather
  * than inside Filament's page wrapper, so Filament's own heading, table and
- * action modals are not on it. Confirmations, the missing-translations drawer
- * and the status tab are Livewire state; every public method checks the
+ * action modals are not on it. Confirmations, the missing-translations drawer,
+ * the status tab and the search are Livewire state; every public method checks the
  * language against what is installed and what is offered now, because what
  * the browser sends is not a permission.
  *
@@ -86,6 +87,14 @@ final class LanguagesPage extends Page
     #[Url(history: true, except: 'all')]
     public mixed $status = 'all';
 
+    /**
+     * The search over each language's English name, native name and code,
+     * within the open tab. In the query string too; typed loosely for the
+     * same reason as the status.
+     */
+    #[Url(as: 'q', except: '')]
+    public mixed $search = '';
+
     /** The confirmation on screen: enable or disable. */
     #[Locked]
     public ?string $confirming = null;
@@ -121,6 +130,7 @@ final class LanguagesPage extends Page
     public function mount(): void
     {
         $this->updatedStatus();
+        $this->updatedSearch();
     }
 
     /** A status that is not a tab shows them all. */
@@ -128,6 +138,14 @@ final class LanguagesPage extends Page
     {
         if (! in_array($this->status, self::STATUSES, true)) {
             $this->status = 'all';
+        }
+    }
+
+    /** Anything but text searches for nothing. */
+    public function updatedSearch(): void
+    {
+        if (! is_string($this->search)) {
+            $this->search = '';
         }
     }
 
@@ -295,17 +313,20 @@ final class LanguagesPage extends Page
     {
         $rows = $this->languages();
         $status = in_array($this->status, self::STATUSES, true) ? $this->status : 'all';
+        $search = is_string($this->search) ? trim($this->search) : '';
         $locales = app(LocaleManager::class);
 
         return [
             'stats' => $this->stats($rows),
             'tabs' => $this->tabs($rows),
             'status' => $status,
-            'rows' => array_filter($rows, fn (array $row): bool => self::shows($status, $row)),
+            'search' => $search,
+            'rows' => array_filter($rows, fn (array $row): bool => self::shows($status, $row) && self::matches($search, $row)),
             'confirmation' => $this->confirmation($rows),
             'missing' => $this->missing($rows),
             'defaultLabel' => $locales->label($locales->default()),
             'referenceLabel' => $locales->label(TranslatableField::REFERENCE_LOCALE),
+            'referenceCode' => TranslatableField::REFERENCE_LOCALE,
         ];
     }
 
@@ -358,6 +379,17 @@ final class LanguagesPage extends Page
             'incomplete' => $row['incomplete'],
             default => true,
         };
+    }
+
+    /**
+     * Whether a row answers the search: its English name, native name or
+     * code contains it, whatever the case.
+     *
+     * @param  LanguageRow  $row
+     */
+    private static function matches(string $search, array $row): bool
+    {
+        return $search === '' || str_contains(mb_strtolower("{$row['label']} {$row['native']} {$row['code']}"), mb_strtolower($search));
     }
 
     /**
@@ -427,7 +459,7 @@ final class LanguagesPage extends Page
      * LISTED_ISSUES of them, and the missing project content by section.
      *
      * @param  array<string, LanguageRow>  $rows
-     * @return array{row: LanguageRow, issues: list<string>, unlisted: int, sections: list<array{label: string, items: list<array{label: string, field: string, url: string}>}>}|null
+     * @return array{row: LanguageRow, issues: list<string>, unlisted: int, sections: list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string}>}>}|null
      */
     private function missing(array $rows): ?array
     {
@@ -516,10 +548,13 @@ final class LanguagesPage extends Page
     }
 
     /**
-     * The missing translations by section, in the sections' own order, each
-     * with a link to the editor that manages that content today.
+     * The missing translations by section, in the sections' own order. Each
+     * is named by what it is and which of its fields — the field left out
+     * where it would only repeat the name, as for a project setting — with
+     * the start of the English text it is translated from and a link to the
+     * editor that manages that content today.
      *
-     * @return list<array{label: string, items: list<array{label: string, field: string, url: string}>}>
+     * @return list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string}>}>
      */
     private function missingSections(ProjectTranslationReport $report): array
     {
@@ -528,11 +563,16 @@ final class LanguagesPage extends Page
         foreach ($report->missingBySection() as $section => $items) {
             $sections[] = [
                 'label' => ProjectContentSection::from($section)->label(),
-                'items' => array_map(fn (MissingProjectTranslation $item): array => [
-                    'label' => $item->label,
-                    'field' => $item->field,
-                    'url' => $this->editUrl($item),
-                ], $items),
+                'items' => array_map(function (MissingProjectTranslation $item): array {
+                    $field = Str::ucfirst(str_replace('_', ' ', $item->field));
+
+                    return [
+                        'label' => $item->label,
+                        'field' => strcasecmp($field, $item->label) === 0 ? null : $field,
+                        'reference' => Str::limit(Str::squish(strip_tags((string) $item->reference)), 120),
+                        'url' => $this->editUrl($item),
+                    ];
+                }, $items),
             ];
         }
 

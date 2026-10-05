@@ -2,7 +2,8 @@
     /*
      * One installed language (TBL-01). Which badge a state gets is decided
      * here and nowhere else on the screen: enabled is success with the live
-     * dot, disabled is neutral, the default is marked with an outline badge.
+     * dot, disabled is neutral, and the default — always enabled — is the
+     * same live success badge named Default.
      */
     $catalog = $row['catalog'];
     $project = $row['project'];
@@ -11,7 +12,11 @@
     $content = $project->percentage();
     $id = 'rg-admin-language-'.$row['code'];
 
-    [$statusLabel, $statusTone, $statusDot] = $row['enabled'] ? ['Enabled', 'success', true] : ['Disabled', 'neutral', false];
+    [$statusLabel, $statusTone, $statusDot] = match (true) {
+        $row['default'] => ['Default', 'success', true],
+        $row['enabled'] => ['Enabled', 'success', true],
+        default => ['Disabled', 'neutral', false],
+    };
     $statusNote = match (true) {
         $row['reference'] => 'Reference language',
         $row['enabled'] => 'Offered to visitors',
@@ -35,12 +40,9 @@
 
     <div class="rg-admin-table__cell" role="cell">
         <div class="rg-admin-badge-note">
-            <span class="rg-admin-languages__badges">
-                <x-admin.ui.badge :tone="$statusTone" :dot="$statusDot">{{ $statusLabel }}</x-admin.ui.badge>
-                @if ($row['default'])
-                    <x-admin.ui.badge tone="outline">Default</x-admin.ui.badge>
-                @endif
-            </span>
+            <x-admin.ui.badge :tone="$statusTone" :dot="$statusDot">
+                {{ $statusLabel }}@if ($row['default'])<span class="rg-admin-sr-only">, enabled</span>@endif
+            </x-admin.ui.badge>
             <span class="rg-admin-badge-note__text">{{ $statusNote }}</span>
         </div>
     </div>

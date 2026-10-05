@@ -259,15 +259,19 @@ it('shares one table among however many languages there are, with no branch for 
 
 // English ------------------------------------------------------------------------
 
-it('shows English as enabled and the default, with nothing to enable or disable', function () {
+it('shows English as the enabled default in two lines, with nothing to enable or disable', function () {
     offerEveryInstalledLocale();
     $row = languageRow(languagesPage(), 'en');
 
+    // One live badge and one note, as in the reference: "Default" says it is
+    // on, and screen readers hear that in words.
     expect($row)
-        ->toContain('Enabled')
         ->toContain('rg-admin-badge--success')
-        ->toContain('Default')
-        ->toContain('rg-admin-badge--outline')
+        ->toContain('rg-admin-badge__dot')
+        ->toMatch('/rg-admin-badge--success">.*Default<span class="rg-admin-sr-only">, enabled<\/span>/s')
+        ->not->toContain('rg-admin-badge--outline')
+        ->and(substr_count((string) $row, 'class="rg-admin-badge '))->toBe(1)
+        ->and($row)
         ->toContain('Reference language')
         ->toContain('Always on')
         ->toContain('English is the default language and is always enabled.')
@@ -476,6 +480,52 @@ it('says when no language is incomplete, and when none is disabled', function ()
 
     languagesPage()->set('status', 'incomplete')->assertSee('Every language is complete');
     languagesPage()->set('status', 'disabled')->assertSee('Every installed language is enabled');
+});
+
+// Search ---------------------------------------------------------------------------
+
+it('searches by English name, native name or locale code, within the open tab', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($withheld);
+    $info = config("locales.supported.{$withheld}");
+
+    foreach ([$info['label'], mb_strtoupper($info['native']), $withheld] as $search) {
+        $page = languagesPage()->set('search', $search);
+
+        expect(languagesListed($page))->toContain($withheld)->not->toContain('en')
+            ->and(languagesFragment($page, "//*[contains(@class, 'rg-admin-toolbar__count')]"))->toContain(count(languagesListed($page)).' of '.count(supportedLocales()).' installed');
+    }
+
+    // The search narrows the open tab; the tab counts stay over every language.
+    $page = languagesPage()->set('status', 'enabled')->set('search', $withheld);
+    expect(languagesListed($page))->toBe([])
+        ->and(languagesTabs($page)['All'])->toBe(count(supportedLocales()));
+});
+
+it('keeps the search in the URL, and reads it back from there', function () {
+    [, $withheld] = twoTranslatedLocales();
+
+    $page = Livewire::withQueryParams(['q' => $withheld])->test(LanguagesPage::class)->assertSet('search', $withheld);
+
+    expect(languagesListed($page))->toBe([$withheld])
+        ->and(languagesFragment($page, "//input[@id='rg-admin-languages-search']"))->toContain('wire:model.live.debounce.250ms="search"');
+});
+
+it('says when no language matches, and offers to clear the search', function () {
+    $page = languagesPage()->set('search', 'Klingon');
+
+    expect(languagesListed($page))->toBe([])
+        ->and(languagesFragment($page, "//*[contains(@class, 'rg-admin-empty-state')]"))
+        ->toContain('No installed language matches “Klingon”')
+        ->toContain('Clear search');
+
+    expect(languagesListed($page->set('search', '')))->toBe(supportedLocales());
+});
+
+it('searches for nothing when sent something other than text', function () {
+    languagesPage()->set('search', ['de'])->assertSet('search', '');
+
+    expect(languagesListed(Livewire::withQueryParams(['q' => ['de']])->test(LanguagesPage::class)))->toBe(supportedLocales());
 });
 
 // The table's columns -------------------------------------------------------------
@@ -768,8 +818,10 @@ it('leaves an already offered or already withheld language as it is', function (
 
 it('lists what is missing, by section, with a link to the editor that manages it', function () {
     [$target] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($target);
     $category = untranslatedCategory();
     $label = config("locales.supported.{$target}.label");
+    $report = app(ProjectTranslationCompleteness::class)->report($target);
 
     $drawer = languagesDrawer(languagesPage()->call('showMissing', $target));
 
@@ -777,18 +829,53 @@ it('lists what is missing, by section, with a link to the editor that manages it
         ->toContain('role="dialog"')
         ->toContain('aria-modal="true"')
         ->toContain('rg-admin-drawer--wide')
-        ->toContain("Missing in {$label}")
-        ->toContain("{$target} · ")
-        ->toContain('% project content')
+        ->toContain("Missing in {$label} — ".config("locales.supported.{$target}.native"))
+        ->toContain("{$report->required} project strings missing · disabled")
         ->toContain('Categories')
-        ->toContain('Georgian food')
-        ->toContain('>name<')
+        ->toContain('Georgian food<span class="rg-admin-languages__item-field">· Name</span>')
+        ->toContain('<span lang="en">EN</span>“Georgian food”')
         ->toContain('Project Settings')
-        ->toContain(e(route('filament.admin.resources.categories.edit', ['record' => $category])))
+        ->toMatch('/<a href="'.preg_quote(e(route('filament.admin.resources.categories.edit', ['record' => $category])), '/').'" class="rg-admin-languages__edit-source">Edit source/')
         ->toContain(e(ProjectSettingsPage::getUrl()))
-        ->toContain('Visitors see the English text wherever a translation is missing.')
-        // There is no Translation Center yet, so nothing points at one.
-        ->not->toContain('Translation Center');
+        ->toContain('Visitors see the English text wherever a translation is missing.');
+});
+
+it('keeps Translate and Translate all missing in place, disabled with the reason, until Translation Center exists', function () {
+    [$target] = twoTranslatedLocales();
+    untranslatedCategory();
+    $page = languagesPage()->call('showMissing', $target);
+
+    $xpath = languagesDom($page);
+    $items = $xpath->query("//*[contains(@class, 'rg-admin-drawer')]//li[contains(@class, 'rg-admin-languages__item')]");
+    $translate = $xpath->query("//*[contains(@class, 'rg-admin-drawer')]//button[contains(normalize-space(.), 'Translate')]");
+    $reason = $xpath->query("//*[@id='rg-admin-languages-missing-later']")->item(0);
+
+    // One Translate per item, and Translate all missing in the footer: all of them real buttons, disabled.
+    expect($translate->length)->toBe($items->length + 1)
+        ->and(collect(iterator_to_array($translate))->every(fn (DOMElement $button): bool => $button->hasAttribute('disabled')
+            && $button->getAttribute('aria-describedby') === 'rg-admin-languages-missing-later'))->toBeTrue()
+        ->and(trim((string) $reason?->textContent))->toContain('opens Translation Center, which is not built yet');
+
+    // Nothing links to a Translation Center that does not exist.
+    $hrefs = collect(iterator_to_array($xpath->query("//*[contains(@class, 'rg-admin-drawer')]//a/@href")))->map(fn (DOMAttr $href): string => $href->value);
+
+    expect($hrefs)->not->toBeEmpty()
+        ->and($hrefs->filter(fn (string $href): bool => str_contains(strtolower($href), 'translation'))->all())->toBe([]);
+});
+
+it('names a project setting once, and shortens a long English text to its start', function () {
+    [$target] = twoTranslatedLocales();
+    ProjectSettings::query()->update(['site_tagline' => '<b>'.str_repeat('Rate every pet. ', 10).'</b>']);
+    app(ProjectSettingsManager::class)->flush();
+
+    $drawer = (string) languagesDrawer(languagesPage()->call('showMissing', $target));
+
+    expect($drawer)
+        // "Site Tagline · Site tagline" would say the same thing twice.
+        ->toContain('<span class="rg-admin-languages__item-name">Site Tagline</span>')
+        ->toContain('<span lang="en">EN</span>“Rate every pet.')
+        ->not->toContain('&lt;b&gt;')
+        ->not->toContain(str_repeat('Rate every pet. ', 8));
 });
 
 it('keeps the sections in their own order', function () {
@@ -814,7 +901,9 @@ it('lists a static page field the project stores no text for in that language', 
 
     $drawer = languagesDrawer(languagesPage()->call('showMissing', $target));
 
-    expect($drawer)->toContain('Static Pages')->toContain('About')->toContain('>title<')->toContain('>content<');
+    expect($drawer)->toContain('Static Pages')
+        ->toContain('About<span class="rg-admin-languages__item-field">· Title</span>')
+        ->toContain('About<span class="rg-admin-languages__item-field">· Content</span>');
 });
 
 it('lists the catalog issues of a broken release, the first fifty of them', function () {

@@ -4,22 +4,28 @@
      * application catalog's issues when it breaks the contract, then the
      * missing project content by section.
      *
-     * Each item links to the editor that holds its translations today. That
-     * is the bridge until Translation Center exists, when these links become
-     * Translation Center filters; until then nothing that can be edited now
-     * loses its way to an editor.
+     * Each item shows the English text it is translated from, and Edit source
+     * opens the editor that holds that content and, today, its translations.
+     * That is the bridge until Translation Center exists, when the items gain
+     * its Translate filters; until then nothing that can be edited now loses
+     * its way to an editor.
      */
     $row = $missing['row'];
     $project = $row['project'];
     $translated = $project->required === 0 ? 100 : $project->translated * 100 / $project->required;
     $issueCount = count($row['catalog']->issues);
+    $subtitle = number_format($row['missing']).' of '.number_format($project->required).' project strings missing · '.($row['enabled'] ? 'enabled' : 'disabled');
+
+    // Translate and Translate all missing open Translation Center, which does not
+    // exist yet: they stay visible, disabled, with the reason, until it does.
+    $later = 'Translating here opens Translation Center, which is not built yet. Edit source opens the editor that holds the translations today.';
 @endphp
 
 <x-admin.ui.drawer
     id="rg-admin-languages-missing"
     wide
-    :title="'Missing in '.$row['label']"
-    :subtitle="$row['code'].' · '.$project->percentage().'% project content'"
+    :title="'Missing in '.$row['label'].' — '.$row['native']"
+    :subtitle="$subtitle"
     wire:key="missing-{{ $row['code'] }}"
     x-on:dismiss="$wire.closeMissing()"
 >
@@ -74,11 +80,18 @@
                 @foreach ($section['items'] as $item)
                     <li class="rg-admin-languages__item">
                         <span class="rg-admin-languages__item-text">
-                            <span class="rg-admin-languages__item-label">{{ $item['label'] }}</span>
-                            <span class="rg-admin-languages__item-field">{{ $item['field'] }}</span>
+                            <span class="rg-admin-languages__item-name">
+                                {{ $item['label'] }}@if ($item['field'] !== null)<span class="rg-admin-languages__item-field"> · {{ $item['field'] }}</span>@endif
+                            </span>
+                            <span class="rg-admin-languages__item-reference" title="{{ $item['reference'] }}">
+                                <span lang="{{ $referenceCode }}">{{ strtoupper($referenceCode) }}</span> “{{ $item['reference'] }}”
+                            </span>
                         </span>
-                        <x-admin.ui.button size="sm" :href="$item['url']">
-                            Edit<span class="rg-admin-sr-only"> {{ $item['label'] }}, {{ $item['field'] }}</span>
+                        <a href="{{ $item['url'] }}" class="rg-admin-languages__edit-source">
+                            Edit source<span class="rg-admin-sr-only">: {{ $item['label'] }}{{ $item['field'] !== null ? ', '.$item['field'] : '' }}</span>
+                        </a>
+                        <x-admin.ui.button size="sm" disabled aria-describedby="rg-admin-languages-missing-later" :title="$later">
+                            Translate<span class="rg-admin-sr-only"> {{ $item['label'] }}{{ $item['field'] !== null ? ', '.$item['field'] : '' }}</span>
                         </x-admin.ui.button>
                     </li>
                 @endforeach
@@ -92,5 +105,9 @@
 
     <x-slot:footer>
         <span class="rg-admin-languages__drawer-note">Visitors see the {{ $referenceLabel }} text wherever a translation is missing.</span>
+        <x-admin.ui.button variant="primary" icon="languages" disabled aria-describedby="rg-admin-languages-missing-later" :title="$later">
+            Translate all missing
+        </x-admin.ui.button>
+        <p id="rg-admin-languages-missing-later" class="rg-admin-sr-only">{{ $later }}</p>
     </x-slot:footer>
 </x-admin.ui.drawer>

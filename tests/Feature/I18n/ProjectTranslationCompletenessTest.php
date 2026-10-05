@@ -217,5 +217,5 @@ it('describes a missing item well enough to find and fix it', function () {
 
     $item = collect(projectCompleteness($target)->missing)->firstWhere('section', ProjectContentSection::RatingOptions);
 
-    expect($item)->toEqual(new MissingProjectTranslation(ProjectContentSection::RatingOptions, $option->id, $group->id, 'cup_size.dd', 'Cup size → DD', 'label'));
+    expect($item)->toEqual(new MissingProjectTranslation(ProjectContentSection::RatingOptions, $option->id, $group->id, 'cup_size.dd', 'Cup size → DD', 'label', 'DD'));
 });
