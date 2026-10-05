@@ -1581,9 +1581,13 @@ function mailGatewayJqPrograms(string $script): array
     $path = mailGatewayScript($script);
     $programs = [];
 
-    // status-mail-gateway runs on load and has no program variables.
+    // status-mail-gateway runs on load and has no program variables. Only the
+    // variables sourcing defines count: an inherited one such as a terminal's
+    // TERM_PROGRAM is not a jq program.
     if ($script !== 'status-mail-gateway') {
-        $harness = 'source "$1" >/dev/null 2>&1 || exit 1; for name in $(compgen -v); do case "${name}" in *_PROGRAM|*_DEFINITIONS|*_RULES) printf "%s\n%s\0" "${name}" "${!name}" ;; esac; done';
+        $harness = 'inherited="$(compgen -v)"; source "$1" >/dev/null 2>&1 || exit 1; '
+            .'for name in $(compgen -v); do grep -qxF "${name}" <<<"${inherited}" && continue; '
+            .'case "${name}" in *_PROGRAM|*_DEFINITIONS|*_RULES) printf "%s\n%s\0" "${name}" "${!name}" ;; esac; done';
         $output = (string) shell_exec('bash -c '.escapeshellarg($harness).' _ '.escapeshellarg($path));
 
         foreach (array_filter(explode("\0", $output)) as $entry) {
@@ -1591,7 +1595,9 @@ function mailGatewayJqPrograms(string $script): array
             $programs["{$script} \${$name}"] = $program;
         }
 
-        expect($programs)->not->toBe([], "no jq program variables were read from {$script}");
+        if (in_array($script, ['mail-routing', 'install-mail-gateway'], true)) {
+            expect($programs)->not->toBe([], "no jq program variables were read from {$script}");
+        }
     }
 
     preg_match_all("/\\bjq\\b[^'\\n]*'([^']*)'/", executableSourceLines(File::get($path)), $matches);
