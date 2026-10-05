@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\Tables\UsersTable;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\User;
 use BackedEnum;
 use Filament\Forms\Components\Placeholder;
@@ -28,11 +29,11 @@ class UserResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'username';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 40;
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return AdminNavigationGroup::MODERATION;
     }
 
     public static function form(Schema $schema): Schema

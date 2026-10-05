@@ -3,7 +3,7 @@
 return [
     'project_settings' => [
         'title' => 'Project Settings',
-        'nav_label' => 'Project Settings',
+        'nav_label' => 'Project settings',
         'site_identity' => 'Site Identity',
         'object_labels' => 'Object Labels',
         'defaults' => 'Defaults',

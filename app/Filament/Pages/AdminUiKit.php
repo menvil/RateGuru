@@ -484,7 +484,7 @@ final class AdminUiKit extends Page
                 'name' => 'Sidebar',
                 'source' => 'CSS primitive · .rg-admin-nav-item',
                 'kind' => 'primitive',
-                'purpose' => 'Fixed navigation for every area. Counts show what is waiting. Below 1280 px it collapses to an icon rail with dots. Shown here as a specimen; the production shell still uses Filament’s.',
+                'purpose' => 'Fixed navigation for every area. Counts show what is waiting. Below 1280 px it collapses to an icon rail with dots. In production App\\Livewire\\Admin\\Sidebar draws it around every admin page from Filament’s own navigation.',
                 'specs' => [
                     ['Width', '300 · rail 68 below 1280 px'],
                     ['Item', '40 h · radius 10 · icon 18 · 15px label'],
@@ -492,7 +492,9 @@ final class AdminUiKit extends Page
                     ['Section', 'overline .12em · gap 10 between sections'],
                     ['Sections', 'Overview · Moderation · Content · Localization · Configuration · System'],
                     ['Counts', 'Posts pending · Comments reported · Reports open · Translation missing · Media critical'],
-                    ['Rail', '44×40 icon links · 8 px status dot · label as tooltip'],
+                    ['Rail', '44×40 icon links · 8 px status dot · tooltip on hover and focus, label kept for screen readers'],
+                    ['Below 1024 px', 'no rail · the top bar’s menu button opens the same sidebar as a drawer'],
+                    ['Source', 'filament()->getNavigation() via AdminShellNavigation · icons in AdminShellNavigation::ICONS'],
                 ],
                 'code' => <<<'BLADE'
                     <div class="rg-admin-nav-section">
@@ -516,10 +518,11 @@ final class AdminUiKit extends Page
                 'name' => 'Top bar and breadcrumb',
                 'source' => 'CSS primitive · .rg-admin-topbar',
                 'kind' => 'primitive',
-                'purpose' => 'Location on the left, page actions on the right. Edit pages show unsaved state next to Save.',
+                'purpose' => 'Location on the left, page actions on the right. Edit pages show unsaved state next to Save. In production App\\Livewire\\Admin\\Topbar draws it, with the breadcrumb taken from the navigation.',
                 'specs' => [
                     ['Height', '62 · padding 0 24 0 28 · white · bottom hairline'],
-                    ['Breadcrumb', 'section › page; last item current'],
+                    ['Breadcrumb', 'section › page; last item current · on create/edit the resource links back to its list'],
+                    ['Page actions', 'TOPBAR_END render hook, scoped to the page · legacy pages keep theirs in the content'],
                     ['Actions', 'gap 10 · primary last'],
                     ['Unsaved', '13px orange-900 “2 unsaved changes”'],
                     ['Meta', '13px tertiary “Updated 09:41”'],

@@ -116,9 +116,12 @@ it('keeps the theme additive: Admin v2 rules never restyle Filament components',
     preg_match_all('/^\s*([^@\s{}\/*][^{}]*)\{/m', $components, $rules);
 
     $selectors = collect($rules[1])
+        // A nested rule's capture starts at the declarations before it; keep only the selector.
+        ->map(fn (string $capture): string => str_contains($capture, ';') ? substr($capture, strrpos($capture, ';') + 1) : $capture)
         // Split selector lists, but not the commas inside :not(…).
         ->flatMap(fn (string $selector): array => preg_split('/,(?![^(]*\))/', $selector) ?: [])
-        ->map(fn (string $selector): string => trim($selector))
+        // A nested selector (& .child) hangs off a parent that is itself checked.
+        ->map(fn (string $selector): string => preg_replace('/^&\s*/', '', trim($selector)) ?? '')
         // Keyframe steps are not selectors.
         ->reject(fn (string $selector): bool => preg_match('/^(\d+%|from|to)$/', $selector) === 1)
         ->filter();

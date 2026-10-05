@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Posts;
 
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\Tables\PostsTable;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Post;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -22,11 +23,11 @@ class PostResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'title';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 10;
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return AdminNavigationGroup::MODERATION;
     }
 
     public static function table(Table $table): Table

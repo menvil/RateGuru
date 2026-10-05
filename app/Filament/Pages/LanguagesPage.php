@@ -52,7 +52,7 @@ final class LanguagesPage extends Page implements HasTable
 
     protected string $view = 'filament.pages.languages';
 
-    protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::SYSTEM;
+    protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::LOCALIZATION;
 
     protected static ?string $navigationLabel = 'Languages';
 
@@ -60,7 +60,7 @@ final class LanguagesPage extends Page implements HasTable
 
     protected static ?string $slug = 'languages';
 
-    protected static ?int $navigationSort = 11;
+    protected static ?int $navigationSort = 10;
 
     /** @var array<string, array<string, mixed>>|null */
     private ?array $rows = null;
