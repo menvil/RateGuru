@@ -1,0 +1,19 @@
+tests/Feature/Profile/AnonymizationLogCommitTest.php
+  s_c7e782fafc9782::t_266b79c15b1a87 7,15-22,26-29,41-42,46-49,56-57,61-64,72-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "86fc55927c08241548d325c29cecfbf2e7f504bb",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
