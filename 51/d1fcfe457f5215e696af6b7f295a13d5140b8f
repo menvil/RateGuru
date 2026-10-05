@@ -1,0 +1,97 @@
+app/Models/PasswordResetToken.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 10-16
+app/Console/Commands/VerifySharingConfigurationCommand.php
+  s_c7e782fafc9782::t_67de97aa1ac6ad 45-53
+app/Models/Session.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 10-15
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_c7e782fafc9782::t_67de97aa1ac6ad 152-158,160,162
+tests/Feature/Console/SetupProjectPresetCommandTest.php
+  s_c7e782fafc9782::t_e8682920a08762 9-11,102-128
+app/Actions/Moderation/FinalizeCommentRemovalAction.php
+  s_c7e782fafc9782::t_e4876060bb7f58 11,32
+app/Exceptions/Contact/ContactMessageHasNoRecipientException.php
+  s_c7e782fafc9782::t_ce1fb0e49df1cb 1-19
+app/Data/Seo/OpenGraphImageData.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 15-20,23
+tests/Feature/Auth/PasswordResetTest.php
+  s_c7e782fafc9782::t_86ab3e5ee6f785 4,6-7,9,65-94
+lang/ru/ui.php
+  s_c7e782fafc9782::t_18b9a70d403fa1 52
+bootstrap/app.php
+  s_c7e782fafc9782::t_55585990b6491a 27-33
+app/Console/Commands/SetupProjectPresetCommand.php
+  s_c7e782fafc9782::t_67de97aa1ac6ad 50-64,66-67
+tests/Unit/Data/Seo/OpenGraphImageDataTest.php
+  s_c7e782fafc9782::t_838d57acb44e38 1-34
+tests/Feature/Profile/AnonymizationLogCommitTest.php
+  s_c7e782fafc9782::t_60b832b384d0c0 1-63
+app/Http/Requests/Auth/SocialRedirectRequest.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 16-24,28-30
+resources/views/pages/contact.blade.php
+  s_c7e782fafc9782::t_c15db2b824eb1f 34-35,37-43
+  s_c7e782fafc9782::t_1f6b538f41c722 36
+README.md
+  s_c7e782fafc9782::t_70fd3db984ed3f 21-30
+lang/de/ui.php
+  s_c7e782fafc9782::t_18b9a70d403fa1 52
+app/Filament/Resources/Categories/Tables/CategoriesTable.php
+  s_c7e782fafc9782::t_4f6a98b23d80a2 21-29,89,91
+lang/bg/ui.php
+  s_c7e782fafc9782::t_18b9a70d403fa1 52
+tests/Feature/Jobs/GenerateMediaVariantsJobTest.php
+  s_c7e782fafc9782::t_ee7b4a8505d7b6 184-193
+tests/Feature/Actions/FinalizeRemovalActionsTest.php
+  s_c7e782fafc9782::t_903327e3ff882c 255-302
+tests/Feature/Auth/SocialRedirectOptionalMarkersTest.php
+  s_c7e782fafc9782::t_f049755e73f6d0 1-8,12-25,29-30,44-59,61
+  s_c7e782fafc9782::t_9ad3c015992675 9-11,26-27,31-41,43
+  s_c7e782fafc9782::t_3b2eb6077d1727 28,42,60
+app/Http/Controllers/SubmitContactMessageController.php
+  s_c7e782fafc9782::t_4d91b0e0e4c64b 6,19-29
+app/Http/Middleware/SetLocale.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 28-33
+app/Actions/Moderation/FinalizePostRemovalAction.php
+  s_c7e782fafc9782::t_e4876060bb7f58 11,35
+app/Jobs/GenerateMediaVariantsJob.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 16-23
+tests/Feature/Localization/EndedSessionNoticeLocaleTest.php
+  s_c7e782fafc9782::t_98da3cfca0bf03 1-49
+tests/Feature/Routes/ContactFormTest.php
+  s_c7e782fafc9782::t_ee7b4a8505d7b6 74-137
+lang/en/ui.php
+  s_c7e782fafc9782::t_18b9a70d403fa1 52
+tests/Feature/Console/VerifySharingConfigurationCommandTest.php
+  s_c7e782fafc9782::t_903327e3ff882c 45-74
+app/Actions/Auth/ResetPasswordAction.php
+  s_c7e782fafc9782::t_55585990b6491a 31,35,43,46,52-56
+app/Policies/CommentPolicy.php
+  s_c7e782fafc9782::t_1eb31b4f715b7a 34-39,42-43
+app/Actions/Contact/SendContactMessageAction.php
+  s_c7e782fafc9782::t_cd7ef715331581 25-27
+  s_c7e782fafc9782::t_0344246533075c 72-77
+  s_c7e782fafc9782::t_4d91b0e0e4c64b 7,11,16-19,23-24,58-71,78,80,82-83
+app/Support/Moderation/ModerationReason.php
+  s_c7e782fafc9782::t_2f00522813ce0f 1-28
+tests/Feature/Filament/CategoryResourceTest.php
+  s_c7e782fafc9782::t_d6c58ffa014cb2 10,169
+  s_c7e782fafc9782::t_3b944c412ff6d5 156-168,170-182
+tests/Feature/Policies/CommentPolicyTest.php
+  s_c7e782fafc9782::t_ee7b4a8505d7b6 108-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "51d1fcfe457f5215e696af6b7f295a13d5140b8f",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
