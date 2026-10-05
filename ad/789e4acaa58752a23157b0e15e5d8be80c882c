@@ -1,0 +1,29 @@
+tests/Feature/Admin/AdminThemeTest.php
+  s_68bd935861719d::t_265eaa8f8b1dbf 130-176
+  s_68bd935861719d::t_16dde9afa38c58 12-54
+docs/design/admin/ui-review-checklist.md
+  s_68bd935861719d::t_5e54d05ed478ce 89-90
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_5e54d05ed478ce 75,80-83,85-90,156,192,205,207,215,222,232,256,258,317,410,414-418,420-422,424-427
+  s_68bd935861719d::t_ff5c09b007578e 84
+resources/css/filament/admin/tokens.css
+  s_68bd935861719d::t_67d0760aeef3ba 45-51
+app/Filament/Pages/AdminUiKit.php
+  s_68bd935861719d::t_e26103e8822528 117-118,209,286,414,440-441,525,616,637,663,697,717,739
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ad789e4acaa58752a23157b0e15e5d8be80c882c",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
