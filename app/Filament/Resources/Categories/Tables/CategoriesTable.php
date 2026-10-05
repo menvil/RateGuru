@@ -26,7 +26,11 @@ class CategoriesTable
             // never change a single row's position, and all five sortable
             // columns here were decorative. As a default sort it is what you get
             // until you ask for something else, which is what it was meant to be.
-            ->defaultSort(fn (Builder $query): Builder => $query->orderBy('sort_order')->orderBy('id'))
+            //
+            // Through the model scope rather than spelled out again here: what
+            // "ordered" means for a category is Category::scopeOrdered's to say,
+            // and a second copy of it would drift.
+            ->defaultSort(self::curatedOrder(...))
             ->columns([
                 TextColumn::make('name')
                     ->searchable()
@@ -89,5 +93,18 @@ class CategoriesTable
     private static function withPostCounts(Builder $query): Builder
     {
         return $query->withCount('posts');
+    }
+
+    /**
+     * A named method rather than a closure in the table definition, so the
+     * generic annotation is somewhere to put: a bare `Builder` does not carry
+     * the model, and the scope would not resolve.
+     *
+     * @param  Builder<Category>  $query
+     * @return Builder<Category>
+     */
+    private static function curatedOrder(Builder $query): Builder
+    {
+        return $query->ordered();
     }
 }

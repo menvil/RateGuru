@@ -19,10 +19,27 @@ final class ModerationReason
     /**
      * Strips Unicode whitespace from both ends, including the separators
      * `trim()` ignores: no-break space, the Unicode space range, line and
-     * paragraph separators, and the zero-width no-break space.
+     * paragraph separators, the zero-width no-break space, and the two
+     * whitespace characters Unicode files under Cc/Cf rather than Z — NEL
+     * (U+0085) and the Mongolian vowel separator (U+180E).
+     *
+     * Those last two are named explicitly even though PHP's `u` modifier also
+     * turns on PCRE2_UCP, which already makes `\s` match the full White_Space
+     * property. That coupling is real but implicit, and a reason made of one NEL
+     * is exactly the empty audit record this class exists to refuse — so it does
+     * not rest on a flag nobody writing here would think to check.
+     *
+     * Invalid UTF-8 is returned UNCHANGED rather than normalized. preg_replace
+     * fails on it and returns null, and casting that to a string would hand the
+     * callers an empty reason — so an administrator who typed a perfectly real
+     * reason containing one bad byte would be told a reason is required, with
+     * what they wrote silently discarded. Returning the input keeps the failure
+     * honest: the text is still there, and whatever rejects malformed text
+     * rejects it for what it is.
      */
     public static function normalize(string $reason): string
     {
-        return (string) preg_replace('/^[\s\p{Z}\x{FEFF}]+|[\s\p{Z}\x{FEFF}]+$/u', '', $reason);
+        return preg_replace('/^[\s\p{Z}\x{85}\x{180E}\x{FEFF}]+|[\s\p{Z}\x{85}\x{180E}\x{FEFF}]+$/u', '', $reason)
+            ?? $reason;
     }
 }

@@ -160,9 +160,13 @@ it('lets an administrator actually sort the category table by a column', functio
     // appends for the clicked column could not move a single row.
     $admin = User::factory()->admin()->create();
 
-    $zebra = Category::factory()->create(['name' => 'Zebra', 'sort_order' => 1]);
+    // sort_order deliberately disagrees with both insertion order and name
+    // order, so each of the four expected sequences below is distinct. With them
+    // in agreement the default-order assertion would hold for any ordering at
+    // all, and could not tell Category::scopeOrdered from `orderBy('id')`.
+    $mango = Category::factory()->create(['name' => 'Mango', 'sort_order' => 1]);
+    $zebra = Category::factory()->create(['name' => 'Zebra', 'sort_order' => 3]);
     $apple = Category::factory()->create(['name' => 'Apple', 'sort_order' => 2]);
-    $mango = Category::factory()->create(['name' => 'Mango', 'sort_order' => 3]);
 
     $this->actingAs($admin);
 
@@ -174,8 +178,10 @@ it('lets an administrator actually sort the category table by a column', functio
 
     $page = Livewire::test(ListCategories::class);
 
-    // Untouched: the curated order is still what you get by default.
-    expect($ids($page))->toBe([$zebra->id, $apple->id, $mango->id]);
+    // Untouched: the curated sort_order is still what you get by default, and it
+    // is not the order the rows were created in.
+    expect($ids($page))->toBe([$mango->id, $apple->id, $zebra->id])
+        ->not->toBe([$mango->id, $zebra->id, $apple->id]);
 
     expect($ids($page->sortTable('name')))->toBe([$apple->id, $mango->id, $zebra->id]);
     expect($ids($page->sortTable('name', 'desc')))->toBe([$zebra->id, $mango->id, $apple->id]);

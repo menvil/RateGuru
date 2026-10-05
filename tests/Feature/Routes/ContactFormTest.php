@@ -105,8 +105,9 @@ it('tells the visitor when a contact message has nowhere to go, instead of claim
         ->assertSessionMissing('contact_status')
         ->assertSessionHas('contact_error', __('ui.contact.undeliverable'));
 
-    // And what was typed survives, so it can be sent once the project has
-    // somewhere to send it.
+    // And what was typed survives. Asserted on the re-rendered VALUES, not on
+    // the error box: the box proves the failure was reported, and would still
+    // render with ->withInput() removed and the visitor's text thrown away.
     $this->followingRedirects()
         ->post(route('pages.contact.submit'), [
             'name' => 'Fallback Sender',
@@ -114,7 +115,11 @@ it('tells the visitor when a contact message has nowhere to go, instead of claim
             'subject' => 'Nowhere to go',
             'message' => 'There is no administrator and no contact mailbox.',
         ])
-        ->assertSee('data-testid="contact-error"', false);
+        ->assertSee('data-testid="contact-error"', false)
+        ->assertSee('value="Fallback Sender"', false)
+        ->assertSee('value="sender@example.test"', false)
+        ->assertSee('value="Nowhere to go"', false)
+        ->assertSee('There is no administrator and no contact mailbox.', false);
 });
 
 it('still reaches an administrator when one exists, whatever the contact mailbox says', function () {

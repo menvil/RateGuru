@@ -60,6 +60,21 @@ it('rejects an http public image URL on the expected host', function () {
         ->assertFailed();
 });
 
+it('accepts a protocol-relative public image URL', function () {
+    // `//host/storage` carries no scheme of its own and inherits APP_URL's, which
+    // this command has already required to be https — and PostOpenGraph resolves
+    // it exactly that way. Reading a missing scheme as "not https" would fail a
+    // deployment that serves every image over HTTPS.
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'filesystems.disks.public.url' => '//rateguru.staging.myprojects.pp.ua/storage',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])->assertSuccessful();
+});
+
 it('accepts an uppercase HTTPS scheme on the public image URL', function () {
     // A scheme is case-insensitive, and this check must not become a new way to
     // fail a correctly configured deployment.

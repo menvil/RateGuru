@@ -22,6 +22,7 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\Report;
 use App\Models\User;
+use App\Support\Moderation\ModerationReason;
 
 // ------------------------------------------------------------- post finalize
 
@@ -279,8 +280,37 @@ it('refuses a removal reason made only of Unicode whitespace', function (string 
     'no-break space' => ["\u{00A0}"],
     'ideographic space' => ["\u{3000}"],
     'zero-width no-break space' => ["\u{FEFF}"],
+    // Unicode files these two under Cc and Cf rather than Z, so they reach the
+    // empty check by a different route than the spaces above.
+    'next line' => ["\u{0085}"],
+    'Mongolian vowel separator' => ["\u{180E}"],
     'mixed with ASCII whitespace' => [" \t\u{00A0}\n"],
 ]);
+
+it('does not turn a reason containing invalid UTF-8 into a missing reason', function () {
+    // preg_replace fails on invalid UTF-8 and returns null. Casting that to a
+    // string would hand this action an empty reason, so an administrator who
+    // typed a real one would be told a reason is required, with what they wrote
+    // discarded. The normalizer returns the input instead, and whatever rejects
+    // malformed text rejects it for what it is.
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    $reason = "Spam \xC3\x28 from a broken paste";
+
+    expect(ModerationReason::normalize($reason))->toBe($reason);
+
+    try {
+        app(FinalizePostRemovalAction::class)->handle($admin, $post, $reason);
+    } catch (Throwable $exception) {
+        // Whatever the storage layer makes of the bad byte is its business. What
+        // must never happen is this one.
+        expect($exception)->not->toBeInstanceOf(CannotFinalizeRemovalException::class);
+    }
+});
 
 it('keeps a real reason that merely has Unicode whitespace around it', function () {
     $admin = User::factory()->admin()->create();
