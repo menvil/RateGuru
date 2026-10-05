@@ -472,15 +472,18 @@ jobs:
       # of 40": the numbers were printed and never read, so the failure it was
       # meant to catch passed. The validator reads them, refuses a leg that ran
       # nothing or ran everything, and writes them down for the cross-leg check
-      # below — which is the only place "the parts add up to the whole" can be
-      # established. Its own negative cases are covered by
-      # tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
+      # below — which is the only place "the parts are the whole, once each" can be
+      # established. It writes the NAMES of the classes it ran, from its own JUnit,
+      # because counts alone cannot see two legs overlapping on one file while a
+      # third file goes unrun: the sums still come out right. Its own negative cases
+      # are covered by tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
       #
       # A stale timings file costs balance, not coverage; it stays a warning.
       - name: Check the shard ran its share
         run: |
-          php tools/pest/bin/verify-shard-partition.php leg architecture-pest.log \
-            | tee "shard-${{ matrix.shard }}.txt"
+          php tools/pest/bin/verify-shard-partition.php leg \
+            architecture-pest.log architecture-junit.xml \
+            | tee "shard-${{ matrix.shard }}.json"
           if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
             echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
           fi
@@ -489,7 +492,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: architecture-shard-${{ matrix.shard }}
-          path: shard-${{ matrix.shard }}.txt
+          path: shard-${{ matrix.shard }}.json
           retention-days: 7
 
       # Per-file durations are the only way to tell a slow runner from a slow
@@ -530,7 +533,7 @@ jobs:
           merge-multiple: true
 
       - name: Verify the legs partition the suite
-        run: php tools/pest/bin/verify-shard-partition.php combined shard-*.txt
+        run: php tools/pest/bin/verify-shard-partition.php combined shard-*.json
 
   migrations-mariadb:
     name: Compatibility (MariaDB)

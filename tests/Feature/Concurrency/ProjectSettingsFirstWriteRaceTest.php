@@ -24,28 +24,72 @@ use Illuminate\Support\Facades\DB;
  * them itself.
  */
 
-/** @return array{status: int, output: string} */
-function racingFirstWrite(string $barrier, string $label): array
+/**
+ * One competitor, synchronised with the other INSIDE its transaction.
+ *
+ * The handshake is the whole test. An earlier version waited on a single barrier
+ * the parent touched after a fixed sleep, before the transaction had even begun —
+ * which synchronised nothing: the first process could read, insert and commit
+ * while the second was still booting, and the old race-prone implementation would
+ * then pass because there never was a race. A probabilistic test is the one thing
+ * a change about "assertions that can actually fail" must not ship.
+ *
+ * So each competitor opens its transaction, takes the same locked read of the
+ * missing row that ProjectSettingsManager::lockedRow is about to take, and only
+ * then announces itself and waits for the other. Both are demonstrably past the
+ * "row is missing" read before either creates anything, which is the exact
+ * interleaving the defect needs. Nobody sleeps for a guessed length of time, and a
+ * peer that never arrives is a loud failure rather than a quiet pass.
+ *
+ * @return array{process: resource, pipes: array<int, resource>, script: string}
+ */
+function racingFirstWrite(string $barrierDir, string $label): array
 {
     $script = <<<'PHP'
         <?php
-        [$barrier, $base] = [$argv[1], $argv[2]];
+        [$barrierDir, $base, $label] = [$argv[1], $argv[2], $argv[3]];
         require $base.'/vendor/autoload.php';
         $app = require_once $base.'/bootstrap/app.php';
         $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
-        // Both competitors wait here, so both are past the "row is missing" read
-        // before either inserts. Without it the second would simply find the row.
-        $deadline = microtime(true) + 10;
-        while (! file_exists($barrier) && microtime(true) < $deadline) {
-            usleep(2000);
-        }
+        $announce = static function () use ($barrierDir, $label): void {
+            file_put_contents($barrierDir.'/at-the-read-'.$label, (string) getmypid());
+        };
+
+        $awaitPeer = static function () use ($barrierDir): void {
+            $deadline = microtime(true) + 20;
+
+            while (microtime(true) < $deadline) {
+                if (count(glob($barrierDir.'/at-the-read-*') ?: []) >= 2) {
+                    return;
+                }
+
+                usleep(1000);
+            }
+
+            throw new RuntimeException('the other competitor never reached the missing-row read');
+        };
 
         try {
-            Illuminate\Support\Facades\DB::transaction(function () {
+            Illuminate\Support\Facades\DB::transaction(function () use ($announce, $awaitPeer) {
+                // The same locked read lockedRow() performs, taken first so the
+                // handshake can happen BETWEEN the read and the create. On
+                // PostgreSQL this locks nothing — there is no row — which is the
+                // defect: every competitor passes it.
+                Illuminate\Support\Facades\DB::table('project_settings')
+                    ->where('id', 1)
+                    ->lockForUpdate()
+                    ->first();
+
+                $announce();
+                $awaitPeer();
+
+                // Both competitors are now inside a transaction that has seen no
+                // row. Whatever happens next happens concurrently.
                 $row = app(App\Support\Settings\ProjectSettingsManager::class)->lockedRow();
                 $row->fill(['site_name' => 'Raced'])->save();
             });
+
             fwrite(STDOUT, "ok\n");
             exit(0);
         } catch (Throwable $e) {
@@ -54,11 +98,11 @@ function racingFirstWrite(string $barrier, string $label): array
         }
         PHP;
 
-    $scriptPath = sys_get_temp_dir()."/rateguru-race-{$label}.php";
+    $scriptPath = $barrierDir."/competitor-{$label}.php";
     file_put_contents($scriptPath, $script);
 
     $process = proc_open(
-        [PHP_BINARY, $scriptPath, $barrier, base_path()],
+        [PHP_BINARY, $scriptPath, $barrierDir, base_path(), $label],
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         base_path(),
@@ -121,13 +165,14 @@ function committedSettingsRowCount(): int
 }
 
 it('settles two concurrent first writes instead of failing one of them', function () {
-    $barrier = sys_get_temp_dir().'/rateguru-race-'.bin2hex(random_bytes(6));
+    // A directory the competitors use to find each other. The parent coordinates
+    // nothing beyond starting them and reaping them: a parent that decides WHEN the
+    // race happens is a parent guessing, and a guess is what made the previous
+    // version of this test probabilistic.
+    $barrierDir = sys_get_temp_dir().'/rateguru-race-'.bin2hex(random_bytes(6));
+    mkdir($barrierDir, 0o700, true);
 
-    $competitors = [racingFirstWrite($barrier, 'a'), racingFirstWrite($barrier, 'b')];
-
-    // Both are now booted and spinning on the barrier.
-    usleep(400_000);
-    touch($barrier);
+    $competitors = [racingFirstWrite($barrierDir, 'a'), racingFirstWrite($barrierDir, 'b')];
 
     $results = [];
 
@@ -140,10 +185,20 @@ it('settles two concurrent first writes instead of failing one of them', functio
             fclose($competitor['pipes'][1]);
             fclose($competitor['pipes'][2]);
             $results[count($results) - 1]['status'] = proc_close($competitor['process']);
-            @unlink($competitor['script']);
         }
     } finally {
-        @unlink($barrier);
+        foreach (glob($barrierDir.'/*') ?: [] as $leftover) {
+            @unlink($leftover);
+        }
+
+        @rmdir($barrierDir);
+    }
+
+    // Both competitors must have announced themselves at the read, or there was no
+    // race to observe and the verdict below means nothing.
+    foreach ($results as $index => $result) {
+        expect($result['output'].$result['stderr'])
+            ->not->toContain('never reached the missing-row read', "competitor {$index} raced nobody");
     }
 
     $report = collect($results)
