@@ -127,8 +127,15 @@ it('locks the actor before the category, the way every other write does', functi
         // the statements rather than on `for update` itself, because SQLite —
         // one of the three engines this suite runs on — makes lockForUpdate a
         // no-op and would show no lock syntax at all.
+        //
+        // Identifier quoting is stripped rather than matched: every grammar
+        // quotes differently (PostgreSQL and SQLite use "users", MySQL and
+        // MariaDB use `users`), and a pattern that enumerates the styles it
+        // knows about silently matches nothing on the engine it forgot.
+        $sql = str_replace(['"', '`'], '', $query->sql);
+
         foreach (['users', 'categories'] as $table) {
-            if (preg_match('/\b(from|update|into)\s+"?'.$table.'"?/i', $query->sql) === 1) {
+            if (preg_match('/\b(from|update|into)\s+'.$table.'\b/i', $sql) === 1) {
                 $tables[] = $table;
             }
         }
