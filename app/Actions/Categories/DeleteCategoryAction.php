@@ -4,11 +4,14 @@ namespace App\Actions\Categories;
 
 use App\Exceptions\Categories\CannotDeleteCategoryException;
 use App\Models\Category;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 final class DeleteCategoryAction
 {
+    use LocksActorForWrite;
+
     public function handle(User $admin, Category $category): void
     {
         if (! $admin->can('delete', $category)) {
@@ -16,19 +19,31 @@ final class DeleteCategoryAction
         }
 
         DB::transaction(function () use ($admin, $category): void {
+            // Lock order: Actor User -> Category, the repository's uniform order
+            // (docs/architecture/user-lifecycle.md, and the LocksActorForWrite
+            // docblock). Taking the category first inverted it against every
+            // other write, and the opposing pair is real rather than theoretical:
+            // CreatePostAction locks the actor and then inserts a post, which
+            // takes a foreign-key lock on the category row it references. Two
+            // transactions holding those two rows in opposite orders deadlock.
+            //
+            // Re-read rather than trusted: account anonymization demotes a user,
+            // and the check above ran against whatever the caller's instance held
+            // when it was loaded, so a demotion landing in between would still
+            // have authorized this.
+            $actor = $this->lockActor($admin);
+
+            if ($actor === null) {
+                throw CannotDeleteCategoryException::becauseUserIsNotAllowed();
+            }
+
             $locked = $category->newQuery()->lockForUpdate()->find($category->getKey());
 
             if ($locked === null) {
                 return;
             }
 
-            // Re-authorized against the row, not the instance the caller handed
-            // in. Account anonymization demotes a user, and the check above ran
-            // against whatever that instance held when it was loaded — so a
-            // demotion landing in between would still have authorized this.
-            $actor = $admin->newQuery()->lockForUpdate()->find($admin->getKey());
-
-            if ($actor === null || ! $actor->can('delete', $locked)) {
+            if (! $actor->can('delete', $locked)) {
                 throw CannotDeleteCategoryException::becauseUserIsNotAllowed();
             }
 

@@ -25,22 +25,10 @@ final class SaveProjectSettingsAction
 
         $model = DB::transaction(function () use ($settings): ProjectSettings {
             // An installation without a row starts from the same bootstrap
-            // every other writer uses, not from whatever this payload holds.
-            $row = ProjectSettings::query()->lockForUpdate()->find(1);
-
-            if ($row === null) {
-                // PostgreSQL locks no row that does not exist, so two first
-                // saves both saw null here and both inserted id 1 — one of them
-                // failing on the duplicate key. firstOrCreate settles which one
-                // creates it, and the lock below is then taken on a row that is
-                // really there.
-                ProjectSettings::unguarded(fn () => ProjectSettings::query()->firstOrCreate(
-                    ['id' => 1],
-                    $this->manager->defaults(),
-                ));
-
-                $row = ProjectSettings::query()->lockForUpdate()->findOrFail(1);
-            }
+            // every other writer uses, not from whatever this payload holds —
+            // which is why the row is the manager's to produce, not this
+            // action's.
+            $row = $this->manager->lockedRow();
 
             $row->fill($settings)->save();
 

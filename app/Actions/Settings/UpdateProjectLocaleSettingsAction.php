@@ -60,21 +60,7 @@ final class UpdateProjectLocaleSettingsAction
         }
 
         $settings = DB::transaction(function () use ($enabled): ProjectSettings {
-            $settings = ProjectSettings::query()->lockForUpdate()->find(1);
-
-            if ($settings === null) {
-                // PostgreSQL locks no row that does not exist, so two first
-                // saves both saw null here and both inserted id 1 — one of them
-                // failing on the duplicate key. firstOrCreate settles which one
-                // creates it, and the lock below is then taken on a row that is
-                // really there.
-                ProjectSettings::unguarded(fn () => ProjectSettings::query()->firstOrCreate(
-                    ['id' => 1],
-                    $this->manager->defaults(),
-                ));
-
-                $settings = ProjectSettings::query()->lockForUpdate()->findOrFail(1);
-            }
+            $settings = $this->manager->lockedRow();
 
             $settings->fill(['enabled_locales' => $enabled])->save();
 

@@ -2,6 +2,7 @@
 
 use App\Actions\Categories\DeleteCategoryAction;
 use App\Actions\Settings\SaveProjectSettingsAction;
+use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Enums\UserRole;
 use App\Exceptions\Categories\CannotDeleteCategoryException;
 use App\Models\Category;
@@ -105,4 +106,67 @@ it('clears the sidebar cache only once the deletion has committed', function () 
 
     // And once committed, it is gone.
     expect(Cache::get('sidebar-nav-categories'))->toBeNull();
+});
+
+/**
+ * The repository's uniform lock order is Actor User first
+ * (docs/architecture/user-lifecycle.md, and the LocksActorForWrite docblock).
+ * This action took the category first, which inverts it against every other
+ * write — and the opposing pair is real: CreatePostAction locks the actor and
+ * then inserts a post, which takes a foreign-key lock on the category row it
+ * references. Two transactions holding those rows in opposite orders deadlock.
+ */
+it('locks the actor before the category, the way every other write does', function () {
+    $admin = User::factory()->create(['role' => UserRole::Admin]);
+    $category = Category::factory()->create();
+
+    $tables = [];
+
+    DB::listen(function ($query) use (&$tables): void {
+        // The table each statement touched, in order. Asserted on the order of
+        // the statements rather than on `for update` itself, because SQLite —
+        // one of the three engines this suite runs on — makes lockForUpdate a
+        // no-op and would show no lock syntax at all.
+        foreach (['users', 'categories'] as $table) {
+            if (preg_match('/\b(from|update|into)\s+"?'.$table.'"?/i', $query->sql) === 1) {
+                $tables[] = $table;
+            }
+        }
+    });
+
+    app(DeleteCategoryAction::class)->handle($admin, $category);
+
+    $firstUsers = array_search('users', $tables, true);
+    $firstCategories = array_search('categories', $tables, true);
+
+    expect($firstUsers)->not->toBeFalse('the actor row must be re-read at all')
+        ->and($firstCategories)->not->toBeFalse('the category row must be read at all')
+        ->and($firstUsers)->toBeLessThan(
+            $firstCategories,
+            'the actor must be locked before the category: '.implode(' -> ', $tables),
+        );
+});
+
+/**
+ * The bootstrap used to exist twice, once in each settings writer. Two copies of
+ * "what a new project starts from" can drift, and then a new project gets
+ * different initial values depending on which admin page was opened first.
+ */
+it('bootstraps the settings row identically whichever writer creates it', function () {
+    ProjectSettings::query()->delete();
+    app(SaveProjectSettingsAction::class)->handle(['site_name' => 'Through settings']);
+    $viaSettings = ProjectSettings::query()->findOrFail(1)->toArray();
+
+    ProjectSettings::query()->delete();
+    app(UpdateProjectLocaleSettingsAction::class)->handle(['en']);
+    $viaLocales = ProjectSettings::query()->findOrFail(1)->toArray();
+
+    // Each writer owns one column; everything else is the shared bootstrap and
+    // must match exactly.
+    $shared = fn (array $row): array => collect($row)
+        ->except(['site_name', 'enabled_locales', 'created_at', 'updated_at'])
+        ->all();
+
+    expect($shared($viaLocales))->toBe($shared($viaSettings));
+    expect(ProjectSettings::query()->count())->toBe(1);
 });
