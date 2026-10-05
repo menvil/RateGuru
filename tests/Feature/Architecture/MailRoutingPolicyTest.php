@@ -22,11 +22,6 @@ use Symfony\Component\Yaml\Yaml;
  * no public SMTP listener, an untouched capture slice, and environment
  * templates that still describe the endpoint a host actually has.
  */
-function mailRoutingScript(): string
-{
-    return base_path('infrastructure/scripts/mail-routing');
-}
-
 /** @return array<string, mixed> */
 function mailRoutingPolicy(): array
 {
@@ -54,109 +49,6 @@ function mailRoutingPolicyWith(array $set = [], array $forget = []): array
     }
 
     return $policy;
-}
-
-/**
- * A synthetic production brand's policy. Its identity, its domains and its port
- * appear nowhere in the shipped implementation or the committed configuration.
- *
- * @return array<string, mixed>
- */
-function mailRoutingDemoShopPolicy(): array
-{
-    return [
-        'submission' => ['host' => '127.0.0.1', 'port' => 2599],
-        'delivery_mode' => 'held',
-        'mail_domain' => 'demo-shop.example',
-        'default_from' => 'hello@demo-shop.example',
-        'bounce_domain' => 'bounce.demo-shop.example',
-        'reply_domain' => 'reply.demo-shop.example',
-    ];
-}
-
-/**
- * The committed registry plus the synthetic demo-shop target.
- *
- * @param  array<string, mixed>  $overrides
- * @return array<string, mixed>
- */
-function mailRoutingDemoShopRegistry(array $overrides = []): array
-{
-    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
-}
-
-function mailRoutingJson(array $data): string
-{
-    return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
-}
-
-/**
- * Run the shipped CLI. A policy or registry given here is written to a scratch
- * file and passed with --file / --registry; one left null is the committed
- * file, reached through the script's own defaults. A string policy is written
- * verbatim, for documents that are not a valid policy to begin with.
- *
- * stdout and stderr are kept apart: a refusal must print nothing on stdout,
- * and a plan must be nothing but JSON.
- *
- * @param  list<string>  $arguments
- * @param  array<string, mixed>|string|null  $policy
- * @param  array<string, mixed>|null  $registry
- * @return array{status: int, stdout: string, stderr: string}
- */
-function mailRoutingRun(array $arguments, array|string|null $policy = null, ?array $registry = null, ?string $script = null): array
-{
-    $scratch = sys_get_temp_dir().'/mail-routing-'.bin2hex(random_bytes(6));
-
-    expect(@mkdir($scratch, 0o755, true))->toBeTrue("could not create scratch directory: {$scratch}");
-
-    try {
-        if ($policy !== null) {
-            file_put_contents($scratch.'/mail-routing.json', is_string($policy) ? $policy : mailRoutingJson($policy));
-            $arguments = [...$arguments, '--file', $scratch.'/mail-routing.json'];
-        }
-
-        if ($registry !== null) {
-            file_put_contents($scratch.'/deployment-targets.json', mailRoutingJson($registry));
-            $arguments = [...$arguments, '--registry', $scratch.'/deployment-targets.json'];
-        }
-
-        $process = proc_open(
-            ['bash', $script ?? mailRoutingScript(), ...$arguments],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            $scratch,
-            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
-        );
-
-        expect($process)->not->toBeFalse('could not start mail-routing');
-
-        $stdout = (string) stream_get_contents($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-
-        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
-    } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
-    }
-}
-
-/**
- * The rendered plan, decoded — after proving the render succeeded cleanly.
- *
- * @param  array<string, mixed>|string|null  $policy
- * @param  array<string, mixed>|null  $registry
- * @return array<string, mixed>
- */
-function mailRoutingPlan(array|string|null $policy = null, ?array $registry = null): array
-{
-    $run = mailRoutingRun(['render-plan'], $policy, $registry);
-
-    expect($run['status'])->toBe(0, "render-plan failed:\n".$run['stderr']);
-    expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
-
-    return json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
 }
 
 /** @return array<string, mixed> */

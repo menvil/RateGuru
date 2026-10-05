@@ -37,42 +37,6 @@ function mailGatewayScratch(): string
     return $dir;
 }
 
-function mailGatewayJson(array $data): string
-{
-    return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
-}
-
-/**
- * The plan the real mail-routing CLI renders for a policy and registry — the
- * committed ones when null.
- */
-function mailGatewayPlan(string $scratch, ?array $policy = null, ?array $registry = null): string
-{
-    $arguments = [];
-
-    if ($policy !== null) {
-        file_put_contents($scratch.'/policy.json', mailGatewayJson($policy));
-        $arguments = [...$arguments, '--file', $scratch.'/policy.json'];
-    }
-
-    if ($registry !== null) {
-        file_put_contents($scratch.'/registry.json', mailGatewayJson($registry));
-        $arguments = [...$arguments, '--registry', $scratch.'/registry.json'];
-    }
-
-    $output = [];
-    $status = 0;
-    exec('bash '.escapeshellarg(mailGatewayScript('mail-routing')).' render-plan '
-        .implode(' ', array_map('escapeshellarg', $arguments)).' 2>&1', $output, $status);
-
-    expect($status)->toBe(0, "mail-routing render-plan failed:\n".implode("\n", $output));
-
-    $path = $scratch.'/plan.json';
-    file_put_contents($path, implode("\n", $output)."\n");
-
-    return $path;
-}
-
 /**
  * The shipped renderer, sourced: plan file in, main.cf and master.cf out.
  *
@@ -106,7 +70,10 @@ function mailGatewayRender(?array $policy = null, ?array $registry = null): arra
     $scratch = mailGatewayScratch();
 
     try {
-        $plan = mailGatewayPlan($scratch, $policy, $registry);
+        // Exactly what the CLI printed on stdout, which mailRoutingPlanJson()
+        // has already proved came with an empty stderr.
+        $plan = $scratch.'/plan.json';
+        file_put_contents($plan, mailRoutingPlanJson($policy, $registry));
         $render = mailGatewayRenderPlanFile($scratch, $plan);
 
         expect($render['status'])->toBe(0, "render_gateway_config failed:\n".$render['output']);
@@ -169,26 +136,17 @@ function mailGatewayMasterServices(string $master): array
     return $services;
 }
 
-/** @return array<string, mixed> */
+/**
+ * The committed policy with the synthetic demo-shop target's policy added.
+ *
+ * @return array<string, mixed>
+ */
 function mailGatewayDemoShopPolicy(): array
 {
     $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
-    $policy['targets']['demo-shop'] = [
-        'submission' => ['host' => '127.0.0.1', 'port' => 2599],
-        'delivery_mode' => 'held',
-        'mail_domain' => 'demo-shop.example',
-        'default_from' => 'hello@demo-shop.example',
-        'bounce_domain' => 'bounce.demo-shop.example',
-        'reply_domain' => 'reply.demo-shop.example',
-    ];
+    $policy['targets']['demo-shop'] = mailRoutingDemoShopPolicy();
 
     return $policy;
-}
-
-/** @return array<string, mixed> */
-function mailGatewayDemoShopRegistry(array $overrides = []): array
-{
-    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
 }
 
 // --- the simulated host ------------------------------------------------------------
@@ -220,7 +178,7 @@ function mailGatewayHost(array $options = []): array
         touch($state.'/units-exist');
         touch($state.'/postfix.service.enabled');
         @mkdir($fs.'/etc/postfix', 0o755, true);
-        file_put_contents($fs.'/etc/postfix/main.cf', "# the package's own Local only main.cf\n");
+        file_put_contents($fs.'/etc/postfix/main.cf', "# a Postfix main.cf\n");
         file_put_contents($fs.'/etc/postfix/master.cf', "smtp      inet  n       -       y       -       -       smtpd\n");
     } elseif ($package === 'partial') {
         file_put_contents($state.'/pkg-status', 'install ok half-configured');
@@ -272,8 +230,9 @@ function mailGatewayHost(array $options = []): array
             [[ -e "${STUB_TOGGLES}/apt-fail" ]] && exit 100
             printf 'install ok installed' > "${STUB_STATE}/pkg-status"
             printf '3.6.4-1ubuntu1.4' > "${STUB_STATE}/pkg-version"
+            # Preseeded "No configuration": the package installs its master.cf
+            # and writes no main.cf of its own.
             mkdir -p "${STUB_FS}/etc/postfix"
-            printf '# the package'"'"'s own Local only main.cf\n' > "${STUB_FS}/etc/postfix/main.cf"
             printf 'smtp      inet  n       -       y       -       -       smtpd\n' > "${STUB_FS}/etc/postfix/master.cf"
             touch "${STUB_STATE}/units-exist" "${STUB_STATE}/postfix.service.enabled"
             STUB,
@@ -494,7 +453,7 @@ it('follows whatever plan it is given, never a table of its own', function () {
     try {
         // A plan no committed file describes: two listeners on ports nothing
         // else uses, a capture destination that is not Mailpit.
-        file_put_contents($scratch.'/synthetic.json', mailGatewayJson([
+        file_put_contents($scratch.'/synthetic.json', mailRoutingJson([
             'schema_version' => 1,
             'listeners' => [
                 [
@@ -537,7 +496,7 @@ it('refuses a delivery mode it has no Postfix spelling for, and a plan value tha
     $scratch = mailGatewayScratch();
 
     try {
-        file_put_contents($scratch.'/plan.json', mailGatewayJson(['schema_version' => 1, 'listeners' => [$listener]]));
+        file_put_contents($scratch.'/plan.json', mailRoutingJson(['schema_version' => 1, 'listeners' => [$listener]]));
 
         $render = mailGatewayRenderPlanFile($scratch, $scratch.'/plan.json');
 
@@ -570,7 +529,7 @@ it('refuses a delivery mode it has no Postfix spelling for, and a plan value tha
 ]);
 
 it('renders a target it has never heard of, generically', function () {
-    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailGatewayDemoShopRegistry());
+    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailRoutingDemoShopRegistry());
     $services = collect(mailGatewayMasterServices($render['master']));
 
     expect($services->where('type', 'inet')->pluck('name')->values()->all())
@@ -592,7 +551,7 @@ it('renders a target it has never heard of, generically', function () {
         'capture' => ['host' => '127.0.0.1', 'port' => 1025],
     ];
 
-    $capture = collect(mailGatewayMasterServices(mailGatewayRender($policy, mailGatewayDemoShopRegistry(['environment_class' => 'staging']))['master']));
+    $capture = collect(mailGatewayMasterServices(mailGatewayRender($policy, mailRoutingDemoShopRegistry(['environment_class' => 'staging']))['master']));
     expect($capture->firstWhere('name', '127.0.0.1:2599')['options']['content_filter'])->toBe('rateguru-capture-demo-shop:[127.0.0.1]:1025');
     expect($capture->firstWhere('name', 'rateguru-capture-demo-shop'))->not->toBeNull();
 });
@@ -633,7 +592,7 @@ it('refuses with mail-routing\'s own verdict when the policy is invalid', functi
     try {
         $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
         $policy['targets']['tits-guru']['submission']['port'] = 2525;
-        file_put_contents($host['scratch'].'/policy.json', mailGatewayJson($policy));
+        file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($policy));
 
         [$status, $output] = mailGatewayRun($host, '--check', ['RATEGURU_MAILGW_POLICY_FILE' => $host['scratch'].'/policy.json']);
 
@@ -651,7 +610,7 @@ it('refuses with mail-routing\'s own verdict when the policy is invalid', functi
 // =============================================================================
 
 it('binds only loopback IPv4 endpoints, and has no smtp, submission or smtps listener', function () {
-    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailGatewayDemoShopRegistry());
+    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailRoutingDemoShopRegistry());
     $services = mailGatewayMasterServices($render['master']);
     $main = mailGatewayMainParameters($render['main']);
 
@@ -690,14 +649,85 @@ it('delivers nothing it was not routed to deliver: every fallback is the error t
     }
 
     // No delivery agent anything could fall through to: the only smtp clients
-    // are the per-target capture transports.
-    foreach (['smtp', 'relay', 'local', 'virtual', 'lmtp'] as $agent) {
+    // are the per-target capture transports, and relay is the error transport.
+    foreach (['smtp', 'local', 'virtual', 'lmtp'] as $agent) {
         expect($services->where('type', 'unix')->pluck('name')->all())->not->toContain($agent);
     }
+
+    expect($services->firstWhere('name', 'relay')['command'])->toBe('error');
 
     expect($services->where('command', 'smtp')->pluck('name')->values()->all())->toBe(['rateguru-capture-staging-main']);
     expect($services->whereIn('command', ['local', 'virtual', 'lmtp', 'pipe'])->all())->toBe([]);
 });
+
+it('leaves the package master.cf repair nothing to add, so an upgrade cannot drift it', function () {
+    // The jammy postfix postinst runs fix_master on every configure, upgrades
+    // included: it appends each of these services when no line starts with its
+    // name, and a missing relay as a working smtp client. Every one is already
+    // here, matched the way fix_master matches it.
+    $master = mailGatewayRender(mailGatewayDemoShopPolicy(), mailRoutingDemoShopRegistry())['master'];
+
+    foreach (['flush', 'proxymap', 'trace', 'verify', 'tlsmgr', 'anvil', 'scache', 'discard', 'retry', 'relay'] as $service) {
+        expect(preg_match('/^'.$service.'[[:space:]]/m', $master))->toBe(1, "fix_master would append {$service}");
+    }
+
+    // Nor does its first rewrite apply: cleanup is already unprivileged.
+    expect(preg_match('/^cleanup[[:space:]]+unix[[:space:]]+-/m', $master))->toBe(0);
+    expect(preg_match('/^tlsmgr[[:space:]]*fifo/m', $master))->toBe(0);
+
+    // And the package is told to configure nothing of its own.
+    expect(executableSourceLines(File::get(mailGatewayScript())))
+        ->toContain('"postfix postfix/main_mailer_type select No configuration"')
+        ->not->toContain('select Local only');
+});
+
+it('waits only for a unit on its way to running, and answers at once for any other state', function (array $states, int $status, bool $waited) {
+    $scratch = mailGatewayScratch();
+
+    try {
+        // Each ActiveState query answers the next state (the last one sticks);
+        // SubState follows the state just answered.
+        file_put_contents($scratch.'/states', implode("\n", $states)."\n");
+        file_put_contents($scratch.'/bin/systemctl', <<<'STUB'
+            #!/bin/bash
+            case "$3" in
+                --property=ActiveState)
+                    echo x >> "${STATES}.queries"
+                    state="$(head -n 1 "${STATES}")"
+                    echo "${state}" > "${STATES}.last"
+                    if [[ "$(wc -l < "${STATES}")" -gt 1 ]]; then tail -n +2 "${STATES}" > "${STATES}.next" && mv "${STATES}.next" "${STATES}"; fi
+                    echo "${state}" ;;
+                --property=SubState)
+                    [[ "$(cat "${STATES}.last" 2>/dev/null)" == active ]] && echo running || echo dead ;;
+            esac
+            STUB."\n");
+        chmod($scratch.'/bin/systemctl', 0o755);
+
+        $harness = 'source '.escapeshellarg(mailGatewayScript())
+            .' && SYSTEMCTL_BIN='.escapeshellarg($scratch.'/bin/systemctl').' RUNTIME_WAIT=3'
+            .' && if wait_service_running postfix@-.service; then echo rc=0; else echo rc=1; fi';
+
+        $output = (string) shell_exec('STATES='.escapeshellarg($scratch.'/states').' bash -c '.escapeshellarg($harness).' 2>&1');
+
+        expect(preg_match('/rc=(\d)/', $output, $matches))->toBe(1, $output);
+        expect((int) $matches[1])->toBe($status, $output);
+
+        // One state reading means it answered at once; more means it waited.
+        $queries = count(file($scratch.'/states.queries') ?: []);
+        expect($queries > 1)->toBe($waited, "{$queries} state reading(s)");
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+})->with([
+    'running already' => [['active'], 0, false],
+    'inactive' => [['inactive'], 1, false],
+    'failed' => [['failed'], 1, false],
+    'deactivating' => [['deactivating'], 1, false],
+    'activating, then running' => [['activating', 'activating', 'active'], 0, true],
+    'reloading, then running' => [['reloading', 'active'], 0, true],
+    'activating, then failed' => [['activating', 'failed'], 1, true],
+    'activating for longer than the window' => [['activating'], 1, true],
+]);
 
 it('selects a route by listener only, never by sender or recipient', function () {
     $render = mailGatewayRender();
@@ -733,13 +763,15 @@ it('has no SMTP AUTH, no TLS listener and no production delivery or signing conf
     expect($main['smtpd_tls_security_level'])->toBe('none');
     expect($main['smtp_tls_security_level'])->toBe('none');
 
-    foreach (['smtpd_tls_cert_file', 'smtpd_tls_key_file', 'smtp_sasl_password_maps', 'smtpd_sasl_type', 'smtpd_tls_wrappermode', 'milter', 'dkim', 'opendkim', 'spf', 'dmarc', 'relayhost = [', 'tlsmgr'] as $absent) {
+    // tlsmgr is present only as the internal service the package repair would
+    // otherwise append; with no certificate and TLS off, nothing uses it.
+    foreach (['smtpd_tls_cert_file', 'smtpd_tls_key_file', 'smtp_sasl_password_maps', 'smtpd_sasl_type', 'smtpd_tls_wrappermode', 'milter', 'dkim', 'opendkim', 'spf', 'dmarc', 'relayhost = ['] as $absent) {
         expect(str_contains(mb_strtolower($all), mb_strtolower($absent)))->toBeFalse("the rendered gateway contains {$absent}");
     }
 });
 
 it('authorizes each listener\'s senders by exact domain, refused at MAIL FROM', function () {
-    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailGatewayDemoShopRegistry());
+    $render = mailGatewayRender(mailGatewayDemoShopPolicy(), mailRoutingDemoShopRegistry());
     $main = mailGatewayMainParameters($render['main']);
 
     // A subdomain is a different identity; the parent never matches it.
@@ -768,9 +800,10 @@ it('installs the package safely on a host that has none, and only then activates
         [$status, $output] = mailGatewayRun($host, '--apply');
         expect($status)->toBe(0, $output);
 
-        // Preseeded local-only and IPv4 before the package was installed.
+        // Preseeded so the package configures nothing of its own, before it
+        // was installed.
         expect(mailGatewayLog($host, 'debconf.log'))
-            ->toContain('postfix postfix/main_mailer_type select Local only')
+            ->toContain('postfix postfix/main_mailer_type select No configuration')
             ->toContain('postfix postfix/protocols select ipv4')
             ->toContain('postfix postfix/relayhost string');
 
@@ -969,7 +1002,7 @@ it('rolls back the configuration and the service state when the running gateway 
         // A changed policy, and a capture destination that has gone away.
         $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
         $policy['targets']['staging-main']['submission']['port'] = 2527;
-        file_put_contents($host['scratch'].'/policy.json', mailGatewayJson($policy));
+        file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($policy));
         file_put_contents($host['scratch'].'/state/listeners', "\n");
 
         [$status, $output] = mailGatewayRun($host, '--apply', ['RATEGURU_MAILGW_POLICY_FILE' => $host['scratch'].'/policy.json']);
@@ -1065,7 +1098,7 @@ it('cleans up only what the acceptance created, and never empties the queue', fu
     expect($code)
         ->toContain('postsuper -d "${id}"')
         ->toContain('postsuper -d "${SMTP_QUEUE_ID}" hold')
-        ->toContain('postqueue -i "${id}"')
+        ->toContain('postqueue -i "${id}" >/dev/null 2>&1 || true')
         ->toContain('/api/v1/search?query=${token}')
         ->toContain("SMTP_QUEUE_ID=\"\$(sed -n 's/.*queued as \\([0-9A-Za-z]\\{1,\\}\\).*/\\1/p' <<<\"\${SMTP_REPLY}\")\"");
 
@@ -1083,6 +1116,12 @@ it('cleans up only what the acceptance created, and never empties the queue', fu
 
 it('prints status without a body, an address or a credential', function () {
     $status = executableSourceLines(File::get(mailGatewayScript('status-mail-gateway')));
+
+    // A queue it could not read is unknown, never reported as empty.
+    expect($status)
+        ->toContain("printf '  unknown (jq not installed)\\n'")
+        ->toContain("printf '  unknown (postqueue could not read the queue)\\n'");
+    expect(strpos($status, 'command -v jq'))->toBeLessThan(strpos($status, 'postqueue -j'));
 
     expect($status)
         ->toContain("jq -r '.queue_name'")

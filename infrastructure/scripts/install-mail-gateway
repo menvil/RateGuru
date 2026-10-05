@@ -47,9 +47,14 @@
 # THE PACKAGE. --apply may install Ubuntu's postfix package, and does it so the
 # daemon can never run in a state RateGuru did not choose:
 #
-#   * debconf is preseeded "Local only", IPv4, no relayhost — so even if service
-#     activation were not suppressed, the package's own configuration would bind
-#     loopback alone;
+#   * debconf is preseeded "No configuration": the package writes no main.cf of
+#     its own and never manages it afterwards, so until RateGuru's main.cf is in
+#     place the daemon cannot start at all (its unit is conditional on main.cf),
+#     and no later package configuration rewrites it;
+#   * the rendered master.cf already carries every service the package's own
+#     master.cf repair (`fix_master`, run on every upgrade) would append, so a
+#     postfix upgrade adds nothing — in particular no working `relay` smtp
+#     client, because here `relay` is the error transport;
 #   * a policy-rc.d is in place for the duration of the package installation, so
 #     the maintainer scripts start nothing. One that already existed is preserved
 #     and put back, and one left behind by an interrupted run is recognised and
@@ -383,7 +388,8 @@ def capture_route:
     "# --- capture routes: queued, then delivered to the capture destination",
     (.listeners[] | select(.delivery_mode == "capture") | capture_route),
     "",
-    "# --- Postfix internal services",
+    "# --- Postfix internal services. Every service the package master.cf repair",
+    "# appends when missing is present, so a postfix upgrade adds nothing.",
     service("pickup"; "unix"; "n"; "-"; "n"; "60"; "1"; "pickup"),
     service("cleanup"; "unix"; "n"; "-"; "n"; "-"; "0"; "cleanup"),
     service("qmgr"; "unix"; "n"; "-"; "n"; "300"; "1"; "qmgr"),
@@ -401,7 +407,11 @@ def capture_route:
     service("discard"; "unix"; "-"; "-"; "n"; "-"; "-"; "discard"),
     service("anvil"; "unix"; "-"; "-"; "n"; "-"; "1"; "anvil"),
     service("scache"; "unix"; "-"; "-"; "n"; "-"; "1"; "scache"),
-    service("postlog"; "unix-dgram"; "n"; "-"; "n"; "-"; "1"; "postlogd")
+    service("tlsmgr"; "unix"; "-"; "-"; "n"; "1000?"; "1"; "tlsmgr"),
+    service("postlog"; "unix-dgram"; "n"; "-"; "n"; "-"; "1"; "postlogd"),
+    "# relay is the error transport, not an smtp client: the package repair would",
+    "# otherwise append a working one, and nothing here may deliver.",
+    service("relay"; "unix"; "-"; "-"; "n"; "-"; "-"; "error")
 )
 '
 
@@ -651,15 +661,28 @@ service_restart_count() {
     printf '%s\n' "${count}"
 }
 
+# wait_service_running UNIT — success once the unit is active and running.
+# Only a unit still on its way there (activating, reloading) is waited for;
+# inactive, failed or deactivating is already the answer, and waiting out the
+# full window on it would only delay every read-only probe of a host without
+# the gateway.
 wait_service_running() {
-    local unit="$1" waited=0
-    while (( waited < RUNTIME_WAIT )); do
-        service_is_running "${unit}" && return 0
-        [[ "$(service_property "${unit}" ActiveState)" == failed ]] && return 1
+    local unit="$1" waited=0 state
+    while true; do
+        # One reading per round: a unit that turns active between two separate
+        # reads must not be judged by the stale one.
+        state="$(service_property "${unit}" ActiveState)"
+        [[ "${state}" == active && "$(service_property "${unit}" SubState)" == running ]] && return 0
+
+        case "${state}" in
+            activating|reloading) ;;
+            *) return 1 ;;
+        esac
+
+        (( waited < RUNTIME_WAIT )) || return 1
         sleep 1
         waited=$((waited + 1))
     done
-    return 1
 }
 
 tcp_listeners() {
@@ -817,7 +840,7 @@ report_contract() {
                 "Postfix accepts the rendered configuration, and reads it back fail-closed"
         fi
     elif [[ "${MODE}" == check ]]; then
-        item MISSING "package" "${POSTFIX_PACKAGE} is ${package} — --apply installs it, preseeded local-only, with service starts suppressed"
+        item MISSING "package" "${POSTFIX_PACKAGE} is ${package} — --apply installs it with no package configuration of its own and service starts suppressed"
         item DEFERRED "config:candidate" "Postfix is not installed yet, so its own parser runs during --apply, before the configuration is installed"
     else
         item MISSING "package" "${POSTFIX_PACKAGE} is ${package}"
@@ -918,10 +941,12 @@ install_start_suppression() {
 }
 
 preseed_package() {
-    # Local only, IPv4, no relayhost: defense in depth. If the maintainer
-    # scripts ever did start the daemon, it would bind loopback alone.
+    # No configuration: the package writes no main.cf and never manages one, so
+    # it cannot start a daemon of its own before RateGuru's configuration is in
+    # place, and no later package configuration rewrites it. The other answers
+    # are defense in depth for anyone who reconfigures the package by hand.
     printf '%s\n' \
-        "postfix postfix/main_mailer_type select Local only" \
+        "postfix postfix/main_mailer_type select No configuration" \
         "postfix postfix/protocols select ipv4" \
         "postfix postfix/relayhost string" \
         "postfix postfix/mynetworks string 127.0.0.0/8" \
@@ -934,7 +959,7 @@ install_package() {
     status="$(package_status)"
     [[ "${status}" != installed ]] || return 0
 
-    action "installing the ${POSTFIX_PACKAGE} package (preseeded local-only, service starts suppressed)"
+    action "installing the ${POSTFIX_PACKAGE} package (preseeded with no configuration of its own, service starts suppressed)"
     preseed_package
     install_start_suppression
 

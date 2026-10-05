@@ -391,8 +391,9 @@ check_capture_retry() {
     MAILPIT_STOPPED=false
     wait_for_api "${MAILPIT_API}/api/v1/info" || fail "D Mailpit did not come back"
 
-    # Exactly this message, not the queue.
-    postqueue -i "${id}"
+    # Exactly this message, not the queue. Whether it was delivered is what the
+    # polling below decides: Postfix may already have retried it on its own.
+    postqueue -i "${id}" >/dev/null 2>&1 || true
 
     poll_present "${MAILPIT_API}" "${token}" || fail "D ${identity}: ${id} did not reach Mailpit after it came back"
     ok "D ${identity}: Postfix retried and ${id} reached Mailpit"

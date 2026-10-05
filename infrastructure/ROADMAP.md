@@ -1740,8 +1740,10 @@ Slices, in order:
    is error(8), with no relayhost and no destination domain — so there is no
    Internet delivery at all. The envelope sender must be exactly the
    listener's domain; no SMTP AUTH, no TLS on loopback. The package goes in
-   preseeded local-only with service starts suppressed (a host's own
-   policy-rc.d is preserved), behind a non-secret ownership marker: a Postfix
+   preseeded with no configuration of its own — so no daemon can start before
+   RateGuru's configuration exists, and no package upgrade rewrites it — with
+   service starts suppressed (a host's own policy-rc.d is preserved), behind a
+   non-secret ownership marker: a Postfix
    or other MTA RateGuru did not install fails every mode closed, and an
    interrupted RateGuru installation resumes. Apply is transactional and
    validated by Postfix before anything is installed. Host bootstrap converges

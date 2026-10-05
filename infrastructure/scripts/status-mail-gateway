@@ -89,13 +89,18 @@ done
 printf '  unclassified mail: default_transport=%s\n' "$(postconf -h default_transport 2>/dev/null | cut -d: -f1)"
 
 section "queue (counts only)"
-if command -v postqueue >/dev/null 2>&1; then
-    counts="$(postqueue -j 2>/dev/null | jq -r '.queue_name' 2>/dev/null | sort | uniq -c || true)"
-    if [[ -n "${counts}" ]]; then
-        printf '%s\n' "${counts}" | sed 's/^ */  /'
-    else
-        printf '  empty\n'
-    fi
+# An empty answer must mean an empty queue, never a tool that could not run.
+if ! command -v postqueue >/dev/null 2>&1; then
+    printf '  unknown (postqueue not installed)\n'
+elif ! command -v jq >/dev/null 2>&1; then
+    printf '  unknown (jq not installed)\n'
+elif ! queue="$(postqueue -j 2>/dev/null)"; then
+    printf '  unknown (postqueue could not read the queue)\n'
+elif [[ -z "${queue}" ]]; then
+    printf '  empty\n'
+else
+    jq -r '.queue_name' <<<"${queue}" 2>/dev/null | sort | uniq -c | sed 's/^ */  /' \
+        || printf '  unknown (the queue listing could not be parsed)\n'
 fi
 
 section "recent warnings and errors (last hour)"

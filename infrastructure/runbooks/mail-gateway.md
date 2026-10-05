@@ -71,9 +71,16 @@ mode it has no spelling for is a refusal.
 ## Ownership and the package
 
 - `--apply` installs Ubuntu 22.04's `postfix` package with debconf preseeded
-  **Local only**, IPv4, no relayhost, and with a `policy-rc.d` in place for the
-  installation so the maintainer scripts start nothing. A `policy-rc.d` that
-  already existed is preserved and put back.
+  **No configuration**: the package writes no `main.cf` of its own and never
+  manages one, so the daemon cannot start at all until RateGuru's
+  configuration is in place (its unit is conditional on `main.cf`). A
+  `policy-rc.d` is in place for the installation as well, so the maintainer
+  scripts start nothing; one that already existed is preserved and put back.
+- The package's own `master.cf` repair (`fix_master`) runs on every upgrade and
+  appends any internal service it finds missing — including a `relay` service
+  that would be a working smtp client. The rendered `master.cf` already carries
+  every one of them, with `relay` as the error transport, so a postfix upgrade
+  changes nothing and `--verify` does not drift.
 - Before the package goes in, an ownership marker is written to
   `/var/lib/rateguru-mail-gateway/ownership` (`state=installing`, then
   `state=installed` once the gateway is verified). It is non-secret.
