@@ -22,7 +22,6 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\Report;
 use App\Models\User;
-use App\Support\Moderation\ModerationReason;
 
 // ------------------------------------------------------------- post finalize
 
@@ -287,29 +286,28 @@ it('refuses a removal reason made only of Unicode whitespace', function (string 
     'mixed with ASCII whitespace' => [" \t\u{00A0}\n"],
 ]);
 
-it('does not turn a reason containing invalid UTF-8 into a missing reason', function () {
-    // preg_replace fails on invalid UTF-8 and returns null. Casting that to a
-    // string would hand this action an empty reason, so an administrator who
-    // typed a real one would be told a reason is required, with what they wrote
-    // discarded. The normalizer returns the input instead, and whatever rejects
-    // malformed text rejects it for what it is.
+it('does not tell an administrator a reason is required when they typed one containing invalid UTF-8', function () {
+    // The normalizer's own answer is pinned in the unit test beside it, where it
+    // needs no database. This is the consequence here: the reason-required guard
+    // runs first, before any authorization or write, and it must not fire on text
+    // an administrator really typed.
+    //
+    // What the storage layer then makes of the bad byte is deliberately NOT
+    // asserted. PostgreSQL and MariaDB reject it, SQLite accepts it, and a test
+    // that pinned either outcome would pass on one CI driver and fail on
+    // another. "This one exception does not happen" is the same on all three.
     $admin = User::factory()->admin()->create();
     $post = Post::factory()->create([
         'status' => PostStatus::Hidden,
         'moderation_removed_at' => null,
     ]);
 
-    $reason = "Spam \xC3\x28 from a broken paste";
+    expect(fn () => app(FinalizePostRemovalAction::class)->handle($admin, $post, "Spam \xC3\x28 from a broken paste"))
+        ->not->toThrow(CannotFinalizeRemovalException::class);
 
-    expect(ModerationReason::normalize($reason))->toBe($reason);
-
-    try {
-        app(FinalizePostRemovalAction::class)->handle($admin, $post, $reason);
-    } catch (Throwable $exception) {
-        // Whatever the storage layer makes of the bad byte is its business. What
-        // must never happen is this one.
-        expect($exception)->not->toBeInstanceOf(CannotFinalizeRemovalException::class);
-    }
+    // And whichever way the write went, nothing was recorded without a readable
+    // reason, which is what the guard exists to prevent.
+    expect(ModerationLog::query()->where('reason', '')->count())->toBe(0);
 });
 
 it('keeps a real reason that merely has Unicode whitespace around it', function () {
