@@ -1,0 +1,26 @@
+app/Support/Moderation/ModerationReason.php
+  s_c7e782fafc9782::t_30a98bcccec4ff 20-27,29-35,47
+tests/Feature/Policies/CategoryPolicyTest.php
+  s_c7e782fafc9782::t_99ef938812daa6 1-61
+app/Actions/Moderation/CreateModerationLogAction.php
+  s_c7e782fafc9782::t_cba8d732c07dbc 8
+  s_c7e782fafc9782::t_30a98bcccec4ff 20-26
+app/Policies/CategoryPolicy.php
+  s_c7e782fafc9782::t_fbbfb0e984c288 12,17,22,27,32-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f55ba3833bab288fc97506e353b6c12484f8012a",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
