@@ -105,3 +105,27 @@ it('does not allow moderator to hide already hidden comment', function () {
 
     expect($moderator->can('hide', $comment))->toBeFalse();
 });
+
+it('refuses to authorize restoring a comment whose removal was finalized', function () {
+    // Finalizing sets moderation_removed_at WITHOUT soft-deleting, so the row
+    // stays a live Hidden comment: neither the trashed() check nor the status
+    // check excludes it, and the authorization layer has to say so itself.
+    $moderator = User::factory()->moderator()->create();
+
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+        'moderation_removed_at' => now(),
+    ]);
+
+    expect($comment->trashed())->toBeFalse()
+        ->and($moderator->can('restore', $comment))->toBeFalse();
+
+    // And the reversible hide it must still allow, so this did not just turn
+    // restore off.
+    $hidden = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    expect($moderator->can('restore', $hidden))->toBeTrue();
+});

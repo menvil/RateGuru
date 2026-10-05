@@ -13,12 +13,21 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 final class SocialRedirectRequest extends FormRequest
 {
+    /**
+     * Deliberately untyped. A `string` rule would turn an unusable marker —
+     * `?_auth_surface[]=modal`, a query string someone copied wrong — into a
+     * failed OAuth start, which is the opposite of the fallback this request
+     * exists to allow. AuthSurfaceContext::fromInput, AuthModalMode::fromInput
+     * and AuthReturnUrl::resolve all take `mixed` and answer "page flow" for
+     * anything that is not the value they expect, so the lenient reading is the
+     * one that is actually implemented downstream.
+     */
     public function rules(): array
     {
         return [
-            AuthSurfaceContext::SURFACE_FIELD => ['sometimes', 'nullable', 'string'],
-            AuthSurfaceContext::MODE_FIELD => ['sometimes', 'nullable', 'string'],
-            AuthSurfaceContext::RETURN_FIELD => ['sometimes', 'nullable', 'string'],
+            AuthSurfaceContext::SURFACE_FIELD => ['sometimes', 'nullable'],
+            AuthSurfaceContext::MODE_FIELD => ['sometimes', 'nullable'],
+            AuthSurfaceContext::RETURN_FIELD => ['sometimes', 'nullable'],
         ];
     }
 }

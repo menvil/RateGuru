@@ -25,8 +25,12 @@ use Symfony\Component\HttpFoundation\Response;
  * Nothing here writes anything — a language guessed from the browser serves
  * this request only.
  *
- * The admin panel does not go through this at all; SetAdminLocale pins it to
- * English.
+ * The admin panel is pinned to English by SetAdminLocale, which is in the
+ * panel's own middleware stack. Not quite "the panel never reaches this":
+ * Livewire's update endpoint is registered in the `web` group, so a panel
+ * Livewire request does run this first — and then Livewire re-applies the
+ * middleware recorded in the signed snapshot, which puts SetAdminLocale back
+ * in charge. English wins either way; it is just not because this never ran.
  */
 class SetLocale
 {

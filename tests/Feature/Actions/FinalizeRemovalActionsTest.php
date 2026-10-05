@@ -252,3 +252,79 @@ it('keeps comment votes and reports when finalizing a comment', function () {
     expect(CommentVote::query()->count())->toBe(1)
         ->and(Report::query()->count())->toBe(1);
 });
+
+it('refuses a removal reason made only of Unicode whitespace', function (string $reason) {
+    // trim()'s character list is ASCII, so a non-breaking space — what a paste
+    // from a word processor or a chat client produces — used to satisfy the
+    // empty check and record an irreversible removal with no audit reason at all.
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    expect(fn () => app(FinalizePostRemovalAction::class)->handle($admin, $post, $reason))
+        ->toThrow(CannotFinalizeRemovalException::class);
+
+    expect(fn () => app(FinalizeCommentRemovalAction::class)->handle($admin, $comment, $reason))
+        ->toThrow(CannotFinalizeRemovalException::class);
+
+    expect($post->fresh()->moderation_removed_at)->toBeNull()
+        ->and($comment->fresh()->moderation_removed_at)->toBeNull();
+})->with([
+    'no-break space' => ["\u{00A0}"],
+    'ideographic space' => ["\u{3000}"],
+    'zero-width no-break space' => ["\u{FEFF}"],
+    // Unicode files these two under Cc and Cf rather than Z, so they reach the
+    // empty check by a different route than the spaces above.
+    'next line' => ["\u{0085}"],
+    'Mongolian vowel separator' => ["\u{180E}"],
+    'mixed with ASCII whitespace' => [" \t\u{00A0}\n"],
+]);
+
+it('does not tell an administrator a reason is required when they typed one containing invalid UTF-8', function () {
+    // The normalizer's own answer is pinned in the unit test beside it, where it
+    // needs no database. This is the consequence here: the reason-required guard
+    // runs first, before any authorization or write, and it must not fire on text
+    // an administrator really typed.
+    //
+    // What the storage layer then makes of the bad byte is deliberately NOT
+    // asserted. PostgreSQL and MariaDB reject it, SQLite accepts it, and a test
+    // that pinned either outcome would pass on one CI driver and fail on
+    // another. "This one exception does not happen" is the same on all three.
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    expect(fn () => app(FinalizePostRemovalAction::class)->handle($admin, $post, "Spam \xC3\x28 from a broken paste"))
+        ->not->toThrow(CannotFinalizeRemovalException::class);
+
+    // And whichever way the write went, nothing was recorded without a readable
+    // reason, which is what the guard exists to prevent.
+    expect(ModerationLog::query()->where('reason', '')->count())->toBe(0);
+});
+
+it('keeps a real reason that merely has Unicode whitespace around it', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->create([
+        'status' => PostStatus::Hidden,
+        'moderation_removed_at' => null,
+    ]);
+
+    app(FinalizePostRemovalAction::class)->handle($admin, $post, "\u{00A0}Repeated spam\u{00A0}");
+
+    expect($post->fresh()->moderation_removed_at)->not->toBeNull();
+
+    $log = ModerationLog::query()
+        ->where('action', ModerationActionType::FinalizePostRemoval)
+        ->latest('id')
+        ->firstOrFail();
+
+    expect($log->reason)->toBe('Repeated spam');
+});

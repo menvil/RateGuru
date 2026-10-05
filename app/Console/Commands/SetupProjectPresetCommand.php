@@ -47,12 +47,24 @@ class SetupProjectPresetCommand extends Command
 
         $this->info("Selected preset [{$presetKey}]: {$label}");
 
-        if (! $this->option('force') && ! $this->confirm(
-            "Apply preset [{$presetKey}]? This replaces project settings, categories, rating configuration, and tags.",
-        )) {
-            $this->warn('Setup cancelled.');
+        if (! $this->option('force')) {
+            // Without a terminal, confirm() resolves to its default — false —
+            // and the run would report "cancelled" with a success status, so
+            // automation could not tell an unapplied preset from an applied one.
+            // Confirmation needs someone to confirm; otherwise say so and fail.
+            if (! $this->input->isInteractive()) {
+                $this->error('Applying a preset non-interactively requires --force.');
 
-            return self::SUCCESS;
+                return self::FAILURE;
+            }
+
+            if (! $this->confirm(
+                "Apply preset [{$presetKey}]? This replaces project settings, categories, rating configuration, and tags.",
+            )) {
+                $this->warn('Setup cancelled.');
+
+                return self::SUCCESS;
+            }
         }
 
         try {

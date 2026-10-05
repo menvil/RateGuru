@@ -28,11 +28,11 @@ final class ResetPasswordAction
                 // the row by immutable primary key and require a living
                 // account — a tombstone gets no password, no fresh
                 // remember_token and no PasswordReset event.
-                $written = DB::transaction(function () use ($user, $validated): bool {
+                $written = DB::transaction(function () use ($user, $validated): ?User {
                     $locked = $this->lockActor($user);
 
                     if ($locked === null || ! $locked->canAuthenticate()) {
-                        return false;
+                        return null;
                     }
 
                     $locked->forceFill([
@@ -40,16 +40,20 @@ final class ResetPasswordAction
                         'remember_token' => Str::random(60),
                     ])->save();
 
-                    return true;
+                    return $locked;
                 });
 
-                if (! $written) {
+                if ($written === null) {
                     $terminalRejected = true;
 
                     return;
                 }
 
-                event(new PasswordReset($user));
+                // The written row, not the broker's instance: $user still holds
+                // the pre-reset password hash and remember_token, and a listener
+                // that reads either of them off this event would be reading the
+                // credentials the reset just replaced.
+                event(new PasswordReset($written));
             },
         );
 

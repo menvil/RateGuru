@@ -498,10 +498,6 @@ it('refuses a target that already carries deployment-owned state', function (
             case 'release':
                 // The release directory alone, with no pointer to it.
                 break;
-            case 'env':
-                rmdir($root.'/releases/20240101120000');
-                file_put_contents($root.'/shared/.env', "APP_KEY=base64:SOMEBODY-ELSE\n");
-                break;
         }
 
         [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
@@ -510,18 +506,9 @@ it('refuses a target that already carries deployment-owned state', function (
         expect($output)->toContain($expected);
         expect($output)->toContain('never deletes, moves or re-owns anything to make a target look new');
 
-        // Nothing was created, and above all nothing was removed. Each shape
-        // is asked about the artifact it actually planted: the env case has no
-        // release directory, and letting it fall through to the release
-        // assertion would have proved nothing about the file it is named for.
+        // Nothing was created, and above all nothing was removed.
         expect(provisionLog($scratch, 'identity.log'))->toBe('');
-
-        if ($shape === 'env') {
-            expect(File::get($root.'/shared/.env'))
-                ->toBe("APP_KEY=base64:SOMEBODY-ELSE\n", 'the foreign environment file must be untouched');
-        } else {
-            expect(is_dir($root.'/releases/20240101120000'))->toBeTrue();
-        }
+        expect(is_dir($root.'/releases/20240101120000'))->toBeTrue();
 
         // --check reports the same conflict rather than pretending it is drift.
         [$checkExit, $checkOutput] = provisionRun(['--check', '--target', 'demo-shop'], $env);
@@ -536,7 +523,6 @@ it('refuses a target that already carries deployment-owned state', function (
     'current' => ['current', 'current already exists'],
     'previous' => ['previous', 'previous already exists'],
     'an existing release' => ['release', 'releases already contains'],
-    'an environment file' => ['env', 'shared/.env already exists'],
 ]);
 
 it('refuses an existing account whose metadata is incompatible, rather than rewriting it', function () {
@@ -643,6 +629,334 @@ it('aborts when a delegated child installer fails, and never reports success', f
             ->toContain('install-public-storage-access --apply --target demo-shop --provisioning failed')
             ->not->toContain('TARGET INFRASTRUCTURE: PROVISIONED')
             ->not->toContain('RATEGURU_PROVISION_RESULT=');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The onboarding transition: Provision -> operator writes .env -> Configure
+// =============================================================================
+//
+// A real Configure run reached the VPS and stopped, having changed nothing:
+//
+//   BLOCKED provision-target --verify does not pass for tits-guru
+//   ERROR: refusing to configure tits-guru: the target is not provisioned.
+//
+// Two requirements contradicted each other. configure-target needs the canonical
+// shared/.env to ALREADY exist (it never creates one) and needs
+// `provision-target --verify` to pass — while verify counted an existing .env as a
+// conflict. Without the file Configure refuses; with it Provision's verify
+// refuses. The documented sequence could not be performed at all.
+//
+// The fix separates two questions that one check had been answering:
+//
+//   --verify  "is this structure still provisioned?"  MONOTONIC — later
+//             onboarding material does not un-provision what Provision built.
+//   --check   "may Provision still be applied?"       PHASE-BOUNDED.
+//   --apply   same question, and fails closed.
+
+it('verifies a provisioned target whose .env does not exist yet', function () {
+    // Case A: the state immediately after Provision.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+
+        [$applyExit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+        expect($applyExit)->toBe(0);
+
+        expect(file_exists($scratch.'/fs/home/www/rateguru/production/demo-shop/shared/.env'))->toBeFalse();
+
+        [$exit, $output] = provisionRun(['--verify', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('TARGET INFRASTRUCTURE: PROVISIONED');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('verifies a provisioned target whose canonical .env is present', function () {
+    // Case B, and THE regression. This is the state the real run was refused in.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env, $root] = provisionWithCanonicalEnv($scratch);
+
+        [$exit, $output] = provisionRun(['--verify', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('TARGET INFRASTRUCTURE: PROVISIONED')
+            // And it says why the file is acceptable rather than silently ignoring it.
+            ->toContain('belongs to the Configure phase')
+            // Scoped: the summary legitimately prints a CONFLICT counter, so the
+            // claim is that no conflict was RAISED, not that the word is absent.
+            ->not->toContain('CONFLICT phase:')
+            ->not->toContain('CONFLICT state:');
+
+        // Every structural guarantee still asserted, not loosened alongside.
+        expect($output)
+            ->toContain('LIFECYCLE: planned')
+            ->toContain('APPLICATION: NOT DEPLOYED')
+            ->toContain('PUBLIC TRAFFIC: NOT ACTIVATED')
+            ->toContain('PASS     layout:install-bootstrap-host-layout')
+            ->toContain('PASS     services:install-bootstrap-services');
+
+        // The file is read for existence and nothing else.
+        expect(File::get($root.'/shared/.env'))->toBe("APP_KEY=base64:OPERATOR-WROTE-THIS\n");
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('refuses to apply provisioning once the canonical .env exists', function () {
+    // Case C: phase-bounded, fail-closed, before any mutation.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env, $root] = provisionWithCanonicalEnv($scratch);
+
+        $before = provisionSnapshotDemoState($scratch);
+        file_put_contents($scratch.'/log/identity.log', '');
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('shared/.env already exists')
+            ->toContain('past the provisioning phase')
+            ->toContain('never deleted, moved or re-owned');
+
+        // No mutation, and above all the operator's file is untouched.
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionSnapshotDemoState($scratch))->toBe($before);
+        expect(File::get($root.'/shared/.env'))->toBe("APP_KEY=base64:OPERATOR-WROTE-THIS\n");
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('reports in --check that provisioning may no longer be applied', function () {
+    // Case D: the operator report says the structure is there AND that apply is
+    // over — not that something is missing.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env] = provisionWithCanonicalEnv($scratch);
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('CONFLICT phase:demo-shop')
+            ->toContain('provisioning may not be applied')
+            ->toContain('belongs to the Configure/later phase')
+            ->toContain('Continue with configure-target');
+
+        // Not dressed up as absent structure: this is a phase conflict, not a
+        // state one, and the two have different names so an operator can tell
+        // which of the two problems they have.
+        expect($output)->not->toContain('CONFLICT state:demo-shop');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('still reports the structure in --check once the canonical .env exists', function () {
+    // The phase conflict answers "may Provision be applied?". It must not also
+    // answer "is the structure intact?" by silently not looking: --check reaches
+    // the structural report through report_new_target_safety, so recording the
+    // conflict with a non-zero return would have withheld every delegated check
+    // behind a verdict that reads as though they had run.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env] = provisionWithCanonicalEnv($scratch);
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // Both answers, in one report.
+        expect($output)
+            ->toContain('CONFLICT phase:demo-shop')
+            ->toContain('TARGET INFRASTRUCTURE (authoritative owners')
+            ->toContain('PASS     layout:install-bootstrap-host-layout')
+            ->toContain('PASS     services:install-bootstrap-services');
+
+        // And the summary counted the delegated passes rather than reporting a
+        // bare conflict against an uninspected target.
+        expect($output)->toContain('CONFLICT: 1');
+        expect(provisionSummaryCount($output, 'PASS'))->toBeGreaterThan(2);
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('reports a broken structure in --check even when the canonical .env exists', function () {
+    // The case the suppression actually endangered: a target that was provisioned,
+    // has since been configured, and has had a structural component removed from
+    // under it. The phase conflict is true and the structure is broken, and an
+    // operator needs to be told the second thing.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env] = provisionWithCanonicalEnv($scratch);
+
+        $pool = $scratch.'/fs/etc/php/8.5/fpm/pool.d/rateguru-demo-shop.conf';
+        expect(file_exists($pool))->toBeTrue('the fixture must start from a provisioned target');
+        unlink($pool);
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // The conflict is still raised...
+        expect($output)->toContain('CONFLICT phase:demo-shop');
+
+        // ...and the missing pool is named, not hidden behind it.
+        expect($output)->toContain('services:install-bootstrap-services');
+        expect(provisionSummaryCount($output, 'MISSING') + provisionSummaryCount($output, 'DRIFT'))
+            ->toBeGreaterThan(0, "a removed PHP-FPM pool must be reported:\n{$output}");
+        expect($output)->toContain('rateguru-demo-shop.conf');
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('still fails verify on deployment-owned state, with or without an .env', function (string $shape) {
+    // Cases E, F, G. Relaxing the .env rule must not relax these: a planned
+    // target never legitimately holds a release or a pointer to one, and Provision
+    // and Configure both never create them.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env, $root] = provisionWithCanonicalEnv($scratch);
+
+        @mkdir($root.'/releases/20240101120000', 0o755, true);
+
+        match ($shape) {
+            'current' => symlink($root.'/releases/20240101120000', $root.'/current'),
+            'previous' => symlink($root.'/releases/20240101120000', $root.'/previous'),
+            'release' => null,
+        };
+
+        [$exit, $output] = provisionRun(['--verify', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT state:demo-shop');
+    } finally {
+        provisionCleanup($scratch);
+    }
+})->with(['current', 'previous', 'release']);
+
+it('fails every mode closed when shared/.env is not a regular file', function (string $shape, string $mode) {
+    // configure-target requires a REGULAR FILE. A directory or a dangling
+    // symlink at that path is a target Configure cannot proceed on, so --verify
+    // must not pass it either: a green structural gate followed by Configure
+    // refusing the same file is the deadlock this whole change exists to remove,
+    // wearing different clothes.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env, $root] = provisionWithMalformedEnv($scratch, $shape);
+
+        $before = provisionSnapshotDemoState($scratch);
+        file_put_contents($scratch.'/log/identity.log', '');
+
+        [$exit, $output] = provisionRun([$mode, '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('is not a regular file');
+
+        // Never tidied away: no delete, no move, no chmod, no chown, whatever
+        // shape the path is in.
+        expect(file_exists($root.'/shared/.env') || is_link($root.'/shared/.env'))->toBeTrue();
+        expect(provisionLog($scratch, 'identity.log'))->toBe('');
+        expect(provisionSnapshotDemoState($scratch))->toBe($before);
+    } finally {
+        provisionCleanup($scratch);
+    }
+})->with(['directory', 'dangling symlink'])->with(['--verify', '--check', '--apply']);
+
+it('reports a malformed shared/.env as a conflict and still reports the structure', function (string $shape) {
+    // Same read-only obligation as the valid-.env case: the phase answer must
+    // not cost the operator the structural one.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env] = provisionWithMalformedEnv($scratch, $shape);
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('CONFLICT phase:demo-shop')
+            ->toContain('is not a regular file')
+            ->toContain('TARGET INFRASTRUCTURE (authoritative owners')
+            ->toContain('PASS     layout:install-bootstrap-host-layout')
+            ->toContain('PASS     services:install-bootstrap-services');
+    } finally {
+        provisionCleanup($scratch);
+    }
+})->with(['directory', 'dangling symlink']);
+
+it('never suggests repairing structure by bypassing the phase boundary', function (string $shape) {
+    // The structural findings stay visible past the phase boundary, and that is
+    // the point — but the remediation they used to carry was a direct child
+    // installer apply. Those installers answer to provisioning authorization,
+    // not to the phase gate, so following that hint would converge exactly what
+    // this run has just refused to converge itself.
+    $scratch = provisionScratchDir();
+
+    try {
+        [$env] = $shape === 'valid file'
+            ? provisionWithCanonicalEnv($scratch)
+            : provisionWithMalformedEnv($scratch, $shape);
+
+        // Break the structure so a MISSING finding — the one that carries the
+        // remediation — is actually produced.
+        unlink($scratch.'/fs/etc/php/8.5/fpm/pool.d/rateguru-demo-shop.conf');
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // The drift is still shown...
+        expect(provisionSummaryCount($output, 'MISSING') + provisionSummaryCount($output, 'DRIFT'))
+            ->toBeGreaterThan(0, "the structural drift must still be reported:\n{$output}");
+
+        // ...and no line tells the operator to run a child installer directly.
+        expect($output)
+            ->not->toContain('--apply --target demo-shop --provisioning')
+            ->not->toContain('install-bootstrap-services --apply')
+            ->not->toContain('install-bootstrap-host-layout --apply');
+
+        expect($output)
+            ->toContain('DIAGNOSTIC')
+            ->toContain('bypasses the phase boundary');
+    } finally {
+        provisionCleanup($scratch);
+    }
+})->with(['valid file', 'directory', 'dangling symlink']);
+
+it('still names the child installer as the remediation while Provision owns the target', function () {
+    // The counterpart of the test above: suppressing the hint unconditionally
+    // would take the one useful instruction away from the ordinary case.
+    $scratch = provisionScratchDir();
+
+    try {
+        $env = provisionFixture($scratch);
+
+        [$exit, $output] = provisionRun(['--check', '--target', 'demo-shop'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('install-bootstrap-host-layout --apply --target demo-shop --provisioning')
+            ->toContain('install-bootstrap-services --apply --target demo-shop --provisioning')
+            ->not->toContain('DIAGNOSTIC');
     } finally {
         provisionCleanup($scratch);
     }

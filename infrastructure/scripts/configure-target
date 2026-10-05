@@ -330,6 +330,21 @@ report_structural_contract() {
         return 0
     fi
 
+    # --verify, deliberately, and it is worth knowing why that is not circular.
+    #
+    # This operation REQUIRES the canonical shared/.env to already exist and never
+    # creates one, so by the time it runs the target is past the provisioning
+    # phase. `provision-target --verify` is monotonic about exactly that: it asks
+    # whether the structure is still provisioned, and later onboarding material
+    # does not un-provision it. (`--apply` and `--check` are phase-bounded and do
+    # refuse once the .env exists — which is correct, and is not what is called
+    # here.)
+    #
+    # Those two questions were once answered by one check, and a real Configure run
+    # was refused on a correctly provisioned host because of it: without the .env
+    # this operation refuses, with it verify refused, and the documented sequence
+    # had no legal state. Calling --verify is the right architecture; what was
+    # wrong was what --verify asked.
     set +e
     PROVISION_OUTPUT="$("${PROVISION_BIN}" --verify --target "${TARGET_ID}" 2>&1)"
     PROVISION_STATUS=$?
