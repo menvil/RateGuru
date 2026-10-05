@@ -494,6 +494,8 @@ final class AdminUiKit extends Page
                     ['Counts', 'Posts pending · Comments reported · Reports open · Translation missing · Media critical'],
                     ['Rail', '44×40 icon links · 8 px status dot · tooltip on hover and focus, label kept for screen readers'],
                     ['Below 1024 px', 'no rail · the top bar’s menu button opens the same sidebar as a drawer'],
+                    ['Header', '62 · as tall as the top bar, one hairline across'],
+                    ['Search', 'FRM-01 under the workspace · ⌘K / Ctrl+K · Filament global search in Admin v2 markup'],
                     ['Source', 'filament()->getNavigation() via AdminShellNavigation · icons in AdminShellNavigation::ICONS'],
                 ],
                 'code' => <<<'BLADE'

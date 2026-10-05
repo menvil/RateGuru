@@ -41,9 +41,29 @@
         hideTip() {
             this.tip.shown = false
         },
+        focusSearch(event) {
+            const search = document.getElementById('rg-admin-search')
+
+            // A rich text editor keeps ⌘K / Ctrl+K for inserting a link.
+            if (! search || event.defaultPrevented || event.target.isContentEditable) {
+                return
+            }
+
+            event.preventDefault()
+
+            // Collapsed into the rail or hidden on a narrow screen: open the
+            // full sidebar first, so the field is there to type in.
+            if (! this.open && ! window.matchMedia('(min-width: 1280px)').matches) {
+                this.show(document.activeElement)
+            }
+
+            this.$nextTick(() => search.focus())
+        },
     }"
     x-on:rg-admin-nav-open.window="show($event.detail?.trigger)"
     x-on:keydown.escape.window="hide()"
+    x-on:keydown.meta.k.window="focusSearch($event)"
+    x-on:keydown.ctrl.k.window="focusSearch($event)"
 >
     <div
         class="rg-admin-shell-scrim"
@@ -87,6 +107,12 @@
                 x-on:click="hide()"
             />
         </div>
+
+        @if ($hasGlobalSearch)
+            <div class="rg-admin-sidebar__search">
+                @livewire(\App\Livewire\Admin\GlobalSearch::class)
+            </div>
+        @endif
 
         <div class="rg-admin-sidebar__expand">
             <x-admin.ui.icon-button

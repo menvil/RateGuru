@@ -15,6 +15,7 @@ use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Resources\Users\UserResource;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
+use Illuminate\Support\Str;
 
 /**
  * What the Admin v2 shell draws, read from Filament's own navigation.
@@ -103,6 +104,27 @@ final class AdminShellNavigation
     public static function iconFor(string $key): string
     {
         return self::ICONS[$key] ?? self::FALLBACK_ICON;
+    }
+
+    /**
+     * What a global search result is, from the category Filament files it
+     * under (a resource's plural model label): its singular name and the
+     * icon of the resource it belongs to.
+     *
+     * @return array{type: string, icon: string}
+     */
+    public static function searchCategory(string $category): array
+    {
+        foreach (filament()->getResources() as $resource) {
+            if ($resource::getPluralModelLabel() === $category) {
+                return [
+                    'type' => Str::ucfirst($resource::getModelLabel()),
+                    'icon' => self::iconFor($resource),
+                ];
+            }
+        }
+
+        return ['type' => Str::ucfirst($category), 'icon' => self::FALLBACK_ICON];
     }
 
     /**

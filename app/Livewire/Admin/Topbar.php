@@ -3,7 +3,6 @@
 namespace App\Livewire\Admin;
 
 use App\Filament\Support\AdminShellNavigation;
-use Filament\Enums\GlobalSearchPosition;
 use Filament\Resources\Pages\Page as ResourcePage;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -15,10 +14,9 @@ use function Filament\Support\original_request;
  * The Admin v2 top bar, registered with the panel's topbarLivewireComponent().
  *
  * Breadcrumb on the left, built from the navigation without loading any record;
- * on the right Filament's own global search, which the admin already relied
- * on, and the TOPBAR_END render hook, scoped to the current page, where a page
- * migrated to Admin v2 can put its actions. Below 1024px it also carries the
- * button that opens the navigation drawer.
+ * on the right the TOPBAR_END render hook, scoped to the current page, where a
+ * page migrated to Admin v2 can put its actions. Below 1024px it also carries
+ * the button that opens the navigation drawer. Search lives in the sidebar.
  */
 final class Topbar extends Component
 {
@@ -32,8 +30,6 @@ final class Topbar extends Component
                 AdminShellNavigation::sections(),
                 original_request()->url(),
             ),
-            'hasGlobalSearch' => filament()->isGlobalSearchEnabled()
-                && filament()->getGlobalSearchPosition() === GlobalSearchPosition::Topbar,
             'renderHookScopes' => $this->pageScopes(),
         ]);
     }
