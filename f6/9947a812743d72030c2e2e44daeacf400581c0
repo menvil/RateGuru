@@ -1,0 +1,19 @@
+tests/Feature/Architecture/MailGatewayTest.php
+  s_0a5cecf498a4dd::t_5c1cca55423512 1584-1586,1588-1590,1598-1600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f69947a812743d72030c2e2e44daeacf400581c0",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
