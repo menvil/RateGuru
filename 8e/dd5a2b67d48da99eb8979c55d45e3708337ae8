@@ -1,0 +1,32 @@
+app/Data/Auth/AccountClaim.php
+  s_c7e782fafc9782::t_92e212879033c7 11-20,22-29
+app/Actions/Auth/ClaimAccountWithVerifiedEmailAction.php
+  s_c7e782fafc9782::t_8556a113a4635e 13
+  s_c7e782fafc9782::t_60496b6ac338f5 41,61-75
+  s_c7e782fafc9782::t_b9b370d19194e5 82,99,101
+  s_c7e782fafc9782::t_92e212879033c7 100,102-124
+tests/Feature/Media/ResponsiveImageWithoutDimensionsTest.php
+  s_c7e782fafc9782::t_006afbada86ec1 1-73
+app/Support/Media/ResponsiveImage.php
+  s_c7e782fafc9782::t_fdf104325dd4ea 17-26
+tests/Feature/Auth/Social/ClaimAccountEmailRaceTest.php
+  s_c7e782fafc9782::t_3b901f12bccb02 7,84-85,95-116,143-164
+  s_c7e782fafc9782::t_d0955c4a735e4c 86-94,117-142
+  s_c7e782fafc9782::t_f79a20dcb09d01 1-6,8-83,165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8edd5a2b67d48da99eb8979c55d45e3708337ae8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
