@@ -1,0 +1,23 @@
+docs/architecture/media.md
+  s_c7e782fafc9782::t_ac2444b32d0bae 379-380
+tests/Unit/Support/Moderation/ModerationReasonTest.php
+  s_c7e782fafc9782::t_76f65422c527a6 1-57
+tests/Feature/Actions/FinalizeRemovalActionsTest.php
+  s_c7e782fafc9782::t_2ae658edc90ea2 289-298,305-306,308-310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7f7e5c3e6674c2b5a17624d699233f4311b1fe7c",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
