@@ -33,7 +33,9 @@ it('draws the field the way the reference does, with no results before a query',
         ->assertSeeHtml('aria-label="Search the admin"')
         ->assertSeeHtml('wire:model.live.debounce.500ms="search"')
         ->assertSeeHtml('class="rg-admin-kbd"')
-        ->assertDontSeeHtml('id="rg-admin-search-results"');
+        ->assertDontSeeHtml('id="rg-admin-search-results"')
+        // The live region is there before the first query, so its first announcement is heard.
+        ->assertSeeHtml('<p class="rg-admin-sr-only" role="status" aria-live="polite">');
 });
 
 it('lists matching records with their kind and a link to each', function () {
@@ -46,6 +48,8 @@ it('lists matching records with their kind and a link to each', function () {
         ->assertSeeHtml('<span class="rg-admin-search-result__title">Searchable sunset photo</span>')
         ->assertSeeHtml('<span class="rg-admin-search-result__meta">Post</span>')
         ->assertSeeHtml('rg-admin-search-result rg-admin-search-result--first')
+        ->assertSeeHtml('<p class="rg-admin-sr-only" role="status" aria-live="polite">')
+        ->assertSeeHtmlInOrder(['role="status"', '1 result', '</p>'])
         ->assertSeeHtml('href="'.e(PostResource::getGlobalSearchResultUrl($post)).'"');
 });
 
@@ -54,7 +58,8 @@ it('says so when nothing matches', function () {
 
     Livewire::test(GlobalSearch::class)
         ->set('search', 'zzz-nothing-like-this')
-        ->assertSee('Nothing in the admin matches “zzz-nothing-like-this”.');
+        ->assertSee('Nothing in the admin matches “zzz-nothing-like-this”.')
+        ->assertSeeHtmlInOrder(['role="status"', 'Nothing in the admin matches', '</p>']);
 });
 
 it('finds only what Filament lets the user search', function () {

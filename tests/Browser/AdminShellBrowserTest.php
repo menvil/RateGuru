@@ -238,7 +238,40 @@ it('leaves Ctrl+K to a rich text editor', function () {
         })()
     JS);
 
+    // Registered after the shell's own listener, so it sees the event once the shell is done with it.
+    $page->script(<<<'JS'
+        window.addEventListener('keydown', (event) => {
+            if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+                window.ctrlKDefaultPrevented = event.defaultPrevented
+            }
+        })
+    JS);
+
     $page->keys('#editor-under-test', 'Control+k')->wait(0.3);
 
-    expect($page->script('document.activeElement?.id ?? null'))->toBe('editor-under-test');
+    expect($page->script('document.activeElement?.id ?? null'))->toBe('editor-under-test')
+        ->and($page->script('window.ctrlKDefaultPrevented ?? null'))->toBeFalse();
+});
+
+it('opens a result with Enter only while the list is open and no IME composition is under way', function () {
+    actingAs(User::factory()->admin()->create());
+    Post::factory()->published()->create(['title' => 'Searchable sunset photo']);
+
+    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+
+    $page->type('#rg-admin-search', 'Searchable sunset')->wait(1.2);
+    $page->assertVisible('#rg-admin-search-results');
+
+    // Enter that confirms an IME composition is left to the input method.
+    expect($page->script(<<<'JS'
+        document.getElementById('rg-admin-search').dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }),
+        )
+    JS))->toBeTrue();
+
+    // With the list closed, Enter picks nothing.
+    $page->keys('#rg-admin-search', 'Escape')->wait(0.3);
+    $page->keys('#rg-admin-search', 'Enter')->wait(0.6);
+
+    $page->assertPathIs('/admin');
 });

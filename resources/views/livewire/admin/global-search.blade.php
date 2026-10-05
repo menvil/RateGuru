@@ -24,7 +24,15 @@
             wire:model.live.debounce.{{ $debounce }}="search"
             x-on:focus="open = true"
             x-on:keydown.down.prevent="$root.querySelector('.rg-admin-search-result')?.focus()"
-            x-on:keydown.enter.prevent="$root.querySelector('.rg-admin-search-result')?.click()"
+            x-on:keydown.enter="
+                const first = $root.querySelector('.rg-admin-search-result')
+
+                // Enter that finishes an IME composition, or with the list closed, is not a pick.
+                if (open && first && ! $event.isComposing && $event.keyCode !== 229) {
+                    $event.preventDefault()
+                    first.click()
+                }
+            "
             x-on:keydown.escape="if (open && $root.querySelector('.rg-admin-search-results')) { $event.stopPropagation(); open = false } else { $el.blur() }"
         />
         <kbd
@@ -34,6 +42,15 @@
             x-text="/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'"
         >⌘K</kbd>
     </label>
+
+    {{-- Always present, so a screen reader hears each new count while focus stays in the field. --}}
+    <p class="rg-admin-sr-only" role="status" aria-live="polite">
+        @if ($rows === [])
+            Nothing in the admin matches “{{ $this->search }}”.
+        @elseif ($rows !== null)
+            {{ count($rows) }} {{ count($rows) === 1 ? 'result' : 'results' }}
+        @endif
+    </p>
 
     @if ($rows !== null)
         <div
