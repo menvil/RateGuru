@@ -25,9 +25,10 @@ final class SaveProjectSettingsAction
 
         $model = DB::transaction(function () use ($settings): ProjectSettings {
             // An installation without a row starts from the same bootstrap
-            // every other writer uses, not from whatever this payload holds.
-            $row = ProjectSettings::query()->lockForUpdate()->find(1)
-                ?? ProjectSettings::unguarded(fn (): ProjectSettings => new ProjectSettings(['id' => 1, ...$this->manager->defaults()]));
+            // every other writer uses, not from whatever this payload holds —
+            // which is why the row is the manager's to produce, not this
+            // action's.
+            $row = $this->manager->lockedRow();
 
             $row->fill($settings)->save();
 

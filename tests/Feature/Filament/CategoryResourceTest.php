@@ -7,6 +7,7 @@ use App\Filament\Resources\Categories\Pages\ListCategories;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\User;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
 it('allows only admins to access category management', function () {
@@ -151,4 +152,37 @@ it('orders category management deterministically by sort order and id', function
         ->toBe([$tied[1]->id, $tied[2]->id])
         ->and($thirdPage->getCollection()->pluck('id')->all())
         ->toBe([$last->id]);
+});
+
+it('lets an administrator actually sort the category table by a column', function () {
+    // The curated sort_order/id pair leaves no ties, so applied as part of the
+    // base query it made every sortable column decorative: the ORDER BY Filament
+    // appends for the clicked column could not move a single row.
+    $admin = User::factory()->admin()->create();
+
+    // sort_order deliberately disagrees with both insertion order and name
+    // order, so each of the four expected sequences below is distinct. With them
+    // in agreement the default-order assertion would hold for any ordering at
+    // all, and could not tell Category::scopeOrdered from `orderBy('id')`.
+    $mango = Category::factory()->create(['name' => 'Mango', 'sort_order' => 1]);
+    $zebra = Category::factory()->create(['name' => 'Zebra', 'sort_order' => 3]);
+    $apple = Category::factory()->create(['name' => 'Apple', 'sort_order' => 2]);
+
+    $this->actingAs($admin);
+
+    $ids = fn (Testable $page): array => $page
+        ->instance()
+        ->getFilteredSortedTableQuery()
+        ->pluck('id')
+        ->all();
+
+    $page = Livewire::test(ListCategories::class);
+
+    // Untouched: the curated sort_order is still what you get by default, and it
+    // is not the order the rows were created in.
+    expect($ids($page))->toBe([$mango->id, $apple->id, $zebra->id])
+        ->not->toBe([$mango->id, $zebra->id, $apple->id]);
+
+    expect($ids($page->sortTable('name')))->toBe([$apple->id, $mango->id, $zebra->id]);
+    expect($ids($page->sortTable('name', 'desc')))->toBe([$zebra->id, $mango->id, $apple->id]);
 });

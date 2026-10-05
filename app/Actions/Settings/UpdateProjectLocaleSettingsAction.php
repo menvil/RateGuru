@@ -60,8 +60,7 @@ final class UpdateProjectLocaleSettingsAction
         }
 
         $settings = DB::transaction(function () use ($enabled): ProjectSettings {
-            $settings = ProjectSettings::query()->lockForUpdate()->find(1)
-                ?? ProjectSettings::unguarded(fn (): ProjectSettings => new ProjectSettings(['id' => 1, ...$this->manager->defaults()]));
+            $settings = $this->manager->lockedRow();
 
             $settings->fill(['enabled_locales' => $enabled])->save();
 

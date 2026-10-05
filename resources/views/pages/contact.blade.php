@@ -31,6 +31,16 @@
                 </div>
             @endif
 
+            @if(session('contact_error'))
+                <div
+                    class="mt-5 rounded-rgControl border border-rg-dangerBorder bg-rg-dangerSoft px-4 py-3 text-sm font-medium text-rg-dangerText"
+                    role="alert"
+                    data-testid="contact-error"
+                >
+                    {{ session('contact_error') }}
+                </div>
+            @endif
+
             <form
                 method="POST"
                 action="{{ route('pages.contact.submit') }}"

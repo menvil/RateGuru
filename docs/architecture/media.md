@@ -373,9 +373,11 @@ last for `MediaKind::PostImage`, so the three feed/detail specs always
 generate first (and are never touched again on a retry) even on a run where
 `open_graph` specifically fails.
 
-**Reliability** (PR-06): `GenerateMediaVariantsJob` declares `tries = 3`,
+**Reliability** (PR-06): `GenerateMediaVariantsJob` declares `tries = 4`,
 `backoff = [10, 60, 300]`, `timeout = 120` — real retry semantics for a real
-queue driver. Today's `QUEUE_CONNECTION=sync`, however, has no worker process
+queue driver. Four attempts for three backoff tiers, because a delay is spent
+BETWEEN attempts: with `tries = 3` the 300-second tier would never be
+reached. Today's `QUEUE_CONNECTION=sync`, however, has no worker process
 and no retry loop at all: `Illuminate\Queue\SyncQueue` runs the job inline and
 rethrows synchronously on failure, so `$tries`/`$backoff` are currently
 inert, declared for whenever this app moves to a real queue connection. The

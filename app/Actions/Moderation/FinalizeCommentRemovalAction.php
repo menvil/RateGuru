@@ -8,6 +8,7 @@ use App\Exceptions\Moderation\CannotFinalizeRemovalException;
 use App\Models\Comment;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
+use App\Support\Moderation\ModerationReason;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -28,7 +29,7 @@ final class FinalizeCommentRemovalAction
 
     public function handle(User $admin, Comment $comment, string $reason): void
     {
-        $reason = trim($reason);
+        $reason = ModerationReason::normalize($reason);
 
         if ($reason === '') {
             throw CannotFinalizeRemovalException::becauseReasonIsRequired();

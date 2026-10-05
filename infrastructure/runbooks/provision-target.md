@@ -210,9 +210,11 @@ application target somebody is using.
 * `current` exists;
 * `previous` exists;
 * `releases` already contains an entry;
-* `shared/.env` exists — the environment file is never created by
-  infrastructure provisioning, so its presence means something else owns this
-  target.
+* `shared/.env` exists — not because the file is suspect, but because it belongs
+  to the **next** onboarding phase. An operator writes it between Provision and
+  Configure, so its presence means provisioning is over for this target and
+  applying it again is no longer a valid operation. `--check` says so explicitly,
+  naming a `phase:` conflict rather than pretending structure is missing.
 
 Nothing is ever deleted, moved or re-owned to make a target look new. There is
 no `rm -rf` anywhere in this operation, no recursive `chown` or `chmod`, and no
@@ -352,6 +354,54 @@ installer if their own parser rejects the candidate.
 **`--verify`** — read-only, and the authoritative gate. Exit 0 only when the
 infrastructure is provisioned, the target is still planned, no application is
 deployed and no public traffic is activated.
+
+**`--verify` is monotonic, and that distinction is load-bearing.** It answers *is
+this structure still provisioned?* — so onboarding material from a later phase,
+specifically the canonical `shared/.env`, does **not** make it fail. `--apply` and
+`--check` answer a different question, *may Provision still be applied?*, and
+those are phase-bounded: once the `.env` exists the answer is no.
+
+One check used to answer both, and the documented sequence then had no legal
+state. `configure-target` requires the `.env` to already exist and calls
+`provision-target --verify` as its structural gate — so without the file Configure
+refused for a missing `.env`, and with it verify refused. A real Configure run was
+stopped at the host by exactly that, on a correctly provisioned target. Keep the
+two questions apart:
+
+| Mode | Question | `shared/.env` is a regular file | `shared/.env` path exists but is not one |
+|---|---|---|---|
+| `--verify` | is this structure still provisioned? | **allowed** — reported as Configure-phase material | `CONFLICT phase:` — **refuses** |
+| `--check` | may Provision still be applied? | `CONFLICT phase:` — apply is over, structure still reported | `CONFLICT phase:`, structure still reported |
+| `--apply` | same | refuses, before any mutation | refuses, before any mutation |
+
+Three states, not two, because `configure-target` requires a **regular file** (`-f`)
+and nothing else will do:
+
+* **absent** — Provision's own phase. Nothing to say.
+* **a regular file**, a symlink resolving to one included — Configure-phase material.
+  `--verify` stays satisfied; applying Provision is over.
+* **a path that is there but is not a regular file** — a directory, a socket, a
+  dangling symlink. It fails closed in **every** mode, `--verify` included, because
+  Configure cannot proceed on it either: passing verify and then refusing Configure
+  for the same file is the original deadlock wearing different clothes. Nothing is
+  ever deleted, moved, chmodded or chowned to resolve it.
+
+`--check` is read-only and answers both questions independently. The phase conflict
+does not suppress the structural report: a target that was provisioned and has since
+been configured still gets its layout and services inspected, so a pool, a Supervisor
+program or a directory that has gone missing since is named rather than hidden behind
+the conflict. The exit stays non-zero either way.
+
+Past the phase boundary those structural findings are **diagnostic**, and the report
+says so. It deliberately stops printing the `-> apply:` hint that names the child
+installer directly: those installers answer to provisioning authorization rather than
+to the phase gate, so following that hint would converge exactly what this run has
+just refused to converge. Repairing structure on a target that is past provisioning is
+a decision for its owner, under a reviewed operation.
+
+What `--verify` must still refuse is deployment-owned state a planned target never
+legitimately holds: a `current` or `previous` pointer, or a release in `releases/`.
+Neither Provision nor Configure creates those.
 
 ## Running it
 

@@ -156,6 +156,14 @@ A target that is not provisioned is refused **before any mutation**, because
 material is installed *into* directories and accounts provisioning creates, and
 a database is created *for* a runtime user it creates.
 
+That gate is not circular, although it looks circular at first: this operation requires
+the canonical `shared/.env` to already exist, so by the time it runs the target is
+past the provisioning phase. `provision-target --verify` is monotonic about
+exactly that — it asks whether the structure is still provisioned, and an `.env`
+does not un-provision it. `--apply` and `--check` *are* phase-bounded and do refuse
+once the file exists, which is correct and is not what is called here. See
+[provision-target.md](provision-target.md) for the three modes side by side.
+
 The machine is claimed for the whole run through the shared host-infrastructure
 lock: targets share a host, and a configuration that overlapped a preparation or
 a repair of the same machine would be two operations converging one host.

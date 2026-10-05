@@ -6,6 +6,9 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Contracts\Console\Kernel;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 it('applies a complete preset through the setup command', function () {
     $this->artisan('rateguru:setup', ['preset' => 'nature'])
@@ -95,4 +98,32 @@ it('sets up a new project with the same static pages as every other bootstrap', 
     $this->artisan('rateguru:setup', ['preset' => 'nature', '--force' => true])->assertExitCode(0);
 
     expect(ProjectSettings::firstOrFail()->static_pages)->toBe(app(ProjectSettingsManager::class)->defaults()['static_pages']);
+});
+
+it('refuses to apply a preset non-interactively without --force, instead of reporting success', function () {
+    // Without a terminal, confirm() resolves to its own default — false — so the
+    // command used to print "Setup cancelled." and exit 0. A deployment script
+    // could not tell that from an applied preset.
+    $input = new ArrayInput(['command' => 'rateguru:setup', 'preset' => 'nature']);
+    $input->setInteractive(false);
+    $output = new BufferedOutput;
+
+    $status = app(Kernel::class)->handle($input, $output);
+
+    expect($status)->toBe(1)
+        ->and($output->fetch())->toContain('requires --force');
+
+    // And nothing was applied.
+    expect(ProjectSettings::query()->count())->toBe(0)
+        ->and(Category::query()->count())->toBe(0);
+});
+
+it('applies a preset non-interactively when --force says so', function () {
+    $input = new ArrayInput(['command' => 'rateguru:setup', 'preset' => 'nature', '--force' => true]);
+    $input->setInteractive(false);
+
+    $status = app(Kernel::class)->handle($input, new BufferedOutput);
+
+    expect($status)->toBe(0)
+        ->and(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
 });

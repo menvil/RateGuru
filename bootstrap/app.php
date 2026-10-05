@@ -24,9 +24,15 @@ return Application::configure(basePath: dirname(__DIR__))
             AttachStructuredLogContext::class,
         ]);
         $middleware->web(append: [
+            // SetLocale leads, because the guards after it end sessions and
+            // redirect with a message. Translating that message needs the
+            // language already resolved: a session being invalidated takes the
+            // session-stored choice with it, but the `locale` cookie and
+            // Accept-Language survive, so resolving first is the difference
+            // between the visitor's language and the project default.
+            SetLocale::class,
             EnsureAccountIsNotTombstoned::class,
             EnsureSessionGenerationIsCurrent::class,
-            SetLocale::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

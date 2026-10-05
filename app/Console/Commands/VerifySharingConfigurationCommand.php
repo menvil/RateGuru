@@ -42,6 +42,24 @@ final class VerifySharingConfigurationCommand extends Command
             $errors[] = "Public image URL host must match [{$expectedHost}].";
         }
 
+        // Checked here and not only through the probe below. The probe post has
+        // no image asset, so its Open Graph image is the APP_URL-based fallback
+        // and never touches this disk — an http:// public disk on the right host
+        // would pass every other check in this command and then serve every real
+        // post image to Facebook over plain HTTP.
+        //
+        // Only an explicit non-HTTPS scheme is rejected. A protocol-relative
+        // `//host/storage` URL carries no scheme of its own and inherits APP_URL's,
+        // which this command has already required to be https — and
+        // PostOpenGraph::absoluteUrl resolves it that way deliberately. Treating a
+        // missing scheme as "not https" would fail a deployment that serves every
+        // image over HTTPS.
+        $publicImageScheme = strtolower((string) parse_url($publicImageUrl, PHP_URL_SCHEME));
+
+        if ($publicImageUrl !== '' && $publicImageScheme !== '' && $publicImageScheme !== 'https') {
+            $errors[] = 'Public image URL must use HTTPS.';
+        }
+
         if (! extension_loaded('gd')) {
             $errors[] = 'The GD extension is required to generate Open Graph images.';
         }

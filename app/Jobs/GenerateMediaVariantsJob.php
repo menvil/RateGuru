@@ -13,7 +13,14 @@ final class GenerateMediaVariantsJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+    /**
+     * Four attempts, because `backoff` declares three waits: Laravel applies
+     * one delay BETWEEN attempts, so `tries = 3` spends only the 10s and 60s
+     * tiers and the 300s one is never reached. The tiers are the intent — a
+     * variant generation that fails twice in a minute is usually waiting on
+     * something slower than a retry loop.
+     */
+    public int $tries = 4;
 
     public array $backoff = [10, 60, 300];
 
