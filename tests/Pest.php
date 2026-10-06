@@ -1025,7 +1025,9 @@ function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds
             return;
         }
 
-        usleep(100_000);
+        // As short as waitForScript()'s, and on the event loop like it: the
+        // image is served by this same process.
+        browserTestPause(0.025);
     }
 
     throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
@@ -1062,6 +1064,45 @@ function imageFitGeometry(mixed $page, string $selector): array
     $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
 
     return $geometry;
+}
+
+/**
+ * Waits until the page is laid out at the size resize() asked for, loaded and
+ * with its fonts in — the state a layout measurement after a resize needs.
+ * The new size is in place by the time resize() returns; a font still on its
+ * way would change how wide the text is.
+ */
+function waitForViewportSize(mixed $page, int $width, int $height): void
+{
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height} && document.readyState === 'complete' && document.fonts.status === 'loaded'");
+}
+
+/**
+ * Waits until the page has the sliding post-detail panel a selected post
+ * opens in below the desktop breakpoint: overlay mode's panel, or the one
+ * split view loads lazily, in a request of its own after the page. Until that
+ * one has arrived it ignores a selected post, so the post never opens.
+ */
+function waitForPostDetailOverlay(mixed $page): void
+{
+    waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"]\') !== null');
+}
+
+/**
+ * Waits until the post-detail panel is open and has stopped sliding in — the
+ * state its geometry is measured in.
+ */
+function waitForPostDetailOverlayOpen(mixed $page): void
+{
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+
+            return Boolean(panel)
+                && panel.classList.contains('translate-x-0')
+                && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
 }
 
 /*

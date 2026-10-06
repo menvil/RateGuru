@@ -11,35 +11,57 @@ use Tests\Browser\Support\MobileViewports;
  * a laptop its title row and close button slid under the header. It is now
  * laid out in the room below the header: the gap above it equals the gap
  * below it, at every screen size and wherever it is opened from.
+ *
+ * resize() has taken effect — layout and media queries included — by the
+ * time it returns, so a click follows it directly. Only an open viewer reacts
+ * to the window's resize event, which fires later.
  */
 
 afterEach(function () {
     ImageFixtures::cleanup();
 });
 
+/** The viewer on screen, as a JavaScript expression. */
+const VISIBLE_IMAGE_VIEWER = <<<'JS'
+    [...document.querySelectorAll('[data-modal-below-header]')]
+        .find((el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0)
+JS;
+
 /**
- * @return array{headerBottom: int, viewport: int, panelTop: int, panelBottom: int, closeTop: int, closeBottom: int, imageTop: int, imageBottom: int, scrolls: bool}
+ * Waits until the viewer is open, measured, showing its image and done fading
+ * in — however long that takes here. The page fonts are in too: the title row
+ * is part of what the viewer measures.
  */
-function imageViewerGeometry(mixed $page): array
+function waitForImageViewer(mixed $page): void
 {
-    // Open, measured and showing its image — however long that takes here.
-    waitForScript($page, <<<'JS'
+    $viewer = VISIBLE_IMAGE_VIEWER;
+
+    waitForScript($page, <<<JS
         (() => {
-            const viewer = [...document.querySelectorAll('[data-modal-below-header]')]
-                .find((el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0);
+            const viewer = {$viewer};
             const image = viewer?.querySelector('img');
 
             return Boolean(viewer)
                 && viewer.style.getPropertyValue('--rg-modal-height') !== ''
                 && Boolean(image) && image.complete && image.naturalHeight > 0
-                && getComputedStyle(viewer).opacity === '1';
+                && getComputedStyle(viewer).opacity === '1'
+                && document.fonts.status === 'loaded';
         })()
     JS);
+}
 
-    return $page->script(<<<'JS'
+/**
+ * @return array{headerBottom: int, viewport: int, panelTop: int, panelBottom: int, closeTop: int, closeBottom: int, imageTop: int, imageBottom: int, scrolls: bool}
+ */
+function imageViewerGeometry(mixed $page): array
+{
+    waitForImageViewer($page);
+
+    $viewer = VISIBLE_IMAGE_VIEWER;
+
+    return $page->script(<<<JS
         (() => {
-            const viewer = [...document.querySelectorAll('[data-modal-below-header]')]
-                .find((el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0);
+            const viewer = {$viewer};
             const header = document.querySelector('[data-app-header]').getBoundingClientRect();
             const panel = viewer.querySelector('[data-modal-panel]').getBoundingClientRect();
             const close = viewer.querySelector('[data-testid="modal-close"]').getBoundingClientRect();
@@ -76,8 +98,29 @@ function expectViewerBelowHeader(array $geometry): void
 
 function openDrawerImage(mixed $page): void
 {
-    $page->script('[...document.querySelectorAll(\'[data-testid="post-drawer-image-open"]\')].find((el) => el.offsetParent !== null).click()');
-    $page->wait(0.7);
+    $button = '[...document.querySelectorAll(\'[data-testid="post-drawer-image-open"]\')].find((el) => el.offsetParent !== null)';
+
+    // The drawer has the post and has stopped sliding in: a viewer opened
+    // from a panel is laid out against that panel.
+    waitForScript($page, <<<JS
+        (() => {
+            const button = {$button};
+
+            if (! button) {
+                return false;
+            }
+
+            for (let el = button; el; el = el.parentElement) {
+                if (el.getAnimations().some((animation) => animation.playState !== 'finished')) {
+                    return false;
+                }
+            }
+
+            return true;
+        })()
+    JS);
+
+    $page->script("{$button}.click()");
 }
 
 dataset('screens', [
@@ -97,10 +140,11 @@ it('keeps equal gaps below the header and above the bottom of the screen in the 
 
     $page = visit(route('feed'))
         ->resize(...$screen)
-        ->wait(0.3)
-        ->click('[data-testid="post-card-image-open"]')
-        ->wait(0.7)
-        ->assertVisible('[data-testid="post-card-fullscreen-image"]');
+        ->click('[data-testid="post-card-image-open"]');
+
+    waitForImageViewer($page);
+
+    $page->assertVisible('[data-testid="post-card-fullscreen-image"]');
 
     expectViewerBelowHeader(imageViewerGeometry($page));
 })->with('screens')->with([
@@ -116,10 +160,11 @@ it('keeps the same layout on the post page', function (array $screen) {
 
     $page = visit(route('posts.show', $post))
         ->resize(...$screen)
-        ->wait(0.3)
-        ->click('[data-testid="post-show-image-open"]')
-        ->wait(0.7)
-        ->assertVisible('[data-testid="post-fullscreen-image"]');
+        ->click('[data-testid="post-show-image-open"]');
+
+    waitForImageViewer($page);
+
+    $page->assertVisible('[data-testid="post-fullscreen-image"]');
 
     expectViewerBelowHeader(imageViewerGeometry($page));
 })->with('screens');
@@ -136,11 +181,14 @@ it('keeps the same layout when opened from the post drawer', function (bool $ove
         'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
     ]);
 
-    $page = visit(route('feed'))
-        ->resize(...$screen)
-        ->wait(0.3)
-        ->click('[data-testid="post-card-title"]')
-        ->wait(1.2);
+    $page = visit(route('feed'))->resize(...$screen);
+
+    if ($screen[0] < 1024) {
+        // Below the desktop breakpoint the post opens in the overlay drawer.
+        waitForPostDetailOverlay($page);
+    }
+
+    $page->click('[data-testid="post-card-title"]');
 
     openDrawerImage($page);
 
@@ -161,10 +209,8 @@ it('follows the header when the mobile search row makes it taller', function () 
 
     $page = visit(route('feed', ['search' => 'Viewer Layout']))
         ->resize(...MobileViewports::SMALL_MOBILE)
-        ->wait(0.3)
         ->assertVisible('[data-testid="mobile-search-row"]')
-        ->click('[data-testid="post-card-image-open"]')
-        ->wait(0.7);
+        ->click('[data-testid="post-card-image-open"]');
 
     $geometry = imageViewerGeometry($page);
 
@@ -180,9 +226,7 @@ it('makes room for a title that wraps onto several lines', function () {
 
     $page = visit(route('feed'))
         ->resize(...MobileViewports::SMALL_MOBILE)
-        ->wait(0.3)
-        ->click('[data-testid="post-card-image-open"]')
-        ->wait(0.7);
+        ->click('[data-testid="post-card-image-open"]');
 
     expectViewerBelowHeader(imageViewerGeometry($page));
 });
@@ -195,11 +239,18 @@ it('follows the window when it is resized while the viewer is open', function ()
 
     $page = visit(route('feed'))
         ->resize(1440, 900)
-        ->wait(0.3)
-        ->click('[data-testid="post-card-image-open"]')
-        ->wait(0.7)
-        ->resize(1280, 640)
-        ->wait(0.5);
+        ->click('[data-testid="post-card-image-open"]');
+
+    waitForImageViewer($page);
+
+    $viewerHeight = VISIBLE_IMAGE_VIEWER.'.style.getPropertyValue("--rg-modal-height")';
+    $heightBefore = $page->script($viewerHeight);
+
+    $page->resize(1280, 640);
+
+    // The viewer measures itself again on the window's resize event, which
+    // fires only after resize() has returned.
+    waitForScript($page, "{$viewerHeight} !== ".json_encode($heightBefore));
 
     expectViewerBelowHeader(imageViewerGeometry($page));
 });
@@ -212,10 +263,11 @@ it('still closes with its close button', function () {
 
     $page = visit(route('feed'))
         ->resize(1440, 790)
-        ->wait(0.3)
-        ->click('[data-testid="post-card-image-open"]')
-        ->wait(0.7)
-        ->assertVisible('[data-testid="post-card-fullscreen-image"]')
+        ->click('[data-testid="post-card-image-open"]');
+
+    waitForImageViewer($page);
+
+    $page->assertVisible('[data-testid="post-card-fullscreen-image"]')
         ->click('[data-modal-below-header] [data-testid="modal-close"]');
 
     waitForScript($page, 'document.querySelector(\'[data-testid="post-card-fullscreen-image"]\').getBoundingClientRect().height', 0);

@@ -15,7 +15,6 @@ it('renders a positive intrinsic width/height and a real srcset once variants ex
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Responsive Feed Post');
 
     $selector = '[data-testid="post-card-image-open"] img';
@@ -57,7 +56,6 @@ it('marks only the first feed image eager with fetchpriority=high, others lazy',
 
     $page = visit(route('feed', ['sort' => 'newest']))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('First Responsive Post')
         ->assertSee('Second Responsive Post');
 
@@ -83,7 +81,6 @@ it('still falls back to the master image with no srcset when no variants have be
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('No Variants Yet Post');
 
     $selector = '[data-testid="post-card-image-open"] img';
