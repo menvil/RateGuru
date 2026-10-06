@@ -2,10 +2,15 @@
 
 namespace Tests;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use Illuminate\Foundation\Testing\CachedState;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Foundation\Testing\WithCachedConfig;
+use Illuminate\Foundation\Testing\WithCachedRoutes;
+use PDO;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -34,18 +39,24 @@ abstract class TestCase extends BaseTestCase
 
     public function createApplication()
     {
-        if (static::$bootConfiguration === []) {
-            return parent::createApplication();
-        }
-
-        // Deliberately mirrors the parent for the opt-in path only, because the
-        // hook has to be registered between building the application and
-        // bootstrapping it, and there is no seam for that. The cached-config
-        // and cached-routes branches the parent handles are not reachable here:
-        // no test that sets boot configuration uses those traits.
+        // Mirrors the parent, because the hook has to be registered between
+        // building the application and bootstrapping it, and the parent has no
+        // seam for that.
         $app = require Application::inferBasePath().'/bootstrap/app.php';
 
+        $this->traitsUsedByTest = class_uses_recursive(static::class);
+
+        if (isset(CachedState::$cachedConfig, $this->traitsUsedByTest[WithCachedConfig::class])) {
+            $this->markConfigCached($app);
+        }
+
+        if (isset(CachedState::$cachedRoutes, $this->traitsUsedByTest[WithCachedRoutes::class])) {
+            $app->booting(fn () => $this->markRoutesCached($app));
+        }
+
         $app->afterBootstrapping(LoadConfiguration::class, function (Application $app): void {
+            static::keepPostgresConnectionsAcrossTests($app['config']);
+
             foreach (static::$bootConfiguration as $key => $value) {
                 $app['config']->set($key, $value);
             }
@@ -54,5 +65,28 @@ abstract class TestCase extends BaseTestCase
         $app->make(Kernel::class)->bootstrap();
 
         return $app;
+    }
+
+    /**
+     * Every test that touches the database reconnects to it: RefreshDatabase
+     * rolls the test's transaction back and then disconnects, and the next
+     * test's fresh application opens a new connection. Against PostgreSQL that
+     * means forking a server backend, a SCRAM password exchange and a cold
+     * catalogue cache for every single test — enough that CI's PostgreSQL job
+     * spent about half as long again on Unit and Feature as the SQLite and
+     * MariaDB jobs did on the same tests.
+     *
+     * A persistent PDO connection survives the disconnect, so each test worker
+     * keeps one backend for its whole run. Nothing carries over between tests:
+     * the transaction is rolled back before the disconnect, and the application
+     * sets no session state (SET, LISTEN, advisory locks, temporary tables)
+     * that a later test could see.
+     */
+    private static function keepPostgresConnectionsAcrossTests(Repository $config): void
+    {
+        $config->set(
+            'database.connections.pgsql.options',
+            [PDO::ATTR_PERSISTENT => true] + $config->get('database.connections.pgsql.options', []),
+        );
     }
 }

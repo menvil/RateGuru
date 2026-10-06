@@ -152,8 +152,16 @@ function racingEnvironment(): array
 function committedConnection(): ConnectionInterface
 {
     $default = (string) config('database.default');
+    $peer = config("database.connections.{$default}");
 
-    config(['database.connections.committed_peer' => config("database.connections.{$default}")]);
+    // Never a persistent connection. Tests keep one persistent PostgreSQL
+    // connection per worker (tests/TestCase.php), and PDO gives every
+    // persistent handle with the same DSN and credentials the SAME server
+    // connection: a persistent peer would sit inside the test's own
+    // transaction, and freeing it would roll that transaction back mid-test.
+    $peer['options'] = [PDO::ATTR_PERSISTENT => false] + ($peer['options'] ?? []);
+
+    config(['database.connections.committed_peer' => $peer]);
     DB::purge('committed_peer');
 
     return DB::connection('committed_peer');
