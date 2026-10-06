@@ -6428,6 +6428,8 @@ function deployOpsVerifyRequiredClisStub(string $scratch, string $logFile): stri
  * activation-fail toggle simulates a worker that never reaches RUNNING),
  * `stop` removes it, and every invocation is logged so tests can assert
  * exactly which supervisor commands a deployment ran — or that it ran none.
+ * The reread-fail, update-fail and stop-fail toggles make that one command
+ * itself fail, the way supervisorctl does when supervisord rejects it.
  */
 function deployOpsInstallCoreStubs(string $scratch): void
 {
@@ -6488,16 +6490,28 @@ function deployOpsInstallCoreStubs(string $scratch): void
                 exit 1
                 ;;
             reread)
+                if [[ -e "${state}/reread-fail" ]]; then
+                    echo "error: <class 'xmlrpc.client.Fault'>, <Fault 92: 'CANT_REREAD'>"
+                    exit 2
+                fi
                 echo "parity-queue: available"
                 exit 0
                 ;;
             update|start)
+                if [[ "${1}" == update ]] && [[ -e "${state}/update-fail" ]]; then
+                    echo "ERROR: parity-queue: could not be added"
+                    exit 2
+                fi
                 if [[ ! -e "${state}/activation-fail" ]]; then
                     touch "${state}/queue-running"
                 fi
                 exit 0
                 ;;
             stop)
+                if [[ -e "${state}/stop-fail" ]]; then
+                    echo "parity-queue:parity-queue_00: ERROR (abnormal termination)"
+                    exit 1
+                fi
                 rm -f "${state}/queue-running"
                 exit 0
                 ;;
