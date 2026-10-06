@@ -33,6 +33,11 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->brandName('RateGuru')
+            // The site's own icon. Without one the browser falls back to
+            // /favicon.ico, which is empty, and asks for it again on every
+            // address change — each keystroke in a search that keeps its
+            // query in the URL, each tab or page switch.
+            ->favicon(fn (): string => asset('favicon.svg'))
             ->colors([
                 'primary' => Color::Purple,
             ])

@@ -223,9 +223,14 @@ RCLONE_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-run
 # rclone is deliberately NOT here: it is a managed external runtime binary
 # (see the header and reconcile_rclone), never an apt package requirement.
 # unzip is required because the pinned rclone release ships as a .zip.
+# bind9-dnsutils supplies dig and openssl the openssl CLI: verifying the
+# production mail identity reads public DNS and judges DKIM keys with them, on
+# every run of infrastructure verification, so they are host runtime rather
+# than something a read-only verification may install.
 BASE_PACKAGES=(
     acl
     bash
+    bind9-dnsutils
     ca-certificates
     certbot
     coreutils
@@ -243,6 +248,7 @@ BASE_PACKAGES=(
     mawk
     nginx
     openssh-server
+    openssl
     passwd
     procps
     redis-server
@@ -295,6 +301,8 @@ REQUIRED_RUNTIME_TOOLS=(
     ss:iproute2
     ip:iproute2
     jq:jq
+    dig:bind9-dnsutils
+    openssl:openssl
     getent:libc-bin
     awk:mawk
     nginx:nginx

@@ -102,9 +102,9 @@ function bootstrapRuntimeWriteStub(string $path, string $content): void
 function bootstrapRuntimeRequiredPackages(): array
 {
     $base = [
-        'acl', 'bash', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
+        'acl', 'bash', 'bind9-dnsutils', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
         'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
-        'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server',
+        'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server', 'openssl',
         'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
         'supervisor', 'tar', 'unzip', 'util-linux',
     ];
@@ -140,7 +140,7 @@ function bootstrapRuntimeAllTools(): array
     return [
         'apt-get', 'dpkg',
         'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'find',
-        'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'getent',
+        'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'dig', 'openssl', 'getent',
         'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
         'namei', 'runuser', 'createdb', 'dropdb',

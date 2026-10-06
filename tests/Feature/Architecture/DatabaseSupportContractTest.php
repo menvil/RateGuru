@@ -42,15 +42,20 @@ it('provides explicit test commands for every supported database', function () {
     // Architecture suite has its own command, because running it against a
     // second and third engine proves nothing it could not prove against the
     // first.
+    //
+    // Arguments given after `--` (CI passes `--log-junit`) belong to the test
+    // run alone: without @no_additional_args Composer appends them to every
+    // command of the script, and `config:clear` rejects an option it does not
+    // know.
     expect($scripts['test'])->toBe([
         '@php artisan config:clear --ansi @no_additional_args',
         '@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature,Architecture',
     ])->and($scripts['test:postgres'])->toBe('@test')
         ->and($scripts['test:sqlite'])->toBe([
-            'DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi',
+            'DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi @no_additional_args',
             'DB_CONNECTION=sqlite DB_DATABASE=:memory: php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature',
         ])->and($scripts['test:mariadb'])->toBe([
-            'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi',
+            'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi @no_additional_args',
             'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature',
         ])->and($scripts['test:architecture'])
         ->toBe('@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Architecture');

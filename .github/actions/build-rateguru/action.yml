@@ -313,7 +313,6 @@ runs:
           --exclude='storage/' \
           --exclude='tests/' \
           --exclude='docs/' \
-          --exclude='coderabbit-review/' \
           --exclude='tools/' \
           --exclude='database/database.sqlite' \
           --exclude='public/hot' \

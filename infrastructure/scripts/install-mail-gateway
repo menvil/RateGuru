@@ -27,8 +27,9 @@
 # source address, and an address has exactly one PTR name, so the name a direct
 # route greets receiving servers with (the MTA hostname) belongs to the host and
 # appears in no target's policy. The contract says whether direct delivery is
-# enabled on this host at all, and under which name. It is judged here, in every
-# mode and before anything is rendered: a plan with a direct route on a host
+# enabled on this host at all, and under which name. It is judged — by
+# mail-identity check-outbound, from this bundle — in every mode and before
+# anything is rendered: a plan with a direct route on a host
 # whose contract leaves direct delivery disabled — or enabled without a valid
 # public hostname — is refused before a file or a service is touched, so
 # switching a target's policy to outbound can never by itself put mail on the
@@ -136,8 +137,9 @@ MAIL_ROUTING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_ROUTING_CLI "${SCRIPT_DIR
 POLICY_FILE="$(gated_default RATEGURU_MAILGW_POLICY_FILE "${REPO_ROOT}/infrastructure/config/mail-routing.json")"
 REGISTRY_FILE="$(gated_default RATEGURU_MAILGW_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
 
-# The host's own outbound contract, from this bundle.
+# The host's own outbound contract, and its one judge, from this bundle.
 OUTBOUND_FILE="$(gated_default RATEGURU_MAILGW_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
+MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"
 
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
@@ -269,124 +271,24 @@ require_tools() {
 
 # --- The host's outbound contract ---------------------------------------------------
 #
-# mail-outbound.json, schema 1, exactly:
-#
-#   { "schema_version": 1, "direct": { "enabled": <bool>, "mta_hostname": "<name>" } }
-#
-#   enabled=false  direct delivery does not exist on this host: no plan with a
-#                  direct route renders. mta_hostname may be empty.
-#   enabled=true   mta_hostname is the host's public MTA identity — the name its
-#                  PTR record gives, which every direct route greets with.
-#
-# It holds no credential: direct delivery has none, and the closed shape leaves
-# nowhere to put one.
+# mail-outbound.json is judged by infrastructure/scripts/mail-identity — the one
+# judge of the host's mail identity — from this same bundle, never restated
+# here: its shape and schema, a valid public MTA hostname whenever direct
+# delivery is enabled, and that every direct route in the plan is on a host
+# that enabled it.
 
-OUTBOUND_SCHEMA_VERSION=1
-
-# Emits one JSON array of problems with the contract and with the plan's use of
-# it; empty when the plan may be rendered. Run on a single-document,
-# control-character-free, duplicate-free object. The plan arrives as data.
-# shellcheck disable=SC2016
-OUTBOUND_CONTRACT_PROGRAM='
-def anchored($re): test("\\A(?:" + $re + ")\\z");
-def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-def hostname_re: "(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
-
-# Names that never resolve on the public DNS, or resolve only privately. A
-# receiving server checks that the name a client greets with and the PTR of its
-# address agree; under one of these they never can.
-def private_tlds: ["alt", "arpa", "example", "internal", "invalid", "local", "localdomain", "localhost", "onion", "test"];
-
-def hostname_problem:
-    if type != "string" then
-        "must be a string, got \(tojson)"
-    elif length > 253 or (anchored(hostname_re) | not) then
-        "must be a lowercase fully qualified hostname, got \(tojson)"
-    elif (split(".") | last) as $tld | any(private_tlds[]; . == $tld) then
-        "\(tojson) is under the reserved .\(split(".") | last) domain, which never resolves publicly — a direct MTA identity must be a public name its PTR can match"
-    else empty end;
-
-. as $contract
-| [
-    (if keys != ["direct", "schema_version"] then
-         "mail-outbound.json must be exactly {schema_version, direct}, found \(keys | tojson)"
-     else empty end),
-    (if (.schema_version | type) != "number" or .schema_version != $schema_version then
-         "unsupported mail-outbound.json schema_version: \(.schema_version | tojson) (expected \($schema_version))"
-     else empty end),
-    (if has("direct") | not then empty
-     elif (.direct | type) != "object" then
-         "direct must be an object {enabled, mta_hostname}, got \(.direct | tojson)"
-     elif (.direct | keys) != ["enabled", "mta_hostname"] then
-         "direct must be exactly {enabled, mta_hostname}, found \(.direct | keys | tojson)"
-     else
-         (if (.direct.enabled | type) != "boolean" then
-              "direct.enabled must be true or false, got \(.direct.enabled | tojson)"
-          else empty end),
-         (if .direct.enabled == true and .direct.mta_hostname == "" then
-              "direct.enabled is true but direct.mta_hostname is empty — direct delivery needs the public MTA identity of this host, the name its PTR record gives"
-          elif .direct.mta_hostname == "" then
-              empty
-          else
-              .direct.mta_hostname | hostname_problem | "direct.mta_hostname \(.)"
-          end)
-     end),
-
-    # A direct route exists only on a host that enabled direct delivery.
-    ((if ($contract.direct | type) == "object" then $contract.direct.enabled else null end) as $enabled
-      | $plan[0].listeners[]
-      | select((.route | type) == "object" and .route.kind == "direct")
-      | if $enabled == true then
-            empty
-        else
-            "\(.identity): its mail routing plan delivers by direct SMTP, but direct outbound delivery is not enabled on this host (mail-outbound.json direct.enabled is \($enabled | tojson)) — no outbound route is rendered, installed or verified until the MTA identity of this host is in place and direct delivery is enabled"
-        end)
-  ]
-'
-
-# assert_outbound_contract PLAN CONTRACT — the contract file itself, then its
-# rules and the plan's use of it. Diagnostics on stderr; a refusal exits before
-# anything is rendered, so --check, --apply and --verify all stop here, with
-# nothing changed. A symlink is refused: it lets the reviewed path and the read
-# path diverge.
+# assert_outbound_contract PLAN CONTRACT — the judge's verdict on the contract
+# and the plan's use of it. Its diagnostics reach stderr unchanged; a refusal
+# exits before anything is rendered, so --check, --apply and --verify all stop
+# here, with nothing changed.
 assert_outbound_contract() {
     local plan="$1" path="$2"
 
-    [[ ! -L "${path}" ]] || fail "the host outbound contract must not be a symlink: ${path}"
-    [[ -e "${path}" ]] || fail "the host outbound contract is unavailable: ${path} — run from a full repository bundle"
-    [[ -f "${path}" && -r "${path}" ]] || fail "the host outbound contract must be a readable regular file: ${path}"
+    [[ -x "${MAIL_IDENTITY_CLI}" ]] \
+        || fail "the mail identity CLI is not executable: ${MAIL_IDENTITY_CLI} — run from a full repository bundle; this installer never judges the host contract itself"
 
-    local documents
-    documents="$(jq -n '[inputs] | length' "${path}" 2>/dev/null)" \
-        || fail "the host outbound contract is not valid JSON: ${path}"
-    [[ "${documents}" == "1" ]] \
-        || fail "the host outbound contract must hold exactly one JSON document, found ${documents}: ${path}"
-
-    jq -e 'type == "object"' "${path}" >/dev/null \
-        || fail "the host outbound contract must be a JSON object: ${path}"
-
-    # Its hostname is spliced into master.cf, so not even a control character
-    # inside a key reaches the rules below.
-    jq -e '[paths | .[] | strings] + [.. | strings] | all(.[]; explode | all(.[]; . >= 32 and . != 127))' "${path}" >/dev/null \
-        || fail "the host outbound contract must not contain control characters in any key or value: ${path}"
-
-    # A key declared twice is kept once, silently, by every JSON parser.
-    local streamed parsed
-    streamed="$(jq -c --stream '.' "${path}" | wc -l)" || fail "could not read the host outbound contract: ${path}"
-    parsed="$(jq -c 'tostream' "${path}" | wc -l)" || fail "could not read the host outbound contract: ${path}"
-    (( streamed == parsed )) \
-        || fail "the host outbound contract declares the same key twice in one object — only one of them would ever be read: ${path}"
-
-    local problems count
-    problems="$(jq -c --slurpfile plan "${plan}" --argjson schema_version "${OUTBOUND_SCHEMA_VERSION}" \
-        "${OUTBOUND_CONTRACT_PROGRAM}" "${path}")" \
-        || fail "could not evaluate the host outbound contract: ${path}"
-    count="$(jq 'length' <<<"${problems}")"
-
-    if (( count > 0 )); then
-        jq -r '.[] | "INVALID: " + .' <<<"${problems}" >&2
-        fail "the host outbound contract refuses this gateway (${count} problem(s)): ${path} — nothing was rendered, and nothing on the host was changed"
-    fi
+    "${MAIL_IDENTITY_CLI}" check-outbound --plan "${plan}" --outbound "${path}" >/dev/null \
+        || fail "the host outbound contract refuses this gateway: ${path} — nothing was rendered, and nothing on the host was changed"
 }
 
 # --- Rendering (Postfix spelling of the plan) -------------------------------------

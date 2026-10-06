@@ -44,7 +44,8 @@ it('plans the migration one vertical at a time, starting with localization', fun
         '### Phase 0/1 — design contract, theme and UI kit',
         '### Phase 2 — Admin v2 shell and navigation',
         '### Phase 3 — Languages v2',
-        '### Phase 4+ — Translation Center',
+        '### Phase 4 — Translation Center',
+        '### Phase 5+ — AI suggestions, workflow and the translation cutover',
         '### Then — freeze Admin UI Kit v1',
         '### Then — the remaining sections',
     ];
@@ -73,8 +74,8 @@ it('records the shell as production and what it deliberately leaves out for now'
         ->toContain('### Production shell')
         ->toContain('### Transitional omissions')
         ->toContain('**Global search.**')
-        ->toContain('**Translation Center** is not in the navigation')
         ->toContain('**Operational counts**')
+        ->toContain('**Translation Center\'s missing count.**')
         ->toContain('**Legacy page headers, breadcrumbs and actions**');
 
     $phase2 = substr($plan, (int) strpos($plan, '### Phase 2'), 200);
@@ -82,16 +83,13 @@ it('records the shell as production and what it deliberately leaves out for now'
     expect($phase2)->toContain('**Status: done.**');
 });
 
-it('records Languages as migrated, with its overlays built, and Translation Center next', function () {
+it('records Languages as migrated, with its overlays built', function () {
     $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
     $phase3 = substr($plan, (int) strpos($plan, '### Phase 3'), 200);
-    $phase4 = substr($plan, (int) strpos($plan, '### Phase 4+'), 200);
 
-    expect($phase3)->toContain('**Status: done.**')
-        ->and($phase4)->toContain('**Status: next**')
-        ->and($phase4)->toContain('Translation Center foundation');
+    expect($phase3)->toContain('**Status: done.**');
 
     expect($contract)
         ->toContain('**Languages** (production, migrated)')
@@ -101,15 +99,44 @@ it('records Languages as migrated, with its overlays built, and Translation Cent
         ->toContain('`x-admin.ui.toast-stack` (FBK-01)');
 });
 
-it('records the Languages drawer\'s editor links as a bridge until Translation Center, not as the target', function () {
-    $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
+it('records Translation Center as done, on the one catalog Languages counts, and AI suggestions next', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
-    // Prose wraps at any word, so the phrases are matched across line breaks.
-    foreach ([$contract, $plan] as $document) {
-        expect((string) preg_replace('/\s+/', ' ', $document))
-            ->toContain('Target design: a missing item')
-            ->toContain('the Languages drawer keeps links to the existing editors')
-            ->toContain('replaces these links with Translation Center filters');
-    }
+    $phase4 = substr($plan, (int) strpos($plan, '### Phase 4 — Translation Center'), 200);
+    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 200);
+
+    expect($phase4)->toContain('**Status: done.**')
+        ->and($phase5)->toContain('**Status: next** — Phase 5, AI suggestions.');
+
+    expect($contract)
+        ->toContain('**Translation Center** (production): `/admin/translation-center`')
+        ->toContain('ProjectTranslationCatalog')
+        ->toContain('ProjectTranslationUnit')
+        ->toContain('UpdateProjectTranslationAction')
+        ->toContain('**Storage stays where it is.**')
+        ->toContain('**One target language.**')
+        ->toContain('**Drafts live in the browser.**')
+        ->toContain('**From Languages.**')
+        ->toContain('**Not in this step.** No AI')
+        ->toContain('| Translation Center AI |')
+        ->toContain('`x-admin.ui.segmented` (FRM-08)')
+        ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
+        ->toContain('`x-admin.ui.combobox` (FRM-11)')
+        ->toContain('| FRM-01–03, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('| DOM-01 placement |')
+        ->toContain('| Languages table on narrow widths |')
+        ->toContain('On a phone the stats stay on one line')
+        ->toContain("A list's search is clearable");
+});
+
+it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($plan)->toContain('**Transitional bridge**, closed in Phase 4.')
+        ->and($contract)
+        ->toContain('Translate, which opens Translation Center on that item')
+        ->toContain('Catalog issues are the release\'s to fix: nothing sends them to Translation Center')
+        ->not->toContain('which is not built yet');
 });

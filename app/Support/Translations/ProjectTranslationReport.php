@@ -8,7 +8,7 @@ namespace App\Support\Translations;
  */
 final readonly class ProjectTranslationReport
 {
-    /** @param  list<MissingProjectTranslation>  $missing */
+    /** @param  list<ProjectTranslationUnit>  $missing  the units that need a translation and have none in this language */
     public function __construct(
         public string $locale,
         public int $required,
@@ -30,7 +30,7 @@ final readonly class ProjectTranslationReport
     /**
      * The missing translations grouped by section, in section order.
      *
-     * @return array<string, list<MissingProjectTranslation>>
+     * @return array<string, list<ProjectTranslationUnit>>
      */
     public function missingBySection(): array
     {
@@ -39,7 +39,7 @@ final readonly class ProjectTranslationReport
         foreach (ProjectContentSection::cases() as $section) {
             $items = array_values(array_filter(
                 $this->missing,
-                fn (MissingProjectTranslation $item): bool => $item->section === $section,
+                fn (ProjectTranslationUnit $unit): bool => $unit->section === $section,
             ));
 
             if ($items !== []) {

@@ -2,7 +2,9 @@
     /*
      * One table for every installed language, however many there are: the
      * rows come from the data, never from a branch per language. Header and
-     * rows share this grid; below its minimum width the card scrolls.
+     * rows share this grid. Where the card is narrower than the grid, the
+     * columns tighten and then each row stacks into a block of its own, so
+     * the screen never scrolls sideways (.rg-admin-languages__card).
      */
     $columns = '--rg-admin-table-columns: minmax(220px, 1fr) 90px 150px 180px 190px 110px 130px; --rg-admin-table-min-width: 1060px';
 
@@ -47,7 +49,8 @@
         The search: typing filters the rows already on the page and keeps the
         query in the address (?q=) with replaceState, so a link or a reload
         opens the same view, without a Livewire request per keystroke. The
-        tabs carry the query along, and Back restores it with the tab.
+        tabs carry the query along, and Back restores it with the tab. While
+        the field holds text, its clear button empties it in one click.
     --}}
     <div
         class="rg-admin-screen__body"
@@ -100,7 +103,7 @@
         <x-admin.ui.tabs label="Language status" :active="$status" :items="$tabs" />
 
         <div
-            class="rg-admin-table"
+            class="rg-admin-table rg-admin-languages__card"
             wire:key="{{ $rowsKey }}"
             x-init="rows = [...$el.querySelectorAll('[data-search]')].map((row) => row.dataset.search)"
         >
@@ -111,6 +114,7 @@
                     name="q"
                     id="rg-admin-languages-search"
                     x-model="query"
+                    clearable
                 />
                 {{-- Always present, so a screen reader hears the new count while focus stays in the field. --}}
                 <span

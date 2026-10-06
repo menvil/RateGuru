@@ -2,6 +2,7 @@
 
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\TranslationCenterPage;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -30,50 +31,22 @@ function languagesPage(): Testable
     return Livewire::test(LanguagesPage::class);
 }
 
-/** The rendered page, queryable. */
-function languagesDom(Testable $page): DOMXPath
-{
-    $dom = new DOMDocument;
-    @$dom->loadHTML('<?xml encoding="utf-8"?>'.$page->html());
-
-    return new DOMXPath($dom);
-}
-
-/**
- * The outer HTML of the first element an XPath query finds, or null — without
- * Livewire's morph markers and the whitespace between tags, so an assertion
- * can name a button by its exact text.
- */
-function languagesFragment(Testable $page, string $query): ?string
-{
-    $xpath = languagesDom($page);
-    $node = $xpath->query($query)->item(0);
-
-    if ($node === null) {
-        return null;
-    }
-
-    $html = str_replace(['<!--[if BLOCK]><![endif]-->', '<!--[if ENDBLOCK]><![endif]-->'], '', (string) $node->ownerDocument->saveHTML($node));
-
-    return (string) preg_replace(['/>\s+/', '/\s+</'], ['>', '<'], $html);
-}
-
 /** One language's row in the table, or null when the current tab leaves it out. */
 function languageRow(Testable $page, string $locale): ?string
 {
-    return languagesFragment($page, "//*[@role='table']//*[@role='row'][@id='rg-admin-language-{$locale}']");
+    return livewireFragment($page, "//*[@role='table']//*[@role='row'][@id='rg-admin-language-{$locale}']");
 }
 
 /** The open confirmation dialog, or null. */
 function languagesDialog(Testable $page): ?string
 {
-    return languagesFragment($page, "//*[contains(concat(' ', @class, ' '), ' rg-admin-dialog-layer ')]");
+    return livewireFragment($page, "//*[contains(concat(' ', @class, ' '), ' rg-admin-dialog-layer ')]");
 }
 
 /** The open missing-translations drawer, or null. */
 function languagesDrawer(Testable $page): ?string
 {
-    return languagesFragment($page, "//*[contains(concat(' ', @class, ' '), ' rg-admin-drawer-layer ')]");
+    return livewireFragment($page, "//*[contains(concat(' ', @class, ' '), ' rg-admin-drawer-layer ')]");
 }
 
 /** The languages in the table, in the order it lists them. */
@@ -81,7 +54,7 @@ function languagesListed(Testable $page): array
 {
     $codes = [];
 
-    foreach (languagesDom($page)->query("//*[@role='table']//*[@role='row'][starts-with(@id, 'rg-admin-language-')]") as $row) {
+    foreach (livewireDom($page)->query("//*[@role='table']//*[@role='row'][starts-with(@id, 'rg-admin-language-')]") as $row) {
         $codes[] = substr($row->getAttribute('id'), strlen('rg-admin-language-'));
     }
 
@@ -91,7 +64,7 @@ function languagesListed(Testable $page): array
 /** The header's figures, label => value. */
 function languagesStats(Testable $page): array
 {
-    $xpath = languagesDom($page);
+    $xpath = livewireDom($page);
     $stats = [];
 
     foreach ($xpath->query("//dl[contains(@class, 'rg-admin-stats')]/div") as $stat) {
@@ -104,7 +77,7 @@ function languagesStats(Testable $page): array
 /** The status tabs, label => count. */
 function languagesTabs(Testable $page): array
 {
-    $xpath = languagesDom($page);
+    $xpath = livewireDom($page);
     $tabs = [];
 
     foreach ($xpath->query("//nav[@aria-label='Language status']//*[contains(@class, 'rg-admin-tab ') or @class='rg-admin-tab']") as $tab) {
@@ -118,7 +91,7 @@ function languagesTabs(Testable $page): array
 /** The label of the tab marked as current. */
 function languagesActiveTab(Testable $page): ?string
 {
-    $xpath = languagesDom($page);
+    $xpath = livewireDom($page);
     $tab = $xpath->query("//nav[@aria-label='Language status']//a[@aria-current='page']")->item(0);
 
     return $tab === null ? null : trim($xpath->query('text()', $tab)->item(0)->textContent);
@@ -230,6 +203,20 @@ it('shares one table among however many languages there are, with no branch for 
 });
 
 // English ------------------------------------------------------------------------
+
+it('opens every language but English in Translation Center from its name, complete or not', function () {
+    settingsTranslatedInto(supportedLocales());
+    $page = languagesPage();
+
+    expect(languageRow($page, 'en'))->not->toContain('rg-admin-languages__names--link')
+        ->not->toContain(e(TranslationCenterPage::getUrl()));
+
+    foreach (translatedLocales() as $code) {
+        expect(languageRow($page, $code))
+            ->toContain('<a href="'.e(TranslationCenterPage::getUrl(['locale' => $code])).'" class="rg-admin-languages__names rg-admin-languages__names--link"')
+            ->toContain('title="Translate '.e(config("locales.supported.{$code}.label")).' in Translation Center"');
+    }
+});
 
 it('shows English as the enabled default in two lines, with nothing to enable or disable', function () {
     offerEveryInstalledLocale();
@@ -382,7 +369,7 @@ it('filters the table by status, with the tab in the URL', function () {
     expect(languagesListed($page))->toBe([$withheld])
         ->and(languagesActiveTab($page))->toBe('Disabled');
 
-    $tabs = languagesDom($page)->query("//nav[@aria-label='Language status']//a");
+    $tabs = livewireDom($page)->query("//nav[@aria-label='Language status']//a");
     $hrefs = collect(iterator_to_array($tabs))->mapWithKeys(fn (DOMElement $tab): array => [trim($tab->firstChild->textContent) => $tab->getAttribute('href')]);
 
     expect($hrefs->all())->toBe([
@@ -461,15 +448,6 @@ it('says when no language is incomplete, and when none is disabled', function ()
 // the behaviour; these pin the contract the browser works from, and guard
 // against a live server-side search coming back.
 
-/** A page as a plain HTTP response renders it, queryable. */
-function languagesResponseDom(string $html): DOMXPath
-{
-    $dom = new DOMDocument;
-    @$dom->loadHTML('<?xml encoding="utf-8"?>'.$html);
-
-    return new DOMXPath($dom);
-}
-
 it('gives every row what the browser searches: English name, native name and code, lower-cased', function () {
     $page = languagesPage();
 
@@ -507,14 +485,23 @@ it('never sends a keystroke in the search to the server', function () {
 
     expect($views)->not->toContain('wire:model');
 
-    $field = (string) languagesFragment(languagesPage(), "//input[@id='rg-admin-languages-search']");
+    $field = (string) livewireFragment(languagesPage(), "//input[@id='rg-admin-languages-search']");
 
     expect($field)->toContain('x-model="query"')->not->toContain('wire:');
 });
 
+it('clears the search from a button inside the field', function () {
+    $clear = (string) livewireFragment(languagesPage(), "//button[contains(@class, 'rg-admin-search__clear')]");
+
+    expect($clear)
+        ->toContain('aria-label="Clear search"')
+        ->toContain('aria-controls="rg-admin-languages-search"')
+        ->not->toContain('wire:');
+});
+
 it('carries the search into every tab link, which stays a real link', function () {
     $html = $this->get(LanguagesPage::getUrl(['status' => 'disabled', 'q' => 'ger']))->assertOk()->getContent();
-    $xpath = languagesResponseDom($html);
+    $xpath = livewireDom($html);
     $tabs = [];
 
     foreach ($xpath->query("//nav[@aria-label='Language status']//a") as $tab) {
@@ -530,15 +517,15 @@ it('carries the search into every tab link, which stays a real link', function (
 
     // Opened with a search, the rows wait for the browser to apply it rather than flash unfiltered.
     expect($xpath->query("//*[contains(@class, 'rg-admin-table__scroll')][@x-cloak]")->length)->toBe(1)
-        ->and(languagesResponseDom($this->get(LanguagesPage::getUrl())->getContent())->query("//*[contains(@class, 'rg-admin-table__scroll')][@x-cloak]")->length)->toBe(0);
+        ->and(livewireDom($this->get(LanguagesPage::getUrl())->getContent())->query("//*[contains(@class, 'rg-admin-table__scroll')][@x-cloak]")->length)->toBe(0);
 });
 
 it('leaves the count and the no-match state for the browser to fill in', function () {
     $page = languagesPage();
     $installed = count(supportedLocales());
 
-    $count = (string) languagesFragment($page, "//*[contains(@class, 'rg-admin-toolbar__count')]");
-    $noMatch = (string) languagesFragment($page, "//*[@x-show='rows.length > 0 && shown === 0']");
+    $count = (string) livewireFragment($page, "//*[contains(@class, 'rg-admin-toolbar__count')]");
+    $noMatch = (string) livewireFragment($page, "//*[@x-show='rows.length > 0 && shown === 0']");
 
     expect($count)
         ->toContain('role="status"')
@@ -557,7 +544,7 @@ it('keys the table by the rows it holds, so the browser counts afresh when they 
     offerEveryInstalledLocale();
 
     // XPath reads wire:key as a namespaced name, so the attribute is matched by name().
-    $key = fn (Testable $page): string => (string) languagesDom($page)->query("//*[contains(concat(' ', @class, ' '), ' rg-admin-table ')]/@*[name()='wire:key']")->item(0)?->nodeValue;
+    $key = fn (Testable $page): string => (string) livewireDom($page)->query("//*[contains(concat(' ', @class, ' '), ' rg-admin-table ')]/@*[name()='wire:key']")->item(0)?->nodeValue;
 
     $page = languagesPage()->set('status', 'enabled');
     $before = $key($page);
@@ -881,27 +868,58 @@ it('lists what is missing, by section, with a link to the editor that manages it
         ->toContain('Visitors see the English text wherever a translation is missing.');
 });
 
-it('keeps Translate and Translate all missing in place, disabled with the reason, until Translation Center exists', function () {
+it('opens Translation Center from each missing item, on its language, section and unit, in Missing only', function () {
     [$target] = twoTranslatedLocales();
-    untranslatedCategory();
+    $category = untranslatedCategory();
     $page = languagesPage()->call('showMissing', $target);
 
-    $xpath = languagesDom($page);
+    $xpath = livewireDom($page);
     $items = $xpath->query("//*[contains(@class, 'rg-admin-drawer')]//li[contains(@class, 'rg-admin-languages__item')]");
-    $translate = $xpath->query("//*[contains(@class, 'rg-admin-drawer')]//button[contains(normalize-space(.), 'Translate')]");
-    $reason = $xpath->query("//*[@id='rg-admin-languages-missing-later']")->item(0);
+    $translate = collect(iterator_to_array($xpath->query("//*[contains(@class, 'rg-admin-drawer')]//li//a[starts-with(normalize-space(.), 'Translate')]")));
 
-    // One Translate per item, and Translate all missing in the footer: all of them real buttons, disabled.
-    expect($translate->length)->toBe($items->length + 1)
-        ->and(collect(iterator_to_array($translate))->every(fn (DOMElement $button): bool => $button->hasAttribute('disabled')
-            && $button->getAttribute('aria-describedby') === 'rg-admin-languages-missing-later'))->toBeTrue()
-        ->and(trim((string) $reason?->textContent))->toContain('opens Translation Center, which is not built yet');
+    // One real link per item, none of them disabled any more.
+    expect($translate)->toHaveCount($items->length)
+        ->and($xpath->query("//*[contains(@class, 'rg-admin-drawer')]//button[@disabled]")->length)->toBe(0)
+        ->and($page->html())->not->toContain('not built yet');
 
-    // Nothing links to a Translation Center that does not exist.
-    $hrefs = collect(iterator_to_array($xpath->query("//*[contains(@class, 'rg-admin-drawer')]//a/@href")))->map(fn (DOMAttr $href): string => $href->value);
+    $link = $translate->first(fn (DOMElement $link): bool => str_contains($link->textContent, 'Georgian food'));
+    parse_str((string) parse_url($link->getAttribute('href'), PHP_URL_QUERY), $query);
 
-    expect($hrefs)->not->toBeEmpty()
-        ->and($hrefs->filter(fn (string $href): bool => str_contains(strtolower($href), 'translation'))->all())->toBe([]);
+    expect(parse_url($link->getAttribute('href'), PHP_URL_PATH))->toBe(parse_url(TranslationCenterPage::getUrl(), PHP_URL_PATH))
+        ->and($query)->toBe(['locale' => $target, 'section' => 'categories', 'mode' => 'missing', 'unit' => "categories:{$category->id}:name"]);
+});
+
+it('opens Translation Center on everything a language is missing from Translate all missing', function () {
+    [$target] = twoTranslatedLocales();
+    untranslatedCategory();
+
+    $all = livewireFragment(languagesPage()->call('showMissing', $target), "//*[contains(@class, 'rg-admin-drawer__footer')]//a");
+
+    expect($all)->toContain('Translate all missing')
+        ->toContain('href="'.e(TranslationCenterPage::getUrl(['locale' => $target, 'mode' => 'missing'])).'"');
+});
+
+it('keeps Edit source on every missing item, beside Translate', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+
+    $drawer = (string) languagesDrawer(languagesPage()->call('showMissing', $target));
+
+    expect(substr_count($drawer, 'class="rg-admin-languages__edit-source"'))->toBe(substr_count($drawer, '>Translate<'))
+        ->and($drawer)->toContain(e(route('filament.admin.resources.categories.edit', ['record' => $category])));
+});
+
+it('sends no catalog issue to Translation Center, and offers nothing to translate when only the catalog is wrong', function () {
+    [$target] = twoTranslatedLocales();
+    settingsTranslatedInto(supportedLocales());
+    breakCatalogsOf($target);
+
+    $drawer = (string) languagesDrawer(languagesPage()->call('showMissing', $target));
+
+    expect($drawer)->toContain('Application translations')
+        ->toContain('Every piece of project content has a translation.')
+        ->not->toContain('Translate all missing')
+        ->not->toContain(e(TranslationCenterPage::getUrl()));
 });
 
 it('names a project setting once, and shortens a long English text to its start', function () {
@@ -924,7 +942,7 @@ it('keeps the sections in their own order', function () {
     untranslatedCategory();
 
     $page = languagesPage()->call('showMissing', $target);
-    $sections = collect(iterator_to_array(languagesDom($page)->query("//*[contains(@class, 'rg-admin-drawer')]//section//h3")))
+    $sections = collect(iterator_to_array(livewireDom($page)->query("//*[contains(@class, 'rg-admin-drawer')]//section//h3")))
         ->map(fn (DOMElement $heading): string => trim($heading->textContent))
         ->all();
 
@@ -1018,7 +1036,7 @@ it('holds thirty-five languages in one table, in config order', function () {
     expect($codes)->toHaveCount(35)
         ->and(languagesListed($page))->toBe($codes)
         ->and(substr_count($html, 'role="table"'))->toBe(1)
-        ->and(languagesDom($page)->query("//*[@role='table']//*[@role='row']")->length)->toBe(36)
+        ->and(livewireDom($page)->query("//*[@role='table']//*[@role='row']")->length)->toBe(36)
         ->and(languagesStats($page)['Installed'])->toBe('35')
         ->and(languagesTabs($page))->toMatchArray(['All' => 35, 'Enabled' => 10, 'Disabled' => 25]);
 
