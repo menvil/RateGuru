@@ -512,6 +512,15 @@ it('never sends a keystroke in the search to the server', function () {
     expect($field)->toContain('x-model="query"')->not->toContain('wire:');
 });
 
+it('clears the search from a button inside the field', function () {
+    $clear = (string) languagesFragment(languagesPage(), "//button[contains(@class, 'rg-admin-search__clear')]");
+
+    expect($clear)
+        ->toContain('aria-label="Clear search"')
+        ->toContain('aria-controls="rg-admin-languages-search"')
+        ->not->toContain('wire:');
+});
+
 it('carries the search into every tab link, which stays a real link', function () {
     $html = $this->get(LanguagesPage::getUrl(['status' => 'disabled', 'q' => 'ger']))->assertOk()->getContent();
     $xpath = languagesResponseDom($html);
