@@ -159,12 +159,14 @@ final class NightwatchPrivacy
     /**
      * Removes everything after the path from an outgoing request URL.
      *
-     * Unlike an incoming URL, nothing here is RateGuru's vocabulary: the only
-     * outbound requests RateGuru makes are to user-pasted import URLs and the
-     * redirect hops those resolve to, so both the parameter names and their
-     * values are arbitrary third-party strings — presigned-URL credentials,
-     * share tokens, tracking identifiers. The scheme, host and path are what
-     * an import failure is diagnosed from, and they are kept in full.
+     * Unlike an incoming URL, nothing here is RateGuru's vocabulary: outbound
+     * requests go to user-pasted import URLs and the redirect hops those
+     * resolve to, so both the parameter names and their values are arbitrary
+     * third-party strings — presigned-URL credentials, share tokens, tracking
+     * identifiers. The scheme, host and path are what an import failure is
+     * diagnosed from, and they are kept in full. (The translation provider's
+     * endpoint is the other destination; it carries no query, and its
+     * credential travels in a header, which is never recorded.)
      *
      * The fragment goes too. `UrlImportValidator` strips it from what RateGuru
      * fetches, but a redirect `Location` or any other client is not bound by

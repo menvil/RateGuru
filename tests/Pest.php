@@ -21,13 +21,22 @@ use App\Support\Import\ResolvedImportTarget;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\TranslationEngine\Contracts\TranslationProvider;
+use App\Support\TranslationEngine\Data\TranslationBatchRequest;
+use App\Support\TranslationEngine\Data\TranslationItem;
+use App\Support\TranslationEngine\Data\TranslationProviderCall;
+use App\Support\TranslationEngine\Data\TranslationProviderLimits;
+use App\Support\TranslationEngine\Data\TranslationProviderResponse;
+use App\Support\TranslationEngine\Enums\TranslationDataClassification;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
@@ -7660,4 +7669,283 @@ function bsvcSystemctlMutations(string $scratch): array
         $lines,
         fn (string $line): bool => ! str_contains($line, 'is-enabled') && ! str_contains($line, 'is-active'),
     ));
+}
+
+/*
+|--------------------------------------------------------------------------
+| Translation engine
+|--------------------------------------------------------------------------
+|
+| Shared by the engine's unit tests (items, batches, chunking, prompts) and
+| its feature tests (service, router, OpenAI provider). No test reaches a real
+| provider: the OpenAI tests run under Http::fake() with stray requests
+| prevented, and the service tests use ScriptedTranslationProvider.
+|
+*/
+
+/**
+ * The API key the OpenAI tests configure. Deliberately not shaped like a real
+ * OpenAI key, so no secret scanner ever mistakes a fixture for a credential —
+ * and distinctive, so a test can prove it never appears where it must not.
+ */
+const TRANSLATION_TEST_API_KEY = 'translation-test-credential-never-real-4f1c';
+
+/**
+ * One valid item — a category name — with any named argument replaced.
+ *
+ * @param  array<string, mixed>  $overrides  TranslationItem constructor arguments by name
+ */
+function translationItem(array $overrides = []): TranslationItem
+{
+    return new TranslationItem(...array_replace([
+        'id' => 'categories:17:name',
+        'sourceLocale' => 'en',
+        'sourceText' => 'Dogs',
+        'contentType' => 'category.name',
+        'multiline' => false,
+        'context' => 'The category name shown on posts.',
+        'maxLength' => 80,
+        'placeholders' => [],
+        'existingTranslations' => [],
+    ], $overrides));
+}
+
+/**
+ * $count short, distinct items with the ids item:1 … item:N, in that order.
+ *
+ * @param  array<string, mixed>  $overrides  applied to every item
+ * @return list<TranslationItem>
+ */
+function translationItems(int $count, array $overrides = []): array
+{
+    return array_map(
+        static fn (int $number): TranslationItem => translationItem(array_replace([
+            'id' => "item:{$number}",
+            'sourceText' => "Text number {$number}",
+        ], $overrides)),
+        $count > 0 ? range(1, $count) : [],
+    );
+}
+
+/**
+ * A batch into German of public project content, by default of one item.
+ *
+ * @param  list<TranslationItem>|null  $items
+ * @param  array<array-key, string>  $glossary
+ */
+function translationBatch(
+    ?array $items = null,
+    string $targetLocale = 'de',
+    TranslationDataClassification $classification = TranslationDataClassification::PublicContent,
+    array $glossary = [],
+): TranslationBatchRequest {
+    return new TranslationBatchRequest($targetLocale, $classification, $items ?? [translationItem()], $glossary);
+}
+
+/**
+ * Routes the engine to OpenAI with the test key and the given settings
+ * replaced — so a test reads as "OpenAI, configured", whatever .env holds.
+ *
+ * @param  array<string, mixed>  $overrides  keys of translation.providers.openai
+ */
+function configureOpenAiTranslation(array $overrides = []): void
+{
+    config(['translation.default' => 'openai']);
+
+    foreach (array_replace(['api_key' => TRANSLATION_TEST_API_KEY], $overrides) as $key => $value) {
+        config(["translation.providers.openai.{$key}" => $value]);
+    }
+}
+
+/**
+ * A completed Responses API body whose assistant message carries this
+ * output_text — after a reasoning item, as real responses often are, so a
+ * parser that assumed output[0].content[0] would miss it.
+ *
+ * @param  array<string, mixed>  $overrides  top-level keys replaced or added
+ * @return array<string, mixed>
+ */
+function openAiResponseBody(string $outputText, array $overrides = []): array
+{
+    return array_replace([
+        'id' => 'resp_translation_test',
+        'object' => 'response',
+        'status' => 'completed',
+        'model' => 'gpt-6-luna-2026-09-01',
+        'output' => [
+            ['type' => 'reasoning', 'id' => 'rs_test', 'summary' => []],
+            [
+                'type' => 'message',
+                'id' => 'msg_test',
+                'status' => 'completed',
+                'role' => 'assistant',
+                'content' => [
+                    ['type' => 'output_text', 'text' => $outputText, 'annotations' => []],
+                ],
+            ],
+        ],
+        'usage' => ['input_tokens' => 120, 'output_tokens' => 30, 'total_tokens' => 150],
+    ], $overrides);
+}
+
+/**
+ * A Responses API body carrying these translations as its structured output.
+ *
+ * @param  list<array{id: string, text: string}>  $translations
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function openAiTranslationsBody(array $translations, array $overrides = []): array
+{
+    return openAiResponseBody(json_encode(['translations' => $translations], JSON_THROW_ON_ERROR), $overrides);
+}
+
+/**
+ * The translation document a recorded request sent the model, decoded.
+ *
+ * @return array{target_locale: string, glossary: array<string, string>, items: list<array<string, mixed>>}
+ */
+function sentTranslationPayload(HttpClientRequest $request): array
+{
+    return json_decode($request->data()['input'][0]['content'][0]['text'], true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * An Http::fake() responder playing OpenAI: every item a request carries comes
+ * back, by id, translated by $translate — "[de] <source text>" by default.
+ *
+ * @param  (Closure(array<string, mixed>, string): string)|null  $translate  item payload and target locale to translation
+ */
+function openAiTranslatingResponder(?Closure $translate = null): Closure
+{
+    $translate ??= static fn (array $item, string $targetLocale): string => "[{$targetLocale}] {$item['source_text']}";
+
+    return static function (HttpClientRequest $request) use ($translate) {
+        $payload = sentTranslationPayload($request);
+
+        return Http::response(openAiTranslationsBody(array_map(
+            static fn (array $item): array => ['id' => $item['id'], 'text' => $translate($item, $payload['target_locale'])],
+            $payload['items'],
+        )), 200, ['x-request-id' => 'req_translation_test']);
+    };
+}
+
+/**
+ * A provider that answers each request with whatever its script says, and
+ * records what it was sent. $respond gets the request and its 1-based call
+ * number, and returns a response or throws TranslationProviderException.
+ */
+final class ScriptedTranslationProvider implements TranslationProvider
+{
+    /** @var list<TranslationBatchRequest> */
+    public array $received = [];
+
+    /** @param  Closure(TranslationBatchRequest, int): TranslationProviderResponse  $respond */
+    public function __construct(
+        private readonly Closure $respond,
+        private readonly TranslationProviderLimits $limits = new TranslationProviderLimits(50, 60_000),
+        private readonly string $name = 'scripted',
+    ) {}
+
+    /** A provider that translates every item it is sent as "[target] source". */
+    public static function translating(?TranslationProviderLimits $limits = null, string $name = 'scripted'): self
+    {
+        return new self(
+            static fn (TranslationBatchRequest $request): TranslationProviderResponse => scriptedTranslationResponse(
+                $request,
+                array_map(
+                    static fn (TranslationItem $item): array => ['id' => $item->id, 'text' => "[{$request->targetLocale}] {$item->sourceText}"],
+                    $request->items,
+                ),
+            ),
+            $limits ?? new TranslationProviderLimits(50, 60_000),
+            $name,
+        );
+    }
+
+    public function name(): string
+    {
+        return $this->name;
+    }
+
+    public function limits(): TranslationProviderLimits
+    {
+        return $this->limits;
+    }
+
+    public function translateBatch(TranslationBatchRequest $request): TranslationProviderResponse
+    {
+        $this->received[] = $request;
+
+        return ($this->respond)($request, count($this->received));
+    }
+
+    /** @return list<int> the number of items in each request, in order */
+    public function chunkSizes(): array
+    {
+        return array_map(static fn (TranslationBatchRequest $request): int => count($request->items), $this->received);
+    }
+}
+
+/**
+ * What a scripted provider returns for a request: these translations, from
+ * one successful call carrying the request's items.
+ *
+ * @param  list<array{id: string, text: string}>  $translations
+ */
+function scriptedTranslationResponse(TranslationBatchRequest $request, array $translations): TranslationProviderResponse
+{
+    return new TranslationProviderResponse(
+        $translations,
+        TranslationProviderCall::succeeded('scripted', 'scripted-model', $request->itemIds(), 1, 'scripted-request', 200, 10, 5, 15),
+    );
+}
+
+/**
+ * Makes a scripted provider the default, registered the way any provider is —
+ * a driver class under a name in translation.providers — and accepting every
+ * data classification unless $settings says otherwise.
+ *
+ * @param  array<string, mixed>  $settings  keys of its registry entry
+ */
+function useScriptedTranslationProvider(ScriptedTranslationProvider $provider, string $name = 'scripted', array $settings = []): ScriptedTranslationProvider
+{
+    config([
+        'translation.default' => $name,
+        "translation.providers.{$name}" => array_replace([
+            'driver' => ScriptedTranslationProvider::class,
+            'allowed_classifications' => array_map(
+                static fn (TranslationDataClassification $classification): string => $classification->value,
+                TranslationDataClassification::cases(),
+            ),
+        ], $settings),
+    ]);
+
+    // A closure binding, because the router passes the registry name as a
+    // parameter and the container builds afresh, past any instance binding,
+    // whenever it is given parameters.
+    app()->bind(ScriptedTranslationProvider::class, static fn (): ScriptedTranslationProvider => $provider);
+
+    return $provider;
+}
+
+/**
+ * Whether a string, or any string inside an array, contains $needle. Objects
+ * are not entered: the question is what a frame's own arguments carry.
+ */
+function translationValueContains(mixed $value, string $needle): bool
+{
+    if (is_string($value)) {
+        return str_contains($value, $needle);
+    }
+
+    if (is_array($value)) {
+        foreach ($value as $key => $element) {
+            if ((is_string($key) && str_contains($key, $needle)) || translationValueContains($element, $needle)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
