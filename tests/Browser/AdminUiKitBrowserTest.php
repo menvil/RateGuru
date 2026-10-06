@@ -148,7 +148,7 @@ it('takes a toast away when its time is up, and not while it is being read', fun
 
     $page->script("window.dispatchEvent(new CustomEvent('rg-admin-toast', { detail: { message: 'Short-lived', duration: 300 } }))");
     // Halfway through its 300 ms: still there, not taken away early.
-    $page->wait(0.15);
+    proveNothingHappensFor($page, 0.15, 'the toast going before its time');
     expect(adminUiKitOverlays($page)['toasts'])->toBe(['Short-lived']);
     waitForScript($page, adminUiKitToastCount(), 0);
     expect(adminUiKitOverlays($page)['toasts'])->toBe([]);
@@ -157,7 +157,7 @@ it('takes a toast away when its time is up, and not while it is being read', fun
     waitForScript($page, adminUiKitToastCount(), 1);
     $page->hover('.rg-admin-toast-stack .rg-admin-toast');
     // Twice its 400 ms under the pointer; nothing marks it not being taken away, so the test waits that long.
-    $page->wait(0.8);
+    proveNothingHappensFor($page, 0.8, 'the toast going while it is under the pointer');
     expect(adminUiKitOverlays($page)['toasts'])->toBe(['Being read']);
 
     $page->hover('.rg-admin-kit__title');

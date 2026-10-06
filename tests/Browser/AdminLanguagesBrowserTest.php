@@ -374,10 +374,10 @@ it('keeps keyboard focus inside a confirmation, the page still, and closes it wi
     // Focus staying put has no event to wait for: each pause is the window in
     // which a late move would have shown.
     $page->script("document.getElementById('rg-admin-search').focus()");
-    $page->wait(0.1);
+    proveNothingHappensFor($page, 0.1, 'focus leaving the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue();
     // The shortcut defers its focus by no more than an Alpine $nextTick, which a tenth of a second covers many times over.
-    $page->keys(':focus', 'Control+k')->wait(0.1);
+    proveNothingHappensFor($page->keys(':focus', 'Control+k'), 0.1, 'the search shortcut taking focus from the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue()
         ->and($page->script('document.querySelector(".rg-admin-topbar").closest("[aria-hidden=true]") !== null'))->toBeTrue();
 
@@ -554,7 +554,7 @@ it('still closes on Escape after a click on the dialog\'s text', function () {
     languagesOverlayOpen($page, 'dialog');
 
     // Focus staying in the dialog has no event to wait for: the pause is the window in which a late move would have shown.
-    $page->click('.rg-admin-dialog__description p:first-child')->wait(0.1);
+    proveNothingHappensFor($page->click('.rg-admin-dialog__description p:first-child'), 0.1, 'focus leaving the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue();
 
     $page->keys(':focus', 'Escape');
@@ -611,7 +611,7 @@ it('filters as you type, in the page, without a single request to Livewire', fun
 
     // A request that is not sent has no event to wait for. Livewire debounces
     // a live wire:model by 150 ms, so twice that is long enough for one to go out.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
     expect(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 
     // The watch does see Livewire: a tab is a request.
@@ -630,7 +630,7 @@ it('clears the search back to every row, and the URL with it, without asking the
 
     // A request that is not sent has no event to wait for. Livewire debounces
     // a live wire:model by 150 ms, so twice that is long enough for one to go out.
-    $page->click('Clear search')->wait(0.3);
+    proveNothingHappensFor($page->click('Clear search'), 0.3, 'a request to Livewire');
 
     eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
         ->and($page->script('location.search'))->toBe('')
@@ -742,7 +742,7 @@ it('searches thirty-five languages in the page', function () {
 
     // A request that is not sent has no event to wait for. Livewire debounces
     // a live wire:model by 150 ms, so twice that is long enough for one to go out.
-    $page->clear('#rg-admin-languages-search')->wait(0.3);
+    proveNothingHappensFor($page->clear('#rg-admin-languages-search'), 0.3, 'a request to Livewire');
     eventually(fn () => expect(languagesScreen($page)['rows'])->toBe($codes)
         ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]));
 });

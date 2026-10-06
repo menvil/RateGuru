@@ -314,7 +314,7 @@ it('leaves Ctrl+K to a rich text editor', function () {
 
     // Taking the shortcut would move focus to the search a tick after the key
     // press; nothing marks it not happening, so the test gives it that time.
-    $page->keys('#editor-under-test', 'Control+k')->wait(0.1);
+    proveNothingHappensFor($page->keys('#editor-under-test', 'Control+k'), 0.1, 'the shortcut taking focus from the editor');
 
     expect($page->script('document.activeElement?.id ?? null'))->toBe('editor-under-test')
         ->and($page->script('window.ctrlKDefaultPrevented ?? null'))->toBeFalse();
@@ -343,7 +343,7 @@ it('opens a result with Enter only while the list is open and no IME composition
 
     // A pick would leave for the result once the server answered; nothing
     // marks it not happening, so the test gives it that long.
-    $page->keys('#rg-admin-search', 'Enter')->wait(0.6);
+    proveNothingHappensFor($page->keys('#rg-admin-search', 'Enter'), 0.6, 'a pick leaving for a result');
 
     $page->assertPathIs('/admin');
 });

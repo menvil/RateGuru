@@ -306,7 +306,7 @@ it('clears the search with its ×, shown only while there is text, without askin
 
     // A request that is not sent has no event to wait for: this is long enough for a
     // field bound to the server to have sent one, past Livewire's 150 ms debounce.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
 
     expect(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 });
@@ -333,7 +333,7 @@ it('chooses the target language from the keyboard, searching thirty-five languag
 
     // A request that is not sent has no event to wait for: this is long enough for a
     // field bound to the server to have sent one, past Livewire's 150 ms debounce.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
 
     expect($page->script("[...document.querySelectorAll('#rg-admin-translation-target-listbox [role=option]')].filter((option) => option.style.display !== 'none').map((option) => option.dataset.value)"))->toBe([$last])
         ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
@@ -514,7 +514,7 @@ it('searches the English text, the keys and the translations, and filters by sec
 
     // A request that is not sent has no event to wait for: this is long enough for a
     // field bound to the server to have sent one, past Livewire's 150 ms debounce.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
 
     // The header counts the language, whatever the filters show.
     expect(translationScreen($page)['stats'][0])->toContain((string) $total)
@@ -557,7 +557,7 @@ it('keeps a draft in the browser only: an edited state, a strip, Discard and Dis
 
     // A request or a write that does not happen has no event to wait for: this is long
     // enough for a field bound to the server to have sent one, past Livewire's 150 ms debounce.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire or a stored draft');
 
     expect(translationRowState($page, $dogs))->toMatchArray(['state' => ['Edited · not saved'], 'changed' => true, 'canSave' => true, 'discard' => true, 'counter' => '6 / 80 characters'])
         ->and(translationScreen($page)['strip'])->toBe('2 edits not saved yet. Nothing changes for visitors until you save. Discard all')
@@ -585,7 +585,7 @@ it('keeps a draft in the browser only: an edited state, a strip, Discard and Dis
 
     // A request that is not sent has no event to wait for: this is long enough for a
     // field bound to the server to have sent one, past Livewire's 150 ms debounce.
-    $page->wait(0.3);
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
 
     expect(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 });
@@ -693,7 +693,7 @@ it('keeps an error next to the field, blocks Save and stores nothing', function 
 
     // A write that does not happen has no event to wait for: this gives a save that
     // went out anyway the time of a round trip to the server to be stored.
-    $page->wait(0.5);
+    proveNothingHappensFor($page, 0.5, 'the blocked save being stored');
 
     expect($this->dogs->fresh()->name_translations)->toBeNull();
 });

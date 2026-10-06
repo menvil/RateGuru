@@ -4544,6 +4544,28 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
 }
 
 /**
+ * Holds the page for $seconds to prove that $what does NOT happen in that time,
+ * and returns the page.
+ *
+ * The one fixed pause the Browser suite allows (BrowserTestWaitingTest keeps it
+ * that way). A state the page reaches can be waited for — waitForScript(),
+ * eventually() — but absence has no event: a request not sent, focus not moved,
+ * a toast not taken away while it is read. The pause is the window in which it
+ * would have shown, so its length belongs in a comment beside the call, and
+ * $what names what the test would have seen.
+ */
+function proveNothingHappensFor(mixed $page, float $seconds, string $what): mixed
+{
+    if (trim($what) === '') {
+        throw new InvalidArgumentException('Say what must not happen during the pause.');
+    }
+
+    browserTestPause($seconds);
+
+    return $page;
+}
+
+/**
  * Lets $seconds go by without stopping the application under test.
  *
  * The browser plugin serves the application from this same PHP process, on its
