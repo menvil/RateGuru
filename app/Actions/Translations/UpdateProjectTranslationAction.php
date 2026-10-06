@@ -30,7 +30,8 @@ use Illuminate\Support\Facades\Gate;
  * and is changed in the content's own editor.
  *
  * The text is trimmed; a blank one removes the stored translation, and
- * visitors see the English text again. A text that breaks the field's limits —
+ * visitors see the English text again — also when that English text has
+ * since been cleared, so a stale translation can always be taken away. A text that breaks the field's limits —
  * its maximum length, a single line, every placeholder of the English text —
  * is refused and nothing is written.
  */
@@ -87,17 +88,20 @@ final class UpdateProjectTranslationAction
 
     /**
      * The limits of the unit as the locked row holds it. Removing a
-     * translation is always allowed; text is held to the field's limits,
-     * characters counted as code points, as the editors count them.
+     * translation is always allowed — even once the English text has been
+     * cleared, when the stored translation would otherwise outlive it and
+     * still be served. New text needs English to translate, and is held to
+     * the field's limits, characters counted as code points, as the editors
+     * count them.
      */
     private function check(ProjectTranslationUnit $unit, string $text): void
     {
-        if (! $unit->requiresTranslation()) {
-            throw CannotSaveTranslationException::becauseThereIsNothingToTranslate();
-        }
-
         if ($text === '') {
             return;
+        }
+
+        if (! $unit->requiresTranslation()) {
+            throw CannotSaveTranslationException::becauseThereIsNothingToTranslate();
         }
 
         if (! $unit->multiline && str_contains($text, "\n")) {

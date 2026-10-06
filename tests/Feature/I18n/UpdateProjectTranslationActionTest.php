@@ -10,6 +10,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\ProjectTranslationUnit;
+use App\Support\Translations\TranslatableField;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -245,6 +246,32 @@ it('refuses a unit whose English text is blank: there is nothing to translate', 
     expect(refusalOf(fn () => saveTranslation("rating_groups:{$group->id}:description", $target, 'Text')))->toStartWith('nothing_to_translate')
         ->and($group->fresh()->description_translations)->toBeNull();
 });
+
+it('removes a translation left behind once the English text is cleared, and refuses new text for it', function (string $blank) {
+    [$target, $other] = twoTranslatedLocales();
+    $group = RatingGroup::factory()->create(['description' => 'What is it like?', 'description_translations' => [$target => 'Какой он?', $other => 'Какъв е?'], 'is_active' => true]);
+    $unit = "rating_groups:{$group->id}:description";
+    $group->update(['description' => null]);
+    $pages = ProjectSettings::findOrFail(1)->static_pages;
+    $pages['about']['en']['content'] = '';
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    // The stale translation is still stored, and still what a visitor of that language is served.
+    expect($group->fresh()->description_translations[$target])->toBe('Какой он?')
+        ->and(TranslatableField::resolve($group->fresh()->description_translations, '', $target))->toBe('Какой он?');
+
+    $removed = saveTranslation($unit, $target, $blank);
+    saveTranslation('static_pages:about:content', $target, $blank);
+
+    expect($group->fresh()->description_translations)->toBe([$other => 'Какъв е?'])
+        ->and($removed->translation($target))->toBeNull()
+        ->and(ProjectSettings::findOrFail(1)->static_pages['about'][$target])->toBe(['title' => $pages['about'][$target]['title']]);
+
+    // New text still needs English to translate.
+    expect(refusalOf(fn () => saveTranslation($unit, $other, 'Нов текст')))->toBe('nothing_to_translate: The English text is empty, so there is nothing to translate.')
+        ->and(refusalOf(fn () => saveTranslation('static_pages:about:content', $target, 'Новый текст')))->toStartWith('nothing_to_translate')
+        ->and($group->fresh()->description_translations)->toBe([$other => 'Какъв е?']);
+})->with(['empty' => [''], 'spaces' => ['  ']]);
 
 it('refuses an id that names nothing the catalog lists now', function (Closure $unit) {
     [$target] = twoTranslatedLocales();
