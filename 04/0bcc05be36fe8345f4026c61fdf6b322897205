@@ -1,0 +1,33 @@
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_68bd935861719d::t_bed8ae8ec760de 34-36,109-113
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_1ddc6c4aaf0d6f 403-413
+resources/views/filament/pages/admin-ui-kit/feedback.blade.php
+  s_68bd935861719d::t_9373b8288c2745 35-40
+docs/design/admin/ui-review-checklist.md
+  s_68bd935861719d::t_bed8ae8ec760de 12-13,24-25,57-58
+  s_68bd935861719d::t_5ea029cb37d51a 89-90
+resources/views/filament/pages/admin-ui-kit/tables.blade.php
+  s_68bd935861719d::t_9373b8288c2745 199,202-221,223
+resources/views/filament/pages/admin-ui-kit/navigation.blade.php
+  s_68bd935861719d::t_bed8ae8ec760de 70-84
+  s_68bd935861719d::t_9373b8288c2745 69,85
+tests/Feature/Admin/AdminDesignSystemSeparationTest.php
+  s_68bd935861719d::t_bed8ae8ec760de 25,30,110-111,118-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "040bcc05be36fe8345f4026c61fdf6b322897205",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

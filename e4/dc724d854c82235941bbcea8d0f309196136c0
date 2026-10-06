@@ -1,0 +1,48 @@
+resources/views/livewire/admin/global-search.blade.php
+  s_68bd935861719d::t_95f3a3b11efac2 1-48,50-73
+  s_68bd935861719d::t_5be1dce1ac2a16 49
+tests/Feature/Admin/AdminShellTest.php
+  s_68bd935861719d::t_d180d4aa82faea 340,348-366
+tests/Browser/AdminShellBrowserTest.php
+  s_68bd935861719d::t_642b82b3c122c1 207
+  s_68bd935861719d::t_d95b0c3fb91a8e 174-206,208-244
+app/Filament/Pages/AdminUiKit.php
+  s_68bd935861719d::t_c9518dceb46f65 497-498
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_c9518dceb46f65 58-59,225-232,239,243,249-252,477-478
+tests/Feature/Admin/AdminGlobalSearchTest.php
+  s_68bd935861719d::t_d180d4aa82faea 1-2,4-48,50-63,65,68-69,74
+  s_68bd935861719d::t_97a794c4bdc6e9 3,49,64,66-67,70-73
+app/Livewire/Admin/GlobalSearch.php
+  s_68bd935861719d::t_cdcf6a778ec0b6 1-7,9-47,49-61
+  s_68bd935861719d::t_5250bee6d3a515 8,48
+docs/design/admin/migration-plan.md
+  s_68bd935861719d::t_c9518dceb46f65 46-47,49-52
+app/Livewire/Admin/Topbar.php
+  s_68bd935861719d::t_5be1dce1ac2a16 17-19
+resources/views/livewire/admin/sidebar.blade.php
+  s_68bd935861719d::t_4fd49938ebb352 44,47-48,52-53,65-66
+  s_68bd935861719d::t_5be1dce1ac2a16 45-46,49-51,54-61,111-115
+app/Filament/Support/AdminShellNavigation.php
+  s_68bd935861719d::t_8e5dc7bcb48f62 18,109-127
+app/Livewire/Admin/Sidebar.php
+  s_68bd935861719d::t_5be1dce1ac2a16 18-20,37
+resources/css/filament/admin/components.css
+  s_68bd935861719d::t_7ceb689bf053e7 1798,1804-1805,1809-1912,2124-2125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e4dc724d854c82235941bbcea8d0f309196136c0",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

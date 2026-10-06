@@ -1,0 +1,103 @@
+resources/views/filament/pages/languages/missing.blade.php
+  s_031a12c631fa3b::t_7623b3a830f78a 2-15,18-28,30-45,47-61,64-65,67-73,75-82,86,88-90,92-96
+resources/views/components/admin/ui/toast-stack.blade.php
+  s_031a12c631fa3b::t_68b3155d345f24 1-57,60,62-109
+  s_031a12c631fa3b::t_9016160485bce9 58-59,61
+app/Filament/Pages/LanguagesPage.php
+  s_031a12c631fa3b::t_723a06500de1d1 16,21,23-24,46-52,56,58-62,66-70,86,88-112,121-125,127-133,135-136,138-160,162-163,165-166,168-187,189-195,197-200,202-233,235-238,240-265,267-268,271,274,276,278-282,286,288,291-294,296-309,313-316,320,326,328-350,352-361,363-369,371-390,392-399,401-408,411-428,431-443,445-447,473,484,486-491,501-504,507,515,519-520,542-546
+  s_031a12c631fa3b::t_0d312066f3bf5e 81-85,87,126,134,137,161,164,167,188,196,201,234,239,272,275,277,283,450-456,458
+  s_031a12c631fa3b::t_fd3c662615a0bb 400
+  s_031a12c631fa3b::t_e58f978dbcc2f6 18,53-54,113,351,370,391,409-410,429-430,444,464
+resources/views/livewire/admin/sidebar.blade.php
+  s_031a12c631fa3b::t_81cdb2a35e61d8 51-53
+  s_031a12c631fa3b::t_66692a1209e5c4 7-10
+  s_031a12c631fa3b::t_5799ef2d9162a5 231-232
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_031a12c631fa3b::t_df178c9ea748bb 175,183
+tests/Feature/Filament/LanguagesPageTest.php
+  s_031a12c631fa3b::t_20e9fd98269e3f 431-432,730-733,735-746
+  s_031a12c631fa3b::t_fd3c662615a0bb 535
+  s_031a12c631fa3b::t_686bc2589a9050 42-46,52-53,56,58,596,882
+  s_031a12c631fa3b::t_27fcb0b7cc21ee 381-384,387-388,638,832-834
+  s_031a12c631fa3b::t_136b0aafeb5fb5 4,10-15,23-26,28,33-34,36-37,39,47,49-50,57,59-176,199,204-205,208,210-211,213-227,229-276,281,284,289-308,318-321,331,336-380,385-386,389-430,435-519,528,530-534,536-544,551,554-564,569-584,589,591-595,597-607,612-626,629,634-637,639-647,653,655-656,662-671,678-688,695-729,747-764,771-796,798-806,815-831,835-851,859,864-881,883-904
+tests/Pest.php
+  s_031a12c631fa3b::t_fd3c662615a0bb 6,10,21,23
+  s_031a12c631fa3b::t_1a2ebd89f1bf8a 3665-3691
+tests/Browser/AdminShellBrowserTest.php
+  s_031a12c631fa3b::t_676c9bf44131d5 84,98
+docs/design/admin/migration-plan.md
+  s_031a12c631fa3b::t_f98ac9ed934ed8 15-17,57-58,60-65,67-73,77-78,83-84
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_031a12c631fa3b::t_f98ac9ed934ed8 81-88,90-106,109,111-114
+  s_031a12c631fa3b::t_f61853328cfcc5 108,110
+resources/views/components/admin/ui/confirm-dialog.blade.php
+  s_031a12c631fa3b::t_06c7bbbf67ad76 40-45
+  s_031a12c631fa3b::t_8e696467bfc433 1-15,17-19,22-37,46-53,55-76
+  s_031a12c631fa3b::t_f64ba95d74d36d 16,20-21,38-39,54,77
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_031a12c631fa3b::t_377eee98e20b7e 86,102,175-188,192-227
+  s_031a12c631fa3b::t_648bb697146604 189-191
+resources/views/filament/pages/languages/row.blade.php
+  s_031a12c631fa3b::t_76faf9cca0a197 1-127
+docs/design/admin/ui-review-checklist.md
+  s_031a12c631fa3b::t_7f9d4577b29293 76-79
+resources/views/components/admin/ui/overlay.blade.php
+  s_031a12c631fa3b::t_dfdc6b871623a9 1-51
+docs/design/admin/design-contract.md
+  s_031a12c631fa3b::t_b5b910f4e7de05 230-231,241-245,249-251,267-273,279-284,303-304,407-415,419-427,458-483,544-549,584
+  s_031a12c631fa3b::t_d5a59f60d7fe12 416-418
+  s_031a12c631fa3b::t_f98ac9ed934ed8 203
+resources/css/filament/admin/components.css
+  s_031a12c631fa3b::t_57424477403288 505-561
+  s_031a12c631fa3b::t_9ea5d60182322f 1749-1802,1809-1973
+  s_031a12c631fa3b::t_9016160485bce9 1803-1808
+  s_031a12c631fa3b::t_b1f7579a2d1600 3241-3295
+  s_031a12c631fa3b::t_1fe41aaeb43b92 1152-1156,1158
+  s_031a12c631fa3b::t_6f666745444bd4 2575-2793
+resources/views/filament/pages/admin-ui-kit/feedback.blade.php
+  s_031a12c631fa3b::t_72428011165def 72,78,107-109
+  s_031a12c631fa3b::t_204de6fe569d7c 8-14,17-25,27-28,30-71,73-77,79-106,110-126
+  s_031a12c631fa3b::t_b1f7579a2d1600 26
+app/Filament/Pages/AdminUiKit.php
+  s_031a12c631fa3b::t_60bab97a682227 93,775-786,788-823,825-843,846-848,851-852,854-855,858-862,866
+  s_031a12c631fa3b::t_74b27407f1d4e5 787,824
+  s_031a12c631fa3b::t_df6a6e3bd025db 20-22
+resources/views/filament/pages/admin-ui-kit.blade.php
+  s_031a12c631fa3b::t_72428011165def 103-105
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_031a12c631fa3b::t_fd0728b23debac 400
+  s_031a12c631fa3b::t_b7f3419118a46f 116,118
+  s_031a12c631fa3b::t_eccd3cbdced475 1-46,48-115,117,119-391
+  s_031a12c631fa3b::t_292463079e4421 47
+  s_031a12c631fa3b::t_20e9fd98269e3f 392-399,401-418
+tests/Browser/AdminUiKitBrowserTest.php
+  s_031a12c631fa3b::t_b7f3419118a46f 1-131
+resources/views/filament/pages/languages.blade.php
+  s_031a12c631fa3b::t_391bfdce8709c2 65-73
+  s_031a12c631fa3b::t_49a9c4f5af1dad 1-8,10-16,18-36,38-64,74-85
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_031a12c631fa3b::t_23191e2f84ef7d 217-240,242-243,246,248-299,301-335,349
+  s_031a12c631fa3b::t_20e9fd98269e3f 241,244-245,300,336-348
+  s_031a12c631fa3b::t_acdcaf40a37f11 247
+resources/views/filament/pages/languages/confirmation.blade.php
+  s_031a12c631fa3b::t_7ebec4da4c6140 1-67
+resources/views/components/admin/ui/drawer.blade.php
+  s_031a12c631fa3b::t_9016160485bce9 13-14,18-19,25,35,57
+  s_031a12c631fa3b::t_8700a31cd23fa2 1-12,15-17,20-24,26-34,36-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d311c9823d254789bdea31f9feb2afa9a9ba6d9d",
+  "prompts": {},
+  "sessions": {
+    "s_031a12c631fa3b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "43dee44d-6428-4d59-9afb-b31b43a9e803",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

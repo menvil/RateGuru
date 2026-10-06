@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_68bd935861719d::t_e47d9504251da2 124-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a60bfe1b4cf1e8cc2b5556f90d7c9abd41144f73",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

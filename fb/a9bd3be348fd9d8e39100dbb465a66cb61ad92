@@ -1,0 +1,19 @@
+infrastructure/runbooks/bootstrap-host.md
+  s_396a0d86f508c4::t_4f6f3d466c2996 113-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fba9bd3be348fd9d8e39100dbb465a66cb61ad92",
+  "prompts": {},
+  "sessions": {
+    "s_396a0d86f508c4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a4ff6a48-e3de-4c10-8ac2-af06ebadc7cd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

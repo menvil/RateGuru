@@ -1,0 +1,64 @@
+infrastructure/scripts/verify-mail-gateway
+  s_0a5cecf498a4dd::t_c52cb8b5fa5d39 13-14,25-29,34-38,45-47,91-95,112-118,147-159,166-171,201-222,351,380,390-391,426-433,489,532-536
+infrastructure/runbooks/mail-capture.md
+  s_0a5cecf498a4dd::t_a68ed74cbbf30d 312-318
+infrastructure/scripts/mail-routing
+  s_0a5cecf498a4dd::t_5f0260692eb0dd 52-53
+  s_0a5cecf498a4dd::t_e29bad5e1f6d1e 185-187,191,198
+  s_0a5cecf498a4dd::t_648b70d0357992 27-35,37-47,74,129-133,136-137,140-148,157-158,195-196,223-224,244-255,261,273-274,340-342,344,380,388,529-531
+  s_0a5cecf498a4dd::t_19c359f0c4b3af 428-429,431,434,437-439,441-443,446-448,451-477,594-611
+infrastructure/runbooks/mail-routing.md
+  s_0a5cecf498a4dd::t_ecb980c8dbb698 39-45
+  s_0a5cecf498a4dd::t_df8691c53e8e23 13-15,89-91,97-99,102-106,108-109,111-117,126-137,142-149,157-158,176,186-189,196-197,230-250,254-256,284-286,291,295-297,301-302,330-331,349-351,358,365-374
+tests/Pest.php
+  s_0a5cecf498a4dd::t_00713c140cbc5d 480-482
+  s_0a5cecf498a4dd::t_89b3ab03ee2598 1356-1382
+  s_0a5cecf498a4dd::t_16c45e70e1ca90 1341-1355
+infrastructure/runbooks/mail-gateway.md
+  s_0a5cecf498a4dd::t_f314b4f8d9d31f 6-7,14-19,34-38,62-65,80-169,240-244,251-253,258-263,269-275,284-288,292-295,297-299,301,303-307,311-332,345-349
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_0a5cecf498a4dd::t_b5d399ac8c2949 13-16,22-24,109,245,247,251,260,701-704,706,709-710,721,1008-1011,1357-1358,1360
+  s_0a5cecf498a4dd::t_115cef82b5de02 343-546
+infrastructure/config/mail-routing.json
+  s_0a5cecf498a4dd::t_c5439e18ca5611 2
+tests/Feature/Architecture/MailGatewayTest.php
+  s_0a5cecf498a4dd::t_6c29a2aec87aae 909
+  s_0a5cecf498a4dd::t_c6dc354a614bd6 1729-1881
+  s_0a5cecf498a4dd::t_e7757c3330049e 1135-1307,1310-1457,1460-1673,1675-1707
+  s_0a5cecf498a4dd::t_b3648c50d15b44 1308-1309
+  s_0a5cecf498a4dd::t_739c9857a18b4e 1969,1972-1974,1976-1989,1991-1995,1997-2000,2002-2003,2005-2008,2010-2011,2013-2014,2016-2018,2020-2024,2063,2067-2072,2077-2086
+  s_0a5cecf498a4dd::t_16b675d5edeb38 6-8,13-14,21-23,42-53,57,65-66,77-78,82,91-98,186-188,313,372-378,514,556-557,559-560,568-569,572-583
+  s_0a5cecf498a4dd::t_dce497ee7ac4a1 430-455,1458,1674
+  s_0a5cecf498a4dd::t_ad5bde2bbd9378 1459
+infrastructure/README.md
+  s_0a5cecf498a4dd::t_a68ed74cbbf30d 139-142,148-153
+infrastructure/scripts/install-mail-gateway
+  s_0a5cecf498a4dd::t_856a73b33a4802 327,339,342
+  s_0a5cecf498a4dd::t_5c454fd34ede82 270-326,328-335,338,340-341,343-391,394-401,413-415,425,432-435
+  s_0a5cecf498a4dd::t_cc825a63d3e934 20-35,47-54,61-62,64-66,139-141,244-246,249-251
+  s_0a5cecf498a4dd::t_81c06b6b1ca565 336-337
+  s_0a5cecf498a4dd::t_d6dc23b38b481d 684-702,826-828,849-855,857-858,864-865,869,873-882,884,887-890,902-929,1089-1096
+  s_0a5cecf498a4dd::t_e5ee968ac61555 499-508,512-514,529-531,537-555,572-579,589-596,624-625,627-628,630,635-636,638,668
+infrastructure/config/mail-outbound.json
+  s_0a5cecf498a4dd::t_921ea698a3b713 1-7
+infrastructure/ROADMAP.md
+  s_0a5cecf498a4dd::t_0a669d2a1093a3 1728-1730,1746-1771,1774-1822
+infrastructure/scripts/status-mail-gateway
+  s_0a5cecf498a4dd::t_6eb00b3d8a4c4f 9-11,84-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5c1a207615a36a1cb7aa0d7e22a6e383a6deeb15",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

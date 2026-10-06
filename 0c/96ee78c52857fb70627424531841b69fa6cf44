@@ -1,0 +1,33 @@
+docs/design/admin/design-contract.md
+  s_68bd935861719d::t_b16a474d7268b2 55-59
+resources/views/components/admin/ui/textarea.blade.php
+  s_68bd935861719d::t_dc3b1f89ee3a19 32,34,42,78-79
+resources/views/components/admin/ui/skeleton.blade.php
+  s_68bd935861719d::t_dc3b1f89ee3a19 30
+resources/views/components/admin/ui/tabs.blade.php
+  s_68bd935861719d::t_b16a474d7268b2 9-12,20,24,31
+  s_68bd935861719d::t_e2c85c89e4a3bc 13
+resources/views/components/admin/ui/text-field.blade.php
+  s_68bd935861719d::t_dc3b1f89ee3a19 18-22,49-50
+docs/design/admin/migration-plan.md
+  s_68bd935861719d::t_b16a474d7268b2 10-14,30
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_68bd935861719d::t_3d3f05673c77b5 163-164
+  s_68bd935861719d::t_e2c85c89e4a3bc 88-107,158-162,165-166,191-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c96ee78c52857fb70627424531841b69fa6cf44",
+  "prompts": {},
+  "sessions": {
+    "s_68bd935861719d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e21f31d2-f6f8-4b23-8971-dc862c058468",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
