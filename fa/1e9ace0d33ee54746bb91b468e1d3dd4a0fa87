@@ -1,0 +1,39 @@
+resources/css/filament/admin/components.css
+  s_0a5cecf498a4dd::t_e788f765aa61d0 70,835-855
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_0a5cecf498a4dd::t_0ff2d14aa473f9 153-188
+resources/views/filament/pages/languages.blade.php
+  s_0a5cecf498a4dd::t_97ff352d915cce 115
+  s_0a5cecf498a4dd::t_ba0c9ed5165ed4 50-51
+docs/design/admin/design-contract.md
+  s_0a5cecf498a4dd::t_5a434d3849988d 348-349
+app/Providers/Filament/AdminPanelProvider.php
+  s_0a5cecf498a4dd::t_2e1913bebd31d1 36-40
+resources/views/components/admin/ui/search-field.blade.php
+  s_0a5cecf498a4dd::t_981f15882019d5 23-25,27-35
+  s_0a5cecf498a4dd::t_9c5c14f62812ef 9,17-21,26,49-61,65
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_0a5cecf498a4dd::t_21935b99a6a4d7 535,549-552,559
+  s_0a5cecf498a4dd::t_14338c1e1bfcdd 560,563
+  s_0a5cecf498a4dd::t_3921cb9446b041 533-534,536-548,553-558,561-562,564-572
+tests/Feature/Filament/LanguagesPageTest.php
+  s_0a5cecf498a4dd::t_0ff2d14aa473f9 515-523
+tests/Feature/Admin/AdminShellTest.php
+  s_0a5cecf498a4dd::t_0ff2d14aa473f9 110-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fa1e9ace0d33ee54746bb91b468e1d3dd4a0fa87",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
