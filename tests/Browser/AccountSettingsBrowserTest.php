@@ -33,7 +33,7 @@ JS;
 it('opens the deletion dialog on top of a long page and lets the password be typed', function (array $screen) {
     actingAs(User::factory()->create());
 
-    $page = visit(route('profile.edit'))->resize(...$screen)->wait(0.3);
+    $page = visit(route('profile.edit'))->resize(...$screen);
 
     $page->script('window.scrollTo(0, document.body.scrollHeight)');
     $page->click('[data-testid="delete-account-open"]');
@@ -41,10 +41,22 @@ it('opens the deletion dialog on top of a long page and lets the password be typ
     waitForScript($page, DELETE_DIALOG_ON_TOP);
     waitForScript($page, 'document.activeElement.id', 'delete_account_password');
 
-    // Still open, still on top, and the typed text is where it was typed.
-    $page->type('[data-testid="delete-account-password"]', 'typed-password')
-        ->wait(1.0)
-        ->assertValue('[data-testid="delete-account-password"]', 'typed-password');
+    // Still open, still on top, and the typed text is where it was typed —
+    // once the dialog's enter transition is over, which is when the backdrop
+    // once painted over the panel.
+    $page->type('[data-testid="delete-account-password"]', 'typed-password');
+
+    waitForScript($page, <<<'JS'
+        (() => {
+            const dialog = document.querySelector('[data-testid="delete-account-modal"]');
+            const style = getComputedStyle(dialog);
+
+            return style.display !== 'none' && style.opacity === '1'
+                && dialog.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
+
+    $page->assertValue('[data-testid="delete-account-password"]', 'typed-password');
 
     waitForScript($page, DELETE_DIALOG_ON_TOP);
 
@@ -59,7 +71,7 @@ it('opens the deletion dialog on top of a long page and lets the password be typ
 it('asks an account without a password to confirm with its email', function () {
     actingAs(User::factory()->withoutPassword()->create(['email' => 'social-only@rateguru.test']));
 
-    $page = visit(route('profile.edit'))->resize(1440, 790)->wait(0.3);
+    $page = visit(route('profile.edit'))->resize(1440, 790);
 
     $page->script('window.scrollTo(0, document.body.scrollHeight)');
     $page->click('[data-testid="delete-account-open"]');
@@ -80,7 +92,15 @@ it('draws the header avatar ring as a circle', function (array $screen) {
 
     actingAs(User::factory()->create(['avatar_asset_id' => $avatar->id]));
 
-    $page = visit(route('feed'))->resize(...$screen)->wait(0.3);
+    $page = visit(route('feed'))->resize(...$screen);
+
+    waitForScript($page, <<<'JS'
+        (() => {
+            const photo = document.querySelector('[data-testid="header-user-menu-trigger"] img');
+
+            return Boolean(photo) && photo.complete && photo.naturalWidth > 0;
+        })()
+    JS);
 
     $box = $page->script(<<<'JS'
         (() => {
