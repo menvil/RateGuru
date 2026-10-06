@@ -1892,6 +1892,24 @@ Slices, in order:
    after merge, run Verify staging infrastructure — the whole real-host
    acceptance.
 
+   **8.4B.4.1d Public DNS verified by independent public resolvers —
+   IMPLEMENTED.** A corrective slice: the public-DNS verifier stopped
+   depending on the host's resolver. `mail-identity` asked the host's default
+   resolver, and on the production host systemd-resolved answered the reverse
+   name from local policy with the provider's old names while public DNS
+   already named `mta1.tits.guru` — a false negative. Every record `verify-dns`
+   and `readiness` check is now asked directly of two independent public
+   recursive resolvers, Cloudflare `1.1.1.1` and Google `8.8.8.8`, both
+   required, and accepted only when they agree: the same status and the same
+   records, in any order, names compared case-insensitively and TXT exactly
+   after its chunks are joined. A timeout, a failure status or a disagreement
+   at either fails the record — no one-of-two quorum, no fallback to the
+   host's resolver, and no option or setting that names another resolver. The
+   host's resolver, `/etc/hosts`, split DNS and local caches are outside the
+   proof and untouched. *Unchanged on purpose:* every DNS policy rule, and
+   everything 8.4B.4.1 left inert — `tits-guru` held and planned, direct
+   delivery disabled, no OpenDKIM, no production `MAIL_*` value, no mail sent.
+
    **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
    planned.** `mail-identity verify-dns` and then full `mail-identity
    readiness` are hard prerequisites before any activation mutation, and after

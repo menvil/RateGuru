@@ -183,8 +183,54 @@ Strictly read-only — it writes no file, changes no DNS, restarts nothing and
 sends no mail. It needs `dig`, which the host's canonical runtime installs
 (`bind9-dnsutils`, converged by Prepare Host). From GitHub, **Verify production
 infrastructure** shows the same checks inside its outbound-readiness section —
-deferred while the target is held, required once it is outbound. It passes
-only when, as this host's resolver sees public DNS:
+deferred while the target is held, required once it is outbound.
+
+### What "public DNS" means here
+
+Public DNS is what **independent external recursive resolvers** answer — the
+view a receiving mail server has — and not what this host's own resolver
+says. Today the witnesses are:
+
+| Witness | Address |
+|---------|---------|
+| Cloudflare | `1.1.1.1` |
+| Google | `8.8.8.8` |
+
+The contract:
+
+- **Every record is asked of both, directly** (`dig @1.1.1.1 …` and
+  `dig @8.8.8.8 …`). The host's resolver — `/etc/resolv.conf`,
+  systemd-resolved at `127.0.0.53` and whatever it forwards to — is never
+  asked, not even as a fallback.
+- **Both are required.** A timeout, a server failure, a refused query or no
+  response from either one fails that record. The other's answer alone is
+  never enough: there is no one-of-two quorum.
+- **They must agree.** Both must report the same status (`NOERROR` or
+  `NXDOMAIN`) and the same records. Order does not matter and names are
+  compared case-insensitively, as DNS compares them; a TXT value is compared
+  exactly, after its chunks are joined, because a DKIM key is case-sensitive.
+  When they disagree the record fails — nothing picks one answer — and the
+  diagnostic names the record and what each resolver answered. For TXT it
+  prints only how many records each one returned, never the values (a DKIM
+  value is a key); compare them with `dig @1.1.1.1 TXT <name>` and
+  `dig @8.8.8.8 TXT <name>`. During propagation a disagreement is expected:
+  run it again once both caches have expired.
+- **The witnesses are part of the reviewed implementation**, not host
+  configuration. No option, environment value or host file changes them or
+  lets one resolver be enough.
+
+Deliberately outside this proof: the host's local resolver, `/etc/hosts`,
+split DNS and any local cache. They can disagree with public DNS in either
+direction — a stale local name for the host's address does not make public
+reverse DNS wrong, and a local entry cannot make missing public records
+right. `mail-identity` neither reads nor changes any of them. Nor is an
+authoritative lookup the activation gate: a record published on the
+authoritative servers is not yet proof that the recursive resolvers receiving
+servers use can see it.
+
+### The checks
+
+It passes only when, as both public resolvers answer:
 
 - **forward-confirmed reverse DNS:** `mta1.tits.guru` has an A record including
   this host's outbound IPv4, and that address has exactly one PTR, exactly
@@ -197,9 +243,10 @@ only when, as this host's resolver sees public DNS:
 - **DMARC:** exactly one DMARC policy at `_dmarc.tits.guru`, with exactly
   `v=DMARC1; p=none; adkim=s; aspf=s`.
 
-A timeout, a refused query or a server failure is a failure, never a pass, and
-so is a host that sends from a private (NAT) address. The exit status is 0 only
-on `DNS VERIFIED: YES`.
+A timeout, a refused query or a server failure at either resolver is a
+failure, never a pass, and so is a disagreement between them or a host that
+sends from a private (NAT) address. The exit status is 0 only on
+`DNS VERIFIED: YES`.
 
 ## Readiness for outbound delivery
 
@@ -216,7 +263,8 @@ checked and reported:
 4. under a valid public MTA hostname;
 5. it has a valid DKIM and DMARC identity;
 6. a valid private key is installed at its canonical place;
-7. public DNS verifies — A, PTR, SPF, DKIM and DMARC;
+7. public DNS verifies — A, PTR, SPF, DKIM and DMARC, asked of both public
+   resolvers and judged exactly as `verify-dns` judges them;
 8. a DKIM signing service is installed and healthy.
 
 Today it always ends `OUTBOUND READY: NO`: no signing service exists yet, and
