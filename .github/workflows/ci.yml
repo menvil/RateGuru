@@ -169,11 +169,12 @@ jobs:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~12 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     env:
@@ -326,6 +327,17 @@ jobs:
               $assertions,
           ), FILE_APPEND);
           '
+
+      # The per-file timings behind any claim that this job got faster or
+      # slower; tools/ci/bin/compare-runs.php reads them back.
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tests-junit
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Upload Laravel logs on failure
         if: failure()
@@ -546,11 +558,12 @@ jobs:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~24 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     env:
@@ -625,7 +638,16 @@ jobs:
             -e "GRANT ALL PRIVILEGES ON \`rateguru\\_test%\`.* TO 'rateguru'@'%'; FLUSH PRIVILEGES;"
 
       - name: Run MariaDB compatibility tests
-        run: composer test:mariadb
+        run: composer test:mariadb -- --log-junit mariadb-junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mariadb-junit
+          path: mariadb-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Run MariaDB migration smoke
         run: php artisan migrate:fresh --seed --force
@@ -648,11 +670,12 @@ jobs:
     name: Compatibility (SQLite)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~28 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     outputs:
@@ -691,7 +714,16 @@ jobs:
           touch database/database.sqlite
 
       - name: Run SQLite compatibility tests
-        run: composer test:sqlite
+        run: composer test:sqlite -- --log-junit sqlite-junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sqlite-junit
+          path: sqlite-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Run SQLite migration smoke
         env:
