@@ -5494,15 +5494,91 @@ function provisionSummaryCount(string $output, string $label): int
 }
 
 /**
+ * `demo-shop` freshly provisioned into $scratch — the state every test of the
+ * hand-off to Configure starts from — and the environment that points at it.
+ *
+ * Getting there is a full `--apply`, which is most of what each of those tests
+ * cost, and its result never varies. So a worker provisions it once, into a
+ * template of its own, and every later call copies the template into the
+ * test's scratch directory: 30 ms instead of 2–3 s.
+ *
+ * The simulated host records absolute paths — the ownership and type tables,
+ * the stubs' install/chown/chmod logs, the staging neighbour's release links —
+ * so the copy rewrites the template's path to the test's, and then proves that
+ * no file and no link still names the template. A copy that missed one would
+ * let the test read or write the template instead of its own host.
+ *
+ * @return array<string, string>
+ */
+function provisionDemoShopProvisioned(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = provisionScratchDir();
+        $environment = provisionFixture($directory);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $environment);
+        expect($exit)->toBe(0, $output);
+
+        register_shutdown_function(fn () => provisionCleanup($directory));
+        $template = [$directory, $environment];
+    }
+
+    [$directory, $environment] = $template;
+
+    exec('cp -a '.escapeshellarg($directory.'/.').' '.escapeshellarg($scratch).' 2>&1', $copyOutput, $copyStatus);
+    expect($copyStatus)->toBe(0, 'could not copy the provisioned template: '.implode("\n", $copyOutput));
+
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($scratch, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    $stale = [];
+
+    foreach ($entries as $entry) {
+        $path = $entry->getPathname();
+
+        if (is_link($path)) {
+            $target = (string) readlink($path);
+
+            if (str_starts_with($target, $directory)) {
+                unlink($path);
+                symlink($scratch.substr($target, strlen($directory)), $path);
+            }
+        } elseif ($entry->isFile()) {
+            $contents = (string) file_get_contents($path);
+
+            if (str_contains($contents, $directory)) {
+                file_put_contents($path, str_replace($directory, $scratch, $contents));
+            }
+        }
+    }
+
+    foreach ($entries as $entry) {
+        $path = $entry->getPathname();
+
+        if (is_link($path) ? str_starts_with((string) readlink($path), $directory) : ($entry->isFile() && str_contains((string) file_get_contents($path), $directory))) {
+            $stale[] = $path;
+        }
+    }
+
+    expect($stale)->toBe([], 'the copied host still names the template it came from');
+
+    return array_map(
+        fn (string $value): string => str_replace($directory, $scratch, $value),
+        $environment,
+    );
+}
+
+/**
  * A provisioned target, then the canonical environment file an operator writes
  * before Configure — the exact state the real run was in.
  */
 function provisionWithCanonicalEnv(string $scratch): array
 {
-    $env = provisionFixture($scratch);
-
-    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-    expect($exit)->toBe(0, $output);
+    $env = provisionDemoShopProvisioned($scratch);
 
     $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
     @mkdir($root.'/shared', 0o755, true);
@@ -5520,10 +5596,7 @@ function provisionWithCanonicalEnv(string $scratch): array
  */
 function provisionWithMalformedEnv(string $scratch, string $shape): array
 {
-    $env = provisionFixture($scratch);
-
-    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-    expect($exit)->toBe(0, $output);
+    $env = provisionDemoShopProvisioned($scratch);
 
     $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
     @mkdir($root.'/shared', 0o755, true);

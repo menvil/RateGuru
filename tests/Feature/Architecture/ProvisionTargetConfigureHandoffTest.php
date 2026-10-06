@@ -43,10 +43,7 @@ it('verifies a provisioned target whose .env does not exist yet', function () {
     $scratch = provisionScratchDir();
 
     try {
-        $env = provisionFixture($scratch);
-
-        [$applyExit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-        expect($applyExit)->toBe(0);
+        $env = provisionDemoShopProvisioned($scratch);
 
         expect(file_exists($scratch.'/fs/home/www/rateguru/production/demo-shop/shared/.env'))->toBeFalse();
 
