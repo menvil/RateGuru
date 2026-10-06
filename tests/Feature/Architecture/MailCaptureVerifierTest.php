@@ -268,7 +268,9 @@ it('fails the acceptance when Mailpit refuses the connection', function () {
         expect($run['exit'])->toBe(1, $run['output']);
         expect($run['output'])
             ->toContain('FAIL SMTP submission to Mailpit failed')
-            ->not->toContain('PASS SMTP message accepted');
+            ->not->toContain('PASS SMTP message accepted')
+            // The failure is the FAIL line alone, not the shell's own error.
+            ->not->toContain('Connection refused');
         expect(implode("\n", mailCaptureCalls($workspace)))->not->toContain('systemctl stop');
     } finally {
         removeScratchDir($workspace['root']);
@@ -400,5 +402,47 @@ it('fails --read-only on each broken part of the slice, and still changes nothin
     'the mirror API silent' => [
         fn (string $state) => file_put_contents($state.'/apis', "http://127.0.0.1:8025/api/v1/info\n"),
         'Mailtrap Local API is unavailable',
+    ],
+]);
+
+// =============================================================================
+// A failure after the first SMTP connection still says what failed
+// =============================================================================
+
+it('names the failed step once Mailpit has been connected to, and still cleans up', function (array $smtp, callable $breakage, string $failure) {
+    $workspace = mailCaptureStubWorkspace();
+
+    try {
+        mailCaptureHealthyState($workspace['state']);
+        $breakage($workspace['state']);
+
+        $run = mailCaptureVerifierAcceptance($workspace, MAIL_CAPTURE_E2E, $smtp);
+
+        expect($run['exit'])->toBe(1, $run['output']);
+        expect($run['output'])->toMatch('/^  FAIL '.$failure.'$/m');
+
+        // Whatever it got through, it deletes again — and a mirror it stopped
+        // is started again.
+        expect(mailCaptureStoredMessages($workspace, 8025))->toBe([]);
+        expect(mailCaptureStoredMessages($workspace, 3550))->toBe([]);
+        expect(file_get_contents($workspace['state'].'/staging-mailtrap-local.service.active'))->toBe('active');
+    } finally {
+        removeScratchDir($workspace['root']);
+    }
+})->with([
+    'Mailpit refuses the recipient' => [
+        ['RCPT' => '550 5.1.1 <verify@staging.invalid>: Recipient address rejected'],
+        fn (string $state) => null,
+        'SMTP submission to Mailpit failed',
+    ],
+    'the relay to the mirror is broken' => [
+        ['relay' => false],
+        fn (string $state) => null,
+        'mirrored copy of mcverify\d+ did not appear in Mailtrap Local',
+    ],
+    'Mailpit goes down with the mirror' => [
+        [],
+        fn (string $state) => file_put_contents($state.'/staging-mailtrap-local.service.stops', "staging-mailpit.service\n"),
+        'Mailpit stopped when Mailtrap Local was stopped',
     ],
 ]);

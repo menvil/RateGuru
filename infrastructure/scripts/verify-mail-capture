@@ -114,7 +114,10 @@ smtp_send() {
     # smtp_send <host> <port> <from> <to> <subject-token>
     local host="$1" port="$2" from="$3" to="$4" token="$5"
 
-    exec 3<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    # Only the connect's own error is silenced: on a bare `exec`, every
+    # redirection is permanent, so `exec 3<>… 2>/dev/null` would discard the
+    # rest of the run's stderr — every FAIL line included.
+    { exec 3<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
     printf 'EHLO staging-verify\r\n' >&3
