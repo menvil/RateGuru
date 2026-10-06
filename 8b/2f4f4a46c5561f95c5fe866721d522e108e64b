@@ -1,0 +1,21 @@
+tests/Feature/Architecture/MailGatewayTest.php
+  s_0a5cecf498a4dd::t_f42a90dbe6482f 909-911
+infrastructure/scripts/install-mail-gateway
+  s_0a5cecf498a4dd::t_bde1fc0efc9d3c 1095
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8b2f4f4a46c5561f95c5fe866721d522e108e64b",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
