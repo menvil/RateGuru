@@ -226,3 +226,29 @@ it('raises real toasts on the kit\'s one toast stack', function () {
         ->toContain("\$dispatch('rg-admin-toast', { message: '3 posts approved and published', tone: 'success' })")
         ->and(substr_count($html, 'class="rg-admin rg-admin-toast-stack"'))->toBe(1);
 });
+
+it('shows the segmented control, the filter dropdown and the combobox live, from their components', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-08'))
+        ->toContain('x-admin.ui.segmented')
+        ->toContain('role="radiogroup"')
+        ->toContain('Missing only')
+        ->toContain('rg-admin-segmented--compact')
+        ->and(adminUiKitSpecimen($html, 'FRM-10'))
+        ->toContain('x-admin.ui.filter-dropdown')
+        ->toContain('aria-haspopup="menu"')
+        ->toContain('role="menuitemradio"')
+        ->toContain('rg-admin-filter-chip')
+        ->and(adminUiKitSpecimen($html, 'FRM-11'))
+        ->toContain('x-admin.ui.combobox')
+        ->toContain('aria-haspopup="listbox"')
+        ->toContain('role="combobox"')
+        ->toContain('placeholder="Search 32 target languages"')
+        ->toContain('No installed language matches.');
+
+    // Built for thirty languages and more.
+    expect(substr_count(adminUiKitSpecimen($html, 'FRM-11'), 'role="option"'))->toBe(32);
+});

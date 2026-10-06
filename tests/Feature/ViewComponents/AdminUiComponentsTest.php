@@ -383,3 +383,94 @@ it('lays both overlays on one layer that dismisses, hides and finds focus a home
         // The opener gone with the change it confirmed: focus goes to the heading, not nowhere.
         ->toContain("document.querySelector('main h1')");
 });
+
+it('draws a segmented control as a radio group with one checked option, reachable by Tab', function () {
+    $html = (string) $this->blade('<x-admin.ui.segmented label="Show" :options="$options" value="all" x-model="mode" />', [
+        'options' => ['missing' => 'Missing only', 'all' => 'All'],
+    ]);
+
+    expect($html)
+        ->toContain('role="radiogroup"')
+        ->toContain('aria-label="Show"')
+        ->toContain('x-modelable="selected"')
+        ->toContain('x-model="mode"')
+        ->toContain('x-on:keydown.arrow-right.prevent="move(1)"')
+        ->toContain('x-on:keydown.home.prevent')
+        ->and(substr_count($html, 'role="radio"'))->toBe(2)
+        // Only the checked option takes Tab; the arrows move the choice.
+        ->and($html)->toMatch('/aria-checked="false"\s+tabindex="-1"[^>]*>\s*<span class="rg-admin-segmented__label" data-label="Missing only">/')
+        ->and($html)->toMatch('/aria-checked="true"\s+tabindex="0"[^>]*>\s*<span class="rg-admin-segmented__label" data-label="All">/');
+});
+
+it('checks the first option of a segmented control whose value is none of them', function () {
+    $html = (string) $this->blade('<x-admin.ui.segmented label="Show" :options="[\'missing\' => \'Missing only\', \'all\' => \'All\']" value="everything" />');
+
+    expect($html)->toMatch('/aria-checked="true"\s+tabindex="0"[^>]*>\s*<span class="rg-admin-segmented__label" data-label="Missing only">/');
+});
+
+it('holds a segmented control to two to four options', function (array $options) {
+    $this->blade('<x-admin.ui.segmented label="Show" :options="$options" />', ['options' => $options]);
+})->with([
+    'one' => [['all' => 'All']],
+    'five' => [['a' => 'A', 'b' => 'B', 'c' => 'C', 'd' => 'D', 'e' => 'E']],
+])->throws(ViewException::class, 'A segmented control has two to four options.');
+
+it('draws a filter dropdown as a menu button reading “Field: value”, with live counts', function () {
+    $html = (string) $this->blade('<x-admin.ui.filter-dropdown id="section" label="Section" :options="$options" value="tags" x-model="section" />', ['options' => [
+        ['value' => '', 'label' => 'All sections', 'trigger' => 'All'],
+        ['value' => 'categories', 'label' => 'Categories', 'count' => '2 missing'],
+        ['value' => 'tags', 'label' => 'Tags', 'count' => '0 missing', 'liveCount' => "missingIn('tags') + ' missing'"],
+    ]]);
+
+    expect($html)
+        ->toContain('aria-haspopup="menu"')
+        ->toContain('aria-expanded="false"')
+        ->toContain('aria-controls="section-menu"')
+        ->toContain('<span>Section: <span x-text="triggers[selected]">Tags</span></span>')
+        ->toContain('id="section-menu"')
+        ->toContain('role="menu"')
+        ->toContain('aria-labelledby="section"')
+        ->toContain('x-modelable="selected"')
+        ->toContain('x-on:keydown.escape.prevent.stop="close(true)"')
+        ->toContain('<span class="rg-admin-filter-dropdown__count">2 missing</span>')
+        ->toContain('x-text="missingIn(&#039;tags&#039;) + &#039; missing&#039;"')
+        ->and(substr_count($html, 'role="menuitemradio"'))->toBe(3)
+        ->and(substr_count($html, 'aria-checked="true"'))->toBe(1);
+});
+
+it('draws a searchable combobox: a trigger with the chosen value, a search over a listbox, and a status for no match', function () {
+    $html = (string) $this->blade('<x-admin.ui.combobox id="target" label="Target language" :options="$options" value="de" search-placeholder="Search 2 target languages" empty="No installed language matches." />', ['options' => [
+        ['value' => 'ru', 'label' => 'Russian — Русский', 'leading' => '🇷🇺', 'meta' => 'ru · enabled · 0 missing', 'trailing' => '100%', 'trailingTone' => 'success', 'badge' => ['label' => 'Enabled', 'tone' => 'success', 'dot' => true]],
+        ['value' => 'de', 'label' => 'German — Deutsch', 'leading' => '🇩🇪', 'meta' => 'de · disabled · 4 missing', 'trailing' => '96%', 'badge' => ['label' => 'Disabled', 'tone' => 'neutral', 'dot' => false]],
+    ]]);
+
+    expect($html)
+        // The trigger: overline, the chosen value and its state.
+        ->toContain('id="target-trigger"')
+        ->toContain('aria-haspopup="listbox"')
+        ->toContain('aria-controls="target-popover"')
+        ->toContain('<span class="rg-admin-combobox__overline">Target language</span>')
+        ->toContain('x-text="display[selected]?.label">German — Deutsch</span>')
+        ->toContain('rg-admin-badge rg-admin-badge--neutral')
+        // The search drives the listbox it filters.
+        ->toContain('role="combobox"')
+        ->toContain('aria-controls="target-listbox"')
+        ->toContain('aria-autocomplete="list"')
+        ->toContain('x-bind:aria-activedescendant')
+        ->toContain('placeholder="Search 2 target languages"')
+        ->toContain('id="target-listbox" role="listbox" aria-label="Target language"')
+        ->toContain('rg-admin-combobox__option-trailing--success')
+        ->toContain('role="status" x-text="anyShown ? \'\' : \'No installed language matches.\'"')
+        ->and(substr_count($html, 'role="option"'))->toBe(2)
+        ->and($html)->toMatch('/id="target-option-0"\s+role="option"[^>]*aria-selected="false"/')
+        ->and($html)->toMatch('/id="target-option-1"\s+role="option"[^>]*aria-selected="true"/');
+});
+
+it('lets a screen decide on a combobox choice before it is taken', function () {
+    $html = (string) $this->blade('<x-admin.ui.combobox label="Target language" :options="[[\'value\' => \'ru\', \'label\' => \'Russian\']]" x-on:choose="$event.preventDefault()" />');
+
+    expect($html)
+        ->toContain("new CustomEvent('choose', { detail: { value }, bubbles: true, cancelable: true })")
+        ->toContain('if (this.$root.dispatchEvent(event))')
+        ->toContain('x-on:choose="$event.preventDefault()"');
+});

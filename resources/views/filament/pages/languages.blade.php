@@ -2,7 +2,9 @@
     /*
      * One table for every installed language, however many there are: the
      * rows come from the data, never from a branch per language. Header and
-     * rows share this grid; below its minimum width the card scrolls.
+     * rows share this grid. Where the card is narrower than the grid, the
+     * columns tighten and then each row stacks into a block of its own, so
+     * the screen never scrolls sideways (.rg-admin-languages__card).
      */
     $columns = '--rg-admin-table-columns: minmax(220px, 1fr) 90px 150px 180px 190px 110px 130px; --rg-admin-table-min-width: 1060px';
 
@@ -101,7 +103,7 @@
         <x-admin.ui.tabs label="Language status" :active="$status" :items="$tabs" />
 
         <div
-            class="rg-admin-table"
+            class="rg-admin-table rg-admin-languages__card"
             wire:key="{{ $rowsKey }}"
             x-init="rows = [...$el.querySelectorAll('[data-search]')].map((row) => row.dataset.search)"
         >

@@ -4,21 +4,18 @@
      * application catalog's issues when it breaks the contract, then the
      * missing project content by section.
      *
-     * Each item shows the English text it is translated from, and Edit source
-     * opens the editor that holds that content and, today, its translations.
-     * That is the bridge until Translation Center exists, when the items gain
-     * its Translate filters; until then nothing that can be edited now loses
-     * its way to an editor.
+     * Each item shows the English text it is translated from. Translate opens
+     * Translation Center on that item — its language, its section, Missing
+     * only — and Translate all missing on everything this language is missing.
+     * Edit source opens the editor that holds the content's English text.
+     * Catalog issues are the release's to fix, so nothing here sends them to
+     * Translation Center, which edits project content only.
      */
     $row = $missing['row'];
     $project = $row['project'];
     $translated = $project->required === 0 ? 100 : $project->translated * 100 / $project->required;
     $issueCount = count($row['catalog']->issues);
     $subtitle = number_format($row['missing']).' of '.number_format($project->required).' project strings missing · '.($row['enabled'] ? 'enabled' : 'disabled');
-
-    // Translate and Translate all missing open Translation Center, which does not
-    // exist yet: they stay visible, disabled, with the reason, until it does.
-    $later = 'Translating here opens Translation Center, which is not built yet. Edit source opens the editor that holds the translations today.';
 @endphp
 
 <x-admin.ui.drawer
@@ -90,7 +87,7 @@
                         <a href="{{ $item['url'] }}" class="rg-admin-languages__edit-source">
                             Edit source<span class="rg-admin-sr-only">: {{ $item['label'] }}{{ $item['field'] !== null ? ', '.$item['field'] : '' }}</span>
                         </a>
-                        <x-admin.ui.button size="sm" disabled aria-describedby="rg-admin-languages-missing-later" :title="$later">
+                        <x-admin.ui.button size="sm" :href="$item['translate']">
                             Translate<span class="rg-admin-sr-only"> {{ $item['label'] }}{{ $item['field'] !== null ? ', '.$item['field'] : '' }}</span>
                         </x-admin.ui.button>
                     </li>
@@ -105,9 +102,10 @@
 
     <x-slot:footer>
         <span class="rg-admin-languages__drawer-note">Visitors see the {{ $referenceLabel }} text wherever a translation is missing.</span>
-        <x-admin.ui.button variant="primary" icon="languages" disabled aria-describedby="rg-admin-languages-missing-later" :title="$later">
-            Translate all missing
-        </x-admin.ui.button>
-        <p id="rg-admin-languages-missing-later" class="rg-admin-sr-only">{{ $later }}</p>
+        @if ($missing['translateAll'] !== null)
+            <x-admin.ui.button variant="primary" icon="languages" :href="$missing['translateAll']">
+                Translate all missing
+            </x-admin.ui.button>
+        @endif
     </x-slot:footer>
 </x-admin.ui.drawer>
