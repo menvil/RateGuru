@@ -64,7 +64,7 @@ it('refuses a target locale that is not a locale', function (string $locale) {
 
 it('accepts target locales with script and region subtags', function (string $locale) {
     expect(translationBatch(targetLocale: $locale)->targetLocale)->toBe($locale);
-})->with(['de', 'pt_BR', 'pt-BR', 'zh-Hant-TW', 'bg']);
+})->with(['fr', 'pt_BR', 'pt-BR', 'zh-Hant-TW', 'es-419']);
 
 it('refuses an item already in the target locale, whatever the spelling, rather than paying to copy it', function (string $source, string $target) {
     translationBatch([translationItem(['sourceLocale' => $source])], targetLocale: $target);
