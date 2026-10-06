@@ -1758,7 +1758,8 @@ function mailGatewayProbeFakeServer(string $mailReply): array
 
     $harness = 'source '.escapeshellarg(mailGatewayScript('verify-mail-gateway'))
         .' && if smtp_probe_sender 127.0.0.1 '.$port.' intruder@foreign.example;'
-        .' then echo "accepted ${SMTP_STAGE}"; else echo "refused ${SMTP_STAGE} ${SMTP_REPLY}"; fi';
+        .' then echo "accepted ${SMTP_STAGE}"; else echo "refused ${SMTP_STAGE} ${SMTP_REPLY}"; fi'
+        .' && bad "reported after the session"';
 
     $process = proc_open(['bash', '-c', $harness], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
 
@@ -1801,6 +1802,11 @@ it('probes a sender at MAIL FROM and never names a recipient, even when the gate
         'QUIT',
     ]);
     expect($probe['output'])->toStartWith($verdict);
+
+    // The session opens and closes its socket with a bare exec; whatever it
+    // silenced for that must not stay silenced, or every FAIL the acceptance
+    // reports after its first session would reach nobody.
+    expect($probe['output'])->toEndWith('FAIL reported after the session');
 })->with([
     'a gateway that refuses the sender' => ['554 5.7.1 <intruder@foreign.example>: Sender address rejected', 'refused mail 554'],
     'a broken gateway that accepts it' => ['250 2.1.0 Ok', 'accepted mail'],

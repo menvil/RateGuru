@@ -116,6 +116,10 @@ require_tools() {
 # QUIT, whatever the reply. Sets SMTP_STAGE and SMTP_REPLY the same way, and
 # returns 0 only when the sender was accepted. It never names a recipient and
 # never sends a message, so it is safe on every listener, outbound included.
+#
+# fd 4 is opened and closed with a bare exec, which applies its redirections to
+# the whole script; the stderr silencing is on a group around it, so it lasts
+# only for that exec and every FAIL after a session still reaches the operator.
 
 SMTP_STAGE=""
 SMTP_REPLY=""
@@ -169,7 +173,7 @@ smtp_submit() {
         return 1
     fi
 
-    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     if _smtp_step connect 2 \
         && _smtp_step ehlo 2 "EHLO mail-gateway-verify" \
@@ -194,7 +198,7 @@ smtp_submit() {
         fi
     fi
 
-    exec 4>&- 4<&- 2>/dev/null || true
+    { exec 4>&- 4<&-; } 2>/dev/null || true
     [[ "${SMTP_STAGE}" == queued ]]
 }
 
@@ -203,7 +207,7 @@ smtp_probe_sender() {
     SMTP_STAGE="connect"
     SMTP_REPLY=""
 
-    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     if _smtp_step connect 2 \
         && _smtp_step ehlo 2 "EHLO mail-gateway-verify"
@@ -216,7 +220,7 @@ smtp_probe_sender() {
         printf 'QUIT\r\n' >&4 || true
     fi
 
-    exec 4>&- 4<&- 2>/dev/null || true
+    { exec 4>&- 4<&-; } 2>/dev/null || true
     return "${accepted}"
 }
 
