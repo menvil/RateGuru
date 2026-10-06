@@ -1810,16 +1810,68 @@ Slices, in order:
    DNS record, PTR, SPF, DKIM or DMARC changed, and no email was sent to the
    public Internet. See [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
 
-   **8.4B.4 Production mail identity and tits-guru outbound — planned.** The
-   real public MTA hostname and its PTR/rDNS, verified; SPF; DKIM keys and
-   signing; DMARC; the production Return-Path and bounce identity, and bounce
-   reception on the bounce domain; reply routing on the reply domain and a
-   support mailbox; then `direct.enabled` with that hostname, `tits-guru` from
-   `held` to `outbound`, the production `.env` mail values
-   (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
-   `MAIL_FROM_ADDRESS=noreply@tits.guru`), a controlled real canary delivery
-   with its headers verified at the large mailbox providers, and sender
-   reputation warm-up.
+   **8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing
+   activated.** The identity production mail will be sent under, reviewed and
+   made checkable before anything signs or sends. The host's MTA identity is
+   now `mta1.tits.guru` in `config/mail-outbound.json` — reviewed, with
+   `direct.enabled` still `false`, so no outbound route exists and the
+   rendered gateway is byte for byte the one staging accepted. The new
+   `config/mail-identity.json` (schema 1) holds only a production target's
+   signing and DNS policy — `tits-guru`: DKIM selector `rg1`, `rsa-sha256`, at
+   least 2048 bits; DMARC `p=none`, `adkim=s`, `aspf=s`, with no report address
+   — and repeats nothing `mail-routing.json` is the authority for; an outbound
+   target without one is refused. `scripts/mail-identity` is the one judge of
+   both the host and the target identity (the gateway now asks it rather than
+   judging `mail-outbound.json` itself): `validate`, `dkim-key`, `check-key`
+   (an unencrypted RSA private key of the reviewed size, judged by OpenSSL,
+   never printed), `show-dns` (A and PTR for the MTA hostname, the DKIM public
+   key derived from the private key, SPF `v=spf1 ip4:<host IPv4> -all`, DMARC —
+   the host's address is read from its route to the Internet, never
+   committed), `verify-dns` (strictly read-only proof from the host of
+   forward-confirmed reverse DNS, exactly one SPF policy, the DKIM record
+   matching the installed key with split TXT chunks joined, and exactly one
+   reviewed DMARC policy; a DNS failure is a failure) and `readiness` (every
+   condition outbound delivery will require, each reported — never satisfied
+   here, because no signing service exists yet). The DKIM private key is
+   external material, `mail-dkim-private-key`, installed by
+   `install-target-prerequisites` at `/etc/opendkim/keys/<target>/<selector>.private`
+   (`/etc/opendkim/keys/tits-guru/rg1.private`), root:root 0600 in root-only
+   directories, never overwritten or rotated; DEFERRED while a target is held,
+   required once it is outbound. Configure tits.guru carries it from an
+   optional `MAIL_DKIM_PRIVATE_KEY` secret, judged on the runner before upload
+   and removed everywhere afterwards; without it Configure is exactly what it
+   was. *Unchanged on purpose:* no key was generated or committed, OpenDKIM is
+   not installed, no milter or signing configuration exists, `tits-guru` is
+   still `held` and `planned`, direct delivery is still disabled, no
+   production environment value changed, and no DNS or PTR record was
+   created. *Next, operator:* create the RSA key, set `MAIL_DKIM_PRIVATE_KEY`,
+   run Configure tits.guru, publish the records `mail-identity show-dns`
+   prints and set the PTR, then run `mail-identity verify-dns` on the host
+   until it passes. See [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
+
+   **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
+   planned.** Only once `verify-dns` passes on the host: install and converge
+   OpenDKIM with read access to exactly its key, wire signing into the
+   gateway, enable direct delivery under `mta1.tits.guru`, move `tits-guru`
+   from `held` to `outbound` behind `mail-identity readiness`, set the
+   production `.env` mail values (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`,
+   `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`), and send one
+   controlled real canary with its headers verified at the large mailbox
+   providers. Sender reputation warm-up starts here.
+
+   **8.4B.5 Bounce reception, reply routing and the support mailbox —
+   planned.** The production Return-Path and bounce identity, bounce reception
+   on the bounce domain, reply routing on the reply domain, and the support
+   mailbox integration.
+
+   **8.4B.6 Suppression, delivery state and per-target metrics — planned.**
+   Recording what was delivered, deferred and bounced per target, suppressing
+   addresses that must not be mailed again, and per-target delivery metrics.
+
+   **8.4B.7 Mail operations, recovery and security acceptance — planned.**
+   Operating the production mail path day to day, recovering it on a
+   replacement machine — including recovering its secrets, such as the DKIM
+   key — and its security acceptance.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,

@@ -34,6 +34,17 @@
 #                   5.4 treats all three as WARN rather than a gate, precisely
 #                   because a pre-deploy host legitimately lacks them.
 #
+#                   A production target with a reviewed mail identity also has
+#                   its DKIM private key here, as mail-dkim-private-key, at the
+#                   one place `mail-identity dkim-key` derives from the target ID
+#                   and the reviewed selector:
+#                   /etc/opendkim/keys/<target>/<selector>.private, root:root
+#                   0600, its directories root-only. It is the target's own
+#                   secret even though it lives under /etc. While the target's
+#                   mail is HELD the key may be absent: that row is DEFERRED —
+#                   reported, never an error — because nothing signs with it
+#                   yet. Once the target is OUTBOUND an absent key is MISSING.
+#
 #   --scope all     Both, for direct operator use on an already-bootstrapped
 #                   host. prepare-host always passes an explicit scope.
 #
@@ -97,6 +108,12 @@
 # supplied material": the content of neither side is ever printed, logged,
 # diffed or summarized, and no length, hash or prefix is disclosed either.
 #
+# The one exception is the DKIM private key, and it is narrow: before one is
+# installed, and whenever one is found installed, `mail-identity check-key`
+# asks OpenSSL whether it is an unencrypted RSA private key of the reviewed
+# size. Only a fixed verdict comes back. Its content is still never printed,
+# logged, hashed or measured here.
+#
 # Destinations are never supplied by a caller. Registry-owned paths come from
 # the target registry; Nginx-owned paths are parsed out of this repository's own
 # committed vhosts using the same directive contract install-bootstrap-services
@@ -151,6 +168,9 @@ CHOWN_BIN="$(gated_default RATEGURU_TARGETPREREQ_CHOWN_BIN chown)"
 CHMOD_BIN="$(gated_default RATEGURU_TARGETPREREQ_CHMOD_BIN chmod)"
 STAT_BIN="$(gated_default RATEGURU_TARGETPREREQ_STAT_BIN stat)"
 TARGETS_CLI_BIN="$(gated_default RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+# The one judge of a target's mail identity, and of what is a usable DKIM key.
+# Needed only for target scope, which only ever runs from a full trusted bundle.
+MAIL_IDENTITY_BIN="$(gated_default RATEGURU_TARGETPREREQ_MAIL_IDENTITY_BIN "${SCRIPT_DIR}/mail-identity")"
 # Ownership enforcement is disabled only when the owning accounts do not exist,
 # which is exclusively a scratch test tree. Production always leaves this true.
 ENFORCE_OWNERSHIP="$(gated_default RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP true)"
@@ -244,7 +264,10 @@ names a planned production one.
                   archive to judge. Read only; never extracted.
 
 Installs only what is absent. Never overwrites, rotates or deletes existing
-material, and never generates any. --list-material-names prints logical names
+material, and never generates any. A production target's DKIM private key
+(mail-dkim-private-key) is DEFERRED while its mail is held and required once it
+is outbound; a supplied or installed one must be an unencrypted RSA private key
+of the reviewed size. --list-material-names prints logical names
 only; --capture and --validate-recovery-material never print, log, hash or
 measure the content of any material.
 USAGE
@@ -561,11 +584,82 @@ build_prerequisite_table() {
     fi
 
     build_target_prerequisite_rows "${target_root}" "${deploy_user}" "${runtime_user}" "${runtime_group}"
+
+    # The mail identity is read only when this run wants target rows: the
+    # installed copy of this script serves host-scope capture and validation
+    # beside no mail identity contract at all, and must never need one.
+    if target_scope_wanted; then
+        build_mail_identity_rows
+    fi
 }
 
 # host_scope_wanted — whether this run needs the Nginx-derived host rows at all.
 host_scope_wanted() {
     [[ "${SCOPE}" == host ]] || [[ "${SCOPE}" == all ]]
+}
+
+target_scope_wanted() {
+    [[ "${SCOPE}" == target ]] || [[ "${SCOPE}" == all ]]
+}
+
+# --- the target's DKIM private key, when its mail identity has one.
+#
+# Where it goes and whether it is needed yet are not decided here: mail-identity
+# derives both from the reviewed contracts in the same configuration directory
+# this table is built from. DKIM_REQUIREMENT is "deferred" while the target's
+# mail is held and "required" once it is outbound; DKIM_MIN_BITS is the reviewed
+# minimum key size.
+DKIM_KEY_NAME="mail-dkim-private-key"
+DKIM_REQUIREMENT=""
+DKIM_MIN_BITS=""
+
+build_mail_identity_rows() {
+    local answer requirement path bits
+
+    DKIM_REQUIREMENT=""
+    DKIM_MIN_BITS=""
+
+    [[ -x "${MAIL_IDENTITY_BIN}" ]] \
+        || fail "the mail identity CLI is not executable: ${MAIL_IDENTITY_BIN} — target-scope material is installed from a full trusted bundle"
+
+    answer="$("${MAIL_IDENTITY_BIN}" dkim-key --target "${TARGET_ID}" \
+        --identity "${CONFIG_DIR}/mail-identity.json" \
+        --routing "${CONFIG_DIR}/mail-routing.json" \
+        --registry "${SOURCE_REGISTRY}" \
+        --outbound "${CONFIG_DIR}/mail-outbound.json")" \
+        || fail "the mail identity contracts could not be judged for ${TARGET_ID} (diagnostics above) — refusing to report target material against an unknown contract"
+
+    [[ "${answer}" != none ]] || return 0
+
+    IFS=$'\t' read -r requirement path bits <<<"${answer}"
+
+    # The answer is checked for shape before it becomes a destination: a path
+    # this script writes a secret to is never taken on trust.
+    [[ "${requirement}" == deferred || "${requirement}" == required ]] \
+        || fail "internal: mail-identity named an unknown DKIM key requirement for ${TARGET_ID}"
+    [[ "${path}" =~ ^/etc/opendkim/keys/${TARGET_ID}/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.private$ ]] \
+        || fail "internal: mail-identity named a DKIM key destination outside /etc/opendkim/keys/${TARGET_ID}/"
+    [[ "${bits}" =~ ^[0-9]{4}$ ]] \
+        || fail "internal: mail-identity named no minimum DKIM key size for ${TARGET_ID}"
+
+    DKIM_REQUIREMENT="${requirement}"
+    DKIM_MIN_BITS="${bits}"
+
+    emit_row target "${DKIM_KEY_NAME}" "${path}" root root 0600 secret \
+        "DKIM signing private key for ${TARGET_ID} mail"
+}
+
+# dkim_key_problem PATH — empty when PATH holds a usable DKIM private key;
+# otherwise the judge's fixed verdict. Never any of the key.
+dkim_key_problem() {
+    local verdict
+
+    if verdict="$("${MAIL_IDENTITY_BIN}" check-key --file "$1" --min-bits "${DKIM_MIN_BITS}" 2>&1 >/dev/null)"; then
+        return 0
+    fi
+
+    verdict="${verdict#ERROR: }"
+    printf '%s\n' "${verdict:-the mail identity CLI could not judge it}"
 }
 
 build_host_prerequisite_rows() {
@@ -909,6 +1003,16 @@ classify_row() {
             return 0
         fi
 
+        local problem
+        if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
+            problem="$(dkim_key_problem "${dst}")"
+            if [[ -n "${problem}" ]]; then
+                CLASSIFY_STATE=CONFLICT
+                CLASSIFY_REASON="the installed key at ${destination} is ${problem} — it is never replaced here; rotation is a separate deliberate operation"
+                return 0
+            fi
+        fi
+
         if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
             if cmp -s "${material}" "${dst}"; then
                 CLASSIFY_STATE=CONVERGED
@@ -935,8 +1039,24 @@ classify_row() {
     fi
 
     if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
+        if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
+            local supplied_problem
+            supplied_problem="$(dkim_key_problem "${material}")"
+            if [[ -n "${supplied_problem}" ]]; then
+                CLASSIFY_STATE=CONFLICT
+                CLASSIFY_REASON="the supplied ${name} is ${supplied_problem} — nothing is installed from it"
+                return 0
+            fi
+        fi
+
         CLASSIFY_STATE=INSTALLABLE
         CLASSIFY_REASON="absent; will be installed from the supplied material: ${destination}"
+        return 0
+    fi
+
+    if [[ "${name}" == "${DKIM_KEY_NAME}" ]] && [[ "${DKIM_REQUIREMENT}" == deferred ]]; then
+        CLASSIFY_STATE=DEFERRED
+        CLASSIFY_REASON="absent, and not needed yet: ${TARGET_ID}'s mail is held, so nothing signs with it. Supply it before the target delivers outbound — it is required from then on: ${destination}"
         return 0
     fi
 
@@ -953,6 +1073,12 @@ install_row() {
     dst="$(physical "${destination}")"
     material="$(physical "${MATERIAL_DIR}")/${name}"
     dst_dir="$(dirname "${dst}")"
+
+    # The DKIM key's directories are its own and are root-only: created here,
+    # where nothing else creates them, rather than by host bootstrap.
+    if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
+        ensure_dkim_key_directories "$(dirname "${destination}")"
+    fi
 
     if [[ ! -d "${dst_dir}" ]]; then
         # Host-scope destinations live under /etc and legitimately predate the
@@ -1030,20 +1156,58 @@ install_row() {
     log "INSTALLED ${name} -> ${destination} (${owner}:${group} ${mode}; content never read or logged)"
 }
 
+# ensure_dkim_key_directories LOGICAL_DIR — /etc/opendkim (0755), its keys
+# directory and the target's own directory under it (both 0700), root:root.
+# Only what is missing is created; an existing directory is never re-owned or
+# re-moded, and a symlink anywhere on the way is refused.
+ensure_dkim_key_directories() {
+    local target_dir="$1"
+    local keys_dir parent dir mode
+
+    keys_dir="$(dirname "${target_dir}")"
+    parent="$(dirname "${keys_dir}")"
+
+    for dir in "${parent}" "${keys_dir}" "${target_dir}"; do
+        [[ ! -L "$(physical "${dir}")" ]] \
+            || fail "cannot install ${DKIM_KEY_NAME}: ${dir} is a symlink — refusing to write a private key through one"
+
+        if [[ -e "$(physical "${dir}")" ]]; then
+            [[ -d "$(physical "${dir}")" ]] \
+                || fail "cannot install ${DKIM_KEY_NAME}: ${dir} exists and is not a directory"
+            continue
+        fi
+
+        mode=0700
+        [[ "${dir}" != "${parent}" ]] || mode=0755
+
+        "${INSTALL_BIN}" -d -m "${mode}" -- "$(physical "${dir}")" \
+            || fail "cannot create ${dir}"
+
+        if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+            "${CHOWN_BIN}" -- root:root "$(physical "${dir}")" \
+                || fail "cannot set ownership on ${dir}"
+        fi
+
+        log "created ${dir} (root:root ${mode})"
+    done
+}
+
 # --- Modes ---------------------------------------------------------------------------
 
 REPORT_MISSING=0
 REPORT_CONFLICTS=0
 REPORT_INSTALLABLE=0
+REPORT_DEFERRED=0
 
 report_rows() {
-    local row scope name destination owner group mode secret description
+    local row scope name destination owner group mode description
 
     REPORT_MISSING=0
     REPORT_CONFLICTS=0
     REPORT_INSTALLABLE=0
+    REPORT_DEFERRED=0
 
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
@@ -1054,8 +1218,24 @@ report_rows() {
             MISSING)     REPORT_MISSING=$((REPORT_MISSING + 1)) ;;
             CONFLICT)    REPORT_CONFLICTS=$((REPORT_CONFLICTS + 1)) ;;
             INSTALLABLE) REPORT_INSTALLABLE=$((REPORT_INSTALLABLE + 1)) ;;
+            DEFERRED)    REPORT_DEFERRED=$((REPORT_DEFERRED + 1)) ;;
         esac
     done < <(rows_in_scope)
+}
+
+# refuse_unrouted_dkim_material — a DKIM key supplied for a target with no mail
+# identity would install nowhere; saying nothing would let an operator believe
+# it had been installed.
+refuse_unrouted_dkim_material() {
+    [[ -n "${MATERIAL_DIR}" ]] || return 0
+    target_scope_wanted || return 0
+
+    local supplied
+    supplied="$(physical "${MATERIAL_DIR}")/${DKIM_KEY_NAME}"
+
+    if [[ -e "${supplied}" || -L "${supplied}" ]] && [[ -z "${DKIM_REQUIREMENT}" ]]; then
+        fail "the material directory carries ${DKIM_KEY_NAME}, but ${TARGET_ID} has no reviewed mail identity in mail-identity.json — there is nowhere to install it, and nothing was installed"
+    fi
 }
 
 run_check() {
@@ -1063,6 +1243,7 @@ run_check() {
     check_required_tools
     resolve_target
     validate_material_dir
+    refuse_unrouted_dkim_material
 
     printf 'EXTERNAL PREREQUISITES for %s (scope=%s, read-only)\n\n' "${TARGET_ID}" "${SCOPE}"
     report_rows
@@ -1071,6 +1252,9 @@ run_check() {
     printf 'installable %d\n' "${REPORT_INSTALLABLE}"
     printf 'missing %d\n' "${REPORT_MISSING}"
     printf 'conflicts %d\n' "${REPORT_CONFLICTS}"
+    # Deferred material is not needed for the target to operate as it is
+    # configured today, so it never makes the target unready.
+    printf 'deferred %d\n' "${REPORT_DEFERRED}"
     printf '\n'
 
     if (( REPORT_MISSING == 0 )) && (( REPORT_CONFLICTS == 0 )) && (( REPORT_INSTALLABLE == 0 )); then
@@ -1087,8 +1271,9 @@ run_apply() {
     check_required_tools
     resolve_target
     validate_material_dir
+    refuse_unrouted_dkim_material
 
-    local row scope name destination owner group mode secret description
+    local row scope name destination owner group mode description
 
     # Two passes, deliberately. The first classifies everything and refuses the
     # whole run on any conflict or unsatisfiable prerequisite, so a partially
@@ -1105,7 +1290,7 @@ run_apply() {
     # refusal below covers it and this pass has exactly one notion of what
     # "not ready" means. Checking it separately here is what let --check and
     # --apply drift apart in the first place.
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
@@ -1117,7 +1302,7 @@ run_apply() {
         esac
     done < <(rows_in_scope)
 
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
@@ -1131,6 +1316,9 @@ run_apply() {
                 ;;
             PRESENT)
                 log "SKIP ${name}: already present; no material supplied and nothing changed"
+                ;;
+            DEFERRED)
+                log "DEFER ${name}: ${CLASSIFY_REASON}"
                 ;;
         esac
     done < <(rows_in_scope)
@@ -1218,12 +1406,19 @@ verify_row_metadata() {
 }
 
 verify_rows() {
-    local row scope name destination owner group mode secret description dst count=0
+    local row scope name destination owner group mode description dst count=0
 
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         dst="$(physical "${destination}")"
+
+        if [[ "${name}" == "${DKIM_KEY_NAME}" ]] && [[ "${DKIM_REQUIREMENT}" == deferred ]] \
+            && [[ ! -e "${dst}" ]] && [[ ! -L "${dst}" ]]
+        then
+            log "DEFERRED ${name}: absent and not needed while ${TARGET_ID}'s mail is held — required once it is outbound: ${destination}"
+            continue
+        fi
 
         # -e and -f follow a symlink, which is exactly right for the ACME
         # material that legitimately is one — but only for that material.
@@ -1241,6 +1436,13 @@ verify_rows() {
             || fail "external prerequisite ${name} is not a regular file: ${destination}"
 
         verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
+
+        if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
+            local problem
+            problem="$(dkim_key_problem "${dst}")"
+            [[ -z "${problem}" ]] \
+                || fail "external prerequisite ${name} at ${destination} is ${problem}"
+        fi
 
         count=$((count + 1))
     done < <(rows_in_scope)
@@ -1341,13 +1543,13 @@ run_capture() {
     resolve_target
     validate_output_dir
 
-    local row scope name destination owner group mode secret description
+    local row scope name destination owner group mode description
     local dst out count=0
     local -a captured=()
 
     # Everything is judged before anything is copied, so a refusal leaves the
     # output directory exactly as empty as it was found.
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         classify_row "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
@@ -1366,7 +1568,7 @@ run_capture() {
         verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
     done < <(rows_in_scope)
 
-    while IFS='|' read -r scope name destination owner group mode secret description; do
+    while IFS='|' read -r scope name destination owner group mode _ description; do
         [[ -n "${name}" ]] || continue
 
         dst="$(physical "${destination}")"

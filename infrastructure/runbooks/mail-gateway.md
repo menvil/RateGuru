@@ -106,7 +106,7 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
      "schema_version": 1,
      "direct": {
        "enabled": false,
-       "mta_hostname": ""
+       "mta_hostname": "mta1.tits.guru"
      }
    }
    ```
@@ -116,7 +116,8 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
    with (`HELO`/`EHLO`) is the **host's** physical MTA identity, kept here once,
    and never a target's `From` domain or anything in a target's policy.
    `enabled: false` means direct delivery does not exist on this host;
-   `mta_hostname` may then be empty. `enabled: true` requires a lowercase,
+   `mta_hostname` may then be empty, or — as now — name the reviewed identity
+   ahead of its enablement, which renders nothing. `enabled: true` requires a lowercase,
    fully qualified public hostname — never under `.invalid`, `.test`,
    `.localhost`, `.example`, `.local`, `.localdomain`, `.internal`, `.alt`,
    `.onion` or `.arpa`, because a receiving server compares it with the PTR of
@@ -160,12 +161,17 @@ outbound target renders **byte for byte** what it rendered before outbound
 routes existed, so the real host does not drift.
 
 **Not in this capability** — each needs its own reviewed change before any
-target is switched to `outbound`: the real MTA hostname and its PTR/rDNS, SPF,
-DKIM keys and signing, DMARC, the production Return-Path and bounce reception,
-reply routing, a support mailbox, the production `MAIL_*` values, a controlled
-real canary delivery, header verification at the large mailbox providers, and
-sender reputation warm-up. Until then the real `mail-outbound.json` stays
-`enabled: false` and `tits-guru` stays `held`.
+target is switched to `outbound`: DKIM signing, published and verified DNS
+(the reviewed MTA hostname, its PTR, SPF, DKIM and DMARC — see
+[`mail-identity.md`](mail-identity.md)), the production Return-Path and bounce
+reception, reply routing, a support mailbox, the production `MAIL_*` values, a
+controlled real canary delivery, header verification at the large mailbox
+providers, and sender reputation warm-up. Until then the real
+`mail-outbound.json` stays `enabled: false` and `tits-guru` stays `held`.
+
+The contract is judged by `infrastructure/scripts/mail-identity`
+(`check-outbound`), the one judge of the host's and the targets' mail
+identity; this installer asks it and restates none of its rules.
 
 ## Ownership and the package
 

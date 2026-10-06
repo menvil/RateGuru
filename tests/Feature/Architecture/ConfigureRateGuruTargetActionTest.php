@@ -71,7 +71,13 @@ it('accepts the connection inputs, the deploy credential, and nothing else', fun
         'bootstrap-ssh-key',
         'bootstrap-known-hosts',
         'deploy-ssh-key',
+        // Optional, and the one input that may carry a secret to the host: the
+        // target's DKIM private key. Covered by its own tests below.
+        'mail-dkim-private-key',
     ]);
+
+    expect(configureAction()['inputs']['mail-dkim-private-key']['required'])->toBeFalse();
+    expect(configureAction()['inputs']['mail-dkim-private-key']['default'])->toBe('');
 });
 
 it('has no input that could carry the material it causes to be used', function (string $forbidden) {
@@ -378,4 +384,155 @@ it('fails on the runner, before any upload, when the deployment key is unusable'
     } finally {
         exec('rm -rf '.escapeshellarg($scratch));
     }
+});
+
+// =============================================================================
+// The optional DKIM private key, executed rather than read
+// =============================================================================
+
+/** @return array{0: int, 1: string, 2: string, 3: string} exit, output, material dir, GITHUB_ENV contents */
+function configureRunDkimStep(string $scratch, string $keyMaterial): array
+{
+    $material = $scratch.'/runner/rateguru-configure-material';
+    @mkdir($material, 0o700, true);
+    file_put_contents($material.'/deploy-authorized-keys', "ssh-ed25519 AAAA deploy\n");
+
+    $githubEnv = $scratch.'/github-env';
+    touch($githubEnv);
+
+    $script = $scratch.'/stage-dkim.sh';
+    file_put_contents($script, configureActionStepScript('Stage the DKIM private key'));
+
+    $process = proc_open(['bash', $script], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'GITHUB_WORKSPACE' => base_path(),
+        'GITHUB_ENV' => $githubEnv,
+        'RATEGURU_MATERIAL_DIR' => $material,
+        'MAIL_DKIM_PRIVATE_KEY' => $keyMaterial,
+        'DEPLOYMENT_TARGET' => 'tits-guru',
+    ]);
+
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output, $material, (string) file_get_contents($githubEnv)];
+}
+
+it('stages nothing when no DKIM key was supplied, and Configure is exactly what it was', function () {
+    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
+    @mkdir($scratch, 0o700, true);
+
+    try {
+        [$exit, $output, $material, $env] = configureRunDkimStep($scratch, '');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('No DKIM private key was supplied: nothing is staged');
+        expect(scandir($material))->toBe(['.', '..', 'deploy-authorized-keys']);
+        expect($env)->not->toContain('RATEGURU_DKIM_KEY_STAGED');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('stages a usable DKIM key as exactly mail-dkim-private-key, root-only, and never prints it', function () {
+    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
+    @mkdir($scratch, 0o700, true);
+
+    try {
+        $key = (string) file_get_contents(mailIdentityKey('rsa2048'));
+
+        [$exit, $output, $material, $env] = configureRunDkimStep($scratch, $key);
+
+        expect($exit)->toBe(0, $output);
+        expect(scandir($material))->toBe(['.', '..', 'deploy-authorized-keys', 'mail-dkim-private-key']);
+        expect(file_get_contents($material.'/mail-dkim-private-key'))->toBe($key);
+        expect(substr(sprintf('%o', fileperms($material.'/mail-dkim-private-key')), -3))->toBe('600');
+        expect($env)->toBe("RATEGURU_DKIM_KEY_STAGED=true\n");
+
+        expectNoKeyMaterial($output.$env, mailIdentityKey('rsa2048'));
+
+        // The same key with its trailing newline lost — as a secret store may
+        // keep it — stages to the identical bytes, so a re-run converges on the
+        // host rather than conflicting with what it installed.
+        exec('rm -rf '.escapeshellarg($scratch.'/runner').' '.escapeshellarg($scratch.'/github-env'));
+        [$again, $againOutput, $againMaterial] = configureRunDkimStep($scratch, rtrim($key, "\n"));
+        expect($again)->toBe(0, $againOutput);
+        expect(file_get_contents($againMaterial.'/mail-dkim-private-key'))->toBe($key);
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses an unusable DKIM key on the runner, before any upload, and deletes it', function (string $kind, string $reason) {
+    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
+    @mkdir($scratch, 0o700, true);
+
+    try {
+        [$exit, $output, $material, $env] = configureRunDkimStep($scratch, (string) file_get_contents(mailIdentityKey($kind)));
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain($reason)
+            ->toContain('Nothing was uploaded and nothing was changed');
+        expect(scandir($material))->toBe(['.', '..', 'deploy-authorized-keys']);
+        expect($env)->not->toContain('RATEGURU_DKIM_KEY_STAGED');
+
+        expectNoKeyMaterial($output, mailIdentityKey($kind));
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+})->with([
+    'a passphrase-protected key' => ['encrypted', 'it is passphrase-protected'],
+    'RSA below 2048 bits' => ['rsa1024', 'below the reviewed minimum of 2048 bits'],
+    'a public key' => ['public', 'it is a public key, not a private key'],
+    'not a key' => ['junk', 'it is not PEM'],
+]);
+
+it('uploads the DKIM key only when one was staged, by its exact name, and removes every copy', function () {
+    $upload = configureActionStepScript('Upload the trusted configuration bundle');
+
+    expect($upload)
+        ->toContain('if [[ "${RATEGURU_DKIM_KEY_STAGED:-false}" == true ]]; then')
+        ->toContain('"${RATEGURU_MATERIAL_DIR}/mail-dkim-private-key" \\')
+        ->toContain(':${staging_dir}/material/mail-dkim-private-key"')
+        ->not->toContain('"${RATEGURU_MATERIAL_DIR}"/*')
+        ->not->toContain('${RATEGURU_MATERIAL_DIR}/*');
+
+    // The material lands root-only before anything reads it, and the staging
+    // copy in the bootstrap user's home is removed in the same command.
+    expect($upload)
+        ->toContain('chmod -R go-rwx %q/material')
+        ->toContain('rm -rf %q');
+
+    // Whatever happens: the runner's material directory, and the remote root
+    // and staging directory, are removed.
+    expect(configureActionStepScript('Remove temporary local files'))->toContain('rm -rf "${RATEGURU_MATERIAL_DIR:-}"');
+    expect(configureActionStepScript('Remove the remote configuration bundle'))
+        ->toContain('rm -rf %q && rm -rf %q');
+
+    // And the key is never an output of the action.
+    expect(array_keys(configureAction()['outputs']))->toBe(['configured', 'lifecycle']);
+    expect(configureActionExecutable())
+        ->not->toContain('echo "${MAIL_DKIM_PRIVATE_KEY}')
+        ->not->toContain('GITHUB_OUTPUT}" <<<"${MAIL_DKIM_PRIVATE_KEY}');
+});
+
+it('passes the optional MAIL_DKIM_PRIVATE_KEY secret through, and nowhere else', function () {
+    $workflow = Yaml::parseFile(base_path('.github/workflows/configure-tits-guru.yml'));
+
+    $step = collect($workflow['jobs']['configure']['steps'])
+        ->firstWhere('uses', './.github/actions/configure-rateguru-target');
+
+    expect($step['with']['mail-dkim-private-key'])->toBe('${{ secrets.MAIL_DKIM_PRIVATE_KEY }}');
+
+    // Its only other mention is whether it is set — a boolean for the summary.
+    $source = File::get(base_path('.github/workflows/configure-tits-guru.yml'));
+    preg_match_all('/secrets\.MAIL_DKIM_PRIVATE_KEY[^}]*/', $source, $uses);
+    expect($uses[0])->toBe(['secrets.MAIL_DKIM_PRIVATE_KEY ', "secrets.MAIL_DKIM_PRIVATE_KEY != '' "]);
+
+    expect(array_keys($workflow['jobs']['configure']['outputs'] ?? []))->toBe([]);
+
+    // The deploy private key is still only ever used on the runner.
+    expect(configureActionExecutable())->toContain('ssh-keygen -y -f "${private_path}" > "${material_dir}/deploy-authorized-keys"');
 });

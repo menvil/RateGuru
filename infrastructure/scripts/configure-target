@@ -59,11 +59,13 @@
 # mode and content remain install-target-prerequisites' to validate; what this
 # file adds is only the requirement that there is something to validate.
 #
-# The deploy user's authorized_keys is the opposite case and the only material
-# this operation causes to be installed: it is a PUBLIC key, derived on the
+# The deploy user's authorized_keys is the opposite case and the material this
+# operation always causes to be installed: it is a PUBLIC key, derived on the
 # GitHub runner from the deploy credential that already exists, and the target
-# cannot be deployed to without it. That one logical name is what --material-dir
-# carries here, and the environment file is explicitly refused in it.
+# cannot be deployed to without it. The only other name --material-dir may
+# carry is mail-dkim-private-key — the target's DKIM signing key, supplied only
+# when the operator has one, and deferred while the target's mail is held. The
+# environment file is explicitly refused in it.
 #
 # The database step then reads the canonical environment file for its
 # credentials, which is why it is ordered after the material step and why
@@ -165,7 +167,8 @@ Usage:
 
   --target        The target to configure. Required.
   --material-dir  Optional. Directory holding the target's deploy PUBLIC key as
-                  deploy-authorized-keys, and nothing else. Read by
+                  deploy-authorized-keys and, optionally, its DKIM private key
+                  as mail-dkim-private-key. Read by
                   install-target-prerequisites; never read by this file. A
                   directory carrying laravel-env is refused: the target's
                   shared/.env is canonical on the host, must already exist
@@ -462,7 +465,7 @@ report_material() {
 
     if (( CHILD_STATUS == 0 )); then
         item PASS "material:install-target-prerequisites" \
-            "this target's own material is in place (environment file, deploy authorized_keys) — accepted as it stands on the host and never overwritten"
+            "this target's own material is in place (environment file, deploy authorized_keys; a DKIM key when its mail identity needs one, deferred while its mail is held) — accepted as it stands on the host and never overwritten"
 
         return 0
     fi
@@ -602,7 +605,7 @@ report_deferred() {
     item DEFERRED "deferred:public-routing" \
         "no public hostname, TLS certificate, redirect or DNS record — the target answers only on its internal hostname over loopback"
     item DEFERRED "deferred:mail" \
-        "no mail transport, gateway or domain authentication is configured or changed here"
+        "no mail transport, gateway, signing service or DNS record is configured or changed here — a supplied DKIM private key is installed as this target's material, and nothing signs with it"
     item DEFERRED "deferred:environment-rotation" \
         "the environment file is canonical on the host and is never overwritten here — changing a credential in it is a separate deliberate operation, and a backup is what carries it to a recovered machine"
     item DEFERRED "deferred:backups" \

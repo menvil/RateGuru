@@ -152,6 +152,12 @@ infrastructure, and moves out once a second project exists.
   `verify-mail-gateway --e2e` is its mutating low-level acceptance primitive,
   run on the host by hand — see
   [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md);
+- the production mail identity: the host's reviewed MTA hostname, each
+  production target's DKIM and DMARC policy in `config/mail-identity.json`,
+  the DKIM private key installed as target material, and the repository-only
+  `infrastructure/scripts/mail-identity` that judges them, prints the DNS
+  records to publish and verifies public DNS read-only — see
+  [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
 - Nginx configuration;
 - PHP-FPM pools;
 - Supervisor queue workers;

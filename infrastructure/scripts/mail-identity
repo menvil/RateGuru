@@ -1,0 +1,1283 @@
+#!/usr/bin/env bash
+#
+# mail-identity — the reviewed mail identity: who the HOST is when it delivers
+# mail, and how each production TARGET's mail is signed and published in DNS.
+#
+#   mail-identity validate       [FILES]
+#   mail-identity check-outbound --plan PLAN [--outbound PATH]
+#   mail-identity dkim-key       --target TARGET [FILES]
+#   mail-identity check-key      --file KEY [--min-bits N]
+#   mail-identity show-dns       --target TARGET [--key KEY] [--ipv4 ADDRESS] [--json] [FILES]
+#   mail-identity verify-dns     --target TARGET [FILES]
+#   mail-identity readiness      --target TARGET [FILES]
+#
+#   FILES: [--identity PATH] [--routing PATH] [--registry PATH] [--outbound PATH]
+#
+# TWO CONTRACTS, BECAUSE THERE ARE TWO IDENTITIES.
+#
+#   infrastructure/config/mail-outbound.json — the HOST. Every brand on a host
+#     shares its source address, and an address has exactly one PTR name, so
+#     the name direct delivery greets receiving servers with is the host's and
+#     appears in no target's policy. It says whether direct delivery is enabled
+#     on this host at all, and under which MTA hostname.
+#
+#   infrastructure/config/mail-identity.json — each production TARGET's signing
+#     and DNS policy: its DKIM selector, algorithm and minimum key size, and its
+#     DMARC policy and alignment. Nothing else. The mail domain, sender, bounce
+#     and reply domains, submission port and delivery mode stay in
+#     mail-routing.json, which is their only authority; this file never repeats
+#     them, and reads them from `mail-routing render-plan` — the one judge of
+#     that policy — rather than from the file.
+#
+# Every rule about either contract lives here and nowhere else. The gateway
+# installer asks `check-outbound` before it renders a route; the prerequisite
+# installer asks `dkim-key` where a target's key belongs and whether it is
+# needed yet, and `check-key` whether a key is one; readiness for outbound
+# delivery is `readiness`. None of them restates a rule.
+#
+# THE DKIM PRIVATE KEY is external secret material, never generated and never
+# committed. Its one canonical place is /etc/opendkim/keys/<target>/<selector>.private,
+# derived from the target ID and the reviewed selector, root:root 0600; it is
+# delivered and installed by install-target-prerequisites as the logical
+# material `mail-dkim-private-key`. While a target is held its key may be
+# absent (deferred); once it is outbound the key is required. Nothing here ever
+# prints, logs, hashes or measures a private key. `check-key` reads one only to
+# ask OpenSSL whether it is an unencrypted RSA private key of sufficient size,
+# and `show-dns` derives only its PUBLIC half.
+#
+# DNS. `show-dns` prints the records an operator publishes: A and PTR for the
+# host's MTA hostname, the target's DKIM public key, SPF and DMARC. The host's
+# IPv4 address is never committed: it is the address this host actually sends
+# from, read from the kernel's route to the Internet, and it changes with the
+# machine. `verify-dns` proves, from the host that will send, that what the
+# public DNS answers is exactly that — forward-confirmed reverse DNS, exactly one
+# SPF policy authorizing this host and failing everything else, the DKIM key
+# that matches the installed private key, and exactly one DMARC policy with the
+# reviewed alignment. A DNS failure is a failure, never a pass.
+#
+# WHAT IT IS NOT. Read-only, everything: it writes no file, publishes no
+# record, starts or reloads nothing and sends no mail. It installs nothing —
+# no key and no signing service.
+#
+# Repository tooling, like mail-routing: run from a trusted checkout or bundle
+# by a developer, by CI, or by an operator on the host; never installed into
+# the operational bundle.
+#
+# Test overrides: the RATEGURU_MAILIDENTITY_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+FS_ROOT="$(gated_default RATEGURU_MAILIDENTITY_FS_ROOT '')"
+DIG_BIN="$(gated_default RATEGURU_MAILIDENTITY_DIG_BIN dig)"
+IP_BIN="$(gated_default RATEGURU_MAILIDENTITY_IP_BIN ip)"
+OPENSSL_BIN="$(gated_default RATEGURU_MAILIDENTITY_OPENSSL_BIN openssl)"
+MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
+
+IDENTITY_FILE="${REPO_ROOT}/infrastructure/config/mail-identity.json"
+ROUTING_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
+REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+OUTBOUND_FILE="${REPO_ROOT}/infrastructure/config/mail-outbound.json"
+
+IDENTITY_SCHEMA_VERSION=1
+OUTBOUND_SCHEMA_VERSION=1
+
+# Where every target's DKIM private key lives: one directory per target, one
+# file per selector. Root-only until a signing service is installed and granted
+# exactly the read access it needs.
+DKIM_KEY_ROOT="/etc/opendkim/keys"
+
+# A private key file larger than this is not one key.
+MAX_KEY_FILE_BYTES=16384
+
+# Property names that would mean a credential reached committed data.
+SECRET_NAME_PATTERN='password|passwd|secret|token|private_?key|credential|dsn|api_?key|access_?key|auth|username|login|sasl'
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  mail-identity validate       [FILES]
+  mail-identity check-outbound --plan PLAN [--outbound PATH]
+  mail-identity dkim-key       --target TARGET [FILES]
+  mail-identity check-key      --file KEY [--min-bits N]
+  mail-identity show-dns       --target TARGET [--key KEY] [--ipv4 ADDRESS] [--json] [FILES]
+  mail-identity verify-dns     --target TARGET [FILES]
+  mail-identity readiness      --target TARGET [FILES]
+
+  validate        Judge the host contract (mail-outbound.json) and the target
+                  identity contract (mail-identity.json) against the mail
+                  routing plan. Read-only; exit 0 only when both are valid.
+  check-outbound  Judge the host contract and a rendered mail routing plan's
+                  use of it: a direct route needs direct delivery enabled under
+                  a valid public MTA hostname.
+  dkim-key        Print "REQUIREMENT<TAB>PATH<TAB>MIN_BITS" for the target's DKIM
+                  private key — REQUIREMENT is "deferred" while its mail is held
+                  and "required" once it is outbound — or "none" when the
+                  target has no mail identity.
+  check-key       Whether KEY is an unencrypted PEM RSA private key OpenSSL can
+                  use, of at least --min-bits (default 2048). Prints a verdict,
+                  never the key.
+  show-dns        Print the DNS records to publish for TARGET: A and PTR for the
+                  host's MTA hostname, DKIM (public key derived from the
+                  installed private key, or from --key), SPF and DMARC.
+  verify-dns      Prove, from this host, that public DNS answers exactly that.
+  readiness       Whether TARGET may deliver outbound now: every condition the
+                  activation of direct delivery requires, each reported.
+
+  FILES default to infrastructure/config/{mail-identity,mail-routing,
+  deployment-targets,mail-outbound}.json beside this script.
+
+Everything is read-only. Nothing prints, logs, hashes or measures a private key.
+USAGE
+}
+
+# --- Arguments ------------------------------------------------------------------
+
+COMMAND=""
+TARGET_ID=""
+KEY_FILE=""
+PLAN_FILE=""
+MIN_BITS=""
+IPV4_ARG=""
+JSON_OUTPUT=false
+declare -A SEEN=()
+
+option_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ -z "${SEEN[${flag}]:-}" ]] || fail "${flag} given more than once"
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    SEEN[${flag}]=1
+}
+
+parse_args() {
+    if [[ $# -eq 0 ]]; then
+        usage >&2
+        exit 1
+    fi
+
+    case "$1" in
+        validate|check-outbound|dkim-key|check-key|show-dns|verify-dns|readiness)
+            COMMAND="$1"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'ERROR: unknown command: %s\n' "$1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)   option_value "$1" "$#" "${2-}"; TARGET_ID="$2"; shift 2 ;;
+            --file)     option_value "$1" "$#" "${2-}"; KEY_FILE="$2"; shift 2 ;;
+            --key)      option_value "$1" "$#" "${2-}"; KEY_FILE="$2"; shift 2 ;;
+            --plan)     option_value "$1" "$#" "${2-}"; PLAN_FILE="$2"; shift 2 ;;
+            --min-bits) option_value "$1" "$#" "${2-}"; MIN_BITS="$2"; shift 2 ;;
+            --ipv4)     option_value "$1" "$#" "${2-}"; IPV4_ARG="$2"; shift 2 ;;
+            --identity) option_value "$1" "$#" "${2-}"; IDENTITY_FILE="$2"; shift 2 ;;
+            --routing)  option_value "$1" "$#" "${2-}"; ROUTING_FILE="$2"; shift 2 ;;
+            --registry) option_value "$1" "$#" "${2-}"; REGISTRY_FILE="$2"; shift 2 ;;
+            --outbound) option_value "$1" "$#" "${2-}"; OUTBOUND_FILE="$2"; shift 2 ;;
+            --json)
+                [[ -z "${SEEN[--json]:-}" ]] || fail "--json given more than once"
+                SEEN[--json]=1
+                JSON_OUTPUT=true
+                shift
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    # Each command takes exactly the options it reads, and every one it needs.
+    local allowed flag
+    case "${COMMAND}" in
+        validate)       allowed="--identity --routing --registry --outbound" ;;
+        check-outbound) allowed="--plan --outbound" ;;
+        dkim-key)       allowed="--target --identity --routing --registry --outbound" ;;
+        check-key)      allowed="--file --min-bits" ;;
+        show-dns)       allowed="--target --key --ipv4 --json --identity --routing --registry --outbound" ;;
+        verify-dns)     allowed="--target --identity --routing --registry --outbound" ;;
+        readiness)      allowed="--target --identity --routing --registry --outbound" ;;
+    esac
+
+    for flag in "${!SEEN[@]}"; do
+        [[ " ${allowed} " == *" ${flag} "* ]] || fail "${flag} is not an option of ${COMMAND}"
+    done
+
+    case "${COMMAND}" in
+        dkim-key|show-dns|verify-dns|readiness)
+            [[ -n "${TARGET_ID}" ]] || fail "${COMMAND} requires --target"
+            [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${TARGET_ID}"
+            ;;
+        check-key)
+            [[ -n "${KEY_FILE}" ]] || fail "check-key requires --file"
+            ;;
+        check-outbound)
+            [[ -n "${PLAN_FILE}" ]] || fail "check-outbound requires --plan"
+            ;;
+    esac
+
+    if [[ -n "${MIN_BITS}" ]]; then
+        [[ "${MIN_BITS}" =~ ^[1-9][0-9]{0,4}$ ]] || fail "--min-bits must be a positive integer, got: ${MIN_BITS}"
+    fi
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# --- Reviewed JSON documents --------------------------------------------------------
+
+# assert_json_document PATH LABEL — one regular, readable file holding exactly
+# one JSON object with no control character anywhere and no key declared twice.
+# A symlink is refused: it lets the reviewed path and the read path diverge.
+assert_json_document() {
+    local path="$1" label="$2"
+
+    [[ ! -L "${path}" ]] || fail "${label} must not be a symlink: ${path}"
+    [[ -e "${path}" ]] || fail "${label} is unavailable: ${path} — run from a full repository bundle"
+    [[ -f "${path}" && -r "${path}" ]] || fail "${label} must be a readable regular file: ${path}"
+
+    local documents
+    documents="$(jq -n '[inputs] | length' "${path}" 2>/dev/null)" \
+        || fail "${label} is not valid JSON: ${path}"
+    [[ "${documents}" == "1" ]] \
+        || fail "${label} must hold exactly one JSON document, found ${documents}: ${path}"
+
+    jq -e 'type == "object"' "${path}" >/dev/null \
+        || fail "${label} must be a JSON object: ${path}"
+
+    # Hostnames and selectors from these files become DNS names and Postfix
+    # parameters, so not even a control character inside a key reaches a rule.
+    jq -e '[paths | .[] | strings] + [.. | strings] | all(.[]; explode | all(.[]; . >= 32 and . != 127))' "${path}" >/dev/null \
+        || fail "${label} must not contain control characters in any key or value: ${path}"
+
+    # A key declared twice is kept once, silently, by every JSON parser — so
+    # the document a reviewer read is not the document that runs.
+    local streamed parsed
+    streamed="$(jq -c --stream '.' "${path}" | wc -l)" || fail "could not read ${label}: ${path}"
+    parsed="$(jq -c 'tostream' "${path}" | wc -l)" || fail "could not read ${label}: ${path}"
+    (( streamed == parsed )) \
+        || fail "${label} declares the same key twice in one object — only one of them would ever be read: ${path}"
+}
+
+# report_problems JSON_ARRAY LABEL PATH TRAILER — every problem, then one refusal.
+report_problems() {
+    local problems="$1" label="$2" path="$3" trailer="$4" count
+
+    count="$(jq 'length' <<<"${problems}")"
+    (( count > 0 )) || return 0
+
+    jq -r '.[] | "INVALID: " + .' <<<"${problems}" >&2
+    fail "${label} refuses this (${count} problem(s)): ${path}${trailer}"
+}
+
+# --- The host contract: mail-outbound.json ------------------------------------------
+#
+# Schema 1, exactly:
+#
+#   { "schema_version": 1, "direct": { "enabled": <bool>, "mta_hostname": "<name>" } }
+#
+#   enabled=false  direct delivery does not exist on this host: no plan with a
+#                  direct route renders. mta_hostname may be empty, or may name
+#                  the reviewed identity ahead of its enablement.
+#   enabled=true   mta_hostname is the host's public MTA identity — the name its
+#                  PTR record gives, which every direct route greets with.
+#
+# Its rules, and the plan's use of it, as one JSON array of problems. The plan
+# arrives as data.
+# shellcheck disable=SC2016
+OUTBOUND_CONTRACT_PROGRAM='
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def hostname_re: "(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
+
+# Names that never resolve on the public DNS, or resolve only privately. A
+# receiving server checks that the name a client greets with and the PTR of its
+# address agree; under one of these they never can.
+def private_tlds: ["alt", "arpa", "example", "internal", "invalid", "local", "localdomain", "localhost", "onion", "test"];
+
+def hostname_problem:
+    if type != "string" then
+        "must be a string, got \(tojson)"
+    elif length > 253 or (anchored(hostname_re) | not) then
+        "must be a lowercase fully qualified hostname, got \(tojson)"
+    elif (split(".") | last) as $tld | any(private_tlds[]; . == $tld) then
+        "\(tojson) is under the reserved .\(split(".") | last) domain, which never resolves publicly — a direct MTA identity must be a public name its PTR can match"
+    else empty end;
+
+. as $contract
+| [
+    (if keys != ["direct", "schema_version"] then
+         "mail-outbound.json must be exactly {schema_version, direct}, found \(keys | tojson)"
+     else empty end),
+    (if (.schema_version | type) != "number" or .schema_version != $schema_version then
+         "unsupported mail-outbound.json schema_version: \(.schema_version | tojson) (expected \($schema_version))"
+     else empty end),
+    (if has("direct") | not then empty
+     elif (.direct | type) != "object" then
+         "direct must be an object {enabled, mta_hostname}, got \(.direct | tojson)"
+     elif (.direct | keys) != ["enabled", "mta_hostname"] then
+         "direct must be exactly {enabled, mta_hostname}, found \(.direct | keys | tojson)"
+     else
+         (if (.direct.enabled | type) != "boolean" then
+              "direct.enabled must be true or false, got \(.direct.enabled | tojson)"
+          else empty end),
+         (if .direct.enabled == true and .direct.mta_hostname == "" then
+              "direct.enabled is true but direct.mta_hostname is empty — direct delivery needs the public MTA identity of this host, the name its PTR record gives"
+          elif .direct.mta_hostname == "" then
+              empty
+          else
+              .direct.mta_hostname | hostname_problem | "direct.mta_hostname \(.)"
+          end)
+     end),
+
+    # A direct route exists only on a host that enabled direct delivery.
+    ((if ($contract.direct | type) == "object" then $contract.direct.enabled else null end) as $enabled
+      | $plan.listeners[]
+      | select((.route | type) == "object" and .route.kind == "direct")
+      | if $enabled == true then
+            empty
+        else
+            "\(.identity): its mail routing plan delivers by direct SMTP, but direct outbound delivery is not enabled on this host (mail-outbound.json direct.enabled is \($enabled | tojson)) — no outbound route is rendered, installed or verified until the MTA identity of this host is in place and direct delivery is enabled"
+        end)
+  ]
+'
+
+# assert_outbound_contract PLAN_JSON — the host contract, and the plan's use of it.
+assert_outbound_contract() {
+    local plan="$1" problems
+
+    assert_json_document "${OUTBOUND_FILE}" "the host outbound contract"
+
+    problems="$(jq -c --argjson plan "${plan}" --argjson schema_version "${OUTBOUND_SCHEMA_VERSION}" \
+        "${OUTBOUND_CONTRACT_PROGRAM}" "${OUTBOUND_FILE}")" \
+        || fail "could not evaluate the host outbound contract: ${OUTBOUND_FILE}"
+
+    report_problems "${problems}" "the host outbound contract" "${OUTBOUND_FILE}" \
+        " — nothing was rendered, and nothing on the host was changed"
+}
+
+# Read only after assert_outbound_contract accepted the file.
+outbound_field() {
+    jq -r "$1" "${OUTBOUND_FILE}"
+}
+
+# --- The target identity contract: mail-identity.json --------------------------------
+#
+# Schema 1, exactly:
+#
+#   {
+#     "schema_version": 1,
+#     "targets": {
+#       "<target>": {
+#         "dkim":  { "selector": "<label>", "algorithm": "rsa-sha256", "minimum_key_bits": 2048 },
+#         "dmarc": { "policy": "none|quarantine|reject", "adkim": "strict|relaxed", "aspf": "strict|relaxed" }
+#       }
+#     }
+#   }
+#
+# A target here must be a registry target whose mail-routing policy carries a
+# production identity (held or outbound). An outbound target must be here: it
+# can never be ready to sign without a reviewed identity.
+# shellcheck disable=SC2016
+IDENTITY_RULES='
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+def is_target_id: type == "string" and anchored("[a-z0-9][a-z0-9-]{1,31}");
+def is_dns_label: type == "string" and anchored("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?");
+def is_integer: type == "number" and . == floor;
+
+# Closed vocabulary. Each value is here because something verifies it.
+def dkim_algorithms: ["rsa-sha256"];
+def minimum_rsa_bits: 2048;
+def maximum_rsa_bits: 4096;
+def dmarc_policies: ["none", "quarantine", "reject"];
+def alignments: ["relaxed", "strict"];
+
+def one_of($values): . as $value | any($values[]; . == $value);
+
+def dkim_problems($id):
+    if type != "object" then
+        "\($id): dkim must be an object {selector, algorithm, minimum_key_bits}, got \(tojson)"
+    elif keys != ["algorithm", "minimum_key_bits", "selector"] then
+        "\($id): dkim must be exactly {selector, algorithm, minimum_key_bits}, found \(keys | tojson)"
+    else
+        (if .selector | is_dns_label then empty
+         else "\($id): dkim.selector must be one lowercase DNS label (letters, digits, inner hyphens, at most 63), got \(.selector | tojson)" end),
+        (if .algorithm | one_of(dkim_algorithms) then empty
+         else "\($id): dkim.algorithm must be one of \(dkim_algorithms | join(", ")), got \(.algorithm | tojson)" end),
+        (if (.minimum_key_bits | is_integer) and .minimum_key_bits >= minimum_rsa_bits and .minimum_key_bits <= maximum_rsa_bits then empty
+         else "\($id): dkim.minimum_key_bits must be an integer from \(minimum_rsa_bits) to \(maximum_rsa_bits), got \(.minimum_key_bits | tojson)" end)
+    end;
+
+def dmarc_problems($id):
+    if type != "object" then
+        "\($id): dmarc must be an object {policy, adkim, aspf}, got \(tojson)"
+    elif keys != ["adkim", "aspf", "policy"] then
+        "\($id): dmarc must be exactly {policy, adkim, aspf}, found \(keys | tojson)"
+    else
+        (if .policy | one_of(dmarc_policies) then empty
+         else "\($id): dmarc.policy must be one of \(dmarc_policies | join(", ")), got \(.policy | tojson)" end),
+        (("adkim", "aspf") as $key
+          | if .[$key] | one_of(alignments) then empty
+            else "\($id): dmarc.\($key) must be one of \(alignments | join(", ")), got \(.[$key] | tojson)" end)
+    end;
+
+. as $doc
+| ($plan.listeners | map({key: .identity, value: .}) | from_entries) as $listeners
+| [
+    ([paths | .[] | strings] | unique[] | select(test($secret_pattern; "i"))
+      | "the identity contract holds a secret-like property name \(tojson) — a private key or credential never belongs in committed policy"),
+
+    (.targets | keys[] as $id
+      | if $id | is_target_id | not then
+            "invalid target ID \($id | tojson): it must match [a-z0-9][a-z0-9-]{1,31}"
+        elif $listeners | has($id) | not then
+            "\($id): not a target in the deployment registry — an identity for a target that does not exist signs nothing, and a misspelt one leaves the real target without one"
+        elif $listeners[$id].environment_class != "production" then
+            "\($id): environment_class \($listeners[$id].environment_class) has no production mail identity — a staging target captures its mail and never signs it"
+        elif ($listeners[$id].delivery_mode | . == "held" or . == "outbound") | not then
+            "\($id): delivery_mode \($listeners[$id].delivery_mode) carries no production mail identity in mail-routing.json"
+        elif ($doc.targets[$id] | type) != "object" then
+            "\($id): identity must be an object {dkim, dmarc}, got \($doc.targets[$id] | tojson)"
+        elif ($doc.targets[$id] | keys) != ["dkim", "dmarc"] then
+            "\($id): identity must be exactly {dkim, dmarc}, found \($doc.targets[$id] | keys | tojson) — the mail domain, sender, bounce and reply domains stay in mail-routing.json"
+        else
+            ($doc.targets[$id].dkim | dkim_problems($id)),
+            ($doc.targets[$id].dmarc | dmarc_problems($id))
+        end),
+
+    ($plan.listeners[]
+      | select(.delivery_mode == "outbound")
+      | select(.identity as $id | $doc.targets | has($id) | not)
+      | "\(.identity): delivers outbound, so it needs a reviewed DKIM and DMARC identity in mail-identity.json — an outbound target is never ready without one")
+  ]
+'
+
+# assert_identity_contract PLAN_JSON
+assert_identity_contract() {
+    local plan="$1" problems
+
+    assert_json_document "${IDENTITY_FILE}" "the mail identity contract"
+
+    if ! jq -e --argjson expected "${IDENTITY_SCHEMA_VERSION}" \
+        '(.schema_version | type) == "number" and .schema_version == $expected' "${IDENTITY_FILE}" >/dev/null
+    then
+        fail "unsupported mail identity schema_version: $(jq -c '.schema_version' "${IDENTITY_FILE}") (expected ${IDENTITY_SCHEMA_VERSION}): ${IDENTITY_FILE}"
+    fi
+
+    jq -e 'keys == ["schema_version", "targets"]' "${IDENTITY_FILE}" >/dev/null \
+        || fail "the mail identity contract must be exactly {schema_version, targets}, found $(jq -c 'keys' "${IDENTITY_FILE}"): ${IDENTITY_FILE}"
+
+    jq -e '(.targets | type) == "object"' "${IDENTITY_FILE}" >/dev/null \
+        || fail "the mail identity contract targets must be an object: ${IDENTITY_FILE}"
+
+    problems="$(jq -c --argjson plan "${plan}" --arg secret_pattern "${SECRET_NAME_PATTERN}" \
+        "${IDENTITY_RULES}" "${IDENTITY_FILE}")" \
+        || fail "could not evaluate the mail identity contract: ${IDENTITY_FILE}"
+
+    report_problems "${problems}" "the mail identity contract" "${IDENTITY_FILE}" ""
+}
+
+# --- The plan: mail-routing is the only judge of routing policy ----------------------
+
+PLAN=""
+
+load_plan() {
+    [[ -x "${MAIL_ROUTING_CLI}" ]] \
+        || fail "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full repository bundle"
+
+    PLAN="$("${MAIL_ROUTING_CLI}" render-plan --file "${ROUTING_FILE}" --registry "${REGISTRY_FILE}")" \
+        || fail "mail-routing render-plan refused the routing policy (diagnostics above)"
+}
+
+# load_contracts — the plan, then both contracts judged against it.
+load_contracts() {
+    command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+    load_plan
+    assert_outbound_contract "${PLAN}"
+    assert_identity_contract "${PLAN}"
+}
+
+# --- One target ----------------------------------------------------------------------
+
+T_ENVIRONMENT="" T_MODE="" T_DOMAIN="" T_HAS_IDENTITY=false
+T_SELECTOR="" T_ALGORITHM="" T_MIN_BITS="" T_POLICY="" T_ADKIM="" T_ASPF=""
+
+load_target() {
+    local listener identity
+
+    listener="$(jq -c --arg id "${TARGET_ID}" '.listeners[] | select(.identity == $id)' <<<"${PLAN}")"
+    [[ -n "${listener}" ]] || fail "unknown target: ${TARGET_ID} — not in the deployment registry"
+
+    T_ENVIRONMENT="$(jq -r '.environment_class' <<<"${listener}")"
+    T_MODE="$(jq -r '.delivery_mode' <<<"${listener}")"
+    T_DOMAIN="$(jq -r '.sender.allowed_domain' <<<"${listener}")"
+
+    identity="$(jq -c --arg id "${TARGET_ID}" '.targets[$id] // empty' "${IDENTITY_FILE}")"
+    [[ -n "${identity}" ]] || return 0
+
+    T_HAS_IDENTITY=true
+    T_SELECTOR="$(jq -r '.dkim.selector' <<<"${identity}")"
+    T_ALGORITHM="$(jq -r '.dkim.algorithm' <<<"${identity}")"
+    T_MIN_BITS="$(jq -r '.dkim.minimum_key_bits' <<<"${identity}")"
+    T_POLICY="$(jq -r '.dmarc.policy' <<<"${identity}")"
+    T_ADKIM="$(jq -r '.dmarc.adkim' <<<"${identity}")"
+    T_ASPF="$(jq -r '.dmarc.aspf' <<<"${identity}")"
+}
+
+require_identity() {
+    [[ "${T_HAS_IDENTITY}" == true ]] \
+        || fail "${TARGET_ID} has no mail identity in ${IDENTITY_FILE} — only a production target with a reviewed DKIM and DMARC identity has DNS to publish"
+}
+
+dkim_key_path()   { printf '%s/%s/%s.private\n' "${DKIM_KEY_ROOT}" "${TARGET_ID}" "${T_SELECTOR}"; }
+dkim_record_name() { printf '%s._domainkey.%s\n' "${T_SELECTOR}" "${T_DOMAIN}"; }
+dmarc_record_name() { printf '_dmarc.%s\n' "${T_DOMAIN}"; }
+
+# The DMARC record exactly as reviewed: strict and relaxed are s and r.
+dmarc_value() {
+    printf 'v=DMARC1; p=%s; adkim=%s; aspf=%s\n' "${T_POLICY}" "${T_ADKIM:0:1}" "${T_ASPF:0:1}"
+}
+
+spf_value() {
+    printf 'v=spf1 ip4:%s -all\n' "$1"
+}
+
+# --- Private keys --------------------------------------------------------------------
+#
+# check_private_key PATH MIN_BITS — 0 when PATH is an unencrypted PEM RSA
+# private key OpenSSL can use, of at least MIN_BITS; otherwise non-zero with
+# KEY_PROBLEM set to a fixed sentence. OpenSSL reads the key with no terminal
+# and no passphrase, and everything it prints is discarded: no output of any
+# command here can carry key material. On success KEY_BITS holds the modulus
+# size, which is public — the DNS record publishes it.
+
+KEY_PROBLEM=""
+KEY_BITS=""
+
+check_private_key() {
+    local path="$1" min_bits="$2" size public text
+
+    KEY_PROBLEM=""
+    KEY_BITS=""
+
+    if [[ -L "${path}" ]]; then KEY_PROBLEM="it is a symlink"; return 1; fi
+    if [[ ! -e "${path}" ]]; then KEY_PROBLEM="it does not exist"; return 1; fi
+    if [[ ! -f "${path}" ]]; then KEY_PROBLEM="it is not a regular file"; return 1; fi
+    if [[ ! -r "${path}" ]]; then KEY_PROBLEM="it is not readable by this user (it is root-only: run as root)"; return 1; fi
+
+    size="$(wc -c < "${path}" | tr -d ' ')"
+    if (( size == 0 )); then KEY_PROBLEM="it is empty"; return 1; fi
+    if (( size > MAX_KEY_FILE_BYTES )); then KEY_PROBLEM="it is larger than one private key could be"; return 1; fi
+
+    # The PEM structure, judged by its armour lines only.
+    if grep -q -- '-----BEGIN ENCRYPTED PRIVATE KEY-----' "${path}" || grep -q '^Proc-Type: 4,ENCRYPTED' "${path}"; then
+        KEY_PROBLEM="it is passphrase-protected — the signing service reads it unattended, so it must be unencrypted (and is protected by being root-only instead)"
+        return 1
+    fi
+
+    if grep -q -- '-----BEGIN CERTIFICATE-----' "${path}"; then
+        KEY_PROBLEM="it is a certificate, not a private key"
+        return 1
+    fi
+
+    if grep -qE -- '-----BEGIN (RSA )?PUBLIC KEY-----' "${path}"; then
+        KEY_PROBLEM="it is a public key, not a private key"
+        return 1
+    fi
+
+    if [[ "$(grep -c -- '-----BEGIN ' "${path}")" == 0 ]]; then
+        KEY_PROBLEM="it is not PEM: there is no -----BEGIN armour line"
+        return 1
+    fi
+
+    if [[ "$(grep -c -- '-----BEGIN ' "${path}")" != 1 ]] || [[ "$(grep -c -- '-----END ' "${path}")" != 1 ]]; then
+        KEY_PROBLEM="it must hold exactly one complete PEM block, the private key alone"
+        return 1
+    fi
+
+    if ! grep -qE $'^-----BEGIN (RSA )?PRIVATE KEY-----\r?$' "${path}"; then
+        KEY_PROBLEM="it is not a PEM private key (expected a PKCS#8 \"PRIVATE KEY\" or PKCS#1 \"RSA PRIVATE KEY\" block)"
+        return 1
+    fi
+
+    if ! "${OPENSSL_BIN}" pkey -in "${path}" -noout -passin pass: </dev/null >/dev/null 2>&1; then
+        KEY_PROBLEM="OpenSSL cannot read it as an unencrypted private key"
+        return 1
+    fi
+
+    if [[ "$("${OPENSSL_BIN}" rsa -in "${path}" -noout -check -passin pass: </dev/null 2>/dev/null)" != "RSA key ok" ]]; then
+        KEY_PROBLEM="it is not a usable RSA private key — DKIM signing here is rsa-sha256"
+        return 1
+    fi
+
+    # The size, from the PUBLIC half only.
+    public="$("${OPENSSL_BIN}" pkey -in "${path}" -pubout -passin pass: </dev/null 2>/dev/null)" || public=""
+    text="$(printf '%s\n' "${public}" | "${OPENSSL_BIN}" pkey -pubin -noout -text 2>/dev/null)" || text=""
+    KEY_BITS="$(sed -n 's/.*Public-Key: (\([0-9][0-9]*\) bit.*/\1/p' <<<"${text}" | head -n 1)"
+
+    if [[ ! "${KEY_BITS}" =~ ^[0-9]+$ ]]; then
+        KEY_PROBLEM="its size could not be established"
+        KEY_BITS=""
+        return 1
+    fi
+
+    if (( KEY_BITS < min_bits )); then
+        KEY_PROBLEM="it is a ${KEY_BITS}-bit RSA key, below the reviewed minimum of ${min_bits} bits"
+        return 1
+    fi
+
+    return 0
+}
+
+# dkim_public_key PATH — the base64 SubjectPublicKeyInfo DKIM publishes as p=,
+# derived from the private key. Only ever called after check_private_key
+# accepted PATH. Prints the PUBLIC key and nothing else.
+dkim_public_key() {
+    "${OPENSSL_BIN}" pkey -in "$1" -pubout -outform DER -passin pass: </dev/null 2>/dev/null \
+        | "${OPENSSL_BIN}" base64 -A 2>/dev/null
+}
+
+# --- This host's address -------------------------------------------------------------
+
+is_ipv4() {
+    local address="$1" octet
+    [[ "${address}" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+
+    for octet in "${BASH_REMATCH[@]:1}"; do
+        [[ "${octet}" == 0 || "${octet}" != 0* ]] || return 1
+        (( 10#${octet} <= 255 )) || return 1
+    done
+}
+
+# A public sender address: not loopback, private, shared, link-local or
+# unspecified. Mail from behind NAT carries an address this check cannot see.
+is_public_ipv4() {
+    local a b
+    is_ipv4 "$1" || return 1
+    IFS=. read -r a b _ _ <<<"$1"
+
+    (( a != 0 && a != 10 && a != 127 )) || return 1
+    (( a != 100 || b < 64 || b > 127 )) || return 1
+    (( a != 169 || b != 254 )) || return 1
+    (( a != 172 || b < 16 || b > 31 )) || return 1
+    (( a != 192 || b != 168 )) || return 1
+    (( a < 224 )) || return 1
+}
+
+HOST_IPV4=""
+HOST_IPV4_PROBLEM=""
+
+# The address this host sends from: the source the kernel would use towards the
+# Internet. A route lookup only — no packet is sent.
+detect_host_ipv4() {
+    local route
+
+    HOST_IPV4=""
+    HOST_IPV4_PROBLEM=""
+
+    if ! route="$("${IP_BIN}" -4 route get 1.1.1.1 2>/dev/null)"; then
+        HOST_IPV4_PROBLEM="this host has no IPv4 route to the Internet (ip -4 route get failed)"
+        return 1
+    fi
+
+    HOST_IPV4="$(sed -n 's/.* src \([0-9.]*\).*/\1/p' <<<"${route}" | head -n 1)"
+
+    if ! is_ipv4 "${HOST_IPV4}"; then
+        HOST_IPV4_PROBLEM="the route to the Internet names no IPv4 source address"
+        HOST_IPV4=""
+        return 1
+    fi
+
+    if ! is_public_ipv4 "${HOST_IPV4}"; then
+        HOST_IPV4_PROBLEM="this host sends from ${HOST_IPV4}, which is not a public address — behind NAT its public identity cannot be verified from here"
+        return 1
+    fi
+}
+
+# --- DNS -----------------------------------------------------------------------------
+#
+# dns_lookup TYPE NAME — one query through the system resolver. Sets DNS_STATUS
+# and DNS_RECORDS (the rdata of every TYPE record in the answer); returns
+# non-zero with DNS_ERROR set when there was no usable answer at all — a
+# timeout, a refusal, a server failure. NXDOMAIN is an answer: it means the
+# record does not exist, which the caller reports as missing.
+
+DNS_STATUS=""
+DNS_ERROR=""
+DNS_RECORDS=()
+
+# TXT rdata as dig presents it — one or more quoted strings, split wherever a
+# provider split a long value — joined back into the one string it is.
+# shellcheck disable=SC2016
+TXT_JOIN_PROGRAM='[scan("\"((?:[^\"\\\\]|\\\\.)*)\"") | .[0]] | join("") | gsub("\\\\(?<c>[\"\\\\])"; .c)'
+
+dns_lookup() {
+    local type="$1" name="$2" output status=0 line
+
+    DNS_STATUS=""
+    DNS_ERROR=""
+    DNS_RECORDS=()
+
+    output="$("${DIG_BIN}" +time=5 +tries=2 +nocmd +noall +comments +answer "${type}" "${name}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        DNS_ERROR="the DNS query for ${name} ${type} failed (dig exit ${status})"
+        return 1
+    fi
+
+    DNS_STATUS="$(sed -n 's/.*->>HEADER<<-.*status: \([A-Z]*\).*/\1/p' <<<"${output}" | head -n 1)"
+
+    if [[ -z "${DNS_STATUS}" ]]; then
+        DNS_ERROR="the DNS query for ${name} ${type} got no response"
+        return 1
+    fi
+
+    if [[ "${DNS_STATUS}" != NOERROR && "${DNS_STATUS}" != NXDOMAIN ]]; then
+        DNS_ERROR="the DNS query for ${name} ${type} was answered ${DNS_STATUS}"
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${type}" == TXT ]]; then
+            line="$(jq -Rr "${TXT_JOIN_PROGRAM}" <<<"${line}")"
+        fi
+        DNS_RECORDS+=("${line}")
+    done < <(awk -v type="${type}" '
+        /^;/ { next }
+        {
+            if (match($0, "^[^ \t]+[ \t]+[0-9]+[ \t]+IN[ \t]+" type "[ \t]+")) {
+                print substr($0, RLENGTH + 1)
+            }
+        }' <<<"${output}")
+}
+
+lowercase() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
+
+# Collapse whitespace and trim, the way every TXT policy here is compared.
+squeeze() { tr -s ' \t' '  ' <<<"$1" | sed -e 's/^ //' -e 's/ $//'; }
+
+# --- Checks --------------------------------------------------------------------------
+
+COUNT_PASS=0
+COUNT_FAIL=0
+
+check() {
+    local status="$1" name="$2" detail="$3"
+
+    case "${status}" in
+        PASS) COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL) COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        *)    fail "internal: unknown check status ${status}" ;;
+    esac
+
+    printf '  %-6s %-10s %s\n' "${status}" "${name}" "${detail}"
+}
+
+check_a() {
+    local hostname="$1" ipv4="$2" record found=false
+
+    if ! dns_lookup A "${hostname}"; then
+        check FAIL a "${DNS_ERROR}"
+        return 0
+    fi
+
+    for record in "${DNS_RECORDS[@]+"${DNS_RECORDS[@]}"}"; do
+        [[ "${record}" != "${ipv4}" ]] || found=true
+    done
+
+    if [[ "${found}" == true ]]; then
+        check PASS a "${hostname} A includes this host's address ${ipv4}"
+    elif (( ${#DNS_RECORDS[@]} == 0 )); then
+        check FAIL a "${hostname} has no A record (${DNS_STATUS}) — publish ${hostname} A ${ipv4}"
+    else
+        check FAIL a "${hostname} A is [${DNS_RECORDS[*]}], which does not include this host's address ${ipv4}"
+    fi
+}
+
+check_ptr() {
+    local hostname="$1" ipv4="$2" a b c d reverse answer
+
+    IFS=. read -r a b c d <<<"${ipv4}"
+    reverse="${d}.${c}.${b}.${a}.in-addr.arpa"
+
+    if ! dns_lookup PTR "${reverse}"; then
+        check FAIL ptr "${DNS_ERROR}"
+        return 0
+    fi
+
+    if (( ${#DNS_RECORDS[@]} == 0 )); then
+        check FAIL ptr "${ipv4} has no PTR record (${DNS_STATUS}) — set its reverse DNS to ${hostname} at the provider that owns the address"
+        return 0
+    fi
+
+    if (( ${#DNS_RECORDS[@]} > 1 )); then
+        check FAIL ptr "${ipv4} has ${#DNS_RECORDS[@]} PTR records [${DNS_RECORDS[*]}] — forward-confirmed reverse DNS needs exactly one, ${hostname}"
+        return 0
+    fi
+
+    answer="$(lowercase "${DNS_RECORDS[0]%.}")"
+
+    if [[ "${answer}" == "${hostname}" ]]; then
+        check PASS ptr "${ipv4} PTR is ${hostname} — forward-confirmed with the A record"
+    else
+        check FAIL ptr "${ipv4} PTR is ${answer}, not ${hostname}"
+    fi
+}
+
+check_spf() {
+    local domain="$1" ipv4="$2" record normalized
+    local -a policies=()
+
+    if ! dns_lookup TXT "${domain}"; then
+        check FAIL spf "${DNS_ERROR}"
+        return 0
+    fi
+
+    for record in "${DNS_RECORDS[@]+"${DNS_RECORDS[@]}"}"; do
+        normalized="$(lowercase "$(squeeze "${record}")")"
+        if [[ "${normalized}" == "v=spf1" || "${normalized}" == "v=spf1 "* ]]; then
+            policies+=("${normalized}")
+        fi
+    done
+
+    if (( ${#policies[@]} == 0 )); then
+        check FAIL spf "${domain} publishes no SPF policy — publish exactly one TXT record: $(spf_value "${ipv4}")"
+        return 0
+    fi
+
+    if (( ${#policies[@]} > 1 )); then
+        check FAIL spf "${domain} publishes ${#policies[@]} SPF policies — receivers treat more than one as a permanent error; merge them into exactly one, never add another"
+        return 0
+    fi
+
+    if [[ "${policies[0]}" == "$(spf_value "${ipv4}")" || "${policies[0]}" == "v=spf1 ip4:${ipv4}/32 -all" ]]; then
+        check PASS spf "${domain} SPF authorizes exactly this host (${ipv4}) and fails everything else"
+    else
+        check FAIL spf "${domain} SPF is \"${policies[0]}\", not the reviewed \"$(spf_value "${ipv4}")\" — replace it; never add a second"
+    fi
+}
+
+# tag_value TAGS KEY — a DKIM/DMARC tag list parsed into "key=value" lines.
+parse_tags() {
+    local record="$1" part key value
+
+    while IFS= read -r part; do
+        part="$(squeeze "${part}")"
+        [[ -n "${part}" ]] || continue
+        [[ "${part}" == *=* ]] || { printf 'MALFORMED\n'; continue; }
+        key="$(lowercase "$(squeeze "${part%%=*}")")"
+        value="$(squeeze "${part#*=}")"
+        printf '%s=%s\n' "${key}" "${value}"
+    done < <(tr ';' '\n' <<<"${record}")
+}
+
+check_dkim() {
+    local name="$1" expected_key="$2" tags keys v k p
+    local -a records=()
+
+    if ! dns_lookup TXT "${name}"; then
+        check FAIL dkim "${DNS_ERROR}"
+        return 0
+    fi
+
+    records=("${DNS_RECORDS[@]+"${DNS_RECORDS[@]}"}")
+
+    if (( ${#records[@]} == 0 )); then
+        check FAIL dkim "${name} has no TXT record (${DNS_STATUS}) — publish the DKIM record show-dns prints"
+        return 0
+    fi
+
+    if (( ${#records[@]} > 1 )); then
+        check FAIL dkim "${name} has ${#records[@]} TXT records — a selector publishes exactly one key"
+        return 0
+    fi
+
+    tags="$(parse_tags "${records[0]}")"
+
+    if grep -q '^MALFORMED$' <<<"${tags}"; then
+        check FAIL dkim "${name} is not a DKIM tag list"
+        return 0
+    fi
+
+    keys="$(cut -d= -f1 <<<"${tags}" | sort | tr '\n' ' ')"
+    if [[ "${keys}" != "k p v " ]]; then
+        check FAIL dkim "${name} must carry exactly the tags v, k and p, found: ${keys% }"
+        return 0
+    fi
+
+    v="$(sed -n 's/^v=//p' <<<"${tags}")"
+    k="$(sed -n 's/^k=//p' <<<"${tags}")"
+    p="$(sed -n 's/^p=//p' <<<"${tags}" | tr -d ' \t')"
+
+    if [[ "$(head -n 1 <<<"${tags}")" != v=* || "${v}" != DKIM1 ]]; then
+        check FAIL dkim "${name} must begin with v=DKIM1"
+    elif [[ "$(lowercase "${k}")" != rsa ]]; then
+        check FAIL dkim "${name} has k=${k}, not k=rsa"
+    elif [[ -z "${expected_key}" ]]; then
+        check FAIL dkim "${name} is published, but there is no valid installed private key to compare it with"
+    elif [[ "${p}" != "${expected_key}" ]]; then
+        check FAIL dkim "${name} publishes a different public key than the installed private key derives — the record or the key is wrong"
+    else
+        check PASS dkim "${name} publishes exactly the public key of the installed private key"
+    fi
+}
+
+check_dmarc() {
+    local name="$1" record tags keys
+    local -a policies=()
+
+    if ! dns_lookup TXT "${name}"; then
+        check FAIL dmarc "${DNS_ERROR}"
+        return 0
+    fi
+
+    for record in "${DNS_RECORDS[@]+"${DNS_RECORDS[@]}"}"; do
+        if [[ "$(lowercase "$(squeeze "${record}")")" == v=dmarc1* ]]; then
+            policies+=("${record}")
+        fi
+    done
+
+    if (( ${#policies[@]} == 0 )); then
+        check FAIL dmarc "${name} publishes no DMARC policy — publish exactly: $(dmarc_value)"
+        return 0
+    fi
+
+    if (( ${#policies[@]} > 1 )); then
+        check FAIL dmarc "${name} publishes ${#policies[@]} DMARC policies — exactly one is allowed"
+        return 0
+    fi
+
+    tags="$(parse_tags "${policies[0]}")"
+    keys="$(cut -d= -f1 <<<"${tags}" | sort | tr '\n' ' ')"
+
+    if grep -q '^MALFORMED$' <<<"${tags}" || [[ "${keys}" != "adkim aspf p v " ]]; then
+        check FAIL dmarc "${name} must carry exactly v, p, adkim and aspf (the reviewed policy names no report address), found: ${keys% }"
+    elif [[ "$(head -n 1 <<<"${tags}")" != "v=DMARC1" ]]; then
+        check FAIL dmarc "${name} must begin with v=DMARC1"
+    elif [[ "$(sed -n 's/^p=//p' <<<"${tags}")" != "${T_POLICY}" ]]; then
+        check FAIL dmarc "${name} has p=$(sed -n 's/^p=//p' <<<"${tags}"), not the reviewed p=${T_POLICY}"
+    elif [[ "$(sed -n 's/^adkim=//p' <<<"${tags}")" != "${T_ADKIM:0:1}" ]]; then
+        check FAIL dmarc "${name} has adkim=$(sed -n 's/^adkim=//p' <<<"${tags}"), not the reviewed adkim=${T_ADKIM:0:1}"
+    elif [[ "$(sed -n 's/^aspf=//p' <<<"${tags}")" != "${T_ASPF:0:1}" ]]; then
+        check FAIL dmarc "${name} has aspf=$(sed -n 's/^aspf=//p' <<<"${tags}"), not the reviewed aspf=${T_ASPF:0:1}"
+    else
+        check PASS dmarc "${name} publishes exactly the reviewed policy: $(dmarc_value)"
+    fi
+}
+
+# run_dns_checks — every public record, from this host. Sets nothing beyond the
+# check counters.
+run_dns_checks() {
+    local hostname key_path expected_key=""
+
+    hostname="$(outbound_field '.direct.mta_hostname')"
+    key_path="$(physical "$(dkim_key_path)")"
+
+    command -v "${DIG_BIN}" >/dev/null 2>&1 \
+        || fail "dig is required to query public DNS (Ubuntu: the bind9-dnsutils package)"
+
+    if [[ -z "${hostname}" ]]; then
+        check FAIL host "mail-outbound.json reviews no MTA hostname, so there is no A or PTR identity to verify"
+    else
+        check PASS host "the reviewed MTA hostname is ${hostname}"
+    fi
+
+    if detect_host_ipv4; then
+        check PASS address "this host sends from ${HOST_IPV4}"
+    else
+        check FAIL address "${HOST_IPV4_PROBLEM}"
+    fi
+
+    if [[ -n "${hostname}" && -n "${HOST_IPV4}" && -z "${HOST_IPV4_PROBLEM}" ]]; then
+        check_a "${hostname}" "${HOST_IPV4}"
+        check_ptr "${hostname}" "${HOST_IPV4}"
+    else
+        check FAIL a "cannot be verified without the reviewed hostname and this host's public address"
+        check FAIL ptr "cannot be verified without the reviewed hostname and this host's public address"
+    fi
+
+    if [[ -n "${HOST_IPV4}" && -z "${HOST_IPV4_PROBLEM}" ]]; then
+        check_spf "${T_DOMAIN}" "${HOST_IPV4}"
+    else
+        check FAIL spf "cannot be verified without this host's public address"
+    fi
+
+    if check_private_key "${key_path}" "${T_MIN_BITS}"; then
+        expected_key="$(dkim_public_key "${key_path}")"
+    else
+        check FAIL key "the DKIM private key $(dkim_key_path) is not usable: ${KEY_PROBLEM}"
+    fi
+
+    check_dkim "$(dkim_record_name)" "${expected_key}"
+    check_dmarc "$(dmarc_record_name)"
+}
+
+# --- Commands ------------------------------------------------------------------------
+
+command_validate() {
+    load_contracts
+    printf 'mail identity is valid: %s, %s\n' "${OUTBOUND_FILE}" "${IDENTITY_FILE}"
+}
+
+command_check_outbound() {
+    command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+    [[ -f "${PLAN_FILE}" && -r "${PLAN_FILE}" ]] || fail "the mail routing plan is unavailable: ${PLAN_FILE}"
+    jq -e '(.listeners | type) == "array"' "${PLAN_FILE}" >/dev/null 2>&1 \
+        || fail "not a mail routing plan: ${PLAN_FILE}"
+
+    assert_outbound_contract "$(jq -c . "${PLAN_FILE}")"
+    printf 'the host outbound contract accepts this plan: %s\n' "${OUTBOUND_FILE}"
+}
+
+command_dkim_key() {
+    load_contracts
+    load_target
+
+    if [[ "${T_HAS_IDENTITY}" != true ]]; then
+        printf 'none\n'
+        return 0
+    fi
+
+    # Held mail goes nowhere, so a missing key costs nothing yet; outbound mail
+    # is signed with it, so from then on it is required.
+    local requirement=deferred
+    [[ "${T_MODE}" != outbound ]] || requirement=required
+
+    printf '%s\t%s\t%s\n' "${requirement}" "$(dkim_key_path)" "${T_MIN_BITS}"
+}
+
+command_check_key() {
+    command -v "${OPENSSL_BIN}" >/dev/null 2>&1 || fail "openssl is required"
+
+    if check_private_key "${KEY_FILE}" "${MIN_BITS:-2048}"; then
+        printf 'usable: an unencrypted %s-bit RSA private key (at least %s required); no key material was printed\n' "${KEY_BITS}" "${MIN_BITS:-2048}"
+        return 0
+    fi
+
+    fail "not a usable DKIM private key: ${KEY_PROBLEM}"
+}
+
+command_show_dns() {
+    load_contracts
+    load_target
+    require_identity
+
+    local hostname enabled ipv4 key_path key_source dkim_value="" key_state
+
+    hostname="$(outbound_field '.direct.mta_hostname')"
+    enabled="$(outbound_field '.direct.enabled')"
+
+    if [[ -n "${IPV4_ARG}" ]]; then
+        is_public_ipv4 "${IPV4_ARG}" || fail "--ipv4 must be a public IPv4 address, got: ${IPV4_ARG}"
+        ipv4="${IPV4_ARG}"
+    elif command -v "${IP_BIN}" >/dev/null 2>&1 && detect_host_ipv4; then
+        ipv4="${HOST_IPV4}"
+    else
+        ipv4=""
+    fi
+
+    if [[ -n "${KEY_FILE}" ]]; then
+        key_path="${KEY_FILE}"
+        key_source="the supplied key"
+    else
+        key_path="$(physical "$(dkim_key_path)")"
+        key_source="the installed key $(dkim_key_path)"
+    fi
+
+    command -v "${OPENSSL_BIN}" >/dev/null 2>&1 || fail "openssl is required"
+
+    if check_private_key "${key_path}" "${T_MIN_BITS}"; then
+        dkim_value="v=DKIM1; k=rsa; p=$(dkim_public_key "${key_path}")"
+        key_state="derived from ${key_source} (${KEY_BITS}-bit RSA)"
+    else
+        key_state="pending: ${key_source} is not usable — ${KEY_PROBLEM}"
+    fi
+
+    if [[ "${JSON_OUTPUT}" == true ]]; then
+        jq -n -S \
+            --arg target "${TARGET_ID}" --arg domain "${T_DOMAIN}" \
+            --arg hostname "${hostname}" --argjson enabled "${enabled}" --arg ipv4 "${ipv4}" \
+            --arg dkim_name "$(dkim_record_name)" --arg dkim_value "${dkim_value}" --arg key_state "${key_state}" \
+            --arg spf "$(if [[ -n "${ipv4}" ]]; then spf_value "${ipv4}"; fi)" \
+            --arg dmarc_name "$(dmarc_record_name)" --arg dmarc "$(dmarc_value)" \
+            --arg selector "${T_SELECTOR}" --arg algorithm "${T_ALGORITHM}" --argjson min_bits "${T_MIN_BITS}" '
+            def maybe: if . == "" then null else . end;
+            {
+                target: $target,
+                mail_domain: $domain,
+                mta: {hostname: ($hostname | maybe), direct_delivery_enabled: $enabled, ipv4: ($ipv4 | maybe)},
+                dkim: {selector: $selector, algorithm: $algorithm, minimum_key_bits: $min_bits, key: $key_state},
+                records: [
+                    {type: "A",   name: ($hostname | maybe), value: ($ipv4 | maybe)},
+                    {type: "PTR", name: ($ipv4 | maybe),     value: ($hostname | maybe)},
+                    {type: "TXT", name: $dkim_name,          value: ($dkim_value | maybe)},
+                    {type: "TXT", name: $domain,             value: ($spf | maybe)},
+                    {type: "TXT", name: $dmarc_name,         value: $dmarc}
+                ]
+            }'
+        return 0
+    fi
+
+    local shown_ip="${ipv4:-<this host IPv4: run on the mail host, or pass --ipv4>}"
+
+    printf 'mail-identity show-dns --target %s (read-only; publishes nothing)\n\n' "${TARGET_ID}"
+    printf 'MTA (the host, shared by every target on it)\n'
+    printf '  hostname   %s (direct delivery %s on this host)\n' "${hostname:-<none reviewed in mail-outbound.json>}" "$([[ "${enabled}" == true ]] && echo enabled || echo disabled)"
+    printf '  A          %s -> %s\n' "${hostname:-<hostname>}" "${shown_ip}"
+    printf '  PTR        %s -> %s (set at the provider that owns the address, not in the zone)\n\n' "${shown_ip}" "${hostname:-<hostname>}"
+    printf 'DKIM (%s, selector %s, %s, at least %s bits)\n' "${TARGET_ID}" "${T_SELECTOR}" "${T_ALGORITHM}" "${T_MIN_BITS}"
+    printf '  TXT        %s\n' "$(dkim_record_name)"
+    printf '             %s\n' "${dkim_value:-<${key_state}>}"
+    [[ -z "${dkim_value}" ]] || printf '             (%s)\n' "${key_state}"
+    printf '\nSPF (exactly one SPF record for the domain: replace any other, never add a second)\n'
+    printf '  TXT        %s\n' "${T_DOMAIN}"
+    printf '             %s\n\n' "$(if [[ -n "${ipv4}" ]]; then spf_value "${ipv4}"; else printf 'v=spf1 ip4:%s -all' "${shown_ip}"; fi)"
+    printf 'DMARC (exactly one; no report address is reviewed)\n'
+    printf '  TXT        %s\n' "$(dmarc_record_name)"
+    printf '             %s\n' "$(dmarc_value)"
+}
+
+command_verify_dns() {
+    load_contracts
+    load_target
+    require_identity
+
+    printf 'mail-identity verify-dns --target %s (read-only; public DNS as this host sees it)\n' "${TARGET_ID}"
+    run_dns_checks
+
+    printf 'SUMMARY  pass=%d fail=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}"
+
+    if (( COUNT_FAIL == 0 )); then
+        printf 'DNS VERIFIED: YES\n'
+        return 0
+    fi
+
+    printf 'DNS VERIFIED: NO\n'
+    return 1
+}
+
+# readiness — the whole contract direct delivery of a target's mail depends on.
+# Every condition is checked and reported, so an operator sees all that is
+# missing at once. It activates nothing.
+command_readiness() {
+    load_contracts
+    load_target
+
+    local enabled hostname key_path
+
+    enabled="$(outbound_field '.direct.enabled')"
+    hostname="$(outbound_field '.direct.mta_hostname')"
+
+    printf 'mail-identity readiness --target %s (read-only)\n' "${TARGET_ID}"
+
+    if [[ "${T_ENVIRONMENT}" == production ]]; then
+        check PASS target "environment_class production"
+    else
+        check FAIL target "environment_class ${T_ENVIRONMENT} — only a production target delivers outbound"
+    fi
+
+    if [[ "${T_MODE}" == outbound ]]; then
+        check PASS routing "delivery_mode outbound in mail-routing.json"
+    else
+        check FAIL routing "delivery_mode ${T_MODE} in mail-routing.json — not outbound"
+    fi
+
+    if [[ "${enabled}" == true ]]; then
+        check PASS direct "direct delivery is enabled on this host as ${hostname}"
+    else
+        check FAIL direct "direct delivery is disabled on this host (mail-outbound.json direct.enabled is false)"
+    fi
+
+    if [[ -n "${hostname}" ]]; then
+        check PASS mta "the reviewed public MTA hostname is ${hostname}"
+    else
+        check FAIL mta "mail-outbound.json reviews no public MTA hostname"
+    fi
+
+    if [[ "${T_HAS_IDENTITY}" != true ]]; then
+        check FAIL identity "no reviewed DKIM and DMARC identity in mail-identity.json"
+    else
+        check PASS identity "DKIM selector ${T_SELECTOR} (${T_ALGORITHM}, at least ${T_MIN_BITS} bits), DMARC p=${T_POLICY}"
+
+        key_path="$(physical "$(dkim_key_path)")"
+        if check_private_key "${key_path}" "${T_MIN_BITS}"; then
+            check PASS key "$(dkim_key_path) is a usable ${KEY_BITS}-bit RSA private key"
+        else
+            check FAIL key "$(dkim_key_path) is not usable: ${KEY_PROBLEM}"
+        fi
+
+        run_dns_checks
+    fi
+
+    # Signing is the last condition, and nothing in this release can satisfy
+    # it: no signing service is installed or verified yet, so no target is
+    # ever outbound-ready here.
+    check FAIL signing "no DKIM signing service is installed and verified on this host"
+
+    printf 'SUMMARY  pass=%d fail=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}"
+
+    if (( COUNT_FAIL == 0 )); then
+        printf 'OUTBOUND READY: YES\n'
+        return 0
+    fi
+
+    printf 'OUTBOUND READY: NO\n'
+    return 1
+}
+
+main() {
+    parse_args "$@"
+
+    case "${COMMAND}" in
+        validate)       command_validate ;;
+        check-outbound) command_check_outbound ;;
+        dkim-key)       command_dkim_key ;;
+        check-key)      command_check_key ;;
+        show-dns)       command_show_dns ;;
+        verify-dns)     command_verify_dns ;;
+        readiness)      command_readiness ;;
+    esac
+}
+
+# Sourcing defines the rules and functions without running anything, so the
+# tests read exactly the jq programs this script runs.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

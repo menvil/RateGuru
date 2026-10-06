@@ -481,6 +481,10 @@ function sourcedLibraryNames(): array
  * describes and installs nothing; the gateway installer runs it from the same
  * temporary bundle it arrived in, never from an installed copy.
  *
+ * `mail-identity` is the third, for the same reason: it judges the reviewed host
+ * and target mail identity, the DKIM keys it names, and public DNS against both.
+ * It installs nothing, and runs from a trusted bundle or checkout.
+ *
  * So a script listed here must stay out of required-clis.txt and out of the
  * operational bundle, and the guards that inventory infrastructure/scripts/ know
  * to expect exactly that rather than reporting it as unclassified.
@@ -489,7 +493,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['mail-routing', 'render-environment-templates'];
+    return ['mail-identity', 'mail-routing', 'render-environment-templates'];
 }
 
 /**
@@ -1350,6 +1354,208 @@ function mailRoutingDemoShopOutboundPolicy(): array
         'delivery_mode' => 'outbound',
         'outbound' => ['kind' => 'direct'],
     ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The mail identity CLI and the material it judges
+|--------------------------------------------------------------------------
+|
+| MailIdentityTest proves infrastructure/scripts/mail-identity itself;
+| InstallTargetPrerequisitesTest installs the DKIM keys it judges, and
+| ConfigureRateGuruTargetActionTest stages them. All three need the same real
+| keys and the same synthetic demo-shop identity, so they live here once.
+*/
+
+function mailIdentityScript(): string
+{
+    return base_path('infrastructure/scripts/mail-identity');
+}
+
+/**
+ * A real key of one kind, generated once per test process by OpenSSL itself, so
+ * every verdict is checked against genuine material rather than a shape a test
+ * invented. Kinds: rsa2048, rsa2048-pkcs1, rsa3072, rsa1024, ec, ed25519,
+ * encrypted, public, certificate, key-and-certificate, junk.
+ */
+function mailIdentityKey(string $kind): string
+{
+    static $dir = null;
+
+    if ($dir === null) {
+        $dir = sys_get_temp_dir().'/mail-identity-keys-'.getmypid().'-'.bin2hex(random_bytes(4));
+        expect(@mkdir($dir, 0o700, true))->toBeTrue("could not create {$dir}");
+    }
+
+    $path = "{$dir}/{$kind}.pem";
+
+    if (is_file($path)) {
+        return $path;
+    }
+
+    $openssl = static function (string $arguments) use ($kind): void {
+        exec('openssl '.$arguments.' 2>&1', $output, $status);
+        expect($status)->toBe(0, "openssl could not make the {$kind} test key:\n".implode("\n", $output));
+    };
+
+    $rsa = static fn (int $bits, string $to) => $openssl('genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:'.$bits.' -out '.escapeshellarg($to));
+
+    match ($kind) {
+        'rsa2048' => $rsa(2048, $path),
+        'rsa3072' => $rsa(3072, $path),
+        'rsa1024' => $rsa(1024, $path),
+        'rsa2048-pkcs1' => $openssl('rsa -in '.escapeshellarg(mailIdentityKey('rsa2048')).' -traditional -out '.escapeshellarg($path)),
+        'ec' => $openssl('genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out '.escapeshellarg($path)),
+        'ed25519' => $openssl('genpkey -algorithm ED25519 -out '.escapeshellarg($path)),
+        'encrypted' => $openssl('genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -aes256 -pass pass:a-passphrase -out '.escapeshellarg($path)),
+        'public' => $openssl('pkey -in '.escapeshellarg(mailIdentityKey('rsa2048')).' -pubout -out '.escapeshellarg($path)),
+        'certificate' => $openssl('req -x509 -key '.escapeshellarg(mailIdentityKey('rsa2048')).' -subj /CN=mail-identity-test -days 1 -out '.escapeshellarg($path)),
+        'key-and-certificate' => file_put_contents($path, file_get_contents(mailIdentityKey('rsa2048')).file_get_contents(mailIdentityKey('certificate'))),
+        'junk' => file_put_contents($path, "this is not a key\n"),
+    };
+
+    chmod($path, 0o600);
+
+    return $path;
+}
+
+/**
+ * The base64 SubjectPublicKeyInfo of a private key, derived by PHP's own
+ * OpenSSL binding — an independent witness for what mail-identity derives.
+ */
+function mailIdentityPublicKey(string $privateKeyPath): string
+{
+    $key = openssl_pkey_get_private((string) file_get_contents($privateKeyPath));
+    expect($key)->not->toBeFalse('PHP could not read the test key');
+
+    $pem = openssl_pkey_get_details($key)['key'];
+
+    return preg_replace('/-----[^-]+-----|\s+/', '', $pem);
+}
+
+/** The base64 body lines of a PEM file — what must never appear in any output. */
+function mailIdentityKeyBodyLines(string $path): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', (string) file_get_contents($path)),
+        static fn (string $line): bool => $line !== '' && ! str_starts_with($line, '-----'),
+    ));
+}
+
+/**
+ * No line of the key file reached OUTPUT. The public modulus is the one part a
+ * private key shares with its public key — and a PKCS#1 key encodes it at the
+ * same base64 alignment as the published DKIM value — so a line that is part of
+ * the public key is public, and is skipped.
+ */
+function expectNoKeyMaterial(string $output, string $keyPath): void
+{
+    $public = openssl_pkey_get_private((string) file_get_contents($keyPath)) === false
+        ? ''
+        : mailIdentityPublicKey($keyPath);
+
+    foreach (mailIdentityKeyBodyLines($keyPath) as $line) {
+        $probe = substr($line, 0, 24);
+
+        if ($public !== '' && str_contains($public, $probe)) {
+            continue;
+        }
+
+        expect(str_contains($output, $probe))->toBeFalse('private key material reached the output');
+    }
+
+    expect($output)->not->toContain('PRIVATE KEY');
+}
+
+/**
+ * The four reviewed configuration files mail identity is judged from, written
+ * into DIR: the committed ones, plus — unless `demo-shop` is false — the
+ * synthetic demo-shop target in the registry, in mail routing (`mode` held or
+ * outbound), and in mail identity (`identity`, or none when null). `outbound`
+ * replaces the host contract. Returns the matching FILES arguments.
+ *
+ * @param  array{demo-shop?: bool, mode?: string, identity?: array<string, mixed>|null, outbound?: array<string, mixed>, registry?: array<string, mixed>}  $options
+ * @return list<string>
+ */
+function mailIdentityFixtureConfig(string $dir, array $options = []): array
+{
+    @mkdir($dir, 0o755, true);
+
+    $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+
+    $registry = $options['registry'] ?? $read('deployment-targets.json');
+    $routing = $read('mail-routing.json');
+    $identity = $read('mail-identity.json');
+    $outbound = $options['outbound'] ?? $read('mail-outbound.json');
+
+    if ($options['demo-shop'] ?? true) {
+        if (! isset($options['registry'])) {
+            $registry = mailRoutingDemoShopRegistry();
+        }
+
+        $routing['targets']['demo-shop'] = ($options['mode'] ?? 'held') === 'outbound'
+            ? mailRoutingDemoShopOutboundPolicy()
+            : mailRoutingDemoShopPolicy();
+
+        $demoIdentity = array_key_exists('identity', $options) ? $options['identity'] : mailIdentityDemoShopIdentity();
+
+        if ($demoIdentity !== null) {
+            $identity['targets']['demo-shop'] = $demoIdentity;
+        }
+    }
+
+    foreach (['deployment-targets' => $registry, 'mail-routing' => $routing, 'mail-identity' => $identity, 'mail-outbound' => $outbound] as $name => $data) {
+        file_put_contents("{$dir}/{$name}.json", mailRoutingJson($data));
+    }
+
+    return [
+        '--identity', "{$dir}/mail-identity.json",
+        '--routing', "{$dir}/mail-routing.json",
+        '--registry', "{$dir}/deployment-targets.json",
+        '--outbound', "{$dir}/mail-outbound.json",
+    ];
+}
+
+/** @return array<string, mixed> */
+function mailIdentityDemoShopIdentity(): array
+{
+    return [
+        'dkim' => ['selector' => 'shop2026', 'algorithm' => 'rsa-sha256', 'minimum_key_bits' => 2048],
+        'dmarc' => ['policy' => 'none', 'adkim' => 'strict', 'aspf' => 'strict'],
+    ];
+}
+
+/**
+ * Run the shipped mail-identity CLI with the test overrides on. stdout and
+ * stderr are kept apart: a verdict must never smuggle key material into either.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, string>  $environment
+ * @return array{status: int, stdout: string, stderr: string}
+ */
+function mailIdentityRun(array $arguments, array $environment = []): array
+{
+    $process = proc_open(
+        ['bash', mailIdentityScript(), ...$arguments],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        [
+            'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+            'HOME' => sys_get_temp_dir(),
+            'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+            ...$environment,
+        ],
+    );
+
+    expect($process)->not->toBeFalse('could not start mail-identity');
+
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
 /**

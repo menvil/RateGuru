@@ -11,11 +11,21 @@ description: >-
 # may be configured, what counts as already provisioned, which installer owns
 # which contract, and what stays deferred. None of that is reimplemented here.
 #
-# WHAT IT CARRIES, AND WHAT IT REFUSES TO. Exactly one piece of material
-# reaches the host: the target's deploy PUBLIC key, as deploy-authorized-keys.
-# Provisioning deliberately left that file absent — a provisioned target has an
-# identity and a home but no way in — and nothing else in the pipeline installs
-# it, so a target would stay undeployable forever without this step.
+# WHAT IT CARRIES, AND WHAT IT REFUSES TO. At most two pieces of material reach
+# the host, each by its logical name, and each named explicitly when uploaded:
+#
+#   deploy-authorized-keys  always: the target's deploy PUBLIC key. Provisioning
+#                           deliberately left that file absent — a provisioned
+#                           target has an identity and a home but no way in —
+#                           and nothing else in the pipeline installs it, so a
+#                           target would stay undeployable forever without it.
+#
+#   mail-dkim-private-key   only when the optional mail-dkim-private-key input
+#                           is set: the target's DKIM signing private key. The
+#                           host is its one canonical place, and the server-side
+#                           installer decides where — never this action. Absent,
+#                           nothing is staged and the key stays deferred while
+#                           the target's mail is held.
 #
 # It is derived here rather than supplied: `ssh-keygen -y` reads the deployment
 # private key GitHub already holds and emits its public half. The private key
@@ -90,6 +100,20 @@ inputs:
       provisioned target has no authorized_keys yet, and deriving the public key
       from the credential GitHub already holds is what avoids inventing a second
       source of truth for the deploy identity.
+
+  mail-dkim-private-key:
+    required: false
+    default: ""
+    description: >-
+      Optional. The target's DKIM signing PRIVATE key (PEM, unencrypted RSA, of
+      at least the size its reviewed mail identity requires). Judged on the
+      runner by infrastructure/scripts/mail-identity before anything is
+      uploaded, staged as mail-dkim-private-key in the root-only material
+      directory, installed by install-target-prerequisites at the destination
+      it derives, and removed from the runner and the host with every other
+      temporary file. Never printed, never an output, never in a summary. Empty
+      means no key is staged: while the target's mail is held, its key is
+      deferred.
 
 outputs:
   configured:
@@ -265,6 +289,55 @@ runs:
 
         echo "Staged deploy-authorized-keys (public key only). The private key was used on this runner and removed."
 
+    # The DKIM private key, only when one was supplied. Judged before anything
+    # is uploaded, by the same implementation the host uses: the target must
+    # have a reviewed mail identity, and the key must be an unencrypted RSA
+    # private key of at least its reviewed size. Only a fixed verdict is ever
+    # printed. A refused key is deleted before the step fails.
+    - name: Stage the DKIM private key
+      shell: bash
+      env:
+        MAIL_DKIM_PRIVATE_KEY: ${{ inputs.mail-dkim-private-key }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${MAIL_DKIM_PRIVATE_KEY:-}" ]]; then
+          echo "No DKIM private key was supplied: nothing is staged. While ${DEPLOYMENT_TARGET}'s mail is held its key is deferred."
+          exit 0
+        fi
+
+        identity_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/mail-identity"
+        staged="${RATEGURU_MATERIAL_DIR}/mail-dkim-private-key"
+
+        test -x "${identity_cli}"
+
+        answer="$("${identity_cli}" dkim-key --target "${DEPLOYMENT_TARGET}")"
+
+        if [[ "${answer}" == "none" ]]; then
+          echo "${DEPLOYMENT_TARGET} has no reviewed mail identity, so a DKIM key has nowhere to go. Nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        IFS=$'\t' read -r _ _ minimum_bits <<<"${answer}"
+
+        # Byte for byte the PEM as it was supplied, ending in exactly one
+        # newline whether or not the secret kept its last one: the host compares
+        # an installed key with a supplied one by content, so the same key
+        # supplied twice must stage identically.
+        install -m 0600 /dev/null "${staged}"
+        printf '%s' "${MAIL_DKIM_PRIVATE_KEY}" > "${staged}"
+        [[ "${MAIL_DKIM_PRIVATE_KEY}" == *$'\n' ]] || printf '\n' >> "${staged}"
+
+        if ! "${identity_cli}" check-key --file "${staged}" --min-bits "${minimum_bits}"; then
+          rm -f "${staged}"
+          echo "MAIL_DKIM_PRIVATE_KEY is not a usable DKIM private key (the reason is above; the key itself is never printed). Nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_DKIM_KEY_STAGED=true" >> "${GITHUB_ENV}"
+        echo "Staged mail-dkim-private-key for ${DEPLOYMENT_TARGET}."
+
     # Only infrastructure/ — configure-target and the installers it delegates
     # to resolve every file beneath that one directory. The application is
     # emphatically not part of the bundle: this operation never touches code.
@@ -341,8 +414,8 @@ runs:
           "${RATEGURU_BUNDLE_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
 
-        # The public deploy key, and only ever that one file: the staging
-        # directory is built by this action and holds nothing else.
+        # The public deploy key, named exactly: the staging directory is built
+        # by this action, and nothing in it is ever sent by a glob.
         scp \
           -P "${BOOTSTRAP_PORT}" \
           -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
@@ -355,6 +428,23 @@ runs:
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${RATEGURU_MATERIAL_DIR}/deploy-authorized-keys" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/deploy-authorized-keys"
+
+        # The DKIM private key, only when one was staged, and again by its exact
+        # name: nothing in the material directory travels unless it is named.
+        if [[ "${RATEGURU_DKIM_KEY_STAGED:-false}" == true ]]; then
+          scp \
+            -P "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${RATEGURU_MATERIAL_DIR}/mail-dkim-private-key" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/mail-dkim-private-key"
+        fi
 
         # scp can only ever write as the bootstrap user, so everything lands in
         # that user's home first and is moved into the root-only tree before

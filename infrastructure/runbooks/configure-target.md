@@ -75,11 +75,13 @@ looks like. Configure only requires that there is something to validate.
 
 This is not a new model. It is how staging already works.
 
-## What Configure does send: the deploy public key
+## What Configure does send: the deploy public key, and optionally a DKIM key
 
-Exactly one piece of material reaches the host, and it is not a secret: the
+Always one piece of material reaches the host, and it is not a secret: the
 target's deploy **public** key, installed as the deploy user's
-`authorized_keys`.
+`authorized_keys`. The only other one is optional: the target's DKIM signing
+private key, sent only when the `MAIL_DKIM_PRIVATE_KEY` Environment secret is
+set (see below).
 
 It has to come from somewhere. Provisioning deliberately created the deploy
 account without an `authorized_keys`, and nothing else in the pipeline installs
@@ -92,8 +94,22 @@ exists. Deriving it is what keeps the deploy identity single-sourced — a
 separately pasted public key is a second source of truth that silently stops
 matching the day the private key is rotated.
 
-`--material-dir` therefore carries `deploy-authorized-keys` and nothing else. A
-material directory containing `laravel-env` is refused by name.
+`--material-dir` therefore carries `deploy-authorized-keys` and, optionally,
+`mail-dkim-private-key`, and nothing else. A material directory containing
+`laravel-env` is refused by name.
+
+### The optional DKIM private key
+
+When the `production-tits-guru` Environment has a `MAIL_DKIM_PRIVATE_KEY`
+secret, the action judges it on the runner with `mail-identity check-key` —
+an unencrypted RSA private key of at least the reviewed size — before anything
+is uploaded, sends it by its exact name into the same root-only material
+directory, and `install-target-prerequisites` installs it at
+`/etc/opendkim/keys/tits-guru/rg1.private` (root:root 0600). It is never
+printed, never an output or artifact, never in the summary, and every
+temporary copy on the runner and the host is removed whatever the outcome.
+Without the secret nothing is staged, and the key stays DEFERRED while the
+target's mail is held. See [`mail-identity.md`](mail-identity.md).
 
 ## What it does not do
 
@@ -102,7 +118,8 @@ material directory containing `laravel-env` is refused by name.
   existing wrappers even with its key in place;
 * no lifecycle change, and the registry is never written;
 * no TLS, no public `server_name`, no DNS;
-* no mail transport or gateway;
+* no mail transport, gateway, signing service or DNS record — a supplied DKIM
+  key is installed as material, and nothing signs with it;
 * no deployment, no release, no `current`/`previous`, no migration;
 * no queue worker started;
 * no backup schedule, and no offsite credential — not its rotation, and not its
