@@ -288,6 +288,49 @@ function installPerimeterRunHarness(string $scratch, array $vars, string $call):
     return [$exit, $output];
 }
 
+/**
+ * The perimeter successfully applied into $scratch from the default stub
+ * wrapper and the committed sources — the installed state every --verify test,
+ * and the second apply of the idempotency test, starts from — and the
+ * constants that point at it.
+ *
+ * Getting there is a full perform_apply, which is most of what each of those
+ * tests would otherwise cost, and its result never varies. So a worker applies
+ * it once, into a template of its own, and every later call copies the
+ * template into the test's scratch directory: under 10 ms instead of the
+ * 0.5–1 s an apply takes.
+ *
+ * copyScratchTemplate() rewrites the absolute paths the scratch tree records
+ * and proves none still names the template; the constants are rewritten here.
+ *
+ * @return array<string, string>
+ */
+function installPerimeterApplied(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = installPerimeterScratchDir();
+        register_shutdown_function(fn () => installPerimeterCleanup($directory));
+
+        $vars = installPerimeterBaseVars($directory);
+
+        [$exit, $output] = installPerimeterRunHarness($directory, $vars, 'perform_apply');
+        expect($exit)->toBe(0, $output);
+
+        $template = [$directory, $vars];
+    }
+
+    [$directory, $vars] = $template;
+
+    copyScratchTemplate($directory, $scratch);
+
+    return array_map(
+        fn (string $value): string => str_replace($directory, $scratch, $value),
+        $vars,
+    );
+}
+
 // =============================================================================
 // --check: static, read-only, no root
 // =============================================================================
@@ -1010,10 +1053,7 @@ it('verify also rejects a stale installed operations bundle', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         // Simulate the bundle going stale after a successful apply — e.g. a
         // manual, out-of-band change to the installed backup-cycle.
@@ -1097,10 +1137,7 @@ it('a successful verify passes against a freshly applied perimeter', function ()
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-
-        [$applyExit, $applyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installPerimeterApplied($scratch);
 
         [$verifyExit, $verifyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
 
@@ -1115,7 +1152,7 @@ it('apply and verify are idempotent: a second apply changes nothing and verify p
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
+        $vars = installPerimeterApplied($scratch);
         $installed = ['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'];
 
         $snapshot = function () use ($vars, $installed): array {
@@ -1126,9 +1163,6 @@ it('apply and verify are idempotent: a second apply changes nothing and verify p
                 array_combine($installed, $installed),
             );
         };
-
-        [$firstExit, $firstOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($firstExit)->toBe(0, $firstOut);
 
         $afterFirst = $snapshot();
 
@@ -1165,9 +1199,7 @@ it('checks the installed cron against the render itself, not only against the co
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit, $applyOut] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installPerimeterApplied($scratch);
 
         // In a full --verify the committed source is rejected first, so this
         // drives the installed-file check directly: a hand edit that is still
@@ -1336,9 +1368,7 @@ it('verify detects content drift on an installed file', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         file_put_contents($vars['DST_CRON'], "tampered content\n");
         // Preserve the installed mode/ownership exactly — only content
@@ -1358,9 +1388,7 @@ it('verify detects a mode drift on an installed file', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         chmod($vars['DST_SUDOERS'], 0o640);
 
@@ -1377,9 +1405,7 @@ it('verify detects an installed destination replaced by a symlink', function () 
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         $decoy = $scratch.'/decoy-cron';
         file_put_contents($decoy, file_get_contents($vars['DST_CRON']));
@@ -1586,9 +1612,7 @@ it('verify fails when a legacy wrapper is still present', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         // Simulate a legacy wrapper resurrected out-of-band after a
         // successful apply.
@@ -1609,9 +1633,7 @@ it('a successful verify confirms all six legacy wrapper paths are absent', funct
     $scratch = installPerimeterScratchDir();
 
     try {
-        $vars = installPerimeterBaseVars($scratch);
-        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0);
+        $vars = installPerimeterApplied($scratch);
 
         [$verifyExit, $verifyOutput] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
 

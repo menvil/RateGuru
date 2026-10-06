@@ -1046,6 +1046,51 @@ function installOpsPlaceHealthyHealthCheck(array $vars): void
     installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], installOpsHealthCheckStub());
 }
 
+/**
+ * The default bundle successfully applied into $scratch — the installed set
+ * every --verify test, and the second apply of the idempotency test, starts
+ * from — and the constants that point at it.
+ *
+ * Getting there is a full perform_apply against the default stubs, which is
+ * most of what each of those tests would otherwise cost, and its result never
+ * varies. So a worker applies it once, into a template of its own, and every
+ * later call copies the template into the test's scratch directory: under
+ * 10 ms instead of the 0.6–1.2 s an apply takes.
+ *
+ * copyScratchTemplate() rewrites the absolute paths the scratch tree records
+ * and proves none still names the template; the constants are rewritten here.
+ * The apply's restore locks are plain files once it has exited, so the copy
+ * holds none of them.
+ *
+ * @return array<string, string>
+ */
+function installOpsApplied(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = installOpsScratchDir();
+        register_shutdown_function(fn () => installOpsCleanup($directory));
+
+        $vars = installOpsBaseVars($directory);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($directory, $vars, 'perform_apply');
+        expect($exit)->toBe(0, $output);
+
+        $template = [$directory, $vars];
+    }
+
+    [$directory, $vars] = $template;
+
+    copyScratchTemplate($directory, $scratch);
+
+    return array_map(
+        fn (string $value): string => str_replace($directory, $scratch, $value),
+        $vars,
+    );
+}
+
 // =============================================================================
 // Shipping, syntax and architecture
 // =============================================================================
@@ -2645,11 +2690,7 @@ it('apply is idempotent: running it again succeeds and leaves the same correct f
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$exit1, $out1] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($exit1)->toBe(0, $out1);
+        $vars = installOpsApplied($scratch);
 
         [$exit2, $out2] = installOpsRunHarness($scratch, $vars, 'perform_apply');
         expect($exit2)->toBe(0, $out2);
@@ -2670,11 +2711,7 @@ it('verify passes against a successfully installed set and makes no filesystem c
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installOpsApplied($scratch);
 
         $before = [];
         foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE'] as $key) {
@@ -2991,11 +3028,7 @@ it('--verify catches a genuine verify_status failure the same way --apply does',
         // Install successfully first with a healthy status stub —
         // perform_verify must be exercised against a real, already-installed
         // set, not a synthetic runtime-verification-block-only harness.
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installOpsApplied($scratch);
 
         // Now replace the installed status (and, so verify_installed_files'
         // own content-matches-source check keeps passing, its committed
@@ -3280,11 +3313,7 @@ it('a genuine failure inside an ordinary command substitution during --verify pr
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installOpsApplied($scratch);
 
         // See the matching apply-mode regression test above: verify_status's
         // own status_output assignment is unprotected, and forcing the
@@ -3583,11 +3612,7 @@ it('--verify passes on a PRE_DEPLOY host with the application probes deferred, a
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOutput);
+        $vars = installOpsApplied($scratch);
 
         // Flip the host to PRE_DEPLOY after installation. The installed
         // bundle stays byte-identical (verify checks parity), so the proof
@@ -3768,11 +3793,7 @@ it('--verify rejects a bundle whose verify-required-clis is missing, drifted or 
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOutput);
+        $vars = installOpsApplied($scratch);
 
         unlink($vars['DST_VERIFY_REQUIRED_CLIS']);
 
@@ -3788,11 +3809,7 @@ it('--verify rejects a bundle whose verify-required-clis is missing, drifted or 
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOutput);
+        $vars = installOpsApplied($scratch);
 
         file_put_contents($vars['DST_VERIFY_REQUIRED_CLIS'], "#!/usr/bin/env bash\n# drifted\nexit 0\n");
 
@@ -3808,11 +3825,7 @@ it('--verify rejects a bundle whose verify-required-clis is missing, drifted or 
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOutput);
+        $vars = installOpsApplied($scratch);
 
         chmod($vars['DST_VERIFY_REQUIRED_CLIS'], 0o644);
 
@@ -4209,11 +4222,7 @@ it('--verify fails when the installed protocol contract is missing or has drifte
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch);
-        installOpsPlaceHealthyHealthCheck($vars);
-
-        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
-        expect($applyExit)->toBe(0, $applyOut);
+        $vars = installOpsApplied($scratch);
 
         // The apply really did install it, byte-for-byte.
         expect(file_get_contents($vars['DST_DEPLOYMENT_PROTOCOL']))

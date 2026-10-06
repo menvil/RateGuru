@@ -5716,7 +5716,8 @@ function provisionSummaryCount(string $output, string $label): int
 
 /**
  * `demo-shop` freshly provisioned into $scratch — the state every test of the
- * hand-off to Configure starts from — and the environment that points at it.
+ * hand-off to Configure starts from, as does every test of what a provisioned
+ * target does next — and the environment that points at it.
  *
  * Getting there is a full `--apply`, which is most of what each of those tests
  * cost, and its result never varies. So a worker provisions it once, into a
