@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\Vite;
 
 /**
  * The admin panel's custom Filament theme: one compiled Vite entry that layers
@@ -101,12 +102,27 @@ it('keeps admin styling in the compiled theme rather than an inline stylesheet',
         ->and($theme)->toContain('.fi-pagination-records-per-page-select .fi-input-wrp:focus-within');
 });
 
-it('loads the compiled theme on admin pages', function () {
-    $this->actingAs(User::factory()->admin()->create())
-        ->get('/admin')
-        ->assertOk()
-        ->assertSee('build/assets/theme-', false)
-        ->assertDontSee('.fi-pagination-records-per-page-select .fi-input-wrp', false);
+it('loads the theme on admin pages through Vite', function () {
+    // Feature tests render without a build (tests/Pest.php), so for this one
+    // test Vite is put back and pointed at a dev server, which needs no
+    // manifest: the page must ask it for the theme entry, and carry none of
+    // the theme's rules inline. That the entry compiles and styles the panel is
+    // the Browser suite's to prove, against the built assets.
+    $hotFile = tempnam(sys_get_temp_dir(), 'vite-hot-');
+    file_put_contents($hotFile, 'http://vite.test');
+
+    try {
+        $this->withVite();
+        Vite::useHotFile($hotFile);
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->get('/admin')
+            ->assertOk()
+            ->assertSee('http://vite.test/'.ADMIN_THEME_ENTRY, false)
+            ->assertDontSee('.fi-pagination-records-per-page-select .fi-input-wrp', false);
+    } finally {
+        unlink($hotFile);
+    }
 });
 
 it('keeps the theme additive: Admin v2 rules never restyle Filament components', function () {

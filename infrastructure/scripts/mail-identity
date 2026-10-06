@@ -53,7 +53,10 @@
 # public DNS answers is exactly that — forward-confirmed reverse DNS, exactly one
 # SPF policy authorizing this host and failing everything else, the DKIM key
 # that matches the installed private key, and exactly one DMARC policy with the
-# reviewed alignment. A DNS failure is a failure, never a pass.
+# reviewed alignment. Public DNS is what two independent public recursive
+# resolvers both answer, asked directly; this host's own resolver is never
+# asked. A DNS failure, or a disagreement between them, is a failure, never a
+# pass.
 #
 # WHAT IT IS NOT. Read-only, everything: it writes no file, publishes no
 # record, starts or reloads nothing and sends no mail. It installs nothing —
@@ -145,7 +148,10 @@ Usage:
                   --json each record carries its purpose (A, PTR, DKIM, SPF,
                   DMARC) and dkim.key_status says whether the key is usable,
                   absent or unusable.
-  verify-dns      Prove, from this host, that public DNS answers exactly that.
+  verify-dns      Prove, from this host, that public DNS answers exactly that:
+                  every record asked of the public resolvers 1.1.1.1 and
+                  8.8.8.8 directly, and accepted only when both agree. This
+                  host's own resolver is never asked.
   readiness       Whether TARGET may deliver outbound now: every condition the
                   activation of direct delivery requires, each reported.
 
@@ -734,11 +740,24 @@ detect_host_ipv4() {
 
 # --- DNS -----------------------------------------------------------------------------
 #
-# dns_lookup TYPE NAME — one query through the system resolver. Sets DNS_STATUS
-# and DNS_RECORDS (the rdata of every TYPE record in the answer); returns
-# non-zero with DNS_ERROR set when there was no usable answer at all — a
-# timeout, a refusal, a server failure. NXDOMAIN is an answer: it means the
-# record does not exist, which the caller reports as missing.
+# PUBLIC DNS is what independent public recursive resolvers answer, never what
+# this host's own resolver says. A host's resolver answers through local policy
+# — /etc/hosts, split DNS, its own cache — so it can contradict the public DNS
+# a receiving server sees, in either direction. Every question here is asked of
+# each of these witnesses directly, and both must answer it the same way.
+#
+# They are part of this script's reviewed contract, not host configuration:
+# nothing reads them from the host and nothing overrides them, and neither one
+# alone is ever enough.
+readonly -a PUBLIC_DNS_RESOLVERS=(1.1.1.1 8.8.8.8)   # Cloudflare, Google
+
+# dns_lookup TYPE NAME — one question, asked of every public resolver. Sets
+# DNS_STATUS and DNS_RECORDS (every TYPE record in the answer, normalised and
+# sorted) only when all of them answered with the same status and the same
+# records; otherwise returns non-zero with DNS_ERROR set — a resolver that timed
+# out, refused or failed, or resolvers that disagree. Nothing chooses between
+# disagreeing answers. NXDOMAIN is an answer: the record does not exist, which
+# the caller reports as missing.
 
 DNS_STATUS=""
 DNS_ERROR=""
@@ -749,38 +768,53 @@ DNS_RECORDS=()
 # shellcheck disable=SC2016
 TXT_JOIN_PROGRAM='[scan("\"((?:[^\"\\\\]|\\\\.)*)\"") | .[0]] | join("") | gsub("\\\\(?<c>[\"\\\\])"; .c)'
 
-dns_lookup() {
-    local type="$1" name="$2" output status=0 line
+# resolver_answer RESOLVER TYPE NAME — one public resolver's answer, asked of it
+# by address. Sets ANSWER_STATUS and ANSWER_RECORDS, or returns non-zero with
+# ANSWER_ERROR set when it gave no usable answer.
+#
+# Each record is normalised the way it is compared: a TXT record is its chunks
+# joined, with its case kept (a DKIM key is case-sensitive); a PTR name is
+# lowercased, because DNS names are not. Records are sorted, so the order a
+# resolver happens to return them in is never a disagreement, and a repeated
+# record is kept, never merged away.
+ANSWER_STATUS=""
+ANSWER_ERROR=""
+ANSWER_RECORDS=()
 
-    DNS_STATUS=""
-    DNS_ERROR=""
-    DNS_RECORDS=()
+resolver_answer() {
+    local resolver="$1" type="$2" name="$3" output status=0 line
+    local -a records=()
 
-    output="$("${DIG_BIN}" +time=5 +tries=2 +nocmd +noall +comments +answer "${type}" "${name}" 2>&1)" || status=$?
+    ANSWER_STATUS=""
+    ANSWER_ERROR=""
+    ANSWER_RECORDS=()
+
+    output="$("${DIG_BIN}" "@${resolver}" +nosearch +time=5 +tries=2 +nocmd +noall +comments +answer "${type}" "${name}" 2>&1)" || status=$?
 
     if (( status != 0 )); then
-        DNS_ERROR="the DNS query for ${name} ${type} failed (dig exit ${status})"
+        ANSWER_ERROR="the DNS query for ${type} ${name} to public resolver ${resolver} failed (dig exit ${status})"
         return 1
     fi
 
-    DNS_STATUS="$(sed -n 's/.*->>HEADER<<-.*status: \([A-Z]*\).*/\1/p' <<<"${output}" | head -n 1)"
+    ANSWER_STATUS="$(sed -n 's/.*->>HEADER<<-.*status: \([A-Z]*\).*/\1/p' <<<"${output}" | head -n 1)"
 
-    if [[ -z "${DNS_STATUS}" ]]; then
-        DNS_ERROR="the DNS query for ${name} ${type} got no response"
+    if [[ -z "${ANSWER_STATUS}" ]]; then
+        ANSWER_ERROR="the DNS query for ${type} ${name} to public resolver ${resolver} got no response"
         return 1
     fi
 
-    if [[ "${DNS_STATUS}" != NOERROR && "${DNS_STATUS}" != NXDOMAIN ]]; then
-        DNS_ERROR="the DNS query for ${name} ${type} was answered ${DNS_STATUS}"
+    if [[ "${ANSWER_STATUS}" != NOERROR && "${ANSWER_STATUS}" != NXDOMAIN ]]; then
+        ANSWER_ERROR="the DNS query for ${type} ${name} to public resolver ${resolver} was answered ${ANSWER_STATUS}"
         return 1
     fi
 
     while IFS= read -r line; do
         [[ -n "${line}" ]] || continue
-        if [[ "${type}" == TXT ]]; then
-            line="$(jq -Rr "${TXT_JOIN_PROGRAM}" <<<"${line}")"
-        fi
-        DNS_RECORDS+=("${line}")
+        case "${type}" in
+            TXT) line="$(jq -Rr "${TXT_JOIN_PROGRAM}" <<<"${line}")" ;;
+            PTR) line="$(lowercase "${line}")" ;;
+        esac
+        records+=("${line}")
     done < <(awk -v type="${type}" '
         /^;/ { next }
         {
@@ -788,6 +822,90 @@ dns_lookup() {
                 print substr($0, RLENGTH + 1)
             }
         }' <<<"${output}")
+
+    if (( ${#records[@]} > 0 )); then
+        mapfile -t ANSWER_RECORDS < <(printf '%s\n' "${records[@]}" | LC_ALL=C sort)
+    fi
+}
+
+# What one resolver answered, for a disagreement. TXT values are never repeated
+# here: a DKIM value is a key, and whatever was published by mistake at its name
+# must not reach a log through a diagnostic. The operator compares them by
+# asking each resolver directly.
+describe_answer() {
+    local type="$1"
+
+    if [[ "${type}" == TXT ]]; then
+        printf '%s with %d TXT record(s)' "${ANSWER_STATUS}" "${#ANSWER_RECORDS[@]}"
+    elif (( ${#ANSWER_RECORDS[@]} == 0 )); then
+        printf '%s with no %s record' "${ANSWER_STATUS}" "${type}"
+    else
+        printf '%s [%s]' "${ANSWER_STATUS}" "${ANSWER_RECORDS[*]}"
+    fi
+}
+
+dns_lookup() {
+    local type="$1" name="$2" resolver answer agreed="" disagree=false
+    local -a failures=() seen=() asks=()
+
+    DNS_STATUS=""
+    DNS_ERROR=""
+    DNS_RECORDS=()
+
+    # Every resolver is asked even after one failed, so the diagnostic names
+    # each one that could not answer.
+    for resolver in "${PUBLIC_DNS_RESOLVERS[@]}"; do
+        if ! resolver_answer "${resolver}" "${type}" "${name}"; then
+            failures+=("${ANSWER_ERROR}")
+            continue
+        fi
+
+        seen+=("${resolver} answers $(describe_answer "${type}")")
+
+        # The whole answer as one value: its status, how many records, and
+        # each of them — the count keeps no record and one empty record apart.
+        answer="$(printf '%s %d\n' "${ANSWER_STATUS}" "${#ANSWER_RECORDS[@]}"; printf '%s\n' "${ANSWER_RECORDS[@]+"${ANSWER_RECORDS[@]}"}")"
+
+        if [[ -z "${agreed}" ]]; then
+            agreed="${answer}"
+        elif [[ "${answer}" != "${agreed}" ]]; then
+            disagree=true
+        fi
+    done
+
+    if (( ${#failures[@]} > 0 )); then
+        DNS_ERROR="$(join_by '; ' "${failures[@]}") — public DNS is only what $(join_by ' and ' "${PUBLIC_DNS_RESOLVERS[@]}") both answer, so no answer from fewer of them is accepted"
+        return 1
+    fi
+
+    if [[ "${disagree}" == true ]]; then
+        DNS_ERROR="public resolvers disagree on ${type} ${name}: $(join_by ', ' "${seen[@]}") — no answer is accepted until they all give the same one"
+
+        if [[ "${type}" == TXT ]]; then
+            for resolver in "${PUBLIC_DNS_RESOLVERS[@]}"; do
+                asks+=("dig @${resolver} TXT ${name}")
+            done
+            DNS_ERROR+=" (TXT values are not printed here; compare them with: $(join_by ', ' "${asks[@]}"))"
+        fi
+
+        return 1
+    fi
+
+    # They agree, so the last answer is every answer.
+    DNS_STATUS="${ANSWER_STATUS}"
+    DNS_RECORDS=("${ANSWER_RECORDS[@]+"${ANSWER_RECORDS[@]}"}")
+}
+
+# join_by SEPARATOR VALUE... — the values, with SEPARATOR between each two.
+join_by() {
+    local separator="$1" joined="$2" value
+    shift 2
+
+    for value in "$@"; do
+        joined+="${separator}${value}"
+    done
+
+    printf '%s' "${joined}"
 }
 
 lowercase() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
@@ -1186,7 +1304,7 @@ command_verify_dns() {
     load_target
     require_identity
 
-    printf 'mail-identity verify-dns --target %s (read-only; public DNS as this host sees it)\n' "${TARGET_ID}"
+    printf 'mail-identity verify-dns --target %s (read-only; public DNS as %s both answer it)\n' "${TARGET_ID}" "$(join_by ' and ' "${PUBLIC_DNS_RESOLVERS[@]}")"
     run_dns_checks
 
     printf 'SUMMARY  pass=%d fail=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}"

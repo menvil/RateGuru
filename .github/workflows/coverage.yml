@@ -64,12 +64,6 @@ jobs:
           extensions: mbstring, pdo_pgsql, pcov, gd, exif
           coverage: pcov
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: npm
-
       - name: Cache Composer packages
         uses: actions/cache@v6
         with:
@@ -77,9 +71,7 @@ jobs:
           key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
 
       - name: Install dependencies
-        run: |
-          composer install --no-interaction --prefer-dist --no-progress
-          npm ci
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
@@ -104,12 +96,13 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate --force
-          npm run build
 
-      # Coverage measures the Unit and Feature suites only. The Browser suite
-      # is exercised (and gated) by the CI "Tests" job; adding it here hangs on
-      # PCOV coverage collection from a real Chromium and contributes just
-      # +0.16% (9 of 5625 statements), nearly all already hit by Feature tests.
+      # Coverage measures the Unit and Feature suites only, and neither needs
+      # built assets: Feature renders pages without Vite (tests/Pest.php). The
+      # Browser suite is exercised (and gated) by the CI "Browser tests" job;
+      # adding it here hangs on PCOV coverage collection from a real Chromium
+      # and contributes just +0.16% (9 of 5625 statements), nearly all already
+      # hit by Feature tests.
       #
       # The Architecture suite is absent for a different reason: it measures
       # infrastructure/, not app/, so it contributes essentially nothing to the

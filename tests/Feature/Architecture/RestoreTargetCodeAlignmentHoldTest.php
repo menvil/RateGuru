@@ -70,12 +70,7 @@ it('resumes a held target once the deployed code carries the backup source_sha',
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         $result = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
@@ -105,12 +100,7 @@ it('refuses to resume while the code still does not match, and leaves the target
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         $result = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
 
@@ -190,12 +180,7 @@ it('refuses a target whose releases root is a symlink, on both apply and resume'
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // The aligning deploy is genuine, but the releases root has been
@@ -221,12 +206,7 @@ it('refuses to resume when current is malformed or resolves outside the releases
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         // current points outside releases/ — a broken deployment, never
         // something a restore reasons about.
@@ -253,12 +233,7 @@ it('does not resume a target whose health check fails, and holds it instead', fu
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         $result = restoreTargetRun(
@@ -294,12 +269,7 @@ it('interrupts and proves the absence of a scheduler that cron started after the
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // The window this closes: --resume puts the cron entry back and leaves
@@ -349,12 +319,7 @@ it('reports a clean hold when no scheduler process remains', function () {
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // Same failure, but nothing is running: the hold is proven, and says so
@@ -558,12 +523,7 @@ it('refuses an ordinary backup while the target is held, and says which commit i
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         // The marker is the part of the hold that outlives the process.
         expect(is_file(restoreGuardFile($scratch)))->toBeTrue();
@@ -608,12 +568,7 @@ it('clears the hold marker only once a resume has proven the data and the code a
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         expect(is_file(restoreGuardFile($scratch)))->toBeTrue();
         expect(restoreHoldRunBackup($scratch)['blocked'])->toBeTrue();
 
@@ -670,12 +625,7 @@ it('refuses to start a second restore on a target that is already held', functio
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         // The second restore would take an emergency "pre-restore" backup of
         // data that does not match its code — and be refused for it, halfway

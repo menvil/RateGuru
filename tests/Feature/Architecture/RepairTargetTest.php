@@ -141,6 +141,13 @@ function repairWriteStubs(string $scratch): void
 
             if [[ "\$1" == "--check" ]]; then
                 [[ -e "{$scratch}/toggles/\${me}-hostreq" ]] && { echo "  HOST-REQ host:/var/log/rateguru — absent"; exit 1; }
+                # The same host prerequisite, at the top of a report far longer
+                # than a pipe holds.
+                if [[ -e "{$scratch}/toggles/\${me}-hostreq-long-report" ]]; then
+                    echo "  HOST-REQ host:/var/log/rateguru — absent"
+                    for i in \$(seq 1 4000); do echo "  MISSING  path:/srv/rateguru/staging-main/filler/\${i} — absent"; done
+                    exit 1
+                fi
                 [[ -e "{$scratch}/toggles/\${me}-conflict" ]] && { echo "  CONFLICT path:/x — a regular file occupies a managed directory path"; exit 1; }
                 [[ -e "{$scratch}/toggles/\${me}-broken" ]] && { echo "the installer could not run"; exit 2; }
                 # A child that fails while printing neither MISSING nor DRIFT.
@@ -288,6 +295,21 @@ function repairGuard(string $scratch, string $status, string $operation = '20260
         $scratch.'/run/restores/staging-main/restore-guard',
         json_encode(['status' => $status, 'operation' => $operation, 'target' => 'staging-main'])."\n",
     );
+}
+
+/** Writes $contents as staging-main's recovery guard and returns its path. */
+function repairRecoveryGuard(string $scratch, string $contents): string
+{
+    @mkdir($scratch.'/run/recoveries/staging-main', 0o755, true);
+
+    file_put_contents($path = $scratch.'/run/recoveries/staging-main/recovery-guard', $contents);
+
+    return $path;
+}
+
+function repairRecoveryGuardDocument(string $status): string
+{
+    return json_encode(['status' => $status, 'operation' => '20260115-041233-9be21c', 'target' => 'staging-main'])."\n";
 }
 
 /**
@@ -620,6 +642,87 @@ it('reports a held target as one problem rather than two', function () {
     }
 });
 
+it('refuses every recovery guard state with its own diagnosis, and never clears one', function (string $document, string $diagnosis) {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        $guard = repairRecoveryGuard($scratch, $document);
+
+        [$checkExit, $checkOutput] = repairRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, $checkOutput);
+        expect($checkOutput)
+            ->toContain('RECOVERY-HOLD recovery:guard — '.$diagnosis)
+            ->toContain('REPAIR REQUIRED: BLOCKED');
+
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)
+            ->toContain('recovery guard: '.$diagnosis)
+            ->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+
+        // Left byte for byte as it was found, even when it cannot be read:
+        // ending a recovery is that recovery's decision, never a repair's.
+        expect(File::get($guard))->toBe($document);
+    } finally {
+        repairCleanup($scratch);
+    }
+})->with([
+    'awaiting code' => [
+        repairRecoveryGuardDocument('awaiting-code'),
+        "host recovery operation 20260115-041233-9be21c restored this target's data onto a replacement host and is waiting for the exact code that data belongs to. Finish that recovery — the controlled recovery deployment followed by recover-host --resume",
+    ],
+    'in progress' => [
+        repairRecoveryGuardDocument('in-progress'),
+        'host recovery operation 20260115-041233-9be21c is in progress or was interrupted',
+    ],
+    'failed and held' => [
+        repairRecoveryGuardDocument('failed-held'),
+        'host recovery operation 20260115-041233-9be21c failed and left the target held',
+    ],
+    'a status it does not know' => [
+        repairRecoveryGuardDocument('rolled-back'),
+        'host recovery operation 20260115-041233-9be21c left a guard with status rolled-back, which this orchestrator does not recognise',
+    ],
+    // Unreadable is not absent: it still blocks, as an unknown status.
+    'not a JSON document' => [
+        "{not json\n",
+        'host recovery operation unknown left a guard with status unknown, which this orchestrator does not recognise',
+    ],
+]);
+
+it('reports a restore guard and a recovery guard together as one conflict, not as either hold', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairGuard($scratch, 'held');
+        repairRecoveryGuard($scratch, repairRecoveryGuardDocument('awaiting-code'));
+
+        [$checkExit, $checkOutput] = repairRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, $checkOutput);
+        expect($checkOutput)->toContain('CONFLICT     guards:conflict — staging-main carries BOTH a restore guard and a recovery guard');
+
+        // "Finish that restore" and "finish that recovery" are both the wrong
+        // advice here, so the refusal gives neither.
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)
+            ->toContain('conflicting guards: staging-main carries BOTH a restore guard (status held) and a recovery guard (status awaiting-code)')
+            ->not->toContain('restore guard: ')
+            ->not->toContain('recovery guard: ')
+            ->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
 it('refuses a target with no canonical deployed release, in every shape', function () {
     $shapes = [
         'no current link' => function (string $root) {
@@ -725,6 +828,29 @@ it('refuses host-level damage instead of becoming a host bootstrap', function ()
         [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
 
         expect($applyExit)->not->toBe(0);
+        expect($applyOutput)->toContain('host-level prerequisites are not satisfied');
+        expect($applyOutput)->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('refuses a host prerequisite at the top of a contract report longer than a pipe holds', function () {
+    // The report is searched as a whole, however long it is. Piped into
+    // `grep -q` under pipefail, a match near the top of a long report reads as
+    // no match at all: grep exits at the first line, the writer still feeding
+    // it dies of SIGPIPE, and the pipeline fails — and the repair would go on
+    // to converge a target whose host it must not touch.
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'host-layout-hostreq-long-report');
+
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
         expect($applyOutput)->toContain('host-level prerequisites are not satisfied');
         expect($applyOutput)->toContain('No mutation was performed');
         expect(repairCalls($scratch))->not->toContain('--apply');

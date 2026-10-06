@@ -229,10 +229,6 @@ configuration_blocked() {
     (( CONFLICT_COUNT > 0 || HOSTREQ_COUNT > 0 ))
 }
 
-contract_satisfied() {
-    ! configuration_required && ! configuration_blocked
-}
-
 # --- Argument parsing ---------------------------------------------------------
 
 MODE=""
@@ -382,6 +378,11 @@ structural_blocker() {
 
 # --- Delegated material and database -------------------------------------------
 
+# CHILD_OUTPUT is searched with a here-string (`grep -q … <<<"${CHILD_OUTPUT}"`),
+# never piped in from printf. Under `pipefail`, `grep -q` exits at its first
+# match, a printf still writing into the pipe dies of SIGPIPE, and the pipeline
+# reports failure for output it did match: a long report's HOST-REQ, CONFLICT or
+# ERROR: line would read as nothing to block on.
 CHILD_OUTPUT=""
 CHILD_STATUS=0
 
@@ -410,7 +411,7 @@ child_blocker() {
         return 0
     fi
 
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+    if grep -q 'ERROR:' <<<"${CHILD_OUTPUT}"; then
         printf '%s: the installer aborted rather than reporting a contract, so what this target needs is not established' "${label}"
 
         return 0
@@ -420,13 +421,13 @@ child_blocker() {
     # contract this target can satisfy by being configured. Told apart from
     # CONFLICT because the remedy differs: one is a host operation, the other
     # is something already in the way.
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+    if grep -q '^  HOST-REQ ' <<<"${CHILD_OUTPUT}"; then
         printf '%s: host-level prerequisites are not satisfied. This is a host prerequisite, not this target'"'"'s — prepare or repair the host first; configuring never creates or re-owns host infrastructure' "${label}"
 
         return 0
     fi
 
-    if printf '%s' "${CHILD_OUTPUT}" | grep -qE '^(CONFLICT|  CONFLICT )'; then
+    if grep -qE '^(CONFLICT|  CONFLICT )' <<<"${CHILD_OUTPUT}"; then
         printf '%s: state that is never resolved automatically, because resolving it would mean replacing something already there' "${label}"
 
         return 0

@@ -30,13 +30,15 @@ use Illuminate\Support\Facades\File;
  * the source guards that keep it an orchestrator. What provision-target
  * refuses before it mutates anything — the lifecycle, the host, the shared
  * namespace, the bundle the host must agree with — is in
- * ProvisionTargetPreconditionsTest; the simulated host they share (the
+ * ProvisionTargetPreconditionsTest, and what each mode answers once the
+ * operator has written shared/.env is in ProvisionTargetConfigureHandoffTest
+ * and ProvisionTargetMalformedEnvTest; the simulated host they share (the
  * fixture registry, the stubs, the run) lives in tests/Pest.php.
  */
 
 // =============================================================================
 // Harness: the helpers only this file uses — the simulated host, the run and
-// the stubs it shares with ProvisionTargetPreconditionsTest are in tests/Pest.php
+// the stubs it shares with the other ProvisionTarget* files are in tests/Pest.php
 // =============================================================================
 
 function provisionSource(): string
@@ -297,10 +299,7 @@ it('verifies a provisioned target read-only, and a second apply converges nothin
     $scratch = provisionScratchDir();
 
     try {
-        $env = provisionFixture($scratch);
-
-        [$exit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-        expect($exit)->toBe(0);
+        $env = provisionDemoShopProvisioned($scratch);
 
         $afterFirstApply = provisionSnapshotDemoState($scratch);
         $identityLog = provisionLog($scratch, 'identity.log');
@@ -581,12 +580,9 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
     $scratch = provisionScratchDir();
 
     try {
-        $env = provisionFixture($scratch);
+        provisionDemoShopProvisioned($scratch);
         $fs = $scratch.'/fs';
         $root = $fs.'/home/www/rateguru/production/demo-shop';
-
-        [$exit] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-        expect($exit)->toBe(0);
 
         $config = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
 
@@ -695,10 +691,7 @@ it('leaves a provisioned target undeployable through the existing wrappers', fun
     $scratch = provisionScratchDir();
 
     try {
-        $env = provisionFixture($scratch);
-
-        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-        expect($exit)->toBe(0, $output);
+        $env = provisionDemoShopProvisioned($scratch);
 
         // The infrastructure now exists, and the deploy account with it. The
         // wrapper still refuses, because require_active_target is unchanged and

@@ -615,9 +615,9 @@ it('refuses every way public DNS can disagree with the reviewed identity', funct
     'a report address nobody reviewed' => [['TXT _dmarc.tits.guru' => ['"v=DMARC1; p=none; adkim=s; aspf=s; rua=mailto:x@tits.guru"']], false, 'dmarc', 'must carry exactly v, p, adkim and aspf'],
     'two DMARC policies' => [['TXT _dmarc.tits.guru' => ['"v=DMARC1; p=none; adkim=s; aspf=s"', '"v=DMARC1; p=none"']], false, 'dmarc', 'publishes 2 DMARC policies — exactly one is allowed'],
     'no DMARC policy' => [['TXT _dmarc.tits.guru' => null], false, 'dmarc', '_dmarc.tits.guru publishes no DMARC policy — publish exactly: v=DMARC1; p=none; adkim=s; aspf=s'],
-    'a resolver that never answers' => [['TXT tits.guru' => ['exit' => 9]], false, 'spf', 'the DNS query for tits.guru TXT failed (dig exit 9)'],
-    'a server failure' => [['TXT _dmarc.tits.guru' => ['status' => 'SERVFAIL']], false, 'dmarc', 'the DNS query for _dmarc.tits.guru TXT was answered SERVFAIL'],
-    'a refused query' => [['A mta1.tits.guru' => ['status' => 'REFUSED']], false, 'a', 'was answered REFUSED'],
+    'neither public resolver answers' => [['TXT tits.guru' => ['exit' => 9]], false, 'spf', 'the DNS query for TXT tits.guru to public resolver 1.1.1.1 failed (dig exit 9); the DNS query for TXT tits.guru to public resolver 8.8.8.8 failed (dig exit 9)'],
+    'a server failure at both' => [['TXT _dmarc.tits.guru' => ['status' => 'SERVFAIL']], false, 'dmarc', 'the DNS query for TXT _dmarc.tits.guru to public resolver 1.1.1.1 was answered SERVFAIL'],
+    'a refused query at both' => [['A mta1.tits.guru' => ['status' => 'REFUSED']], false, 'a', 'was answered REFUSED'],
     'a host behind NAT' => [[], '10.0.0.5', 'address', 'this host sends from 10.0.0.5, which is not a public address'],
     'a host with no route' => [[], null, 'address', 'this host has no IPv4 route to the Internet'],
 ]);
@@ -665,7 +665,7 @@ it('verifies a target it has never heard of against its own domain, selector and
     }
 });
 
-it('only reads: verifying DNS writes nothing and asks DNS nothing but the five records', function () {
+it('only reads: verifying DNS writes nothing and asks both public resolvers nothing but the five records', function () {
     $scratch = mailIdentityScratch();
 
     try {
@@ -686,16 +686,302 @@ it('only reads: verifying DNS writes nothing and asks DNS nothing but the five r
         expect(mailIdentityRun(['verify-dns', '--target', 'tits-guru'], $env)['status'])->toBe(0);
         expect($tree())->toBe($before);
 
-        expect(array_values(array_filter(explode("\n", (string) file_get_contents($scratch.'/dns/queries.log')))))->toBe([
-            'A mta1.tits.guru',
-            'PTR 10.113.0.203.in-addr.arpa',
-            'TXT tits.guru',
-            'TXT rg1._domainkey.tits.guru',
-            'TXT _dmarc.tits.guru',
+        // Each record asked of Cloudflare and then Google, by address; never of
+        // the host's own resolver.
+        expect(mailIdentityDnsQueries($scratch))->toBe([
+            '1.1.1.1 A mta1.tits.guru',
+            '8.8.8.8 A mta1.tits.guru',
+            '1.1.1.1 PTR 10.113.0.203.in-addr.arpa',
+            '8.8.8.8 PTR 10.113.0.203.in-addr.arpa',
+            '1.1.1.1 TXT tits.guru',
+            '8.8.8.8 TXT tits.guru',
+            '1.1.1.1 TXT rg1._domainkey.tits.guru',
+            '8.8.8.8 TXT rg1._domainkey.tits.guru',
+            '1.1.1.1 TXT _dmarc.tits.guru',
+            '8.8.8.8 TXT _dmarc.tits.guru',
         ]);
     } finally {
         removeScratchDir($scratch);
     }
+});
+
+// =============================================================================
+// PUBLIC DNS IS WHAT TWO INDEPENDENT PUBLIC RESOLVERS BOTH ANSWER
+// =============================================================================
+
+it('passes on a host whose own resolver still answers a stale local PTR, because it never asks it', function () {
+    // The production false negative: the host's resolver answers the reverse
+    // name from local policy with the provider's old names, while public DNS
+    // already says mta1.tits.guru.
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $env = mailIdentityDnsHost($scratch, [
+            ...mailIdentityGoodDns(mailIdentityPublicKey($key)),
+            '@default PTR 10.113.0.203.in-addr.arpa' => ['contabo-eu-203.0.113.10.', 'contabo-eu-203.'],
+        ]);
+
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], $env);
+
+        expect($run['status'])->toBe(0, $run['stdout'].$run['stderr']);
+        expect($run['stdout'])
+            ->toContain('PASS   ptr        203.0.113.10 PTR is mta1.tits.guru')
+            ->toContain('DNS VERIFIED: YES')
+            ->not->toContain('contabo');
+
+        // Every query went to a public resolver by address; none reached the
+        // host's own.
+        $queries = mailIdentityDnsQueries($scratch);
+        expect($queries)->toHaveCount(10);
+        foreach ($queries as $query) {
+            expect($query)->toMatch('/^(1\.1\.1\.1|8\.8\.8\.8) /');
+        }
+
+        // The control: the stale answer is really there for anything that asks
+        // the host's resolver. The same run through a dig that drops the server
+        // it is given — what code that never named one does — fails on exactly
+        // the PTR, the way the production host did.
+        @unlink($scratch.'/dns/queries.log');
+        $local = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], [...$env, 'STUB_DIG_IGNORES_SERVER' => '1']);
+
+        expect($local['status'])->not->toBe(0);
+        expect($local['stdout'])
+            ->toContain('FAIL   ptr        203.0.113.10 has 2 PTR records [contabo-eu-203. contabo-eu-203.0.113.10.]')
+            ->toContain('DNS VERIFIED: NO');
+        preg_match_all('/^  FAIL   (\S+)/m', $local['stdout'], $failures);
+        expect($failures[1])->toBe(['ptr']);
+        expect(mailIdentityDnsQueries($scratch))->toHaveCount(10)->each->toStartWith('default ');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a record unless both public resolvers answer it, and answer it the same way', function (array $changes, string $check, string $reason) {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $public = mailIdentityPublicKey($key);
+        $dns = mailIdentityGoodDns($public);
+
+        // The same rewriting as above, applied to one resolver's own answer:
+        // FLIPPED_KEY is the installed key's public half with the case of one
+        // letter changed.
+        $flipped = preg_replace_callback('/[a-z]/', static fn (array $m): string => strtoupper($m[0]), $public, 1);
+        foreach ($changes as $question => $answer) {
+            $dns[$question] = array_map(
+                static fn (mixed $value): mixed => is_string($value) ? str_replace('FLIPPED_KEY', $flipped, $value) : $value,
+                $answer,
+            );
+        }
+
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], mailIdentityDnsHost($scratch, $dns));
+
+        expect($run['status'])->not->toBe(0, $run['stdout']);
+        expect($run['stdout'])
+            ->toMatch('/^  FAIL   '.preg_quote($check, '/').' +'.preg_quote($reason, '/').'/m')
+            ->toContain('DNS VERIFIED: NO')
+            ->not->toContain('DNS VERIFIED: YES');
+
+        // Exactly the record the resolvers could not agree on fails; the four
+        // they agree on still pass on their merits.
+        preg_match_all('/^  FAIL   (\S+)/m', $run['stdout'], $failures);
+        expect($failures[1])->toBe([$check]);
+
+        // A disagreement over TXT never prints the values: a DKIM value is a key.
+        expect($run['stdout'])->not->toContain('include:old.example')->not->toContain($flipped);
+        expectNoKeyMaterial($run['stdout'].$run['stderr'], $key);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'Cloudflare and Google name different PTRs' => [
+        ['@8.8.8.8 PTR 10.113.0.203.in-addr.arpa' => ['other.example.']],
+        'ptr',
+        'public resolvers disagree on PTR 10.113.0.203.in-addr.arpa: 1.1.1.1 answers NOERROR [mta1.tits.guru.], 8.8.8.8 answers NOERROR [other.example.] — no answer is accepted until they all give the same one',
+    ],
+    'one resolver says the PTR does not exist' => [
+        ['@1.1.1.1 PTR 10.113.0.203.in-addr.arpa' => ['status' => 'NXDOMAIN']],
+        'ptr',
+        'public resolvers disagree on PTR 10.113.0.203.in-addr.arpa: 1.1.1.1 answers NXDOMAIN with no PTR record, 8.8.8.8 answers NOERROR [mta1.tits.guru.]',
+    ],
+    'one resolver has the name but no A record' => [
+        ['@8.8.8.8 A mta1.tits.guru' => ['status' => 'NOERROR']],
+        'a',
+        'public resolvers disagree on A mta1.tits.guru: 1.1.1.1 answers NOERROR [203.0.113.10], 8.8.8.8 answers NOERROR with no A record',
+    ],
+    'one resolver still has an old A record' => [
+        ['@1.1.1.1 A mta1.tits.guru' => ['198.51.100.9']],
+        'a',
+        'public resolvers disagree on A mta1.tits.guru: 1.1.1.1 answers NOERROR [198.51.100.9], 8.8.8.8 answers NOERROR [203.0.113.10]',
+    ],
+    'one resolver times out' => [
+        ['@8.8.8.8 A mta1.tits.guru' => ['exit' => 9]],
+        'a',
+        'the DNS query for A mta1.tits.guru to public resolver 8.8.8.8 failed (dig exit 9) — public DNS is only what 1.1.1.1 and 8.8.8.8 both answer, so no answer from fewer of them is accepted',
+    ],
+    'one resolver fails on the server' => [
+        ['@1.1.1.1 TXT _dmarc.tits.guru' => ['status' => 'SERVFAIL']],
+        'dmarc',
+        'the DNS query for TXT _dmarc.tits.guru to public resolver 1.1.1.1 was answered SERVFAIL — public DNS is only what',
+    ],
+    'one resolver refuses' => [
+        ['@8.8.8.8 TXT rg1._domainkey.tits.guru' => ['status' => 'REFUSED']],
+        'dkim',
+        'the DNS query for TXT rg1._domainkey.tits.guru to public resolver 8.8.8.8 was answered REFUSED — public DNS is only what',
+    ],
+    'one resolver still sees a second, older SPF policy' => [
+        ['@8.8.8.8 TXT tits.guru' => ['"v=spf1 ip4:203.0.113.10 -all"', '"v=spf1 include:old.example ~all"', '"site-verification=abc123"']],
+        'spf',
+        'public resolvers disagree on TXT tits.guru: 1.1.1.1 answers NOERROR with 2 TXT record(s), 8.8.8.8 answers NOERROR with 3 TXT record(s) — no answer is accepted until they all give the same one (TXT values are not printed here; compare them with: dig @1.1.1.1 TXT tits.guru, dig @8.8.8.8 TXT tits.guru)',
+    ],
+    'DKIM keys that differ only in the case of one letter' => [
+        ['@1.1.1.1 TXT rg1._domainkey.tits.guru' => ['"v=DKIM1; k=rsa; p=FLIPPED_KEY"']],
+        'dkim',
+        'public resolvers disagree on TXT rg1._domainkey.tits.guru: 1.1.1.1 answers NOERROR with 1 TXT record(s), 8.8.8.8 answers NOERROR with 1 TXT record(s)',
+    ],
+]);
+
+it('never takes one public resolver\'s answers as enough while the other cannot be reached', function (string $unreachable, string $reachable) {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], mailIdentityDnsHost($scratch, [
+            ...mailIdentityGoodDns(mailIdentityPublicKey($key)),
+            "@{$unreachable} *" => ['exit' => 9],
+        ]));
+
+        expect($run['status'])->not->toBe(0);
+        expect($run['stdout'])->toContain('DNS VERIFIED: NO');
+
+        // Every record fails on the resolver that could not be reached, though
+        // the other answered each of them correctly.
+        preg_match_all('/^  FAIL   (\S+) +(.*)$/m', $run['stdout'], $failures);
+        expect($failures[1])->toBe(['a', 'ptr', 'spf', 'dkim', 'dmarc']);
+        foreach ($failures[2] as $detail) {
+            expect($detail)
+                ->toContain("to public resolver {$unreachable} failed (dig exit 9)")
+                ->not->toContain("to public resolver {$reachable}");
+        }
+
+        expect(array_filter(mailIdentityDnsQueries($scratch), static fn (string $q): bool => str_starts_with($q, "{$reachable} ")))->toHaveCount(5);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'Cloudflare unreachable' => ['1.1.1.1', '8.8.8.8'],
+    'Google unreachable' => ['8.8.8.8', '1.1.1.1'],
+]);
+
+it('agrees on the same records whatever order each resolver returns them in, and on names in any letter case', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $dns = mailIdentityGoodDns(mailIdentityPublicKey($key));
+        $dns['A mta1.tits.guru'] = ['203.0.113.10', '203.0.113.11'];
+
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], mailIdentityDnsHost($scratch, [
+            ...$dns,
+            '@8.8.8.8 A mta1.tits.guru' => array_reverse($dns['A mta1.tits.guru']),
+            '@8.8.8.8 TXT tits.guru' => array_reverse($dns['TXT tits.guru']),
+            '@1.1.1.1 PTR 10.113.0.203.in-addr.arpa' => ['MTA1.Tits.Guru.'],
+        ]));
+
+        expect($run['status'])->toBe(0, $run['stdout'].$run['stderr']);
+        expect($run['stdout'])
+            ->toContain('PASS   a          mta1.tits.guru A includes this host\'s address 203.0.113.10')
+            ->toContain('PASS   ptr        203.0.113.10 PTR is mta1.tits.guru')
+            ->toContain('PASS   spf')
+            ->toContain('DNS VERIFIED: YES')
+            ->not->toContain('disagree');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('judges the agreed answer by the same rules: a record both resolvers serve wrongly still fails', function () {
+    // The consensus decides what public DNS says, never whether it is right:
+    // two SPF policies served identically by both are still two.
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $dns = mailIdentityGoodDns(mailIdentityPublicKey($key));
+        $dns['TXT tits.guru'] = ['"v=spf1 ip4:203.0.113.10 -all"', '"V=SPF1  ip4:203.0.113.10 -all"'];
+
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], mailIdentityDnsHost($scratch, [
+            ...$dns,
+            '@8.8.8.8 TXT tits.guru' => array_reverse($dns['TXT tits.guru']),
+        ]));
+
+        expect($run['status'])->not->toBe(0);
+        expect($run['stdout'])
+            ->toContain('FAIL   spf        tits.guru publishes 2 SPF policies')
+            ->not->toContain('disagree');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('fixes its public resolvers in the implementation, with no way to choose another or to fall back to the host\'s', function () {
+    $code = executableSourceLines(File::get(mailIdentityScript()));
+
+    // The witnesses are a constant of the script.
+    expect($code)->toContain('readonly -a PUBLIC_DNS_RESOLVERS=(1.1.1.1 8.8.8.8)');
+
+    // dig runs in exactly one place (beside the check that it exists), and
+    // there it is always given the resolver it asks.
+    expect(preg_match_all('/(?<!command -v )"\$\{DIG_BIN\}"/', $code))->toBe(1);
+    expect($code)->toContain('"${DIG_BIN}" "@${resolver}" +nosearch ');
+
+    // The only overrides are the test seams that existed before: none of them
+    // names a resolver.
+    preg_match_all('/RATEGURU_MAILIDENTITY_[A-Z_]+/', $code, $overrides);
+    expect(array_values(array_unique($overrides[0])))->toBe([
+        'RATEGURU_MAILIDENTITY_FS_ROOT',
+        'RATEGURU_MAILIDENTITY_DIG_BIN',
+        'RATEGURU_MAILIDENTITY_IP_BIN',
+        'RATEGURU_MAILIDENTITY_OPENSSL_BIN',
+    ]);
+
+    // Nothing reads or changes the host's resolver configuration, and nothing
+    // resolves a name any other way.
+    foreach (['/etc/hosts', 'resolv.conf', '127.0.0.53', 'resolvectl', 'systemd-resolve', 'getent', 'nslookup', '+trace', '+norecurse', 'flush'] as $forbidden) {
+        expect(str_contains($code, $forbidden))->toBeFalse("mail-identity uses {$forbidden}");
+    }
+
+    // An operator cannot name another resolver, on the command line or through
+    // the environment.
+    expectMailIdentityRefusal(
+        mailIdentityRun(['verify-dns', '--target', 'tits-guru', '--resolver', '9.9.9.9']),
+        'unknown argument: --resolver',
+    );
+
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $env = mailIdentityDnsHost($scratch, mailIdentityGoodDns(mailIdentityPublicKey($key)));
+
+        $run = mailIdentityRun(['verify-dns', '--target', 'tits-guru'], [
+            ...$env,
+            'RATEGURU_MAILIDENTITY_RESOLVERS' => '9.9.9.9',
+            'RATEGURU_MAILIDENTITY_PUBLIC_DNS_RESOLVERS' => '9.9.9.9',
+            'PUBLIC_DNS_RESOLVERS' => '9.9.9.9',
+        ]);
+
+        expect($run['status'])->toBe(0, $run['stdout'].$run['stderr']);
+        expect(array_values(array_unique(array_map(static fn (string $q): string => strtok($q, ' '), mailIdentityDnsQueries($scratch)))))
+            ->toBe(['1.1.1.1', '8.8.8.8']);
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    // The usage an operator reads names the same two.
+    expect(mailIdentityRun(['--help'])['stdout'])->toContain('public resolvers 1.1.1.1 and')->toContain('8.8.8.8 directly');
 });
 
 // =============================================================================
@@ -759,6 +1045,45 @@ it('passes every identity, key and DNS condition for a prepared outbound target,
     }
 });
 
+it('judges public DNS for readiness exactly as verify-dns does: both public resolvers, never the host\'s', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $files = mailIdentityFixtureConfig($scratch.'/config', [
+            'mode' => 'outbound',
+            'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.example.net']],
+        ]);
+        $key = mailIdentityInstallKey($scratch, 'demo-shop', 'shop2026');
+        $env = mailIdentityDnsHost($scratch, [
+            ...mailIdentityGoodDns(mailIdentityPublicKey($key), '203.0.113.10', 'demo-shop.example', 'shop2026', 'mta1.example.net'),
+            '@default PTR 10.113.0.203.in-addr.arpa' => ['stale.local.'],
+            '@8.8.8.8 PTR 10.113.0.203.in-addr.arpa' => ['other.example.'],
+        ]);
+
+        $readiness = mailIdentityRun(['readiness', '--target', 'demo-shop', ...$files], $env);
+        $readinessQueries = mailIdentityDnsQueries($scratch);
+        @unlink($scratch.'/dns/queries.log');
+        $verify = mailIdentityRun(['verify-dns', '--target', 'demo-shop', ...$files], $env);
+
+        // The same disagreement, word for word, from both commands.
+        $ptr = static fn (string $stdout): string => preg_match('/^  FAIL   ptr +(.*)$/m', $stdout, $m) ? $m[1] : '';
+        expect($ptr($readiness['stdout']))->toStartWith('public resolvers disagree on PTR 10.113.0.203.in-addr.arpa: 1.1.1.1 answers NOERROR [mta1.example.net.], 8.8.8.8 answers NOERROR [other.example.]');
+        expect($ptr($readiness['stdout']))->toBe($ptr($verify['stdout']));
+
+        preg_match_all('/^  FAIL   (\S+)/m', $readiness['stdout'], $failures);
+        expect($failures[1])->toBe(['ptr', 'signing']);
+        expect($readiness['stdout'])->toContain('OUTBOUND READY: NO')->not->toContain('stale.local');
+
+        // The same ten questions, to the same two resolvers.
+        expect($readinessQueries)->toBe(mailIdentityDnsQueries($scratch))->toHaveCount(10);
+        foreach ($readinessQueries as $query) {
+            expect($query)->toMatch('/^(1\.1\.1\.1|8\.8\.8\.8) /');
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 // =============================================================================
 // THE ROADMAP KEEPS THE REMAINING MAIL WORK APART
 // =============================================================================
@@ -768,6 +1093,7 @@ it('records the identity foundation and keeps the remaining mail work in its own
 
     expect($roadmap)
         ->toContain('**8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing activated.**')
+        ->toContain('**8.4B.4.1d Public DNS verified by independent public resolvers — IMPLEMENTED.**')
         ->toContain('**8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery — planned.**')
         ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.6 Suppression, delivery state and per-target metrics — planned.**')

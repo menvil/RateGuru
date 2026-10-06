@@ -375,9 +375,7 @@ it('starts a queue group that update added without starting', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch, ['queue_group_absent' => true]);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch, ['queue_group_absent' => true]);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -402,9 +400,7 @@ it('stays held when the queue group cannot be added at all', function (array $en
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch, ['queue_group_absent' => true]);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch, ['queue_group_absent' => true]);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);

@@ -33,6 +33,7 @@ parallel testing are allowed to rebuild the configured test database.
 
 ## CI coverage
 
-CI runs Pest and Browser tests on PostgreSQL. SQLite and MariaDB each run the
-complete Unit and Feature suites plus migration, seed, and rollback checks.
+CI runs the Unit and Feature suites on PostgreSQL, and the Browser suite on
+PostgreSQL in a job of its own. SQLite and MariaDB each run the complete Unit
+and Feature suites plus migration, seed, and rollback checks.
 Coverage collection runs on PostgreSQL.
