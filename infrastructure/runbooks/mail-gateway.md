@@ -275,10 +275,12 @@ the queue. Mailpit is put back the way it was on every exit.
 `--e2e` is a low-level specialist primitive, run on the host as root when a
 deep check of the gateway is wanted. There is no GitHub workflow for it: the
 one-time manual workflow that ran it for the real-host acceptance has done its
-job and was removed. Ordinary Prepare never runs the mutating acceptance. A
-single generic "Verify staging infrastructure" operation will orchestrate checks
-like this one once several deep or disruptive subsystem checks exist — not one
-workflow per subsystem.
+job and was removed. Ordinary Prepare never runs the mutating acceptance.
+
+From GitHub, **Verify staging infrastructure** and **Verify production
+infrastructure** run `verify-mail-gateway --read-only` as part of the whole
+target's read-only verification — never `--e2e`. See
+[`infrastructure-verification.md`](infrastructure-verification.md).
 
 ## Status
 

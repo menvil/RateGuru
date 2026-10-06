@@ -582,6 +582,93 @@ runs:
           echo "lifecycle=$(jq -r '.lifecycle' <<<"${json}")"
         } >> "${GITHUB_OUTPUT}"
 
+    # The records an operator publishes next — only once the target verified,
+    # and before the uploaded bundle is removed, from that same trusted bundle
+    # on the host: `mail-identity show-dns --json` derives the DKIM PUBLIC key
+    # from the installed private key and reads the host's public IPv4 from its
+    # route. Only public values come back, and only they are shown. Nothing is
+    # published, and DNS is not verified here — it does not exist yet.
+    #
+    # Never a failure of Configure: a target whose key is not installed — its
+    # mail held, its key deferred — reports the plan as deferred, and one with
+    # no mail identity has no plan at all.
+    - name: Report the public DNS publication plan
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX:-}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/mail-identity"
+          show-dns
+          --target "${DEPLOYMENT_TARGET}"
+          --json
+        )
+
+        set +e
+        plan="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>/dev/null
+        )"
+        plan_status=$?
+        set -e
+
+        summary() { printf '%s\n' "$@" >> "${GITHUB_STEP_SUMMARY}"; }
+
+        summary "## Mail DNS publication plan"
+        summary ""
+
+        # Defence in depth: a plan is public by construction, and anything
+        # that looks like key material is never written anywhere.
+        if grep -q 'PRIVATE KEY' <<<"${plan}"; then
+          echo "The DNS plan output contained private key armour; it was discarded and nothing was shown." >&2
+          summary "Not shown: the plan output was refused."
+          exit 1
+        fi
+
+        if (( plan_status != 0 )) || ! jq -e '(.records | type) == "array"' <<<"${plan}" >/dev/null 2>&1; then
+          echo "No DNS publication plan for ${DEPLOYMENT_TARGET} (mail-identity show-dns exited ${plan_status}): it has no reviewed mail identity, or the plan could not be produced."
+          summary "No plan: \`${DEPLOYMENT_TARGET}\` has no reviewed mail identity, or the plan could not be produced."
+          exit 0
+        fi
+
+        if [[ "$(jq -r '.records[] | select(.type == "TXT" and (.name | test("[.]_domainkey[.]"))) | .value // ""' <<<"${plan}")" == "" ]]; then
+          echo "DNS publication plan DEFERRED — DKIM private key not installed."
+          summary "**DNS publication plan DEFERRED — DKIM private key not installed.** Set \`MAIL_DKIM_PRIVATE_KEY\` and run Configure again; while \`${DEPLOYMENT_TARGET}\`'s mail is held this is not required."
+          exit 0
+        fi
+
+        # Public values only: names, the host's public address, and the DKIM
+        # PUBLIC key.
+        table="$(jq -r '
+          .records[]
+          | "| \(.type) | `\(.name // "—")` | `\(.value // "—")` |"
+        ' <<<"${plan}")"
+
+        echo "Publish these records (public values only):"
+        printf '%s\n' "${table}"
+
+        summary "Publish exactly these records — public values only. PTR is set at the provider that owns the address; keep exactly one SPF record (replace, never add a second). Then run Verify production infrastructure while they propagate."
+        summary ""
+        summary "| Type | Name | Value |"
+        summary "| --- | --- | --- |"
+        summary "${table}"
+
     # Runs on failure too. Uploaded tooling must never outlive the run.
     - name: Remove the remote configuration bundle
       if: ${{ always() }}

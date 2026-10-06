@@ -1840,17 +1840,44 @@ Slices, in order:
    required once it is outbound. Configure tits.guru carries it from an
    optional `MAIL_DKIM_PRIVATE_KEY` secret, judged on the runner before upload
    and removed everywhere afterwards; without it Configure is exactly what it
-   was. *Unchanged on purpose:* no key was generated or committed, OpenDKIM is
+   was. Before its temporary bundle is removed, Configure prints the PUBLIC
+   DNS publication plan (`mail-identity show-dns --json` on the host), or
+   `DNS publication plan DEFERRED — DKIM private key not installed.`
+
+   The same slice adds the permanent read-only operator surface for
+   infrastructure verification: `scripts/verify-infrastructure --target T`
+   (repository tooling) composes the read-only primitives — `verify-mail-capture
+   --read-only`, `verify-mail-gateway --read-only`, `mail-identity`,
+   `health-check` — that the target's CURRENT reviewed state requires, and
+   reports everything else as DEFERRED (not required yet) or N/A, with one
+   machine-readable result line; one transport action,
+   `verify-rateguru-infrastructure`, and two workflows, **Verify staging
+   infrastructure** (staging-main, `develop`, `staging`) and **Verify
+   production infrastructure** (tits-guru, `main`, `production-tits-guru`,
+   behind the main-only gate), replace any per-subsystem verification button.
+   For tits-guru today the gateway and the identity contract are required, and
+   the DKIM key, outbound readiness and application health are DEFERRED; the
+   same run requires them once the target is active and outbound. `dig`
+   (`bind9-dnsutils`) and `openssl` join the canonical host runtime and the
+   preflight inventory, converged by Prepare Host — Verify never installs
+   anything. *Unchanged on purpose:* no key was generated or committed, OpenDKIM is
    not installed, no milter or signing configuration exists, `tits-guru` is
    still `held` and `planned`, direct delivery is still disabled, no
    production environment value changed, and no DNS or PTR record was
-   created. *Next, operator:* create the RSA key, set `MAIL_DKIM_PRIVATE_KEY`,
-   run Configure tits.guru, publish the records `mail-identity show-dns`
-   prints and set the PTR, then run `mail-identity verify-dns` on the host
-   until it passes. See [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
+   created. *Next, operator, in this order:* merge to `develop`; Prepare
+   staging host (converges `bind9-dnsutils`); Verify staging infrastructure;
+   promote `develop` to `main`; set `MAIL_DKIM_PRIVATE_KEY` in
+   `production-tits-guru`; Configure tits.guru from `main`; publish A, PTR,
+   SPF, DKIM and DMARC from its public plan; run Verify production
+   infrastructure while DNS propagates. See
+   [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md)
+   and [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
 
    **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
-   planned.** Only once `verify-dns` passes on the host: install and converge
+   planned.** `mail-identity verify-dns` and then full `mail-identity
+   readiness` are hard prerequisites before any activation mutation, and after
+   activation every ordinary run of Verify production infrastructure requires
+   them. Only once `verify-dns` passes on the host: install and converge
    OpenDKIM with read access to exactly its key, wire signing into the
    gateway, enable direct delivery under `mta1.tits.guru`, move `tits-guru`
    from `held` to `outbound` behind `mail-identity readiness`, set the
@@ -1870,8 +1897,9 @@ Slices, in order:
 
    **8.4B.7 Mail operations, recovery and security acceptance — planned.**
    Operating the production mail path day to day, recovering it on a
-   replacement machine — including recovering its secrets, such as the DKIM
-   key — and its security acceptance.
+   replacement machine, and its security acceptance. Required before go-live:
+   production backup and recovery must carry the active DKIM signing private
+   key, so a recovered host signs with the same key the published DNS names.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,

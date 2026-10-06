@@ -158,6 +158,12 @@ infrastructure, and moves out once a second project exists.
   `infrastructure/scripts/mail-identity` that judges them, prints the DNS
   records to publish and verifies public DNS read-only — see
   [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
+- infrastructure verification: the repository-only, read-only
+  `infrastructure/scripts/verify-infrastructure --target T`, which composes the
+  read-only primitives a target's current reviewed state requires, run from
+  GitHub by the two permanent operator commands **Verify staging
+  infrastructure** and **Verify production infrastructure** — see
+  [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md);
 - Nginx configuration;
 - PHP-FPM pools;
 - Supervisor queue workers;

@@ -493,7 +493,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['mail-identity', 'mail-routing', 'render-environment-templates'];
+    return ['mail-identity', 'mail-routing', 'render-environment-templates', 'verify-infrastructure'];
 }
 
 /**
@@ -1431,6 +1431,117 @@ function mailIdentityPublicKey(string $privateKeyPath): string
     $pem = openssl_pkey_get_details($key)['key'];
 
     return preg_replace('/-----[^-]+-----|\s+/', '', $pem);
+}
+
+function mailIdentityScratch(): string
+{
+    $dir = sys_get_temp_dir().'/mail-identity-'.bin2hex(random_bytes(6));
+
+    foreach (['', '/bin', '/fs', '/dns', '/config'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+function mailIdentityCleanup(string $dir): void
+{
+    exec('rm -rf '.escapeshellarg($dir));
+}
+
+/**
+ * Stubs for dig and ip, and the environment that points mail-identity at them
+ * and at the scratch filesystem root.
+ *
+ * $answers maps "TYPE name" to a list of rdata strings exactly as dig prints
+ * them, or to ['exit' => N] for a resolver that never answered, or to
+ * ['status' => 'SERVFAIL', ...rdata] for one that answered with a failure. A
+ * name with no entry is NXDOMAIN. $ipv4 is the source address of this host's
+ * route to the Internet; null means the host has no route at all.
+ *
+ * @param  array<string, list<string>|array<string, mixed>>  $answers
+ * @return array<string, string>
+ */
+function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '203.0.113.10'): array
+{
+    foreach ($answers as $question => $answer) {
+        [$type, $name] = explode(' ', $question, 2);
+
+        $lines = isset($answer['exit'])
+            ? ["exit {$answer['exit']}"]
+            : ['status '.($answer['status'] ?? 'NOERROR'), ...array_values(array_filter($answer, 'is_int', ARRAY_FILTER_USE_KEY))];
+
+        file_put_contents("{$scratch}/dns/{$type}_{$name}", implode("\n", $lines)."\n");
+    }
+
+    file_put_contents($scratch.'/bin/dig', <<<'STUB'
+        #!/bin/bash
+        type="${@: -2:1}"
+        name="${@: -1}"
+        printf '%s %s\n' "${type}" "${name}" >> "${STUB_DNS}/queries.log"
+        answer="${STUB_DNS}/${type}_${name}"
+        status=NXDOMAIN
+        if [[ -f "${answer}" ]]; then
+            first="$(head -n 1 "${answer}")"
+            case "${first}" in
+                exit\ *) echo ';; connection timed out; no servers could be reached'; exit "${first#exit }" ;;
+                status\ *) status="${first#status }" ;;
+            esac
+        fi
+        printf ';; Got answer:\n;; ->>HEADER<<- opcode: QUERY, status: %s, id: 4242\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1\n\n;; OPT PSEUDOSECTION:\n; EDNS: version: 0, flags:; udp: 1232\n;; ANSWER SECTION:\n' "${status}"
+        if [[ -f "${answer}" ]]; then
+            tail -n +2 "${answer}" | while IFS= read -r rdata; do
+                [[ -n "${rdata}" ]] && printf '%s.\t300\tIN\t%s\t%s\n' "${name}" "${type}" "${rdata}"
+            done
+        fi
+        exit 0
+        STUB."\n");
+
+    $route = $ipv4 === null
+        ? "#!/bin/bash\necho 'RTNETLINK answers: Network is unreachable' >&2\nexit 2\n"
+        : "#!/bin/bash\nprintf '1.1.1.1 via 203.0.113.1 dev eth0 src %s uid 0\\n    cache\\n' '{$ipv4}'\n";
+    file_put_contents($scratch.'/bin/ip', $route);
+
+    chmod($scratch.'/bin/dig', 0o755);
+    chmod($scratch.'/bin/ip', 0o755);
+
+    return [
+        'RATEGURU_MAILIDENTITY_DIG_BIN' => $scratch.'/bin/dig',
+        'RATEGURU_MAILIDENTITY_IP_BIN' => $scratch.'/bin/ip',
+        'RATEGURU_MAILIDENTITY_FS_ROOT' => $scratch.'/fs',
+        'STUB_DNS' => $scratch.'/dns',
+    ];
+}
+
+/** Install KIND as TARGET's key for SELECTOR under the scratch root. */
+function mailIdentityInstallKey(string $scratch, string $target, string $selector, string $kind = 'rsa2048'): string
+{
+    $dir = "{$scratch}/fs/etc/opendkim/keys/{$target}";
+    @mkdir($dir, 0o700, true);
+    copy(mailIdentityKey($kind), "{$dir}/{$selector}.private");
+    chmod("{$dir}/{$selector}.private", 0o600);
+
+    return "{$dir}/{$selector}.private";
+}
+
+/**
+ * The DNS a correctly published tits.guru answers, with the DKIM value split
+ * into the chunks a DNS provider serves a long TXT record in.
+ *
+ * @return array<string, list<string>>
+ */
+function mailIdentityGoodDns(string $publicKey, string $ipv4 = '203.0.113.10', string $domain = 'tits.guru', string $selector = 'rg1', string $mta = 'mta1.tits.guru'): array
+{
+    $octets = explode('.', $ipv4);
+    $chunks = str_split('v=DKIM1; k=rsa; p='.$publicKey, 200);
+
+    return [
+        "A {$mta}" => [$ipv4],
+        'PTR '.implode('.', array_reverse($octets)).'.in-addr.arpa' => ["{$mta}."],
+        "TXT {$domain}" => ["\"v=spf1 ip4:{$ipv4} -all\"", '"site-verification=abc123"'],
+        "TXT {$selector}._domainkey.{$domain}" => ['"'.implode('" "', $chunks).'"'],
+        "TXT _dmarc.{$domain}" => ['"v=DMARC1; p=none; adkim=s; aspf=s"'],
+    ];
 }
 
 /** The base64 body lines of a PEM file — what must never appear in any output. */
@@ -4179,6 +4290,7 @@ function trustedToolingRefs(): array
         'restore-production.yml' => 'main',
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
+        'verify-production-infrastructure.yml' => 'main',
         // Integration and staging.
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
@@ -4186,6 +4298,7 @@ function trustedToolingRefs(): array
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
+        'verify-staging-infrastructure.yml' => 'develop',
     ];
 }
 

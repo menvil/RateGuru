@@ -99,7 +99,7 @@ function bootstrapPreflightAllTools(): array
         'date', 'id', 'rm', 'mv', 'cp', 'ls', 'cat', 'chmod', 'chown', 'ln',
         'od', 'du', 'df', 'sleep', 'timeout', 'uname', 'find', 'grep', 'sed', 'awk',
         'cmp', 'diff', 'unzip', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
-        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl', 'pgrep',
+        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl', 'pgrep', 'dig', 'openssl',
         // runtime/service (rclone is probed as a managed external runtime
         // binary, never as an Ubuntu package requirement)
         'cron', 'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',

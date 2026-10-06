@@ -35,6 +35,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The permanent read-only infrastructure verification, one per
+        // environment, guarded by VerifyInfrastructureTest.
+        'verify-production-infrastructure.yml',
+        'verify-staging-infrastructure.yml',
     ]);
 
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
@@ -59,6 +63,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
+        // Their one transport: runs verify-infrastructure and changes nothing.
+        'verify-rateguru-infrastructure',
     ]);
 
     $wrappers = collect(glob(base_path('infrastructure/config/wrappers/*')) ?: [])

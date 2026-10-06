@@ -111,6 +111,13 @@ temporary copy on the runner and the host is removed whatever the outcome.
 Without the secret nothing is staged, and the key stays DEFERRED while the
 target's mail is held. See [`mail-identity.md`](mail-identity.md).
 
+After the target verifies and before the temporary bundle is removed,
+Configure runs `mail-identity show-dns --target <target> --json` from that
+bundle on the host and puts the **public** DNS publication plan — A, PTR, SPF,
+the DKIM public key and DMARC — into its summary, or reports `DNS publication
+plan DEFERRED — DKIM private key not installed.` It never verifies DNS and never
+fails Configure because a plan is not available.
+
 ## What it does not do
 
 * no host bootstrap, and it refuses rather than becoming one;

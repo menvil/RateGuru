@@ -536,3 +536,140 @@ it('passes the optional MAIL_DKIM_PRIVATE_KEY secret through, and nowhere else',
     // The deploy private key is still only ever used on the runner.
     expect(configureActionExecutable())->toContain('ssh-keygen -y -f "${private_path}" > "${material_dir}/deploy-authorized-keys"');
 });
+
+// =============================================================================
+// The public DNS publication plan
+// =============================================================================
+
+/** @return array{0: int, 1: string, 2: string} exit, output, step summary */
+function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): array
+{
+    $scratch = sys_get_temp_dir().'/configure-dns-plan-'.bin2hex(random_bytes(6));
+    @mkdir($scratch.'/bin', 0o700, true);
+
+    file_put_contents($scratch.'/remote-output', $remoteOutput);
+    file_put_contents($scratch.'/bin/ssh', "#!/bin/bash\nprintf '%s ' \"\$@\" > \"\${STUB_SSH_ARGS}\"\ncat \"\${STUB_REMOTE_OUTPUT}\"\nexit {$remoteStatus}\n");
+    chmod($scratch.'/bin/ssh', 0o755);
+    touch($scratch.'/summary');
+    file_put_contents($scratch.'/step.sh', configureActionStepScript('Report the public DNS publication plan'));
+
+    try {
+        $process = proc_open(['bash', $scratch.'/step.sh'], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
+            'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+            'HOME' => $scratch,
+            'STUB_REMOTE_OUTPUT' => $scratch.'/remote-output',
+            'STUB_SSH_ARGS' => $scratch.'/ssh-args',
+            'GITHUB_STEP_SUMMARY' => $scratch.'/summary',
+            'RATEGURU_PRIVILEGED_PREFIX' => 'sudo -n',
+            'RATEGURU_REMOTE_ROOT' => '/root/rateguru-configure-1-1',
+            'RATEGURU_BOOTSTRAP_SSH_KEY_PATH' => $scratch.'/key',
+            'RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH' => $scratch.'/known',
+            'BOOTSTRAP_HOST' => 'host.example',
+            'BOOTSTRAP_PORT' => '22',
+            'BOOTSTRAP_USER' => 'ops',
+            'DEPLOYMENT_TARGET' => 'tits-guru',
+        ]);
+
+        $output = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $status = proc_close($process);
+
+        return [$status, $output, (string) file_get_contents($scratch.'/summary'), (string) @file_get_contents($scratch.'/ssh-args')];
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+}
+
+/** The plan the real mail-identity prints on a host with (or without) tits-guru's key. */
+function configureRealDnsPlan(bool $withKey): array
+{
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = $withKey ? mailIdentityInstallKey($scratch, 'tits-guru', 'rg1') : null;
+        $run = mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json'], mailIdentityDnsHost($scratch, []));
+
+        expect($run['status'])->toBe(0, $run['stderr']);
+
+        return [$run['stdout'], $key === null ? null : (string) file_get_contents($key)];
+    } finally {
+        mailIdentityCleanup($scratch);
+    }
+}
+
+it('reports the DNS plan from the same uploaded bundle, after the target verified and before that bundle is removed', function () {
+    $names = collect(data_get(configureAction(), 'runs.steps'))->pluck('name')->values()->all();
+
+    $verify = array_search('Verify the configured target', $names, true);
+    $plan = array_search('Report the public DNS publication plan', $names, true);
+    $cleanup = array_search('Remove the remote configuration bundle', $names, true);
+
+    expect($plan)->toBeGreaterThan($verify);
+    expect($plan)->toBeLessThan($cleanup);
+
+    $step = collect(data_get(configureAction(), 'runs.steps'))->firstWhere('name', 'Report the public DNS publication plan');
+    expect($step)->not->toHaveKey('if', 'the plan is only reported once the target verified');
+
+    expect(configureActionStepScript('Report the public DNS publication plan'))
+        ->toContain('"${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/mail-identity"')
+        ->toContain('show-dns')
+        ->toContain('--json')
+        ->not->toContain('verify-dns')
+        ->not->toContain('readiness');
+});
+
+it('publishes the public plan of an installed key into the summary, and nothing private', function () {
+    [$plan, $key] = configureRealDnsPlan(true);
+
+    [$exit, $output, $summary, $sshArgs] = configureRunDnsPlanStep($plan);
+
+    expect($exit)->toBe(0, $output);
+    expect($sshArgs)->toContain('mail-identity')->toContain('show-dns')->toContain('--target')->toContain('tits-guru')->toContain('--json');
+
+    $public = json_decode($plan, true)['records'][2]['value'];
+    expect($public)->toStartWith('v=DKIM1; k=rsa; p=');
+
+    expect($summary)
+        ->toContain('## Mail DNS publication plan')
+        ->toContain('| A | `mta1.tits.guru` | `203.0.113.10` |')
+        ->toContain('| PTR | `203.0.113.10` | `mta1.tits.guru` |')
+        ->toContain('| TXT | `rg1._domainkey.tits.guru` | `'.$public.'` |')
+        ->toContain('| TXT | `tits.guru` | `v=spf1 ip4:203.0.113.10 -all` |')
+        ->toContain('| TXT | `_dmarc.tits.guru` | `v=DMARC1; p=none; adkim=s; aspf=s` |');
+
+    $keyFile = sys_get_temp_dir().'/configure-plan-key-'.bin2hex(random_bytes(4));
+    file_put_contents($keyFile, $key);
+
+    try {
+        expectNoKeyMaterial($output.$summary, $keyFile);
+    } finally {
+        unlink($keyFile);
+    }
+});
+
+it('defers the plan, and Configure still succeeds, when no DKIM key is installed', function () {
+    [$plan] = configureRealDnsPlan(false);
+
+    [$exit, $output, $summary] = configureRunDnsPlanStep($plan);
+
+    expect($exit)->toBe(0, $output);
+    expect($output)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.');
+    expect($summary)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.')->not->toContain('| TXT |');
+});
+
+it('reports no plan for a target without a mail identity, without failing Configure', function () {
+    [$exit, $output, $summary] = configureRunDnsPlanStep("ERROR: staging-main has no mail identity\n", 1);
+
+    expect($exit)->toBe(0, $output);
+    expect($summary)->toContain('No plan: `tits-guru` has no reviewed mail identity, or the plan could not be produced.');
+});
+
+it('refuses to show anything that looks like key material', function () {
+    $pem = (string) file_get_contents(mailIdentityKey('rsa2048'));
+
+    [$exit, $output, $summary] = configureRunDnsPlanStep('{"records": []}'."\n".$pem);
+
+    expect($exit)->not->toBe(0);
+    expect($output.$summary)->not->toContain('PRIVATE KEY');
+    expectNoKeyMaterial($output.$summary, mailIdentityKey('rsa2048'));
+});

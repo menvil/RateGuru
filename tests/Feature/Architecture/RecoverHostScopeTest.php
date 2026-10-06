@@ -549,6 +549,10 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The permanent read-only infrastructure verification, one per
+        // environment, guarded by VerifyInfrastructureTest.
+        'verify-production-infrastructure.yml',
+        'verify-staging-infrastructure.yml',
     ]);
 });
 

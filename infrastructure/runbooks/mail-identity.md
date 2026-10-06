@@ -119,18 +119,30 @@ Then:
 1. Store the whole PEM as the **`MAIL_DKIM_PRIVATE_KEY`** secret of the
    `production-tits-guru` GitHub Environment. It is optional: Configure without
    it behaves exactly as before.
-2. Run **Configure tits.guru**. The runner judges the key with `check-key`
-   before anything is uploaded, sends it by its exact name into a root-only
-   directory, `install-target-prerequisites` installs it at
+2. Run **Configure tits.guru** (from `main`). The runner judges the key with
+   `check-key` before anything is uploaded, sends it by its exact name into a
+   root-only directory, `install-target-prerequisites` installs it at
    `/etc/opendkim/keys/tits-guru/rg1.private`, and every temporary copy — on the
    runner and on the host — is removed whether the run succeeds or fails. The
    key never appears in a log, an output, an artifact or the job summary.
+   Before its temporary bundle is removed, Configure runs
+   `mail-identity show-dns --target tits-guru --json` from that bundle on the
+   host and writes the **public DNS publication plan** into its summary. With no
+   installed key it reports `DNS publication plan DEFERRED — DKIM private key
+   not installed.` and still succeeds while the target's mail is held. It
+   never verifies DNS: nothing is published yet.
 3. Keep the key in the operator's own secret store as well: a machine recovery
-   needs it again, and it is never derivable from anything published.
+   needs it again, and it is never derivable from anything published. Carrying
+   the active signing key in production backup and recovery is a requirement
+   of the mail operations and recovery slice, before go-live.
+
+The whole sequence, from merging to the first production verification, is in
+[`infrastructure-verification.md`](infrastructure-verification.md#from-merge-to-the-first-production-verification).
 
 ## Publishing DNS
 
-From a trusted bundle on the mail host, as root (the key is root-only):
+Configure tits.guru prints the plan in its summary. On the host, from a trusted
+bundle and as root (the key is root-only), the same plan is:
 
 ```bash
 sudo infrastructure/scripts/mail-identity show-dns --target tits-guru
@@ -165,7 +177,10 @@ sudo infrastructure/scripts/mail-identity verify-dns --target tits-guru
 ```
 
 Strictly read-only — it writes no file, changes no DNS, restarts nothing and
-sends no mail — and it needs `dig` (`bind9-dnsutils`) on the host. It passes
+sends no mail. It needs `dig`, which the host's canonical runtime installs
+(`bind9-dnsutils`, converged by Prepare Host). From GitHub, **Verify production
+infrastructure** shows the same checks inside its outbound-readiness section —
+deferred while the target is held, required once it is outbound. It passes
 only when, as this host's resolver sees public DNS:
 
 - **forward-confirmed reverse DNS:** `mta1.tits.guru` has an A record including

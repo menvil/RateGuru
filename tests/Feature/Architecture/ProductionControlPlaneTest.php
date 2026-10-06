@@ -227,12 +227,14 @@ it('pins the classification of every operational workflow literally', function (
         'restore-production.yml' => 'main',
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
+        'verify-production-infrastructure.yml' => 'main',
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
         'repair-staging.yml' => 'develop',
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
+        'verify-staging-infrastructure.yml' => 'develop',
     ]);
 
     // Every production workflow is named `*production*` or is one of the two
@@ -476,6 +478,7 @@ function mainOnlyProductionWorkflows(): array
         'restore-production.yml',
         'recover-production.yml',
         'rollback-production.yml',
+        'verify-production-infrastructure.yml',
     ];
 }
 
@@ -730,7 +733,7 @@ it('uses a byte-identical gate in every gated staging workflow', function () {
         $gates[$file] = (string) data_get(controlPlaneWorkflow($file), 'jobs.validate-ref.steps.0.run');
     }
 
-    expect($gates)->toHaveCount(5);
+    expect($gates)->toHaveCount(6);
     expect(array_unique(array_values($gates)))
         ->toHaveCount(1, 'the develop-only gate has drifted between workflows: '.implode(', ', array_keys($gates)));
 });

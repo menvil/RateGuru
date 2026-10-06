@@ -1712,7 +1712,7 @@ it('keeps every jq program the mail scripts run within what jq 1.6 on the host a
 
     $checked = 0;
 
-    foreach (['mail-routing', 'mail-identity', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway'] as $script) {
+    foreach (['mail-routing', 'mail-identity', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway', 'verify-infrastructure'] as $script) {
         foreach (mailGatewayJqPrograms($script) as $label => $program) {
             expect(mailGatewayJq16Problems($program))->toBe([], "{$label} would not run on jq 1.6");
             $checked++;
