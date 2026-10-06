@@ -1,0 +1,45 @@
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 445
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 2863-2864
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 1328-1329
+tests/Feature/Architecture/TargetPerimeterTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 623-624
+tests/Feature/Import/ImportArchitectureGuardTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 50-51,67-70
+tests/Feature/Architecture/BackupCycleTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 974-975
+tests/Feature/Architecture/InstallPublicStorageAccessTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 1273-1274
+tests/Feature/Architecture/ProvisionRateGuruTargetActionTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 79-80,189-190
+tests/Feature/Architecture/RecoverHostPreconditionsTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 849-850
+tests/Feature/Architecture/RecoverHostTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 942-943
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 354-355
+tests/Feature/Architecture/SentryReleaseWorkflowTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 490-491
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 169-170
+tests/Feature/Architecture/DeploymentObservabilityScopeTest.php
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 181-182,308-309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d6d7f8f26c5ac42a6548bf02c22438f5a826d35e",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

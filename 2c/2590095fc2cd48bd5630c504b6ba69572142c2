@@ -1,0 +1,42 @@
+tools/pest/bin/verify-shard-partition.php
+  s_c7e782fafc9782::t_9fd950bb04529e 1-116,118-165
+  s_c7e782fafc9782::t_77f6fac3e96cb7 117
+tests/Feature/Profile/AnonymizationLogCommitTest.php
+  s_c7e782fafc9782::t_74b41dde74ad02 33-43,45-49
+tests/Feature/Concurrency/ProjectSettingsFirstWriteRaceTest.php
+  s_c7e782fafc9782::t_c8f8561cdaeacf 1-3,5-31,35-60,62-80,84,92-93,113-142,156,158-159,162-164
+  s_c7e782fafc9782::t_c751dc7bfac3ea 4,94-112,155,157,165-170,173
+  s_c7e782fafc9782::t_a4e249eec786ff 32-34,61
+  s_c7e782fafc9782::t_b576cd83dc09a4 146
+.github/workflows/ci.yml
+  s_c7e782fafc9782::t_2439c772b852be 466-479,482-483,488-494,506-526,528-533
+  s_c7e782fafc9782::t_8bc5d412c05ccd 527
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_c7e782fafc9782::t_7b6d35c11dce46 246-251
+tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php
+  s_c7e782fafc9782::t_b6d487a32dfb81 1-3,5-146,174
+  s_c7e782fafc9782::t_586d04395e8b73 4,147-173
+tests/Feature/Architecture/RecoverHostResumeTest.php
+  s_c7e782fafc9782::t_49e3329a36818e 297-303
+  s_c7e782fafc9782::t_22d53ebc0ec8c5 312-313
+tests/Feature/Concurrency/CategoryDeletionAndSettingsLockTest.php
+  s_c7e782fafc9782::t_7e83966317fecc 123-126,130-131,136-140,147-152,158-172
+infrastructure/runbooks/provision-target.md
+  s_c7e782fafc9782::t_7b6d35c11dce46 396-402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2c2590095fc2cd48bd5630c504b6ba69572142c2",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
