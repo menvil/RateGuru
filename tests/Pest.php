@@ -1975,27 +1975,71 @@ function mailIdentityScratch(): string
  * name with no entry is NXDOMAIN. $ipv4 is the source address of this host's
  * route to the Internet; null means the host has no route at all.
  *
+ * Such an answer is public DNS: both public resolvers, 1.1.1.1 and 8.8.8.8,
+ * give it — and so does the host's own resolver, the one a query without an
+ * `@server` reaches. "@RESOLVER TYPE name" replaces the answer of that one
+ * resolver alone, where RESOLVER is 1.1.1.1, 8.8.8.8 or `default` for the
+ * host's own; "@RESOLVER *" answers every question put to it. Any other
+ * `@server` is refused, and every query is logged to dns/queries.log as
+ * "RESOLVER TYPE name". With STUB_DIG_IGNORES_SERVER set, dig drops the
+ * `@server` it was given and asks the host's own resolver, the way code that
+ * never named one would.
+ *
  * @param  array<string, list<string>|array<string, mixed>>  $answers
  * @return array<string, string>
  */
 function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '203.0.113.10'): array
 {
+    // Each call states the whole DNS: no answer from an earlier call survives
+    // it. The query log does.
+    foreach (glob("{$scratch}/dns/*") ?: [] as $earlier) {
+        if (basename($earlier) !== 'queries.log') {
+            is_dir($earlier) ? File::deleteDirectory($earlier) : unlink($earlier);
+        }
+    }
+
     foreach ($answers as $question => $answer) {
-        [$type, $name] = explode(' ', $question, 2);
+        $dir = "{$scratch}/dns";
+
+        if (str_starts_with($question, '@')) {
+            [$resolver, $question] = explode(' ', substr($question, 1), 2);
+            expect(['1.1.1.1', '8.8.8.8', 'default'])->toContain($resolver);
+
+            $dir .= "/{$resolver}";
+            @mkdir($dir, 0o755, true);
+        }
+
+        [$type, $name] = explode(' ', $question, 2) + [1 => ''];
 
         $lines = isset($answer['exit'])
             ? ["exit {$answer['exit']}"]
             : ['status '.($answer['status'] ?? 'NOERROR'), ...array_values(array_filter($answer, 'is_int', ARRAY_FILTER_USE_KEY))];
 
-        file_put_contents("{$scratch}/dns/{$type}_{$name}", implode("\n", $lines)."\n");
+        file_put_contents($dir.'/'.($type === '*' ? '_every_question' : "{$type}_{$name}"), implode("\n", $lines)."\n");
     }
 
     file_put_contents($scratch.'/bin/dig', <<<'STUB'
         #!/bin/bash
         type="${@: -2:1}"
         name="${@: -1}"
-        printf '%s %s\n' "${type}" "${name}" >> "${STUB_DNS}/queries.log"
+        resolver=default
+        for argument in "$@"; do
+            case "${argument}" in
+                @*)
+                    [[ "${resolver}" == default ]] || { echo ';; stub dig: more than one @server' >&2; exit 64; }
+                    resolver="${argument#@}"
+                    ;;
+            esac
+        done
+        [[ -z "${STUB_DIG_IGNORES_SERVER:-}" ]] || resolver=default
+        printf '%s %s %s\n' "${resolver}" "${type}" "${name}" >> "${STUB_DNS}/queries.log"
+        case "${resolver}" in
+            1.1.1.1|8.8.8.8|default) ;;
+            *) echo ";; stub dig: no such resolver in this test: ${resolver}" >&2; exit 64 ;;
+        esac
         answer="${STUB_DNS}/${type}_${name}"
+        [[ ! -f "${STUB_DNS}/${resolver}/${type}_${name}" ]] || answer="${STUB_DNS}/${resolver}/${type}_${name}"
+        [[ ! -f "${STUB_DNS}/${resolver}/_every_question" ]] || answer="${STUB_DNS}/${resolver}/_every_question"
         status=NXDOMAIN
         if [[ -f "${answer}" ]]; then
             first="$(head -n 1 "${answer}")"
@@ -2027,6 +2071,17 @@ function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '2
         'RATEGURU_MAILIDENTITY_FS_ROOT' => $scratch.'/fs',
         'STUB_DNS' => $scratch.'/dns',
     ];
+}
+
+/**
+ * Every query the dig stub of mailIdentityDnsHost() received, in order, as
+ * "RESOLVER TYPE name".
+ *
+ * @return list<string>
+ */
+function mailIdentityDnsQueries(string $scratch): array
+{
+    return array_values(array_filter(explode("\n", (string) @file_get_contents($scratch.'/dns/queries.log'))));
 }
 
 /** Install KIND as TARGET's key for SELECTOR under the scratch root. */
