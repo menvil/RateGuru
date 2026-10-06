@@ -7175,7 +7175,10 @@ function bsvcWriteStubs(string $scratch): void
     // from its own "<name>-compliant" toggle, and lets apply either fail
     // (via "<name>-apply-fail") or converge (creating the toggle). The
     // mail-capture apply also satisfies verify-mail-capture, mirroring the
-    // real ownership relation between the two.
+    // real ownership relation between the two. An executable
+    // "<name>-apply-hook" runs first: whatever else happens to the host while
+    // that child applies, for a test that needs the host to change underneath
+    // a running apply.
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
         'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
@@ -7200,6 +7203,7 @@ function bsvcWriteStubs(string $scratch): void
                     exit 0
                     ;;
                 *--apply*)
+                    [[ -x "${STUB_TOGGLES}/${me}-apply-hook" ]] && "${STUB_TOGGLES}/${me}-apply-hook"
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
                     touch "${STUB_TOGGLES}/${me}-compliant"
                     if [[ "${me}" == mail-capture-installer ]]; then
