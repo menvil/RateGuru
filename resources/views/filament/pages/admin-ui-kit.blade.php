@@ -100,4 +100,7 @@
             </div>
         </main>
     </div>
+
+    {{-- The kit stands outside the admin shell, which draws the stack on every other page, so it has its own for FBK-01. --}}
+    <x-admin.ui.toast-stack />
 </div>

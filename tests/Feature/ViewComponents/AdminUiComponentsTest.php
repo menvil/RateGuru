@@ -214,3 +214,136 @@ it('draws a card with a header, a body and a read-only footer', function () {
     $this->blade('<x-admin.ui.card title="Profile" description="Public identity."><p>Fields</p><x-slot:footer>Translations are edited in Translation Center.</x-slot:footer></x-admin.ui.card>')
         ->assertSeeInOrder(['rg-admin-card__header', 'Profile', 'Public identity.', 'rg-admin-card__body', 'Fields', 'rg-admin-card__footer', 'Translations are edited in Translation Center.'], false);
 });
+
+// Overlays and feedback ------------------------------------------------------------
+
+it('draws a confirmation dialog named by its title and described by its body', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.confirm-dialog id="disable-language" title="Disable German?" x-on:dismiss="$wire.closeConfirmation()">
+            <p>Visitors currently using German will get their browser's language.</p>
+            <x-slot:actions>
+                <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
+                <x-admin.ui.button variant="primary">Disable German</x-admin.ui.button>
+            </x-slot:actions>
+        </x-admin.ui.confirm-dialog>
+        BLADE);
+
+    expect($view)
+        ->toContain('role="dialog"')
+        ->toContain('aria-modal="true"')
+        ->toContain('aria-labelledby="disable-language-title"')
+        ->toContain('<h2 id="disable-language-title" class="rg-admin-dialog__title">Disable German?</h2>')
+        ->toContain('aria-describedby="disable-language-description"')
+        ->toMatch('/id="disable-language-description"[^>]*><p>Visitors currently using German/')
+        // The screen hears about a dismissal; it does not have to wire Escape or the scrim itself.
+        ->toContain('x-on:dismiss="$wire.closeConfirmation()"')
+        ->toContain('x-on:keydown.escape.prevent.stop="dismiss()"')
+        ->toContain('x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()"')
+        // Focus moves in, cannot leave and goes back; the page behind is hidden and still.
+        ->toContain('x-trap.inert.noscroll="! closing"')
+        // A click on its text keeps focus in the panel, where Escape reaches it.
+        ->toMatch('/role="dialog"[^>]*tabindex="-1"/')
+        ->toContain('aria-label="Close"')
+        ->toMatch('/rg-admin-button--primary[^>]*>\s*Disable German\s*<\/button>/');
+});
+
+it('gives each confirmation tone its own circle and icon', function (string $tone, string $path) {
+    $this->blade('<x-admin.ui.confirm-dialog :tone="$tone" title="Sure?">Body.</x-admin.ui.confirm-dialog>', ['tone' => $tone])
+        ->assertSee("rg-admin-dialog__icon--{$tone}", false)
+        ->assertSee($path, false);
+})->with([
+    'default' => ['default', '<path d="M12 16v-4"/>'],
+    'warning' => ['warning', '<line x1="12" x2="12" y1="8" y2="12"/>'],
+]);
+
+it('rejects a confirmation tone it does not have', function () {
+    $this->blade('<x-admin.ui.confirm-dialog tone="danger" title="Sure?">Body.</x-admin.ui.confirm-dialog>');
+})->throws(ViewException::class, 'Unknown admin dialog tone [danger]');
+
+it('puts a dialog\'s details and footnote where the slots say, and a blocked one needs no confirm', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.confirm-dialog tone="warning" title="Dogs can’t be deleted">
+            612 posts are filed under Dogs.
+            <x-slot:details><x-admin.ui.inline-notice>Deactivate it instead.</x-admin.ui.inline-notice></x-slot:details>
+            <x-slot:footnote>Nothing has changed.</x-slot:footnote>
+            <x-slot:actions><x-admin.ui.button x-on:click="dismiss()">Close</x-admin.ui.button></x-slot:actions>
+        </x-admin.ui.confirm-dialog>
+        BLADE);
+
+    expect($view)->toMatch('/rg-admin-dialog__details">\s*<div class="rg-admin-notice/')
+        ->toMatch('/rg-admin-dialog__footnote">Nothing has changed\.<\/span>/')
+        ->not->toContain('rg-admin-button--primary');
+});
+
+it('draws a drawer as a labelled dialog with a close button, 448 wide or 480 for long lists', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.drawer id="missing" title="Missing in German" subtitle="de · 82% project content" wide x-on:dismiss="$wire.closeMissing()">
+            <x-slot:leading>🇩🇪</x-slot:leading>
+            <p>Categories</p>
+            <x-slot:footer>Visitors see the English text wherever a translation is missing.</x-slot:footer>
+        </x-admin.ui.drawer>
+        BLADE);
+
+    expect($view)
+        ->toContain('role="dialog"')
+        ->toContain('aria-modal="true"')
+        ->toContain('aria-labelledby="missing-title"')
+        ->toContain('<h2 id="missing-title" class="rg-admin-drawer__title">Missing in German</h2>')
+        ->toContain('aria-describedby="missing-subtitle"')
+        ->toContain('class="rg-admin-drawer rg-admin-drawer--wide"')
+        ->toContain('<span class="rg-admin-drawer__leading" aria-hidden="true">🇩🇪</span>')
+        ->toMatch('/rg-admin-drawer__body">\s*<p>Categories<\/p>/')
+        ->toMatch('/rg-admin-drawer__footer">Visitors see the English text/')
+        ->toContain('class="rg-admin-drawer-scrim" x-on:mousedown="dismiss()" aria-hidden="true"')
+        ->toContain('x-on:keydown.escape.prevent.stop="dismiss()"')
+        ->toContain('x-trap.inert.noscroll="! closing"')
+        ->toMatch('/role="dialog"[^>]*tabindex="-1"/')
+        ->toContain('aria-label="Close"');
+
+    expect((string) $this->blade('<x-admin.ui.drawer title="Edit category">Body</x-admin.ui.drawer>'))
+        ->toContain('class="rg-admin-drawer"')
+        ->not->toContain('aria-describedby');
+});
+
+it('announces each toast once, from regions that are always there', function () {
+    $view = (string) $this->blade('<x-admin.ui.toast-stack />');
+
+    expect($view)
+        ->toContain('aria-label="Notifications"')
+        ->toContain('role="status"')
+        ->toContain('role="alert"')
+        // The toasts themselves are not live regions, so nothing is heard twice.
+        ->and(substr_count($view, 'role="status"') + substr_count($view, 'role="alert"'))->toBe(2)
+        ->and($view)->not->toContain('aria-live');
+});
+
+it('raises a toast from a browser event, keeps three at most, and lets each be dismissed by name', function () {
+    $view = (string) $this->blade('<x-admin.ui.toast-stack />');
+
+    expect($view)
+        ->toContain('x-on:rg-admin-toast.window="push($event.detail)"')
+        ->toContain("['success', 'error', 'info'].includes(detail?.tone) ? detail.tone : 'success'")
+        ->toContain('this.toasts = [...this.toasts.slice(-2), toast]')
+        ->toContain(': 5200')
+        ->toContain('aria-label="Dismiss"')
+        ->toContain('aria-label="Success"')
+        ->toContain('aria-label="Error"')
+        ->toContain('aria-label="Info"')
+        // A Livewire re-render around it does not wipe the toasts on screen.
+        ->toContain('wire:ignore');
+
+    expect((string) $this->blade('<x-admin.ui.toast-stack :duration="300" />'))->toContain(': 300');
+});
+
+it('lays both overlays on one layer that dismisses, hides and finds focus a home', function () {
+    $view = (string) $this->blade('<x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="open = false">Panel</x-admin.ui.overlay>');
+
+    expect($view)
+        ->toContain('class="rg-admin rg-admin-dialog-layer"')
+        ->toContain('x-on:dismiss="open = false"')
+        ->toContain('x-show="! closing"')
+        ->toContain('x-on:keydown.escape.prevent.stop="dismiss()"')
+        ->toContain("this.\$dispatch('dismiss')")
+        // The opener gone with the change it confirmed: focus goes to the heading, not nowhere.
+        ->toContain("document.querySelector('main h1')");
+});

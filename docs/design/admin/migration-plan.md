@@ -12,8 +12,9 @@ admin works, and every screen is either fully v1 or fully v2.
   the old inline stylesheet (pointer cursors, the frameless records-per-page chooser). One side effect is
   intended: the theme compiles Tailwind from the admin's own views, so utilities that v1 views already used but
   Filament's prebuilt stylesheet lacked (for example `space-y-2`, `lg:grid-cols-5`) now render as written.
-- **Filament stays.** Screens keep Filament's routing, authorization, Livewire, actions and notifications; v2
-  replaces what they look like, not the framework under them.
+- **Filament stays.** Screens keep Filament's routing, authorization and Livewire; v2 replaces what they look
+  like, not the framework under them. A migrated screen confirms with OVL-01 and reports with FBK-01 instead of
+  Filament's actions and notifications, which the v1 screens keep.
 - **The kit first.** A screen is built from `x-admin.ui.*` components and `.rg-admin-*` primitives. Anything a
   screen needs that the kit does not have is added to the kit, under its reference ID, in the same change.
 - **No business changes hidden in a redesign.** A migration that needs a domain change (a new state, a new
@@ -53,23 +54,36 @@ admin works, and every screen is either fully v1 or fully v2.
 
 ### Phase 3 — Languages v2
 
-**Status: next.**
+**Status: done.** `/admin/languages` is the first screen drawn entirely in Admin v2; the contract's Localization
+section describes what runs.
 
-- The Languages screen as in the prototype: page header with stats, status tabs, the languages table with
-  application and project-content progress (STS-03), the missing-translations drawer, and the enable/disable
-  confirmations (light, warning, blocked).
+- The Languages screen as in the prototype: page header with stats (Installed, Enabled, Project translations,
+  Missing), status tabs (All, Enabled, Disabled, Incomplete) and a search in the URL, the languages table with
+  application and project-content progress (STS-03), the missing-translations drawer with each item's English
+  text, and the enable/disable confirmations (light, warning; a broken catalog blocks Enable in the row).
+- Filament's table, actions, modals and notifications are gone from the screen; the page draws its own view and
+  takes the whole main column.
 - Business rules stay in `UpdateProjectLocaleSettingsAction` and the completeness services; only presentation
-  moves.
-- The kit elements it is the first to need, built as components: the confirmation dialog (OVL-01), the drawer
-  (OVL-02) and the toast stack (FBK-01).
+  moves. No migration, no new table, no change to how translations are stored.
+- The kit elements it is the first to need, built as reusable components and shown live in the kit: the
+  confirmation dialog (OVL-01), the drawer (OVL-02) and the toast stack (FBK-01), which the shell draws on every
+  admin page.
+- **Transitional bridge.** Target design: a missing item opens Translation Center. Until Translation Center exists,
+  the Languages drawer keeps links to the existing editors so no editing capability is lost; Phase 4 replaces these
+  links with Translation Center filters. Translate and Translate all missing are already drawn, disabled with the
+  reason, so the step that builds Translation Center only has to switch them on. The translation forms in those editors stay as they are.
 
 ### Phase 4+ — Translation Center
+
+**Status: next** — Phase 4, the Translation Center foundation (step 1 below).
 
 In separate steps:
 
 1. **Translation Center** — target-language combobox (FRM-11), section filter and the Missing only / All
    segmented control (FRM-08), the three-column translation rows with DOM-01 states, context drawer, Save and
-   Save & next, and its item in the Localization section of the navigation.
+   Save & next, and its item in the Localization section of the navigation. In the Languages drawer, the disabled
+   Translate (per item) and Translate all missing become links to Translation Center filtered by language and
+   section; Edit source keeps opening the entity's editor.
 2. **AI suggestions** — a translation provider behind an interface, Generate missing, Regenerate, Save all
    generated. AI output stays a draft until an administrator saves it.
 3. **Workflow** — review states, if the product needs them.

@@ -3,9 +3,11 @@
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
@@ -16,7 +18,9 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -4190,6 +4194,61 @@ function breakCatalogsOf(string $locale): void
     File::delete("{$root}/{$locale}/ui.php");
 
     app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+}
+
+/** The languages the project offers, read afresh. */
+function offeredLocales(): array
+{
+    app(ProjectSettingsManager::class)->flush();
+
+    return app(LocaleManager::class)->enabledCodes();
+}
+
+/** Project settings with every translatable field translated into these languages. */
+function settingsTranslatedInto(array $locales): void
+{
+    $attributes = projectSettingsTranslationsIn($locales);
+
+    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
+        $attributes[$field] = "{$field} text";
+    }
+
+    ProjectSettings::query()->update(collect($attributes)->map(fn (mixed $value): mixed => is_array($value) ? json_encode($value) : $value)->all());
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
+ * Installs made-up languages after the real ones until there are this many,
+ * each with a copy of a real translation's catalogs, and one of them broken —
+ * the scale the screen has to hold, from a fixture rather than from real
+ * catalogs. Returns every installed code in config order.
+ *
+ * @return list<string>
+ */
+function installLanguagesUpTo(int $total): array
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    [$source] = twoTranslatedLocales();
+    $supported = config('locales.supported');
+
+    for ($i = 0; count($supported) < $total; $i++) {
+        $code = 'x'.chr(97 + intdiv($i, 26)).chr(97 + $i % 26);
+        File::copyDirectory("{$root}/{$source}", "{$root}/{$code}");
+        $supported[$code] = ['label' => 'Language '.strtoupper($code), 'native' => 'Native '.strtoupper($code), 'flag' => '🏳️', 'enabled_by_default' => false];
+    }
+
+    File::delete("{$root}/".array_key_last($supported).'/ui.php');
+    config(['locales.supported' => $supported]);
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+
+    return array_keys($supported);
+}
+
+/** A category in the project's content that no language translates. */
+function untranslatedCategory(string $name = 'Georgian food'): Category
+{
+    return Category::factory()->create(['slug' => Str::slug($name), 'name' => $name, 'name_translations' => null, 'is_active' => true]);
 }
 
 /**
