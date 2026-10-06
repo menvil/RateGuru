@@ -17,5 +17,8 @@
     },
     "dependencies": {
         "alpinejs": "^3.17.4"
+    },
+    "overrides": {
+        "shell-quote": "^1.12.0"
     }
 }
