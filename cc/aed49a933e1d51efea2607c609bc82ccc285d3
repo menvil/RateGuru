@@ -1,0 +1,19 @@
+.gitignore
+  s_031a12c631fa3b::t_ca4d0f489e97cd 72-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ccaed49a933e1d51efea2607c609bc82ccc285d3",
+  "prompts": {},
+  "sessions": {
+    "s_031a12c631fa3b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "43dee44d-6428-4d59-9afb-b31b43a9e803",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
