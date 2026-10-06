@@ -376,32 +376,18 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
-      DB_CONNECTION: pgsql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
-      DB_DATABASE: rateguru_test
-      DB_USERNAME: rateguru
-      DB_PASSWORD: rateguru
+      # No Architecture test queries the database, but every file under
+      # tests/Feature is bound to RefreshDatabase by tests/Pest.php, so setUp
+      # needs a connection. An in-memory SQLite one is created inside each
+      # worker, migrated once and never left; a PostgreSQL service would cost
+      # every leg its container start-up to answer nothing. Compatibility with
+      # PostgreSQL is the "Tests (Pest + PostgreSQL)" job's subject, and the
+      # scripts that talk to PostgreSQL are exercised against a stub either way.
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
       # The commit this branch is measured against, for the architecture scope
       # guards. Empty on a push event, where those guards correctly skip.
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
-    services:
-      # No Architecture test queries the database, but every test in
-      # tests/Feature is bound to RefreshDatabase by tests/Pest.php, so the
-      # connection has to be real for setUp to succeed.
-      postgres:
-        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
-        env:
-          POSTGRES_DB: rateguru_test
-          POSTGRES_USER: rateguru
-          POSTGRES_PASSWORD: rateguru
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U rateguru -d rateguru_test"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
     steps:
       # Depth 2, not the default 1. On a pull_request event the checkout is a
       # merge commit whose first parent is the base branch tip, so two commits
@@ -417,7 +403,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: mbstring, pdo_pgsql, gd, exif
+          extensions: mbstring, pdo_sqlite, gd, exif
           coverage: none
 
       - name: Cache Composer packages

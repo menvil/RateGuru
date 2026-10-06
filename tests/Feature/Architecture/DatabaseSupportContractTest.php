@@ -146,7 +146,15 @@ it('runs primary and compatibility test suites in ci', function () {
 
     expect($architecture['env']['BASE_SHA'])->toBe('${{ github.event.pull_request.base.sha }}');
     expect(collect($architecture['steps'])->firstWhere('name', 'Checkout')['with']['fetch-depth'])->toBe(2);
-    expect($architecture['services'])->toHaveKey('postgres');
+
+    // And it asks no database server for anything: the suite never queries one
+    // (see 'keeps the Architecture suite out of Feature' above), so the
+    // database-refreshing binding it inherits from tests/Feature is answered by
+    // an in-memory SQLite connection instead of a PostgreSQL service that every
+    // leg would wait for.
+    expect($architecture)->not->toHaveKey('services')
+        ->and($architecture['env']['DB_CONNECTION'])->toBe('sqlite')
+        ->and($architecture['env']['DB_DATABASE'])->toBe(':memory:');
 
     // rclone follows the suite that uses it, and is nowhere else.
     expect(collect($workflow['jobs'])
