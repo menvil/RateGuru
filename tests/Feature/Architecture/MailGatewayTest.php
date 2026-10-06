@@ -906,7 +906,9 @@ it('installs the package safely on a host that has none, and only then activates
         // And the contract holds.
         [$verify, $report] = mailGatewayRun($host, '--verify');
         expect($verify)->toBe(0, $report);
-        expect($report)->toContain('SUMMARY  pass=8 missing=0 drift=0 conflict=0 deferred=0');
+        expect($report)
+            ->toContain('PASS     outbound:direct — direct delivery disabled on this host (mail-outbound.json); 0 outbound route(s) in the plan, and none could be rendered')
+            ->toContain('SUMMARY  pass=8 missing=0 drift=0 conflict=0 deferred=0');
     } finally {
         mailGatewayCleanup($host);
     }

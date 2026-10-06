@@ -1092,7 +1092,7 @@ report_contract() {
     if [[ -n "${helo}" ]]; then
         item PASS "outbound:direct" "direct delivery enabled on this host as ${helo}; ${outbound_count} outbound route(s) in the plan"
     else
-        item PASS "outbound:direct" "direct delivery disabled on this host (mail-outbound.json); the plan has no outbound route, and none could be rendered"
+        item PASS "outbound:direct" "direct delivery disabled on this host (mail-outbound.json); ${outbound_count} outbound route(s) in the plan, and none could be rendered"
     fi
 
     if [[ -n "${others}" ]]; then
