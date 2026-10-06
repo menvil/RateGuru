@@ -805,3 +805,29 @@ it('checks the arm64 pins on an aarch64 host', function () {
         removeScratchDir($host['root']);
     }
 });
+
+// =============================================================================
+// What status-mail-capture reads back
+// =============================================================================
+
+it('leaves a host that status-mail-capture reads back as installed and serving', function () {
+    $host = mailCaptureInstalledHost();
+
+    try {
+        $status = mailCaptureStatus($host, $host['host']);
+
+        expect($status['exit'])->toBe(0, $status['output']);
+        expect($status['output'])
+            ->toMatch('/^Pinned Mailpit:\s+1\.30\.5$/m')
+            ->toMatch('/^Pinned Mailtrap Local:\s+0\.2\.0$/m')
+            ->toMatch('/^Mailpit binary:\s+mailpit v1\.30\.5$/m')
+            ->toMatch('/^Mailtrap binary:\s+mailtrap-local 0\.2\.0$/m')
+            ->toMatch('/^Mailpit \(canonical\):\s+active=active enabled=enabled$/m')
+            ->toMatch('/^Mailtrap Local \(mirror\):\s+active=active enabled=enabled$/m')
+            ->toContain(' at '.$host['host'].'/var/lib/staging-mail-capture/mailpit')
+            ->toMatch('/^Mailpit vhost:\s+present$/m')
+            ->toMatch('/^Mailtrap vhost:\s+present$/m');
+    } finally {
+        removeScratchDir($host['root']);
+    }
+});

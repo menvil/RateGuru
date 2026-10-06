@@ -1758,6 +1758,20 @@ function mailCaptureCalls(array $workspace): array
     return array_values(array_filter(explode("\n", (string) file_get_contents($workspace['state'].'/calls'))));
 }
 
+/**
+ * status-mail-capture against the workspace's stubs, reading the host files
+ * from $fsRoot through the gated seam.
+ *
+ * @return array{exit:int, output:string}
+ */
+function mailCaptureStatus(array $workspace, string $fsRoot): array
+{
+    return mailCaptureRun($workspace, ['bash', infraScript('status-mail-capture')], [
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_MAILCAPTURE_FS_ROOT' => $fsRoot,
+    ]);
+}
+
 /*
 |--------------------------------------------------------------------------
 | The mail routing CLI, as its tests and the mail gateway's tests drive it

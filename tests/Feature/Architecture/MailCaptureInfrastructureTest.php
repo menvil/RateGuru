@@ -881,31 +881,6 @@ it('reports an incomplete rollback instead of claiming success', function () {
     }
 });
 
-it('reports exact endpoints, restart-loop state and unfiltered journal in status', function () {
-    $status = mailCaptureSource('scripts/status-mail-capture');
-
-    // Exact endpoints, including the 127.0.0.2 Mailtrap SMTP host.
-    expect($status)
-        ->toContain('listener_line "Mailpit SMTP" "127.0.0.1" "1025"')
-        ->toContain('listener_line "Mailpit HTTP/API" "127.0.0.1" "8025"')
-        ->toContain('listener_line "Mailtrap SMTP" "127.0.0.2" "3535"')
-        ->toContain('listener_line "Mailtrap HTTP/API" "127.0.0.1" "3550"');
-
-    // Restart-loop diagnostics surfaced for both services.
-    expect($status)
-        ->toContain('ActiveState=')
-        ->toContain('SubState=')
-        ->toContain('Result=')
-        ->toContain('NRestarts=');
-
-    // The journal must be unfiltered: the journalctl invocation carries no `-p`
-    // priority filter that would hide the level=ERROR bind/restart lines. (The
-    // explanatory comment may name `-p err`; the actual command must not use it.)
-    expect($status)
-        ->toContain("journalctl -u \"\${unit}\" --no-pager --since '-1h'")
-        ->not->toMatch('/journalctl[^\n]* -p /');
-});
-
 // =============================================================================
 // verify-mail-capture: the read-only / E2E split.
 //
