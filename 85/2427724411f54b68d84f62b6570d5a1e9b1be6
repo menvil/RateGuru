@@ -1,0 +1,27 @@
+tests/Feature/Architecture/MailGatewayAcceptanceTest.php
+  s_9ce0383c8ffad8::t_3822be7a108af7 700-704
+  s_9ce0383c8ffad8::t_d0765e2ab78950 711-712
+  s_9ce0383c8ffad8::t_9e731dfe0b99fa 137,139-140
+  s_9ce0383c8ffad8::t_89ee48ee2a27f4 155
+  s_9ce0383c8ffad8::t_5e27330ad33eb9 110-113
+  s_9ce0383c8ffad8::t_f9a7518e201139 130-132
+  s_9ce0383c8ffad8::t_b61557e97699c3 659-663
+  s_9ce0383c8ffad8::t_3d7abadcaafb58 115-120
+  s_9ce0383c8ffad8::t_839f8ec0f9a1b9 1-109,114,121-129,133-136,138,141-154,156-658,664-699,705-710,713-967
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "852427724411f54b68d84f62b6570d5a1e9b1be6",
+  "prompts": {},
+  "sessions": {
+    "s_9ce0383c8ffad8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39b83c43-4723-4381-aade-182a822779a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
