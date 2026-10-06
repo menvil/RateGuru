@@ -4511,7 +4511,7 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
 
         // Short, because every wait ends up to one interval after the state is
         // reached, and a suite waits a few hundred times.
-        usleep(25_000);
+        browserTestPause(0.025);
     } while (microtime(true) < $deadline);
 
     expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
@@ -4538,9 +4538,24 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
                 throw $failure;
             }
 
-            usleep(25_000);
+            browserTestPause(0.025);
         }
     }
+}
+
+/**
+ * Lets $seconds go by without stopping the application under test.
+ *
+ * The browser plugin serves the application from this same PHP process, on its
+ * event loop. usleep() would stop that loop with everything else, so a request
+ * the page sent meanwhile — a Livewire update, a save — would wait for the next
+ * call into the browser to be answered; a wait that only reads the database
+ * would never see it answered at all. Amp's delay() lets the loop, and with it
+ * the server, run while this waits.
+ */
+function browserTestPause(float $seconds): void
+{
+    \Amp\delay($seconds);
 }
 
 /**
