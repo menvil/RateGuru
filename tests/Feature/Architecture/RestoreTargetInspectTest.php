@@ -167,12 +167,7 @@ it('prints exactly one machine-readable result for a resume', function () {
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         $result = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
@@ -233,12 +228,7 @@ it('reports a held operation and changes absolutely nothing', function () {
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         $before = restoreTargetHeldSnapshot($scratch, $operation);
 
         $result = restoreTargetInspect($scratch, $operation);
@@ -279,12 +269,7 @@ it('inspects the same operation repeatedly without ever resuming it', function (
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         foreach (range(1, 3) as $attempt) {
             $result = restoreTargetInspect($scratch, $operation);
@@ -336,12 +321,7 @@ it('refuses to inspect an operation that is not this target own held code alignm
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         $before = restoreTargetHeldSnapshot($scratch, $operation);
         $requested = $operation;
 
@@ -449,12 +429,7 @@ it('refuses to report a target as held once the hold itself is gone', function (
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
 
         // Something outside this operation undid part of the hold: someone ran
         // `artisan up`, started the worker, or put the cron entry back. The

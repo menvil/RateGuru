@@ -8,14 +8,23 @@
 
 set -Eeuo pipefail
 
-ETC_DIR="/etc/staging-mail-capture"
+# Test seam, in the gated shape every RateGuru installer uses: honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true. RATEGURU_MAILCAPTURE_FS_ROOT
+# prefixes every host path, the same variable install-mail-capture reads, so
+# the status of a simulated host can be read back.
+FS_ROOT=""
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    FS_ROOT="${RATEGURU_MAILCAPTURE_FS_ROOT:-}"
+fi
+
+ETC_DIR="${FS_ROOT}/etc/staging-mail-capture"
 VERSIONS_FILE="${ETC_DIR}/versions.env"
-BIN_MAILPIT="/usr/local/bin/staging-mailpit"
-BIN_MAILTRAP="/usr/local/bin/staging-mailtrap-local"
-STATE_MAILPIT="/var/lib/staging-mail-capture/mailpit"
-STATE_MAILTRAP="/var/lib/staging-mail-capture/mailtrap-local"
-NGINX_MAILPIT="/etc/nginx/sites-available/mailpit-staging"
-NGINX_MAILTRAP="/etc/nginx/sites-available/mailtrap-local-staging"
+BIN_MAILPIT="${FS_ROOT}/usr/local/bin/staging-mailpit"
+BIN_MAILTRAP="${FS_ROOT}/usr/local/bin/staging-mailtrap-local"
+STATE_MAILPIT="${FS_ROOT}/var/lib/staging-mail-capture/mailpit"
+STATE_MAILTRAP="${FS_ROOT}/var/lib/staging-mail-capture/mailtrap-local"
+NGINX_MAILPIT="${FS_ROOT}/etc/nginx/sites-available/mailpit-staging"
+NGINX_MAILTRAP="${FS_ROOT}/etc/nginx/sites-available/mailtrap-local-staging"
 
 MAILPIT_API="http://127.0.0.1:8025"
 MAILTRAP_API="http://127.0.0.1:3550"
@@ -45,9 +54,13 @@ svc_line() {
 
 listener_line() {
     # listener_line <label> <host> <port>: report the exact loopback endpoint.
-    local label="$1" host="$2" port="$3" status="down"
+    # The listener list is captured first and matched separately: under
+    # `set -o pipefail` a `ss | grep -q` pipeline reports failure whenever grep
+    # short-circuits on a match and ss is killed by SIGPIPE.
+    local label="$1" host="$2" port="$3" status="down" listeners
     if command -v ss >/dev/null 2>&1; then
-        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)"; then
+        listeners="$(ss -ltnH "sport = :${port}" 2>/dev/null || true)"
+        if grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" <<<"${listeners}"; then
             status="listening (loopback)"
         fi
     elif (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then

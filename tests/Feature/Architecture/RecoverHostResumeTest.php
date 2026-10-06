@@ -24,9 +24,7 @@ it('reports what a host is waiting for without changing anything', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -105,9 +103,7 @@ it('finishes the recovery once the exact commit is deployed', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -169,14 +165,9 @@ it('tells an operator a recovery is already finished rather than that its worksp
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        [$applied, $resumed] = recoveryResumed($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
-        deployRecoveredRelease($scratch);
-
-        $resumed = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
         expect($resumed['exit'])->toBe(0, $resumed['output']);
 
         // A completed recovery removes its own workspace and clears its own
@@ -208,15 +199,10 @@ it('reports a completion only for the operation its own journal records', functi
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        [$applied, $resumed] = recoveryResumed($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
-        deployRecoveredRelease($scratch);
-
-        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
-            ->toBe(0);
+        expect($resumed['exit'])->toBe(0);
 
         // The host is now an ordinary serving target: no recovery guard, a
         // current release, a previous absent. That is what EVERY healthy
@@ -271,15 +257,10 @@ it('reads the journal as evidence, not as a place to find an encouraging word', 
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        [$applied, $resumed] = recoveryResumed($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
-        deployRecoveredRelease($scratch);
-
-        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
-            ->toBe(0);
+        expect($resumed['exit'])->toBe(0);
 
         $journal = $scratch.'/recoveries/recovery-history.jsonl';
         $records = array_values(array_filter(preg_split('/\R/', File::get($journal))));
@@ -329,9 +310,7 @@ it('refuses to resume when the deployed commit is not the one the data belongs t
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch, str_repeat('b', 40));
@@ -355,9 +334,7 @@ it('refuses to resume before any code has been deployed', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         $result = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
@@ -375,9 +352,7 @@ it('refuses to resume a host whose previous link was invented', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -396,9 +371,7 @@ it('refuses to resume when the migration count changed, and keeps the host held'
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -422,9 +395,7 @@ it('keeps the host held when the health check fails after code alignment', funct
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -463,9 +434,7 @@ it('refuses to complete when the scheduler is not actually back', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -499,9 +468,7 @@ it('refuses to complete when the queue did not come back', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         deployRecoveredRelease($scratch);
@@ -529,9 +496,7 @@ it('walks both safe recovery stages, and refuses everything that is not one', fu
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -606,14 +571,10 @@ it('verifies a fully recovered host, and reports its absent previous link as a f
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        [$applied, $resumed] = recoveryResumed($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
-        deployRecoveredRelease($scratch);
 
-        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
-            ->toBe(0);
+        expect($resumed['exit'])->toBe(0);
 
         $result = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);
 
@@ -643,14 +604,10 @@ it('refuses to verify a recovered host that carries a previous release link', fu
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        [$applied, $resumed] = recoveryResumed($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
-        deployRecoveredRelease($scratch);
 
-        expect(recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation])['exit'])
-            ->toBe(0);
+        expect($resumed['exit'])->toBe(0);
 
         // A recovered host has had exactly one deployment and therefore no
         // rollback target. A `previous` means something deployed here after
@@ -687,9 +644,7 @@ it('refuses to verify a host that still carries a recovery guard', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
 
         $result = recoverHostRun($scratch, ['--verify', '--target', 'parity-target']);

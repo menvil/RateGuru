@@ -1033,12 +1033,6 @@ BACKUP_DIR=""
 ROLLBACK_RESTORE=()
 ROLLBACK_REMOVE=()
 
-files_differ() {
-    local src="$1" dst="$2"
-    [[ -f "${dst}" ]] || return 0
-    ! cmp -s "${src}" "${dst}"
-}
-
 record_target() {
     local dst="$1"
     if [[ -e "${dst}" || -L "${dst}" ]]; then

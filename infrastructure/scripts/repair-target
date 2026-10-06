@@ -709,6 +709,12 @@ lock_directory_usable() {
 # Captured once so the same output drives both the operator-facing report and
 # the pre-mutation gate; running a child twice could observe two different
 # states and describe one of them.
+#
+# CHILD_OUTPUT is searched with a here-string (`grep -q … <<<"${CHILD_OUTPUT}"`),
+# never piped in from printf. Under `pipefail`, `grep -q` exits at its first
+# match, a printf still writing into the pipe dies of SIGPIPE, and the pipeline
+# reports failure for output it did match: a long report's HOST-REQ, CONFLICT or
+# ERROR: line would read as nothing to block on.
 CHILD_OUTPUT=""
 CHILD_STATUS=0
 
@@ -745,17 +751,17 @@ child_blocker() {
     # apart only by the exit code, an unreadable registry or a missing
     # dependency would be read as repairable drift, and the run would converge
     # the layout before discovering it could never converge the rest.
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+    if grep -q 'ERROR:' <<<"${CHILD_OUTPUT}"; then
         printf '%s: the installer aborted rather than reporting a contract, so what is wrong with this target is not established' "${label}"
         return 0
     fi
 
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+    if grep -q '^  HOST-REQ ' <<<"${CHILD_OUTPUT}"; then
         printf '%s: host-level prerequisites are not satisfied. Converge the host first by running the installer WITHOUT --target — a target-scoped repair never installs or re-owns host infrastructure' "${label}"
         return 0
     fi
 
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  CONFLICT '; then
+    if grep -q '^  CONFLICT ' <<<"${CHILD_OUTPUT}"; then
         printf '%s: drift that is never repaired automatically, because resolving it would mean deleting or replacing something to make room' "${label}"
         return 0
     fi
@@ -793,7 +799,7 @@ report_child() {
 
     # An abort, not a report: the installers exit 1 both for "contract not
     # satisfied" and for fail(), so the ERROR: line is what tells them apart.
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+    if grep -q 'ERROR:' <<<"${CHILD_OUTPUT}"; then
         item CONFLICT "${name}" "the installer aborted rather than reporting a contract (${label})" \
             "resolve the failure shown below — a repair never guesses that an installer which could not run would have found repairable drift"
         printf '%s\n' "${CHILD_OUTPUT}" | grep 'ERROR:' | sed 's/^/               | /' || true
@@ -801,14 +807,14 @@ report_child() {
     fi
 
     # HOST-REQ inside the child is a host problem, not this target's.
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
+    if grep -q '^  HOST-REQ ' <<<"${CHILD_OUTPUT}"; then
         item HOST-REQ "${name}" "host-level prerequisites are not satisfied (${label})" \
             "converge the host first — run the corresponding installer WITHOUT --target"
         printf '%s\n' "${CHILD_OUTPUT}" | grep '^  HOST-REQ ' | sed 's/^/               | /' || true
         return 0
     fi
 
-    if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  CONFLICT '; then
+    if grep -q '^  CONFLICT ' <<<"${CHILD_OUTPUT}"; then
         item CONFLICT "${name}" "unsafe drift that is never repaired automatically (${label})" \
             "resolve the conflicting paths by hand — nothing is ever deleted or replaced to make room"
         printf '%s\n' "${CHILD_OUTPUT}" | grep '^  CONFLICT ' | sed 's/^/               | /' || true

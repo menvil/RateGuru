@@ -1178,3 +1178,291 @@ it('ships a grant the real sudoers parser accepts', function () {
 
     expect($exit)->toBe(0, 'the committed grant is not valid sudoers: '.implode("\n", $output));
 });
+
+// =============================================================================
+// What a failed apply puts back
+//
+// Both apply modes are transactions: everything they are about to replace is
+// backed up first — bytes, owner and mode — and a failure anywhere after the
+// first file lands restores every one of them and removes every file that did
+// not exist before. A half-installed marker is the case that matters most: a
+// sudo grant left naming a wrapper that is not there, or a wrapper the grant
+// does not cover, is exactly the broken deploy channel these modes exist to
+// prevent.
+// =============================================================================
+
+/**
+ * stat-root's answers for the names a verification asks about, and the file's
+ * own numeric owner and mode for the two questions a backup asks — which is
+ * what a rollback has to put back, so a test can see that it does.
+ */
+function nightwatchRecordingStat(string $scratch): string
+{
+    return writeExecutable($scratch.'/bin/stat-recording', "#!/usr/bin/env bash\n"
+        .'case "${2:-}" in'."\n"
+        .'    "%U"|"%G") echo root ;;'."\n"
+        .'    "%u:%g") stat -c "%u:%g" "$3" 2>/dev/null || stat -f "%u:%g" "$3" ;;'."\n"
+        .'    "%a") stat -c "%a" "$3" 2>/dev/null || stat -f "%Lp" "$3" ;;'."\n"
+        .'    *) echo "" ;;'."\n"
+        ."esac\n");
+}
+
+/** The entries of a directory, without the dot entries. */
+function nightwatchEntries(string $directory): array
+{
+    return array_values(array_diff(scandir($directory) ?: [], ['.', '..']));
+}
+
+it('puts the previous program and marker files back when an upgrade fails its verification', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        // An agent is already installed, with an older program file and an
+        // older wrapper, and the new one binds publicly — which verification
+        // only discovers after everything has been installed and applied.
+        nightwatchStubs($scratch, ['listener' => '0.0.0.0:2407']);
+        nightwatchDeployedTarget($scratch);
+
+        $conf = $scratch.'/fs/etc/supervisor/conf.d/'.nightwatchProgramName().'.conf';
+        $previousConf = '[program:'.nightwatchProgramName()."]\n; the previously installed program\n";
+        file_put_contents($conf, $previousConf);
+
+        $wrapper = $scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment';
+        $previousWrapper = "#!/bin/bash\n# the previously installed wrapper\n";
+        file_put_contents($wrapper, $previousWrapper);
+        chmod($wrapper, 0o750);
+
+        $primitive = $scratch.'/fs/home/www/rateguru/bin/record-nightwatch-deployment';
+        $grant = $scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment';
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_STAT_BIN' => nightwatchRecordingStat($scratch),
+        ]);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('publicly reachable')
+            ->toContain('apply failed (status 1) — restoring the previous Supervisor configuration')
+            ->toContain('rollback: restored /etc/supervisor/conf.d/'.nightwatchProgramName().'.conf from ');
+
+        // What was there before is there again, byte for byte...
+        expect(file_get_contents($conf))->toBe($previousConf);
+        expect(file_get_contents($wrapper))->toBe($previousWrapper);
+
+        // ...with the owner and mode it had, asked for explicitly rather than
+        // inherited from the failed apply's 0755.
+        expect(nightwatchStubLog($scratch, 'chown'))->toContain('chown -- '.getmyuid().':'.getmygid().' '.$wrapper);
+        expect(nightwatchStubLog($scratch, 'chmod'))->toContain('chmod =750 '.$wrapper);
+
+        // What was not there before is gone, and no staged copy survives
+        // under any name.
+        expect(file_exists($primitive))->toBeFalse();
+        expect(file_exists($grant))->toBeFalse();
+        expect(nightwatchEntries(dirname($conf)))->toBe([basename($conf)]);
+        expect(nightwatchEntries(dirname($wrapper)))->toBe([basename($wrapper)]);
+        expect(nightwatchEntries(dirname($grant)))->toBe([]);
+        expect(nightwatchEntries(dirname($primitive)))->toBe([]);
+
+        // The running supervisord was pointed back at the restored program,
+        // after re-validating it: the rollback ends in reread, then update.
+        $supervisorctl = explode("\n", trim(nightwatchStubLog($scratch, 'supervisorctl')));
+        expect(array_slice($supervisorctl, -2))->toBe([
+            'supervisorctl reread',
+            'supervisorctl update '.nightwatchProgramName(),
+        ]);
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('leaves supervisord alone when the restored program does not parse either', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchDeployedTarget($scratch);
+
+        // supervisord rejects whatever it is asked to read, the candidate and
+        // the restored state alike.
+        touch($scratch.'/state/reread-error');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('supervisorctl reread reported a configuration error with the candidate installed')
+            ->toContain('rollback: removed /etc/supervisor/conf.d/'.nightwatchProgramName().'.conf (there was no previous file)')
+            ->toContain('ROLLBACK ERROR: the restored Supervisor configuration does not parse; '.nightwatchProgramName().' was left as-is');
+
+        // Neither the candidate nor the rollback was ever pushed into the
+        // running supervisord.
+        $supervisorctl = nightwatchStubLog($scratch, 'supervisorctl');
+        expect($supervisorctl)->toContain('supervisorctl reread')
+            ->not->toContain('supervisorctl update')
+            ->not->toContain('supervisorctl start');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('removes every marker file a failed marker apply had installed, and restores the ones it had replaced', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+
+        // The host already carries an older wrapper; the primitive and the
+        // grant are new.
+        $wrapper = $scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment';
+        $previousWrapper = "#!/bin/bash\n# the previously installed wrapper\n";
+        file_put_contents($wrapper, $previousWrapper);
+        chmod($wrapper, 0o750);
+
+        $primitive = $scratch.'/fs/home/www/rateguru/bin/record-nightwatch-deployment';
+        $grant = $scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment';
+
+        // The committed grant parses; its staged copy does not. The primitive
+        // and the wrapper are installed before the grant is staged, so this
+        // fails with two of the three files already in place.
+        $visudo = writeExecutable($scratch.'/bin/visudo-refuses-staged', "#!/usr/bin/env bash\n"
+            .'case "${2:-}" in */etc/sudoers.d/rateguru-nightwatch-deployment.*) echo "parse error near line 1" >&2; exit 1 ;; esac'."\n"
+            ."exit 0\n");
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply-deployment-marker', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_STAT_BIN' => nightwatchRecordingStat($scratch),
+            'RATEGURU_NIGHTWATCH_VISUDO_BIN' => $visudo,
+        ]);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('installed /home/www/rateguru/bin/record-nightwatch-deployment')
+            ->toContain('installed /usr/local/sbin/rateguru-nightwatch-deployment')
+            ->toContain('staged sudoers grant failed visudo -cf: /etc/sudoers.d/rateguru-nightwatch-deployment')
+            ->toContain('deployment-marker apply failed (status 1) — restoring the previous files');
+
+        // Nothing of the failed apply is left: the new primitive is removed,
+        // the replaced wrapper is back as it was, and the grant never reached
+        // sudoers.d — not under its own name, not as a staged copy.
+        expect(file_exists($primitive))->toBeFalse();
+        expect(file_get_contents($wrapper))->toBe($previousWrapper);
+        expect(nightwatchStubLog($scratch, 'chmod'))->toContain('chmod =750 '.$wrapper);
+        expect(nightwatchEntries(dirname($grant)))->toBe([]);
+        expect(nightwatchEntries(dirname($wrapper)))->toBe([basename($wrapper)]);
+        expect(nightwatchEntries(dirname($primitive)))->toBe([]);
+
+        // The agent was never involved.
+        expect(nightwatchStubLog($scratch, 'supervisorctl'))->toBe('');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+// =============================================================================
+// The read-only questions
+// =============================================================================
+
+it('answers whether a target records a deployment marker, without root and without touching the host', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        $before = provisionTreeSnapshot($scratch.'/fs');
+
+        // The question install-bootstrap-services asks before it converges the
+        // authorization, asked of the real installer: staging-main records a
+        // marker, and a target with no Nightwatch program does not.
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--supports-deployment-marker', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_EUID' => '1000',
+        ]);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('target staging-main records a deployment marker (Nightwatch program '.nightwatchProgramName().')');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--supports-deployment-marker', '--target', 'tits-guru'], [
+            'RATEGURU_NIGHTWATCH_EUID' => '1000',
+        ]);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('target tits-guru records no deployment marker: it has no Nightwatch program in the closed allowlist');
+
+        expect(provisionTreeSnapshot($scratch.'/fs'))->toBe($before);
+
+        foreach (['supervisorctl', 'ss', 'runuser', 'chown', 'chmod'] as $tool) {
+            expect(nightwatchStubLog($scratch, $tool))->toBe('', "{$tool} must not be invoked");
+        }
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('reports the installed state read-only, on a fresh host and on an installed one that has drifted', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchUndeployedHost($scratch);
+        touch($scratch.'/state/no-listener');
+
+        $before = provisionTreeSnapshot($scratch.'/fs');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('Supervisor program: not installed — --apply will install it')
+            ->toContain('deployment-marker primitive: not installed — --apply will install it (/home/www/rateguru/bin/record-nightwatch-deployment)')
+            ->toContain('deployment-marker sudo wrapper: not installed — --apply will install it (/usr/local/sbin/rateguru-nightwatch-deployment)')
+            ->toContain('deployment-marker sudoers grant: not installed — --apply will install it (/etc/sudoers.d/rateguru-nightwatch-deployment)')
+            ->toContain('agent process: not registered with supervisord')
+            ->toContain('deployment state: PRE_DEPLOY — deploy the target before --apply')
+            ->toContain('expected ingest endpoint: 127.0.0.1:2407')
+            ->toContain('listeners on port 2407: none')
+            ->toContain('PASS: --check complete (no changes made)');
+
+        expect(provisionTreeSnapshot($scratch.'/fs'))->toBe($before);
+
+        // Installed, then drifted: the wrapper was edited by hand and the
+        // agent was stopped.
+        nightwatchDeployedTarget($scratch);
+        unlink($scratch.'/state/no-listener');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+        expect($exit)->toBe(0, $output);
+
+        file_put_contents($scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment', "#!/bin/bash\n# edited by hand\n");
+        unlink($scratch.'/state/running');
+        file_put_contents($scratch.'/log/supervisorctl.log', '');
+
+        $before = provisionTreeSnapshot($scratch.'/fs');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('Supervisor program: installed and byte-identical to the committed source')
+            ->toContain('deployment-marker primitive: installed and byte-identical to the committed source')
+            ->toContain('deployment-marker sudo wrapper: installed but DIFFERS from the committed source — --apply will replace it')
+            ->toContain('deployment-marker sudoers grant: installed and byte-identical to the committed source')
+            ->toContain('agent process: known to supervisord but NOT RUNNING')
+            ->toContain('deployment state: DEPLOYED')
+            ->toContain('listeners on port 2407: 127.0.0.1:2407');
+
+        // Reported, not repaired: the drift is still there, and supervisord was
+        // only ever asked about the program, never told to do anything.
+        expect(provisionTreeSnapshot($scratch.'/fs'))->toBe($before);
+
+        foreach (array_filter(explode("\n", nightwatchStubLog($scratch, 'supervisorctl'))) as $call) {
+            expect($call)->toBe('supervisorctl status '.nightwatchProgramName().':*');
+        }
+
+        touch($scratch.'/state/running');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('agent process: RUNNING');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});

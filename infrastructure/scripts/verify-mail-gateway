@@ -47,11 +47,34 @@
 #
 # There is no default mode: a mutating acceptance run is always asked for by
 # name.
+#
+# Test override: RATEGURU_MAILGW_EUID — the variable install-mail-gateway reads
+# — is honoured only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, the gate
+# every installer here uses, so the acceptance runs unprivileged against a
+# simulated host.
 
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — the override when allowed and set, else the
+# default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILGW_EUID "${EUID}")"
 
 INSTALLER="${SCRIPT_DIR}/install-mail-gateway"
 MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
@@ -116,6 +139,10 @@ require_tools() {
 # QUIT, whatever the reply. Sets SMTP_STAGE and SMTP_REPLY the same way, and
 # returns 0 only when the sender was accepted. It never names a recipient and
 # never sends a message, so it is safe on every listener, outbound included.
+#
+# fd 4 is opened and closed with a bare exec, which applies its redirections to
+# the whole script; the stderr silencing is on a group around it, so it lasts
+# only for that exec and every FAIL after a session still reaches the operator.
 
 SMTP_STAGE=""
 SMTP_REPLY=""
@@ -169,7 +196,7 @@ smtp_submit() {
         return 1
     fi
 
-    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     if _smtp_step connect 2 \
         && _smtp_step ehlo 2 "EHLO mail-gateway-verify" \
@@ -194,7 +221,7 @@ smtp_submit() {
         fi
     fi
 
-    exec 4>&- 4<&- 2>/dev/null || true
+    { exec 4>&- 4<&-; } 2>/dev/null || true
     [[ "${SMTP_STAGE}" == queued ]]
 }
 
@@ -203,7 +230,7 @@ smtp_probe_sender() {
     SMTP_STAGE="connect"
     SMTP_REPLY=""
 
-    exec 4<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     if _smtp_step connect 2 \
         && _smtp_step ehlo 2 "EHLO mail-gateway-verify"
@@ -216,7 +243,7 @@ smtp_probe_sender() {
         printf 'QUIT\r\n' >&4 || true
     fi
 
-    exec 4>&- 4<&- 2>/dev/null || true
+    { exec 4>&- 4<&-; } 2>/dev/null || true
     return "${accepted}"
 }
 
@@ -471,7 +498,7 @@ check_capture_retry() {
 }
 
 run_e2e() {
-    [[ "${EUID}" -eq 0 ]] || fail "--e2e must run as root (it stops and starts Mailpit and removes its own queue entries)"
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--e2e must run as root (it stops and starts Mailpit and removes its own queue entries)"
     require_tools
     trap cleanup EXIT
 

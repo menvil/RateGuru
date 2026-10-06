@@ -114,7 +114,10 @@ smtp_send() {
     # smtp_send <host> <port> <from> <to> <subject-token>
     local host="$1" port="$2" from="$3" to="$4" token="$5"
 
-    exec 3<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+    # Only the connect's own error is silenced: on a bare `exec`, every
+    # redirection is permanent, so `exec 3<>… 2>/dev/null` would discard the
+    # rest of the run's stderr — every FAIL line included.
+    { exec 3<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
 
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
     printf 'EHLO staging-verify\r\n' >&3
@@ -189,10 +192,13 @@ wait_for_api() {
 check_listener() {
     # check_listener <host> <port>: confirm a TCP listener on exactly host:port
     # (host is a loopback address, 127.0.0.1 or 127.0.0.2).
-    local host="$1" port="$2"
+    # The listener list is captured first and matched separately: under
+    # `set -o pipefail` a `ss | grep -q` pipeline reports failure whenever grep
+    # short-circuits on a match and ss is killed by SIGPIPE.
+    local host="$1" port="$2" listeners
     if command -v ss >/dev/null 2>&1; then
-        ss -ltnH "sport = :${port}" 2>/dev/null \
-            | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" && return 0
+        listeners="$(ss -ltnH "sport = :${port}" 2>/dev/null || true)"
+        grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" <<<"${listeners}" && return 0
         return 1
     fi
     (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null && { exec 3>&- 3<&-; return 0; }
@@ -378,4 +384,8 @@ main() {
     run_e2e_checks
 }
 
-main "$@"
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped checks rather than a copy of them.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

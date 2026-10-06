@@ -380,10 +380,10 @@ function mailGatewayHost(array $options = []): array
 }
 
 /** @return array{0: int, 1: string} */
-function mailGatewayRun(array $host, string $mode, array $env = []): array
+function mailGatewayRun(array $host, string $mode, array $env = [], string $script = 'install-mail-gateway'): array
 {
     $process = proc_open(
-        ['bash', mailGatewayScript(), $mode],
+        ['bash', mailGatewayScript($script), $mode],
         [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
         $pipes,
         $host['scratch'],
@@ -1016,6 +1016,44 @@ it('refuses a gateway port another process already holds, before installing anyt
         mailGatewayCleanup($host);
     }
 });
+
+it('takes exactly one of --check, --apply or --verify, and nothing it does not know', function (array $arguments, int $exit, string $stdout, string $stderr) {
+    // On a simulated host, so a parser that let a refused command line through
+    // would still have nothing real to touch.
+    $host = mailGatewayHost();
+
+    try {
+        $process = proc_open(['bash', mailGatewayScript(), ...$arguments], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $host['scratch'], $host['env']);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        expect(proc_close($process))->toBe($exit, $out.$err);
+
+        // The usage text goes to stdout when it was asked for, and to stderr
+        // ahead of the refusal when it was not.
+        foreach ([[$out, $stdout], [$err, $stderr]] as [$actual, $expected]) {
+            if ($expected === '') {
+                expect($actual)->toBe('');
+            } else {
+                expect($actual)
+                    ->toStartWith("Usage:\n  install-mail-gateway --check\n  install-mail-gateway --apply\n  install-mail-gateway --verify\n")
+                    ->toEndWith($expected);
+            }
+        }
+
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+        expect(mailGatewayLog($host, 'reads.log'))->toBe('');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with([
+    'asked for help' => [['--help'], 0, "direct delivery on this host under a valid public MTA hostname.\n", ''],
+    'no mode' => [[], 1, '', "ERROR: one of --check, --apply or --verify is required\n"],
+    'two modes' => [['--check', '--verify'], 1, '', "ERROR: mode given more than once\n"],
+    'an unknown argument' => [['--check', '--force'], 1, '', "ERROR: unknown argument: --force\n"],
+]);
 
 it('changes nothing in --check or --verify: no package manager, no service, no file', function (array $options) {
     $host = mailGatewayHost($options);
@@ -1742,6 +1780,47 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
     exec('bash '.escapeshellarg(mailGatewayScript('verify-mail-gateway')).' 2>&1', $output, $status);
     expect($status)->not->toBe(0);
     expect(implode("\n", $output))->toContain('the mutating acceptance is never a default');
+
+    // Run for real, beside the installer it ships with, on a converged
+    // gateway: the installer's own verdict, and nothing changed.
+    $host = mailGatewayHost();
+
+    try {
+        // The installer's stability window is a real sleep, which its own
+        // tests exercise; here it would only cost a second per run.
+        @mkdir($host['scratch'].'/no-wait', 0o755);
+        file_put_contents($host['scratch'].'/no-wait/sleep', "#!/bin/sh\nexit 0\n");
+        chmod($host['scratch'].'/no-wait/sleep', 0o755);
+        $env = ['PATH' => $host['scratch'].'/no-wait:'.$host['env']['PATH']];
+
+        [$applied, $log] = mailGatewayRun($host, '--apply', $env);
+        expect($applied)->toBe(0, $log);
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayTree($host);
+
+        [$verified, $report] = mailGatewayRun($host, '--read-only', $env, 'verify-mail-gateway');
+        expect($verified)->toBe(0, $report);
+        expect($report)
+            ->toStartWith("install-mail-gateway --verify\n")
+            ->toContain('PASS     runtime — enabled, stably running, listening on exactly the plan\'s loopback endpoints')
+            ->toEndWith("SUMMARY  pass=8 missing=0 drift=0 conflict=0 deferred=0\n");
+
+        // A hand edit is the installer's drift, and fails --read-only with it.
+        file_put_contents($host['fs'].'/etc/postfix/main.cf', "# a hand edit\n", FILE_APPEND);
+        [$drifted, $report] = mailGatewayRun($host, '--read-only', $env, 'verify-mail-gateway');
+        expect($drifted)->toBe(1, $report);
+        expect($report)
+            ->toContain('DRIFT    file:/etc/postfix/main.cf — differs from the current render')
+            ->toEndWith("SUMMARY  pass=7 missing=0 drift=1 conflict=0 deferred=0\n");
+
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('', '--read-only called a mutating command');
+        // Exactly the hand edit changed: no file was added, removed or rewritten.
+        $expected = $before;
+        $expected['etc/postfix/main.cf'] = hash_file('sha256', $host['fs'].'/etc/postfix/main.cf');
+        expect(mailGatewayTree($host))->toBe($expected);
+    } finally {
+        mailGatewayCleanup($host);
+    }
 });
 
 /**
@@ -1758,7 +1837,8 @@ function mailGatewayProbeFakeServer(string $mailReply): array
 
     $harness = 'source '.escapeshellarg(mailGatewayScript('verify-mail-gateway'))
         .' && if smtp_probe_sender 127.0.0.1 '.$port.' intruder@foreign.example;'
-        .' then echo "accepted ${SMTP_STAGE}"; else echo "refused ${SMTP_STAGE} ${SMTP_REPLY}"; fi';
+        .' then echo "accepted ${SMTP_STAGE}"; else echo "refused ${SMTP_STAGE} ${SMTP_REPLY}"; fi'
+        .' && bad "reported after the session"';
 
     $process = proc_open(['bash', '-c', $harness], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
 
@@ -1801,6 +1881,11 @@ it('probes a sender at MAIL FROM and never names a recipient, even when the gate
         'QUIT',
     ]);
     expect($probe['output'])->toStartWith($verdict);
+
+    // The session opens and closes its socket with a bare exec; whatever it
+    // silenced for that must not stay silenced, or every FAIL the acceptance
+    // reports after its first session would reach nobody.
+    expect($probe['output'])->toEndWith('FAIL reported after the session');
 })->with([
     'a gateway that refuses the sender' => ['554 5.7.1 <intruder@foreign.example>: Sender address rejected', 'refused mail 554'],
     'a broken gateway that accepts it' => ['250 2.1.0 Ok', 'accepted mail'],

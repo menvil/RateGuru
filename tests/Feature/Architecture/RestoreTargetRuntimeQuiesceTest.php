@@ -284,12 +284,7 @@ it('holds a queue whose start took effect but never reached RUNNING', function (
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // The resume's `supervisorctl start` takes effect — the worker is
@@ -353,12 +348,7 @@ it('re-holds a cron entry that was moved back before its metadata could be resto
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // The resume moves the cron entry back into /etc/cron.d and then
@@ -406,12 +396,7 @@ it('does not call a resume successful when the target stays down despite artisan
     $scratch = restoreScratchDir();
 
     try {
-        restoreTargetFixture($scratch, [
-            'current_release' => FIXTURE_OTHER_RELEASE,
-            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
-        ]);
-
-        $operation = restoreTargetHeldOperation($scratch);
+        $operation = restoreTargetHeldForCodeAlignment($scratch);
         restoreTargetAlignCode($scratch);
 
         // `artisan up` exits 0 and the target is still down: reporting the

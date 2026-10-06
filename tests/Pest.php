@@ -1118,6 +1118,90 @@ function removeScratchDir(string $dir): void
     exec('rm -rf '.escapeshellarg($dir));
 }
 
+/**
+ * Whether this test process runs as root — its effective uid, which is what a
+ * script's root gate reads. getmyuid() is not that: it is the owner of the
+ * running PHP file.
+ */
+function testProcessIsRoot(): bool
+{
+    return posix_geteuid() === 0;
+}
+
+/**
+ * Copies a prepared scratch directory into another one, as though the
+ * preparation had been run there.
+ *
+ * Preparing a simulated host is often most of what a test costs — a whole
+ * provision, restore or recovery run — while the state it leaves never varies.
+ * A test file can build it once into a template and give every test a copy.
+ * But the simulated hosts record absolute paths: ownership and type tables, the
+ * stubs' logs, release links, generated configuration. So every text file and
+ * every link that names $template is rewritten to name $scratch, and then the
+ * copy is checked. A file or link that still named $template would let a test
+ * read or write the template instead of its own host, so that fails the test.
+ * The path is also matched as JSON writes it (`\/tmp\/…`): registries and
+ * reports built with json_encode() carry it escaped.
+ */
+function copyScratchTemplate(string $template, string $scratch): void
+{
+    exec('cp -a '.escapeshellarg($template.'/.').' '.escapeshellarg($scratch).' 2>&1', $output, $status);
+    expect($status)->toBe(0, "could not copy {$template} into {$scratch}: ".implode("\n", $output));
+
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($scratch, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    $forms = [$template => $scratch, str_replace('/', '\\/', $template) => str_replace('/', '\\/', $scratch)];
+
+    $namesTemplate = function (string $path) use ($template, $forms): bool {
+        if (is_link($path)) {
+            return str_starts_with((string) readlink($path), $template);
+        }
+
+        if (! is_file($path)) {
+            return false;
+        }
+
+        $contents = (string) file_get_contents($path);
+
+        foreach (array_keys($forms) as $form) {
+            if (str_contains($contents, $form)) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    foreach ($entries as $entry) {
+        $path = $entry->getPathname();
+
+        if (! $namesTemplate($path)) {
+            continue;
+        }
+
+        if (is_link($path)) {
+            $target = (string) readlink($path);
+            unlink($path);
+            symlink($scratch.substr($target, strlen($template)), $path);
+        } else {
+            file_put_contents($path, strtr((string) file_get_contents($path), $forms));
+        }
+    }
+
+    $stale = [];
+
+    foreach ($entries as $entry) {
+        if ($namesTemplate($entry->getPathname())) {
+            $stale[] = $entry->getPathname();
+        }
+    }
+
+    expect($stale)->toBe([], "the copy still names the template it came from ({$template})");
+}
+
 function infraScript(string $name): string
 {
     return base_path('infrastructure/scripts/'.$name);
@@ -1171,6 +1255,42 @@ function writeExecutable(string $path, string $body): string
     chmod($path, 0o755);
 
     return $path;
+}
+
+/**
+ * A wrapper around one of the simulated host's executables that runs it
+ * unchanged and then, when one of its arguments is exactly $argument (on every
+ * call when $argument is null), runs the Bash in $hook.
+ *
+ * A failure handler is only exercised by a failure that lands at the right
+ * moment, and the moment is usually "after this step and before that one":
+ * a cron.d that stops accepting the scheduler entry once it has been moved
+ * out, a guard that can no longer be re-labelled once the data is staged. The
+ * step the moment follows is nearly always a call to one of these tools, so
+ * the hook rides on that call instead of on a modified copy of the script
+ * under test.
+ *
+ * The wrapper exits with the wrapped executable's own status, so the tool
+ * still succeeds or fails exactly as the test configured it. Written beside
+ * the executable it wraps, as <name>-hooked.
+ */
+function executableWithHook(string $executable, ?string $argument, string $hook): string
+{
+    $match = $argument === null
+        ? 'matched=true'
+        : 'matched=false; for argument in "$@"; do [[ "${argument}" == '.escapeshellarg($argument).' ]] && matched=true; done';
+
+    return writeExecutable($executable.'-hooked', implode("\n", [
+        '#!/usr/bin/env bash',
+        escapeshellarg($executable).' "$@"',
+        'status=$?',
+        $match,
+        'if [[ "${matched}" == true ]]; then',
+        $hook,
+        'fi',
+        'exit "${status}"',
+        '',
+    ]));
 }
 
 /**
@@ -1328,6 +1448,338 @@ function envFileValues(string $path): array
     }
 
     return $out;
+}
+
+/*
+|--------------------------------------------------------------------------
+| The staging mail-capture slice on a simulated host
+|--------------------------------------------------------------------------
+|
+| install-mail-capture, status-mail-capture and verify-mail-capture ask the
+| host the same questions — systemctl, ss, the two HTTP APIs, journalctl — so
+| their tests answer them from one set of stubs on PATH. Every answer comes
+| from a plain file in the workspace's state directory, every state-changing
+| call writes those files back, and every call is logged to state/calls.
+*/
+
+/**
+ * A throwaway workspace: command stubs in bin/, the files that drive them in
+ * state/. The test owns it and removes it with removeScratchDir($root).
+ *
+ * The stubs and the files they read:
+ *
+ *   systemctl   <unit>.active / .sub / .enabled / .nrestarts / .result /
+ *               .exec_status; fail_<verb>_<unit> makes that verb fail;
+ *               <unit>.nrestarts_step makes NRestarts climb on every read (a
+ *               restart loop); <unit>.stops lists units that go down with it.
+ *   ss          listeners — one "host:port" per line.
+ *   curl        apis — an API answers while one of its endpoints is listed;
+ *               messages-<port> — "<id> <subject>" per stored message;
+ *               messages-body-<port> — a raw body for GET /api/v1/messages;
+ *               downloads/<archive> — what a release download receives.
+ *   nginx       nginx_invalid makes `nginx -t` fail.
+ *   journalctl  journal-<unit> — what the unit's journal holds.
+ *   sleep       nothing: the scripts' bounded waits run without waiting.
+ *
+ * @return array{root:string, bin:string, state:string}
+ */
+function mailCaptureStubWorkspace(): array
+{
+    $root = makeScratchDir('mail-capture-host', ['', '/bin', '/state', '/state/downloads'], 0o700);
+    $bin = $root.'/bin';
+    $state = $root.'/state';
+
+    $systemctl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+state_dir="${STUB_STATE_DIR}"
+printf '%s\n' "systemctl $*" >>"${state_dir}/calls"
+read_state() { cat "${state_dir}/$1" 2>/dev/null || printf '%s' "$2"; }
+
+cmd="${1:-}"
+shift || true
+
+unit="" quiet=false
+for arg in "$@"; do
+    case "${arg}" in
+        --quiet) quiet=true ;;
+        --*) ;;
+        *) [[ -n "${unit}" ]] || unit="${arg}" ;;
+    esac
+done
+
+case "${cmd}" in
+    show)
+        prop=""
+        for arg in "$@"; do
+            case "${arg}" in --property=*) prop="${arg#--property=}" ;; esac
+        done
+        case "${prop}" in
+            ActiveState) read_state "${unit}.active" inactive ;;
+            SubState) read_state "${unit}.sub" dead ;;
+            Result) read_state "${unit}.result" success ;;
+            ExecMainStatus) read_state "${unit}.exec_status" 0 ;;
+            NRestarts)
+                count="$(read_state "${unit}.nrestarts" 0)"
+                # A ".nrestarts_step" marker makes the counter climb on every
+                # read: that is a service restarting under the caller.
+                if [[ -f "${state_dir}/${unit}.nrestarts_step" ]]; then
+                    printf '%s' "$((count + 1))" >"${state_dir}/${unit}.nrestarts"
+                fi
+                printf '%s' "${count}"
+                ;;
+            *) printf '' ;;
+        esac
+        printf '\n'
+        ;;
+    is-enabled)
+        current="$(read_state "${unit}.enabled" not-found)"
+        [[ "${quiet}" == true ]] || printf '%s\n' "${current}"
+        [[ "${current}" == enabled || "${current}" == enabled-runtime ]] || exit 1
+        ;;
+    is-active)
+        current="$(read_state "${unit}.active" inactive)"
+        [[ "${quiet}" == true ]] || printf '%s\n' "${current}"
+        [[ "${current}" == active ]] || exit 3
+        ;;
+    enable)
+        [[ ! -f "${state_dir}/fail_enable_${unit}" ]] || exit 1
+        printf 'enabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    disable)
+        [[ ! -f "${state_dir}/fail_disable_${unit}" ]] || exit 1
+        printf 'disabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    mask)
+        printf 'masked' >"${state_dir}/${unit}.enabled"
+        ;;
+    restart|start)
+        if [[ -f "${state_dir}/fail_restart_${unit}" ]]; then
+            printf 'failed' >"${state_dir}/${unit}.active"
+            printf 'failed' >"${state_dir}/${unit}.sub"
+            exit 1
+        fi
+        printf 'active' >"${state_dir}/${unit}.active"
+        printf 'running' >"${state_dir}/${unit}.sub"
+        ;;
+    stop)
+        [[ ! -f "${state_dir}/fail_stop_${unit}" ]] || exit 1
+        for stopped in "${unit}" $(cat "${state_dir}/${unit}.stops" 2>/dev/null); do
+            printf 'inactive' >"${state_dir}/${stopped}.active"
+            printf 'dead' >"${state_dir}/${stopped}.sub"
+        done
+        ;;
+    reload)
+        [[ ! -f "${state_dir}/fail_reload_${unit}" ]] || exit 1
+        ;;
+    *) ;;
+esac
+exit 0
+SH;
+
+    $ss = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+while read -r hostport; do
+    [[ -n "${hostport}" ]] || continue
+    printf 'LISTEN 0 4096 %s 0.0.0.0:*\n' "${hostport}"
+done <"${STUB_STATE_DIR}/listeners"
+exit 0
+SH;
+
+    // Mailpit (8025) names a message's identifier "ID" and deletes by
+    // {"IDs": [...]}; Mailtrap Local (3550) uses "id" and {"ids": [...]}. The
+    // stub keeps the two dialects apart, so a cleanup that used the wrong key
+    // would leave its messages behind.
+    $curl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+state_dir="${STUB_STATE_DIR}"
+printf '%s\n' "curl $*" >>"${state_dir}/calls"
+
+url="" output="" method="GET" data="" previous=""
+for arg in "$@"; do
+    case "${previous}" in
+        --output) output="${arg}" ;;
+        -X) method="${arg}" ;;
+        -d) data="${arg}" ;;
+    esac
+    case "${arg}" in http://*|https://*) url="${arg}" ;; esac
+    previous="${arg}"
+done
+
+if [[ -n "${output}" ]]; then
+    served="${state_dir}/downloads/${url##*/}"
+    [[ -f "${served}" ]] || exit 22
+    cp "${served}" "${output}"
+    exit 0
+fi
+
+base="${url%%/api/*}"
+grep -Fq "${base}/" "${state_dir}/apis" 2>/dev/null || exit 7
+
+port="${base##*:}"
+store="${state_dir}/messages-${port}"
+id_key="id"
+[[ "${port}" != 8025 ]] || id_key="ID"
+
+case "${method} ${url#"${base}"}" in
+    "GET /api/v1/search?query="*)
+        token="${url#*query=}"
+        separator=""
+        printf '{"messages":['
+        if [[ -f "${store}" ]]; then
+            while read -r id subject; do
+                [[ "${subject}" == "${token}" ]] || continue
+                printf '%s{"%s":"%s"}' "${separator}" "${id_key}" "${id}"
+                separator=","
+            done <"${store}"
+        fi
+        printf ']}\n'
+        ;;
+    "GET /api/v1/messages")
+        if [[ -f "${state_dir}/messages-body-${port}" ]]; then
+            cat "${state_dir}/messages-body-${port}"
+            exit 0
+        fi
+        count=0
+        [[ ! -f "${store}" ]] || count="$(wc -l <"${store}")"
+        printf '{"messages_count":%d,"total":%d}\n' "${count}" "${count}"
+        ;;
+    "DELETE /api/v1/messages")
+        printf '%s %s\n' "${port}" "${data}" >>"${state_dir}/deletions"
+        ids=" $(jq -r ".${id_key}s[]?" <<<"${data}" 2>/dev/null | tr '\n' ' ') "
+        if [[ -f "${store}" ]]; then
+            while read -r id subject; do
+                [[ "${ids}" == *" ${id} "* ]] || printf '%s %s\n' "${id}" "${subject}"
+            done <"${store}" >"${store}.kept"
+            mv "${store}.kept" "${store}"
+        fi
+        ;;
+    *)
+        printf '{}\n'
+        ;;
+esac
+exit 0
+SH;
+
+    $nginx = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "nginx $*" >>"${STUB_STATE_DIR}/calls"
+if [[ -f "${STUB_STATE_DIR}/nginx_invalid" ]]; then
+    printf 'nginx: configuration file test failed\n' >&2
+    exit 1
+fi
+printf 'nginx: configuration file test is successful\n'
+exit 0
+SH;
+
+    $journalctl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "journalctl $*" >>"${STUB_STATE_DIR}/calls"
+unit="" previous=""
+for arg in "$@"; do
+    [[ "${previous}" != -u ]] || unit="${arg}"
+    previous="${arg}"
+done
+cat "${STUB_STATE_DIR}/journal-${unit}" 2>/dev/null
+exit 0
+SH;
+
+    $sleep = <<<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "sleep $*" >>"${STUB_STATE_DIR}/calls"
+exit 0
+SH;
+
+    foreach (['systemctl' => $systemctl, 'ss' => $ss, 'curl' => $curl, 'nginx' => $nginx, 'journalctl' => $journalctl, 'sleep' => $sleep] as $name => $body) {
+        writeExecutable($bin.'/'.$name, rtrim($body, "\n")."\n");
+    }
+
+    foreach (['calls', 'listeners', 'apis'] as $file) {
+        file_put_contents($state.'/'.$file, '');
+    }
+
+    return ['root' => $root, 'bin' => $bin, 'state' => $state];
+}
+
+/**
+ * All four loopback listeners up and both HTTP APIs answering — what two
+ * serving services look like from outside, whatever systemd says.
+ */
+function mailCaptureServingEndpoints(string $state): void
+{
+    file_put_contents(
+        $state.'/listeners',
+        "127.0.0.2:3535\n127.0.0.1:3550\n127.0.0.1:1025\n127.0.0.1:8025\n",
+    );
+    file_put_contents(
+        $state.'/apis',
+        "http://127.0.0.1:3550/api/v1/version\nhttp://127.0.0.1:8025/api/v1/info\n",
+    );
+}
+
+/**
+ * Record the state of two enabled, active, serving mail-capture services.
+ */
+function mailCaptureHealthyState(string $state): void
+{
+    foreach (['staging-mailtrap-local.service', 'staging-mailpit.service'] as $unit) {
+        file_put_contents($state.'/'.$unit.'.active', 'active');
+        file_put_contents($state.'/'.$unit.'.sub', 'running');
+        file_put_contents($state.'/'.$unit.'.enabled', 'enabled');
+        file_put_contents($state.'/'.$unit.'.nrestarts', '0');
+    }
+
+    mailCaptureServingEndpoints($state);
+}
+
+/**
+ * Run a command with the workspace's stubs first on PATH.
+ *
+ * @param  list<string>  $command
+ * @param  array<string, string>  $env
+ * @return array{exit:int, output:string}
+ */
+function mailCaptureRun(array $workspace, array $command, array $env = []): array
+{
+    $environment = array_merge(getenv(), [
+        'STUB_STATE_DIR' => $workspace['state'],
+        'PATH' => $workspace['bin'].':'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        // Deterministic stubs: the bounded waits only need to be non-zero.
+        'MAIL_CAPTURE_RUNTIME_WAIT' => '1',
+        'MAIL_CAPTURE_STABILITY_WAIT' => '1',
+    ], $env);
+
+    $process = proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $workspace['root'], $environment);
+    expect($process)->not->toBeFalse('could not start '.implode(' ', $command));
+
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return ['exit' => proc_close($process), 'output' => rtrim($output, "\n")];
+}
+
+/** Every stubbed command the workspace has seen, in order. */
+function mailCaptureCalls(array $workspace): array
+{
+    return array_values(array_filter(explode("\n", (string) file_get_contents($workspace['state'].'/calls'))));
+}
+
+/**
+ * status-mail-capture against the workspace's stubs, reading the host files
+ * from $fsRoot through the gated seam.
+ *
+ * @return array{exit:int, output:string}
+ */
+function mailCaptureStatus(array $workspace, string $fsRoot): array
+{
+    return mailCaptureRun($workspace, ['bash', infraScript('status-mail-capture')], [
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_MAILCAPTURE_FS_ROOT' => $fsRoot,
+    ]);
 }
 
 /*
@@ -2911,6 +3363,50 @@ function restoreTargetHeldOperation(string $scratch): string
     return $operations[0];
 }
 
+/**
+ * A target whose code does not match the backup, restored from it and held for
+ * code alignment in $scratch — the state every test of the hold, of --resume
+ * and of --inspect starts from — and the operation that holds it.
+ *
+ * Getting there is a whole --apply: stage, verify, quiesce, the emergency
+ * backup, both swaps. That is 1.3–2 s, most of what each of those tests costs,
+ * and its result never varies. So a worker holds a target once, into a
+ * template of its own, and every later call copies the template into the
+ * test's scratch directory: about 40 ms, the registry included.
+ *
+ * copyScratchTemplate() rewrites the absolute paths the operation recorded and
+ * proves none still names the template. `cp -a` keeps the hard links between
+ * the staged backup and the backup it was staged from, inside each copy and
+ * never across into the template. The registry is then written again, exactly
+ * as restoreTargetFixture() writes it, so the copy holds what a fresh fixture
+ * would rather than a rewritten one.
+ * Every copy carries the same operation ID and the template's timestamps;
+ * nothing compares either to the clock.
+ */
+function restoreTargetHeldForCodeAlignment(string $scratch): string
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        restoreTargetFixture($directory, [
+            'current_release' => FIXTURE_OTHER_RELEASE,
+            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
+        ]);
+
+        $template = [$directory, restoreTargetHeldOperation($directory)];
+    }
+
+    [$directory, $operation] = $template;
+
+    copyScratchTemplate($directory, $scratch);
+    parityRegistryFixture($scratch);
+
+    return $operation;
+}
+
 /** Deploys the aligned release, the way the controlled alignment deploy would. */
 function restoreTargetAlignCode(string $scratch): void
 {
@@ -4463,7 +4959,9 @@ function trustedToolingRef(string $workflow): string
 | recovery deployment the three recover-host test files share:
 | RecoverHostPreconditionsTest (what a recovery refuses before it starts),
 | RecoverHostTest (the apply, its hold, its guard and its compensation) and
-| RecoverHostResumeTest (--inspect, --resume and --verify).
+| RecoverHostResumeTest (--inspect, --resume and --verify); and the applied
+| and completed hosts, built once per worker, that the tests whose subject
+| comes after the apply start from.
 */
 
 function recoverHostScript(): string
@@ -4573,14 +5071,118 @@ function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOU
     symlink($root.'/releases/'.$release, $root.'/current');
 }
 
+/**
+ * recoveryFixture() with $fixtureOptions, then a plain recoveryApply(): the
+ * held, awaiting-code host every test of --inspect, --resume and --verify
+ * starts from, and the result of the apply that left it there.
+ *
+ * The apply is a full recover-host --apply, about 1.3 s and most of what each
+ * of those tests costs, and the host it leaves never varies. So a worker
+ * applies once per option set, into a template of its own, and every later
+ * call copies the template into the test's scratch directory: about 15 ms.
+ * Only for a test whose apply is setup; a test about the apply runs its own.
+ *
+ * Every copy carries the operation ID and the timestamps of that one apply.
+ * Each test owns its copy, and none compares them with another test's.
+ *
+ * @return array{exit: int, output: string}
+ */
+function recoveryApplied(string $scratch, array $fixtureOptions = []): array
+{
+    static $templates = [];
+
+    $key = serialize($fixtureOptions);
+
+    if (! isset($templates[$key])) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        recoveryFixture($directory, $fixtureOptions);
+
+        $applied = recoveryApply($directory);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+
+        $templates[$key] = [$directory, $applied];
+    }
+
+    [$directory, $applied] = $templates[$key];
+
+    return copyRecoveryTemplate($directory, $scratch, $applied)[0];
+}
+
+/**
+ * recoveryApplied(), the controlled recovery deployment, then a plain
+ * --resume: the completed recovery every test of --verify, and of what a
+ * finished recovery answers, starts from, and the results of the apply and
+ * the resume.
+ *
+ * The resume is another recover-host run, about 0.6 s on top of the apply,
+ * and the host it leaves never varies either. So a worker resumes once, from
+ * a copy of the applied template, and every later call copies the result.
+ *
+ * @return array{0: array{exit: int, output: string}, 1: array{exit: int, output: string}} [applied, resumed]
+ */
+function recoveryResumed(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        $applied = recoveryApplied($directory);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($directory);
+
+        $resumed = recoverHostRun($directory, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+
+        $template = [$directory, $applied, $resumed];
+    }
+
+    [$directory, $applied, $resumed] = $template;
+
+    return copyRecoveryTemplate($directory, $scratch, $applied, $resumed);
+}
+
+/**
+ * copyScratchTemplate() for a recovery host, and the results of the runs that
+ * built it, re-addressed to $scratch.
+ *
+ * Resolving the run environment afterwards writes the parity registry and the
+ * copy the prerequisites check reads for $scratch, exactly as the next
+ * recover-host run would, so the copied host starts in the state a fresh one
+ * reaches before its first run.
+ *
+ * @param  array{exit: int, output: string}  ...$results
+ * @return list<array{exit: int, output: string}>
+ */
+function copyRecoveryTemplate(string $template, string $scratch, array ...$results): array
+{
+    copyScratchTemplate($template, $scratch);
+    recoveryEnv($scratch);
+
+    return array_map(
+        fn (array $result): array => [
+            'exit' => $result['exit'],
+            'output' => str_replace($template, $scratch, $result['output']),
+        ],
+        $results,
+    );
+}
+
 /*
 |--------------------------------------------------------------------------
 | provision-target harness
 |--------------------------------------------------------------------------
 |
 | The simulated host that provision-target and every installer it delegates
-| to run against, shared by ProvisionTargetTest (the operation) and
-| ProvisionTargetPreconditionsTest (what it refuses before mutating anything):
+| to run against, shared by ProvisionTargetTest (the operation),
+| ProvisionTargetPreconditionsTest (what it refuses before mutating anything),
+| ProvisionTargetConfigureHandoffTest (what each mode answers once the
+| operator has written shared/.env) and ProvisionTargetMalformedEnvTest (a
+| shared/.env that is not a regular file):
 | the run and its logs; the fixture registry — one active staging target and
 | two planned production ones, among them the synthetic `demo-shop` brand;
 | the logging stubs that do the real work inside the scratch directory; the
@@ -5491,15 +6093,52 @@ function provisionSummaryCount(string $output, string $label): int
 }
 
 /**
+ * `demo-shop` freshly provisioned into $scratch — the state every test of the
+ * hand-off to Configure starts from, as does every test of what a provisioned
+ * target does next — and the environment that points at it.
+ *
+ * Getting there is a full `--apply`, which is most of what each of those tests
+ * cost, and its result never varies. So a worker provisions it once, into a
+ * template of its own, and every later call copies the template into the
+ * test's scratch directory: 30 ms instead of 2–3 s.
+ *
+ * copyScratchTemplate() rewrites the absolute paths the simulated host records
+ * and proves none still names the template; the environment is rewritten here.
+ *
+ * @return array<string, string>
+ */
+function provisionDemoShopProvisioned(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = provisionScratchDir();
+        $environment = provisionFixture($directory);
+
+        [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $environment);
+        expect($exit)->toBe(0, $output);
+
+        register_shutdown_function(fn () => provisionCleanup($directory));
+        $template = [$directory, $environment];
+    }
+
+    [$directory, $environment] = $template;
+
+    copyScratchTemplate($directory, $scratch);
+
+    return array_map(
+        fn (string $value): string => str_replace($directory, $scratch, $value),
+        $environment,
+    );
+}
+
+/**
  * A provisioned target, then the canonical environment file an operator writes
  * before Configure — the exact state the real run was in.
  */
 function provisionWithCanonicalEnv(string $scratch): array
 {
-    $env = provisionFixture($scratch);
-
-    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-    expect($exit)->toBe(0, $output);
+    $env = provisionDemoShopProvisioned($scratch);
 
     $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
     @mkdir($root.'/shared', 0o755, true);
@@ -5517,10 +6156,7 @@ function provisionWithCanonicalEnv(string $scratch): array
  */
 function provisionWithMalformedEnv(string $scratch, string $shape): array
 {
-    $env = provisionFixture($scratch);
-
-    [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
-    expect($exit)->toBe(0, $output);
+    $env = provisionDemoShopProvisioned($scratch);
 
     $root = $scratch.'/fs/home/www/rateguru/production/demo-shop';
     @mkdir($root.'/shared', 0o755, true);
@@ -5614,5 +6250,1224 @@ function cronOperationalLines(string $cron): array
     return array_values(array_filter(
         preg_split('/\R/', $cron),
         fn (string $line): bool => ! preg_match('/^\s*(#|$)|^[A-Za-z_][A-Za-z0-9_]*=/', $line),
+    ));
+}
+
+/*
+|--------------------------------------------------------------------------
+| The deploy script, as its tests drive it
+|--------------------------------------------------------------------------
+|
+| DeployTest proves the deployment pipeline; DeployRecoveryFailureTest proves
+| what its recovery does when recovery itself goes wrong. Both build the same
+| scratch target, artifact and parity registry, stub the same host tools and
+| run the shipped script the same way, so the harness lives here once. See
+| DeployTest's file comment for how the real script is driven without root.
+*/
+
+function deployOpsScript(): string
+{
+    return base_path('infrastructure/scripts/deploy');
+}
+
+function deployOpsCommonFile(): string
+{
+    return base_path('infrastructure/scripts/common');
+}
+
+function deployOpsTargetsCli(): string
+{
+    return base_path('infrastructure/scripts/targets');
+}
+
+function deployOpsRegistryPath(): string
+{
+    return base_path('infrastructure/config/deployment-targets.json');
+}
+
+function deployOpsDeploymentConfPath(): string
+{
+    return base_path('infrastructure/templates/deployment.conf.example');
+}
+
+function deployOpsDeploymentProtocolPath(): string
+{
+    return base_path('infrastructure/config/deployment-protocol.json');
+}
+
+/**
+ * What the committed contract says this tooling supports. Read, never pinned to
+ * a literal: these tests assert the handshake's behaviour, and raising the
+ * protocol is a deliberate separate decision that must not be able to break
+ * them by surprise.
+ */
+function deployOpsSupportedProtocol(): int
+{
+    return (int) data_get(
+        json_decode(File::get(deployOpsDeploymentProtocolPath()), true, 512, JSON_THROW_ON_ERROR),
+        'tooling.supported',
+    );
+}
+
+function deployOpsScratchDir(): string
+{
+    return makeScratchDir('deploy-ops', ['', '/bin']);
+}
+
+function deployOpsCleanup(string $dir): void
+{
+    removeScratchDir($dir);
+}
+
+/**
+ * Run a bash script as a real subprocess with an explicit environment (never
+ * inherited shell exports). fd 2 is redirected onto fd 1 at the descriptor
+ * level so there is only one stream to drain.
+ *
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function deployOpsExec(string $scriptPath, array $env): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $scriptPath], $descriptors, $pipes, null, $env);
+
+    expect($process)->not->toBeFalse('could not start harness process');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $exit = proc_close($process);
+
+    return [$exit, $output];
+}
+
+/**
+ * Sources the real deploy script (BASH_SOURCE[0] != $0 here, so main() never
+ * auto-runs — see the file-level docblock above) then runs $body, which can
+ * call parse_deploy_args/resolve_target/perform_deploy/main directly.
+ *
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function deployOpsRunHarness(string $scratch, string $body, array $env = []): array
+{
+    $script = "set -Eeuo pipefail\n".'source '.escapeshellarg(deployOpsScript())."\n".$body."\n";
+    $harnessPath = $scratch.'/harness.sh';
+    file_put_contents($harnessPath, $script);
+
+    $defaultEnv = [
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+    ];
+
+    return deployOpsExec($harnessPath, array_merge($defaultEnv, $env));
+}
+
+/**
+ * @param  array<string, string>  $overrides
+ * @return array<string, string>
+ */
+function deployOpsBaseEnv(string $scratch, array $overrides = []): array
+{
+    return array_merge([
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_COMMON_FILE' => deployOpsCommonFile(),
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => deployOpsDeploymentConfPath(),
+        'RATEGURU_TARGET_REGISTRY_FILE' => deployOpsRegistryPath(),
+        'RATEGURU_TARGETS_CLI' => deployOpsTargetsCli(),
+        // The trusted protocol contract an installed bundle would carry. The
+        // committed file itself, never a fixture copy: deploy refuses to run
+        // without it, and a hand-written stand-in could drift from the contract
+        // the installer actually installs.
+        'RATEGURU_DEPLOYMENT_PROTOCOL_FILE' => deployOpsDeploymentProtocolPath(),
+        // The supervisor-activation wait tuning, shrunk so an
+        // activation that will never reach RUNNING fails immediately
+        // instead of sleeping through the production retry budget.
+        'RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_DEPLOY_QUEUE_RETRY_DELAY' => '0',
+    ], $overrides);
+}
+
+/**
+ * A stub matching health-check's real --target CLI shape closely enough for
+ * deploy's own purposes: logs its argv, exits 0 (or 1 to simulate a failed
+ * post-switch health check).
+ */
+function deployOpsHealthCheckStub(string $scratch, string $logFile, bool $fail = false): string
+{
+    $path = $scratch.'/bin/health-check-stub-'.uniqid('', true);
+    $exitCode = $fail ? 1 : 0;
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "$*" >> '.escapeshellarg($logFile)."\n"
+        ."exit {$exitCode}\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+function deployOpsVerifyRequiredClisStub(string $scratch, string $logFile): string
+{
+    $path = $scratch.'/bin/verify-required-clis-stub';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "$*" >> '.escapeshellarg($logFile)."\n"
+        ."exit 0\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * PATH-shadowed stubs for systemctl, runuser and supervisorctl — real
+ * fixtures use numeric uid/gid strings as RUNTIME_USER, which real runuser
+ * cannot resolve to a real account and does not need to: this stub drops
+ * "-u VALUE --" and execs the remaining command directly as the current
+ * (test) user.
+ *
+ * supervisorctl is stateful, mirroring the technique
+ * InstallBootstrapServicesTest already established: `status` answers from a
+ * queue-running state file, `update`/`start` create it (unless the
+ * activation-fail toggle simulates a worker that never reaches RUNNING),
+ * `stop` removes it, and every invocation is logged so tests can assert
+ * exactly which supervisor commands a deployment ran — or that it ran none.
+ * The reread-fail, update-fail and stop-fail toggles make that one command
+ * itself fail, the way supervisorctl does when supervisord rejects it.
+ */
+function deployOpsInstallCoreStubs(string $scratch): void
+{
+    file_put_contents($scratch.'/bin/systemctl', "#!/usr/bin/env bash\n"
+        .'echo "systemctl $*" >> '.escapeshellarg($scratch.'/systemctl.log')."\n"
+        ."exit 0\n");
+    chmod($scratch.'/bin/systemctl', 0o755);
+
+    file_put_contents($scratch.'/bin/runuser', "#!/usr/bin/env bash\n"
+        .'echo "runuser $*" >> '.escapeshellarg($scratch.'/runuser.log')."\n"
+        .'shift 2; shift'."\n"
+        .'exec "$@"'."\n");
+    chmod($scratch.'/bin/runuser', 0o755);
+
+    $stateDir = $scratch.'/supervisor-state';
+
+    if (! is_dir($stateDir)) {
+        expect(@mkdir($stateDir, 0o755, true))->toBeTrue("could not create supervisor state directory: {$stateDir}");
+    }
+
+    file_put_contents($scratch.'/bin/supervisorctl', "#!/usr/bin/env bash\n"
+        .'echo "supervisorctl $*" >> '.escapeshellarg($scratch.'/supervisorctl.log')."\n"
+        .'state='.escapeshellarg($stateDir)."\n"
+        .<<<'STUB'
+        case "${1:-}" in
+            status)
+                # Group-aware on purpose: answering for any requested group
+                # would let deploy query the wrong program (e.g. a
+                # hard-coded name) and still look healthy.
+                if [[ "${2:-}" != "parity-queue:*" ]]; then
+                    echo "${2:-}: ERROR (no such process)"
+                    exit 1
+                fi
+                # status-sequence models real Supervisor state transitions:
+                # one line consumed per status call, the final line sticky.
+                # This is what reproduces the STARTING race that a single
+                # immediate check would fail on.
+                if [[ -s "${state}/status-sequence" ]]; then
+                    next="$(head -n 1 "${state}/status-sequence")"
+                    if (( $(wc -l < "${state}/status-sequence") > 1 )); then
+                        tail -n +2 "${state}/status-sequence" > "${state}/seq.tmp"
+                        mv "${state}/seq.tmp" "${state}/status-sequence"
+                    fi
+                    # Exit 0 even for non-RUNNING states, so the caller's own
+                    # state classification is what decides — not our exit code.
+                    echo "parity-queue:parity-queue_00   ${next}   pid 321, uptime 0:00:01"
+                    exit 0
+                fi
+                if [[ -e "${state}/queue-running" ]]; then
+                    # drop-after-status simulates a worker that is RUNNING when
+                    # the pre-deploy snapshot reads it and gone by the time the
+                    # transition re-checks it.
+                    [[ -e "${state}/drop-after-status" ]] && rm -f "${state}/queue-running"
+                    echo "parity-queue:parity-queue_00   RUNNING   pid 123, uptime 0:05:00"
+                    exit 0
+                fi
+                echo "parity-queue:*: ERROR (no such process)"
+                exit 1
+                ;;
+            reread)
+                if [[ -e "${state}/reread-fail" ]]; then
+                    echo "error: <class 'xmlrpc.client.Fault'>, <Fault 92: 'CANT_REREAD'>"
+                    exit 2
+                fi
+                echo "parity-queue: available"
+                exit 0
+                ;;
+            update|start)
+                if [[ "${1}" == update ]] && [[ -e "${state}/update-fail" ]]; then
+                    echo "ERROR: parity-queue: could not be added"
+                    exit 2
+                fi
+                if [[ ! -e "${state}/activation-fail" ]]; then
+                    touch "${state}/queue-running"
+                fi
+                exit 0
+                ;;
+            stop)
+                if [[ -e "${state}/stop-fail" ]]; then
+                    echo "parity-queue:parity-queue_00: ERROR (abnormal termination)"
+                    exit 1
+                fi
+                rm -f "${state}/queue-running"
+                exit 0
+                ;;
+        esac
+        exit 0
+        STUB."\n");
+    chmod($scratch.'/bin/supervisorctl', 0o755);
+}
+
+/**
+ * The supervisorctl invocations a run performed (empty when the stub was
+ * never reached).
+ *
+ * @return list<string>
+ */
+function deployOpsSupervisorctlLog(string $scratch): array
+{
+    $path = $scratch.'/supervisorctl.log';
+
+    if (! is_file($path)) {
+        return [];
+    }
+
+    return array_values(array_filter(explode("\n", trim((string) file_get_contents($path)))));
+}
+
+/**
+ * A php stub whose `artisan queue:restart` fails while every other artisan
+ * command succeeds — the "restart signal cannot be written" case.
+ */
+function deployOpsFailingQueueRestartPhpBin(string $scratch): string
+{
+    $path = $scratch.'/bin/fake-php-queue-fail';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "php $*" >> '.escapeshellarg($scratch.'/artisan.log')."\n"
+        ."for arg in \"\$@\"; do\n"
+        ."    if [[ \"\${arg}\" == 'queue:restart' ]]; then exit 1; fi\n"
+        ."done\n"
+        ."exit 0\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A minimal release directory containing artisan, for exercising the queue
+ * transition directly without running deploy's full Laravel preparation
+ * (whose `install -g www-data` needs a membership CI does not have).
+ */
+function deployOpsReleaseDirWithArtisan(string $scratch): string
+{
+    $dir = $scratch.'/release-'.uniqid('', true);
+    expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create release directory: {$dir}");
+    file_put_contents($dir.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
+
+    return $dir;
+}
+
+/**
+ * A scratch target root + a separate incoming-artifacts directory + a real
+ * .tar.gz built with real tar/sha256sum (portable, no stubbing needed). Pass
+ * $laravel=true to additionally include artisan and the required-CLI
+ * manifest verify-required-clis (stubbed elsewhere) would otherwise expect.
+ *
+ * $release controls the ARTIFACT-OWNED environment contract inside the tarball,
+ * which is what an ordinary deploy now judges the host's .env against:
+ *
+ *   'contract' => false      the artifact carries no target registry at all,
+ *                            which is what an artifact built before the feature
+ *                            looks like (the default, and what every older test
+ *                            in this file relies on)
+ *   'contract' => 'declared' the artifact declares and ships a template
+ *   'keys'                   extra keys that template requires on top of the
+ *                            committed staging set
+ *   'declared'               override the declared path, to build the unsafe
+ *                            declarations the resolver must refuse
+ *   'ship'                   false to declare a template and not ship it
+ *   'registry'               raw registry contents, for a malformed one
+ *
+ * $release also controls the artifact's release.json, which is where the
+ * deployment protocol handshake reads the minimum protocol the release requires:
+ *
+ *   (absent)                 no release.json at all — a legacy artifact, which
+ *                            is what every older test in this file builds
+ *   'protocol' => 1          release.json declaring deployment_protocol_min: 1
+ *   'protocol' => 'omitted'  a release.json with no deployment_protocol_min, the
+ *                            other legacy shape
+ *   'protocol' => '"1"'      raw JSON for the field, to build the non-integer
+ *                            declarations the gate must refuse
+ *   'release_json'           raw release.json contents, for a malformed one
+ *   'artifact_contract'      a deployment-protocol.json to put INSIDE the
+ *                            artifact, which deploy must never treat as
+ *                            authority over what the host supports
+ *
+ * @return array{root: string, incoming: string, artifact: string, checksum: string}
+ */
+function deployOpsBuildFixture(string $scratch, bool $laravel = false, array $release = []): array
+{
+    $id = uniqid('', true);
+    $root = $scratch.'/target-'.$id;
+    $incoming = $scratch.'/incoming-'.$id;
+
+    foreach ([
+        $root.'/releases',
+        $root.'/deployments',
+        $root.'/locks',
+        $root.'/shared/storage',
+        $incoming,
+    ] as $dir) {
+        expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create fixture directory: {$dir}");
+    }
+    file_put_contents($root.'/shared/.env', contractSatisfyingEnvironment());
+
+    $artifactSrc = $scratch.'/artifact-src-'.$id;
+    mkdir($artifactSrc.'/public', 0o755, true);
+    file_put_contents($artifactSrc.'/public/index.php', "<?php // fixture\n");
+
+    $tarEntries = 'public';
+
+    if ($laravel) {
+        file_put_contents($artifactSrc.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
+        mkdir($artifactSrc.'/infrastructure/config', 0o755, true);
+        mkdir($artifactSrc.'/infrastructure/scripts', 0o755, true);
+        file_put_contents($artifactSrc.'/infrastructure/config/required-clis.txt', "targets\n");
+        file_put_contents($artifactSrc.'/infrastructure/scripts/targets', "#!/usr/bin/env bash\nexit 0\n");
+        chmod($artifactSrc.'/infrastructure/scripts/targets', 0o755);
+        file_put_contents($artifactSrc.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+        chmod($artifactSrc.'/infrastructure/scripts/common', 0o644);
+        $tarEntries = 'public artisan infrastructure';
+    }
+
+    // The artifact-owned environment contract. Absent by default: an artifact
+    // that declares nothing is exactly what a pre-feature one is, and deploy
+    // must keep deploying it.
+    if (($release['contract'] ?? false) !== false) {
+        @mkdir($artifactSrc.'/infrastructure/config', 0o755, true);
+
+        $declared = $release['declared'] ?? 'infrastructure/templates/environment/staging.env.example';
+
+        file_put_contents(
+            $artifactSrc.'/infrastructure/config/deployment-targets.json',
+            $release['registry'] ?? json_encode(
+                ['targets' => ['parity-target' => ['environment_template' => $declared]]],
+                JSON_PRETTY_PRINT,
+            ),
+        );
+
+        if (($release['ship'] ?? true) === true) {
+            $shipAt = $artifactSrc.'/'.$declared;
+
+            @mkdir(dirname($shipAt), 0o755, true);
+
+            // Built FROM the committed template, so the fixture cannot drift
+            // from the real key set.
+            $template = File::get(base_path('infrastructure/templates/environment/staging.env.example'));
+
+            foreach ($release['keys'] ?? [] as $key) {
+                $template .= $key."=\n";
+            }
+
+            file_put_contents($shipAt, $template);
+        }
+
+        $tarEntries = $laravel ? 'public artisan infrastructure' : 'public infrastructure';
+    }
+
+    // The artifact's own release.json, PRESENT by default — every artifact the
+    // build has ever produced carries one, and `deploy` refuses an artifact
+    // without one both at the protocol gate and, for a controlled alignment, at
+    // the identity check. A fixture without it would be a shape that does not
+    // exist. 'release_json' => false builds that shape deliberately, for the
+    // tests that prove the refusal.
+    if (($release['release_json'] ?? null) !== false) {
+        $metadata = is_string($release['release_json'] ?? null)
+            ? $release['release_json']
+            : null;
+
+        if ($metadata === null) {
+            $fields = ['"project": "rateguru"', '"release": "v0.0.0-20260101-000000-abc0000"'];
+
+            // 'omitted' is the legacy shape: an object with no declaration. The
+            // default carries the protocol this tooling supports, which is what
+            // a freshly built artifact declares.
+            $protocol = $release['protocol'] ?? deployOpsSupportedProtocol();
+
+            if ($protocol !== 'omitted') {
+                $fields[] = '"deployment_protocol_min": '.$protocol;
+            }
+
+            $metadata = '{'.implode(', ', $fields).'}';
+        }
+
+        file_put_contents($artifactSrc.'/release.json', $metadata);
+        $tarEntries .= ' release.json';
+    }
+
+    // A protocol contract carried inside the artifact. deploy must ignore it
+    // entirely: an artifact may state what it requires, never what the host
+    // supports.
+    if (isset($release['artifact_contract'])) {
+        @mkdir($artifactSrc.'/infrastructure/config', 0o755, true);
+        file_put_contents(
+            $artifactSrc.'/infrastructure/config/deployment-protocol.json',
+            $release['artifact_contract'],
+        );
+
+        if (! str_contains($tarEntries, 'infrastructure')) {
+            $tarEntries .= ' infrastructure';
+        }
+    }
+
+    $artifact = $incoming.'/release.tar.gz';
+    exec('tar -C '.escapeshellarg($artifactSrc)." -czf {$artifact} {$tarEntries} 2>&1", $tarOutput, $tarExit);
+    expect($tarExit)->toBe(0, "failed to build fixture artifact:\n".implode("\n", $tarOutput));
+
+    exec('cd '.escapeshellarg($incoming).' && sha256sum '.escapeshellarg(basename($artifact)).' > '.escapeshellarg(basename($artifact).'.sha256').' 2>&1', $shaOutput, $shaExit);
+    expect($shaExit)->toBe(0, "failed to build fixture checksum:\n".implode("\n", $shaOutput));
+
+    return ['root' => $root, 'incoming' => $incoming, 'artifact' => $artifact, 'checksum' => $artifact.'.sha256'];
+}
+
+/**
+ * A scratch, writable copy of the real committed deployment.conf.example,
+ * verbatim. Formerly rewrote STAGING_ROOT/STAGING_RUNTIME_USER/
+ * STAGING_CODE_GROUP/STAGING_DEPLOY_USER/STAGING_INCOMING_ARTIFACTS to point
+ * at each fixture's own paths — but the template no longer carries any
+ * target-specific field at all (see
+ * infrastructure/templates/deployment.conf.example's own header comment):
+ * every one of those values now comes exclusively from the target registry,
+ * via deployOpsParityRegistry(), which already derives them from the
+ * fixture's own root/incoming plus the current account/group. Still returns
+ * a fresh scratch copy (rather than the template path itself) so callers
+ * that mutate it afterward — e.g. the Laravel-prep test's own PHP_BIN
+ * override — never touch the repository's own source file.
+ */
+function deployOpsDeploymentConfForFixture(string $scratch): string
+{
+    $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
+    file_put_contents($path, File::get(deployOpsDeploymentConfPath()));
+
+    return $path;
+}
+
+/**
+ * A registry + patched `targets` validator declaring a single, fully valid
+ * `parity-target` with lifecycle=active pointing at the fixture's own
+ * application root — the same technique CleanupTest.php established.
+ * runtime_user/deploy_user/
+ * runtime_group/code_group are the current test process's own account/
+ * primary group name (deployOpsCurrentAccount()/deployOpsCurrentGroup()) —
+ * the registry is the only source of these values in target mode now;
+ * deployment.conf no longer carries any target-specific field at all (see
+ * deployOpsDeploymentConfForFixture()).
+ *
+ * @return array{0: string, 1: string} [registryPath, targetsCliPath]
+ */
+function deployOpsParityRegistry(string $scratch, array $fixture): array
+{
+    $account = deployOpsCurrentAccount();
+    $group = deployOpsCurrentGroup();
+
+    // Four constraints the committed `targets` validator enforces as
+    // production safety rails, relaxed only in this throwaway, test-only
+    // copy — the same technique CleanupTest.php already established for
+    // application_root/ACTIVE_ALLOWLIST: (1) application_root and
+    // (2) incoming_artifacts must otherwise live under /home/www/rateguru
+    // and /home respectively, which a scratch fixture can't satisfy;
+    // (3) code_group must otherwise differ from runtime_group, and
+    // (4) code_group must otherwise differ from the runtime user's own
+    // name — both real registry-modeling rules this fixture doesn't need to
+    // honor. It just needs one group name the test process can chown to
+    // without root, and reusing the test's own account/primary-group for
+    // both runtime_user and code_group is fine here (that modeling rule is
+    // already covered elsewhere, e.g. DeploymentTargetRegistryTest.php).
+    // Constraint (4) only surfaces where a host's own account/primary-group
+    // pair happen to share a name — e.g. GitHub Actions' `runner` user,
+    // whose primary group is also named `runner` — so this was missed
+    // locally (this machine's account and primary group differ) until CI
+    // caught it.
+    $patchedTargets = str_replace(
+        'ACTIVE_ALLOWLIST="staging-main"',
+        'ACTIVE_ALLOWLIST="parity-target"',
+        File::get(deployOpsTargetsCli()),
+    );
+    $patchedTargets = str_replace(
+        'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
+        'elif false; then',
+        $patchedTargets,
+    );
+    $patchedTargets = str_replace(
+        'elif [[ "${incoming}" != /home/* ]]; then',
+        'elif false; then',
+        $patchedTargets,
+    );
+    $patchedTargets = str_replace(
+        'if [[ "${code_group}" == "${runtime_group}" ]]; then',
+        'if false; then',
+        $patchedTargets,
+    );
+    $patchedTargets = str_replace(
+        'if [[ "${code_group}" == "${runtime_user}" ]]; then',
+        'if false; then',
+        $patchedTargets,
+    );
+
+    $targetsPath = $scratch.'/parity-targets';
+    file_put_contents($targetsPath, $patchedTargets);
+    chmod($targetsPath, 0o755);
+
+    $registry = [
+        'schema_version' => 1,
+        'targets' => [
+            'parity-target' => [
+                'id' => 'parity-target',
+                'lifecycle' => 'active',
+                'environment_class' => 'staging',
+                'application_root' => $fixture['root'],
+                'runtime_user' => $account,
+                'runtime_group' => $group,
+                'deploy_user' => $account,
+                'code_group' => $group,
+                'incoming_artifacts' => $fixture['incoming'],
+                'release_retention' => 5,
+                'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
+                'public_hostnames' => ['parity.example', 'parity-secondary.example'],
+                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1, 'minimum_retained_backups' => 2],
+                'php_fpm' => ['pool' => 'parity', 'socket' => '/run/php/parity.sock'],
+                'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
+                'scheduler' => ['name' => 'parity-scheduler'],
+                'nginx' => ['site_name' => 'parity', 'internal_hostname' => 'parity.internal'],
+                'environment_template' => 'infrastructure/templates/environment/staging.env.example',
+            ],
+        ],
+    ];
+
+    $registryPath = $scratch.'/parity-registry.json';
+    file_put_contents($registryPath, json_encode($registry, JSON_PRETTY_PRINT));
+
+    exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $validateOutput, $validateExit);
+    expect($validateExit)->toBe(0, "parity-target fixture failed validation:\n".implode("\n", $validateOutput));
+
+    return [$registryPath, $targetsPath];
+}
+
+/**
+ * The current test process's real username/primary group name — via `id`,
+ * not PHP's posix_* extension (not guaranteed enabled everywhere). Used as
+ * RUNTIME_USER/DEPLOY_ACCOUNT/CODE_GROUP so chown/install succeed without
+ * root, and because the target registry validator requires account-name-
+ * shaped strings (a raw numeric uid fails is_safe_account_name).
+ */
+function deployOpsCurrentAccount(): string
+{
+    exec('id -un', $output);
+
+    return trim($output[0] ?? '');
+}
+
+function deployOpsCurrentGroup(): string
+{
+    exec('id -gn', $output);
+
+    return trim($output[0] ?? '');
+}
+
+/**
+ * Runs one full, real deployment (extraction, symlinks, ownership/mode
+ * normalization, verify-required-clis, atomic switch, health-check, history)
+ * against a fresh fixture, via --target parity-target. $artifact, when given,
+ * rewrites the fixture's artifact and its checksum before deploy sees them.
+ *
+ * @param  (callable(array{root: string, incoming: string, artifact: string, checksum: string}): void)|null  $artifact
+ * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, verifyCliLog: string, releaseId: string}
+ */
+function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null): array
+{
+    $fixture = deployOpsBuildFixture($scratch);
+
+    if ($artifact !== null) {
+        $artifact($fixture);
+    }
+
+    $confPath = deployOpsDeploymentConfForFixture($scratch);
+    deployOpsInstallCoreStubs($scratch);
+    [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
+
+    $healthCheckLog = $scratch.'/health-check-'.uniqid('', true).'.log';
+    touch($healthCheckLog);
+    $healthCheckStub = deployOpsHealthCheckStub($scratch, $healthCheckLog, $failHealthCheck ?? false);
+
+    $verifyCliLog = $scratch.'/verify-cli-'.uniqid('', true).'.log';
+    touch($verifyCliLog);
+    $verifyCliStub = deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
+
+    $releaseId = 'v1.0.0-2026010'.random_int(1, 9).'-000000-abc'.random_int(1000, 9999);
+
+    $env = deployOpsBaseEnv($scratch, [
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
+        'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
+        'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
+    ]);
+
+    [$exit, $output] = deployOpsRunHarness(
+        $scratch,
+        "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
+        $env,
+    );
+
+    return [
+        'exit' => $exit,
+        'output' => $output,
+        'fixture' => $fixture,
+        'healthCheckLog' => $healthCheckLog,
+        'verifyCliLog' => $verifyCliLog,
+        'releaseId' => $releaseId,
+    ];
+}
+
+/** @return list<array<string, mixed>> */
+function deployOpsHistory(string $root): array
+{
+    $raw = trim((string) @file_get_contents($root.'/deployments/history.jsonl'));
+
+    if ($raw === '') {
+        return [];
+    }
+
+    return array_map(
+        fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+        array_values(array_filter(explode("\n", $raw))),
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| install-bootstrap-services against a simulated host
+|--------------------------------------------------------------------------
+|
+| InstallBootstrapServicesTest proves the service installer's contract;
+| InstallBootstrapServicesRollbackTest proves what a failed apply puts back.
+| Both run the shipped script against the same fixture filesystem root and the
+| same stateful stubs, described in InstallBootstrapServicesTest's file
+| comment, so the host is built here once.
+*/
+
+function bsvcScript(): string
+{
+    return base_path('infrastructure/scripts/install-bootstrap-services');
+}
+
+function bsvcScratchDir(): string
+{
+    return makeScratchDir('bootstrap-services', ['', '/bin', '/fs', '/log', '/svc', '/toggles']);
+}
+
+function bsvcCleanup(string $dir): void
+{
+    removeScratchDir($dir);
+}
+
+/**
+ * @param  list<string>  $arguments
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function bsvcRun(array $arguments, array $env): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(
+        array_merge(['bash', bsvcScript()], $arguments),
+        $descriptors,
+        $pipes,
+        null,
+        $env,
+    );
+
+    expect($process)->not->toBeFalse('could not start install-bootstrap-services subprocess');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $exit = proc_close($process);
+
+    return [$exit, $output];
+}
+
+function bsvcWriteStub(string $path, string $content): void
+{
+    file_put_contents($path, $content);
+    chmod($path, 0o755);
+}
+
+function bsvcLog(string $scratch, string $name): string
+{
+    $path = $scratch.'/log/'.$name;
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+function bsvcWriteStubs(string $scratch): void
+{
+    // stat: layered — type from the real scratch filesystem (with a
+    // type-table override so a plain fixture file can present as a socket),
+    // owner/group from the fixture ownership table, mode real.
+    bsvcWriteStub($scratch.'/bin/stat', <<<'STUB'
+        #!/bin/bash
+        path="${!#}"
+        if [[ -L "${path}" ]]; then ftype="symbolic link"
+        elif [[ -d "${path}" ]]; then ftype="directory"
+        elif [[ -S "${path}" ]]; then ftype="socket"
+        elif [[ -f "${path}" ]]; then
+            ftype="regular file"
+            row_t="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 == "TYPE" { print $3; exit }' "${STUB_TYPE_TABLE}" 2>/dev/null)"
+            [[ -n "${row_t}" ]] && ftype="${row_t}"
+        elif [[ -e "${path}" ]]; then ftype="other"
+        else exit 1; fi
+        mode="$(PATH="${STUB_REAL_PATH}" stat -c '%a' -- "${path}" 2>/dev/null)" \
+            || mode="$(PATH="${STUB_REAL_PATH}" stat -f '%Mp%Lp' "${path}" 2>/dev/null)" || exit 1
+        mode="$(printf '%o' $(( 8#${mode} )))"
+        row="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 != "TYPE" { print $2 "|" $3; found = 1; exit } END { exit !found }' "${STUB_OWNER_TABLE}" 2>/dev/null)" || row=""
+        if [[ -z "${row}" ]]; then
+            row="$(PATH="${STUB_REAL_PATH}" stat -c '%U|%G' -- "${path}" 2>/dev/null)" \
+                || row="$(PATH="${STUB_REAL_PATH}" stat -f '%Su|%Sg' "${path}" 2>/dev/null)" || exit 1
+        fi
+        printf '%s|%s|%s\n' "${ftype}" "${row}" "${mode}"
+        STUB);
+
+    // chown: records the invocation and upserts the ownership row for the
+    // exact path given — never recursive.
+    bsvcWriteStub($scratch.'/bin/chown', <<<'STUB'
+        #!/bin/bash
+        printf 'chown %s\n' "$*" >> "${STUB_LOG}/chown.log"
+        owner_group=""; path=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --) ;;
+                -*) ;;
+                *) if [[ -z "${owner_group}" ]]; then owner_group="${arg}"; else path="${arg}"; fi ;;
+            esac
+        done
+        owner="${owner_group%%:*}"; group="${owner_group##*:}"
+        tmp="${STUB_OWNER_TABLE}.tmp"
+        PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 != p' "${STUB_OWNER_TABLE}" > "${tmp}" 2>/dev/null || : > "${tmp}"
+        printf '%s|%s|%s\n' "${path}" "${owner}" "${group}" >> "${tmp}"
+        PATH="${STUB_REAL_PATH}" mv "${tmp}" "${STUB_OWNER_TABLE}"
+        exit 0
+        STUB);
+
+    bsvcWriteStub($scratch.'/bin/chmod', <<<'STUB'
+        #!/bin/bash
+        printf 'chmod %s\n' "$*" >> "${STUB_LOG}/chmod.log"
+        PATH="${STUB_REAL_PATH}" chmod "$@"
+        STUB);
+
+    bsvcWriteStub($scratch.'/bin/install', <<<'STUB'
+        #!/bin/bash
+        printf 'install %s\n' "$*" >> "${STUB_LOG}/install.log"
+        PATH="${STUB_REAL_PATH}" install "$@"
+        STUB);
+
+    // systemctl: stateful — enabled/active per unit as files under the
+    // service-state directory; every invocation is logged.
+    bsvcWriteStub($scratch.'/bin/systemctl', <<<'STUB'
+        #!/bin/bash
+        printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/systemctl.log"
+        # A real reload replaces workers, so the replacements are created
+        # with whatever supplementary groups the account now has. Unless the
+        # reload-keeps-workers-stale toggle models a host where that failed.
+        respawn_nginx_workers() {
+            [[ -f "${STUB_FS}/nginx-fresh-worker-gids.txt" ]] || return 0
+            if [[ -e "${STUB_TOGGLES}/nginx-reload-keeps-stale-workers" ]]; then return 0; fi
+            gids="$(PATH="${STUB_REAL_PATH}" cat "${STUB_FS}/nginx-fresh-worker-gids.txt")"
+            PATH="${STUB_REAL_PATH}" rm -rf "${STUB_FS}/proc"
+            : > "${STUB_FS}/nginx-worker-pids.txt"
+            for pid in 9001 9002; do
+                PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/proc/${pid}"
+                printf 'Name:\tnginx\nGroups:\t%s \n' "${gids}" > "${STUB_FS}/proc/${pid}/status"
+                printf '%s\n' "${pid}" >> "${STUB_FS}/nginx-worker-pids.txt"
+            done
+        }
+        cmd=""; unit=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --quiet) ;;
+                *) if [[ -z "${cmd}" ]]; then cmd="${arg}"; else unit="${arg}"; fi ;;
+            esac
+        done
+        unit="${unit%.service}"
+        case "${cmd}" in
+            is-enabled) [[ -e "${STUB_SVC_STATE}/${unit}.enabled" ]] ;;
+            is-active)  [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] ;;
+            enable)  touch "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            disable) rm -f "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            start)
+                [[ -e "${STUB_TOGGLES}/${unit}-start-fail" ]] && exit 1
+                touch "${STUB_SVC_STATE}/${unit}.active"
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                ;;
+            stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
+            reload|restart)
+                [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                ;;
+            *) exit 0 ;;
+        esac
+        STUB);
+
+    // pgrep: the PIDs of the simulated running www-data nginx workers.
+    bsvcWriteStub($scratch.'/bin/pgrep', <<<'STUB'
+        #!/bin/bash
+        printf 'pgrep %s\n' "$*" >> "${STUB_LOG}/pgrep.log"
+        [[ -s "${STUB_FS}/nginx-worker-pids.txt" ]] || exit 1
+        PATH="${STUB_REAL_PATH}" cat "${STUB_FS}/nginx-worker-pids.txt"
+        STUB);
+
+    // nginx / sshd / php-fpm: config tests whose verdict a toggle controls.
+    foreach (['nginx' => 'nginx', 'sshd' => 'sshd', 'php-fpm8.5' => 'php-fpm'] as $bin => $log) {
+        bsvcWriteStub($scratch.'/bin/'.$bin, <<<STUB
+            #!/bin/bash
+            printf '{$log} %s\\n' "\$*" >> "\${STUB_LOG}/{$log}.log"
+            [[ -e "\${STUB_TOGGLES}/{$log}-t-fail" ]] && exit 1
+            exit 0
+            STUB);
+    }
+
+    // supervisorctl: reread validates (toggle-driven), status answers from
+    // the queue-running toggle, update/start flip it on.
+    bsvcWriteStub($scratch.'/bin/supervisorctl', <<<'STUB'
+        #!/bin/bash
+        printf 'supervisorctl %s\n' "$*" >> "${STUB_LOG}/supervisorctl.log"
+        case "${1:-}" in
+            reread)
+                [[ -e "${STUB_TOGGLES}/supervisor-reread-fail" ]] && { echo "ERROR: CANT_REREAD bad config"; exit 0; }
+                echo "No config updates to processes"
+                ;;
+            status)
+                if [[ -e "${STUB_TOGGLES}/queue-running" ]]; then
+                    echo "rateguru-staging-queue:rateguru-staging-queue_00   RUNNING   pid 123, uptime 0:05:00"
+                else
+                    echo "rateguru-staging-queue:*: ERROR (no such process)"
+                    exit 1
+                fi
+                ;;
+            update|start)
+                touch "${STUB_TOGGLES}/queue-running"
+                ;;
+        esac
+        exit 0
+        STUB);
+
+    // One stub per child installer: logs the invocation, answers verify
+    // from its own "<name>-compliant" toggle, and lets apply either fail
+    // (via "<name>-apply-fail") or converge (creating the toggle). The
+    // mail-capture apply also satisfies verify-mail-capture, mirroring the
+    // real ownership relation between the two. An executable
+    // "<name>-apply-hook" runs first: whatever else happens to the host while
+    // that child applies, for a test that needs the host to change underneath
+    // a running apply.
+    foreach ([
+        'runtime-installer', 'hostlayout-installer', 'operations-installer',
+        'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
+        'verify-mail-capture', 'nightwatch-installer', 'mail-gateway-installer',
+    ] as $child) {
+        bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
+            #!/bin/bash
+            me="$(basename "$0")"
+            printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/children.log"
+            case "$*" in
+                # The closed allowlist question, answered the way the real
+                # installer answers it: staging-main records a deployment
+                # marker, and no other target does.
+                *--supports-deployment-marker*)
+                    [[ "$*" == *"--target staging-main"* ]] && exit 0
+                    exit 1
+                    ;;
+                # The mail gateway's plan question, which no other child is
+                # asked: it passes unless the toggle says the plan is refused.
+                *--check*)
+                    [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
+                    exit 0
+                    ;;
+                *--apply*)
+                    [[ -x "${STUB_TOGGLES}/${me}-apply-hook" ]] && "${STUB_TOGGLES}/${me}-apply-hook"
+                    [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
+                    touch "${STUB_TOGGLES}/${me}-compliant"
+                    if [[ "${me}" == mail-capture-installer ]]; then
+                        touch "${STUB_TOGGLES}/verify-mail-capture-compliant"
+                        touch "${STUB_SVC_STATE}/staging-mailpit.enabled" "${STUB_SVC_STATE}/staging-mailpit.active"
+                        touch "${STUB_SVC_STATE}/staging-mailtrap-local.enabled" "${STUB_SVC_STATE}/staging-mailtrap-local.active"
+                    fi
+                    exit 0
+                    ;;
+                *)
+                    [[ -e "${STUB_TOGGLES}/${me}-compliant" ]] && exit 0
+                    exit 1
+                    ;;
+            esac
+            STUB);
+    }
+}
+
+/**
+ * The managed service files: logical destination => committed source.
+ *
+ * @return array<string, string>
+ */
+function bsvcManagedFiles(): array
+{
+    return [
+        '/etc/ssh/sshd_config.d/70-rateguru-deploy.conf' => base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'),
+        '/etc/nginx/sites-available/rateguru-staging' => base_path('infrastructure/config/nginx/rateguru-staging'),
+        '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf' => base_path('infrastructure/config/php-fpm/rateguru-staging.conf'),
+        '/etc/supervisor/conf.d/rateguru-staging-queue.conf' => base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf'),
+        '/etc/cron.d/rateguru-staging-scheduler' => base_path('infrastructure/config/cron/rateguru-staging-scheduler'),
+    ];
+}
+
+/** @return list<string> */
+function bsvcExternalPrerequisitePaths(): array
+{
+    return [
+        '/etc/nginx/rateguru-staging.htpasswd',
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem',
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem',
+        '/etc/letsencrypt/live/staging-mail-capture/fullchain.pem',
+        '/etc/letsencrypt/live/staging-mail-capture/privkey.pem',
+        '/etc/letsencrypt/options-ssl-nginx.conf',
+        '/etc/letsencrypt/ssl-dhparams.pem',
+    ];
+}
+
+function bsvcOwnerTableAdd(string $scratch, string $physical, string $owner, string $group): void
+{
+    $table = $scratch.'/fs/owner-table.txt';
+    $rows = array_filter(
+        explode("\n", (string) @file_get_contents($table)),
+        fn (string $row): bool => $row !== '' && ! str_starts_with($row, $physical.'|'),
+    );
+    $rows[] = "{$physical}|{$owner}|{$group}";
+    file_put_contents($table, implode("\n", $rows)."\n");
+}
+
+/**
+ * Build a fully simulated host and return the environment to run the
+ * script against it.
+ *
+ * Options:
+ *   profile:          'clean' (PRE_DEPLOY, nothing the service installer
+ *                     owns installed yet, base services stopped) |
+ *                     'compliant' (DEPLOYED, everything
+ *                     installed and running)
+ *   current:          'absent' | 'valid' | 'dangling' | 'outside' | 'wrongtype'
+ *                     (defaults: clean => absent, compliant => valid)
+ *   omitExternal:     list<string> external-prerequisite paths NOT created
+ *   euid:             string (default '0')
+ *
+ * @param  array<string, mixed>  $options
+ * @return array<string, string>
+ */
+function bsvcFixture(string $scratch, array $options = []): array
+{
+    $fs = $scratch.'/fs';
+    $profile = $options['profile'] ?? 'clean';
+
+    foreach ([
+        '/etc/nginx/sites-available', '/etc/nginx/sites-enabled',
+        '/etc/php/8.5/fpm/pool.d', '/etc/supervisor/conf.d',
+        '/etc/cron.d', '/etc/ssh/sshd_config.d',
+        '/home/www/rateguru/staging/shared/storage',
+        '/home/www/rateguru/staging/releases',
+        '/usr/bin', '/run/php',
+    ] as $sub) {
+        @mkdir($fs.$sub, 0o755, true);
+    }
+
+    touch($fs.'/usr/bin/php8.5');
+
+    // External prerequisites (presence only — sentinel content proves the
+    // installer never prints or copies it anywhere).
+    $omitted = $options['omitExternal'] ?? [];
+
+    foreach (bsvcExternalPrerequisitePaths() as $path) {
+        if (in_array($path, $omitted, true)) {
+            continue;
+        }
+
+        @mkdir(dirname($fs.$path), 0o755, true);
+        file_put_contents($fs.$path, 'SECRET-SENTINEL-'.md5($path)."\n");
+    }
+
+    // Fixture passwd: the install-bootstrap-host-layout accounts exist.
+    // Group database: the code group's GID is what an Nginx worker must
+    // carry in its supplementary groups.
+    file_put_contents($fs.'/etc-group', implode("\n", [
+        'root:x:0:',
+        'www-data:x:33:',
+        'rateguru-staging:x:5001:',
+        'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+    ])."\n");
+
+    // Simulated running Nginx workers. `nginxWorkers` maps PID => list of
+    // supplementary GIDs, so a test can model workers that predate the
+    // code-group membership (the clean-VPS state) as easily as current ones.
+    $workers = $options['nginxWorkers'] ?? ['4101' => ['33', '5010'], '4102' => ['33', '5010']];
+
+    foreach ($workers as $pid => $gids) {
+        @mkdir($fs.'/proc/'.$pid, 0o755, true);
+        file_put_contents(
+            $fs.'/proc/'.$pid.'/status',
+            "Name:\tnginx\nUid:\t33\t33\t33\t33\nGroups:\t".implode(' ', $gids)." \n",
+        );
+    }
+
+    file_put_contents($fs.'/nginx-worker-pids.txt', implode("\n", array_keys($workers))."\n");
+    file_put_contents($fs.'/nginx-fresh-worker-gids.txt', ($options['nginxFreshWorkerGids'] ?? '33 5010')."\n");
+
+    file_put_contents($fs.'/etc-passwd', implode("\n", [
+        'root:x:0:0:root:/root:/bin/bash',
+        'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/usr/sbin/nologin',
+        'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/bin/bash',
+    ])."\n");
+
+    file_put_contents($fs.'/owner-table.txt', '');
+    file_put_contents($fs.'/type-table.txt', '');
+
+    // The PHP-FPM pool socket exists as soon as the pool runs; presenting a
+    // plain fixture file as a socket via the type table.
+    touch($fs.'/run/php/rateguru-staging.sock');
+    chmod($fs.'/run/php/rateguru-staging.sock', 0o660);
+    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-staging.sock|TYPE|socket\n", FILE_APPEND);
+    bsvcOwnerTableAdd($scratch, $fs.'/run/php/rateguru-staging.sock', 'www-data', 'www-data');
+
+    // Deployment state.
+    $current = $options['current'] ?? ($profile === 'compliant' ? 'valid' : 'absent');
+    $staging = $fs.'/home/www/rateguru/staging';
+
+    switch ($current) {
+        case 'valid':
+            @mkdir($staging.'/releases/20240101120000', 0o755, true);
+            symlink($staging.'/releases/20240101120000', $staging.'/current');
+            break;
+        case 'dangling':
+            symlink($staging.'/releases/never-deployed', $staging.'/current');
+            break;
+        case 'outside':
+            @mkdir($staging.'/rogue-release', 0o755, true);
+            symlink($staging.'/rogue-release', $staging.'/current');
+            break;
+        case 'wrongtype':
+            @mkdir($staging.'/current', 0o755, true);
+            break;
+    }
+
+    bsvcWriteStubs($scratch);
+
+    if ($profile === 'compliant') {
+        // Managed files installed byte-identical, root:root 0644; enabled
+        // link present; logs dir present with the runtime ownership.
+        foreach (bsvcManagedFiles() as $logical => $src) {
+            copy($src, $fs.$logical);
+            chmod($fs.$logical, 0o644);
+            bsvcOwnerTableAdd($scratch, $fs.$logical, 'root', 'root');
+        }
+
+        symlink('/etc/nginx/sites-available/rateguru-staging', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
+
+        @mkdir($staging.'/shared/storage/logs', 0o755, true);
+        chmod($staging.'/shared/storage/logs', 0o2770);
+        bsvcOwnerTableAdd($scratch, $staging.'/shared/storage/logs', 'rateguru-staging', 'rateguru-staging');
+
+        foreach ([
+            'ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor',
+            'php8.5-fpm', 'staging-mailpit', 'staging-mailtrap-local',
+        ] as $unit) {
+            touch($scratch.'/svc/'.$unit.'.enabled');
+            touch($scratch.'/svc/'.$unit.'.active');
+        }
+
+        foreach ([
+            'runtime-installer', 'hostlayout-installer', 'operations-installer',
+            'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
+            'nightwatch-installer', 'mail-gateway-installer',
+        ] as $child) {
+            touch($scratch.'/toggles/'.$child.'-compliant');
+        }
+
+        touch($scratch.'/toggles/queue-running');
+    } else {
+        // Clean host: only ssh runs (a VPS always has it), and only the
+        // runtime and host-layout prerequisite verifies pass.
+        touch($scratch.'/svc/ssh.enabled');
+        touch($scratch.'/svc/ssh.active');
+        touch($scratch.'/toggles/runtime-installer-compliant');
+        touch($scratch.'/toggles/hostlayout-installer-compliant');
+    }
+
+    return [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_BOOTSTRAPSVC_EUID' => $options['euid'] ?? '0',
+        'RATEGURU_BOOTSTRAPSVC_FS_ROOT' => $fs,
+        'RATEGURU_BOOTSTRAPSVC_PASSWD_FILE' => $fs.'/etc-passwd',
+        'RATEGURU_BOOTSTRAPSVC_GROUP_FILE' => $fs.'/etc-group',
+        'RATEGURU_BOOTSTRAPSVC_PGREP_BIN' => $scratch.'/bin/pgrep',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_WORKER_WAIT_ATTEMPTS' => '2',
+        'RATEGURU_BOOTSTRAPSVC_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime-installer',
+        'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $scratch.'/bin/hostlayout-installer',
+        'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
+        'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
+        'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
+        'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
+        'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
+        'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
+        'RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN' => $scratch.'/bin/php-fpm8.5',
+        'RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_BOOTSTRAPSVC_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_BOOTSTRAPSVC_INSTALL_BIN' => $scratch.'/bin/install',
+        'RATEGURU_BOOTSTRAPSVC_CHOWN_BIN' => $scratch.'/bin/chown',
+        'RATEGURU_BOOTSTRAPSVC_CHMOD_BIN' => $scratch.'/bin/chmod',
+        'RATEGURU_BOOTSTRAPSVC_SOCKET_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_QUEUE_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_STABILITY_WAIT' => '0',
+        'RATEGURU_BOOTSTRAPSVC_RETRY_DELAY' => '0',
+        'STUB_LOG' => $scratch.'/log',
+        'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'STUB_OWNER_TABLE' => $fs.'/owner-table.txt',
+        'STUB_TYPE_TABLE' => $fs.'/type-table.txt',
+        'STUB_SVC_STATE' => $scratch.'/svc',
+        'STUB_TOGGLES' => $scratch.'/toggles',
+        'STUB_FS' => $fs,
+    ];
+}
+
+/**
+ * The systemctl mutations (everything except is-enabled/is-active probes).
+ *
+ * @return list<string>
+ */
+function bsvcSystemctlMutations(string $scratch): array
+{
+    $lines = array_filter(explode("\n", bsvcLog($scratch, 'systemctl.log')));
+
+    return array_values(array_filter(
+        $lines,
+        fn (string $line): bool => ! str_contains($line, 'is-enabled') && ! str_contains($line, 'is-active'),
     ));
 }

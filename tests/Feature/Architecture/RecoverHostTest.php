@@ -117,9 +117,7 @@ it('refuses to inspect, resume or verify a machine whose hold has gone', functio
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -186,9 +184,7 @@ it('keeps the hold the apply placed when a resume finds it in place', function (
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -647,9 +643,7 @@ it('refuses to report a host as held once its queue is running again', function 
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
@@ -676,9 +670,7 @@ it('refuses to report a host as held once its scheduler is back in cron.d', func
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
 
         // The cron entry reappeared — a scheduled writer can fire again.
@@ -808,9 +800,7 @@ it('keeps the guard until the completed recovery is durably recorded', function 
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
+        $applied = recoveryApplied($scratch);
         $operation = recoveryOperationIdIn($applied['output']);
         deployRecoveredRelease($scratch);
 
