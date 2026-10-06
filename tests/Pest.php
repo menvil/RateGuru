@@ -1248,6 +1248,42 @@ function writeExecutable(string $path, string $body): string
 }
 
 /**
+ * A wrapper around one of the simulated host's executables that runs it
+ * unchanged and then, when one of its arguments is exactly $argument (on every
+ * call when $argument is null), runs the Bash in $hook.
+ *
+ * A failure handler is only exercised by a failure that lands at the right
+ * moment, and the moment is usually "after this step and before that one":
+ * a cron.d that stops accepting the scheduler entry once it has been moved
+ * out, a guard that can no longer be re-labelled once the data is staged. The
+ * step the moment follows is nearly always a call to one of these tools, so
+ * the hook rides on that call instead of on a modified copy of the script
+ * under test.
+ *
+ * The wrapper exits with the wrapped executable's own status, so the tool
+ * still succeeds or fails exactly as the test configured it. Written beside
+ * the executable it wraps, as <name>-hooked.
+ */
+function executableWithHook(string $executable, ?string $argument, string $hook): string
+{
+    $match = $argument === null
+        ? 'matched=true'
+        : 'matched=false; for argument in "$@"; do [[ "${argument}" == '.escapeshellarg($argument).' ]] && matched=true; done';
+
+    return writeExecutable($executable.'-hooked', implode("\n", [
+        '#!/usr/bin/env bash',
+        escapeshellarg($executable).' "$@"',
+        'status=$?',
+        $match,
+        'if [[ "${matched}" == true ]]; then',
+        $hook,
+        'fi',
+        'exit "${status}"',
+        '',
+    ]));
+}
+
+/**
  * A host-global deployment.conf pointing PHP_BIN at the scratch php stub.
  * common validates and sources this file; it is never the installed default
  * path, so no root ownership is demanded of it.
