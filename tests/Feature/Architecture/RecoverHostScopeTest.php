@@ -650,7 +650,11 @@ it('leaves every accepted operational surface it does not extend untouched', fun
         // so it changes when a target's lifecycle does. What recovery needs to
         // stay true of it — that it grants recovery nothing — is asserted
         // directly below instead of by freezing the file.
-        'infrastructure/scripts/install-mail-capture',
+        //
+        // The mail-capture installer has left it too: its apply path gained
+        // the gated test overrides every other installer has, so it changes
+        // when its own tests do. Recovery needs it to know nothing of a
+        // recovery, which is asserted below as well.
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
@@ -667,6 +671,13 @@ it('leaves every accepted operational surface it does not extend untouched', fun
     foreach (['recover-host', 'rateguru-recover', 'RECOVERY_'] as $forbidden) {
         expect(str_contains(executableSourceLines($perimeter), $forbidden))
             ->toBeFalse("the deploy perimeter must grant nothing to a recovery: {$forbidden}");
+    }
+
+    $mailCapture = File::get(base_path('infrastructure/scripts/install-mail-capture'));
+
+    foreach (['recover-host', 'rateguru-recover', 'RECOVERY_'] as $forbidden) {
+        expect(str_contains(executableSourceLines($mailCapture), $forbidden))
+            ->toBeFalse("mail capture must know nothing of a recovery: {$forbidden}");
     }
 
     // No new wrapper and no new sudoers grant: the recovery credential is the
