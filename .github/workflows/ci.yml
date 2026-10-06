@@ -158,13 +158,6 @@ jobs:
           echo "files=$(find public/build -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "size=$(du -sh public/build | cut -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Upload built assets
-        uses: actions/upload-artifact@v7
-        with:
-          name: public-build
-          path: public/build
-          retention-days: 1
-
   tests:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-24.04
@@ -176,7 +169,6 @@ jobs:
     # ever fire for something genuinely stuck, never for an ordinary slow
     # runner.
     timeout-minutes: 60
-    needs: frontend-build
     env:
       DB_CONNECTION: pgsql
       DB_HOST: 127.0.0.1
@@ -232,51 +224,6 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Download built assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: public-build
-          path: public/build
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: npm
-
-      # The Browser test suite (Pest v4 browser tests) drives a real Chromium
-      # through Playwright; without it `php artisan test` aborts at startup.
-      # Browser binaries are cached by lockfile hash: on a cache hit
-      # `npx playwright install` skips the CDN download entirely, so a flaky
-      # CDN only ever hurts the first run after a Playwright version bump.
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Install Playwright
-        timeout-minutes: 10
-        run: |
-          npm ci --ignore-scripts
-          npx playwright install chromium
-
-      # Split out of the browser install and made best-effort on purpose:
-      # on the ubuntu-24.04 image every job is pinned to, every hard Chromium library is
-      # already present, and `install-deps` only adds optional international
-      # font packages — via apt, whose Azure mirror proved capable of
-      # trickling for hours. A down mirror must not block the DOM-based
-      # browser tests; if a future runner image ever drops a hard library,
-      # the test step itself fails loudly with a Chromium launch error, so
-      # nothing is silently masked.
-      - name: Install Playwright system dependencies (best effort)
-        timeout-minutes: 6
-        continue-on-error: true
-        run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
-          sudo npx playwright install-deps chromium
-
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -291,9 +238,12 @@ jobs:
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
+      # Unit and Feature only. Feature renders pages without Vite (see
+      # tests/Pest.php), so this job needs no built assets; the Browser suite,
+      # which loads them in a real browser, has a job of its own.
       - name: Run PostgreSQL tests
         id: pest
-        run: php artisan test --parallel --exclude-testsuite=Architecture --log-junit junit.xml
+        run: php artisan test --parallel --testsuite=Unit,Feature --log-junit junit.xml
 
       - name: Collect test results
         id: test-results
@@ -344,6 +294,127 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: laravel-logs
+          path: storage/logs
+          retention-days: 5
+
+  # The Browser suite drives a real Chromium through Playwright against the
+  # built assets. It runs once, on PostgreSQL (docs/architecture/database-support.md),
+  # and in a job of its own: it is the slowest part of the suite per test, and
+  # the Unit and Feature jobs no longer wait for a build or a browser.
+  tests-browser:
+    name: Browser tests (Pest + PostgreSQL)
+    runs-on: ubuntu-24.04
+    # Only a guard against a hung download, like every test job's cap.
+    timeout-minutes: 60
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
+    services:
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Before the build as well as the tests: the admin panel's Filament theme
+      # builds on Filament's own theme CSS, which ships inside vendor/filament.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql, gd, exif
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # Built here rather than downloaded from the build job: the job already
+      # needs Node for Playwright, and building takes less time than waiting
+      # for another job to finish.
+      - name: Build assets
+        run: npm run build
+
+      # Browser binaries are cached by lockfile hash: on a cache hit
+      # `npx playwright install` skips the CDN download entirely, so a flaky
+      # CDN only ever hurts the first run after a Playwright version bump.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright
+        timeout-minutes: 10
+        run: npx playwright install chromium
+
+      # Split out of the browser install and made best-effort on purpose:
+      # on the ubuntu-24.04 image every job is pinned to, every hard Chromium library is
+      # already present, and `install-deps` only adds optional international
+      # font packages — via apt, whose Azure mirror proved capable of
+      # trickling for hours. A down mirror must not block the DOM-based
+      # browser tests; if a future runner image ever drops a hard library,
+      # the test step itself fails loudly with a Chromium launch error, so
+      # nothing is silently masked.
+      - name: Install Playwright system dependencies (best effort)
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
+          sudo npx playwright install-deps chromium
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Run Browser tests
+        run: php artisan test --parallel --testsuite=Browser --log-junit browser-junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-junit
+          path: browser-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload Laravel logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-laravel-logs
           path: storage/logs
           retention-days: 5
 
@@ -551,7 +622,6 @@ jobs:
     # ever fire for something genuinely stuck, never for an ordinary slow
     # runner.
     timeout-minutes: 60
-    needs: frontend-build
     env:
       DB_CONNECTION: mariadb
       DB_HOST: 127.0.0.1
@@ -596,12 +666,6 @@ jobs:
 
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Download built assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: public-build
-          path: public/build
 
       - name: Prepare application
         run: |
@@ -663,7 +727,6 @@ jobs:
     # ever fire for something genuinely stuck, never for an ordinary slow
     # runner.
     timeout-minutes: 60
-    needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
       rollback: ${{ steps.rollback.outcome }}
@@ -686,12 +749,6 @@ jobs:
 
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Download built assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: public-build
-          path: public/build
 
       - name: Prepare application
         run: |
@@ -826,6 +883,7 @@ jobs:
       - static-analysis
       - frontend-build
       - tests
+      - tests-browser
       - tests-architecture
       - migrations-mariadb
       - tests-sqlite
@@ -847,6 +905,13 @@ jobs:
         with:
           pattern: architecture-junit-*
           path: architecture-junit
+      - name: Download Browser JUnit report
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: browser-junit
+          path: browser-junit
 
       - name: Publish CI results
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -865,6 +930,7 @@ jobs:
           TEST_COUNT: ${{ needs.tests.outputs.tests }}
           ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
           POSTGRES_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          BROWSER_RESULT: ${{ needs['tests-browser'].result }}
           ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
@@ -892,9 +958,10 @@ jobs:
             const details = (result, successText) =>
               result === 'success' ? successText : `${icon(result)} ${result} · see workflow log`;
             const value = (name) => process.env[name] || 'n/a';
-            // Every <testcase> in every downloaded Architecture report, one
-            // report per leg; counted without an XML parser on purpose.
-            const architectureTests = (() => {
+            // Every <testcase> in every JUnit report downloaded into $root —
+            // one per Architecture leg, one for the Browser job; counted
+            // without an XML parser on purpose.
+            const junitTests = (root) => {
               const path = require('path');
               const reports = [];
               const walk = (dir) => {
@@ -904,11 +971,13 @@ jobs:
                   else if (entry.name.endsWith('.xml')) reports.push(full);
                 }
               };
-              try { walk('architecture-junit'); } catch { return 'n/a'; }
+              try { walk(root); } catch { return 'n/a'; }
               if (reports.length === 0) return 'n/a';
               return String(reports.reduce((sum, report) =>
                 sum + (fs.readFileSync(report, 'utf8').match(/<testcase\b/g) || []).length, 0));
-            })();
+            };
+            const architectureTests = junitTests('architecture-junit');
+            const browserTests = junitTests('browser-junit');
             const tests = process.env.TEST_COUNT || 'n/a';
             const assertions = process.env.ASSERTION_COUNT || 'n/a';
             const baselineFindings = value('BASELINE_FINDINGS');
@@ -931,6 +1000,7 @@ jobs:
               `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & PostgreSQL | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('POSTGRES_MIGRATIONS')} migrations · seed passed`)} |`,
+              `| Browser tests | ${details(process.env.BROWSER_RESULT, `${browserTests} tests · Chromium · PostgreSQL`)} |`,
               `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${architectureTests} tests · 4 shards`)} |`,
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
@@ -988,6 +1058,7 @@ jobs:
           STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
           FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          BROWSER_RESULT: ${{ needs['tests-browser'].result }}
           ARCHITECTURE_RESULT: ${{ needs['tests-architecture'].result }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
@@ -1000,6 +1071,7 @@ jobs:
             "$STATIC_ANALYSIS_RESULT" \
             "$FRONTEND_BUILD_RESULT" \
             "$TESTS_RESULT" \
+            "$BROWSER_RESULT" \
             "$ARCHITECTURE_RESULT" \
             "$MARIADB_RESULT" \
             "$SQLITE_RESULT" \

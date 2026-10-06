@@ -60,6 +60,15 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature', 'Browser');
 
+// Feature tests assert on the HTML the server renders, never on the compiled
+// CSS and JavaScript it links to, so they render the page without Vite: no
+// manifest has to be built first, and their CI jobs need not wait for one. The
+// Browser suite is the one that loads the built assets in a real browser, and
+// it still renders through Vite.
+pest()->beforeEach(function (): void {
+    $this->withoutVite();
+})->in('Feature');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations

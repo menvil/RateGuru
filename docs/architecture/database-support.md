@@ -63,8 +63,8 @@ credentials; CI provides its own isolated service with those values.
 
 ## CI database matrix
 
-The primary Pest and Browser job runs on the pinned `postgres:18.4-alpine`
-service container. Coverage uses the same image. These containers exist only
+The primary Pest job and the Browser job run on the pinned
+`postgres:18.4-alpine` service container. Coverage uses the same image. These containers exist only
 inside GitHub Actions. Separate compatibility jobs run the complete Unit and
 Feature suites, fresh migrations, the standard seed, and rollback checks on
 SQLite and MariaDB.

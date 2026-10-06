@@ -15,6 +15,9 @@ Local prerequisites:
 - Playwright Chromium installed with `npx playwright install chromium`.
 - The command starts its own local Laravel HTTP server; no separate
   `php artisan serve` process is required.
+- Built frontend assets (`npm run build`): the suite loads the compiled CSS
+  and JavaScript in a real browser. Unit and Feature tests do not need them —
+  they render pages without Vite.
 - Browser tests use the normal Laravel testing database configuration from
   `phpunit.xml` and reset state with `RefreshDatabase`.
 

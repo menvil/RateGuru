@@ -116,23 +116,16 @@ it('runs primary and compatibility test suites in ci', function () {
     $workflowContents = File::get($workflowPath);
     $workflow = Yaml::parseFile($workflowPath);
     $coverage = File::get(base_path('.github/workflows/coverage.yml'));
-    $downloadStep = [
-        'name' => 'Download built assets',
-        'uses' => 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
-        'with' => [
-            'name' => 'public-build',
-            'path' => 'public/build',
-        ],
-    ];
 
     expect($workflowContents)
         ->toContain('- name: Run PostgreSQL tests')
         ->toContain('- name: Run SQLite compatibility tests')
         ->toContain('- name: Run MariaDB compatibility tests')
-        // The Architecture suite has its own job, and the primary job says so
-        // by excluding it rather than by accident of directory layout.
+        // The Architecture and Browser suites have jobs of their own, and the
+        // primary job says so by naming the suites it runs rather than by
+        // accident of directory layout.
         ->toContain('- name: Run Architecture tests')
-        ->toContain('--exclude-testsuite=Architecture')
+        ->toContain('- name: Run Browser tests')
         // A parallel run creates a database per worker; MariaDB's test user
         // only has rights on one until this widens them.
         ->toContain('- name: Allow per-worker test databases')
@@ -163,14 +156,30 @@ it('runs primary and compatibility test suites in ci', function () {
         ->keys()
         ->all())->toBe(['tests-architecture']);
 
-    foreach (['tests', 'tests-sqlite', 'migrations-mariadb'] as $job) {
-        $downloadSteps = collect($workflow['jobs'][$job]['steps'])
-            ->filter(fn (array $step): bool => ($step['name'] ?? null) === 'Download built assets')
-            ->values();
+    $run = fn (string $job, string $step): string => (string) collect($workflow['jobs'][$job]['steps'])
+        ->firstWhere('name', $step)['run'];
 
-        expect($downloadSteps)->toHaveCount(1)
-            ->and($downloadSteps->first())->toBe($downloadStep);
+    expect($run('tests', 'Run PostgreSQL tests'))->toContain('--testsuite=Unit,Feature ');
+
+    // Unit and Feature render pages without Vite (tests/Pest.php), so no job
+    // that runs them waits for a build or downloads one: they start at once.
+    foreach (['tests', 'tests-sqlite', 'migrations-mariadb'] as $job) {
+        expect($workflow['jobs'][$job])->not->toHaveKey('needs');
+        expect(collect($workflow['jobs'][$job]['steps'])->pluck('name')->all())
+            ->not->toContain('Download built assets')
+            ->not->toContain('Build assets');
     }
+
+    // The Browser suite is what loads the built assets, so its job builds them
+    // before it runs — once, against the same PostgreSQL the primary job uses.
+    $browser = $workflow['jobs']['tests-browser'];
+    $browserSteps = collect($browser['steps'])->pluck('name')->values()->all();
+
+    expect($browser['env']['DB_CONNECTION'])->toBe('pgsql')
+        ->and($browser['services']['postgres']['image'])->toBe($workflow['jobs']['tests']['services']['postgres']['image'])
+        ->and($run('tests-browser', 'Run Browser tests'))->toContain('--testsuite=Browser ')
+        ->and(array_search('Build assets', $browserSteps, true))
+        ->toBeLessThan(array_search('Run Browser tests', $browserSteps, true));
 
     foreach (['tests-sqlite', 'migrations-mariadb'] as $job) {
         $rollbackSteps = collect($workflow['jobs'][$job]['steps'])
