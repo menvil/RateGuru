@@ -45,9 +45,13 @@ svc_line() {
 
 listener_line() {
     # listener_line <label> <host> <port>: report the exact loopback endpoint.
-    local label="$1" host="$2" port="$3" status="down"
+    # The listener list is captured first and matched separately: under
+    # `set -o pipefail` a `ss | grep -q` pipeline reports failure whenever grep
+    # short-circuits on a match and ss is killed by SIGPIPE.
+    local label="$1" host="$2" port="$3" status="down" listeners
     if command -v ss >/dev/null 2>&1; then
-        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)"; then
+        listeners="$(ss -ltnH "sport = :${port}" 2>/dev/null || true)"
+        if grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" <<<"${listeners}"; then
             status="listening (loopback)"
         fi
     elif (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then

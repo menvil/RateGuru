@@ -1713,9 +1713,16 @@ perform_deploy() {
 
     log "validating artifact paths"
 
-    if tar -tzf "${ARTIFACT}" \
-        | grep -Eq '(^/|(^|/)\.\.(/|$))'
-    then
+    # The listing is captured before it is searched. Piped straight into
+    # `grep -q`, the check would fail open: grep exits at the first unsafe
+    # path, tar dies of SIGPIPE writing the rest of a long listing, and under
+    # `pipefail` the `if` reads that as "no unsafe path".
+    local artifact_listing
+
+    artifact_listing="$(tar -tzf "${ARTIFACT}")" \
+        || fail "cannot list the artifact: ${ARTIFACT}"
+
+    if grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"${artifact_listing}"; then
         fail "artifact contains an unsafe path"
     fi
 

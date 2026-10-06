@@ -189,10 +189,13 @@ wait_for_api() {
 check_listener() {
     # check_listener <host> <port>: confirm a TCP listener on exactly host:port
     # (host is a loopback address, 127.0.0.1 or 127.0.0.2).
-    local host="$1" port="$2"
+    # The listener list is captured first and matched separately: under
+    # `set -o pipefail` a `ss | grep -q` pipeline reports failure whenever grep
+    # short-circuits on a match and ss is killed by SIGPIPE.
+    local host="$1" port="$2" listeners
     if command -v ss >/dev/null 2>&1; then
-        ss -ltnH "sport = :${port}" 2>/dev/null \
-            | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" && return 0
+        listeners="$(ss -ltnH "sport = :${port}" 2>/dev/null || true)"
+        grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" <<<"${listeners}" && return 0
         return 1
     fi
     (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null && { exec 3>&- 3<&-; return 0; }
