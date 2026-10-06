@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
@@ -4249,6 +4250,75 @@ function installLanguagesUpTo(int $total): array
 function untranslatedCategory(string $name = 'Georgian food'): Category
 {
     return Category::factory()->create(['slug' => Str::slug($name), 'name' => $name, 'name_translations' => null, 'is_active' => true]);
+}
+
+/**
+ * Counts, from here on, every Livewire update the page sends — through the
+ * fetch Livewire calls, and through the browser's own record of requests, so
+ * the proof does not rest on how Livewire happens to send them.
+ */
+function watchLivewireUpdates(mixed $page): void
+{
+    $page->script(<<<'JS'
+        (() => {
+            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
+            const fetch = window.fetch
+
+            window.livewireUri = uri
+            window.livewireFetches = 0
+            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
+            window.notReloaded = true
+            window.fetch = function (input, ...rest) {
+                if (String(input?.url ?? input).startsWith(uri)) {
+                    window.livewireFetches++
+                }
+
+                return fetch.call(this, input, ...rest)
+            }
+        })()
+    JS);
+}
+
+/** What the page has sent to Livewire since watchLivewireUpdates(), and whether it is still the same page. */
+function livewireUpdatesSinceWatching(mixed $page): array
+{
+    return $page->script(<<<'JS'
+        (() => ({
+            fetches: window.livewireFetches ?? null,
+            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
+            sameDocument: window.notReloaded === true,
+        }))()
+    JS);
+}
+
+/**
+ * A rendered Admin v2 screen, queryable: a Livewire component under test, or
+ * the HTML of a plain response.
+ */
+function livewireDom(Testable|string $page): DOMXPath
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML('<?xml encoding="utf-8"?>'.($page instanceof Testable ? $page->html() : $page));
+
+    return new DOMXPath($dom);
+}
+
+/**
+ * The outer HTML of the first element an XPath query finds, or null — without
+ * Livewire's morph markers and the whitespace between tags, so an assertion
+ * can name a button by its exact text.
+ */
+function livewireFragment(Testable|string $page, string $query): ?string
+{
+    $node = livewireDom($page)->query($query)->item(0);
+
+    if ($node === null) {
+        return null;
+    }
+
+    $html = str_replace(['<!--[if BLOCK]><![endif]-->', '<!--[if ENDBLOCK]><![endif]-->'], '', (string) $node->ownerDocument->saveHTML($node));
+
+    return (string) preg_replace(['/>\s+/', '/\s+</'], ['>', '<'], $html);
 }
 
 /**

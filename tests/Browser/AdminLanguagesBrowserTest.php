@@ -53,45 +53,6 @@ function languagesFocused(mixed $page): ?string
     return $page->script('document.activeElement ? (document.activeElement.id || document.activeElement.innerText.trim()) : null');
 }
 
-/**
- * Counts, from here on, every Livewire update the page sends — through the
- * fetch Livewire calls, and through the browser's own record of requests, so
- * the proof does not rest on how Livewire happens to send them.
- */
-function languagesWatchLivewire(mixed $page): void
-{
-    $page->script(<<<'JS'
-        (() => {
-            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
-            const fetch = window.fetch
-
-            window.livewireUri = uri
-            window.livewireFetches = 0
-            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
-            window.notReloaded = true
-            window.fetch = function (input, ...rest) {
-                if (String(input?.url ?? input).startsWith(uri)) {
-                    window.livewireFetches++
-                }
-
-                return fetch.call(this, input, ...rest)
-            }
-        })()
-    JS);
-}
-
-/** What the page has sent to Livewire since languagesWatchLivewire(), and whether it is still the same page. */
-function languagesLivewireTraffic(mixed $page): array
-{
-    return $page->script(<<<'JS'
-        (() => ({
-            fetches: window.livewireFetches ?? null,
-            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
-            sameDocument: window.notReloaded === true,
-        }))()
-    JS);
-}
-
 beforeEach(function () {
     ProjectSettings::factory()->create();
     actingAs(User::factory()->admin()->create());
@@ -495,7 +456,7 @@ it('filters as you type, in the page, without a single request to Livewire', fun
     $label = config("locales.supported.{$withheld}.label");
 
     $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    languagesWatchLivewire($page);
+    watchLivewireUpdates($page);
 
     // English name, case aside; native name; locale code.
     foreach ([mb_strtoupper(mb_substr($label, 0, 4)), config("locales.supported.{$withheld}.native"), $withheld] as $search) {
@@ -506,18 +467,18 @@ it('filters as you type, in the page, without a single request to Livewire', fun
             ->and($page->script('new URLSearchParams(location.search).get("q")'))->toBe($search);
     }
 
-    expect(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+    expect(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 
     // The watch does see Livewire: a tab is a request.
     $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]')->wait(0.8);
 
-    expect(languagesLivewireTraffic($page)['fetches'])->toBeGreaterThan(0)
-        ->and(languagesLivewireTraffic($page)['requests'])->toBeGreaterThan(0);
+    expect(livewireUpdatesSinceWatching($page)['fetches'])->toBeGreaterThan(0)
+        ->and(livewireUpdatesSinceWatching($page)['requests'])->toBeGreaterThan(0);
 });
 
 it('clears the search back to every row, and the URL with it, without asking the server', function () {
     $page = visit('/admin/languages?q=klingon')->resize(1440, 900)->wait(0.4);
-    languagesWatchLivewire($page);
+    watchLivewireUpdates($page);
 
     expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'count' => '0 of '.count(supportedLocales()).' installed']);
     $page->assertSee('No installed language matches “klingon”');
@@ -527,7 +488,7 @@ it('clears the search back to every row, and the URL with it, without asking the
     expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
         ->and($page->script('location.search'))->toBe('')
         ->and(languagesFocused($page))->toBe('rg-admin-languages-search')
-        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 });
 
 it('clears a typed search from the button in the field, which is there only while there is text', function () {
@@ -535,7 +496,7 @@ it('clears a typed search from the button in the field, which is there only whil
     $clearShown = '(() => { const clear = document.querySelector("#rg-admin-languages-search ~ .rg-admin-search__clear"); return getComputedStyle(clear).display !== "none" && clear.getBoundingClientRect().width > 0 })()';
 
     $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    languagesWatchLivewire($page);
+    watchLivewireUpdates($page);
 
     // An empty field has nothing to clear.
     expect($page->script($clearShown))->toBeFalse();
@@ -563,7 +524,7 @@ it('clears a typed search from the button in the field, which is there only whil
         ->and($page->script('location.search'))->toBe('')
         ->and(languagesFocused($page))->toBe('rg-admin-languages-search')
         ->and($page->script($clearShown))->toBeFalse()
-        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 
     // Opened with a search, the field has text to clear straight away.
     $page = visit('/admin/languages?q='.rawurlencode($withheld))->resize(1440, 900)->wait(0.4);
@@ -611,7 +572,7 @@ it('searches thirty-five languages in the page', function () {
     $made = $codes[20];
 
     $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    languagesWatchLivewire($page);
+    watchLivewireUpdates($page);
 
     expect(languagesScreen($page))->toMatchArray(['rows' => $codes, 'count' => '35 of 35 installed']);
 
@@ -625,5 +586,28 @@ it('searches thirty-five languages in the page', function () {
 
     $page->clear('#rg-admin-languages-search')->wait(0.3);
     expect(languagesScreen($page)['rows'])->toBe($codes)
-        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+});
+
+it('opens Translation Center from a missing item on that item, and from Translate all missing on everything missing', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+    $unit = "categories:{$category->id}:name";
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page->click("#rg-admin-language-{$target} .rg-admin-languages__missing")->wait(0.6);
+
+    $translate = $page->script("[...document.querySelectorAll('.rg-admin-languages__item')].find((item) => item.innerText.includes('Georgian food')).querySelector('a:not(.rg-admin-languages__edit-source)').getAttribute('href')");
+    $page->navigate($translate)->wait(0.8);
+
+    expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&section=categories&mode=missing")
+        ->and($page->script("document.activeElement?.closest('[data-unit]')?.dataset.unit"))->toBe($unit)
+        ->and($page->script("document.querySelector('.rg-admin-translation-row--linked')?.dataset.unit"))->toBe($unit);
+
+    $languages = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $languages->click("#rg-admin-language-{$target} .rg-admin-languages__missing")->wait(0.6);
+    $languages->click('.rg-admin-drawer__footer a')->wait(0.8);
+
+    expect($languages->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&mode=missing")
+        ->and($languages->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').map((row) => row.dataset.unit)"))->toContain($unit);
 });

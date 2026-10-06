@@ -4,15 +4,13 @@ namespace App\Filament\Pages;
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Exceptions\Settings\IncompleteLocaleCatalogException;
-use App\Filament\Resources\Categories\CategoryResource;
-use App\Filament\Resources\RatingGroups\RatingGroupResource;
-use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Support\TranslationSourceEditor;
 use App\Support\Locale\LocaleManager;
-use App\Support\Translations\MissingProjectTranslation;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
+use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 use App\Support\Translations\TranslationCatalogInspector;
 use App\Support\Translations\TranslationCatalogIssue;
@@ -453,10 +451,13 @@ final class LanguagesPage extends Page
 
     /**
      * What the drawer shows for its language: the catalog issues, the first
-     * LISTED_ISSUES of them, and the missing project content by section.
+     * LISTED_ISSUES of them, and the missing project content by section, with
+     * Translation Center opened on that language's missing items when there
+     * are any. Catalog issues are the release's to fix: Translation Center
+     * edits project content only, so they never lead there.
      *
      * @param  array<string, LanguageRow>  $rows
-     * @return array{row: LanguageRow, issues: list<string>, unlisted: int, sections: list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string}>}>}|null
+     * @return array{row: LanguageRow, issues: list<string>, unlisted: int, sections: list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string, translate: string}>}>, translateAll: ?string}|null
      */
     private function missing(array $rows): ?array
     {
@@ -473,6 +474,7 @@ final class LanguagesPage extends Page
             'issues' => array_map(fn (TranslationCatalogIssue $issue): string => $issue->message, array_slice($issues, 0, self::LISTED_ISSUES)),
             'unlisted' => max(0, count($issues) - self::LISTED_ISSUES),
             'sections' => $this->missingSections($row['project']),
+            'translateAll' => $row['missing'] > 0 ? TranslationCenterPage::getUrl(['locale' => $row['code'], 'mode' => 'missing']) : null,
         ];
     }
 
@@ -550,48 +552,31 @@ final class LanguagesPage extends Page
      * The missing translations by section, in the sections' own order. Each
      * is named by what it is and which of its fields — the field left out
      * where it would only repeat the name, as for a project setting — with
-     * the start of the English text it is translated from and a link to the
-     * editor that manages that content today.
+     * the start of the English text it is translated from, Translate, which
+     * opens Translation Center on that item, and Edit source, which opens the
+     * editor that holds its English text.
      *
-     * @return list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string}>}>
+     * @return list<array{label: string, items: list<array{label: string, field: ?string, reference: string, url: string, translate: string}>}>
      */
     private function missingSections(ProjectTranslationReport $report): array
     {
         $sections = [];
 
-        foreach ($report->missingBySection() as $section => $items) {
+        foreach ($report->missingBySection() as $section => $units) {
             $sections[] = [
                 'label' => ProjectContentSection::from($section)->label(),
-                'items' => array_map(function (MissingProjectTranslation $item): array {
-                    $field = Str::ucfirst(str_replace('_', ' ', $item->field));
-
-                    return [
-                        'label' => $item->label,
-                        'field' => strcasecmp($field, $item->label) === 0 ? null : $field,
-                        'reference' => Str::limit(Str::squish(strip_tags((string) $item->reference)), 120),
-                        'url' => $this->editUrl($item),
-                    ];
-                }, $items),
+                'items' => array_map(fn (ProjectTranslationUnit $unit): array => [
+                    'label' => $unit->label,
+                    'field' => $unit->fieldLabel(),
+                    'reference' => Str::limit(Str::squish(strip_tags($unit->reference)), 120),
+                    'url' => TranslationSourceEditor::url($unit),
+                    // The unit is where Translation Center opens, nothing more: what it
+                    // saves is the unit it finds again for itself.
+                    'translate' => TranslationCenterPage::getUrl(['locale' => $report->locale, 'section' => $section, 'mode' => 'missing', 'unit' => $unit->id]),
+                ], $units),
             ];
         }
 
         return $sections;
-    }
-
-    /**
-     * Until Translation Center exists, a missing translation is fixed in the
-     * editor that already holds the content's translations, so the drawer
-     * links there and no editing is lost.
-     */
-    private function editUrl(MissingProjectTranslation $item): string
-    {
-        return match ($item->section) {
-            ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages => ProjectSettingsPage::getUrl(),
-            ProjectContentSection::Categories => CategoryResource::getUrl('edit', ['record' => $item->recordId]),
-            ProjectContentSection::Tags => TagResource::getUrl('edit', ['record' => $item->recordId]),
-            ProjectContentSection::RatingGroups => RatingGroupResource::getUrl('edit', ['record' => $item->recordId]),
-            // Options are edited on their group's page.
-            ProjectContentSection::RatingOptions => RatingGroupResource::getUrl('edit', ['record' => $item->parentId]),
-        };
     }
 }

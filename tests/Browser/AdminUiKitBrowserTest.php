@@ -129,3 +129,76 @@ it('takes a toast away when its time is up, and not while it is being read', fun
     $page->wait(0.8);
     expect(adminUiKitOverlays($page)['toasts'])->toBe([]);
 });
+
+it('moves a segmented control with the arrow keys, Home and End, one tab stop for the group', function () {
+    $page = visit('/admin/dev/ui-kit#FRM-08')->resize(1440, 900)->wait(0.4);
+    $checked = '#kit-segmented [aria-checked="true"]';
+    $state = fn (): array => $page->script(<<<'JS'
+        (() => ({
+            checked: document.querySelector('#kit-segmented [aria-checked="true"]').textContent.trim(),
+            focused: document.activeElement?.textContent.trim(),
+            tabStops: [...document.querySelectorAll('#kit-segmented [role="radio"]')].filter((radio) => radio.tabIndex === 0).length,
+            weight: getComputedStyle(document.querySelector('#kit-segmented [aria-checked="true"]')).fontWeight,
+            caption: document.querySelector('#kit-segmented').nextElementSibling.textContent.trim(),
+        }))()
+    JS);
+
+    $page->keys($checked, 'ArrowRight')->wait(0.2);
+    expect($state())->toMatchArray(['checked' => 'All', 'focused' => 'All', 'tabStops' => 1, 'weight' => '500', 'caption' => 'default · mode = all']);
+
+    $page->keys(':focus', 'ArrowRight')->wait(0.2);
+    expect($state())->toMatchArray(['checked' => 'Missing only', 'focused' => 'Missing only']);
+
+    $page->keys(':focus', 'End')->wait(0.2);
+    expect($state()['checked'])->toBe('All');
+
+    $page->keys(':focus', 'Home')->wait(0.2);
+    expect($state())->toMatchArray(['checked' => 'Missing only', 'caption' => 'default · mode = missing']);
+});
+
+it('opens a filter dropdown on its checked value, moves through it and chooses from the keyboard', function () {
+    $page = visit('/admin/dev/ui-kit#FRM-10')->resize(1440, 900)->wait(0.4);
+
+    $page->keys('#kit-filter-section', 'Enter')->wait(0.3);
+
+    expect($page->script("({ expanded: document.getElementById('kit-filter-section').getAttribute('aria-expanded'), focused: document.activeElement?.innerText.trim() })"))
+        ->toBe(['expanded' => 'true', 'focused' => 'All sections']);
+
+    $page->keys(':focus', 'ArrowDown')->wait(0.1);
+    $page->keys(':focus', 'ArrowDown')->wait(0.1);
+    $page->keys(':focus', 'Enter')->wait(0.3);
+
+    expect($page->script("({ expanded: document.getElementById('kit-filter-section').getAttribute('aria-expanded'), focused: document.activeElement?.id, trigger: document.getElementById('kit-filter-section').innerText.trim() })"))
+        ->toBe(['expanded' => 'false', 'focused' => 'kit-filter-section', 'trigger' => 'Section: Static Pages']);
+
+    $page->keys('#kit-filter-section', 'Enter')->wait(0.3);
+    $page->keys(':focus', 'Escape')->wait(0.3);
+
+    expect($page->script("({ expanded: document.getElementById('kit-filter-section').getAttribute('aria-expanded'), focused: document.activeElement?.id })"))
+        ->toBe(['expanded' => 'false', 'focused' => 'kit-filter-section']);
+});
+
+it('searches and chooses in the combobox, which takes the value when nothing cancels it', function () {
+    $page = visit('/admin/dev/ui-kit#FRM-11')->resize(1440, 900)->wait(0.4);
+
+    $page->keys('#kit-combobox-trigger', 'Space')->wait(0.3);
+    expect($page->script('document.activeElement?.id'))->toBe('kit-combobox-search');
+
+    $page->typeSlowly('#kit-combobox-search', 'deu', 30)->wait(0.3);
+    expect($page->script("[...document.querySelectorAll('#kit-combobox-listbox [role=option]')].filter((option) => option.style.display !== 'none').map((option) => option.dataset.value)"))->toBe(['de']);
+
+    $page->keys('#kit-combobox-search', 'Enter')->wait(0.3);
+
+    expect($page->script("({ focused: document.activeElement?.id, value: document.getElementById('kit-combobox-trigger').innerText, caption: document.getElementById('kit-combobox-trigger').closest('.rg-admin-kit__stack').querySelector('.rg-admin-kit__caption').textContent.trim() })"))
+        ->toMatchArray(['focused' => 'kit-combobox-trigger', 'caption' => 'language = de'])
+        ->and($page->script("document.getElementById('kit-combobox-trigger').innerText"))->toContain('German — Deutsch')->toContain('Disabled');
+
+    // A search that matches nothing says so.
+    $page->keys('#kit-combobox-trigger', 'Enter')->wait(0.3);
+    $page->typeSlowly('#kit-combobox-search', 'klingon', 30)->wait(0.3);
+
+    expect($page->script("document.querySelector('#kit-combobox-popover .rg-admin-combobox__empty').textContent"))->toBe('No installed language matches.');
+
+    $page->keys('#kit-combobox-search', 'Escape')->wait(0.3);
+    expect($page->script('document.activeElement?.id'))->toBe('kit-combobox-trigger');
+});
