@@ -47,11 +47,34 @@
 #
 # There is no default mode: a mutating acceptance run is always asked for by
 # name.
+#
+# Test override: RATEGURU_MAILGW_EUID — the variable install-mail-gateway reads
+# — is honoured only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, the gate
+# every installer here uses, so the acceptance runs unprivileged against a
+# simulated host.
 
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — the override when allowed and set, else the
+# default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILGW_EUID "${EUID}")"
 
 INSTALLER="${SCRIPT_DIR}/install-mail-gateway"
 MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
@@ -475,7 +498,7 @@ check_capture_retry() {
 }
 
 run_e2e() {
-    [[ "${EUID}" -eq 0 ]] || fail "--e2e must run as root (it stops and starts Mailpit and removes its own queue entries)"
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--e2e must run as root (it stops and starts Mailpit and removes its own queue entries)"
     require_tools
     trap cleanup EXIT
 
