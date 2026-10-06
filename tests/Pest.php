@@ -4559,6 +4559,25 @@ function browserTestPause(float $seconds): void
 }
 
 /**
+ * Resizes the viewport and returns the page once it is laid out at the new
+ * size, instead of pausing for long enough to be fairly sure.
+ *
+ * The window reports the size once the browser has applied it. Whatever
+ * listens for it runs in the next rendering frame — resize events and media
+ * query listeners come before that frame's animation callbacks — so once two
+ * frames have gone by, those listeners have had their turn as well.
+ */
+function resizeAndSettle(mixed $page, int $width, int $height): mixed
+{
+    $page = $page->resize($width, $height);
+
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height}");
+    $page->script('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+
+    return $page;
+}
+
+/**
  * The languages the product offers, read from config/locales.php — the one
  * place a language is declared. Every localization test iterates this rather
  * than spelling out a list, so declaring a language puts it through all of

@@ -45,6 +45,56 @@ function adminShellActive(mixed $page): ?string
     JS);
 }
 
+/**
+ * An admin page at the given size, once the shell is laid out for it: the
+ * window has the size, the fonts are in and the sidebar's Alpine component
+ * has started. The shell has no transitions, so that layout is final.
+ */
+function adminShellAt(string $path, int $width, int $height): mixed
+{
+    $page = resizeAndSettle(visit($path), $width, $height);
+
+    waitForScript($page, 'document.fonts.status === "loaded" && Alpine.$data(document.querySelector(".rg-admin-shell-sidebar")).open === false');
+
+    return $page;
+}
+
+/**
+ * Waits until the sidebar has opened over the page: show() moves focus to
+ * its close button last, a tick after it opens.
+ */
+function waitForAdminShellSidebarOpen(mixed $page): void
+{
+    waitForScript($page, 'document.getElementById("rg-admin-sidebar").classList.contains("rg-admin-sidebar--open") && document.activeElement === document.querySelector(".rg-admin-sidebar__close")');
+}
+
+/**
+ * Waits until the sidebar has closed and given focus back to the button
+ * named $opener: hide() returns focus last, a tick after it closes.
+ */
+function waitForAdminShellSidebarClosed(mixed $page, string $opener): void
+{
+    waitForScript($page, "! document.getElementById('rg-admin-sidebar').classList.contains('rg-admin-sidebar--open') && document.activeElement?.getAttribute('aria-label') === '{$opener}'");
+}
+
+/** Waits until the browser has left the page and finished loading $path. */
+function waitForAdminShellPage(mixed $page, string $path): void
+{
+    waitForScript($page, "location.pathname === '{$path}' && document.readyState === 'complete'");
+}
+
+/** Waits until the sidebar search lists its results for what was typed. */
+function waitForAdminShellSearchResults(mixed $page, string $title): void
+{
+    waitForScript($page, <<<JS
+        (() => {
+            const results = document.getElementById('rg-admin-search-results')
+
+            return !! results && getComputedStyle(results).display !== 'none' && results.textContent.includes('{$title}')
+        })()
+    JS);
+}
+
 beforeEach(function () {
     ProjectSettings::factory()->create();
 });
@@ -52,7 +102,7 @@ beforeEach(function () {
 it('takes the full sidebar, the rail or a drawer by width, never covering the page', function (int $width, array $expected) {
     actingAs(User::factory()->admin()->create());
 
-    $layout = adminShellLayout(visit('/admin')->resize($width, 900)->wait(0.4));
+    $layout = adminShellLayout(adminShellAt('/admin', $width, 900));
 
     expect($layout)->toMatchArray($expected)
         ->and($layout['open'])->toBeFalse()
@@ -71,7 +121,7 @@ it('shows each desktop page inside the shell with its own destination marked', f
     actingAs(User::factory()->admin()->create());
     Post::factory()->count(2)->published()->withImage()->create();
 
-    $page = visit($path)->resize(1440, 900)->wait(0.4);
+    $page = adminShellAt($path, 1440, 900);
 
     $page->assertVisible('#rg-admin-sidebar')
         ->assertVisible('.rg-admin-topbar')
@@ -88,8 +138,9 @@ it('shows each desktop page inside the shell with its own destination marked', f
 it('navigates from the sidebar', function () {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
-    $page->click('#rg-admin-sidebar a[data-tooltip="Languages"]')->wait(0.6);
+    $page = adminShellAt('/admin', 1440, 900);
+    $page->click('#rg-admin-sidebar a[data-tooltip="Languages"]');
+    waitForAdminShellPage($page, '/admin/languages');
 
     // Which item is marked after the click is not asserted here: the test
     // server handles every request in one process, where Filament keeps the
@@ -101,7 +152,7 @@ it('navigates from the sidebar', function () {
 it('names the rail\'s icons, and expands it into the full sidebar that Escape closes', function () {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin/posts')->resize(1024, 800)->wait(0.4);
+    $page = adminShellAt('/admin/posts', 1024, 800);
 
     // Labels are hidden from sight, not from assistive technology, and a tooltip shows on focus.
     expect($page->script(<<<'JS'
@@ -116,7 +167,7 @@ it('names the rail\'s icons, and expands it into the full sidebar that Escape cl
         })()
     JS))->toBe(['name' => 'Comments', 'visibleWidth' => 1]);
 
-    $page->wait(0.2);
+    waitForScript($page, 'getComputedStyle(document.querySelector(".rg-admin-shell-tooltip")).display !== "none"');
 
     expect($page->script(<<<'JS'
         (() => {
@@ -126,11 +177,13 @@ it('names the rail\'s icons, and expands it into the full sidebar that Escape cl
         })()
     JS))->toBe(['shown' => true, 'text' => 'Comments']);
 
-    $page->click('.rg-admin-sidebar__expand button')->wait(0.3);
+    $page->click('.rg-admin-sidebar__expand button');
+    waitForAdminShellSidebarOpen($page);
 
     expect(adminShellLayout($page))->toMatchArray(['sidebar' => 300, 'open' => true, 'labels' => true, 'scrim' => true, 'content' => 68]);
 
-    $page->keys('.rg-admin-sidebar__close', 'Escape')->wait(0.3);
+    $page->keys('.rg-admin-sidebar__close', 'Escape');
+    waitForAdminShellSidebarClosed($page, 'Expand navigation');
 
     expect(adminShellLayout($page))->toMatchArray(['sidebar' => 68, 'open' => false, 'scrim' => false])
         ->and($page->script('document.activeElement?.getAttribute("aria-label") ?? null'))->toBe('Expand navigation');
@@ -139,20 +192,25 @@ it('names the rail\'s icons, and expands it into the full sidebar that Escape cl
 it('opens the navigation as a drawer on narrow screens, closed by the scrim or a destination', function () {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin')->resize(800, 900)->wait(0.4);
+    $page = adminShellAt('/admin', 800, 900);
 
-    $page->click('.rg-admin-topbar__menu')->wait(0.3);
+    $page->click('.rg-admin-topbar__menu');
+    waitForAdminShellSidebarOpen($page);
 
     expect(adminShellLayout($page))->toMatchArray(['sidebar' => 300, 'open' => true, 'scrim' => true, 'overflow' => false])
         ->and($page->script('document.querySelector(".rg-admin-topbar__menu").getAttribute("aria-expanded")'))->toBe('true');
 
-    $page->click('.rg-admin-shell-scrim')->wait(0.3);
+    $page->click('.rg-admin-shell-scrim');
+    waitForAdminShellSidebarClosed($page, 'Open navigation');
 
     expect(adminShellLayout($page))->toMatchArray(['sidebar' => 0, 'open' => false, 'scrim' => false])
         ->and($page->script('document.activeElement?.getAttribute("aria-label") ?? null'))->toBe('Open navigation');
 
-    $page->click('.rg-admin-topbar__menu')->wait(0.3);
-    $page->click('#rg-admin-sidebar a[data-tooltip="Posts"]')->wait(0.6);
+    $page->click('.rg-admin-topbar__menu');
+    waitForAdminShellSidebarOpen($page);
+    $page->click('#rg-admin-sidebar a[data-tooltip="Posts"]');
+    waitForAdminShellPage($page, '/admin/posts');
+    waitForScript($page, 'Alpine.$data(document.querySelector(".rg-admin-shell-sidebar")).open === false');
 
     $page->assertPathIs('/admin/posts');
 
@@ -162,12 +220,14 @@ it('opens the navigation as a drawer on narrow screens, closed by the scrim or a
 it('signs out from the account menu through Filament\'s logout', function () {
     actingAs(User::factory()->admin()->create(['name' => 'Daria Kovaleva']));
 
-    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+    $page = adminShellAt('/admin', 1440, 900);
 
-    $page->click('.rg-admin-account')->wait(0.2);
+    $page->click('.rg-admin-account');
+    waitForScript($page, 'getComputedStyle(document.getElementById("rg-admin-account-menu")).display !== "none"');
     $page->assertVisible('#rg-admin-account-menu')->assertSee('Sign out');
 
-    $page->click('#rg-admin-account-menu button[type="submit"]')->wait(0.8);
+    $page->click('#rg-admin-account-menu button[type="submit"]');
+    waitForAdminShellPage($page, '/admin/login');
 
     $page->assertPathIs('/admin/login');
 });
@@ -175,7 +235,7 @@ it('signs out from the account menu through Filament\'s logout', function () {
 it('lines the sidebar header up with the top bar at every width', function (int $width) {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin')->resize($width, 900)->wait(0.4);
+    $page = adminShellAt('/admin', $width, 900);
 
     expect($page->script(<<<'JS'
         (() => ({
@@ -189,7 +249,7 @@ it('focuses the sidebar search with Ctrl+K and opens the first result with Enter
     actingAs(User::factory()->admin()->create());
     Post::factory()->published()->create(['title' => 'Searchable sunset photo']);
 
-    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+    $page = adminShellAt('/admin', 1440, 900);
 
     // The field sits under the workspace, above the navigation.
     expect($page->script(<<<'JS'
@@ -200,14 +260,17 @@ it('focuses the sidebar search with Ctrl+K and opens the first result with Enter
         })()
     JS))->toBeTrue();
 
-    $page->keys('.fi-main', 'Control+k')->wait(0.3);
+    $page->keys('.fi-main', 'Control+k');
+    waitForScript($page, 'document.activeElement?.id', 'rg-admin-search');
 
     expect($page->script('document.activeElement?.id ?? null'))->toBe('rg-admin-search');
 
-    $page->type('#rg-admin-search', 'Searchable sunset')->wait(1.2);
+    $page->type('#rg-admin-search', 'Searchable sunset');
+    waitForAdminShellSearchResults($page, 'Searchable sunset photo');
     $page->assertVisible('#rg-admin-search-results')->assertSee('Searchable sunset photo');
 
-    $page->keys('#rg-admin-search', 'Enter')->wait(0.8);
+    $page->keys('#rg-admin-search', 'Enter');
+    waitForScript($page, 'location.pathname.startsWith("/admin/posts") && document.readyState === "complete"');
 
     $page->assertPathBeginsWith('/admin/posts');
 });
@@ -215,9 +278,11 @@ it('focuses the sidebar search with Ctrl+K and opens the first result with Enter
 it('opens the collapsed rail before focusing the search', function () {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin')->resize(1024, 800)->wait(0.4);
+    $page = adminShellAt('/admin', 1024, 800);
 
-    $page->keys('.fi-main', 'Control+k')->wait(0.3);
+    $page->keys('.fi-main', 'Control+k');
+    // Focus reaches the search last, a tick after the sidebar has opened.
+    waitForScript($page, 'document.activeElement?.id', 'rg-admin-search');
 
     expect(adminShellLayout($page))->toMatchArray(['sidebar' => 300, 'open' => true])
         ->and($page->script('document.activeElement?.id ?? null'))->toBe('rg-admin-search');
@@ -226,7 +291,7 @@ it('opens the collapsed rail before focusing the search', function () {
 it('leaves Ctrl+K to a rich text editor', function () {
     actingAs(User::factory()->admin()->create());
 
-    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+    $page = adminShellAt('/admin', 1440, 900);
 
     $page->script(<<<'JS'
         (() => {
@@ -247,7 +312,9 @@ it('leaves Ctrl+K to a rich text editor', function () {
         })
     JS);
 
-    $page->keys('#editor-under-test', 'Control+k')->wait(0.3);
+    // Taking the shortcut would move focus to the search a tick after the key
+    // press; nothing marks it not happening, so the test gives it that time.
+    $page->keys('#editor-under-test', 'Control+k')->wait(0.1);
 
     expect($page->script('document.activeElement?.id ?? null'))->toBe('editor-under-test')
         ->and($page->script('window.ctrlKDefaultPrevented ?? null'))->toBeFalse();
@@ -257,9 +324,10 @@ it('opens a result with Enter only while the list is open and no IME composition
     actingAs(User::factory()->admin()->create());
     Post::factory()->published()->create(['title' => 'Searchable sunset photo']);
 
-    $page = visit('/admin')->resize(1440, 900)->wait(0.4);
+    $page = adminShellAt('/admin', 1440, 900);
 
-    $page->type('#rg-admin-search', 'Searchable sunset')->wait(1.2);
+    $page->type('#rg-admin-search', 'Searchable sunset');
+    waitForAdminShellSearchResults($page, 'Searchable sunset photo');
     $page->assertVisible('#rg-admin-search-results');
 
     // Enter that confirms an IME composition is left to the input method.
@@ -270,7 +338,11 @@ it('opens a result with Enter only while the list is open and no IME composition
     JS))->toBeTrue();
 
     // With the list closed, Enter picks nothing.
-    $page->keys('#rg-admin-search', 'Escape')->wait(0.3);
+    $page->keys('#rg-admin-search', 'Escape');
+    waitForScript($page, 'getComputedStyle(document.getElementById("rg-admin-search-results")).display', 'none');
+
+    // A pick would leave for the result once the server answered; nothing
+    // marks it not happening, so the test gives it that long.
     $page->keys('#rg-admin-search', 'Enter')->wait(0.6);
 
     $page->assertPathIs('/admin');
