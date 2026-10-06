@@ -4,6 +4,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Posts\PostResource;
@@ -37,7 +38,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Overview' => ['Dashboard'],
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
-    'Localization' => ['Languages'],
+    'Localization' => ['Languages', 'Translation Center'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
 ];
@@ -107,6 +108,22 @@ it('draws every admin page inside the Admin v2 shell', function () {
         ->assertDontSee('class="fi-topbar"', false);
 });
 
+it('gives every admin page, sign-in included, the site\'s own icon', function () {
+    // Without a declared icon the browser falls back to /favicon.ico, which is
+    // empty, and asks for it again on every address change the admin makes —
+    // each keystroke in a search that keeps its query in the URL.
+    $icon = '<link rel="icon" href="'.asset('favicon.svg').'" />';
+
+    expect(filesize(public_path('favicon.svg')))->toBeGreaterThan(0);
+
+    $this->get('/admin/login')->assertOk()->assertSee($icon, false);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->get(LanguagesPage::getUrl())
+        ->assertOk()
+        ->assertSee($icon, false);
+});
+
 it('groups the navigation exactly as the Admin v2 contract does', function () {
     $html = $this->actingAs(User::factory()->admin()->create())->get('/admin')->getContent();
 
@@ -123,9 +140,7 @@ it('offers no destination that does not exist yet, nor developer and hidden page
     $html = $this->actingAs(User::factory()->admin()->create())->get('/admin')->getContent();
     $links = collect(adminShellNavigation($html))->flatMap(fn (array $items): array => $items);
 
-    expect($links->keys())->not->toContain('Translation Center')
-        ->and($html)->not->toContain('Translation Center')
-        ->and($links->values()->filter(fn (string $url): bool => str_contains($url, 'dev/ui-kit')))->toBeEmpty()
+    expect($links->values()->filter(fn (string $url): bool => str_contains($url, 'dev/ui-kit')))->toBeEmpty()
         ->and($links->values()->filter(fn (string $url): bool => str_contains($url, 'moderation-dashboard')))->toBeEmpty()
         ->and($links->values()->filter(fn (string $url): bool => in_array($url, ['', '#'], true) || str_starts_with($url, 'javascript:')))->toBeEmpty();
 });
@@ -154,6 +169,7 @@ it('marks the destination of the current page', function (string $path, string $
     'posts' => ['/admin/posts', 'Posts'],
     'categories' => ['/admin/categories', 'Categories'],
     'languages' => ['/admin/languages', 'Languages'],
+    'translation center' => ['/admin/translation-center', 'Translation Center'],
     'project settings' => ['/admin/project-settings', 'Project settings'],
     'media diagnostics' => ['/admin/media-diagnostics', 'Media diagnostics'],
 ]);
@@ -245,7 +261,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(11);
+    expect($keys)->toHaveCount(12);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -261,6 +277,7 @@ it('has an Admin v2 icon for every production destination', function () {
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
         LanguagesPage::class => 'globe',
+        TranslationCenterPage::class => 'languages',
         ProjectSettingsPage::class => 'settings-2',
         MediaDiagnosticsPage::class => 'hard-drive',
     ]);

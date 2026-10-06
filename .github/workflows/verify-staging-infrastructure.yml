@@ -1,0 +1,156 @@
+name: Verify staging infrastructure
+
+# The permanent, repeatable, READ-ONLY verification of everything staging-main
+# depends on on its host: infrastructure/scripts/verify-infrastructure --target
+# staging-main, run from trusted develop tooling. It may be run any number of
+# times in a row and changes nothing.
+#
+# One command for the whole target, not one button per subsystem. What it
+# composes — mail capture, the mail gateway, the application's health, and
+# whatever later verifiers are added to it — is decided server-side by the
+# verifier from the reviewed state of the target. This workflow chooses nothing:
+# the target, the trusted ref and the GitHub Environment are fixed.
+#
+# Only read-only modes run. The deep, mutating acceptance primitives
+# (verify-mail-gateway --e2e, verify-mail-capture --e2e) stay available on the
+# host and are never part of this.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The same logical domain every staging host mutation uses, so a verification
+# never observes the host halfway through a deploy, rollback, preparation,
+# repair, restore or recovery. It waits rather than cancelling anything.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- develop-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # A workflow_dispatch ref may be any branch or tag, and the `staging`
+  # Environment does not restrict refs — so without this, dispatching from an
+  # arbitrary branch would run THAT branch's workflow definition with staging's
+  # bootstrap and deploy credentials. Checking out `develop` for the tooling does
+  # not help: the YAML deciding what to do with those credentials is the YAML at
+  # the dispatched ref.
+  #
+  # This operation takes no ref input, because it has nothing to select: it
+  # converges the host or the target from the committed tooling. So develop is the
+  # only ref it has any reason to run from, and anything else is refused before a
+  # single job holding the Environment starts. Because this job holds no
+  # Environment, a refused run never has those credentials available to it at all.
+  #
+  # `deploy-staging.yml` deliberately has NO such gate: it DOES take a ref input,
+  # and deploying an operator-selected ref to staging is the whole point of it —
+  # staging is where a branch is verified before it is promoted.
+  #
+  # WHAT THIS IS NOT, and this matters more than it reads.
+  #
+  # A gate written in the workflow can only bind refs whose workflow contains it.
+  # Dispatching a ref from BEFORE this gate existed runs that ref's unguarded job,
+  # with the Environment, and nothing here can prevent it — the same is true of
+  # anyone who can push a branch, who would simply author this file on it.
+  #
+  # So this closes the ordinary mistake — a branch left selected in the Run
+  # workflow dropdown, a copied URL with the wrong ref — and does not close the
+  # general case. What closes the general case is outside the YAML: restricting
+  # the `staging` Environment's allowed refs.
+  #
+  # Precisely what that buys, because it is easy to overstate: GitHub evaluates
+  # the allowlist per JOB, when a job that declares the Environment is about to
+  # start — not for the workflow as a whole. A disallowed ref can still run this
+  # workflow's Environment-free jobs, and on an older ref can run whatever
+  # unprotected jobs that ref happens to define. What it cannot do is start a job
+  # holding `staging`, which is where the credentials are. That is the boundary:
+  # the credentials, not the run.
+  #
+  # That restriction is the branch `develop` AND the tag pattern `v*`, not
+  # `develop` alone: release.yml triggers on `v*` and verifies the artifact on
+  # staging through this same Environment, so a develop-only rule would refuse
+  # every release. It is an operator setting no pull request can apply; see
+  # infrastructure/runbooks/deployment-targets.md. Until it is set, treat this
+  # gate as a guard rail rather than a boundary.
+  validate-ref:
+    name: Refuse any ref but develop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/develop
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/develop" ]]; then
+            echo "This staging operation runs from develop and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with develop selected. To deploy a particular ref to staging, use Deploy to staging, which takes one." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- develop-only control-plane gate (end) ---
+  verify:
+    name: Verify the staging-main infrastructure
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    environment: staging
+    timeout-minutes: 15
+
+    steps:
+      # Operational tooling always comes from the trusted develop branch. There
+      # is no application source in this operation at all.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the infrastructure on the staging host
+        id: verify
+        uses: ./.github/actions/verify-rateguru-infrastructure
+        with:
+          deployment-target: staging-main
+          environment: staging
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the read-only checks inspect
+          # root-owned configuration. Never the restricted deploy credential.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      - name: Report the verification
+        if: ${{ always() }}
+        shell: bash
+        env:
+          STATUS: ${{ steps.verify.outputs.status }}
+          PASS: ${{ steps.verify.outputs.pass }}
+          FAIL: ${{ steps.verify.outputs.fail }}
+          DEFERRED: ${{ steps.verify.outputs.deferred }}
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## staging-main infrastructure"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Result | \`${STATUS:-not completed}\` |"
+            echo "| Passed | ${PASS:-—} |"
+            echo "| Failed | ${FAIL:-—} |"
+            echo "| Deferred | ${DEFERRED:-—} |"
+            echo
+            echo "Read-only: nothing on the host was changed. The full report is in the job log."
+          } >> "${GITHUB_STEP_SUMMARY}"

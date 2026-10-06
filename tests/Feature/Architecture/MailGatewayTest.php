@@ -655,6 +655,16 @@ it('restates no policy rule and names no target, domain or port', function () {
     foreach (['non_deliverable_tld', 'class_modes', 'first_submission_port', 'is_domain', 'is_address', 'lifecycle'] as $rule) {
         expect(str_contains($installer, $rule))->toBeFalse("install-mail-gateway restates the policy rule {$rule}");
     }
+
+    // Nor any of the host contract's: mail-identity judges mail-outbound.json,
+    // from this same bundle, and the installer only asks it.
+    expect($installer)
+        ->toContain('MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"')
+        ->toContain('"${MAIL_IDENTITY_CLI}" check-outbound --plan "${plan}" --outbound "${path}"');
+
+    foreach (['private_tlds', 'hostname_re', 'hostname_problem', 'OUTBOUND_CONTRACT_PROGRAM', 'OUTBOUND_SCHEMA_VERSION'] as $rule) {
+        expect(str_contains($installer, $rule))->toBeFalse("install-mail-gateway restates the host contract rule {$rule}");
+    }
 });
 
 it('refuses with mail-routing\'s own verdict when the policy is invalid', function () {
@@ -1173,7 +1183,7 @@ it('renders the real committed policy byte for byte as the gateway the staging h
 
     // And the host contract that would allow one keeps direct delivery off.
     expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true))
-        ->toBe(mailGatewayOutboundContract(false, ''));
+        ->toBe(mailGatewayOutboundContract(false, 'mta1.tits.guru'));
 });
 
 it('renders exactly one dedicated direct smtp client for an outbound target, selected only by its own listener', function () {
@@ -1376,7 +1386,7 @@ it('refuses an outbound route in --check, --apply and --verify while direct deli
         mailGatewayCleanup($host);
     }
 })->with([
-    'the committed contract' => [mailGatewayOutboundContract(false, ''), 'demo-shop: its mail routing plan delivers by direct SMTP, but direct outbound delivery is not enabled on this host'],
+    'the committed contract' => [mailGatewayOutboundContract(false, 'mta1.tits.guru'), 'demo-shop: its mail routing plan delivers by direct SMTP, but direct outbound delivery is not enabled on this host'],
     'enabled with no hostname' => [mailGatewayOutboundContract(true, ''), 'direct.enabled is true but direct.mta_hostname is empty'],
     'enabled under .invalid' => [mailGatewayOutboundContract(true, 'mail.rateguru.invalid'), 'is under the reserved .invalid domain'],
 ]);
@@ -1597,7 +1607,7 @@ function mailGatewayJqPrograms(string $script): array
             $programs["{$script} \${$name}"] = $program;
         }
 
-        if (in_array($script, ['mail-routing', 'install-mail-gateway'], true)) {
+        if (in_array($script, ['mail-routing', 'install-mail-gateway', 'mail-identity'], true)) {
             expect($programs)->not->toBe([], "no jq program variables were read from {$script}");
         }
     }
@@ -1702,7 +1712,7 @@ it('keeps every jq program the mail scripts run within what jq 1.6 on the host a
 
     $checked = 0;
 
-    foreach (['mail-routing', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway'] as $script) {
+    foreach (['mail-routing', 'mail-identity', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway', 'verify-infrastructure'] as $script) {
         foreach (mailGatewayJqPrograms($script) as $label => $program) {
             expect(mailGatewayJq16Problems($program))->toBe([], "{$label} would not run on jq 1.6");
             $checked++;
@@ -2077,7 +2087,8 @@ it('records the gateway as accepted on the real host, and the direct outbound ca
         ->toContain('**8.4B.3 Self-hosted direct outbound SMTP capability — IMPLEMENTED, not activated.**')
         ->toContain('*Unchanged on purpose:* `tits-guru` is still `held` and `lifecycle=planned`, the real `mail-outbound.json` keeps direct delivery disabled')
         ->toContain('no email was sent to the public Internet')
-        ->toContain('**8.4B.4 Production mail identity and tits-guru outbound — planned.**')
+        ->toContain('**8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing activated.**')
+        ->toContain('**8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery — planned.**')
         // The backup gate stays; acceptance moves to after activation.
         ->toContain('`backup-cycle` runs only for a `lifecycle=active` target')
         ->toContain('That gate is deliberate and is not weakened to take a backup early.')

@@ -1111,7 +1111,7 @@ it('refuses a policy reached through a symlink', function () {
     }
 });
 
-it('is repository tooling that only the mail gateway consumes, from the bundle it runs in', function () {
+it('is repository tooling that only the mail gateway, the mail identity judge and the infrastructure verifier consume, from the bundle they run in', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-routing');
     expect(requiredCliManifestNames())->not->toContain('mail-routing');
 
@@ -1119,12 +1119,18 @@ it('is repository tooling that only the mail gateway consumes, from the bundle i
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations'))))
         ->not->toContain('mail-routing');
 
-    // Its only consumers are the gateway's installer and its verifier, each
-    // running the copy next to itself. No workflow, action, orchestrator or
-    // other installer invokes it: the plan has exactly one reader.
+    // Its only consumers are the gateway's installer and its verifier, the
+    // mail identity judge and the read-only infrastructure verifier, which
+    // reads a target's delivery mode from the plan — each running the copy
+    // next to itself. No workflow, action, orchestrator or other installer
+    // invokes it. The one other file
+    // that may name the POLICY is the prerequisite installer, which hands its
+    // configuration directory's copy to the identity judge — never to this CLI.
     $consumers = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
+        'infrastructure/scripts/mail-identity',
+        'infrastructure/scripts/verify-infrastructure',
     ];
 
     foreach (operationalFiles() as $path) {
@@ -1134,8 +1140,8 @@ it('is repository tooling that only the mail gateway consumes, from the bundle i
             continue;
         }
 
-        expect(str_contains(executableSourceLines(File::get($path)), 'mail-routing'))
-            ->toBeFalse("{$relative} reaches mail-routing — only the mail gateway reads the plan");
+        expect(preg_match('/mail-routing(?!\.json)/', executableSourceLines(File::get($path))))
+            ->toBe(0, "{$relative} reaches mail-routing — only the mail gateway, the identity judge and the infrastructure verifier read the plan");
     }
 
     foreach ($consumers as $consumer) {

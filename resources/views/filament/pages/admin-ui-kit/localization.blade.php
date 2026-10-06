@@ -52,12 +52,60 @@
             </div>
         </div>
 
+        {{-- One row as Translation Center draws it: the item, the English text, and the target field level with it. --}}
+        <div class="rg-admin-kit__frame rg-admin-kit__frame--clip">
+            <div class="rg-admin-translation-center__grid" role="table" aria-label="Translation row specimen">
+                <div class="rg-admin-translation-row rg-admin-translation-row--head" role="row">
+                    <div class="rg-admin-translation-row__cell" role="columnheader">Item</div>
+                    <div class="rg-admin-translation-row__cell" role="columnheader">English · reference</div>
+                    <div class="rg-admin-translation-row__cell" role="columnheader">Български · bg</div>
+                </div>
+                <div class="rg-admin-translation-row" role="row">
+                    <div class="rg-admin-translation-row__cell rg-admin-translation-row__item" role="cell">
+                        <x-admin.ui.badge tone="outline">Categories</x-admin.ui.badge>
+                        <div class="rg-admin-translation-row__entity">Rabbits &amp; rodents</div>
+                        <div class="rg-admin-translation-row__field">Name</div>
+                        <div class="rg-admin-translation-row__key">categories.small-pets.name</div>
+                        <ul class="rg-admin-translation-row__chips" aria-label="Constraints">
+                            <li class="rg-admin-constraint-chip">Max 80</li>
+                            <li class="rg-admin-constraint-chip">Single line</li>
+                        </ul>
+                        <button type="button" class="rg-admin-translation-row__context"><x-admin.ui.icon name="info" :size="14" />Context</button>
+                    </div>
+                    <div class="rg-admin-translation-row__cell" role="cell">
+                        <span class="rg-admin-translation-row__cell-label">English · reference</span>
+                        <div class="rg-admin-translation-row__source" lang="en">Rabbits &amp; rodents</div>
+                        <div class="rg-admin-translation-row__meta">
+                            <span>17 characters</span>
+                            <a href="#DOM-01" class="rg-admin-link rg-admin-link--quiet rg-admin-translation-row__source-link">Edit source <x-admin.ui.icon name="arrow-up-right" :size="12" /></a>
+                        </div>
+                    </div>
+                    <div class="rg-admin-translation-row__cell" role="cell">
+                        <span class="rg-admin-translation-row__cell-label">Български · bg</span>
+                        <label for="kit-translation-row" class="rg-admin-sr-only">Bulgarian translation of Rabbits &amp; rodents · Name</label>
+                        <div class="rg-admin-input rg-admin-input--changed">
+                            <input id="kit-translation-row" type="text" lang="bg" value="Зайци и гризачи" class="rg-admin-input__control" aria-describedby="kit-translation-row-note kit-translation-row-counter" />
+                        </div>
+                        <div class="rg-admin-translation-row__foot">
+                            <span id="kit-translation-row-counter" class="rg-admin-field__counter rg-admin-translation-row__counter">15 / 80</span>
+                            <span class="rg-admin-translation-row__state">
+                                <x-admin.ui.badge tone="outline">Edited · not saved</x-admin.ui.badge>
+                                <span id="kit-translation-row-note" class="rg-admin-translation-row__note">Saved version is kept until you save</span>
+                            </span>
+                            <div class="rg-admin-translation-row__actions">
+                                <x-admin.ui.button variant="ghost" size="sm">Discard</x-admin.ui.button>
+                                <x-admin.ui.button size="sm">Save</x-admin.ui.button>
+                                <x-admin.ui.button variant="primary" size="sm" trailing-icon="arrow-down">Save &amp; next</x-admin.ui.button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="rg-admin-kit__grid rg-admin-kit__grid--wide">
             @foreach ($states as $index => $state)
                 <div @class(['rg-admin-translation-state', 'rg-admin-translation-state--generated' => $state['generated']])>
-                    <div class="rg-admin-translation-state__head">
-                        <x-admin.ui.badge :tone="$state['tone']" :dot="$state['dot']">{{ $state['label'] }}</x-admin.ui.badge>
-                    </div>
                     <x-admin.ui.textarea
                         :label="$state['field']"
                         :id="'kit-translation-'.$index"
@@ -69,7 +117,11 @@
                         placeholder="Missing · type a translation or use AI translate"
                         compact
                     />
-                    <p class="rg-admin-translation-state__note">{{ $state['note'] }}</p>
+                    {{-- The state sits under the field, so the field stays level with the English text beside it. --}}
+                    <div class="rg-admin-translation-state__head">
+                        <x-admin.ui.badge :tone="$state['tone']" :dot="$state['dot']">{{ $state['label'] }}</x-admin.ui.badge>
+                        <span class="rg-admin-translation-state__note">{{ $state['note'] }}</span>
+                    </div>
                     @if ($state['actions'] !== [])
                         <div class="rg-admin-translation-state__foot">
                             <div class="rg-admin-translation-state__actions">

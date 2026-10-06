@@ -18,16 +18,10 @@ function itpScript(): string
 
 function itpScratchDir(): string
 {
-    $dir = sys_get_temp_dir().'/target-prereq-'.uniqid('', true).'-'.getmypid();
-    expect(@mkdir($dir.'/root/material', 0o700, true))->toBeTrue();
+    $dir = makeScratchDir('target-prereq', ['/root/material'], 0o700);
     chmod($dir.'/root/material', 0o700);
 
     return $dir;
-}
-
-function itpCleanup(string $dir): void
-{
-    exec('rm -rf '.escapeshellarg($dir));
 }
 
 /**
@@ -175,7 +169,7 @@ it('derives every Nginx-referenced destination from the committed vhosts', funct
 
         expect($output)->toContain('missing 7');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -213,7 +207,7 @@ it('derives target-scope destinations from the registry', function () {
         expect($output)->toContain('/root/.config/rclone/rclone.conf');
         expect($output)->toContain('missing 3');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -250,7 +244,7 @@ it('installs missing material with the right modes and never reads its content',
                 "{$path} must be installed with mode {$mode}");
         }
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -272,7 +266,7 @@ it('refuses to install target-scope material before host bootstrap created its d
         // 5.3 then has to disagree with, so nothing was created.
         expect(is_dir($scratch.'/home/www/rateguru/staging/shared'))->toBeFalse();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -293,7 +287,7 @@ it('installs target-scope material once its directories exist', function () {
         expect(substr(sprintf('%04o', fileperms($scratch.'/home/deploy-rateguru-staging/.ssh/authorized_keys')), -4))->toBe('0600');
         expect(substr(sprintf('%04o', fileperms($scratch.'/root/.config/rclone/rclone.conf')), -4))->toBe('0600');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -328,7 +322,7 @@ it('preserves existing material and does not even rewrite an identical file', fu
         // Not rewritten at all: the file on disk is literally the same file.
         expect(fileinode($key))->toBe($inodeBefore);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -351,7 +345,7 @@ it('preserves an existing file when no material is supplied for it', function ()
         expect($output)->toContain('already present; left untouched');
         expect(File::get($scratch.'/etc/nginx/rateguru-staging.htpasswd'))->toBe("live-hashes\n");
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -383,7 +377,7 @@ it('fails closed rather than rotating a secret that differs from the supplied ma
         // The live key is untouched — this is the whole point.
         expect(File::get($key))->toBe($liveContent);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -412,7 +406,7 @@ it('refuses before installing anything when an existing prerequisite has drifted
 
         expect(is_dir($scratch.'/etc/letsencrypt'))->toBeFalse('nothing may be installed before the drift is reported');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -437,7 +431,7 @@ it('refuses the entire run on a conflict, before installing anything else', func
         // beside a conflicting old one is worse than an unconverged one.
         expect(is_dir($scratch.'/etc/letsencrypt'))->toBeFalse();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -462,7 +456,7 @@ it('never discloses secret content, length or a digest in a conflict diagnostic'
         expect($output)->not->toMatch('/\bdiffer.* byte \d+/');
         expect($output)->not->toMatch('/[0-9a-f]{32,}/');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -480,7 +474,7 @@ it('generates nothing when material is absent', function () {
         expect($output)->toContain('it is never generated here');
         expect(is_dir($scratch.'/etc'))->toBeFalse();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -508,7 +502,7 @@ it('accepts a real certbot layout and never replaces it', function () {
         expect(File::get($scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua/privkey1.pem'))
             ->toBe("certbot-privkey\n");
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -542,7 +536,7 @@ it('refuses a TLS link repointed at another certificate or at a non-archive file
             expect($exit)->toBe(1, "a key repointed at {$case} must be refused");
             expect($output)->toContain('does not resolve to its own /etc/letsencrypt/archive/<certificate>/ file');
         } finally {
-            itpCleanup($scratch);
+            removeScratchDir($scratch);
         }
     }
 });
@@ -566,7 +560,7 @@ it('refuses a TLS link at a destination certbot would never publish', function (
         expect($exit)->toBe(1);
         expect($output)->toContain('only ACME-published certificate/key material');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -597,7 +591,7 @@ it('refuses a symlinked destination for anything but ACME-published TLS material
         expect(is_link($scratch.'/home/www/rateguru/staging/shared/.env'))->toBeTrue();
         expect(File::get($scratch.'/attacker-env'))->toBe("DB_PASSWORD=owned\n");
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -640,7 +634,7 @@ it('enforces the declared mode, not merely the absence of world-read', function 
         [$exit] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
         expect($exit)->toBe(0);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -671,7 +665,7 @@ it('enforces the declared owner and group, which is what makes the file readable
         expect($output)->toContain('the declared owner is the account that has to read it');
         expect($output)->toContain('chown rateguru-staging:rateguru-staging');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -700,7 +694,7 @@ it('refuses a dangling symlink even where a symlink is otherwise allowed', funct
         expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
         expect(file_exists($scratch.'/does-not-exist'))->toBeFalse();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -723,7 +717,7 @@ it('refuses a symlinked htpasswd, where no link is allowed at all', function () 
         expect($output)->toContain('only ACME-published certificate/key material');
         expect(File::get($scratch.'/decoy'))->toBe("decoy\n");
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -745,7 +739,7 @@ it('refuses a material directory readable by anyone but root', function () {
         expect($exit)->toBe(1);
         expect($output)->toContain('must not be readable by group or other');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -760,7 +754,7 @@ it('never consults supplied material during --verify', function () {
         expect($exit)->toBe(1);
         expect($output)->toContain('--verify never consults supplied material');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -783,7 +777,7 @@ it('rejects a lifecycle=planned target before computing a single destination', f
         expect($output)->toContain('lifecycle=planned, not active');
         expect(is_dir($scratch.'/etc'))->toBeFalse();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -885,7 +879,7 @@ it('lists exactly the host-scope logical names of the target, and nothing else',
         expect($targetNames)->toContain('laravel-env');
         expect(array_intersect($targetNames, itpHostScopeNames()))->toBe([]);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -935,7 +929,7 @@ it('captures every host-scope prerequisite under its logical name, dereferencing
         expect(File::get($scratch.'/etc/nginx/rateguru-staging.htpasswd'))->toBe("hashes\n");
         expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -954,7 +948,7 @@ it('captures nothing at all when any host-scope prerequisite is missing or unsaf
         expect($output)->toContain('basic-auth');
         expect(array_diff(scandir($scratch.'/capture'), ['.', '..']))->toBe([], 'a refused capture writes nothing');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 
     $scratch = itpScratchDir();
@@ -975,7 +969,7 @@ it('captures nothing at all when any host-scope prerequisite is missing or unsaf
         expect($output)->toContain('basic-auth');
         expect(array_diff(scandir($scratch.'/capture'), ['.', '..']))->toBe([]);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -991,7 +985,7 @@ it('demands a root-only, empty, absolute output directory for a capture', functi
         expect($exit)->toBe(1);
         expect($output)->toContain($expected);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'group-readable' => [
@@ -1071,7 +1065,7 @@ it('accepts a recovery material archive of exactly the host-scope names as top-l
             static fn (string $path): bool => ! str_contains($path, '/archive-stage-'),
         )))->toBe([]);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1086,7 +1080,7 @@ it('refuses every recovery material archive that is not exactly that', function 
         expect($exit)->toBe(1, $output);
         expect($output)->toContain($expected);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'a directory entry' => [
@@ -1218,7 +1212,7 @@ it('keeps the recovery modes and the installing modes apart in what they accept'
         expect($exit)->toBe(1);
         expect($output)->toContain($expected);
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'capture with material' => [
@@ -1339,7 +1333,7 @@ it('applies the same archive-as-data rules common applies, and only adds the voc
         expect($verdict['installer'])->toBeFalse();
         expect($verdict['installer_output'])->toContain('not a host-scope prerequisite of staging-main: legacy-tls-bundle');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1385,7 +1379,7 @@ it('never reports READY for a prerequisite --verify would reject on ownership', 
             ->and($checkOutput)->toContain('chown')
             ->and($verifyOutput)->toContain('is owned by');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1419,7 +1413,7 @@ it('never reports READY for a prerequisite whose mode drifted', function () {
             ->and($output)->toContain('SUMMARY')
             ->and($output)->toContain('conflicts 1');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1442,7 +1436,7 @@ it('still reports READY when the metadata is exactly what the table declares', f
             ->and($output)->toContain('TARGET PREREQUISITES READY: YES')
             ->and($output)->toContain('conflicts 0');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1479,7 +1473,7 @@ it('refuses to install a missing sibling while another row has drifted metadata'
             ->and($output)->not->toContain('INSTALLED')
             ->and(is_file($rclone))->toBeFalse('nothing may be installed before the drift is reported');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1506,7 +1500,7 @@ it('reports metadata drift without ever describing the content it protects', fun
             ->and($output)->not->toContain(sha1('a-secret-value-that-must-never-be-echoed'))
             ->and($output)->not->toMatch('/\b\d+ bytes\b/');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -1550,6 +1544,339 @@ it('derives no host-global offsite credential for a target that is not active ye
 
         expect($active)->toContain('rclone');
     } finally {
-        itpCleanup($scratch);
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
+// The DKIM private key: target material, deferred while the target is held
+// =============================================================================
+
+/**
+ * tits-guru's own environment file and deploy key in place with their declared
+ * modes, so the DKIM row is the one a test is about.
+ */
+function itpTitsGuruReady(string $scratch): void
+{
+    @mkdir($scratch.'/home/www/rateguru/production/tits-guru/shared', 0o755, true);
+    @mkdir($scratch.'/home/deploy-rateguru-tits-guru/.ssh', 0o755, true);
+
+    file_put_contents($scratch.'/home/www/rateguru/production/tits-guru/shared/.env', "APP_KEY=irrelevant\n");
+    chmod($scratch.'/home/www/rateguru/production/tits-guru/shared/.env', 0o640);
+    file_put_contents($scratch.'/home/deploy-rateguru-tits-guru/.ssh/authorized_keys', "ssh-ed25519 AAAA deploy\n");
+    chmod($scratch.'/home/deploy-rateguru-tits-guru/.ssh/authorized_keys', 0o600);
+}
+
+function itpSupplyDkimKey(string $scratch, string $kind): void
+{
+    copy(mailIdentityKey($kind), $scratch.'/root/material/mail-dkim-private-key');
+    chmod($scratch.'/root/material/mail-dkim-private-key', 0o600);
+}
+
+/** @return list<string> */
+function itpTitsGuruArgs(string $mode): array
+{
+    return [$mode, '--scope', 'target', '--provisioning', '--target', 'tits-guru'];
+}
+
+/**
+ * A scratch checkout whose configuration adds the synthetic demo-shop target —
+ * held, or outbound on a host that enabled direct delivery — with its own
+ * identity, and demo-shop's own environment file and deploy key in place.
+ *
+ * @return array<string, string>
+ */
+function itpDemoShopCheckout(string $scratch, string $mode): array
+{
+    $repo = provisionRepo($scratch.'/checkout', provisionRegistryJson());
+
+    mailIdentityFixtureConfig($repo.'/infrastructure/config', [
+        'mode' => $mode,
+        'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => $mode === 'outbound', 'mta_hostname' => 'mta1.example.net']],
+    ]);
+
+    @mkdir($scratch.'/home/www/rateguru/production/demo-shop/shared', 0o755, true);
+    @mkdir($scratch.'/home/deploy-rateguru-demo-shop/.ssh', 0o755, true);
+    file_put_contents($scratch.'/home/www/rateguru/production/demo-shop/shared/.env', "APP_KEY=irrelevant\n");
+    chmod($scratch.'/home/www/rateguru/production/demo-shop/shared/.env', 0o640);
+    file_put_contents($scratch.'/home/deploy-rateguru-demo-shop/.ssh/authorized_keys', "ssh-ed25519 AAAA deploy\n");
+    chmod($scratch.'/home/deploy-rateguru-demo-shop/.ssh/authorized_keys', 0o600);
+
+    return ['RATEGURU_TARGETPREREQ_REPO_ROOT' => $repo];
+}
+
+function itpMode(string $path): string
+{
+    return substr(sprintf('%o', fileperms($path)), -4);
+}
+
+it('defers a held target\'s absent DKIM key without making the target unready', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($check)->toBe(0, $report);
+        expect($report)
+            ->toMatch('/^DEFERRED +target +mail-dkim-private-key +absent, and not needed yet: tits-guru\'s mail is held/m')
+            ->toContain('/etc/opendkim/keys/tits-guru/rg1.private')
+            ->toContain('deferred 1')
+            ->toContain('TARGET PREREQUISITES READY: YES');
+
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->toBe(0, $log);
+        expect($log)->toContain('DEFER mail-dkim-private-key');
+        expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse('a deferred key created its directories');
+
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        expect($verify)->toBe(0, $verified);
+        expect($verified)->toContain('DEFERRED mail-dkim-private-key: absent and not needed while tits-guru\'s mail is held');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('installs a supplied DKIM key root-only at the destination the identity derives, and only once', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+        itpSupplyDkimKey($scratch, 'rsa2048');
+
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->toBe(0, $log);
+        expect($log)->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/tits-guru/rg1.private (root:root 0600; content never read or logged)');
+
+        $installed = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+        expect(file_get_contents($installed))->toBe(file_get_contents(mailIdentityKey('rsa2048')));
+        expect(itpMode($installed))->toBe('0600');
+        expect(itpMode($scratch.'/etc/opendkim/keys/tits-guru'))->toBe('0700');
+        expect(itpMode($scratch.'/etc/opendkim/keys'))->toBe('0700');
+        expect(itpMode($scratch.'/etc/opendkim'))->toBe('0755');
+
+        // A held target with a valid key is simply ready.
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        expect($verify)->toBe(0, $verified);
+
+        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material']);
+        expect($check)->toBe(0, $report);
+        expect($report)
+            ->toMatch('/^CONVERGED +target +mail-dkim-private-key +already present and identical/m')
+            ->toContain('deferred 0')
+            ->toContain('TARGET PREREQUISITES READY: YES');
+
+        expectNoKeyMaterial($log.$verified.$report, mailIdentityKey('rsa2048'));
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a supplied DKIM key that is not usable, installs nothing, and never shows it', function (string $kind, string $reason) {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+        itpSupplyDkimKey($scratch, $kind);
+
+        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material']);
+        expect($check)->not->toBe(0);
+        expect($report)
+            ->toMatch('/^CONFLICT +target +mail-dkim-private-key +the supplied mail-dkim-private-key is not a usable DKIM private key: '.preg_quote($reason, '/').'/m')
+            ->toContain('TARGET PREREQUISITES READY: NO');
+
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->not->toBe(0);
+        expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse('a refused key still created its directories');
+
+        expectNoKeyMaterial($report.$log, mailIdentityKey($kind));
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'not PEM' => ['junk', 'it is not PEM'],
+    'a public key' => ['public', 'it is a public key, not a private key'],
+    'a certificate' => ['certificate', 'it is a certificate, not a private key'],
+    'a passphrase-protected key' => ['encrypted', 'it is passphrase-protected'],
+    'RSA below 2048 bits' => ['rsa1024', 'it is a 1024-bit RSA key, below the reviewed minimum of 2048 bits'],
+    'an EC key' => ['ec', 'it is not a usable RSA private key'],
+]);
+
+it('never overwrites or rotates an installed DKIM key, and refuses one that is not usable', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+        @mkdir($scratch.'/etc/opendkim/keys/tits-guru', 0o700, true);
+        $key = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+        copy(mailIdentityKey('rsa2048'), $key);
+        chmod($key, 0o600);
+        $before = file_get_contents($key);
+
+        // A different, perfectly valid key: a conflict, never a rotation.
+        itpSupplyDkimKey($scratch, 'rsa3072');
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->not->toBe(0);
+        expect($log)->toContain('mail-dkim-private-key: already present and DIFFERS from the supplied material');
+        expect(file_get_contents($key))->toBe($before);
+
+        // An installed key that is not usable is reported, never replaced.
+        copy(mailIdentityKey('rsa1024'), $key);
+        chmod($key, 0o600);
+        unlink($scratch.'/root/material/mail-dkim-private-key');
+
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($check)->not->toBe(0);
+        expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +the installed key at \/etc\/opendkim\/keys\/tits-guru\/rg1.private is not a usable DKIM private key: it is a 1024-bit RSA key/m');
+
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        expect($verify)->not->toBe(0);
+        expect($verified)->toContain('external prerequisite mail-dkim-private-key at /etc/opendkim/keys/tits-guru/rg1.private is not a usable DKIM private key');
+
+        expectNoKeyMaterial($log.$report.$verified, mailIdentityKey('rsa1024'));
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a DKIM key reached through a symlink, or with a mode wider than root-only', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+        @mkdir($scratch.'/etc/opendkim/keys/tits-guru', 0o700, true);
+        $key = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+
+        symlink(mailIdentityKey('rsa2048'), $key);
+        [, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +canonical destination is a symlink/m');
+
+        unlink($key);
+        copy(mailIdentityKey('rsa2048'), $key);
+        chmod($key, 0o640);
+        [, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +has mode 640, expected 0600/m');
+
+        // A symlinked key directory is refused before anything is written
+        // through it.
+        exec('rm -rf '.escapeshellarg($scratch.'/etc/opendkim'));
+        @mkdir($scratch.'/elsewhere', 0o700, true);
+        @mkdir($scratch.'/etc/opendkim', 0o755, true);
+        symlink($scratch.'/elsewhere', $scratch.'/etc/opendkim/keys');
+        itpSupplyDkimKey($scratch, 'rsa2048');
+
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->not->toBe(0);
+        expect($log)->toContain('/etc/opendkim/keys is a symlink — refusing to write a private key through one');
+        expect(glob($scratch.'/elsewhere/*') ?: [])->toBe([]);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('requires the DKIM key once the target delivers outbound', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $env = itpDemoShopCheckout($scratch, 'outbound');
+        $args = ['--scope', 'target', '--provisioning', '--target', 'demo-shop'];
+
+        [$check, $report] = itpRun($scratch, ['--check', ...$args], $env);
+        expect($check)->not->toBe(0);
+        expect($report)
+            ->toMatch('/^MISSING +target +mail-dkim-private-key +absent and no material supplied: \/etc\/opendkim\/keys\/demo-shop\/shop2026.private/m')
+            ->toContain('TARGET PREREQUISITES READY: NO');
+
+        [$apply, $log] = itpRun($scratch, ['--apply', ...$args, '--material-dir', '/root/material'], $env);
+        expect($apply)->not->toBe(0);
+        expect($log)->toContain('external prerequisite mail-dkim-private-key: absent and no material supplied');
+
+        [$verify, $verified] = itpRun($scratch, ['--verify', ...$args], $env);
+        expect($verify)->not->toBe(0);
+        expect($verified)->toContain('external prerequisite mail-dkim-private-key is absent: /etc/opendkim/keys/demo-shop/shop2026.private');
+
+        // Supplied, it installs exactly as a held target's does.
+        itpSupplyDkimKey($scratch, 'rsa2048');
+        [$installed, $installLog] = itpRun($scratch, ['--apply', ...$args, '--material-dir', '/root/material'], $env);
+        expect($installed)->toBe(0, $installLog);
+        expect(itpMode($scratch.'/etc/opendkim/keys/demo-shop/shop2026.private'))->toBe('0600');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('derives the DKIM row of a target it has never heard of from that target\'s own identity', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $env = itpDemoShopCheckout($scratch, 'held');
+
+        [$check, $report] = itpRun($scratch, ['--check', '--scope', 'target', '--provisioning', '--target', 'demo-shop'], $env);
+        expect($check)->toBe(0, $report);
+        expect($report)->toMatch('/^DEFERRED +target +mail-dkim-private-key +absent, and not needed yet: demo-shop\'s mail is held.*: \/etc\/opendkim\/keys\/demo-shop\/shop2026.private$/m');
+
+        // The implementation names neither target nor selector.
+        expect(executableSourceLines(File::get(itpScript())))
+            ->not->toContain('tits-guru')
+            ->not->toContain('rg1')
+            ->not->toContain('shop2026');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('has no DKIM row for a target without a mail identity, and refuses a key supplied for one', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        [, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'target', '--target', 'staging-main']);
+        expect(array_values(array_filter(explode("\n", $names))))->toBe(ITP_TARGET_MATERIAL);
+
+        itpCreateTargetDirectories($scratch);
+        itpSupplyDkimKey($scratch, 'rsa2048');
+
+        [$check, $report] = itpRun($scratch, ['--check', '--scope', 'target', '--target', 'staging-main', '--material-dir', '/root/material']);
+        expect($check)->not->toBe(0);
+        expect($report)->toContain('the material directory carries mail-dkim-private-key, but staging-main has no reviewed mail identity in mail-identity.json — there is nowhere to install it, and nothing was installed');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('lists the DKIM key among a production target\'s own material names', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        [$status, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'target', '--provisioning', '--target', 'tits-guru']);
+
+        // --list-material-names takes no --provisioning; the planned target is
+        // refused, which is the existing lifecycle rule, unchanged.
+        expect($status)->not->toBe(0);
+
+        [, $check] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        preg_match_all('/^[A-Z]+ +target +(\S+)/m', $check, $matches);
+        expect($matches[1])->toBe(['laravel-env', 'deploy-authorized-keys', 'mail-dkim-private-key']);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('never consults the mail identity in host scope, where the installed copy runs beside no identity contract', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $absent = ['RATEGURU_TARGETPREREQ_MAIL_IDENTITY_BIN' => $scratch.'/no-such-mail-identity'];
+
+        [$status, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'host', '--target', 'staging-main'], $absent);
+        expect($status)->toBe(0, $names);
+        expect(array_values(array_filter(explode("\n", $names))))->toBe(ITP_HOST_MATERIAL);
+
+        // Target scope does need it, and says so instead of reporting a
+        // contract it could not establish.
+        [$target, $output] = itpRun($scratch, ['--check', '--scope', 'target', '--target', 'staging-main'], $absent);
+        expect($target)->not->toBe(0);
+        expect($output)->toContain('the mail identity CLI is not executable');
+    } finally {
+        removeScratchDir($scratch);
     }
 });

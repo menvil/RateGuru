@@ -86,7 +86,7 @@ final class AdminUiKit extends Page
             ['key' => 'foundations', 'label' => 'Foundations', 'description' => 'Tokens everything else is built from.', 'ids' => ['FND-01', 'FND-02', 'FND-03', 'FND-04']],
             ['key' => 'actions', 'label' => 'Actions', 'description' => 'Buttons, icon buttons and text actions.', 'ids' => ['ACT-01', 'ACT-02', 'ACT-03']],
             ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-05']],
-            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03']],
+            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-08', 'FRM-10', 'FRM-11']],
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
             ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-04', 'TBL-05', 'TBL-06']],
@@ -417,12 +417,15 @@ final class AdminUiKit extends Page
                     ['Shortcut', 'Kbd ⌘K on global search only'],
                     ['Focus', 'border gray-500 + 3 px halo'],
                     ['Behaviour', 'filters on input, no submit button'],
+                    ['Clearable', 'x 16 in a 24 button while the field holds text · empties it, keeps focus, raises input'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.search-field
                         placeholder="Search title, author or post ID"
                         wire:model.live.debounce.300ms="search"
                     />
+
+                    <x-admin.ui.search-field placeholder="Search source, key or translation" clearable x-model="query" />
 
                     <x-admin.ui.search-field placeholder="Search posts, users" shortcut="⌘K" />
                     BLADE,
@@ -480,6 +483,85 @@ final class AdminUiKit extends Page
                         hint="Shared with the author and stored in the moderation log."
                     />
                     BLADE,
+            ],
+            'FRM-08' => [
+                'name' => 'Segmented control',
+                'source' => 'Blade component · x-admin.ui.segmented',
+                'kind' => 'component',
+                'purpose' => 'Two to four mutually exclusive options on one track: Missing only / All, a role, a default sort.',
+                'specs' => [
+                    ['Track', 'gray-100 · hairline · padding 3 · radius 10'],
+                    ['Segment', '32 h (28 compact) · radius 8 · 14px (13 compact)'],
+                    ['Checked', 'white · shadow-xs · 500 ink · aria-checked'],
+                    ['Keyboard', 'Tab reaches the checked option · arrows, Home and End choose'],
+                    ['Binding', 'x-model on the component (x-modelable)'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.segmented
+                        label="Show"
+                        :options="['missing' => 'Missing only', 'all' => 'All']"
+                        x-model="mode"
+                    />
+                    BLADE,
+                'rules' => [
+                    'Two to four options; a longer list belongs in a filter dropdown.',
+                    '!Never tell the checked option by colour alone.',
+                ],
+            ],
+            'FRM-10' => [
+                'name' => 'Filter dropdown and chips',
+                'source' => 'Blade component · x-admin.ui.filter-dropdown',
+                'kind' => 'component',
+                'purpose' => 'A secondary filter next to the search: “Field: value”, and a menu of the values with their counts.',
+                'specs' => [
+                    ['Trigger', 'secondary button md · “Field: value” · chevron-down'],
+                    ['Menu', '240 w · radius 12 · padding 6 · shadow-popover'],
+                    ['Item', '36 h · radius 8 · check on the chosen one · optional count'],
+                    ['Keyboard', 'Enter, Space or Down opens · Up, Down, Home, End · Escape back to the button'],
+                    ['Chip', '28 h · radius 8 · sunken · remove 20 (.rg-admin-filter-chip)'],
+                    ['Binding', 'x-model on the component (x-modelable); live counts as Alpine expressions'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.filter-dropdown
+                        label="Section"
+                        :options="[
+                            ['value' => '', 'label' => 'All sections', 'trigger' => 'All'],
+                            ['value' => 'categories', 'label' => 'Categories', 'count' => '3 missing'],
+                        ]"
+                        x-model="section"
+                    />
+                    BLADE,
+                'rules' => [
+                    'Close on a choice, Escape or a click outside.',
+                ],
+            ],
+            'FRM-11' => [
+                'name' => 'Searchable combobox',
+                'source' => 'Blade component · x-admin.ui.combobox',
+                'kind' => 'component',
+                'purpose' => 'Choosing one value from a long list: the target language among thirty or more.',
+                'specs' => [
+                    ['Trigger', '52 h · radius 12 · border gray-300 · overline + value · badge · chevrons-up-down'],
+                    ['List', '420 w (max 100vw − 32) · search first · max 340 h, scrolls'],
+                    ['Option', '44 h · flag · name — native · code, state, missing · %'],
+                    ['Search', 'filters in the browser · “No installed language matches.”'],
+                    ['Keyboard', 'Enter, Space or arrows open · focus in the search · Up and Down move · Enter chooses · Escape back to the trigger'],
+                    ['A11y', 'combobox over a listbox · aria-activedescendant · aria-selected'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.combobox
+                        label="Target language"
+                        :options="$languages"
+                        :value="$locale"
+                        search-placeholder="Search 32 target languages"
+                        empty="No installed language matches."
+                        x-on:choose="$event.preventDefault(); switchTo($event.detail.value)"
+                    />
+                    BLADE,
+                'rules' => [
+                    '!Never a column per language. One target language at a time.',
+                    'A screen that has to ask first cancels the choose event, then decides.',
+                ],
             ],
             'NAV-01' => [
                 'name' => 'Sidebar',
@@ -592,6 +674,7 @@ final class AdminUiKit extends Page
                     ['Title', '24/32 500 −0.02em'],
                     ['Description', '14/20 gray-600 · max 640'],
                     ['Stats', '24 px padding · vertical hairlines · overline label + 20/28 value'],
+                    ['Phone', 'stats stay on one line, sharing the width · labels wrap between words · figures aligned'],
                     ['Page layout', 'top bar 62 → header band → scrolling content on gray-50 · gutter 28'],
                 ],
                 'code' => <<<'BLADE'
@@ -896,6 +979,7 @@ final class AdminUiKit extends Page
                 'kind' => 'component',
                 'purpose' => 'Stored, missing, AI suggestion not saved and edited not saved must never look alike. Only Save turns a suggestion into project data.',
                 'specs' => [
+                    ['Placement', 'field first, level with the English text · under it the count, then badge and note, then actions'],
                     ['Saved', 'success badge + dot · white field'],
                     ['Missing', 'warning badge · placeholder · English fallback note'],
                     ['AI not saved', 'info badge + dot · field #F4F7FD, border #C9D5EE · Regenerate / Discard'],

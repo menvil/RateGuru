@@ -11,11 +11,21 @@ description: >-
 # may be configured, what counts as already provisioned, which installer owns
 # which contract, and what stays deferred. None of that is reimplemented here.
 #
-# WHAT IT CARRIES, AND WHAT IT REFUSES TO. Exactly one piece of material
-# reaches the host: the target's deploy PUBLIC key, as deploy-authorized-keys.
-# Provisioning deliberately left that file absent — a provisioned target has an
-# identity and a home but no way in — and nothing else in the pipeline installs
-# it, so a target would stay undeployable forever without this step.
+# WHAT IT CARRIES, AND WHAT IT REFUSES TO. At most two pieces of material reach
+# the host, each by its logical name, and each named explicitly when uploaded:
+#
+#   deploy-authorized-keys  always: the target's deploy PUBLIC key. Provisioning
+#                           deliberately left that file absent — a provisioned
+#                           target has an identity and a home but no way in —
+#                           and nothing else in the pipeline installs it, so a
+#                           target would stay undeployable forever without it.
+#
+#   mail-dkim-private-key   only when the optional mail-dkim-private-key input
+#                           is set: the target's DKIM signing private key. The
+#                           host is its one canonical place, and the server-side
+#                           installer decides where — never this action. Absent,
+#                           nothing is staged and the key stays deferred while
+#                           the target's mail is held.
 #
 # It is derived here rather than supplied: `ssh-keygen -y` reads the deployment
 # private key GitHub already holds and emits its public half. The private key
@@ -90,6 +100,20 @@ inputs:
       provisioned target has no authorized_keys yet, and deriving the public key
       from the credential GitHub already holds is what avoids inventing a second
       source of truth for the deploy identity.
+
+  mail-dkim-private-key:
+    required: false
+    default: ""
+    description: >-
+      Optional. The target's DKIM signing PRIVATE key (PEM, unencrypted RSA, of
+      at least the size its reviewed mail identity requires). Judged on the
+      runner by infrastructure/scripts/mail-identity before anything is
+      uploaded, staged as mail-dkim-private-key in the root-only material
+      directory, installed by install-target-prerequisites at the destination
+      it derives, and removed from the runner and the host with every other
+      temporary file. Never printed, never an output, never in a summary. Empty
+      means no key is staged: while the target's mail is held, its key is
+      deferred.
 
 outputs:
   configured:
@@ -265,6 +289,55 @@ runs:
 
         echo "Staged deploy-authorized-keys (public key only). The private key was used on this runner and removed."
 
+    # The DKIM private key, only when one was supplied. Judged before anything
+    # is uploaded, by the same implementation the host uses: the target must
+    # have a reviewed mail identity, and the key must be an unencrypted RSA
+    # private key of at least its reviewed size. Only a fixed verdict is ever
+    # printed. A refused key is deleted before the step fails.
+    - name: Stage the DKIM private key
+      shell: bash
+      env:
+        MAIL_DKIM_PRIVATE_KEY: ${{ inputs.mail-dkim-private-key }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${MAIL_DKIM_PRIVATE_KEY:-}" ]]; then
+          echo "No DKIM private key was supplied: nothing is staged. While ${DEPLOYMENT_TARGET}'s mail is held its key is deferred."
+          exit 0
+        fi
+
+        identity_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/mail-identity"
+        staged="${RATEGURU_MATERIAL_DIR}/mail-dkim-private-key"
+
+        test -x "${identity_cli}"
+
+        answer="$("${identity_cli}" dkim-key --target "${DEPLOYMENT_TARGET}")"
+
+        if [[ "${answer}" == "none" ]]; then
+          echo "${DEPLOYMENT_TARGET} has no reviewed mail identity, so a DKIM key has nowhere to go. Nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        IFS=$'\t' read -r _ _ minimum_bits <<<"${answer}"
+
+        # Byte for byte the PEM as it was supplied, ending in exactly one
+        # newline whether or not the secret kept its last one: the host compares
+        # an installed key with a supplied one by content, so the same key
+        # supplied twice must stage identically.
+        install -m 0600 /dev/null "${staged}"
+        printf '%s' "${MAIL_DKIM_PRIVATE_KEY}" > "${staged}"
+        [[ "${MAIL_DKIM_PRIVATE_KEY}" == *$'\n' ]] || printf '\n' >> "${staged}"
+
+        if ! "${identity_cli}" check-key --file "${staged}" --min-bits "${minimum_bits}"; then
+          rm -f "${staged}"
+          echo "MAIL_DKIM_PRIVATE_KEY is not a usable DKIM private key (the reason is above; the key itself is never printed). Nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_DKIM_KEY_STAGED=true" >> "${GITHUB_ENV}"
+        echo "Staged mail-dkim-private-key for ${DEPLOYMENT_TARGET}."
+
     # Only infrastructure/ — configure-target and the installers it delegates
     # to resolve every file beneath that one directory. The application is
     # emphatically not part of the bundle: this operation never touches code.
@@ -341,8 +414,8 @@ runs:
           "${RATEGURU_BUNDLE_PATH}" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
 
-        # The public deploy key, and only ever that one file: the staging
-        # directory is built by this action and holds nothing else.
+        # The public deploy key, named exactly: the staging directory is built
+        # by this action, and nothing in it is ever sent by a glob.
         scp \
           -P "${BOOTSTRAP_PORT}" \
           -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
@@ -355,6 +428,23 @@ runs:
           -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
           "${RATEGURU_MATERIAL_DIR}/deploy-authorized-keys" \
           "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/deploy-authorized-keys"
+
+        # The DKIM private key, only when one was staged, and again by its exact
+        # name: nothing in the material directory travels unless it is named.
+        if [[ "${RATEGURU_DKIM_KEY_STAGED:-false}" == true ]]; then
+          scp \
+            -P "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${RATEGURU_MATERIAL_DIR}/mail-dkim-private-key" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/mail-dkim-private-key"
+        fi
 
         # scp can only ever write as the bootstrap user, so everything lands in
         # that user's home first and is moved into the root-only tree before
@@ -491,6 +581,163 @@ runs:
           echo "configured=true"
           echo "lifecycle=$(jq -r '.lifecycle' <<<"${json}")"
         } >> "${GITHUB_OUTPUT}"
+
+    # The records an operator publishes next — only once the target verified,
+    # and before the uploaded bundle is removed, from that same trusted bundle
+    # on the host: `mail-identity show-dns --json` derives the DKIM PUBLIC key
+    # from the installed private key and reads the host's public IPv4 from its
+    # route. Only public values come back, and only they are shown. Nothing is
+    # published, and DNS is not verified here — it does not exist yet.
+    #
+    # Whether the target has a reviewed identity, and whether its key is
+    # required yet, is `mail-identity dkim-key`'s answer, asked of the same
+    # trusted tree the bundle was packaged from. No identity: no plan, and
+    # Configure succeeds. An identity whose key is absent while its mail is
+    # held: the plan is DEFERRED, and Configure succeeds. Otherwise the plan
+    # must be complete — the MTA hostname, the host's public IPv4 and exactly
+    # one A, PTR, DKIM, SPF and DMARC record, each named and valued — or the
+    # step fails: the target was configured, but no DNS may be published from
+    # this run. Nothing installed is touched either way.
+    - name: Report the public DNS publication plan
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        summary() { printf '%s\n' "$@" >> "${GITHUB_STEP_SUMMARY}"; }
+
+        # Defence in depth: a plan is public by construction, and anything
+        # that looks like key material is never written anywhere.
+        refuse_key_material() {
+          if grep -q 'PRIVATE KEY' <<<"$1"; then
+            echo "The DNS plan output contained private key armour; it was discarded and nothing was shown." >&2
+            summary "Not shown: the plan output was refused."
+            exit 1
+          fi
+        }
+
+        no_plan() {
+          echo "$1" >&2
+          echo "${DEPLOYMENT_TARGET}: the target itself was configured, but the reviewed public mail DNS plan could not be established; do not publish DNS from this run." >&2
+          summary "**No plan — $1**" "" "The target itself was configured, but the reviewed public mail DNS plan could not be established; **do not publish DNS from this run.**"
+          exit 1
+        }
+
+        summary "## Mail DNS publication plan" ""
+
+        identity_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/mail-identity"
+        test -x "${identity_cli}"
+
+        if ! answer="$("${identity_cli}" dkim-key --target "${DEPLOYMENT_TARGET}")"; then
+          no_plan "mail-identity could not say whether ${DEPLOYMENT_TARGET} has a reviewed mail identity."
+        fi
+
+        if [[ "${answer}" == "none" ]]; then
+          echo "No DNS publication plan: ${DEPLOYMENT_TARGET} has no reviewed mail identity."
+          summary "No plan: \`${DEPLOYMENT_TARGET}\` has no reviewed mail identity."
+          exit 0
+        fi
+
+        requirement="${answer%%$'\t'*}"
+        [[ "${requirement}" == deferred || "${requirement}" == required ]] \
+          || no_plan "mail-identity gave no key requirement for ${DEPLOYMENT_TARGET}."
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX:-}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/mail-identity"
+          show-dns
+          --target "${DEPLOYMENT_TARGET}"
+          --json
+        )
+
+        set +e
+        plan="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>/dev/null
+        )"
+        plan_status=$?
+        set -e
+
+        refuse_key_material "${plan}"
+
+        (( plan_status == 0 )) || no_plan "mail-identity show-dns exited ${plan_status} on the host."
+
+        jq -e 'type == "object" and (.records | type) == "array" and (.dkim | type) == "object"' <<<"${plan}" >/dev/null 2>&1 \
+          || no_plan "mail-identity show-dns printed no readable plan."
+
+        key_status="$(jq -r '.dkim.key_status // "unknown"' <<<"${plan}")"
+
+        if [[ "${key_status}" == absent && "${requirement}" == deferred ]]; then
+          echo "DNS publication plan DEFERRED — DKIM private key not installed."
+          summary "**DNS publication plan DEFERRED — DKIM private key not installed.** Set \`MAIL_DKIM_PRIVATE_KEY\` and run Configure again; while \`${DEPLOYMENT_TARGET}\`'s mail is held this is not required."
+          exit 0
+        fi
+
+        [[ "${key_status}" == usable ]] \
+          || no_plan "the DKIM private key on the host is ${key_status} (${requirement} for ${DEPLOYMENT_TARGET}), so there is no DKIM record to publish."
+
+        # Complete and unambiguous, judged on the plan's own shape — every
+        # value comes from mail-identity, none is restated here.
+        problems="$(jq -r '
+          def present: type == "string" and length > 0;
+          def kind($purpose): if $purpose == "A" or $purpose == "PTR" then $purpose else "TXT" end;
+          (.mta // {}) as $mta
+          | [.records[] | select(type == "object")] as $records
+          | ["A", "PTR", "DKIM", "SPF", "DMARC"] as $purposes
+          | [
+              (if $mta.hostname | present then empty else "no MTA hostname" end),
+              (if $mta.ipv4 | present then empty else "no public IPv4 address was detected on the host" end),
+              ($purposes[] as $purpose
+                | [$records[] | select(.purpose == $purpose)] as $found
+                | if ($found | length) != 1 then "\($found | length) \($purpose) records where exactly one belongs"
+                  elif $found[0].type != kind($purpose) then "the \($purpose) record is not of type \(kind($purpose))"
+                  elif ($found[0].name | present) and ($found[0].value | present) then empty
+                  else "the \($purpose) record has no name or no value" end),
+              ([$records[] | select(.purpose as $purpose | any($purposes[]; . == $purpose) | not)] | length
+                | if . == 0 then empty else "\(.) records of no known purpose" end),
+              (if ($mta.hostname | present) and ($mta.ipv4 | present)
+                  and ([$records[] | select(.purpose == "A" and .name == $mta.hostname and .value == $mta.ipv4)] | length) != 1
+               then "the A record does not map the MTA hostname to the host address" else empty end),
+              (if ($mta.hostname | present) and ($mta.ipv4 | present)
+                  and ([$records[] | select(.purpose == "PTR" and .name == $mta.ipv4 and .value == $mta.hostname)] | length) != 1
+               then "the PTR record does not map the host address back to the MTA hostname" else empty end)
+            ]
+          | join("; ")
+        ' <<<"${plan}")"
+
+        [[ -z "${problems}" ]] || no_plan "the plan is incomplete: ${problems}."
+
+        # Public values only: names, the host's public address, and the DKIM
+        # PUBLIC key.
+        table="$(jq -r '
+          ["A", "PTR", "DKIM", "SPF", "DMARC"][] as $purpose
+          | .records[]
+          | select(type == "object" and .purpose == $purpose)
+          | "| \(.type) | `\(.name)` | `\(.value)` |"
+        ' <<<"${plan}")"
+
+        echo "Publish these records (public values only):"
+        printf '%s\n' "${table}"
+
+        summary "Publish exactly these records — public values only. PTR is set at the provider that owns the address; keep exactly one SPF record (replace, never add a second). Then run Verify production infrastructure while they propagate."
+        summary ""
+        summary "| Type | Name | Value |"
+        summary "| --- | --- | --- |"
+        summary "${table}"
 
     # Runs on failure too. Uploaded tooling must never outlive the run.
     - name: Remove the remote configuration bundle

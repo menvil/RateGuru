@@ -67,6 +67,7 @@
     .rg-admin-breadcrumb__link:focus-visible,
     .rg-admin-pagination__page:focus-visible,
     .rg-admin-filter-chip__remove:focus-visible,
+    .rg-admin-search__clear:focus-visible,
     .rg-admin-toast__action:focus-visible,
     .rg-admin-toast__close:focus-visible {
         outline: 2px solid var(--rg-admin-focus-ring);
@@ -508,13 +509,34 @@
         max-width: 640px;
     }
 
-    /* On a phone the stats take two columns instead of running off the screen. */
+    /*
+     * On a phone the stats stay on one line, the width shared between them:
+     * a label wraps between words, never inside one, and the figures line up
+     * at the bottom. Only a screen too narrow even for that takes two columns.
+     */
     @media (max-width: 639.98px) {
         .rg-admin-stats {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
+            grid-auto-columns: minmax(min-content, 1fr);
+            grid-auto-flow: column;
             width: 100%;
+        }
+
+        .rg-admin-stat {
+            justify-content: space-between;
+            padding: 0 10px;
+        }
+
+        .rg-admin-stat__label {
+            white-space: normal;
+        }
+    }
+
+    @media (max-width: 359.98px) {
+        .rg-admin-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-flow: row;
+            gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
         }
 
         .rg-admin-stat,
@@ -522,10 +544,6 @@
         .rg-admin-stat:last-child {
             padding: 0;
             border-left: 0;
-        }
-
-        .rg-admin-stat__label {
-            white-space: normal;
         }
     }
 
@@ -831,6 +849,30 @@
         display: none;
     }
 
+    /* A clearable field's own clear button, there only while the field holds text. */
+    .rg-admin-search__clear {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        color: var(--rg-admin-text-tertiary);
+        cursor: pointer;
+    }
+
+    .rg-admin-search__clear:hover:not(:disabled) {
+        background: var(--rg-admin-surface-pressed);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-search__control:placeholder-shown ~ .rg-admin-search__clear {
+        display: none;
+    }
+
     .rg-admin-kbd {
         display: inline-flex;
         align-items: center;
@@ -883,6 +925,10 @@
 
     /* A manual change that is not saved yet. */
     .rg-admin-textarea--changed {
+        border-color: var(--rg-admin-border-changed);
+    }
+
+    .rg-admin-input--changed {
         border-color: var(--rg-admin-border-changed);
     }
 
@@ -1348,6 +1394,306 @@
     .rg-admin-filter-chip__remove:hover {
         background: var(--rg-admin-surface-pressed);
         color: var(--rg-admin-text-strong);
+    }
+
+    /* FRM-08 · Segmented control: two to four exclusive options on one track */
+    .rg-admin-segmented {
+        display: inline-flex;
+        flex-shrink: 0;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-segmented__option {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: var(--rg-admin-control-sm);
+        padding: 0 var(--rg-admin-space-3);
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-secondary);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-regular);
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-segmented--compact .rg-admin-segmented__option {
+        height: 28px;
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-segmented__option:hover:not([aria-checked='true']) {
+        color: var(--rg-admin-text-strong);
+    }
+
+    /* Checked: raised and heavier, not only a different colour. */
+    .rg-admin-segmented__option[aria-checked='true'] {
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-segmented__option:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 1px;
+    }
+
+    .rg-admin-segmented__label {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .rg-admin-segmented__label::after {
+        content: attr(data-label);
+        height: 0;
+        overflow: hidden;
+        visibility: hidden;
+        font-weight: var(--rg-admin-weight-medium);
+        user-select: none;
+        pointer-events: none;
+    }
+
+    /* FRM-10 · Filter dropdown: “Field: value” and a menu of values */
+    .rg-admin-filter-dropdown {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .rg-admin-filter-dropdown__trigger {
+        font-weight: var(--rg-admin-weight-regular);
+    }
+
+    .rg-admin-filter-dropdown__trigger .rg-admin-icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-filter-dropdown__menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 50;
+        width: 240px;
+        max-width: calc(100vw - 32px);
+    }
+
+    .rg-admin-filter-dropdown__item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: var(--rg-admin-menu-item-height);
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-filter-dropdown__item:hover,
+    .rg-admin-filter-dropdown__item:focus-visible {
+        outline: none;
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-filter-dropdown__item:focus-visible {
+        box-shadow: inset 0 0 0 2px var(--rg-admin-focus-ring);
+    }
+
+    .rg-admin-filter-dropdown__label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-filter-dropdown__count {
+        font-size: var(--rg-admin-text-micro);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-filter-dropdown__item[aria-checked='false'] .rg-admin-filter-dropdown__check {
+        visibility: hidden;
+    }
+
+    /* FRM-11 · Searchable combobox: a long list with a search first */
+    .rg-admin-combobox {
+        position: relative;
+        min-width: 0;
+    }
+
+    .rg-admin-combobox__trigger {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        width: 100%;
+        min-width: min(360px, 100%);
+        height: 52px;
+        padding: 0 var(--rg-admin-space-3) 0 14px;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        text-align: left;
+        cursor: pointer;
+        transition: background-color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-combobox__trigger:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-combobox__trigger:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-combobox__leading {
+        font-size: 22px;
+        line-height: 1;
+    }
+
+    .rg-admin-combobox__text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-combobox__overline {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-combobox__value {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 22px;
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-combobox__chevron {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-combobox__popover {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        z-index: 50;
+        width: 420px;
+        max-width: calc(100vw - 32px);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-combobox__search {
+        padding: 10px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-combobox__list {
+        max-height: 340px;
+        padding: 6px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .rg-admin-combobox__option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: var(--rg-admin-space-1) 10px;
+        border-radius: var(--rg-admin-radius-item);
+        cursor: pointer;
+    }
+
+    .rg-admin-combobox__option[data-active='true'] {
+        background: var(--rg-admin-surface-hover);
+        box-shadow: inset 0 0 0 1px var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-combobox__option-leading {
+        width: 22px;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .rg-admin-combobox__option-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-combobox__option-label {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-combobox__option-meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-combobox__option-trailing {
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-combobox__option-trailing--success {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-combobox__option[aria-selected='false'] .rg-admin-combobox__option-check {
+        visibility: hidden;
+    }
+
+    .rg-admin-combobox__empty {
+        margin: 0;
+        padding: 14px 16px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-combobox__empty:empty {
+        display: none;
     }
 
     /* TBL-04 · Row menu */
@@ -1987,6 +2333,7 @@
         background: var(--rg-admin-status-info-cell);
     }
 
+    /* Under the field: the badge and its note, as Translation Center puts them. */
     .rg-admin-translation-state__head {
         display: flex;
         flex-wrap: wrap;
@@ -2636,6 +2983,7 @@
 
     .rg-admin-languages__missing {
         display: inline-flex;
+        white-space: nowrap;
         align-items: center;
         gap: var(--rg-admin-space-1);
         padding: 0;
@@ -2818,6 +3166,532 @@
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* A language besides English opens in Translation Center from its names. */
+    .rg-admin-languages__names--link {
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--rg-admin-radius-xs);
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .rg-admin-languages__names--link:hover .rg-admin-languages__name {
+        text-decoration: underline;
+        text-decoration-color: var(--rg-admin-border-strong);
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-languages__names--link:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-languages__cell-label,
+    .rg-admin-languages__inline-code {
+        display: none;
+    }
+
+    /*
+     * The table adapts to its card rather than scrolling the page. From the
+     * reference's 1060 the columns tighten to fit a card beside the rail; below
+     * that each language becomes a block — names and action first, then its
+     * status and figures, each with its own label — in four columns on a
+     * tablet and two on a phone.
+     */
+    .rg-admin-languages__card {
+        container-type: inline-size;
+    }
+
+    @container (max-width: 1059.98px) {
+        .rg-admin-languages__card .rg-admin-table__grid {
+            min-width: 0;
+        }
+
+        .rg-admin-languages__card .rg-admin-table__row {
+            grid-template-columns: minmax(150px, 1fr) 56px 150px 150px 150px 110px 110px;
+        }
+
+        .rg-admin-languages__bar--project {
+            width: 120px;
+        }
+    }
+
+    @container (max-width: 875.98px) {
+        .rg-admin-languages__card .rg-admin-table__row--head,
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-table__cell.rg-admin-languages__cell--locale {
+            display: none;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+            grid-template-areas:
+                'language language language actions'
+                'status application project missing';
+            align-items: start;
+            gap: var(--rg-admin-space-3) var(--rg-admin-space-4);
+            padding: var(--rg-admin-space-3) var(--rg-admin-space-4) 14px;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-table__cell {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 0;
+        }
+
+        .rg-admin-languages__cell--language {
+            grid-area: language;
+        }
+
+        .rg-admin-languages__cell--status {
+            grid-area: status;
+        }
+
+        .rg-admin-languages__cell--application {
+            grid-area: application;
+        }
+
+        .rg-admin-languages__cell--project {
+            grid-area: project;
+        }
+
+        .rg-admin-languages__cell--missing {
+            grid-area: missing;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-languages__cell--actions {
+            grid-area: actions;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .rg-admin-languages__language {
+            padding-block: 0;
+        }
+
+        .rg-admin-languages__cell-label {
+            display: block;
+            font-size: var(--rg-admin-text-overline);
+            line-height: var(--rg-admin-leading-overline);
+            font-weight: var(--rg-admin-weight-medium);
+            letter-spacing: var(--rg-admin-tracking-overline);
+            text-transform: uppercase;
+            color: var(--rg-admin-text-tertiary);
+        }
+
+        .rg-admin-languages__inline-code {
+            display: inline;
+            align-self: flex-start;
+            margin-top: 2px;
+            font-family: var(--rg-admin-font-mono);
+            font-size: var(--rg-admin-text-micro);
+            color: var(--rg-admin-text-secondary);
+        }
+
+        .rg-admin-languages__bar--application,
+        .rg-admin-languages__bar--project {
+            width: 100%;
+            max-width: 160px;
+        }
+
+        .rg-admin-languages__blocked,
+        .rg-admin-languages__hint {
+            align-items: flex-end;
+            padding-block: 0;
+        }
+    }
+
+    @container (max-width: 559.98px) {
+        .rg-admin-languages__card .rg-admin-languages__row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-areas:
+                'language actions'
+                'status missing'
+                'application project';
+        }
+    }
+
+    /*
+     * Translation Center screen (TranslationCenterPage): the header band with
+     * the target language, the three-column rows of DOM-01 fields, and the
+     * context drawer. The rows stack into one column when their own width —
+     * not the window's — leaves the fields too narrow to use.
+     */
+    .rg-admin-translation-center__header {
+        align-items: center;
+        padding: 18px var(--rg-admin-page-gutter);
+    }
+
+    .rg-admin-translation-center__target {
+        flex: 0 1 420px;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-center__completion {
+        min-width: 160px;
+    }
+
+    .rg-admin-translation-center__completion-figure {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: var(--rg-admin-leading-stat);
+        margin: 0;
+    }
+
+    .rg-admin-translation-center__completion-bar {
+        flex: 1;
+        min-width: 80px;
+    }
+
+    .rg-admin-translation-center__percentage {
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* The section menu opens over the rows, so the card does not clip it. */
+    .rg-admin-translation-center__card {
+        overflow: visible;
+    }
+
+    .rg-admin-translation-center[aria-busy='true'] .rg-admin-translation-center__card {
+        opacity: 0.6;
+        pointer-events: none;
+        transition: opacity var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-translation-center__grid {
+        container-type: inline-size;
+    }
+
+    .rg-admin-translation-row {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1fr);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-row--head {
+        min-height: var(--rg-admin-table-header-height);
+        align-items: center;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row--linked {
+        box-shadow: inset 3px 0 0 var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-translation-row__cell {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        padding: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-translation-row--head .rg-admin-translation-row__cell {
+        padding-block: 0;
+    }
+
+    .rg-admin-translation-row:not(.rg-admin-translation-row--head) .rg-admin-translation-row__cell + .rg-admin-translation-row__cell {
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-row__cell-label {
+        display: none;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row__item {
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .rg-admin-translation-row__entity {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-row__field {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-row__key {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        color: var(--rg-admin-text-tertiary);
+        word-break: break-all;
+    }
+
+    .rg-admin-translation-row__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1);
+        margin: 2px 0 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-constraint-chip {
+        height: 20px;
+        padding: 0 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-overline);
+        line-height: 18px;
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-constraint-chip--placeholder {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    .rg-admin-translation-row__context {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: var(--rg-admin-space-1);
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-xs);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        cursor: pointer;
+    }
+
+    .rg-admin-translation-row__context:hover {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-row__context:focus-visible,
+    .rg-admin-translation-row__source:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-translation-row__source {
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-translation-row__source--long {
+        max-height: 220px;
+        overflow-y: auto;
+    }
+
+    .rg-admin-translation-row__meta {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row__source-link {
+        margin-left: auto;
+    }
+
+    /* Under the target field, as the length is under the English text: count, state and note, actions. */
+    .rg-admin-translation-row__foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-translation-row__state {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        min-height: 24px;
+    }
+
+    .rg-admin-translation-row__note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row__counter {
+        margin-left: 0;
+    }
+
+    .rg-admin-translation-row__actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-left: auto;
+    }
+
+    /* Every row keeps its bottom hairline, whichever is the last one shown; the footer needs none of its own. */
+    .rg-admin-translation-center__footer {
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* Too narrow for three columns: Item, English and the target, one under the other. */
+    @container (max-width: 720px) {
+        .rg-admin-translation-row {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .rg-admin-translation-row--head {
+            display: none;
+        }
+
+        .rg-admin-translation-row:not(.rg-admin-translation-row--head) .rg-admin-translation-row__cell + .rg-admin-translation-row__cell {
+            padding-top: 0;
+            border-left: 0;
+        }
+
+        .rg-admin-translation-row__cell-label {
+            display: block;
+        }
+    }
+
+    /* On a phone the completion is a figure like the others, its bar under it, so the four share one line. */
+    @media (max-width: 639.98px) {
+        .rg-admin-translation-center__target {
+            flex-basis: 100%;
+        }
+
+        .rg-admin-translation-center__completion {
+            min-width: 0;
+        }
+
+        .rg-admin-translation-center__completion-figure {
+            flex-direction: column-reverse;
+            align-items: stretch;
+            gap: 6px;
+        }
+
+        .rg-admin-translation-center__completion-bar {
+            flex: none;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .rg-admin-translation-center__percentage {
+            font-size: var(--rg-admin-text-stat);
+            line-height: var(--rg-admin-leading-stat);
+            letter-spacing: var(--rg-admin-tracking-tight);
+        }
+    }
+
+    .rg-admin-translation-context__section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: 14px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-context__section:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-translation-context__usage {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-translation-context__value {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .rg-admin-translation-context__others {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-translation-context__other {
+        display: flex;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+    }
+
+    .rg-admin-translation-context__flag {
+        font-size: var(--rg-admin-text-ui);
+        line-height: 20px;
+    }
+
+    .rg-admin-translation-context__other-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-context__other-language {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-context__other-translation {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-context__none,
+    .rg-admin-translation-context__note {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-context__note {
+        flex: 1;
+        min-width: 0;
     }
 
     /* Dev UI kit page (/admin/dev/ui-kit) */
