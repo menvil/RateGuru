@@ -100,7 +100,7 @@ it('draws Languages in Admin v2, inside the shell, with nothing left of the Fila
     ]);
 });
 
-it('keeps every column, scrolling the table inside its card rather than the page, with a search on or off', function (int $width, bool $scrolls) {
+it('fits the table to its card at every width, as a table or as one block per language, never scrolling sideways', function (int $width, string $layout) {
     [, $withheld] = twoTranslatedLocales();
     $page = visit('/admin/languages?q='.$withheld)->resize($width, 900)->wait(0.4);
 
@@ -115,21 +115,60 @@ it('keeps every column, scrolling the table inside its card rather than the page
             (() => {
                 const scroll = document.querySelector('.rg-admin-table__scroll')
                 const head = document.querySelector('[role="table"] [role="row"]')
+                const row = document.querySelector('[role="table"] [role="row"][id^="rg-admin-language-"]')
+                const box = (selector) => row.querySelector(selector).getBoundingClientRect()
 
                 return {
-                    columns: head.querySelectorAll('[role="columnheader"]').length,
-                    gridWidth: Math.round(document.querySelector('[role="table"]').getBoundingClientRect().width) >= 1060,
+                    layout: getComputedStyle(head).display === 'none' ? 'blocks' : 'table',
+                    // As blocks, the names and the action lead each language and every figure is labelled.
+                    labelled: [...row.querySelectorAll('.rg-admin-languages__cell-label')].filter((label) => getComputedStyle(label).display !== 'none').length,
+                    namesFirst: box('.rg-admin-languages__cell--language').top <= box('.rg-admin-languages__cell--status').top,
                     scrolls: scroll.scrollWidth > scroll.clientWidth,
                     overflow: document.documentElement.scrollWidth > window.innerWidth,
                 }
             })()
-        JS))->toBe(['columns' => 7, 'gridWidth' => true, 'scrolls' => $scrolls, 'overflow' => false]);
+        JS))->toBe(['layout' => $layout, 'labelled' => $layout === 'blocks' ? 4 : 0, 'namesFirst' => true, 'scrolls' => false, 'overflow' => false]);
     }
 })->with([
-    '1440' => [1440, false],
-    '1024' => [1024, true],
-    '390' => [390, true],
+    'wide' => [1440, 'table'],
+    'laptop' => [1280, 'table'],
+    'rail' => [1024, 'table'],
+    'tablet' => [768, 'blocks'],
+    'phone' => [390, 'blocks'],
 ]);
+
+it('keeps the header figures on one line on a phone', function () {
+    $page = visit('/admin/languages')->resize(390, 844)->wait(0.4);
+
+    expect($page->script(<<<'JS'
+        (() => {
+            const stats = [...document.querySelectorAll('.rg-admin-stats .rg-admin-stat')].map((stat) => stat.getBoundingClientRect())
+            const values = [...document.querySelectorAll('.rg-admin-stats .rg-admin-stat__value')].map((value) => Math.round(value.getBoundingClientRect().bottom))
+
+            return {
+                count: stats.length,
+                oneLine: stats.every((stat) => Math.abs(stat.top - stats[0].top) < 1),
+                aligned: new Set(values).size === 1,
+                inside: stats.every((stat) => stat.right <= window.innerWidth),
+            }
+        })()
+    JS))->toBe(['count' => 4, 'oneLine' => true, 'aligned' => true, 'inside' => true]);
+});
+
+it('opens a language besides English in Translation Center from its name', function () {
+    [$target] = twoTranslatedLocales();
+    settingsTranslatedInto(supportedLocales());
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+
+    expect($page->script("document.querySelector('#rg-admin-language-en .rg-admin-languages__names--link')"))->toBeNull();
+
+    $page->click("#rg-admin-language-{$target} .rg-admin-languages__names--link")->wait(0.8);
+
+    expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}")
+        // Complete or not, the language's translations are there to improve.
+        ->and($page->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').length"))->toBeGreaterThan(0);
+});
 
 it('filters by status tab without a reload, keeping the tab in the URL and in history', function () {
     [, $withheld] = twoTranslatedLocales();
@@ -342,7 +381,6 @@ it('fits the drawer to a phone without the page scrolling sideways', function ()
 
     $page = visit('/admin/languages')->resize(390, 844)->wait(0.4);
 
-    // The Missing column sits off screen in the table's own scroll.
     $page->script("document.querySelector('#rg-admin-language-{$target} .rg-admin-languages__missing').click()");
     $page->wait(0.8);
 

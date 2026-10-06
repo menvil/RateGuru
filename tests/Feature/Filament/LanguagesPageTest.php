@@ -204,6 +204,20 @@ it('shares one table among however many languages there are, with no branch for 
 
 // English ------------------------------------------------------------------------
 
+it('opens every language but English in Translation Center from its name, complete or not', function () {
+    settingsTranslatedInto(supportedLocales());
+    $page = languagesPage();
+
+    expect(languageRow($page, 'en'))->not->toContain('rg-admin-languages__names--link')
+        ->not->toContain(e(TranslationCenterPage::getUrl()));
+
+    foreach (translatedLocales() as $code) {
+        expect(languageRow($page, $code))
+            ->toContain('<a href="'.e(TranslationCenterPage::getUrl(['locale' => $code])).'" class="rg-admin-languages__names rg-admin-languages__names--link"')
+            ->toContain('title="Translate '.e(config("locales.supported.{$code}.label")).' in Translation Center"');
+    }
+});
+
 it('shows English as the enabled default in two lines, with nothing to enable or disable', function () {
     offerEveryInstalledLocale();
     $row = languageRow(languagesPage(), 'en');

@@ -52,7 +52,7 @@ use UnitEnum;
  * language against what is installed and what is offered now, because what
  * the browser sends is not a permission.
  *
- * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, incomplete: bool, search: string}
+ * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, incomplete: bool, search: string, translate: ?string}
  */
 final class LanguagesPage extends Page
 {
@@ -522,6 +522,8 @@ final class LanguagesPage extends Page
                 'incomplete' => ! $catalogs[$code]->isComplete() || ! $projects[$code]->isComplete(),
                 // What the browser's search looks in: English name, native name and code.
                 'search' => mb_strtolower("{$info['label']} {$info['native']} {$code}"),
+                // Every language but the reference opens in Translation Center.
+                'translate' => $code === TranslatableField::REFERENCE_LOCALE ? null : TranslationCenterPage::getUrl(['locale' => $code]),
             ];
         }
 

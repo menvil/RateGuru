@@ -91,7 +91,8 @@ time; the contract's Localization section describes what runs.
   confirmation before switching language; Save and Save & next; the context drawer (OVL-02).
 - **Languages bridge done.** Translate on a missing item opens Translation Center on that item, and Translate all
   missing on everything the language is missing; Edit source still opens the content's editor. Catalog issues
-  never lead there.
+  never lead there. Each language's name opens Translation Center on that language, and the Languages table fits
+  its card at every width — tightened columns, then one labelled block per language — without scrolling sideways.
 - **Kit:** FRM-08, FRM-10 and FRM-11 are reusable components, live in `/admin/dev/ui-kit`.
 - **Deliberately not in this step:** AI (Generate missing, AI translate, Regenerate, Save all generated, the AI
   suggestion state); review states; history and source hashes; the missing count on the navigation item (see the

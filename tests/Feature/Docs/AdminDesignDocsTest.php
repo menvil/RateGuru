@@ -123,7 +123,11 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–03, FRM-08, FRM-10, FRM-11 |');
+        ->toContain('| FRM-01–03, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('| DOM-01 placement |')
+        ->toContain('| Languages table on narrow widths |')
+        ->toContain('On a phone the stats stay on one line')
+        ->toContain("A list's search is clearable");
 });
 
 it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {

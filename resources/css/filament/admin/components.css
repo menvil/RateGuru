@@ -509,13 +509,34 @@
         max-width: 640px;
     }
 
-    /* On a phone the stats take two columns instead of running off the screen. */
+    /*
+     * On a phone the stats stay on one line, the width shared between them:
+     * a label wraps between words, never inside one, and the figures line up
+     * at the bottom. Only a screen too narrow even for that takes two columns.
+     */
     @media (max-width: 639.98px) {
         .rg-admin-stats {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
+            grid-auto-columns: minmax(min-content, 1fr);
+            grid-auto-flow: column;
             width: 100%;
+        }
+
+        .rg-admin-stat {
+            justify-content: space-between;
+            padding: 0 10px;
+        }
+
+        .rg-admin-stat__label {
+            white-space: normal;
+        }
+    }
+
+    @media (max-width: 359.98px) {
+        .rg-admin-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-flow: row;
+            gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
         }
 
         .rg-admin-stat,
@@ -523,10 +544,6 @@
         .rg-admin-stat:last-child {
             padding: 0;
             border-left: 0;
-        }
-
-        .rg-admin-stat__label {
-            white-space: normal;
         }
     }
 
@@ -2316,6 +2333,7 @@
         background: var(--rg-admin-status-info-cell);
     }
 
+    /* Under the field: the badge and its note, as Translation Center puts them. */
     .rg-admin-translation-state__head {
         display: flex;
         flex-wrap: wrap;
@@ -2965,6 +2983,7 @@
 
     .rg-admin-languages__missing {
         display: inline-flex;
+        white-space: nowrap;
         align-items: center;
         gap: var(--rg-admin-space-1);
         padding: 0;
@@ -3147,6 +3166,152 @@
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* A language besides English opens in Translation Center from its names. */
+    .rg-admin-languages__names--link {
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--rg-admin-radius-xs);
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .rg-admin-languages__names--link:hover .rg-admin-languages__name {
+        text-decoration: underline;
+        text-decoration-color: var(--rg-admin-border-strong);
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-languages__names--link:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-languages__cell-label,
+    .rg-admin-languages__inline-code {
+        display: none;
+    }
+
+    /*
+     * The table adapts to its card rather than scrolling the page. From the
+     * reference's 1060 the columns tighten to fit a card beside the rail; below
+     * that each language becomes a block — names and action first, then its
+     * status and figures, each with its own label — in four columns on a
+     * tablet and two on a phone.
+     */
+    .rg-admin-languages__card {
+        container-type: inline-size;
+    }
+
+    @container (max-width: 1059.98px) {
+        .rg-admin-languages__card .rg-admin-table__grid {
+            min-width: 0;
+        }
+
+        .rg-admin-languages__card .rg-admin-table__row {
+            grid-template-columns: minmax(150px, 1fr) 56px 150px 150px 150px 110px 110px;
+        }
+
+        .rg-admin-languages__bar--project {
+            width: 120px;
+        }
+    }
+
+    @container (max-width: 875.98px) {
+        .rg-admin-languages__card .rg-admin-table__row--head,
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-table__cell.rg-admin-languages__cell--locale {
+            display: none;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+            grid-template-areas:
+                'language language language actions'
+                'status application project missing';
+            align-items: start;
+            gap: var(--rg-admin-space-3) var(--rg-admin-space-4);
+            padding: var(--rg-admin-space-3) var(--rg-admin-space-4) 14px;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-table__cell {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 0;
+        }
+
+        .rg-admin-languages__cell--language {
+            grid-area: language;
+        }
+
+        .rg-admin-languages__cell--status {
+            grid-area: status;
+        }
+
+        .rg-admin-languages__cell--application {
+            grid-area: application;
+        }
+
+        .rg-admin-languages__cell--project {
+            grid-area: project;
+        }
+
+        .rg-admin-languages__cell--missing {
+            grid-area: missing;
+        }
+
+        .rg-admin-languages__card .rg-admin-languages__row .rg-admin-languages__cell--actions {
+            grid-area: actions;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .rg-admin-languages__language {
+            padding-block: 0;
+        }
+
+        .rg-admin-languages__cell-label {
+            display: block;
+            font-size: var(--rg-admin-text-overline);
+            line-height: var(--rg-admin-leading-overline);
+            font-weight: var(--rg-admin-weight-medium);
+            letter-spacing: var(--rg-admin-tracking-overline);
+            text-transform: uppercase;
+            color: var(--rg-admin-text-tertiary);
+        }
+
+        .rg-admin-languages__inline-code {
+            display: inline;
+            align-self: flex-start;
+            margin-top: 2px;
+            font-family: var(--rg-admin-font-mono);
+            font-size: var(--rg-admin-text-micro);
+            color: var(--rg-admin-text-secondary);
+        }
+
+        .rg-admin-languages__bar--application,
+        .rg-admin-languages__bar--project {
+            width: 100%;
+            max-width: 160px;
+        }
+
+        .rg-admin-languages__blocked,
+        .rg-admin-languages__hint {
+            align-items: flex-end;
+            padding-block: 0;
+        }
+    }
+
+    @container (max-width: 559.98px) {
+        .rg-admin-languages__card .rg-admin-languages__row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-areas:
+                'language actions'
+                'status missing'
+                'application project';
+        }
     }
 
     /*
@@ -3357,11 +3522,20 @@
         margin-left: auto;
     }
 
-    .rg-admin-translation-row__state {
+    /* Under the target field, as the length is under the English text: count, state and note, actions. */
+    .rg-admin-translation-row__foot {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-translation-row__state {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
         gap: var(--rg-admin-space-2);
+        min-width: 0;
         min-height: 24px;
     }
 
@@ -3371,20 +3545,15 @@
         color: var(--rg-admin-text-tertiary);
     }
 
-    .rg-admin-translation-row__foot {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--rg-admin-space-2);
-    }
-
     .rg-admin-translation-row__counter {
         margin-left: 0;
     }
 
     .rg-admin-translation-row__actions {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
+        justify-content: flex-end;
         gap: 6px;
         margin-left: auto;
     }
@@ -3417,13 +3586,32 @@
         }
     }
 
+    /* On a phone the completion is a figure like the others, its bar under it, so the four share one line. */
     @media (max-width: 639.98px) {
         .rg-admin-translation-center__target {
             flex-basis: 100%;
         }
 
         .rg-admin-translation-center__completion {
-            grid-column: 1 / -1;
+            min-width: 0;
+        }
+
+        .rg-admin-translation-center__completion-figure {
+            flex-direction: column-reverse;
+            align-items: stretch;
+            gap: 6px;
+        }
+
+        .rg-admin-translation-center__completion-bar {
+            flex: none;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .rg-admin-translation-center__percentage {
+            font-size: var(--rg-admin-text-stat);
+            line-height: var(--rg-admin-leading-stat);
+            letter-spacing: var(--rg-admin-tracking-tight);
         }
     }
 

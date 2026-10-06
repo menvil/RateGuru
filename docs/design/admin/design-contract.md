@@ -276,7 +276,9 @@ These are the current migration state, not changes to the target design:
 
 - **Page header (LAY-01):** band padding 22 28 20, white, bottom hairline. Title 24/32 500; one sentence of
   description 14/20 gray-600, max 640; two to four operational stats on the right, separated by vertical
-  hairlines with 24 padding. No decorative charts or vanity totals. On a phone the stats take two columns.
+  hairlines with 24 padding. No decorative charts or vanity totals. On a phone the stats stay on one line, sharing
+  the width: a label wraps between words, never inside one, and the figures line up at the bottom; only a screen
+  narrower than 360 px puts them in two columns.
 - **A migrated screen in production:** its Filament page draws the whole view in Admin v2 (`.rg-admin-screen`)
   instead of inside Filament's page wrapper, so Filament's heading, breadcrumbs and action modals are not on it and
   the LAY-01 band is the page's only heading. It sets `$maxContentWidth = 'rg-admin-main'`, the class Filament puts
@@ -488,13 +490,19 @@ now, and the action remains the final safeguard.
 - Tabs All · Enabled · Disabled · Incomplete, counted over every installed language; Incomplete is an application
   catalog that breaks the contract or project content without a translation. The tab is in the query string
   (`?status=…`, none for All) and in the browser history.
-- The table card's toolbar (TBL-02) searches the English name, native name and locale code within the open tab
-  (“Search language or locale code”) and counts the result (“4 of 4 installed”); a search with no result offers
+- The table card's toolbar (TBL-02) has a clearable search over the English name, native name and locale code
+  within the open tab (“Search language or locale code”) and counts the result (“4 of 4 installed”); a search with no result offers
   Clear search. The search runs in the browser over the rows of the open tab already on the page: typing sends no
   Livewire request, so it never re-reads the catalogs or the project's content. The query is kept in the address
   (`?q=…`) with `history.replaceState`, opens filtered from a link, travels with the tab links and comes back with
   Back; only the tab is decided on the server. No pagination: installed languages are a bounded configuration
   list.
+- The name of every language but English opens Translation Center on that language (`?locale=de`), complete or
+  not: a stored translation can always be improved. English, the reference, has nothing to translate.
+- The table fits its card at every width. From the reference's 1060 the columns tighten to fit a card beside the
+  rail (1280 and 1024 keep the table); below 876 each language becomes a block — names, code and action first,
+  then status, application, project content and missing, each under its own label — four across on a tablet and
+  two on a phone. The screen never scrolls sideways.
 - Rows as in the prototype, with these differences. Status shows Enabled (success, dot) or Disabled (neutral) with
   “Offered to visitors” / “Not offered to visitors”; English shows Default (success, dot) and “Reference language”,
   two lines like every other row.
@@ -554,19 +562,21 @@ settings (`manage-project-settings`), the boundary Languages uses.
   before it is offered — in the FRM-11 combobox, kept in the URL (`?locale=de`, replaced, never pushed). Without a
   language in the URL, or with one that is not a target, the page opens on the first enabled target, else the
   first installed one; with no language besides English it says so. Choosing another language is the page's one
-  re-render: it reads that language afresh.
+  re-render: it reads that language afresh. If that request fails, the page stays usable on the language it shows
+  and says so in an error toast.
 - **Header:** the combobox, then Total items, Translated, Missing and a completion bar for the target language —
   the same figures Languages shows for it, whatever the filters show — kept current as rows are saved.
-- **Filters in the browser.** The toolbar (TBL-02) has the search (“Search source, key or translation”: English
-  text, the content's name, its field, its keys and the stored and drafted translation), Section (FRM-10, with
+- **Filters in the browser.** The toolbar (TBL-02) has the clearable search (“Search source, key or translation”:
+  English text, the content's name, its field, its keys and the stored and drafted translation), Section (FRM-10, with
   each section's missing count) and Missing only / All (FRM-08), and the result count. They run over the units
   already on the page — a bounded list — and send nothing to the server; the URL keeps them with replaceState
   (`q`, `section`, `mode=missing`), and a value the page does not know is dropped.
 - **Rows** (`240px minmax(0,1fr) minmax(0,1fr)`): the item (section badge, entity, field, mono key, constraint
   chips — “Max 80”, “Single line” or “Multiline”, each placeholder — and Context), the English reference in a
   sunken box with its length and Edit source ↗ to the editor of its English text, and the target field — an input
-  for a single-line unit, a textarea for a multiline one — with its DOM-01 state, its note, a counter, the error and
-  Discard, Save and Save & next. When the list's own width leaves the fields too narrow, each row stacks Item,
+  for a single-line unit, a textarea for a multiline one — level with the English text, with the error right under
+  it and then one line, as the length is under the English text: the counter, the DOM-01 state badge and its note,
+  and Discard, Save and Save & next at the end (wrapping under them where the column is narrow). When the list's own width leaves the fields too narrow, each row stacks Item,
   English and the target in that order; the page never scrolls sideways.
 - **Drafts live in the browser.** Typing changes nothing stored and sends nothing: Saved or Missing becomes
   Edited · not saved (“Saved version is kept until you save”), an info strip counts the edits (“2 edits not saved
@@ -576,7 +586,9 @@ settings (`manage-project-settings`), the boundary Languages uses.
 - **Save** sends the unit id, the language and the text, nothing else. `UpdateProjectTranslationAction` finds the
   unit again in the catalog under a lock on its row, holds the text to that unit's limits — its maximum length in
   characters, a single line, every placeholder of the English text (“Keep {contact_email}”, “4 over the limit”) —
-  and writes that language's entry only; blank text removes it and the language is missing again. The browser
+  and writes that language's entry only; blank text removes it and the language is missing again — also once the
+  English text has been cleared, so a stale translation can always be taken away, while new text for it is
+  refused. The browser
   checks the same limits as you type and keeps Save disabled while one is broken; a refusal from the server is
   shown at the field too. Save turns the row Saved (or Missing), updates the figures and raises a toast (“German
   translation saved”); Save & next moves focus to the next item the filters show — in Missing only the saved one
@@ -584,7 +596,8 @@ settings (`manage-project-settings`), the boundary Languages uses.
 - **Context** opens the OVL-02 drawer for one unit, read from the server when it opens: where the text appears,
   the item (section, entity, field, key, target language), the English reference, the constraints and the other
   languages' stored translations, read only, with Edit source in the footer.
-- **From Languages.** Translate on a missing item opens Translation Center on that item (`locale`, `section`,
+- **From Languages.** A language's name opens Translation Center on that language. Translate on a missing item
+  opens Translation Center on that item (`locale`, `section`,
   `mode=missing` and `unit`): the row is shown — the filters loosened if they would hide it — scrolled to,
   focused and marked, and the URL drops `unit` once it has been followed. The unit in a link only decides where the
   page opens, never what is written. Translate all missing opens the language in Missing only.
@@ -606,11 +619,15 @@ Errors turn the border red-950, name the fix (“Keep {contact_email}”, “4 o
 counter turns red past the limit. AI output is a draft until an administrator saves it: it is never written to
 the database before Save.
 
+In production the field comes first, level with the English text beside it; under it come the counter, then the
+state badge and its note, then the actions (see the deviations below).
+
 ## Responsive rules
 
 - Verified widths: 1440, 1280 and 1024.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
-- Tables keep every column and scroll horizontally inside their card.
+- Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
+  stack into labelled blocks (see Localization), so it never scrolls at all.
 - A grid without a minimum width — Translation Center's rows — stacks its cells in their own order once its own
   width (a container query, not the window's) leaves them too narrow, rather than scrolling or reshuffling.
 - Toolbars wrap; auto-fit grids reflow; drawers cap at `100vw`.
@@ -649,6 +666,9 @@ the database before Save.
 | Translation Center figures | the result count reads “… on this page” and the footer “1–N of M missing items” | the toolbar counts “N of M items”; the footer keeps only the note about interface strings | every unit of the language is on the page; there is no pagination |
 | Translation Center other languages | “AI context only” | “Read only” | there is no AI to give them to yet |
 | Translation Center title | none: the header band holds the combobox and the figures | the same, with the page's `h1` visually hidden | the screen still needs a heading for assistive technology and for focus to return to |
+| DOM-01 placement | the state badge and note above the target field | under the field, after the counter and before the actions | the target field starts level with the English text it translates |
+| Languages table on narrow widths | the card scrolls the grid horizontally | tightened columns down to 876, then one labelled block per language | the screen never scrolls sideways; the locale code moves beside the names, so no column is lost |
+| Translation Center and Languages search | a plain search field | a clearable one, with × while it holds text | a query is cleared in one press |
 | Toast Undo | reversible actions toast with Undo | no Undo in the stack yet | no migrated action is reversible without confirmation; it arrives with the first one |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |

@@ -161,6 +161,70 @@ it('keeps Item, English and the target in that order at every width, without the
     'phone' => [390, 1],
 ]);
 
+it('lines the target field up with the English text, with its count, state and actions under it in that order', function () {
+    $birds = ($this->unit)($this->birds);
+    $page = visit('/admin/translation-center')->resize(1440, 900)->wait(0.5);
+
+    expect($page->script(sprintf(<<<'JS'
+        (() => {
+            const row = document.querySelector('[data-unit="%s"]')
+            const box = (selector) => row.querySelector(selector).getBoundingClientRect()
+            const counter = box('.rg-admin-translation-row__counter')
+            const badge = [...row.querySelectorAll('.rg-admin-translation-row__state .rg-admin-badge')].find((badge) => getComputedStyle(badge).display !== 'none').getBoundingClientRect()
+            const save = box('.rg-admin-translation-row__actions button:not([style*="display: none"])')
+
+            return {
+                level: Math.abs(box('.rg-admin-translation-row__source').top - box('.rg-admin-translation-row__field-control').top) < 1,
+                under: counter.top >= box('.rg-admin-translation-row__field-control').bottom,
+                countFirst: counter.right < badge.left && Math.abs((counter.top + counter.bottom) / 2 - (badge.top + badge.bottom) / 2) < 4,
+                actionsAfter: save.top >= badge.top - 1 && (save.top > badge.bottom || save.left > badge.right),
+                state: row.querySelector('.rg-admin-translation-row__state').innerText.replace(/\s+/g, ' ').trim(),
+            }
+        })()
+    JS, $birds)))->toBe(['level' => true, 'under' => true, 'countFirst' => true, 'actionsAfter' => true, 'state' => 'Saved Stored translation']);
+});
+
+it('keeps the header figures, completion included, on one line on a phone', function () {
+    $page = visit('/admin/translation-center')->resize(390, 844)->wait(0.5);
+
+    expect($page->script(<<<'JS'
+        (() => {
+            const stats = [...document.querySelectorAll('.rg-admin-stats .rg-admin-stat')].map((stat) => stat.getBoundingClientRect())
+            const bar = document.querySelector('.rg-admin-translation-center__completion-bar').getBoundingClientRect()
+
+            return {
+                count: stats.length,
+                oneLine: stats.every((stat) => Math.abs(stat.top - stats[0].top) < 1),
+                inside: stats.every((stat) => stat.right <= window.innerWidth),
+                bar: bar.width > 0 && bar.height === 8,
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+            }
+        })()
+    JS))->toBe(['count' => 4, 'oneLine' => true, 'inside' => true, 'bar' => true, 'overflow' => false]);
+});
+
+it('clears the search with its ×, shown only while there is text, without asking the server', function () {
+    $page = visit('/admin/translation-center')->resize(1440, 900)->wait(0.5);
+    $total = count(translationScreen($page)['rows']);
+    $clear = "document.querySelector('.rg-admin-toolbar .rg-admin-search__clear')";
+    watchLivewireUpdates($page);
+
+    expect($page->script("getComputedStyle({$clear}).display"))->toBe('none');
+
+    $page->typeSlowly('#rg-admin-translation-search', 'Dogs', 30)->wait(0.3);
+
+    expect($page->script("getComputedStyle({$clear}).display"))->not->toBe('none')
+        ->and($page->script("{$clear}.getAttribute('aria-label')"))->toBe('Clear search')
+        ->and(translationScreen($page)['rows'])->toHaveCount(1);
+
+    $page->click('.rg-admin-toolbar .rg-admin-search__clear')->wait(0.3);
+
+    expect(translationScreen($page))->toMatchArray(['search' => "?locale={$this->target}", 'focused' => 'rg-admin-translation-search'])
+        ->and(translationScreen($page)['rows'])->toHaveCount($total)
+        ->and($page->script("getComputedStyle({$clear}).display"))->toBe('none')
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+});
+
 // The target language ----------------------------------------------------------------
 
 it('chooses the target language from the keyboard, searching thirty-five languages in the page', function () {
@@ -247,6 +311,62 @@ it('asks before switching languages with unsaved drafts, keeps them on Keep edit
     expect(translationScreen($page))->toMatchArray(['dialog' => false, 'search' => "?locale={$this->target}"]);
 
     $page->assertNoJavaScriptErrors();
+});
+
+it('stays usable on its language when switching fails, and switches once the server answers again', function () {
+    $dogs = ($this->unit)($this->dogs);
+    $page = visit('/admin/translation-center')->resize(1440, 900)->wait(0.5);
+
+    // The next Livewire request fails as a dropped connection would.
+    $page->script(<<<'JS'
+        (() => {
+            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
+            const fetch = window.fetch
+
+            window.failLivewire = true
+            window.fetch = function (input, ...rest) {
+                if (window.failLivewire && String(input?.url ?? input).startsWith(uri)) {
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+
+                return fetch.call(this, input, ...rest)
+            }
+        })()
+    JS);
+
+    $page->click('#rg-admin-translation-target-trigger')->wait(0.3);
+    $page->click("[role=option][data-value=\"{$this->other}\"]")->wait(0.8);
+
+    expect($page->script(<<<'JS'
+        (() => {
+            const root = document.querySelector('.rg-admin-translation-center')
+
+            return {
+                busy: root.getAttribute('aria-busy'),
+                switching: Alpine.$data(root).switching,
+                refocus: 'rgAdminTranslationCenterRefocus' in window,
+                pointerEvents: getComputedStyle(document.querySelector('.rg-admin-translation-center__card')).pointerEvents,
+                locale: Alpine.$data(root).locale,
+            }
+        })()
+    JS))->toBe(['busy' => 'false', 'switching' => false, 'refocus' => false, 'pointerEvents' => 'auto', 'locale' => $this->target])
+        ->and(translationScreen($page))->toMatchArray(['search' => "?locale={$this->target}"])
+        ->and(translationScreen($page)['toasts'])->toContain('The language was not switched: the server did not answer. Try again.')
+        ->and($page->script("document.getElementById('rg-admin-translation-target-trigger').innerText"))->toContain(config("locales.supported.{$this->target}.native"));
+
+    // The screen still takes input…
+    typeTranslation($page, $dogs, 'Собаки');
+    expect(translationRowState($page, $dogs))->toMatchArray(['state' => ['Edited · not saved'], 'canSave' => true]);
+    clickRowButton($page, $dogs, 'Discard');
+    $page->wait(0.3);
+
+    // …and switches once the server answers again.
+    $page->script('window.failLivewire = false');
+    $page->click('#rg-admin-translation-target-trigger')->wait(0.3);
+    $page->click("[role=option][data-value=\"{$this->other}\"]")->wait(1.2);
+
+    expect(translationScreen($page))->toMatchArray(['search' => "?locale={$this->other}", 'focused' => 'rg-admin-translation-target-trigger'])
+        ->and($page->script("document.querySelector('.rg-admin-translation-center').getAttribute('aria-busy')"))->toBe('false');
 });
 
 // Filters ----------------------------------------------------------------------------

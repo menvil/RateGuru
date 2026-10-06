@@ -1,7 +1,10 @@
 @php
     /*
      * One unit (DOM-01): what it is, its English reference, and the target
-     * field. The state badge is decided in one place, the browser's state():
+     * field — the field level with the English text, and under it, as the
+     * length is under the English text, its count, its state and note, and
+     * the actions. The
+     * state badge is decided in one place, the browser's state():
      * Saved is success with the live dot, Missing is warning, Edited · not
      * saved is outline with the field's gray-400 border. The server draws the
      * state the row opens in; the browser keeps it from then on.
@@ -69,14 +72,8 @@
 
     <div class="rg-admin-translation-row__cell rg-admin-translation-row__target" role="cell">
         <span class="rg-admin-translation-row__cell-label">{{ $target['native'] }} · {{ $target['code'] }}</span>
-        <div class="rg-admin-translation-row__state">
-            <x-admin.ui.badge tone="success" dot :x-cloak="$state !== 'saved'" x-show="state(unit) === 'saved'">Saved</x-admin.ui.badge>
-            <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'missing'" x-show="state(unit) === 'missing'">Missing</x-admin.ui.badge>
-            <x-admin.ui.badge tone="outline" x-cloak x-show="state(unit) === 'edited'">Edited · not saved</x-admin.ui.badge>
-            <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-text="note(unit)">{{ $state === 'saved' ? 'Stored translation' : 'Visitors see the English text' }}</span>
-        </div>
-
         <label for="{{ $dom }}-field" class="rg-admin-sr-only">{{ $fieldLabel }}</label>
+        {{-- The field first, level with the English text beside it; its state and count sit under it. --}}
         @if ($row['multiline'])
             <textarea
                 id="{{ $dom }}-field"
@@ -115,16 +112,24 @@
             </div>
         @endif
 
+        <p id="{{ $dom }}-error" class="rg-admin-error rg-admin-translation-row__error" x-cloak x-show="error(unit) !== null">
+            <x-admin.ui.icon name="circle-alert" :size="12" />
+            <span x-text="error(unit)"></span>
+        </p>
+
+        {{-- Under the field, as the length is under the English text: the count, the state and its note, the actions. --}}
         <div class="rg-admin-translation-row__foot">
             <span
                 id="{{ $dom }}-counter"
                 @class(['rg-admin-field__counter', 'rg-admin-translation-row__counter', 'rg-admin-field__counter--over' => $length > $row['max']])
                 x-bind:class="{ 'rg-admin-field__counter--over': length(unit) > units[unit].max }"
             ><span x-text="length(unit) + ' / ' + figure(units[unit].max)">{{ $length }} / {{ number_format($row['max']) }}</span><span class="rg-admin-sr-only"> characters</span></span>
-            <p id="{{ $dom }}-error" class="rg-admin-error rg-admin-translation-row__error" x-cloak x-show="error(unit) !== null">
-                <x-admin.ui.icon name="circle-alert" :size="12" />
-                <span x-text="error(unit)"></span>
-            </p>
+            <span class="rg-admin-translation-row__state">
+                <x-admin.ui.badge tone="success" dot :x-cloak="$state !== 'saved'" x-show="state(unit) === 'saved'">Saved</x-admin.ui.badge>
+                <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'missing'" x-show="state(unit) === 'missing'">Missing</x-admin.ui.badge>
+                <x-admin.ui.badge tone="outline" x-cloak x-show="state(unit) === 'edited'">Edited · not saved</x-admin.ui.badge>
+                <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-text="note(unit)">{{ $state === 'saved' ? 'Stored translation' : 'Visitors see the English text' }}</span>
+            </span>
             <div class="rg-admin-translation-row__actions">
                 <x-admin.ui.button variant="ghost" size="sm" x-cloak x-show="isDirty(unit)" x-on:click="discard(unit)">
                     Discard<span class="rg-admin-sr-only"> the {{ $target['label'] }} draft of {{ $row['name'] }}</span>

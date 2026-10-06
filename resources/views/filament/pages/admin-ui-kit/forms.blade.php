@@ -12,6 +12,10 @@
             <x-admin.ui.search-field placeholder="Search languages" name="kit-disabled-search" disabled style="width: 100%" />
             <span class="rg-admin-kit__caption">disabled</span>
         </div>
+        <div class="rg-admin-kit__item" style="width: 320px">
+            <x-admin.ui.search-field placeholder="Search source, key or translation" name="kit-clearable-search" id="kit-clearable-search" value="Rabbits" clearable style="width: 100%" />
+            <span class="rg-admin-kit__caption">clearable · × while it holds text</span>
+        </div>
     </div>
 @endcomponent
 

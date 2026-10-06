@@ -90,6 +90,7 @@
                             name="q"
                             id="rg-admin-translation-search"
                             :value="$filters['query']"
+                            clearable
                             x-model="query"
                         />
                         <x-admin.ui.filter-dropdown

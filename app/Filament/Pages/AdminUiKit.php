@@ -417,12 +417,15 @@ final class AdminUiKit extends Page
                     ['Shortcut', 'Kbd ⌘K on global search only'],
                     ['Focus', 'border gray-500 + 3 px halo'],
                     ['Behaviour', 'filters on input, no submit button'],
+                    ['Clearable', 'x 16 in a 24 button while the field holds text · empties it, keeps focus, raises input'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.search-field
                         placeholder="Search title, author or post ID"
                         wire:model.live.debounce.300ms="search"
                     />
+
+                    <x-admin.ui.search-field placeholder="Search source, key or translation" clearable x-model="query" />
 
                     <x-admin.ui.search-field placeholder="Search posts, users" shortcut="⌘K" />
                     BLADE,
@@ -671,6 +674,7 @@ final class AdminUiKit extends Page
                     ['Title', '24/32 500 −0.02em'],
                     ['Description', '14/20 gray-600 · max 640'],
                     ['Stats', '24 px padding · vertical hairlines · overline label + 20/28 value'],
+                    ['Phone', 'stats stay on one line, sharing the width · labels wrap between words · figures aligned'],
                     ['Page layout', 'top bar 62 → header band → scrolling content on gray-50 · gutter 28'],
                 ],
                 'code' => <<<'BLADE'
@@ -975,6 +979,7 @@ final class AdminUiKit extends Page
                 'kind' => 'component',
                 'purpose' => 'Stored, missing, AI suggestion not saved and edited not saved must never look alike. Only Save turns a suggestion into project data.',
                 'specs' => [
+                    ['Placement', 'field first, level with the English text · under it the count, then badge and note, then actions'],
                     ['Saved', 'success badge + dot · white field'],
                     ['Missing', 'warning badge · placeholder · English fallback note'],
                     ['AI not saved', 'info badge + dot · field #F4F7FD, border #C9D5EE · Regenerate / Discard'],
