@@ -186,13 +186,37 @@ it('creates neither a user nor a social account when the provider shares no emai
     expect(User::count())->toBe(0)->and(SocialAccount::count())->toBe(0);
 })->with(['google', 'facebook'])->with([null, '', '   ']);
 
-it('trusts Google for a gmail.com address', function () {
-    Socialite::fake('google', fakeSocialiteUser(['email' => 'Someone@Gmail.com']));
+it('trusts Google for a mail domain it hosts itself', function (string $address, string $normalized) {
+    // googlemail.com is the same mailbox as gmail.com, not a different one: Google
+    // runs it as the alternate name for one account, and mail to either spelling
+    // arrives in the same inbox. Trusting one and not the other would make the same
+    // person vouched for under one spelling of their own address and unvouched
+    // under the other — which decides whether their account is confirmed at all.
+    Socialite::fake('google', fakeSocialiteUser(['email' => $address]));
 
     $this->get(socialCallbackUrl('google'));
 
-    expect(User::query()->where('email', 'someone@gmail.com')->sole()->email_verified_at)->not->toBeNull();
-});
+    expect(User::query()->where('email', $normalized)->sole()->email_verified_at)->not->toBeNull();
+})->with([
+    'gmail.com' => ['Someone@Gmail.com', 'someone@gmail.com'],
+    'googlemail.com' => ['Someone@GoogleMail.com', 'someone@googlemail.com'],
+]);
+
+it('does not trust a lookalike of a Google mail domain', function (string $address) {
+    // str_ends_with on '@gmail.com' is an exact suffix on the whole address, so a
+    // domain that merely contains or extends the name is not Google's and gets no
+    // free pass. Without an email_verified claim it stays unconfirmed.
+    Socialite::fake('google', fakeSocialiteUser(['email' => $address]));
+
+    $this->get(socialCallbackUrl('google'));
+
+    expect(User::query()->sole()->email_verified_at)->toBeNull();
+})->with([
+    'gmail.com as a subdomain' => ['someone@gmail.com.attacker.test'],
+    'googlemail.com as a subdomain' => ['someone@googlemail.com.attacker.test'],
+    'a domain ending in the name' => ['someone@notgmail.com'],
+    'a domain ending in googlemail' => ['someone@mygooglemail.com'],
+]);
 
 it('trusts Google for a Workspace address with an email_verified claim and a domain', function () {
     Socialite::fake('google', fakeSocialiteUser([

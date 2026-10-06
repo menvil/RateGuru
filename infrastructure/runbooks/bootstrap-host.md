@@ -110,9 +110,12 @@ of the orchestrator.
 level. In particular the Phase 5.4 child verifies mail capture through
 `verify-mail-capture --read-only`, never its default `--e2e` mode — which
 sends real mail, deletes messages and stops/starts
-`staging-mailtrap-local.service`. Running the full mail acceptance is an
-explicit operator command (see [`mail-capture.md`](mail-capture.md)); no
-`bootstrap-host` mode ever triggers it, including `--apply`.
+`staging-mailtrap-local.service`. It verifies the mail gateway the same way,
+through `install-mail-gateway --verify`, never `verify-mail-gateway --e2e` —
+which submits mail through every listener and stops and starts Mailpit.
+Running either full mail acceptance is an explicit operator command (see
+[`mail-capture.md`](mail-capture.md) and [`mail-gateway.md`](mail-gateway.md));
+no `bootstrap-host` mode ever triggers it, including `--apply`.
 
 ### Safe interruption and re-run
 
@@ -443,7 +446,9 @@ The contract reproduces what the real staging VPS runs, inspected directly:
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
   staging packages identify as `18.x-1.pgdg22.04+1`.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
-  which extracts the pinned rclone release archive, and `procps`, whose
+  which extracts the pinned rclone release archive, `bind9-dnsutils` and
+  `openssl`, whose `dig` and `openssl` the read-only mail identity
+  verification uses, and `procps`, whose
   `pgrep` slice 5.4 uses to find the running Nginx workers whose
   supplementary groups it verifies) from the Ubuntu 22.04 distribution
   repository.

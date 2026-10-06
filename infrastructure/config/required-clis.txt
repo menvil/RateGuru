@@ -12,6 +12,7 @@ install-bootstrap-host-layout
 install-bootstrap-runtime
 install-bootstrap-services
 install-mail-capture
+install-mail-gateway
 install-nightwatch-agent
 install-public-storage-access
 install-target-database
@@ -34,8 +35,10 @@ restore-test
 rollback
 status
 status-mail-capture
+status-mail-gateway
 targets
 verify-backup
 verify-environment-contract
 verify-mail-capture
+verify-mail-gateway
 verify-required-clis

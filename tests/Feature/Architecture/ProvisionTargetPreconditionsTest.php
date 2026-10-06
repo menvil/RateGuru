@@ -71,6 +71,12 @@ it('refuses a registry that is invalid anywhere, not merely invalid for this tar
     $scratch = provisionScratchDir();
 
     try {
+        // A registry a case had to build from the real one arrives as a closure;
+        // see the NUL case for why it cannot be built in the dataset itself.
+        if (($options['registry'] ?? null) instanceof Closure) {
+            $options['registry'] = ($options['registry'])();
+        }
+
         $env = provisionFixture($scratch, $options);
 
         [$exit, $output] = provisionRun(['--apply', '--target', 'demo-shop'], $env);
@@ -95,6 +101,37 @@ it('refuses a registry that is invalid anywhere, not merely invalid for this tar
     'a service name that could never be safely rendered' => [
         ['demoOverrides' => ['supervisor' => ['program' => 'demo shop queue', 'queue' => 'rateguru-demo-shop']]],
         'target registry is invalid',
+    ],
+    // A NUL inside a registry string. The validator refuses it for a reason worth
+    // keeping covered here: every value in this file ends up in shell variables,
+    // and a NUL truncates a C string silently, so a path or a name could be read
+    // as a shorter one than it looks. The refusal matrix has to include the
+    // invalid-anywhere rule the validator already enforces, or nothing here would
+    // notice it being dropped.
+    'a NUL byte in a registry string' => [
+        // A closure, because a dataset is built while the file is loaded — before
+        // the application exists — and this one needs base_path() to read the real
+        // registry it is corrupting one byte of.
+        //
+        // The NUL goes in as the JSON escape \u0000, not as a raw byte: a raw one
+        // makes the document invalid JSON, which is refused a step earlier for a
+        // different reason. This document parses, and the value it decodes to
+        // contains a NUL — which is the rule being covered, and the dangerous
+        // shape, because the value reaches shell variables where a NUL silently
+        // truncates the string.
+        ['registry' => function (): string {
+            $registry = json_decode(
+                (string) File::get(base_path('infrastructure/config/deployment-targets.json')),
+                true,
+                512,
+                JSON_THROW_ON_ERROR,
+            );
+
+            $registry['targets']['staging-main']['nginx']['internal_hostname'] .= "\0";
+
+            return (string) json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        }],
+        'target registry must not contain NUL characters',
     ],
 ]);
 
@@ -238,10 +275,17 @@ it('names no brand in the namespace it refuses, so a second production target be
     ];
 
     foreach ($sources as $path) {
-        $source = File::get(base_path($path));
+        // Executable lines, because the invariant is that no brand is COMPILED
+        // INTO these scripts — a comment explaining that tits-guru is the planned
+        // target, or which group owns the production root, is the documentation a
+        // reader needs and names nothing the script acts on. Asserted on the raw
+        // file, this guard failed on its own explanations the moment it started
+        // being able to fail at all.
+        $source = executableSourceLines(File::get(base_path($path)));
 
         foreach (['tits-guru', 'demo-shop', 'food-guru', 'animals-guru', 'rateguru-production-code'] as $brand) {
-            expect($source)->not->toContain($brand, "{$path} must not name a target to manage the shared namespace");
+            expect(str_contains($source, $brand))
+                ->toBeFalse("{$path} must not name a target to manage the shared namespace");
         }
     }
 

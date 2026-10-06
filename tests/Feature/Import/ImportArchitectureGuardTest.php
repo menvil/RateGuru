@@ -47,10 +47,43 @@ it('never calls file_get_contents, fopen, or a raw curl_ function anywhere in th
         $source = file_get_contents($path);
         $relative = str_replace(app_path().'/', '', $path);
 
-        expect($source)->not->toContain('file_get_contents(', "Found file_get_contents( in {$relative}");
-        expect($source)->not->toContain('fopen(', "Found fopen( in {$relative}");
+        expect(str_contains($source, 'file_get_contents('))
+            ->toBeFalse("Found file_get_contents( in {$relative}");
+
+        // StoreImportedImageAction is exempt from `fopen(` and from nothing else.
+        // What this guard exists to stop is a raw NETWORK primitive bypassing
+        // UrlImportValidator; that call opens a local path this application built
+        // in the OS temp directory, in 'x' mode, which is there precisely as a
+        // safety measure — it creates the file and locks it to 0600 before any
+        // downloaded byte is written, replacing an order that left the body
+        // briefly world-readable.
+        //
+        // The exemption is pinned by shape in the test below, so it cannot quietly
+        // become fopen() of a URL.
+        if (basename($path) !== 'StoreImportedImageAction.php') {
+            expect(str_contains($source, 'fopen('))
+                ->toBeFalse("Found fopen( in {$relative}");
+        }
+
         expect($source)->not->toMatch('/\bcurl_[a-z_]+\s*\(/i', "Found a raw curl_*() call in {$relative}");
     }
+});
+
+it('opens only a local temp path, exclusively, in the one file allowed to call fopen', function () {
+    $source = file_get_contents(app_path('Actions/Import/StoreImportedImageAction.php'));
+
+    preg_match_all('/fopen\(([^)]*)\)/', $source, $calls);
+
+    expect($calls[1])->toHaveCount(1, 'the exemption covers one call; a second one has to be reviewed on its own');
+
+    // A local variable the action built itself, and 'x' — create-exclusively.
+    // A URL, a remote scheme or a read mode here would be the thing the guard
+    // above exists to catch, arriving through the one door left open for it.
+    expect(trim($calls[1][0]))->toBe("\$tmpPath, 'x'");
+
+    expect($source)
+        ->toContain('$tmpPath = sys_get_temp_dir()')
+        ->not->toContain('allow_url_fopen');
 });
 
 it('never uses the Http facade outside PinnedImportHttpTransport', function () {
@@ -62,9 +95,10 @@ it('never uses the Http facade outside PinnedImportHttpTransport', function () {
         $source = file_get_contents($path);
         $relative = str_replace(app_path().'/', '', $path);
 
-        expect($source)
-            ->not->toContain('Http::', "Found Http:: in {$relative}")
-            ->not->toContain('Illuminate\Http\Client\Factory', "Found the Http client factory referenced directly in {$relative}");
+        expect(str_contains($source, 'Http::'))
+            ->toBeFalse("Found Http:: in {$relative}");
+        expect(str_contains($source, 'Illuminate\Http\Client\Factory'))
+            ->toBeFalse("Found the Http client factory referenced directly in {$relative}");
     }
 });
 

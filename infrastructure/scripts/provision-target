@@ -654,7 +654,7 @@ report_new_target_safety() {
             PROVISION_PHASE_OVER=true
 
             item CONFLICT "phase:${TARGET_ID}" "shared/.env exists at ${SHARED_ENV} but is not a regular file — the canonical environment file configure-target requires, and provisioning must not be applied over it either" \
-                "inspect it on the host and resolve it by hand: this operation never deletes, moves, chmods or chowns that path, whatever shape it is in"
+                "inspect it on the host and resolve it by hand: this operation never removes, moves, re-owns or re-permissions that path, whatever shape it is in"
             ;;
     esac
 

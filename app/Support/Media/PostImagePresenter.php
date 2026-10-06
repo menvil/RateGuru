@@ -148,7 +148,13 @@ final class PostImagePresenter
         if ($context === PostImageContext::Fullscreen) {
             $detail = $variants->get(MediaVariantName::PostDetail1920->value);
 
-            if ($detail !== null && $asset->width <= $detail->width * self::FULLSCREEN_MASTER_INCLUDE_RATIO) {
+            // The width has to be KNOWN, not merely comparable. PHP coerces null
+            // to 0 in a comparison, so an asset whose dimensions were never
+            // recorded passed this test and contributed "{$masterUrl} w" — a
+            // srcset entry with no descriptor, which is malformed. An unknown
+            // width cannot be weighed against the detail variant, so the master
+            // simply is not offered.
+            if ($detail !== null && $asset->width !== null && $asset->width <= $detail->width * self::FULLSCREEN_MASTER_INCLUDE_RATIO) {
                 $srcsetEntries[] = "{$masterUrl} {$asset->width}w";
             }
         }

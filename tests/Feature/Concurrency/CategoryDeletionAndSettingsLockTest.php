@@ -120,38 +120,56 @@ it('locks the actor before the category, the way every other write does', functi
     $admin = User::factory()->create(['role' => UserRole::Admin]);
     $category = Category::factory()->create();
 
-    $tables = [];
+    /** @var list<array{table: string, locked: bool, sql: string}> $reads */
+    $reads = [];
 
-    DB::listen(function ($query) use (&$tables): void {
-        // The table each statement touched, in order. Asserted on the order of
-        // the statements rather than on `for update` itself, because SQLite —
-        // one of the three engines this suite runs on — makes lockForUpdate a
-        // no-op and would show no lock syntax at all.
-        //
+    DB::listen(function ($query) use (&$reads): void {
         // Identifier quoting is stripped rather than matched: every grammar
         // quotes differently (PostgreSQL and SQLite use "users", MySQL and
         // MariaDB use `users`), and a pattern that enumerates the styles it
-        // knows about silently matches nothing on the engine it forgot.
+        // knows about silently matches nothing on the engine it forgot — and
+        // fails by observing nothing, which looks exactly like passing.
         $sql = str_replace(['"', '`'], '', $query->sql);
 
         foreach (['users', 'categories'] as $table) {
             if (preg_match('/\b(from|update|into)\s+'.$table.'\b/i', $sql) === 1) {
-                $tables[] = $table;
+                $reads[] = [
+                    'table' => $table,
+                    'locked' => str_contains(strtolower($sql), 'for update'),
+                    'sql' => $sql,
+                ];
             }
         }
     });
 
     app(DeleteCategoryAction::class)->handle($admin, $category);
 
+    $tables = array_column($reads, 'table');
+    $report = implode(' -> ', array_map(
+        fn (array $read): string => $read['table'].($read['locked'] ? ' (locked)' : ''),
+        $reads,
+    ));
+
     $firstUsers = array_search('users', $tables, true);
     $firstCategories = array_search('categories', $tables, true);
 
     expect($firstUsers)->not->toBeFalse('the actor row must be re-read at all')
         ->and($firstCategories)->not->toBeFalse('the category row must be read at all')
-        ->and($firstUsers)->toBeLessThan(
-            $firstCategories,
-            'the actor must be locked before the category: '.implode(' -> ', $tables),
-        );
+        ->and($firstUsers)->toBeLessThan($firstCategories, "the actor must be locked before the category: {$report}");
+
+    // The order alone is not the contract — two unlocked reads in the right order
+    // deadlock nothing and protect nothing. On an engine that has row locks, both
+    // of these statements have to BE locks.
+    //
+    // SQLite is excluded deliberately rather than forgotten: its grammar compiles
+    // lockForUpdate() to nothing at all, so there is no lock syntax to find and an
+    // assertion about it would fail on a correct implementation.
+    if (DB::connection()->getDriverName() !== 'sqlite') {
+        expect($reads[$firstUsers]['locked'])
+            ->toBeTrue("the actor row must be locked, not merely read: {$report}");
+        expect($reads[$firstCategories]['locked'])
+            ->toBeTrue("the category row must be locked, not merely read: {$report}");
+    }
 });
 
 /**

@@ -259,7 +259,8 @@ it('reuses the existing backup primitives and implements none of them again', fu
         'tar -xzf',
         'tar -tzf',
     ] as $reimplementation) {
-        expect($source)->not->toContain($reimplementation, "recover-host must not reimplement: {$reimplementation}");
+        expect(str_contains($source, $reimplementation))
+            ->toBeFalse("recover-host must not reimplement: {$reimplementation}");
     }
 });
 
@@ -349,7 +350,8 @@ it('takes no emergency backup, enters no maintenance mode and runs no migration'
         'artisan_as_runtime_user',
         'framework/down',
     ] as $forbidden) {
-        expect($source)->not->toContain($forbidden, "a host recovery must never: {$forbidden}");
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("a host recovery must never: {$forbidden}");
     }
 });
 
@@ -463,7 +465,8 @@ it('never resumes a target during a controlled recovery deployment', function ()
         'artisan migrate',
         'PREVIOUS_LINK}.new',
     ] as $forbidden) {
-        expect($section)->not->toContain($forbidden, "a recovery deployment must never: {$forbidden}");
+        expect(str_contains($section, $forbidden))
+            ->toBeFalse("a recovery deployment must never: {$forbidden}");
     }
 
     // previous stays ABSENT: a rebuilt host has no earlier release, and
@@ -546,6 +549,10 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The permanent read-only infrastructure verification, one per
+        // environment, guarded by VerifyInfrastructureTest.
+        'verify-production-infrastructure.yml',
+        'verify-staging-infrastructure.yml',
     ]);
 });
 
@@ -567,8 +574,16 @@ it('adds no durable release-artifact archive', function () {
     // The recovery primitive rebuilds from a commit, and stores no artifact.
     $recover = executableSourceLines(File::get(base_path('infrastructure/scripts/recover-host')));
 
-    foreach (['tar.gz', 'artifact', 'composer', 'npm ', 'git clone', 'git checkout'] as $forbidden) {
-        expect($recover)->not->toContain($forbidden, "recover-host must never handle a build artifact: {$forbidden}");
+    // The bare word `artifact` is deliberately NOT in this list. The archive this
+    // guard exists to keep out is named by the five tokens above, and
+    // operationalFiles() includes every infrastructure script, so recover-host is
+    // already covered for it. As a bare substring it instead matched
+    // discard_staged_artifacts() — the cleanup that removes a staged database and
+    // a half-extracted storage tree after a failed attempt, which is the ordinary
+    // English sense of the word and exactly the kind of code a recovery must have.
+    foreach (['tar.gz', 'composer', 'npm ', 'git clone', 'git checkout'] as $forbidden) {
+        expect(str_contains($recover, $forbidden))
+            ->toBeFalse("recover-host must never handle a build artifact: {$forbidden}");
     }
 
     // And the documentation says so rather than promising one later.

@@ -3,6 +3,7 @@
 use App\Enums\MediaVariantName;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\PostResource;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\User;
@@ -37,8 +38,9 @@ it('uses the Post model', function () {
     expect(PostResource::getModel())->toBe(Post::class);
 });
 
-it('renders in the flat admin navigation', function () {
-    expect(PostResource::getNavigationGroup())->toBeNull();
+it('renders in the Moderation section of the admin navigation', function () {
+    expect(PostResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
+        ->and(PostResource::getNavigationSort())->toBe(10);
 });
 
 it('does not expose create or edit pages in this phase', function () {

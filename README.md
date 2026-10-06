@@ -26,7 +26,15 @@ need PHP, and the role, database and migration steps need PostgreSQL running:
 brew install php
 brew install postgresql@18
 brew services start postgresql@18
+
+# postgresql@18 is keg-only: Homebrew installs it without linking its commands
+# into the PATH, so psql, createuser and createdb below are "command not found"
+# until this is on it. `brew --prefix` resolves the right location on both Apple
+# Silicon and Intel; add the line to your shell profile to keep it.
+export PATH="$(brew --prefix postgresql@18)/bin:$PATH"
+
 php -v
+psql --version
 ```
 
 Clone the repository and install PHP dependencies:

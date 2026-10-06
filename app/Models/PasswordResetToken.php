@@ -15,9 +15,10 @@ use Illuminate\Database\Eloquent\Model;
  * `users` broker to this table). This model exists for the two
  * account-security actions that invalidate outstanding links wholesale, and is
  * their ONLY write path — AnonymizeUserAccountAction when an account becomes a
- * tombstone, and ClaimAccountWithVerifiedEmailAction when a confirmed owner
- * takes an unconfirmed account over — each via a plain query-builder-style bulk
- * delete. It exists so those deletes go through Eloquent instead of a raw
+ * tombstone, and ClaimAccountWithVerifiedEmailAction when an
+ * unverified account is claimed with a provider-verified email, which confirms
+ * that account and revokes the credentials on it that cannot prove they belong
+ * to the address — each via a plain query-builder-style bulk delete. It exists so those deletes go through Eloquent instead of a raw
  * DB::table() call, which this codebase's architecture rules restrict to
  * approved infrastructure classes.
  */

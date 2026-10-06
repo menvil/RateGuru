@@ -178,7 +178,8 @@ it('keeps preparation free of the Recover operation it enables', function () {
         'restore-target --',
         '--apply --target',
     ] as $invocation) {
-        expect($prepare)->not->toContain($invocation, "prepare-host must never run another operation: {$invocation}");
+        expect(str_contains($prepare, $invocation))
+            ->toBeFalse("prepare-host must never run another operation: {$invocation}");
     }
 
     // The dependency runs one way only: recovery verifies preparation, never
@@ -304,7 +305,8 @@ it('lets a data operation add exactly one fail-closed guard to backup, and nothi
             // they do may leave a byte behind.
             $redirects = preg_replace('/\d?>\s*(\/dev\/null|&\d)/', '', $line);
 
-            expect($redirects)->not->toContain('>', "{$guard} must not redirect into a file: {$line}");
+            expect(str_contains($redirects, '>'))
+                ->toBeFalse("{$guard} must not redirect into a file: {$line}");
         }
     }
 });

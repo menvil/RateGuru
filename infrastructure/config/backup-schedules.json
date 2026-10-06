@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "timezone": "UTC",
+  "targets": {
+    "staging-main": {
+      "backup_cycle_at": "02:30",
+      "verification_weekday": "sunday",
+      "restore_test_at": "04:10",
+      "offsite_restore_test_at": "04:40"
+    },
+    "tits-guru": {
+      "backup_cycle_at": "03:00",
+      "verification_weekday": "sunday",
+      "restore_test_at": "05:10",
+      "offsite_restore_test_at": "05:40"
+    }
+  }
+}

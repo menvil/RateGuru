@@ -1084,10 +1084,12 @@ it('keeps every destination a fixed, hardcoded constant — never env- or CLI-ov
         expect(preg_match('/^'.preg_quote($name, '/').'="[^\n]*"$/m', $source, $matches))
             ->toBe(1, "{$name} must be assigned exactly once as a double-quoted literal");
 
-        expect($matches[0])
-            ->not->toContain(':-', "{$name} must not fall back to an environment variable")
-            ->not->toContain(':+', "{$name} must not fall back to an environment variable")
-            ->not->toContain('RATEGURU_', "{$name} must not be influenced by a RATEGURU_* override");
+        expect(str_contains($matches[0], ':-'))
+            ->toBeFalse("{$name} must not fall back to an environment variable");
+        expect(str_contains($matches[0], ':+'))
+            ->toBeFalse("{$name} must not fall back to an environment variable");
+        expect(str_contains($matches[0], 'RATEGURU_'))
+            ->toBeFalse("{$name} must not be influenced by a RATEGURU_* override");
     }
 
     // No flag exists to redirect a destination; parse_mode_args only ever
@@ -3033,9 +3035,33 @@ it('a successful apply never creates, contacts, or provisions anything for tits-
             $scratchFiles[] = $file->getPathname();
         }
 
+        // The committed environment TEMPLATE is the one tits-guru path a successful
+        // apply does create, and it is not an exception to this test's claim — it is
+        // what the claim is about. The bundle installs a template per target so a
+        // later Configure has something to compare a host's shared/.env against;
+        // installing a file that documents a target is not provisioning it, creating
+        // state for it or contacting it, which is what this test forbids.
+        //
+        // Pinned positively below rather than merely skipped, so the exemption
+        // cannot quietly grow into a leak.
+        $templatesRoot = $vars['DST_ENV_TEMPLATES_ROOT'];
+        $expectedTemplate = $templatesRoot.'/tits-guru.env.example';
+
         foreach ($scratchFiles as $path) {
-            expect($path)->not->toContain('tits-guru', "no tits-guru path should exist under the scratch install tree: {$path}");
+            if ($path === $expectedTemplate) {
+                continue;
+            }
+
+            expect(str_contains($path, 'tits-guru'))
+                ->toBeFalse("no tits-guru path should exist under the scratch install tree: {$path}");
         }
+
+        expect($scratchFiles)->toContain(
+            $expectedTemplate,
+            // Installed beside staging's, which is what makes it a bundle file
+            // rather than anything target-specific this run decided to do.
+        );
+        expect($scratchFiles)->toContain($templatesRoot.'/staging.env.example');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -4380,17 +4406,24 @@ it('refuses an apply while a deployment lock is held for an active target', func
             $pipes,
         );
         expect($holder)->not->toBeFalse('could not start the lock holder');
-        expect(rtrim((string) fgets($pipes[1])))->toBe('held', 'the lock holder never acquired the deployment lock');
 
+        // The handshake read is INSIDE the try, with everything that follows it.
+        // Outside, a handshake that never said "held" left the child unreaped and
+        // its pipe open for the rest of the PHP process — and a test that fails
+        // while leaking a process holding a deployment lock is a test that can
+        // take later tests down with it.
         try {
+            expect(rtrim((string) fgets($pipes[1])))->toBe('held', 'the lock holder never acquired the deployment lock');
+
             [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+            expect($exit)->not->toBe(0, $output);
         } finally {
             proc_terminate($holder);
             fclose($pipes[1]);
             proc_close($holder);
         }
 
-        expect($exit)->not->toBe(0, $output);
         expect($output)
             ->toContain('refusing to replace the operational bundle underneath it')
             ->toContain('deployment.lock');

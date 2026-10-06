@@ -275,7 +275,10 @@ it('provisions the whole target from the registry alone, and proves every generi
         expect($children)
             ->not->toContain('operations-installer --apply')
             ->not->toContain('perimeter-installer --apply')
-            ->not->toContain('mail-capture-installer --apply');
+            ->not->toContain('mail-capture-installer --apply')
+            // The host-global mail gateway is not asked at all: provisioning a
+            // planned target never installs, verifies or rewrites it.
+            ->not->toContain('mail-gateway-installer');
 
         // No base service was enabled or started: this host was already
         // prepared, and provisioning never starts one.
@@ -739,8 +742,8 @@ it('leaves a provisioned target undeployable through the existing wrappers', fun
 // =============================================================================
 
 it('re-implements nothing an owning installer already does', function (string $construct) {
-    expect(executableSourceLines(provisionSource()))
-        ->not->toContain($construct, "provision-target must delegate rather than contain: {$construct}");
+    expect(str_contains(executableSourceLines(provisionSource()), $construct))
+        ->toBeFalse("provision-target must delegate rather than contain: {$construct}");
 })->with([
     // identities and filesystem — install-bootstrap-host-layout
     'useradd', 'groupadd', 'usermod', 'userdel', 'groupdel', 'chown', 'chmod',
@@ -764,8 +767,7 @@ it('names no brand anywhere, in the orchestrator or in the production renderer',
     $executable = executableSourceLines(File::get(base_path($file)));
 
     foreach (['tits-guru', 'tits.guru', 'demo-shop', 'food-guru', 'animals-guru'] as $brand) {
-        expect($executable)->not->toContain(
-            $brand,
+        expect(str_contains($executable, $brand))->toBeFalse(
             "{$file} must be generic: a production target is described by the registry, never by a name compiled into a script ({$brand})",
         );
     }

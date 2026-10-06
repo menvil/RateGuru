@@ -7,6 +7,7 @@ use App\Filament\Resources\Categories\Pages\EditCategory;
 use App\Filament\Resources\Categories\Pages\ListCategories;
 use App\Filament\Resources\Categories\Schemas\CategoryForm;
 use App\Filament\Resources\Categories\Tables\CategoriesTable;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Category;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -24,11 +25,11 @@ class CategoryResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 10;
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return AdminNavigationGroup::CONTENT;
     }
 
     public static function form(Schema $schema): Schema

@@ -4,6 +4,7 @@ use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
@@ -140,8 +141,9 @@ it('uses the User model', function () {
     expect(UserResource::getModel())->toBe(User::class);
 });
 
-it('renders in the flat admin navigation', function () {
-    expect(UserResource::getNavigationGroup())->toBeNull();
+it('renders in the Moderation section of the admin navigation', function () {
+    expect(UserResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
+        ->and(UserResource::getNavigationSort())->toBe(40);
 });
 
 it('exposes index and edit pages', function () {

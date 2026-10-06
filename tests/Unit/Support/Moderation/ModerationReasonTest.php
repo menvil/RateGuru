@@ -15,6 +15,16 @@ it('reduces a reason made only of whitespace to nothing', function (string $reas
     'ASCII space' => [' '],
     'tab and newline' => ["\t\n"],
     // trim()'s character list stops here. Everything below survived it.
+    // The two that were live defects, named first because they are why this class
+    // stopped listing codepoints and started asking \p{Cc} and \p{Cf}.
+    //
+    // NUL passed the finalizers' guard and was then removed by the plain trim() in
+    // CreateModerationLogAction — whose default character list DOES include "\0" —
+    // so an irreversible removal was recorded with reason NULL. U+200B is in no
+    // whitespace property at all, so a reason made of one was stored and shown as
+    // blank forever.
+    'NUL' => ["\0"],
+    'zero-width space' => ["\u{200B}"],
     'no-break space' => ["\u{00A0}"],
     'ideographic space' => ["\u{3000}"],
     'en quad' => ["\u{2000}"],
@@ -25,7 +35,8 @@ it('reduces a reason made only of whitespace to nothing', function (string $reas
     // empty answer by a different route than every space above.
     'next line' => ["\u{0085}"],
     'Mongolian vowel separator' => ["\u{180E}"],
-    'one of each' => [" \t\u{00A0}\u{0085}\u{2028}\u{FEFF}\n"],
+    'zero-width joiner' => ["\u{200D}"],
+    'one of each' => [" \t\0\u{00A0}\u{0085}\u{200B}\u{2028}\u{FEFF}\n"],
 ]);
 
 it('keeps a real reason, stripping only what surrounds it', function (string $reason, string $expected) {

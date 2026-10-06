@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Enums\PostImageContext;
 use App\Http\Resources\Api\PostResource;
 use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Support\Media\PostImagePresenter;
 use Illuminate\Http\Request;
@@ -13,17 +15,18 @@ use Illuminate\Http\Request;
  * `ResponsiveImage` declared them `int`, which did not make the data non-null: it
  * made every construction site throw a TypeError on such an asset.
  *
- * Five sites were affected, across the post presenter and the avatar resolver,
- * and the reachable consequence was API serialisation of an ordinary public post.
+ * Six sites were affected, across the post presenter and the avatar resolver —
+ * four of them the master-fallback DTO — and the reachable consequence was API
+ * serialisation of an ordinary public post.
  */
 function postWithDimensionlessImage(): Post
 {
     $post = Post::factory()->create();
 
-    $asset = MediaAsset::factory()->create([
-        'width' => null,
-        'height' => null,
-    ]);
+    // dimensionless(), not width/height overridden by hand: aspect_ratio and
+    // orientation are computed from the dimensions, so a fixture that nulls only
+    // the first two models a row the application cannot produce.
+    $asset = MediaAsset::factory()->dimensionless()->create();
 
     $post->forceFill(['image_asset_id' => $asset->id])->save();
 
@@ -70,4 +73,30 @@ it('still reports dimensions when the asset has them', function () {
 
     expect($image->width)->toBe(1600);
     expect($image->height)->toBe(900);
+});
+
+it('offers no srcset descriptor it cannot compute for a dimensionless asset', function () {
+    // The fullscreen context weighs the master against the detail variant before
+    // offering it. PHP coerces a null width to 0 in that comparison, so an asset
+    // with no recorded dimensions passed the test and contributed an entry with no
+    // descriptor at all — "https://… w" — which is a malformed srcset.
+    $post = Post::factory()->create();
+    $asset = MediaAsset::factory()->dimensionless()->create();
+    $post->forceFill(['image_asset_id' => $asset->id])->save();
+
+    MediaVariant::factory()->for($asset, 'asset')->create([
+        'name' => MediaVariantName::PostDetail1920,
+        'width' => 1920,
+        'height' => 1080,
+    ]);
+
+    $image = app(PostImagePresenter::class)->responsive(
+        $post->fresh(['imageAsset.variants']),
+        PostImageContext::Fullscreen,
+    );
+
+    expect($image)->not->toBeNull();
+    expect($image->srcset ?? '')->not->toContain(' w,');
+    expect(preg_match('/\s w(,|$)/', (string) ($image->srcset ?? '')))
+        ->toBe(0, "a srcset descriptor must always carry a width: {$image->srcset}");
 });

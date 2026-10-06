@@ -135,6 +135,38 @@ infrastructure, and moves out once a second project exists.
   instruction);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
+- the mail routing contract: every target's own loopback gateway endpoint,
+  its delivery mode (`capture` for staging; `held` or `outbound` for
+  production) and its mail identity, in `config/mail-routing.json`, validated
+  and rendered as a gateway plan by the repository-only
+  `infrastructure/scripts/mail-routing` — see
+  [`runbooks/mail-routing.md`](runbooks/mail-routing.md);
+- the host-global mail gateway (`install-mail-gateway`, `verify-mail-gateway`,
+  `status-mail-gateway`): one Postfix instance rendered from that plan,
+  listening only on each target's loopback endpoint, queueing staging capture
+  into Mailpit, holding production mail with no route, and delivering nothing
+  else. Its direct outbound transport — each outbound target's own smtp client,
+  straight to the recipient domain's MX — is implemented but switched off by
+  the host contract `config/mail-outbound.json`. Converged by host bootstrap
+  after mail capture and accepted on the real staging host;
+  `verify-mail-gateway --e2e` is its mutating low-level acceptance primitive,
+  run on the host by hand — see
+  [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md);
+- the production mail identity: the host's reviewed MTA hostname, each
+  production target's DKIM and DMARC policy in `config/mail-identity.json`,
+  the DKIM private key installed as target material, and the repository-only
+  `infrastructure/scripts/mail-identity` that judges them, prints the DNS
+  records to publish and verifies public DNS read-only — see
+  [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
+- infrastructure verification: the repository-only, read-only
+  `infrastructure/scripts/verify-infrastructure --target T`, which composes the
+  contract owners a target's current lifecycle requires — preparation and
+  live-target contracts for an active target, host bootstrap and planned-target
+  contract for a planned one, the operations and backup perimeter, the mail
+  sections, the application and the full host inventory — run from GitHub by
+  the two permanent operator commands **Verify staging infrastructure** and
+  **Verify production infrastructure** — see
+  [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md);
 - Nginx configuration;
 - PHP-FPM pools;
 - Supervisor queue workers;

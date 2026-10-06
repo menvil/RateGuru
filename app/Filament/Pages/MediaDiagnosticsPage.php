@@ -52,11 +52,11 @@ final class MediaDiagnosticsPage extends Page implements HasTable
 
     protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::SYSTEM;
 
-    protected static ?string $navigationLabel = 'Media Diagnostics';
+    protected static ?string $navigationLabel = 'Media diagnostics';
 
     protected static ?string $slug = 'media-diagnostics';
 
-    protected static ?int $navigationSort = 11;
+    protected static ?int $navigationSort = 10;
 
     public static function canAccess(): bool
     {

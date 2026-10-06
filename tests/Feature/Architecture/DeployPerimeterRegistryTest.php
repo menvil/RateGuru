@@ -13,46 +13,11 @@ use Illuminate\Support\Facades\File;
  * directions of that: an active target's deploy user is granted, and a target
  * that is not active is absent — not by being named in an exception, but by
  * never being emitted.
+ *
+ * The render harness (perimeterRender, perimeterRegistry) lives in
+ * tests/Pest.php, shared with the backup cron tests in
+ * BackupCronPerimeterTest.php.
  */
-function perimeterRender(array $registry): string
-{
-    // The shipped renderer, driven by a registry this test supplies. Running
-    // the real implementation is the point: a reimplementation here would
-    // prove only that two copies agree.
-    $scratch = sys_get_temp_dir().'/perimeter-render-'.uniqid('', true);
-    @mkdir($scratch, 0o755, true);
-
-    file_put_contents($scratch.'/registry.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-    $harness = $scratch.'/render.sh';
-    file_put_contents($harness, implode("\n", [
-        'set -Eeuo pipefail',
-        'source '.escapeshellarg(base_path('infrastructure/scripts/install-target-perimeter')),
-        'SRC_REGISTRY='.escapeshellarg($scratch.'/registry.json'),
-        'render_sudoers_candidate',
-        '',
-    ]));
-
-    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-    $process = proc_open(['bash', $harness], $descriptors, $pipes, null, [
-        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
-        'HOME' => getenv('HOME') ?: '/tmp',
-    ]);
-
-    $output = stream_get_contents($pipes[1]);
-    fclose($pipes[1]);
-    proc_close($process);
-
-    exec('rm -rf '.escapeshellarg($scratch));
-
-    return $output;
-}
-
-function perimeterRegistry(): array
-{
-    return json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
-}
-
 it('renders exactly what the committed perimeter says, from the registry alone', function () {
     // The committed file stays committed so the perimeter is reviewable in a
     // diff. Proving it is the render is what stops the two drifting into a

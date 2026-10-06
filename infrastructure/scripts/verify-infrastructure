@@ -1,0 +1,677 @@
+#!/usr/bin/env bash
+#
+# verify-infrastructure — the one read-only verification of everything a
+# deployment target depends on, composed from the authoritative primitives.
+#
+#   verify-infrastructure --target TARGET_ID
+#
+# THE CONTRACT. If RateGuru knows how to install, configure, provision or
+# repair a piece of infrastructure, this proves — read-only — that the state
+# the target's CURRENT lifecycle requires is in place. It proves it by running
+# the primitive that owns each contract, from this same trusted bundle, in its
+# read-only mode:
+#
+#   prepare-host --verify --target T     PREPARATION CONTRACT (active): runtime,
+#                                        host prerequisites, host bootstrap,
+#                                        target prerequisites, target database
+#   repair-target --verify --target T    LIVE TARGET CONTRACT (active): the
+#                                        target's layout, services, scheduler,
+#                                        public-storage ACL, release structure,
+#                                        environment and queue
+#   bootstrap-host --verify              HOST BOOTSTRAP (not active): the
+#                                        physical host baseline
+#   configure-target --verify --target T PLANNED TARGET CONTRACT (planned
+#                                        production): provisioning, material,
+#                                        database, still planned
+#   bootstrap-host-preflight --report    HOST INVENTORY: every host fact, for
+#                                        the log — inventory, never a verdict
+#   install-target-perimeter --verify    OPERATIONS & BACKUP PERIMETER: the
+#                                        installed operations bundle, wrappers,
+#                                        sudoers and backup cron
+#   verify-mail-capture --read-only      MAIL CAPTURE (staging)
+#   verify-mail-gateway --read-only      MAIL GATEWAY
+#   mail-identity validate | dkim-key | check-key | readiness
+#                                        MAIL IDENTITY (production)
+#   health-check --target T              APPLICATION (active)
+#
+# What this file adds is only the decision of which contract the target's
+# current reviewed state requires — its environment class and lifecycle from
+# the registry, its delivery mode from the mail routing plan, whether the host
+# enables direct delivery from its outbound contract. No package list, user,
+# mode, service, database, sudoers, cron or layout rule lives here: each has
+# one owner, and it is called. Two calls are deliberately repeated for the
+# operator's sake — the mail primitives and health-check, which the preparation
+# and live-target contracts also reach — because a dedicated section names the
+# failing subsystem; the validation logic itself exists once.
+#
+# A lifecycle gate is never weakened: prepare-host and repair-target refuse a
+# target that is not active, so a planned target is judged by bootstrap-host and
+# configure-target instead, and its live-target contract and application are
+# DEFERRED, not invoked.
+#
+# THE VERDICTS, per item, and per GROUP — the worst item decides a group:
+#
+#   PASS / FAIL  a check the current state requires. Any FAIL fails the run.
+#   DEFERRED     a capability the target's current reviewed lifecycle or
+#                routing deliberately does not require YET — reported, never
+#                silently skipped.
+#   N/A          does not apply to this kind of target at all.
+#
+# A child's exit status is its verdict: 0 is PASS, anything else is FAIL, and
+# a child that could not be executed or was terminated by a signal is a FAIL
+# that says so — never a PASS or a DEFERRED. One group failing does not stop
+# the others: every read-only group still runs, so one run diagnoses as much
+# as it can. Only an unresolvable target or an incomplete bundle stops it.
+#
+# STRICTLY READ-ONLY. Every primitive is invoked in its read-only mode — never
+# --apply, --e2e or a repair. Nothing is installed, re-owned, reloaded,
+# restarted, deployed, backed up, restored, sent, published or rotated.
+#
+# Repository tooling: it runs from the temporary trusted bundle the
+# verification action uploads, as root, and is never installed on a host.
+#
+# The last line of a completed run is exactly one
+# RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=<json> — identity, counts and the
+# group results, never a secret.
+#
+# Test overrides: the RATEGURU_VERIFYINFRA_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_VERIFYINFRA_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_VERIFYINFRA_FS_ROOT '')"
+
+PREPARATION_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_PREPARE_HOST_BIN "${SCRIPT_DIR}/prepare-host")"
+LIVE_TARGET_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_REPAIR_TARGET_BIN "${SCRIPT_DIR}/repair-target")"
+HOST_BOOTSTRAP_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_BOOTSTRAP_HOST_BIN "${SCRIPT_DIR}/bootstrap-host")"
+PLANNED_TARGET_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_CONFIGURE_TARGET_BIN "${SCRIPT_DIR}/configure-target")"
+HOST_INVENTORY="$(gated_default RATEGURU_VERIFYINFRA_HOST_PREFLIGHT_BIN "${SCRIPT_DIR}/bootstrap-host-preflight")"
+PERIMETER_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_TARGET_PERIMETER_BIN "${SCRIPT_DIR}/install-target-perimeter")"
+MAIL_CAPTURE_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
+MAIL_GATEWAY_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_GATEWAY_BIN "${SCRIPT_DIR}/verify-mail-gateway")"
+HEALTH_CHECK="$(gated_default RATEGURU_VERIFYINFRA_HEALTH_CHECK_BIN "${SCRIPT_DIR}/health-check")"
+MAIL_IDENTITY="${SCRIPT_DIR}/mail-identity"
+MAIL_ROUTING="${SCRIPT_DIR}/mail-routing"
+TARGETS_CLI="${SCRIPT_DIR}/targets"
+
+CONFIG_DIR="${REPO_ROOT}/infrastructure/config"
+REGISTRY_FILE="${CONFIG_DIR}/deployment-targets.json"
+IDENTITY_ARGS=(
+    --identity "${CONFIG_DIR}/mail-identity.json"
+    --routing "${CONFIG_DIR}/mail-routing.json"
+    --registry "${REGISTRY_FILE}"
+    --outbound "${CONFIG_DIR}/mail-outbound.json"
+)
+
+RESULT_PREFIX="RATEGURU_INFRASTRUCTURE_VERIFY_RESULT="
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-infrastructure --target TARGET_ID
+
+Read-only verification of everything TARGET_ID depends on, composed from the
+authoritative primitives in this bundle and judged against the target's
+current reviewed state (registry lifecycle and environment class, mail routing
+mode, the host's outbound contract). Requires root. Changes nothing.
+
+An active target is held to its preparation and live-target contracts, a
+planned one to the host bootstrap and its planned-target contract; both to the
+operations and backup perimeter, the mail sections and the application.
+
+Exit 0 only when every check the current state requires passes. DEFERRED
+checks are reported and do not fail the run. Every group runs even after
+another fails. The last line is one RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=<json>
+with the totals and one result per group.
+USAGE
+}
+
+# --- Arguments --------------------------------------------------------------------
+
+TARGET_ID=""
+
+parse_args() {
+    [[ $# -gt 0 ]] || { usage >&2; fail "--target is required"; }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ -z "${TARGET_ID}" ]] || fail "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || fail "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${TARGET_ID}" ]] || fail "--target is required"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${TARGET_ID}"
+}
+
+# --- Report -----------------------------------------------------------------------
+
+COUNT_PASS=0
+COUNT_FAIL=0
+COUNT_DEFERRED=0
+COUNT_NA=0
+
+# The groups, in the order they ran, and each one's own counts. A group is one
+# contract, or one subsystem the operator diagnoses by name.
+GROUP_IDS=()
+declare -A GROUP_TITLE=() GROUP_PASS=() GROUP_FAIL=() GROUP_DEFERRED=() GROUP_NA=()
+CURRENT_GROUP=""
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# group ID TITLE — every item from here on belongs to it. Its heading is its
+# title, in capitals.
+group() {
+    local id="$1" title="$2"
+
+    [[ -z "${GROUP_TITLE[${id}]:-}" ]] || fail "internal: group ${id} reported twice"
+
+    GROUP_IDS+=("${id}")
+    GROUP_TITLE[${id}]="${title}"
+    GROUP_PASS[${id}]=0
+    GROUP_FAIL[${id}]=0
+    GROUP_DEFERRED[${id}]=0
+    GROUP_NA[${id}]=0
+    CURRENT_GROUP="${id}"
+
+    section "${title^^}"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3"
+
+    [[ -n "${CURRENT_GROUP}" ]] || fail "internal: ${name} reported outside a group"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1));         GROUP_PASS[${CURRENT_GROUP}]=$((GROUP_PASS[${CURRENT_GROUP}] + 1)) ;;
+        FAIL)     COUNT_FAIL=$((COUNT_FAIL + 1));         GROUP_FAIL[${CURRENT_GROUP}]=$((GROUP_FAIL[${CURRENT_GROUP}] + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)); GROUP_DEFERRED[${CURRENT_GROUP}]=$((GROUP_DEFERRED[${CURRENT_GROUP}] + 1)) ;;
+        N/A)      COUNT_NA=$((COUNT_NA + 1));             GROUP_NA[${CURRENT_GROUP}]=$((GROUP_NA[${CURRENT_GROUP}] + 1)) ;;
+        *)        fail "internal: unknown verdict ${status}" ;;
+    esac
+
+    printf '  %-9s %s — %s\n' "${status}" "${name}" "${detail}"
+}
+
+# The worst item decides a group. A group that reported nothing is a defect of
+# this file, and never passes.
+group_status() {
+    local id="$1"
+
+    if (( GROUP_FAIL[${id}] > 0 )); then
+        printf 'fail'
+    elif (( GROUP_PASS[${id}] > 0 )); then
+        printf 'pass'
+    elif (( GROUP_DEFERRED[${id}] > 0 )); then
+        printf 'deferred'
+    elif (( GROUP_NA[${id}] > 0 )); then
+        printf 'not_applicable'
+    else
+        printf 'fail'
+    fi
+}
+
+# How a group's status reads in the log.
+status_label() {
+    case "$1" in
+        pass)           printf 'PASS' ;;
+        fail)           printf 'FAIL' ;;
+        deferred)       printf 'DEFERRED' ;;
+        not_applicable) printf 'N/A' ;;
+        *)              fail "internal: unknown group status $1" ;;
+    esac
+}
+
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+# run_child BIN ARGS... — one primitive, with nothing to read on its standard
+# input, its whole report kept for the operator, its exit status as its
+# verdict.
+run_child() {
+    set +e
+    CHILD_OUTPUT="$("$@" 2>&1 </dev/null)"
+    CHILD_STATUS=$?
+    set -e
+}
+
+show_child() {
+    [[ -n "${CHILD_OUTPUT}" ]] || return 0
+    printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/            | /'
+}
+
+# child_verdict NAME PASSED FAILED — the last child's exit status as an item.
+# Only a clean zero passes. A child that could not be run, or that a signal
+# ended, verified nothing — and says so rather than looking like an ordinary
+# refusal.
+child_verdict() {
+    local name="$1" passed="$2" failed="$3"
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "${name}" "${passed}"
+    elif (( CHILD_STATUS == 126 || CHILD_STATUS == 127 )); then
+        item FAIL "${name}" "could not be executed (exit ${CHILD_STATUS}) — nothing was verified, so nothing passes"
+    elif (( CHILD_STATUS > 128 )); then
+        item FAIL "${name}" "terminated abnormally by signal $((CHILD_STATUS - 128)) — an interrupted verification never passes"
+    else
+        item FAIL "${name}" "exit ${CHILD_STATUS} — ${failed}"
+    fi
+}
+
+# --- The target's current reviewed state ----------------------------------------------
+
+ENVIRONMENT_CLASS=""
+LIFECYCLE=""
+DELIVERY_MODE=""
+DIRECT_ENABLED=""
+
+resolve_target() {
+    [[ -x "${TARGETS_CLI}" ]] || fail "the targets CLI is not executable: ${TARGETS_CLI} — run from a full trusted bundle"
+
+    "${TARGETS_CLI}" validate --file "${REGISTRY_FILE}" >/dev/null \
+        || fail "the deployment target registry is invalid: ${REGISTRY_FILE}"
+
+    local target_json
+    target_json="$("${TARGETS_CLI}" show --target "${TARGET_ID}" --file "${REGISTRY_FILE}" 2>/dev/null)" \
+        || fail "unknown target: ${TARGET_ID}"
+
+    ENVIRONMENT_CLASS="$(jq -r '.environment_class' <<<"${target_json}")"
+    LIFECYCLE="$(jq -r '.lifecycle' <<<"${target_json}")"
+
+    # The delivery mode from the one judge of routing policy, and whether the
+    # host enables direct delivery from its reviewed contract. An unreadable
+    # policy leaves both unknown, and the checks that judge it say so.
+    local plan
+    if plan="$("${MAIL_ROUTING}" render-plan --file "${CONFIG_DIR}/mail-routing.json" --registry "${REGISTRY_FILE}" 2>/dev/null)"; then
+        DELIVERY_MODE="$(jq -r --arg id "${TARGET_ID}" '.listeners[] | select(.identity == $id) | .delivery_mode' <<<"${plan}")"
+    fi
+
+    DIRECT_ENABLED="$(jq -r 'if (.direct | type) == "object" and .direct.enabled == true then "true" else "false" end' \
+        "${CONFIG_DIR}/mail-outbound.json" 2>/dev/null || printf 'false')"
+}
+
+# Every primitive this target's path needs must be in the bundle before
+# anything runs: a verification missing a contract would report a partial
+# picture as a whole one.
+require_bundle() {
+    local child
+    local -a needed=("${PERIMETER_VERIFIER}" "${HOST_INVENTORY}" "${MAIL_GATEWAY_VERIFIER}" "${MAIL_IDENTITY}" "${MAIL_ROUTING}")
+
+    case "${LIFECYCLE}" in
+        active)  needed+=("${PREPARATION_VERIFIER}" "${LIVE_TARGET_VERIFIER}" "${HEALTH_CHECK}") ;;
+        planned) needed+=("${HOST_BOOTSTRAP_VERIFIER}" "${PLANNED_TARGET_VERIFIER}") ;;
+        *)       needed+=("${HOST_BOOTSTRAP_VERIFIER}") ;;
+    esac
+
+    [[ "${ENVIRONMENT_CLASS}" != staging ]] || needed+=("${MAIL_CAPTURE_VERIFIER}")
+
+    for child in "${needed[@]}"; do
+        [[ -f "${child}" && -x "${child}" ]] \
+            || fail "the trusted bundle is incomplete: ${child} is missing or not executable — nothing was verified"
+    done
+}
+
+# --- The host and the target's lifecycle contract ---------------------------------------
+#
+# Which contract applies is decided by the lifecycle, because the primitives
+# themselves decide it that way: preparation and repair are for a target that
+# operates, configuration for one that is planned.
+
+verify_preparation() {
+    group preparation "Preparation contract"
+
+    run_child "${PREPARATION_VERIFIER}" --verify --target "${TARGET_ID}"
+    child_verdict "prepare-host --verify --target ${TARGET_ID}" \
+        "every preparation slice verifies in order — runtime, host prerequisites, host bootstrap, target prerequisites, target database — and ${TARGET_ID} is prepared" \
+        "the host or ${TARGET_ID}'s preparation is not as reviewed: run Prepare Host for ${TARGET_ID}. Verify changes nothing"
+    show_child
+}
+
+verify_host_bootstrap() {
+    group host-bootstrap "Host bootstrap"
+
+    run_child "${HOST_BOOTSTRAP_VERIFIER}" --verify
+    child_verdict "bootstrap-host --verify" \
+        "the physical host baseline verifies — runtime, users and filesystem, services, final bootstrap preflight — whatever ${TARGET_ID}'s lifecycle" \
+        "the host bootstrap is not as reviewed: run Prepare Host for the active target on this host, which converges it. Verify changes nothing"
+    show_child
+}
+
+# Inventory, not a gate: --report exits zero on a host that is missing
+# everything, so its exit status decides nothing and it is never counted. The
+# host's verdict is the preparation or bootstrap contract above.
+report_host_inventory() {
+    section "HOST INVENTORY"
+    printf '  %s\n' "bootstrap-host-preflight --report — every host fact RateGuru knows about, secrets by stat only. Inventory, never a verdict."
+
+    run_child "${HOST_INVENTORY}" --report
+    show_child
+
+    if (( CHILD_STATUS != 0 )); then
+        printf '  %s\n' "The inventory did not complete (exit ${CHILD_STATUS}). It decides nothing: the verdicts are the contracts'."
+    fi
+}
+
+verify_live_target() {
+    group live-target "Live target contract"
+
+    case "${LIFECYCLE}" in
+        active)
+            run_child "${LIVE_TARGET_VERIFIER}" --verify --target "${TARGET_ID}"
+            child_verdict "repair-target --verify --target ${TARGET_ID}" \
+                "the live target's layout, ownership, Nginx, PHP-FPM, Supervisor, scheduler, public-storage ACL, release structure, environment and queue are as committed — Repair would change nothing" \
+                "${TARGET_ID}'s live infrastructure has drifted: run Repair Target for ${TARGET_ID}. Verify changes nothing"
+            show_child
+            ;;
+        planned)
+            item DEFERRED "repair-target" "target lifecycle is planned; Repair is a live-target contract — not invoked"
+            ;;
+        *)
+            item N/A "repair-target" "${TARGET_ID} is ${LIFECYCLE}: it is not operating, and Repair is a live-target contract — not invoked"
+            ;;
+    esac
+}
+
+verify_planned_target() {
+    group planned-target "Planned target contract"
+
+    if [[ "${ENVIRONMENT_CLASS}" != production ]]; then
+        item N/A "configure-target" "configuring applies to a planned production target; ${TARGET_ID} is ${ENVIRONMENT_CLASS}"
+        return 0
+    fi
+
+    run_child "${PLANNED_TARGET_VERIFIER}" --verify --target "${TARGET_ID}"
+    child_verdict "configure-target --verify --target ${TARGET_ID}" \
+        "provisioned, its material and database in place, and still planned and undeployed" \
+        "${TARGET_ID}'s planned-target contract is incomplete: run Configure for ${TARGET_ID}, or the onboarding step it still needs. Verify changes nothing"
+    show_child
+}
+
+# --- Operations and backup perimeter: host-global, every target -------------------------
+
+verify_operations_perimeter() {
+    group operations-perimeter "Operations & backup perimeter"
+
+    run_child "${PERIMETER_VERIFIER}" --verify
+    child_verdict "install-target-perimeter --verify" \
+        "the installed operations bundle is the reviewed one; the generic deploy, rollback, cleanup and restore wrappers, the sudoers perimeter and every active target's backup cron are exactly as rendered; no legacy wrapper remains" \
+        "the installed operations and backup perimeter is not the reviewed one: run Prepare Host, which installs it. Verify changes nothing — it runs no backup and no restore"
+    show_child
+}
+
+# --- Mail capture: staging only ----------------------------------------------------------
+
+verify_mail_capture() {
+    group mail-capture "Mail capture"
+
+    if [[ "${ENVIRONMENT_CLASS}" != staging ]]; then
+        item N/A "mail-capture" "a ${ENVIRONMENT_CLASS} target never captures mail: the staging capture services are verified with a staging target"
+        return 0
+    fi
+
+    run_child "${MAIL_CAPTURE_VERIFIER}" --read-only
+    child_verdict "verify-mail-capture --read-only" \
+        "Mailpit and Mailtrap Local active, their loopback listeners up, both APIs answering" \
+        "the staging capture services are not healthy"
+    show_child
+}
+
+# --- Mail gateway: host-global, every target --------------------------------------------
+
+verify_mail_gateway() {
+    group mail-gateway "Mail gateway"
+
+    run_child "${MAIL_GATEWAY_VERIFIER}" --read-only
+    child_verdict "verify-mail-gateway --read-only" \
+        "installed exactly as the reviewed policy renders: listeners, routes and holds, no public SMTP listener, no fallback route" \
+        "the installed gateway does not match the reviewed mail policy"
+    show_child
+}
+
+# --- Mail identity ------------------------------------------------------------------------
+
+verify_mail_identity() {
+    group mail-identity "Mail identity"
+
+    if [[ "${ENVIRONMENT_CLASS}" != production ]]; then
+        item N/A "mail-identity" "a ${ENVIRONMENT_CLASS} target has no production mail identity: it captures its mail and never signs it"
+        return 0
+    fi
+
+    run_child "${MAIL_IDENTITY}" validate "${IDENTITY_ARGS[@]}"
+
+    if (( CHILD_STATUS != 0 )); then
+        child_verdict "identity contract" "" "mail-identity validate refuses the reviewed host or target identity — nothing further about it can be judged"
+        show_child
+        return 0
+    fi
+
+    item PASS "identity contract" "mail-identity validate: the host MTA identity and ${TARGET_ID}'s DKIM and DMARC identity are valid"
+
+    local answer requirement key_path min_bits
+    run_child "${MAIL_IDENTITY}" dkim-key --target "${TARGET_ID}" "${IDENTITY_ARGS[@]}"
+    answer="${CHILD_OUTPUT}"
+
+    if (( CHILD_STATUS != 0 )); then
+        child_verdict "dkim-key" "" "the key requirement could not be established"
+        show_child
+        return 0
+    fi
+
+    if [[ "${answer}" == none ]]; then
+        item N/A "dkim-key" "${TARGET_ID} has no reviewed DKIM identity yet — its mail is ${DELIVERY_MODE:-unknown}, and an outbound target must have one"
+        item N/A "outbound-readiness" "no reviewed identity to be ready with"
+        return 0
+    fi
+
+    IFS=$'\t' read -r requirement key_path min_bits <<<"${answer}"
+
+    verify_dkim_key "${requirement}" "${key_path}" "${min_bits}"
+    verify_outbound_readiness "${requirement}"
+}
+
+verify_dkim_key() {
+    local requirement="$1" key_path="$2" min_bits="$3" physical_key
+
+    physical_key="${FS_ROOT}${key_path}"
+
+    if [[ ! -e "${physical_key}" && ! -L "${physical_key}" ]]; then
+        if [[ "${requirement}" == required ]]; then
+            item FAIL "dkim-key" "${key_path} is absent, and ${TARGET_ID} delivers outbound — its DKIM key is required"
+        else
+            item DEFERRED "dkim-key" "${key_path} is absent — not required while ${TARGET_ID}'s mail is held; required once it is outbound"
+        fi
+        return 0
+    fi
+
+    # Present: judged whatever the routing, because broken key material on the
+    # host is broken now.
+    run_child "${MAIL_IDENTITY}" check-key --file "${physical_key}" --min-bits "${min_bits}"
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "dkim-key" "${key_path} is a usable RSA private key (${requirement} for ${TARGET_ID}; content never printed)"
+    elif (( CHILD_STATUS == 1 )); then
+        item FAIL "dkim-key" "${key_path} is installed but not usable: ${CHILD_OUTPUT#ERROR: }"
+    else
+        child_verdict "dkim-key" "" "${key_path} could not be judged"
+    fi
+}
+
+# Readiness is MANDATORY only once the reviewed state says the target delivers
+# outbound on a host that enabled direct delivery. Until then it is reported —
+# A, PTR, SPF, DKIM and DMARC included — as the pre-activation picture, and is
+# DEFERRED. A readiness check that could not run is a FAIL either way.
+verify_outbound_readiness() {
+    local requirement="$1"
+
+    run_child "${MAIL_IDENTITY}" readiness --target "${TARGET_ID}" "${IDENTITY_ARGS[@]}"
+
+    if (( CHILD_STATUS == 126 || CHILD_STATUS == 127 || CHILD_STATUS > 128 )); then
+        child_verdict "outbound-readiness" "" ""
+    elif [[ "${requirement}" == required && "${DIRECT_ENABLED}" == true ]]; then
+        child_verdict "outbound-readiness" \
+            "every condition outbound delivery requires holds" \
+            "${TARGET_ID} delivers outbound, so mail-identity readiness is required, and it is not ready"
+    else
+        item DEFERRED "outbound-readiness" "not activated (delivery_mode ${DELIVERY_MODE:-unknown}, direct delivery $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)) — reported below, required once ${TARGET_ID} delivers outbound"
+    fi
+
+    show_child
+}
+
+# --- Application ------------------------------------------------------------------------
+
+verify_application() {
+    group application "Application"
+
+    case "${LIFECYCLE}" in
+        active)
+            run_child "${HEALTH_CHECK}" --target "${TARGET_ID}"
+            child_verdict "health-check" \
+                "${TARGET_ID} answers its health endpoint" \
+                "${TARGET_ID} is active and its application is not healthy"
+            show_child
+            ;;
+        planned)
+            item DEFERRED "health-check" "${TARGET_ID} is planned: it is intentionally not deployed or active, and health-check refuses a target that is not active — not invoked"
+            ;;
+        *)
+            item N/A "health-check" "${TARGET_ID} is ${LIFECYCLE}: it is not operating"
+            ;;
+    esac
+}
+
+# --- Run -------------------------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || fail "verify-infrastructure must run as root: the checks it composes read root-owned configuration and key material"
+
+    # The one tool this verification needs before it can even resolve the
+    # target. Every other tool is the host runtime contract's, verified below
+    # by its owner.
+    command -v jq >/dev/null 2>&1 || fail "jq is required (package jq) — host runtime drift: run Prepare Host for this host"
+
+    resolve_target
+    require_bundle
+
+    printf 'VERIFY INFRASTRUCTURE (read-only)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+    printf 'Environment class: %s\n' "${ENVIRONMENT_CLASS}"
+    printf 'Lifecycle: %s\n' "${LIFECYCLE}"
+    printf 'Mail delivery mode: %s\n' "${DELIVERY_MODE:-unknown}"
+    printf 'Direct outbound delivery on this host: %s\n' "$([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)"
+
+    case "${LIFECYCLE}" in
+        active)
+            verify_preparation
+            report_host_inventory
+            verify_live_target
+            ;;
+        planned)
+            verify_host_bootstrap
+            report_host_inventory
+            verify_planned_target
+            verify_live_target
+            ;;
+        *)
+            verify_host_bootstrap
+            report_host_inventory
+            verify_live_target
+            ;;
+    esac
+
+    verify_operations_perimeter
+    verify_mail_capture
+    verify_mail_gateway
+    verify_mail_identity
+    verify_application
+
+    local status=pass id group_result groups='[]'
+    (( COUNT_FAIL == 0 )) || status=fail
+
+    section "SUMMARY"
+
+    for id in "${GROUP_IDS[@]}"; do
+        group_result="$(group_status "${id}")"
+        [[ "${group_result}" != fail ]] || status=fail
+
+        printf '  %-31s %s%s\n' "${GROUP_TITLE[${id}]}" "$(status_label "${group_result}")" \
+            "$([[ "${group_result}" == pass ]] && (( GROUP_DEFERRED[${id}] > 0 )) && printf ' (%d deferred)' "${GROUP_DEFERRED[${id}]}")"
+
+        groups="$(jq -c \
+            --arg id "${id}" --arg title "${GROUP_TITLE[${id}]}" --arg status "${group_result}" \
+            --argjson pass "${GROUP_PASS[${id}]}" --argjson fail "${GROUP_FAIL[${id}]}" \
+            --argjson deferred "${GROUP_DEFERRED[${id}]}" --argjson not_applicable "${GROUP_NA[${id}]}" \
+            '. + [{id: $id, title: $title, status: $status, pass: $pass, fail: $fail, deferred: $deferred, not_applicable: $not_applicable}]' \
+            <<<"${groups}")"
+    done
+
+    printf '\n  pass=%d\n  fail=%d\n  deferred=%d\n  not_applicable=%d\n\n' \
+        "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DEFERRED}" "${COUNT_NA}"
+    printf 'VERIFY INFRASTRUCTURE: %s\n' "$([[ "${status}" == pass ]] && echo PASS || echo FAIL)"
+
+    if [[ "${status}" == pass && "${LIFECYCLE}" == planned ]]; then
+        printf 'PASS means the CURRENT reviewed planned state is correct. It does NOT mean %s is live.\n' \
+            "$([[ "${ENVIRONMENT_CLASS}" == production ]] && echo production || echo "${TARGET_ID}")"
+    fi
+
+    printf '%s%s\n' "${RESULT_PREFIX}" "$(jq -cn \
+        --arg target "${TARGET_ID}" \
+        --arg environment_class "${ENVIRONMENT_CLASS}" \
+        --arg lifecycle "${LIFECYCLE}" \
+        --arg delivery_mode "${DELIVERY_MODE:-unknown}" \
+        --arg status "${status}" \
+        --argjson pass "${COUNT_PASS}" \
+        --argjson fail "${COUNT_FAIL}" \
+        --argjson deferred "${COUNT_DEFERRED}" \
+        --argjson not_applicable "${COUNT_NA}" \
+        --argjson groups "${groups}" \
+        '{target: $target, environment_class: $environment_class, lifecycle: $lifecycle, delivery_mode: $delivery_mode,
+          status: $status, pass: $pass, fail: $fail, deferred: $deferred, not_applicable: $not_applicable, groups: $groups}')"
+
+    [[ "${status}" == pass ]]
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

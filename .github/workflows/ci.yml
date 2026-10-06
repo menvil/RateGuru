@@ -121,6 +121,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The admin panel's Filament theme builds on Filament's own theme CSS,
+      # which ships inside vendor/filament, so the PHP dependencies have to be
+      # installed before Vite can compile it.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, gd, exif
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -150,11 +169,12 @@ jobs:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~12 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     env:
@@ -308,6 +328,17 @@ jobs:
           ), FILE_APPEND);
           '
 
+      # The per-file timings behind any claim that this job got faster or
+      # slower; tools/ci/bin/compare-runs.php reads them back.
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tests-junit
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload Laravel logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
@@ -444,17 +475,37 @@ jobs:
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --log-junit architecture-junit.xml | tee architecture-pest.log
 
-      # The planner decides what a leg runs from Pest's own test listing. If
-      # that listing ever stopped matching what the planner expects, every leg
-      # would silently run the whole suite — green, and four times as slow —
-      # so the leg has to say how many files it took out of a real total. A
-      # stale timings file costs balance, not coverage; it is a warning.
+      # The planner decides what a leg runs from Pest's own test listing. If that
+      # listing ever stopped matching what the planner expects, every leg would
+      # silently run the whole suite — green, and four times as slow.
+      #
+      # This step used to be `grep -E 'files? ran, out of [1-9][0-9]*'`, which
+      # matches "40 files ran, out of 40" exactly as happily as "11 files ran, out
+      # of 40": the numbers were printed and never read, so the failure it was
+      # meant to catch passed. The validator reads them, refuses a leg that ran
+      # nothing or ran everything, and writes them down for the cross-leg check
+      # below — which is the only place "the parts are the whole, once each" can be
+      # established. It writes the NAMES of the classes it ran, from its own JUnit,
+      # because counts alone cannot see two legs overlapping on one file while a
+      # third file goes unrun: the sums still come out right. Its own negative cases
+      # are covered by tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
+      #
+      # A stale timings file costs balance, not coverage; it stays a warning.
       - name: Check the shard ran its share
         run: |
-          grep -E 'files? ran, out of [1-9][0-9]*' architecture-pest.log
+          php tools/pest/bin/verify-shard-partition.php leg \
+            architecture-pest.log architecture-junit.xml \
+            | tee "shard-${{ matrix.shard }}.json"
           if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
             echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
           fi
+
+      - name: Upload shard partition report
+        uses: actions/upload-artifact@v7
+        with:
+          name: architecture-shard-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}.json
+          retention-days: 7
 
       # Per-file durations are the only way to tell a slow runner from a slow
       # change, to see which files form the tail of a leg, and to rebalance the
@@ -467,15 +518,52 @@ jobs:
           path: architecture-junit.xml
           retention-days: 30
 
+  # Deliberately a job of its own, and deliberately NOT `if: always()`: a leg
+  # that failed proves nothing about the partition, and this must not turn a red
+  # suite into a second, confusing failure. It answers one question the legs
+  # cannot answer individually — did the four of them, between them, run every
+  # file exactly once.
+  verify-shard-partition:
+    name: Architecture shards partition the suite
+    runs-on: ubuntu-24.04
+    needs: [tests-architecture]
+    timeout-minutes: 5
+    steps:
+      # No persisted credentials: this job reads downloaded artifacts and runs one
+      # PHP script, and performs no git operation that needs a token. The
+      # privileged workflows in this repository check out that way as a matter of
+      # course; the rest of ci.yml predates the habit and is left to a change of
+      # its own rather than widened here.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - name: Download shard partition reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: architecture-shard-*
+          merge-multiple: true
+
+      - name: Verify the legs partition the suite
+        run: php tools/pest/bin/verify-shard-partition.php combined shard-*.json
+
   migrations-mariadb:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~24 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     env:
@@ -550,7 +638,16 @@ jobs:
             -e "GRANT ALL PRIVILEGES ON \`rateguru\\_test%\`.* TO 'rateguru'@'%'; FLUSH PRIVILEGES;"
 
       - name: Run MariaDB compatibility tests
-        run: composer test:mariadb
+        run: composer test:mariadb -- --log-junit mariadb-junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mariadb-junit
+          path: mariadb-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Run MariaDB migration smoke
         run: php artisan migrate:fresh --seed --force
@@ -573,11 +670,12 @@ jobs:
     name: Compatibility (SQLite)
     runs-on: ubuntu-24.04
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. The last
-    # green runs measured ~28 minutes here, and the suite grows as the product
-    # does, so the cap sits well clear of a healthy run rather than tracking
-    # it: it should only ever fire for something genuinely stuck, never for an
-    # ordinary slow runner.
+    # the 6-hour default — it is not meant to bound a healthy run. A healthy
+    # run takes a few minutes (the JUnit report this job uploads holds the
+    # per-file times), and the suite grows as the product does, so the cap
+    # sits well clear of a healthy run rather than tracking it: it should only
+    # ever fire for something genuinely stuck, never for an ordinary slow
+    # runner.
     timeout-minutes: 60
     needs: frontend-build
     outputs:
@@ -616,7 +714,16 @@ jobs:
           touch database/database.sqlite
 
       - name: Run SQLite compatibility tests
-        run: composer test:sqlite
+        run: composer test:sqlite -- --log-junit sqlite-junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sqlite-junit
+          path: sqlite-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Run SQLite migration smoke
         env:
@@ -737,6 +844,7 @@ jobs:
       - migrations-mariadb
       - tests-sqlite
       - dependency-audit
+      - verify-shard-partition
     permissions:
       contents: read
       issues: write
@@ -898,8 +1006,10 @@ jobs:
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
+          SHARD_PARTITION_RESULT: ${{ needs['verify-shard-partition'].result }}
         run: |
           for result in \
+            "$SHARD_PARTITION_RESULT" \
             "$CODE_STYLE_RESULT" \
             "$STATIC_ANALYSIS_RESULT" \
             "$FRONTEND_BUILD_RESULT" \

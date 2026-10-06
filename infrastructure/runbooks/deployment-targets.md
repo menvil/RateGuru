@@ -1185,7 +1185,11 @@ concepts, not renamed or affected by this model.
 
 `infrastructure/config/cron/rateguru-backups` calls all three operational
 commands — the nightly `backup-cycle`, and the weekly `restore-test` /
-`offsite-restore-test` — with `--target staging-main`.
+`offsite-restore-test` — with `--target`, for every `lifecycle=active` target.
+Like the sudoers rule it is rendered: the registry decides which targets are
+scheduled, and `infrastructure/config/backup-schedules.json` holds each
+target's reviewed times. Today that is `staging-main` alone; `tits-guru`'s
+schedule is reviewed, and its jobs appear when it is activated.
 
 See [`target-perimeter.md`](target-perimeter.md) for the full installer
 contract (`install-target-perimeter`) that manages the three wrappers, the
@@ -1224,7 +1228,14 @@ each increment.
 1. Add the object to `infrastructure/config/deployment-targets.json` with
    `lifecycle: "planned"`.
 2. Run `targets validate` and fix every reported problem.
-3. Provision the real infrastructure in its own reviewed change.
-4. Flip to `active` and extend the validation allowlist in the same change.
+3. Add the target's reviewed mail routing policy to
+   `infrastructure/config/mail-routing.json` — its own loopback submission
+   port, and `held` for a production target — and run
+   `infrastructure/scripts/mail-routing validate`, which refuses a registry
+   target without one. See [`mail-routing.md`](mail-routing.md).
+4. Provision the real infrastructure in its own reviewed change.
+5. Flip to `active` and extend the validation allowlist in the same change.
+   A production target's mail must have a real route by then: `mail-routing
+   validate` refuses an active target whose mail is still `held`.
 
-Never flip a target to `active` before step 3.
+Never flip a target to `active` before step 4.

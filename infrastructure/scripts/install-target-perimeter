@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
 # install-target-perimeter — install/verify the target-only operational
-# perimeter: the four generic sudo wrappers, the sudoers rule granting the
-# staging deploy user access to them, the backup cron entry, and the
-# transactional removal of the six legacy per-environment sudo wrappers.
+# perimeter: the four generic sudo wrappers, the sudoers rule granting every
+# active target's deploy user access to them, the backup cron entries of every
+# active target, and the transactional removal of the six legacy
+# per-environment sudo wrappers.
 #
 # Modes:
 #   --check   Validate the committed source files, host tooling, AND that
@@ -16,7 +17,7 @@
 #             Read-only: makes NO changes to the system.
 #   --apply   Everything --check does, as its own preflight, then installs
 #             the four wrappers, the sudoers rule and the backup cron
-#             entry, and removes the six legacy wrappers: verifies a staged
+#             file, and removes the six legacy wrappers: verifies a staged
 #             copy before touching anything, installs transactionally, then
 #             verifies the installed result against the real host before
 #             committing. On any failure, restores the generic perimeter
@@ -32,8 +33,12 @@
 # What this installs — and does not:
 #   * Six files: the four generic wrappers (rateguru-deploy,
 #     rateguru-rollback, rateguru-cleanup, rateguru-restore), the sudoers rule
-#     that grants the staging deploy user access to them, and the
-#     backup-cycle/restore-test/offsite-restore-test cron entries. deploy, rollback, cleanup,
+#     that grants every active target's deploy user access to them, and the
+#     backup-cycle/restore-test/offsite-restore-test cron entries of every
+#     active target. Both the sudoers rule and the cron file are RENDERED from
+#     the registry (the cron file together with the reviewed schedules in
+#     infrastructure/config/backup-schedules.json); the committed copies are
+#     proved to be that render. deploy, rollback, cleanup,
 #     backup-cycle, restore-test, offsite-restore-test, and the other files
 #     in the operations bundle are untouched by this installer — they
 #     already support --target (installed by install-target-operations, a
@@ -50,9 +55,11 @@
 #     since it is meant to run only after a successful --apply has already
 #     removed them — do not run --verify to "check" presence the way --check
 #     does.
-#   * Never touches deployment.conf or the target registry.
-#   * Never adds a sudoers rule for tits-guru's deploy user: tits-guru stays
-#     lifecycle=planned, and this installer does not provision it.
+#   * Never touches deployment.conf, the target registry, or the reviewed
+#     backup schedules.
+#   * Never adds a sudoers rule or a backup cron entry for a target that is not
+#     lifecycle=active: tits-guru stays lifecycle=planned, so it has neither,
+#     and this installer does not provision it.
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below — save
 # for two deliberate test seams, both gated behind
@@ -84,6 +91,11 @@ SRC_WRAPPER_CLEANUP="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-cleanu
 SRC_WRAPPER_RESTORE="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-restore"
 SRC_SUDOERS="${REPO_ROOT}/infrastructure/config/sudoers/rateguru-deploy"
 SRC_CRON="${REPO_ROOT}/infrastructure/config/cron/rateguru-backups"
+# When each target's backup jobs run. Read only by the cron renderer, never
+# installed: the registry decides WHICH targets are scheduled (lifecycle), this
+# file decides WHEN — a reviewed decision per target, made before activation so
+# that activation itself needs nothing but the lifecycle change.
+SRC_BACKUP_SCHEDULES="${REPO_ROOT}/infrastructure/config/backup-schedules.json"
 
 # Referenced, unchanged operational tooling. Read-only: install-target-perimeter
 # never installs, modifies, or takes ownership of any of these — that is
@@ -259,8 +271,8 @@ Usage:
   --check   Validate committed source files, host tooling, and that the
             installed seventeen-file target operations bundle is current.
             Read-only; makes no changes.
-  --apply   Install the four wrappers, the sudoers rule and the cron
-            entry (requires root). Transactional: verifies a staged copy
+  --apply   Install the four wrappers, the sudoers rule and the backup
+            cron file (requires root). Transactional: verifies a staged copy
             first, then the installed result, before committing.
   --verify  Verify the currently installed files and runtime behaviour
             (requires root). Makes no changes.
@@ -636,11 +648,183 @@ sudoers_names_account() {
     grep -Eq "(^|[^A-Za-z0-9_-])${account}([^A-Za-z0-9_-]|\$)" "${path}"
 }
 
-# Shared by --check (against the committed source) and --verify (against the
-# installed file): exactly three operational lines, all target-aware, none
-# legacy, with the nightly cycle's schedule and every log path unchanged from
-# before this slice.
-validate_cron_format() {
+# --- Backup cron ------------------------------------------------------------
+#
+# The backup cron used to be a committed file naming one target, checked by
+# literal comparison against that target's three lines. That shape cannot
+# schedule a second target without somebody remembering to write its lines —
+# and nothing would notice a target activated without them, or scheduled before
+# it was activated.
+#
+# So it is DERIVED, exactly like the sudoers rule above: every lifecycle=active
+# target gets its three jobs, every planned and disabled target is absent by
+# never being emitted. WHEN each target's jobs run is the one thing the
+# registry cannot say, so it lives in a reviewed schedule file, keyed by target
+# ID, and a target may have its schedule reviewed while it is still planned.
+# Activation is then a lifecycle change and nothing else.
+#
+# Log files are named by the target's backup NAMESPACE, read from the registry
+# — the same name its backups live under — never by its environment class.
+
+BACKUP_CRON_BIN_DIR="/home/www/rateguru/bin"
+BACKUP_CRON_LOG_DIR="/var/log/rateguru"
+
+# backup_weekday_number NAME — the cron day-of-week field for a weekday name,
+# or a failure for anything that is not one.
+backup_weekday_number() {
+    case "$1" in
+        sunday) printf '0' ;;
+        monday) printf '1' ;;
+        tuesday) printf '2' ;;
+        wednesday) printf '3' ;;
+        thursday) printf '4' ;;
+        friday) printf '5' ;;
+        saturday) printf '6' ;;
+        *) return 1 ;;
+    esac
+}
+
+# backup_cron_time HH:MM — the cron "minute hour" fields for a validated time.
+backup_cron_time() {
+    local at="$1"
+
+    printf '%d %d' "$((10#${at#*:}))" "$((10#${at%%:*}))"
+}
+
+# validate_backup_schedules — the whole reviewed schedule file, not just the
+# entries the current registry happens to render. A planned target's schedule
+# is reviewed before it is activated, so it is checked before it is activated.
+validate_backup_schedules() {
+    local path="${SRC_BACKUP_SCHEDULES}"
+
+    [[ -e "${path}" ]] || fail "missing reviewed backup schedule file: ${path}"
+    [[ ! -L "${path}" ]] || fail "reviewed backup schedule file must not be a symlink: ${path}"
+    [[ -f "${path}" ]] || fail "reviewed backup schedule file must be a regular file: ${path}"
+    jq empty "${path}" 2>/dev/null || fail "reviewed backup schedule file is not valid JSON: ${path}"
+
+    jq -e '
+        type == "object"
+        and keys == ["schema_version", "targets", "timezone"]
+        and .schema_version == 1
+        and .timezone == "UTC"
+        and (.targets | type == "object")
+    ' "${path}" >/dev/null \
+        || fail "reviewed backup schedule file must be exactly {schema_version: 1, timezone: \"UTC\", targets: {...}}: ${path}"
+
+    local target_id key value weekday
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+
+        # A schedule for a target the registry does not know never runs, and a
+        # misspelt key would leave the real target unscheduled — refused here,
+        # not discovered on the night its backups do not happen.
+        jq -e --arg id "${target_id}" '.targets | has($id)' "${SRC_REGISTRY}" >/dev/null \
+            || fail "backup schedule names ${target_id}, which is not a target in the registry: ${path}"
+
+        jq -e --arg id "${target_id}" '
+            .targets[$id]
+            | type == "object"
+            and keys == ["backup_cycle_at", "offsite_restore_test_at", "restore_test_at", "verification_weekday"]
+            and all(.[]; type == "string")
+        ' "${path}" >/dev/null \
+            || fail "backup schedule for ${target_id} must declare exactly backup_cycle_at, restore_test_at, offsite_restore_test_at and verification_weekday, all strings: ${path}"
+
+        for key in backup_cycle_at restore_test_at offsite_restore_test_at; do
+            value="$(jq -r --arg id "${target_id}" --arg key "${key}" '.targets[$id][$key]' "${path}")"
+
+            [[ "${value}" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] \
+                || fail "backup schedule for ${target_id}: ${key} '${value}' is not an HH:MM time: ${path}"
+        done
+
+        weekday="$(jq -r --arg id "${target_id}" '.targets[$id].verification_weekday' "${path}")"
+        backup_weekday_number "${weekday}" >/dev/null \
+            || fail "backup schedule for ${target_id}: verification_weekday '${weekday}' is not a lowercase weekday name: ${path}"
+    done < <(jq -r '.targets | keys[]' "${path}")
+
+    # Two backup jobs starting in the same minute — two targets, or one target's
+    # own pair — compete for the same database server and the same offsite
+    # bucket at once. Every job gets a start minute of its own, across every
+    # target in the file.
+    local collision
+    collision="$(jq -r '
+        ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as $week
+        | [
+            .targets | to_entries[] | .key as $id | .value as $s
+            | ($week[] | {slot: "\(.) \($s.backup_cycle_at)", job: "\($id) backup-cycle"}),
+              {slot: "\($s.verification_weekday) \($s.restore_test_at)", job: "\($id) restore-test"},
+              {slot: "\($s.verification_weekday) \($s.offsite_restore_test_at)", job: "\($id) offsite-restore-test"}
+          ]
+        | group_by(.slot)
+        | map(select(length > 1))
+        | first // empty
+        | "\(.[0].slot) UTC: \(map(.job) | join(", "))"
+    ' "${path}")"
+
+    [[ -z "${collision}" ]] \
+        || fail "two backup jobs are scheduled to start in the same minute (${collision}) — give each its own start time: ${path}"
+}
+
+# render_backup_cron_candidate — the backup cron this registry and these
+# reviewed schedules describe.
+render_backup_cron_candidate() {
+    validate_backup_schedules
+
+    local -a active=()
+    local target_id
+
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+        active+=("${target_id}")
+    done < <(jq -r '[.targets | to_entries[] | select(.value.lifecycle == "active") | .key] | sort[]' "${SRC_REGISTRY}")
+
+    (( ${#active[@]} > 0 )) \
+        || fail "the registry declares no active target, so there is no backup to schedule — refusing to install a backup cron that runs nothing"
+
+    printf 'SHELL=/bin/bash\n'
+    printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n'
+
+    local namespace cycle_at restore_at offsite_at weekday weekday_number weekday_label
+
+    for target_id in "${active[@]}"; do
+        # Both values end up in a line cron runs as root, so both are held to
+        # a closed format before either is printed.
+        [[ "${target_id}" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] \
+            || fail "target ID '${target_id}' is not a renderable target ID — refusing to render a cron line around it"
+
+        jq -e --arg id "${target_id}" '.targets | has($id)' "${SRC_BACKUP_SCHEDULES}" >/dev/null \
+            || fail "target ${target_id} is lifecycle=active but has no reviewed backup schedule in ${SRC_BACKUP_SCHEDULES} — a target's backups are scheduled by review, never by default"
+
+        namespace="$(jq -r --arg id "${target_id}" '.targets[$id].backup.namespace' "${SRC_REGISTRY}")"
+        [[ "${namespace}" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] \
+            || fail "target ${target_id}: backup namespace '${namespace}' is not a renderable log name — refusing to render a cron line around it"
+
+        cycle_at="$(jq -r --arg id "${target_id}" '.targets[$id].backup_cycle_at' "${SRC_BACKUP_SCHEDULES}")"
+        restore_at="$(jq -r --arg id "${target_id}" '.targets[$id].restore_test_at' "${SRC_BACKUP_SCHEDULES}")"
+        offsite_at="$(jq -r --arg id "${target_id}" '.targets[$id].offsite_restore_test_at' "${SRC_BACKUP_SCHEDULES}")"
+        weekday="$(jq -r --arg id "${target_id}" '.targets[$id].verification_weekday' "${SRC_BACKUP_SCHEDULES}")"
+        weekday_number="$(backup_weekday_number "${weekday}")"
+        weekday_label="$(tr '[:lower:]' '[:upper:]' <<<"${weekday:0:1}")${weekday:1}"
+
+        printf '\n'
+        printf '# Every night at %s UTC, the full pipeline:\n' "${cycle_at}"
+        printf '# local backup -> local restore-test -> B2 upload -> offsite retention apply -> offsite restore-test.\n'
+        printf '%s * * * root %s/backup-cycle --target %s >> %s/%s-backup-cycle.log 2>&1\n' \
+            "$(backup_cron_time "${cycle_at}")" "${BACKUP_CRON_BIN_DIR}" "${target_id}" "${BACKUP_CRON_LOG_DIR}" "${namespace}"
+        printf '\n'
+        printf '# Every %s, independently verify the local and offsite %s backups.\n' "${weekday_label}" "${namespace}"
+        printf '%s * * %s root %s/restore-test --target %s >> %s/%s-local-restore-test.log 2>&1\n' \
+            "$(backup_cron_time "${restore_at}")" "${weekday_number}" "${BACKUP_CRON_BIN_DIR}" "${target_id}" "${BACKUP_CRON_LOG_DIR}" "${namespace}"
+        printf '%s * * %s root %s/offsite-restore-test --target %s >> %s/%s-offsite-restore-test.log 2>&1\n' \
+            "$(backup_cron_time "${offsite_at}")" "${weekday_number}" "${BACKUP_CRON_BIN_DIR}" "${target_id}" "${BACKUP_CRON_LOG_DIR}" "${namespace}"
+    done
+}
+
+# validate_backup_cron_content PATH — a registry-driven reading of a cron file
+# that does not trust the renderer: the second, independent half of the proof,
+# the way validate_sudoers_content is for the sudoers rule. Every active target
+# runs each of its three jobs exactly once; a target that is not active is not
+# named by any runnable line at all.
+validate_backup_cron_content() {
     local path="$1"
 
     # Exclusion-based, not inclusion-based: rather than enumerating every
@@ -654,28 +838,90 @@ validate_cron_format() {
     local operational_lines
     operational_lines="$(grep -Ev '^[[:space:]]*(#|$)|^[A-Za-z_][A-Za-z0-9_]*=' "${path}" || true)"
 
-    local line_count
-    line_count="$(grep -c . <<<"${operational_lines}" || true)"
-    [[ "${line_count}" -eq 3 ]] \
-        || fail "expected exactly three operational cron lines in ${path}, found ${line_count}"
-
     local line
     while IFS= read -r line; do
         [[ -n "${line}" ]] || continue
 
-        [[ "${line}" == *'--target staging-main'* ]] \
-            || fail "cron line does not use --target staging-main: ${line}"
-
         [[ "${line}" != *'--environment'* ]] \
-            || fail "cron line still references --environment: ${line}"
+            || fail "cron line still uses --environment: ${line}"
+
+        [[ "${line}" == *' --target '* ]] \
+            || fail "cron line does not select its target with --target: ${line}"
     done <<<"${operational_lines}"
 
-    grep -Fq '30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1' "${path}" \
-        || fail "nightly backup-cycle cron line changed schedule or log path: ${path}"
-    grep -Fq '10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1' "${path}" \
-        || fail "weekly local restore-test cron line changed schedule or log path: ${path}"
-    grep -Fq '40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1' "${path}" \
-        || fail "weekly offsite restore-test cron line changed schedule or log path: ${path}"
+    # Target IDs are interpolated into the patterns below, which is safe only
+    # because of this: a target ID carries no regex metacharacter.
+    local target_id
+    while IFS= read -r target_id; do
+        [[ "${target_id}" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] \
+            || fail "registry target ID '${target_id}' is not one this validation can match exactly: ${path}"
+    done < <(jq -r '.targets | keys[]' "${SRC_REGISTRY}")
+
+    # Anchored to a whole token, for the same reason sudoers_names_account is:
+    # target IDs may share a prefix. Checked first, so a schedule for a target
+    # that is not active is reported as exactly that.
+    local lifecycle count
+    while IFS=$'\t' read -r target_id lifecycle; do
+        [[ -n "${target_id}" ]] || continue
+
+        count="$(grep -Ec -- "--target ${target_id}([[:space:]]|\$)" <<<"${operational_lines}" || true)"
+
+        [[ "${count}" -eq 0 ]] \
+            || fail "cron runs a backup job for ${target_id}, whose target is lifecycle=${lifecycle} — a target's backups are scheduled on activation, never before: ${path}"
+    done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle != "active") | [.key, .value.lifecycle] | @tsv' "${SRC_REGISTRY}")
+
+    local -a active=()
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+        active+=("${target_id}")
+    done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SRC_REGISTRY}")
+
+    local line_count expected_count
+    line_count="$(grep -c . <<<"${operational_lines}" || true)"
+    expected_count=$(( ${#active[@]} * 3 ))
+
+    [[ "${line_count}" -eq "${expected_count}" ]] \
+        || fail "expected exactly ${expected_count} operational cron lines in ${path} (three for each of ${#active[@]} active target(s)), found ${line_count}"
+
+    local job
+    for target_id in "${active[@]}"; do
+        for job in backup-cycle restore-test offsite-restore-test; do
+            count="$(grep -Ec -- "[[:space:]]${BACKUP_CRON_BIN_DIR}/${job} --target ${target_id}([[:space:]]|\$)" <<<"${operational_lines}" || true)"
+
+            [[ "${count}" -eq 1 ]] \
+                || fail "cron must run ${job} for active target ${target_id} exactly once, found ${count}: ${path}"
+        done
+    done
+}
+
+# require_backup_cron_render PATH LABEL — PATH must be byte-for-byte the render.
+# Called as a plain statement, never as a condition: a function run as the
+# left side of || or inside if runs with errexit suspended, and the renderer
+# relies on it.
+require_backup_cron_render() {
+    local path="$1" label="$2"
+    local rendered
+
+    rendered="$(mktemp "${TMPDIR:-/tmp}/rateguru-backup-cron-render-XXXXXX")"
+
+    render_backup_cron_candidate > "${rendered}"
+
+    if ! cmp -s "${rendered}" "${path}"; then
+        rm -f "${rendered}"
+
+        fail "the ${label} backup cron is not what the registry and the reviewed backup schedules render: ${path} — regenerate it with render_backup_cron_candidate rather than editing it by hand; the backup cron follows lifecycle, not the other way round"
+    fi
+
+    rm -f "${rendered}"
+}
+
+# Shared by the committed source (--check, --apply's preflight, --verify), the
+# staged copy (--apply) and the installed file (--apply, --verify).
+validate_backup_cron() {
+    local path="$1" label="$2"
+
+    validate_backup_cron_content "${path}"
+    require_backup_cron_render "${path}" "${label}"
 }
 
 run_source_validation() {
@@ -704,7 +950,7 @@ run_source_validation() {
     fi
 
     rm -f "${rendered}"
-    validate_cron_format "${SRC_CRON}"
+    validate_backup_cron "${SRC_CRON}" committed
     check_required_tools
 
     verify_wrapper_static_contract "${SRC_WRAPPER_DEPLOY}" "/home/www/rateguru/bin/deploy" "source rateguru-deploy"
@@ -990,8 +1236,8 @@ verify_installed_files() {
     validate_sudoers_content "${DST_SUDOERS}"
     log "  installed sudoers: visudo -cf OK, content OK"
 
-    validate_cron_format "${DST_CRON}"
-    log "  installed cron: format OK (three target-aware lines, schedule and log paths unchanged)"
+    validate_backup_cron "${DST_CRON}" installed
+    log "  installed cron: three jobs for every active target and none for any other, and exactly the registry's render"
 
     verify_legacy_wrappers_absent
 
@@ -1071,8 +1317,8 @@ verify_staged_candidates() {
     validate_sudoers_content "${staged_sudoers}"
     log "  staged sudoers: visudo -cf OK, content OK"
 
-    validate_cron_format "${staged_cron}"
-    log "  staged cron: format OK"
+    validate_backup_cron "${staged_cron}" staged
+    log "  staged cron: three jobs for every active target and none for any other, and exactly the registry's render"
 
     log "staged candidates verified"
 }
@@ -1117,7 +1363,7 @@ run_check() {
         fail "one or more legacy wrapper paths are not a regular file or symlink; --apply would refuse to remove them — see the BLOCKS lines above"
     fi
 
-    log "check passed: source files, host tooling, target registry, sudoers candidate, cron format, and the installed operations bundle are all valid"
+    log "check passed: source files, host tooling, target registry, sudoers candidate, backup cron render, and the installed operations bundle are all valid"
 }
 
 APPLY_COMMITTED=false

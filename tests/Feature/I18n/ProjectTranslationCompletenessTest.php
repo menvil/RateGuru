@@ -6,10 +6,10 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Support\Settings\PresetSettingsBuilder;
-use App\Support\Translations\MissingProjectTranslation;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
+use App\Support\Translations\ProjectTranslationUnit;
 
 /**
  * Project content completeness reads the database as it is: what an
@@ -25,8 +25,8 @@ function projectCompleteness(string $locale): ProjectTranslationReport
 function missingIn(ProjectTranslationReport $report, ProjectContentSection $section): array
 {
     return array_values(array_map(
-        fn (MissingProjectTranslation $item): string => "{$item->key}.{$item->field}",
-        array_filter($report->missing, fn (MissingProjectTranslation $item): bool => $item->section === $section),
+        fn (ProjectTranslationUnit $item): string => "{$item->key}.{$item->field}",
+        array_filter($report->missing, fn (ProjectTranslationUnit $item): bool => $item->section === $section),
     ));
 }
 
@@ -217,5 +217,111 @@ it('describes a missing item well enough to find and fix it', function () {
 
     $item = collect(projectCompleteness($target)->missing)->firstWhere('section', ProjectContentSection::RatingOptions);
 
-    expect($item)->toEqual(new MissingProjectTranslation(ProjectContentSection::RatingOptions, $option->id, $group->id, 'cup_size.dd', 'Cup size → DD', 'label'));
+    expect($item)->toBeInstanceOf(ProjectTranslationUnit::class)
+        ->and([$item->section, $item->recordId, $item->parentId, $item->key, $item->label, $item->field, $item->reference])
+        ->toBe([ProjectContentSection::RatingOptions, $option->id, $group->id, 'cup_size.dd', 'Cup size → DD', 'label', 'DD'])
+        ->and($item->id)->toBe("rating_options:{$option->id}:label");
+});
+
+// One project, every rule at once ------------------------------------------------
+
+/**
+ * A project that exercises every rule together: partly translated settings,
+ * a blank English field, a static page with a language and a field missing,
+ * active and inactive content, archived options and an inactive group's
+ * options, and tags with and without a translation.
+ */
+function everyRuleProject(string $target, string $other): void
+{
+    $pages = config('static-pages.defaults');
+    unset($pages['about'][$target]);
+    $pages['privacy'][$target]['content'] = '  ';
+    $pages['terms']['en']['content'] = '';
+    unset($pages['contact'][$other]);
+
+    ProjectSettings::factory()->create([
+        ...projectSettingsTranslationsIn([$other]),
+        'site_name_translations' => [$target => 'Name', $other => ''],
+        'site_tagline_translations' => [$target => '   '],
+        'site_description' => '',
+        'feed_title_translations' => ['en' => 'Latest posts', $target => 'Feed'],
+        'static_pages' => $pages,
+    ]);
+
+    Category::factory()->create(['slug' => 'first', 'name' => 'First', 'name_translations' => [$target => 'Erste'], 'is_active' => true]);
+    Category::factory()->create(['slug' => 'second', 'name' => 'Second', 'name_translations' => null, 'is_active' => true]);
+    Category::factory()->create(['slug' => 'retired', 'name' => 'Retired', 'name_translations' => null, 'is_active' => false]);
+
+    $size = RatingGroup::factory()->create(['key' => 'size', 'label' => 'Size', 'description' => 'How big', 'label_translations' => [$other => 'Größe'], 'description_translations' => [$target => 'Wie groß'], 'is_active' => true]);
+    RatingGroup::factory()->create(['key' => 'plain', 'label' => 'Plain', 'description' => null, 'label_translations' => null, 'is_active' => true]);
+    $retired = RatingGroup::factory()->create(['key' => 'retired', 'label' => 'Retired', 'description' => 'Gone', 'is_active' => false]);
+
+    RatingOption::factory()->for($size, 'group')->create(['key' => 'large', 'label' => 'Large', 'description' => 'Very big', 'label_translations' => [$target => 'Groß'], 'description_translations' => null, 'is_active' => true]);
+    RatingOption::factory()->for($size, 'group')->create(['key' => 'small', 'label' => 'Small', 'description' => null, 'label_translations' => null, 'is_active' => true]);
+    RatingOption::factory()->for($size, 'group')->create(['key' => 'hidden', 'label' => 'Hidden', 'is_active' => false]);
+    RatingOption::factory()->for($size, 'group')->create(['key' => 'archived', 'label' => 'Archived', 'is_active' => true, 'archived_at' => now()]);
+    RatingOption::factory()->for($retired, 'group')->create(['key' => 'orphan', 'label' => 'Orphan', 'is_active' => true]);
+
+    Tag::factory()->create(['slug' => 'blonde', 'name' => 'Blonde', 'name_translations' => [$other => 'Blond']]);
+    Tag::factory()->create(['slug' => 'hd', 'name' => 'HD', 'name_translations' => [$target => 'HD', $other => 'HD']]);
+}
+
+/** @return list<string> every missing item as section:key.field (label) “reference” */
+function describedMissing(ProjectTranslationReport $report): array
+{
+    return array_map(
+        fn (ProjectTranslationUnit $item): string => "{$item->section->value}:{$item->key}.{$item->field} ({$item->label}) “{$item->reference}”",
+        $report->missing,
+    );
+}
+
+it('reports a project that exercises every rule exactly as it always has', function () {
+    [$target, $other] = twoTranslatedLocales();
+    everyRuleProject($target, $other);
+
+    $reports = app(ProjectTranslationCompleteness::class)->reports(['en', $target, $other]);
+    $about = config('static-pages.defaults.about.en');
+    $privacy = config('static-pages.defaults.privacy.en');
+    $contact = config('static-pages.defaults.contact.en');
+
+    // Seven settings but the blank description, four pages of two fields but
+    // the blank terms content, two active categories, two active groups'
+    // labels and one description, two live options' labels and one
+    // description, two tags.
+    expect($reports['en']->required)->toBe(23)
+        ->and($reports['en']->translated)->toBe(23)
+        ->and($reports['en']->missing)->toBe([])
+        ->and($reports[$target]->required)->toBe(23)
+        ->and($reports[$target]->translated)->toBe(10)
+        ->and(describedMissing($reports[$target]))->toBe([
+            'project_settings:site_tagline.site_tagline (Site Tagline) “Rate anything”',
+            'project_settings:object_singular_name.object_singular_name (Object Singular Name) “post”',
+            'project_settings:object_plural_name.object_plural_name (Object Plural Name) “posts”',
+            'project_settings:upload_cta_label.upload_cta_label (Upload Cta Label) “Upload post”',
+            "static_pages:about.title (About) “{$about['title']}”",
+            "static_pages:about.content (About) “{$about['content']}”",
+            "static_pages:privacy.content (Privacy) “{$privacy['content']}”",
+            'categories:second.name (Second) “Second”',
+            'rating_groups:size.label (Size) “Size”',
+            'rating_groups:plain.label (Plain) “Plain”',
+            'rating_options:size.large.description (Size → Large) “Very big”',
+            'rating_options:size.small.label (Size → Small) “Small”',
+            'tags:blonde.name (Blonde) “Blonde”',
+        ])
+        ->and($reports[$other]->required)->toBe(23)
+        ->and($reports[$other]->translated)->toBe(11)
+        ->and(describedMissing($reports[$other]))->toBe([
+            'project_settings:site_name.site_name (Site Name) “RateGuru”',
+            'project_settings:site_tagline.site_tagline (Site Tagline) “Rate anything”',
+            'project_settings:feed_title.feed_title (Feed Title) “Latest posts”',
+            "static_pages:contact.title (Contact) “{$contact['title']}”",
+            "static_pages:contact.content (Contact) “{$contact['content']}”",
+            'categories:first.name (First) “First”',
+            'categories:second.name (Second) “Second”',
+            'rating_groups:size.description (Size) “How big”',
+            'rating_groups:plain.label (Plain) “Plain”',
+            'rating_options:size.large.label (Size → Large) “Large”',
+            'rating_options:size.large.description (Size → Large) “Very big”',
+            'rating_options:size.small.label (Size → Small) “Small”',
+        ]);
 });

@@ -35,6 +35,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // The permanent read-only infrastructure verification, one per
+        // environment, guarded by VerifyInfrastructureTest.
+        'verify-production-infrastructure.yml',
+        'verify-staging-infrastructure.yml',
     ]);
 
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
@@ -59,6 +63,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
+        // Their one transport: runs verify-infrastructure and changes nothing.
+        'verify-rateguru-infrastructure',
     ]);
 
     $wrappers = collect(glob(base_path('infrastructure/config/wrappers/*')) ?: [])
@@ -442,8 +448,7 @@ it('keeps the operator surface out of the primitives that swap the data', functi
             'assert_runtime_still_held',
             'workflow_dispatch',
         ] as $operatorSurface) {
-            expect($source)->not->toContain(
-                $operatorSurface,
+            expect(str_contains($source, $operatorSurface))->toBeFalse(
                 "{$primitive} must carry no operator surface: {$operatorSurface}",
             );
         }

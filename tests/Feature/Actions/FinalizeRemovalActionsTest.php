@@ -276,6 +276,11 @@ it('refuses a removal reason made only of Unicode whitespace', function (string 
     expect($post->fresh()->moderation_removed_at)->toBeNull()
         ->and($comment->fresh()->moderation_removed_at)->toBeNull();
 })->with([
+    // The two live defects: NUL passed this guard and then became reason NULL in
+    // the log, and U+200B is in no whitespace property at all, so it was stored and
+    // displayed as blank for good.
+    'NUL' => ["\0"],
+    'zero-width space' => ["\u{200B}"],
     'no-break space' => ["\u{00A0}"],
     'ideographic space' => ["\u{3000}"],
     'zero-width no-break space' => ["\u{FEFF}"],

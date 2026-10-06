@@ -1675,8 +1675,250 @@ Slices, in order:
    backup/offsite/retention/restore-test policy. The existing staging
    Mailpit/Mailtrap capture remains staging-only and is not changed by this.
    *Acceptance:* production mail is delivered and its failure paths are
-   handled, and a production backup has been taken, uploaded and
-   restore-tested.
+   handled. The production backup POLICY and perimeter are made ready here,
+   before activation; the first real production backup is accepted in 8.6,
+   because it cannot exist before the target is active and deployed (see
+   8.4A).
+
+   **8.4A Production backup perimeter readiness — IMPLEMENTED, not yet
+   active.** The backup cron is rendered by `install-target-perimeter` the
+   way the deploy sudoers already was: the registry decides which targets are
+   scheduled (`lifecycle=active` only), and the new reviewed
+   `config/backup-schedules.json` decides when. The committed
+   `config/cron/rateguru-backups` is proved to be that render instead of
+   being checked against three hardcoded staging lines; it is byte-for-byte
+   unchanged, so staging's schedule and log paths are exactly what they were.
+   `tits-guru`'s schedule is reviewed — 03:00 UTC nightly `backup-cycle`,
+   Sunday 05:10 UTC `restore-test` and 05:40 UTC `offsite-restore-test`,
+   logs under `/var/log/rateguru/tits-guru-*` — but the target stays
+   `planned`, so it has no cron entry, and its entries appear only when the
+   reviewed activation flips the lifecycle and regenerates the committed
+   file.
+
+   This is readiness, not backup acceptance, and it cannot be anything more
+   yet: `tits-guru` is `lifecycle=planned`, `backup-cycle` runs only for a
+   `lifecycle=active` target, and no production application release exists
+   to back up. That gate is deliberate and is not weakened to take a backup
+   early. The first real `backup-cycle --target tits-guru` — local backup,
+   local restore-test, B2 upload, retention and offsite restore-test — runs in
+   8.6, after activation and the first real production deploy and before any
+   public traffic. That run is the production backup acceptance. No
+   production backup has been taken.
+
+   **8.4B.1 Generic mail-routing foundation — IMPLEMENTED, not installed and
+   not accepted on a real host.** The reviewed routing contract a local mail
+   gateway will follow, written before any mail transfer agent is allowed
+   onto a host. `config/mail-routing.json` gives every registry target exactly
+   one policy: its own loopback submission endpoint — the routing identity,
+   never the sender domain — a delivery mode, and its mail identity, while
+   lifecycle and environment class stay in `deployment-targets.json`. Two
+   modes exist, because two are used: `staging-main` is `capture`
+   (`127.0.0.1:2525` into the existing Mailpit on `127.0.0.1:1025`), and
+   `tits-guru` is `held` (`127.0.0.1:2526`, `noreply@tits.guru`, bounce
+   domain `bounce.tx.tits.guru`, reply domain `reply.tits.guru`) — reviewed,
+   with no route anywhere, so it cannot deliver and may not be active.
+   `scripts/mail-routing validate` / `render-plan` is repository tooling that
+   proves the contract and prints the gateway plan as JSON; it installs
+   nothing, and genericity is proved against a synthetic `demo-shop` target
+   the script never names. Nothing on a host changed: no Postfix, no listener
+   on 2525 or 2526, no environment file, no DNS, SPF, DKIM or DMARC, and
+   staging still submits straight to Mailpit. Production mail is not
+   accepted. See [`runbooks/mail-routing.md`](runbooks/mail-routing.md).
+
+   **8.4B.2 Local mail gateway and the staging capture route — IMPLEMENTED
+   AND ACCEPTED on the real staging host.** One host-global Postfix gateway,
+   owned end to end by `scripts/install-mail-gateway`
+   (`--check`/`--apply`/`--verify`) and rendered from `mail-routing
+   render-plan` in the same bundle — the installer spells the plan in Postfix
+   and restates no policy rule. It listens on exactly the plan's loopback
+   endpoints, `127.0.0.1:2525` (staging-main) and `127.0.0.1:2526`
+   (tits-guru), IPv4 only, with no smtp, submission or smtps listener and
+   nothing on 25, 465 or 587. Capture is store-and-forward: the staging
+   listener's content filter queues the message and delivers it to Mailpit on
+   `127.0.0.1:1025`, retrying while Mailpit is down. Held is the HOLD queue
+   with no route. Everything else is undeliverable — every fallback transport
+   is error(8), with no relayhost and no destination domain — so there is no
+   Internet delivery at all. The envelope sender must be exactly the
+   listener's domain; no SMTP AUTH, no TLS on loopback. The package goes in
+   preseeded with no configuration of its own — so no daemon can start before
+   RateGuru's configuration exists, and no package upgrade rewrites it — with
+   service starts suppressed (a host's own policy-rc.d is preserved), behind a
+   non-secret ownership marker: a Postfix or other MTA RateGuru did not
+   install fails every mode closed, and an interrupted RateGuru installation
+   resumes. Apply is transactional and validated by Postfix before anything is
+   installed. Host bootstrap converges it after mail capture, which it
+   delivers into; target-scoped repair and provisioning never touch it.
+   `scripts/verify-mail-gateway --e2e` is the mutating low-level acceptance
+   primitive — capture into Mailpit and its mirror, sender isolation, HOLD,
+   and retry across a Mailpit outage, removing only its own messages and queue
+   entries; ordinary Prepare never runs it. `mail-routing` runs on Ubuntu
+   22.04's jq 1.6, which reserves a parameter name it used.
+
+   *Accepted on the real staging host:* the RateGuru-owned Postfix 3.6.4
+   package, a configuration exactly equal to the reviewed render, and the
+   service, all verified; no public SMTP listener; the capture path
+   (`127.0.0.1:2525` → Postfix queue → Mailpit on `127.0.0.1:1025` → the
+   Mailtrap Local mirror); sender isolation; `tits-guru` on `127.0.0.1:2526`
+   held; a Mailpit outage deferring the message in Postfix's queue and the
+   retry delivering it once Mailpit was back. The operator then changed the
+   staging `shared/.env` to `MAIL_PORT=2525`, staging was redeployed, and a
+   real Laravel password-reset email arrived in Mailpit and in Mailtrap Local.
+   Staging application mail now runs through the gateway; rollback is
+   `MAIL_PORT=1025` and a redeploy. The one-time manual GitHub workflow that
+   ran the acceptance was removed once it had served its purpose;
+   `verify-mail-gateway --e2e` stays as the primitive a future single generic
+   staging-infrastructure acceptance operation will orchestrate, rather than
+   one workflow per subsystem. See
+   [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
+
+   **8.4B.3 Self-hosted direct outbound SMTP capability — IMPLEMENTED, not
+   activated.** The way a production target's mail will leave the host,
+   built and proved while nothing uses it. `mail-routing` schema 2 adds the
+   production-only delivery mode `outbound` with exactly one kind,
+   `outbound: {"kind": "direct"}` — no relay kind exists until one is
+   implemented — and judges an outbound policy's identity by the same rules as
+   a held one, with mail, bounce and reply domains unique across held and
+   outbound targets together; schema 1 is refused, never reinterpreted.
+   `held` still may not be active; `outbound` may. The physical identity
+   direct delivery greets receiving servers with is the host's, not a
+   target's — every brand on a host shares one source address and an address
+   has one PTR name — so it lives once, in the new host-global
+   `config/mail-outbound.json` (`direct.enabled`, `direct.mta_hostname`; no
+   credential). The gateway renders each outbound target's own
+   `rateguru-outbound-<target>` smtp(8) client, selected only by that target's
+   listener through a content filter with no next hop; with
+   `default_filter_nexthop` empty, Postfix's queue manager uses each
+   recipient's own domain as the next hop, so delivery goes to the recipient
+   domain's MX — proved against Postfix 3.6.4's `qmgr_message.c`, not assumed.
+   The client greets with the host's MTA hostname, offers STARTTLS
+   opportunistically (`smtp_tls_security_level = may`) and has no SMTP AUTH,
+   no relayhost and no fallback relay; every fallback transport stays
+   error(8). A direct route on a host whose contract keeps direct delivery
+   disabled — or enables it without a valid public hostname — fails
+   `--check`, `--apply` and `--verify` before any file or service is touched,
+   so flipping a target to `outbound` cannot by itself send mail. A plan with
+   no outbound target renders byte for byte what it did before, so the real
+   host does not drift. `verify-mail-gateway --e2e` never submits a message to
+   an outbound listener: its sender probes stop at `MAIL FROM`.
+   `status-mail-gateway` shows an outbound route as direct SMTP to the
+   recipient MX. Proved with a synthetic `demo-shop` target, and rehearsed in a
+   disposable Ubuntu 22.04 container with real Postfix 3.6.4 against a
+   controlled DNS and SMTP sink on an Internet-less network — evidence, not
+   acceptance. *Unchanged on purpose:* `tits-guru` is still `held` and
+   `lifecycle=planned`, the real `mail-outbound.json` keeps direct delivery
+   disabled, no host has an outbound route, no production environment value,
+   DNS record, PTR, SPF, DKIM or DMARC changed, and no email was sent to the
+   public Internet. See [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md).
+
+   **8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing
+   activated.** The identity production mail will be sent under, reviewed and
+   made checkable before anything signs or sends. The host's MTA identity is
+   now `mta1.tits.guru` in `config/mail-outbound.json` — reviewed, with
+   `direct.enabled` still `false`, so no outbound route exists and the
+   rendered gateway is byte for byte the one staging accepted. The new
+   `config/mail-identity.json` (schema 1) holds only a production target's
+   signing and DNS policy — `tits-guru`: DKIM selector `rg1`, `rsa-sha256`, at
+   least 2048 bits; DMARC `p=none`, `adkim=s`, `aspf=s`, with no report address
+   — and repeats nothing `mail-routing.json` is the authority for; an outbound
+   target without one is refused. `scripts/mail-identity` is the one judge of
+   both the host and the target identity (the gateway now asks it rather than
+   judging `mail-outbound.json` itself): `validate`, `dkim-key`, `check-key`
+   (an unencrypted RSA private key of the reviewed size, judged by OpenSSL,
+   never printed), `show-dns` (A and PTR for the MTA hostname, the DKIM public
+   key derived from the private key, SPF `v=spf1 ip4:<host IPv4> -all`, DMARC —
+   the host's address is read from its route to the Internet, never
+   committed), `verify-dns` (strictly read-only proof from the host of
+   forward-confirmed reverse DNS, exactly one SPF policy, the DKIM record
+   matching the installed key with split TXT chunks joined, and exactly one
+   reviewed DMARC policy; a DNS failure is a failure) and `readiness` (every
+   condition outbound delivery will require, each reported — never satisfied
+   here, because no signing service exists yet). The DKIM private key is
+   external material, `mail-dkim-private-key`, installed by
+   `install-target-prerequisites` at `/etc/opendkim/keys/<target>/<selector>.private`
+   (`/etc/opendkim/keys/tits-guru/rg1.private`), root:root 0600 in root-only
+   directories, never overwritten or rotated; DEFERRED while a target is held,
+   required once it is outbound. Configure tits.guru carries it from an
+   optional `MAIL_DKIM_PRIVATE_KEY` secret, judged on the runner before upload
+   and removed everywhere afterwards; without it Configure is exactly what it
+   was. Before its temporary bundle is removed, Configure prints the PUBLIC
+   DNS publication plan (`mail-identity show-dns --json` on the host), or
+   `DNS publication plan DEFERRED — DKIM private key not installed.`
+
+   The same slice adds the permanent read-only operator surface for
+   infrastructure verification: `scripts/verify-infrastructure --target T`
+   (repository tooling) composes the read-only primitives — `verify-mail-capture
+   --read-only`, `verify-mail-gateway --read-only`, `mail-identity`,
+   `health-check` — that the target's CURRENT reviewed state requires, and
+   reports everything else as DEFERRED (not required yet) or N/A, with one
+   machine-readable result line; one transport action,
+   `verify-rateguru-infrastructure`, and two workflows, **Verify staging
+   infrastructure** (staging-main, `develop`, `staging`) and **Verify
+   production infrastructure** (tits-guru, `main`, `production-tits-guru`,
+   behind the main-only gate), replace any per-subsystem verification button.
+   For tits-guru today the gateway and the identity contract are required, and
+   the DKIM key, outbound readiness and application health are DEFERRED; the
+   same run requires them once the target is active and outbound. `dig`
+   (`bind9-dnsutils`) and `openssl` join the canonical host runtime and the
+   preflight inventory, converged by Prepare Host — Verify never installs
+   anything. *Unchanged on purpose:* no key was generated or committed, OpenDKIM is
+   not installed, no milter or signing configuration exists, `tits-guru` is
+   still `held` and `planned`, direct delivery is still disabled, no
+   production environment value changed, and no DNS or PTR record was
+   created. *Next, operator, in this order:* merge to `develop`; Prepare
+   staging host (converges `bind9-dnsutils`); Verify staging infrastructure;
+   promote `develop` to `main`; set `MAIL_DKIM_PRIVATE_KEY` in
+   `production-tits-guru`; Configure tits.guru from `main`; publish A, PTR,
+   SPF, DKIM and DMARC from its public plan; run Verify production
+   infrastructure while DNS propagates. See
+   [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md)
+   and [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
+
+   **8.4B.4.1c Comprehensive infrastructure verification — IMPLEMENTED.**
+   The two Verify workflows become the permanent diagnosis of everything
+   RateGuru installs, configures, provisions or repairs, still read-only and
+   still two buttons. `verify-infrastructure` drops its hand-written host tool
+   list (the runtime is `install-bootstrap-runtime --verify`'s) and composes the
+   contract owners by lifecycle, from the same trusted bundle: an active target
+   is held to `prepare-host --verify` (PREPARATION CONTRACT) and `repair-target
+   --verify` (LIVE TARGET CONTRACT); a planned one to `bootstrap-host --verify`
+   (HOST BOOTSTRAP) and `configure-target --verify` (PLANNED TARGET CONTRACT),
+   its live target and application DEFERRED and never invoked; every target to
+   `install-target-perimeter --verify` (OPERATIONS & BACKUP PERIMETER), the mail
+   sections and the application. `bootstrap-host-preflight --report` prints the
+   full HOST INVENTORY into the log and is never a verdict. Every group runs
+   even after another fails, a child ended by a signal or impossible to run is
+   a FAIL, and the result carries one entry per group, which the action
+   validates and writes into the job summary as a table. *Next, operator:*
+   after merge, run Verify staging infrastructure — the whole real-host
+   acceptance.
+
+   **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
+   planned.** `mail-identity verify-dns` and then full `mail-identity
+   readiness` are hard prerequisites before any activation mutation, and after
+   activation every ordinary run of Verify production infrastructure requires
+   them. Only once `verify-dns` passes on the host: install and converge
+   OpenDKIM with read access to exactly its key, wire signing into the
+   gateway, enable direct delivery under `mta1.tits.guru`, move `tits-guru`
+   from `held` to `outbound` behind `mail-identity readiness`, set the
+   production `.env` mail values (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`,
+   `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`), and send one
+   controlled real canary with its headers verified at the large mailbox
+   providers. Sender reputation warm-up starts here.
+
+   **8.4B.5 Bounce reception, reply routing and the support mailbox —
+   planned.** The production Return-Path and bounce identity, bounce reception
+   on the bounce domain, reply routing on the reply domain, and the support
+   mailbox integration.
+
+   **8.4B.6 Suppression, delivery state and per-target metrics — planned.**
+   Recording what was delivered, deferred and bounced per target, suppressing
+   addresses that must not be mailed again, and per-target delivery metrics.
+
+   **8.4B.7 Mail operations, recovery and security acceptance — planned.**
+   Operating the production mail path day to day, recovering it on a
+   replacement machine, and its security acceptance. Required before go-live:
+   production backup and recovery must carry the active DKIM signing private
+   key, so a recovered host signs with the same key the published DNS names.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,
@@ -1686,7 +1928,12 @@ Slices, in order:
    rollback, and deploy again; queue, scheduler and health; observability;
    backup, offsite and restore-test; the mail delivery and bounce path; and
    target isolation from staging. No infrastructure operation performed
-   during go-live should be happening for the first time.
+   during go-live should be happening for the first time. This is where the
+   first real `backup-cycle --target tits-guru` runs — after activation and
+   the first real production deploy, before any public traffic — and must
+   complete local backup, local restore-test, B2 upload, retention and
+   offsite restore-test: the production backup acceptance 8.4A prepared
+   for.
 7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
    production activation and its final verification: public health, backup,
    monitoring and mail, confirmed on the live site. Closes Phase 8.

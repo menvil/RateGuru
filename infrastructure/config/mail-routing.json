@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "targets": {
+    "staging-main": {
+      "submission": {
+        "host": "127.0.0.1",
+        "port": 2525
+      },
+      "delivery_mode": "capture",
+      "allowed_from_domain": "staging.invalid",
+      "capture": {
+        "host": "127.0.0.1",
+        "port": 1025
+      }
+    },
+    "tits-guru": {
+      "submission": {
+        "host": "127.0.0.1",
+        "port": 2526
+      },
+      "delivery_mode": "held",
+      "mail_domain": "tits.guru",
+      "default_from": "noreply@tits.guru",
+      "bounce_domain": "bounce.tx.tits.guru",
+      "reply_domain": "reply.tits.guru"
+    }
+  }
+}

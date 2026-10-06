@@ -17,17 +17,22 @@ namespace App\Support\Moderation;
 final class ModerationReason
 {
     /**
-     * Strips Unicode whitespace from both ends, including the separators
-     * `trim()` ignores: no-break space, the Unicode space range, line and
-     * paragraph separators, the zero-width no-break space, and the two
-     * whitespace characters Unicode files under Cc/Cf rather than Z — NEL
-     * (U+0085) and the Mongolian vowel separator (U+180E).
+     * Strips from both ends everything that renders as nothing: the separators
+     * `trim()` ignores (no-break space, the Unicode space range, line and
+     * paragraph separators) AND the characters Unicode files under Cc and Cf —
+     * NUL, NEL, the zero-width space, the zero-width joiners, the byte-order
+     * mark. `\p{Cc}` and `\p{Cf}` are the property names for exactly "a
+     * character with no visible rendering", which is the question this class
+     * asks, so they are used instead of a list of codepoints somebody has to keep
+     * extending.
      *
-     * Those last two are named explicitly even though PHP's `u` modifier also
-     * turns on PCRE2_UCP, which already makes `\s` match the full White_Space
-     * property. That coupling is real but implicit, and a reason made of one NEL
-     * is exactly the empty audit record this class exists to refuse — so it does
-     * not rest on a flag nobody writing here would think to check.
+     * NUL and U+200B are the two that mattered. NUL passed this normalizer and
+     * was then removed by the plain `trim()` in CreateModerationLogAction, which
+     * DOES include "\0" in its default character list — so an irreversible
+     * finalization was recorded with reason NULL. U+200B is in no whitespace
+     * property at all, so a reason made of one was stored and displayed as blank
+     * forever. Both are now empty here, before anything irreversible happens, and
+     * there is one definition of empty rather than two that disagree.
      *
      * Invalid UTF-8 is returned UNCHANGED rather than normalized. preg_replace
      * fails on it and returns null, and casting that to a string would hand the
@@ -39,7 +44,7 @@ final class ModerationReason
      */
     public static function normalize(string $reason): string
     {
-        return preg_replace('/^[\s\p{Z}\x{85}\x{180E}\x{FEFF}]+|[\s\p{Z}\x{85}\x{180E}\x{FEFF}]+$/u', '', $reason)
+        return preg_replace('/^[\s\p{Z}\p{Cc}\p{Cf}]+|[\s\p{Z}\p{Cc}\p{Cf}]+$/u', '', $reason)
             ?? $reason;
     }
 }

@@ -1325,6 +1325,7 @@ it('restricts every managed deploy identity by pattern, and grants none of them 
     // Nothing that would grant, widen or redirect: this is a Match block that
     // narrows, and it must stay one.
     foreach (['AllowUsers', 'PermitRootLogin', 'ForceCommand', 'AuthorizedKeysCommand', 'PermitOpen'] as $forbidden) {
-        expect($policy)->not->toContain($forbidden, "the deploy SSH policy restricts; it must never grant: {$forbidden}");
+        expect(str_contains($policy, $forbidden))
+            ->toBeFalse("the deploy SSH policy restricts; it must never grant: {$forbidden}");
     }
 });

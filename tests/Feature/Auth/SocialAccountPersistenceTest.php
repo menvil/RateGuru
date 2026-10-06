@@ -25,8 +25,15 @@ it('stores only the identity and the provider email, and casts the provider to t
         ->and($fresh->provider_email)->toBe('ivan@example.com')
         ->and($fresh->user->is($user))->toBeTrue()
         ->and($user->socialAccounts()->count())->toBe(1)
+        // provider_email_verified is the security fact beside the display one:
+        // whether the provider confirmed the address in provider_email. Still
+        // deliberately nothing else — no token, no name, no avatar.
         ->and(array_keys($fresh->getAttributes()))
-        ->toEqualCanonicalizing(['id', 'user_id', 'provider', 'provider_user_id', 'provider_email', 'created_at', 'updated_at']);
+        ->toEqualCanonicalizing([
+            'id', 'user_id', 'provider', 'provider_user_id',
+            'provider_email', 'provider_email_verified',
+            'created_at', 'updated_at',
+        ]);
 });
 
 it('enforces one account per provider identity', function () {

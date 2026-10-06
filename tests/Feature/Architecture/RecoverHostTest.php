@@ -939,7 +939,8 @@ it('never stops a global service, never runs a migration and never rotates a sec
         'cloudflare',
         'route53',
     ] as $forbidden) {
-        expect($source)->not->toContain($forbidden, "recover-host must never: {$forbidden}");
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("recover-host must never: {$forbidden}");
     }
 
     // Everything Supervisor-shaped is scoped to this target's own program.

@@ -665,7 +665,8 @@ it('never runs a migration, a schema reset or a release switch', function () {
             'schema:dump',
             'DROP SCHEMA',
         ] as $forbidden) {
-            expect($source)->not->toContain($forbidden, "{$script} must never run {$forbidden}");
+            expect(str_contains($source, $forbidden))
+                ->toBeFalse("{$script} must never run {$forbidden}");
         }
 
         // No release switching: the current/previous links are read, never
@@ -724,7 +725,12 @@ it('stops no global service and touches no unrelated project', function () {
             'Polymarket',
             'polymarket',
         ] as $forbidden) {
-            expect($source)->not->toContain($forbidden, "{$script} must never contain {$forbidden}");
+            // Executable lines: restore-target's own comment says "Never
+            // `supervisorctl stop all`", documenting the prohibition this guard
+            // enforces, and on the raw file the guard failed on that explanation
+            // the first time it was able to fail at all.
+            expect(str_contains(executableSourceLines($source), $forbidden))
+                ->toBeFalse("{$script} must never contain {$forbidden}");
         }
 
         expect($source)->not->toMatch('#rm\s+-rf\s+/(etc|home|var|opt|usr)(/\S*)?\s*$#m');

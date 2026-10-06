@@ -3,9 +3,11 @@
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
@@ -16,7 +18,9 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,6 +32,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
@@ -476,6 +481,15 @@ function sourcedLibraryNames(): array
  * way for tooling to write a target's canonical shared/.env, which is the
  * operator's to own.
  *
+ * `mail-routing` is the second, for a plainer reason: it validates the reviewed
+ * mail routing policy and renders the plan the mail gateway follows. It
+ * describes and installs nothing; the gateway installer runs it from the same
+ * temporary bundle it arrived in, never from an installed copy.
+ *
+ * `mail-identity` is the third, for the same reason: it judges the reviewed host
+ * and target mail identity, the DKIM keys it names, and public DNS against both.
+ * It installs nothing, and runs from a trusted bundle or checkout.
+ *
  * So a script listed here must stay out of required-clis.txt and out of the
  * operational bundle, and the guards that inventory infrastructure/scripts/ know
  * to expect exactly that rather than reporting it as unclassified.
@@ -484,7 +498,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['render-environment-templates'];
+    return ['mail-identity', 'mail-routing', 'render-environment-templates', 'verify-infrastructure'];
 }
 
 /**
@@ -1081,6 +1095,24 @@ function restoreScratchDir(): string
     return $dir;
 }
 
+/**
+ * A fresh, uniquely named directory under the system temp directory, holding
+ * the given subdirectories ('' is the directory itself). The test owns it and
+ * removes it with removeScratchDir().
+ *
+ * @param  list<string>  $subdirectories
+ */
+function makeScratchDir(string $prefix, array $subdirectories = [''], int $mode = 0o755): string
+{
+    $dir = sys_get_temp_dir().'/'.$prefix.'-'.bin2hex(random_bytes(6));
+
+    foreach ($subdirectories as $sub) {
+        expect(@mkdir($dir.$sub, $mode, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
 function removeScratchDir(string $dir): void
 {
     exec('rm -rf '.escapeshellarg($dir));
@@ -1267,6 +1299,513 @@ function parityRegistryFixture(string $scratch, array $options = []): array
     expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
 
     return $cache[$key] = [$registryPath, $targetsPath];
+}
+
+/**
+ * A `KEY=VALUE` file — an environment template, or a service's env file — as an
+ * ordered map, ignoring blank and commented lines. Values are returned verbatim
+ * (trailing CR stripped), quotes included.
+ *
+ * @return array<string, string>
+ */
+function envFileValues(string $path): array
+{
+    $full = base_path($path);
+
+    expect(File::exists($full))->toBeTrue("missing env file: {$path}");
+
+    $out = [];
+
+    foreach (preg_split('/\R/', File::get($full)) as $line) {
+        $trimmed = trim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        [$key, $value] = explode('=', $trimmed, 2);
+        $out[trim($key)] = rtrim($value, "\r");
+    }
+
+    return $out;
+}
+
+/*
+|--------------------------------------------------------------------------
+| The mail routing CLI, as its tests and the mail gateway's tests drive it
+|--------------------------------------------------------------------------
+|
+| MailRoutingPolicyTest proves the policy; MailGatewayTest renders Postfix
+| from the plans it produces. Both run the shipped mail-routing script the
+| same way, with the same synthetic demo-shop target, so the runner lives
+| here once.
+*/
+
+function mailRoutingScript(): string
+{
+    return base_path('infrastructure/scripts/mail-routing');
+}
+
+/**
+ * A synthetic production brand's policy. Its identity, its domains and its port
+ * appear nowhere in the shipped implementation or the committed configuration.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopPolicy(): array
+{
+    return [
+        'submission' => ['host' => '127.0.0.1', 'port' => 2599],
+        'delivery_mode' => 'held',
+        'mail_domain' => 'demo-shop.example',
+        'default_from' => 'hello@demo-shop.example',
+        'bounce_domain' => 'bounce.demo-shop.example',
+        'reply_domain' => 'reply.demo-shop.example',
+    ];
+}
+
+/**
+ * The synthetic production brand's policy, delivered outbound by direct SMTP:
+ * the same reviewed identity as its held policy, plus its transport kind.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopOutboundPolicy(): array
+{
+    return [
+        ...mailRoutingDemoShopPolicy(),
+        'delivery_mode' => 'outbound',
+        'outbound' => ['kind' => 'direct'],
+    ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The mail identity CLI and the material it judges
+|--------------------------------------------------------------------------
+|
+| MailIdentityTest proves infrastructure/scripts/mail-identity itself;
+| InstallTargetPrerequisitesTest installs the DKIM keys it judges, and
+| ConfigureRateGuruTargetActionTest stages them. All three need the same real
+| keys and the same synthetic demo-shop identity, so they live here once.
+*/
+
+function mailIdentityScript(): string
+{
+    return base_path('infrastructure/scripts/mail-identity');
+}
+
+/**
+ * A real key of one kind, generated once per test process by OpenSSL itself, so
+ * every verdict is checked against genuine material rather than a shape a test
+ * invented. Kinds: rsa2048, rsa2048-pkcs1, rsa3072, rsa1024, ec, ed25519,
+ * encrypted, public, certificate, key-and-certificate, junk.
+ */
+function mailIdentityKey(string $kind): string
+{
+    static $dir = null;
+
+    if ($dir === null) {
+        // Removed when the test process ends, with every key made into it.
+        $dir = makeScratchDir('mail-identity-keys', [''], 0o700);
+        register_shutdown_function(static fn () => removeScratchDir($dir));
+    }
+
+    $path = "{$dir}/{$kind}.pem";
+
+    if (is_file($path)) {
+        return $path;
+    }
+
+    $openssl = static function (string $arguments) use ($kind): void {
+        exec('openssl '.$arguments.' 2>&1', $output, $status);
+        expect($status)->toBe(0, "openssl could not make the {$kind} test key:\n".implode("\n", $output));
+    };
+
+    $rsa = static fn (int $bits, string $to) => $openssl('genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:'.$bits.' -out '.escapeshellarg($to));
+
+    match ($kind) {
+        'rsa2048' => $rsa(2048, $path),
+        'rsa3072' => $rsa(3072, $path),
+        'rsa1024' => $rsa(1024, $path),
+        'rsa2048-pkcs1' => $openssl('rsa -in '.escapeshellarg(mailIdentityKey('rsa2048')).' -traditional -out '.escapeshellarg($path)),
+        'ec' => $openssl('genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out '.escapeshellarg($path)),
+        'ed25519' => $openssl('genpkey -algorithm ED25519 -out '.escapeshellarg($path)),
+        'encrypted' => $openssl('genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -aes256 -pass pass:a-passphrase -out '.escapeshellarg($path)),
+        'public' => $openssl('pkey -in '.escapeshellarg(mailIdentityKey('rsa2048')).' -pubout -out '.escapeshellarg($path)),
+        'certificate' => $openssl('req -x509 -key '.escapeshellarg(mailIdentityKey('rsa2048')).' -subj /CN=mail-identity-test -days 1 -out '.escapeshellarg($path)),
+        'key-and-certificate' => file_put_contents($path, file_get_contents(mailIdentityKey('rsa2048')).file_get_contents(mailIdentityKey('certificate'))),
+        'junk' => file_put_contents($path, "this is not a key\n"),
+    };
+
+    chmod($path, 0o600);
+
+    return $path;
+}
+
+/**
+ * The base64 SubjectPublicKeyInfo of a private key, derived by PHP's own
+ * OpenSSL binding — an independent witness for what mail-identity derives.
+ */
+function mailIdentityPublicKey(string $privateKeyPath): string
+{
+    $key = openssl_pkey_get_private((string) file_get_contents($privateKeyPath));
+    expect($key)->not->toBeFalse('PHP could not read the test key');
+
+    $pem = openssl_pkey_get_details($key)['key'];
+
+    return preg_replace('/-----[^-]+-----|\s+/', '', $pem);
+}
+
+function mailIdentityScratch(): string
+{
+    return makeScratchDir('mail-identity', ['', '/bin', '/fs', '/dns', '/config']);
+}
+
+/**
+ * Stubs for dig and ip, and the environment that points mail-identity at them
+ * and at the scratch filesystem root.
+ *
+ * $answers maps "TYPE name" to a list of rdata strings exactly as dig prints
+ * them, or to ['exit' => N] for a resolver that never answered, or to
+ * ['status' => 'SERVFAIL', ...rdata] for one that answered with a failure. A
+ * name with no entry is NXDOMAIN. $ipv4 is the source address of this host's
+ * route to the Internet; null means the host has no route at all.
+ *
+ * @param  array<string, list<string>|array<string, mixed>>  $answers
+ * @return array<string, string>
+ */
+function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '203.0.113.10'): array
+{
+    foreach ($answers as $question => $answer) {
+        [$type, $name] = explode(' ', $question, 2);
+
+        $lines = isset($answer['exit'])
+            ? ["exit {$answer['exit']}"]
+            : ['status '.($answer['status'] ?? 'NOERROR'), ...array_values(array_filter($answer, 'is_int', ARRAY_FILTER_USE_KEY))];
+
+        file_put_contents("{$scratch}/dns/{$type}_{$name}", implode("\n", $lines)."\n");
+    }
+
+    file_put_contents($scratch.'/bin/dig', <<<'STUB'
+        #!/bin/bash
+        type="${@: -2:1}"
+        name="${@: -1}"
+        printf '%s %s\n' "${type}" "${name}" >> "${STUB_DNS}/queries.log"
+        answer="${STUB_DNS}/${type}_${name}"
+        status=NXDOMAIN
+        if [[ -f "${answer}" ]]; then
+            first="$(head -n 1 "${answer}")"
+            case "${first}" in
+                exit\ *) echo ';; connection timed out; no servers could be reached'; exit "${first#exit }" ;;
+                status\ *) status="${first#status }" ;;
+            esac
+        fi
+        printf ';; Got answer:\n;; ->>HEADER<<- opcode: QUERY, status: %s, id: 4242\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1\n\n;; OPT PSEUDOSECTION:\n; EDNS: version: 0, flags:; udp: 1232\n;; ANSWER SECTION:\n' "${status}"
+        if [[ -f "${answer}" ]]; then
+            tail -n +2 "${answer}" | while IFS= read -r rdata; do
+                [[ -n "${rdata}" ]] && printf '%s.\t300\tIN\t%s\t%s\n' "${name}" "${type}" "${rdata}"
+            done
+        fi
+        exit 0
+        STUB."\n");
+
+    $route = $ipv4 === null
+        ? "#!/bin/bash\necho 'RTNETLINK answers: Network is unreachable' >&2\nexit 2\n"
+        : "#!/bin/bash\nprintf '1.1.1.1 via 203.0.113.1 dev eth0 src %s uid 0\\n    cache\\n' '{$ipv4}'\n";
+    file_put_contents($scratch.'/bin/ip', $route);
+
+    chmod($scratch.'/bin/dig', 0o755);
+    chmod($scratch.'/bin/ip', 0o755);
+
+    return [
+        'RATEGURU_MAILIDENTITY_DIG_BIN' => $scratch.'/bin/dig',
+        'RATEGURU_MAILIDENTITY_IP_BIN' => $scratch.'/bin/ip',
+        'RATEGURU_MAILIDENTITY_FS_ROOT' => $scratch.'/fs',
+        'STUB_DNS' => $scratch.'/dns',
+    ];
+}
+
+/** Install KIND as TARGET's key for SELECTOR under the scratch root. */
+function mailIdentityInstallKey(string $scratch, string $target, string $selector, string $kind = 'rsa2048'): string
+{
+    $dir = "{$scratch}/fs/etc/opendkim/keys/{$target}";
+    @mkdir($dir, 0o700, true);
+    copy(mailIdentityKey($kind), "{$dir}/{$selector}.private");
+    chmod("{$dir}/{$selector}.private", 0o600);
+
+    return "{$dir}/{$selector}.private";
+}
+
+/**
+ * The DNS a correctly published tits.guru answers, with the DKIM value split
+ * into the chunks a DNS provider serves a long TXT record in.
+ *
+ * @return array<string, list<string>>
+ */
+function mailIdentityGoodDns(string $publicKey, string $ipv4 = '203.0.113.10', string $domain = 'tits.guru', string $selector = 'rg1', string $mta = 'mta1.tits.guru'): array
+{
+    $octets = explode('.', $ipv4);
+    $chunks = str_split('v=DKIM1; k=rsa; p='.$publicKey, 200);
+
+    return [
+        "A {$mta}" => [$ipv4],
+        'PTR '.implode('.', array_reverse($octets)).'.in-addr.arpa' => ["{$mta}."],
+        "TXT {$domain}" => ["\"v=spf1 ip4:{$ipv4} -all\"", '"site-verification=abc123"'],
+        "TXT {$selector}._domainkey.{$domain}" => ['"'.implode('" "', $chunks).'"'],
+        "TXT _dmarc.{$domain}" => ['"v=DMARC1; p=none; adkim=s; aspf=s"'],
+    ];
+}
+
+/** The base64 body lines of a PEM file — what must never appear in any output. */
+function mailIdentityKeyBodyLines(string $path): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', (string) file_get_contents($path)),
+        static fn (string $line): bool => $line !== '' && ! str_starts_with($line, '-----'),
+    ));
+}
+
+/**
+ * No line of the key file reached OUTPUT. The public modulus is the one part a
+ * private key shares with its public key — and a PKCS#1 key encodes it at the
+ * same base64 alignment as the published DKIM value — so a line that is part of
+ * the public key is public, and is skipped.
+ */
+function expectNoKeyMaterial(string $output, string $keyPath): void
+{
+    $public = openssl_pkey_get_private((string) file_get_contents($keyPath)) === false
+        ? ''
+        : mailIdentityPublicKey($keyPath);
+
+    foreach (mailIdentityKeyBodyLines($keyPath) as $line) {
+        $probe = substr($line, 0, 24);
+
+        if ($public !== '' && str_contains($public, $probe)) {
+            continue;
+        }
+
+        expect(str_contains($output, $probe))->toBeFalse('private key material reached the output');
+    }
+
+    expect($output)->not->toContain('PRIVATE KEY');
+}
+
+/**
+ * The four reviewed configuration files mail identity is judged from, written
+ * into DIR: the committed ones, plus — unless `demo-shop` is false — the
+ * synthetic demo-shop target in the registry, in mail routing (`mode` held or
+ * outbound), and in mail identity (`identity`, or none when null). `outbound`
+ * replaces the host contract. Returns the matching FILES arguments.
+ *
+ * @param  array{demo-shop?: bool, mode?: string, identity?: array<string, mixed>|null, outbound?: array<string, mixed>, registry?: array<string, mixed>}  $options
+ * @return list<string>
+ */
+function mailIdentityFixtureConfig(string $dir, array $options = []): array
+{
+    @mkdir($dir, 0o755, true);
+
+    $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+
+    $registry = $options['registry'] ?? $read('deployment-targets.json');
+    $routing = $read('mail-routing.json');
+    $identity = $read('mail-identity.json');
+    $outbound = $options['outbound'] ?? $read('mail-outbound.json');
+
+    if ($options['demo-shop'] ?? true) {
+        if (! isset($options['registry'])) {
+            $registry = mailRoutingDemoShopRegistry();
+        }
+
+        $routing['targets']['demo-shop'] = ($options['mode'] ?? 'held') === 'outbound'
+            ? mailRoutingDemoShopOutboundPolicy()
+            : mailRoutingDemoShopPolicy();
+
+        $demoIdentity = array_key_exists('identity', $options) ? $options['identity'] : mailIdentityDemoShopIdentity();
+
+        if ($demoIdentity !== null) {
+            $identity['targets']['demo-shop'] = $demoIdentity;
+        }
+    }
+
+    foreach (['deployment-targets' => $registry, 'mail-routing' => $routing, 'mail-identity' => $identity, 'mail-outbound' => $outbound] as $name => $data) {
+        file_put_contents("{$dir}/{$name}.json", mailRoutingJson($data));
+    }
+
+    return [
+        '--identity', "{$dir}/mail-identity.json",
+        '--routing', "{$dir}/mail-routing.json",
+        '--registry', "{$dir}/deployment-targets.json",
+        '--outbound', "{$dir}/mail-outbound.json",
+    ];
+}
+
+/** @return array<string, mixed> */
+function mailIdentityDemoShopIdentity(): array
+{
+    return [
+        'dkim' => ['selector' => 'shop2026', 'algorithm' => 'rsa-sha256', 'minimum_key_bits' => 2048],
+        'dmarc' => ['policy' => 'none', 'adkim' => 'strict', 'aspf' => 'strict'],
+    ];
+}
+
+/**
+ * Run the shipped mail-identity CLI with the test overrides on. stdout and
+ * stderr are kept apart: a verdict must never smuggle key material into either.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, string>  $environment
+ * @return array{status: int, stdout: string, stderr: string}
+ */
+function mailIdentityRun(array $arguments, array $environment = []): array
+{
+    $process = proc_open(
+        ['bash', mailIdentityScript(), ...$arguments],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        [
+            'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+            'HOME' => sys_get_temp_dir(),
+            'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+            ...$environment,
+        ],
+    );
+
+    expect($process)->not->toBeFalse('could not start mail-identity');
+
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+}
+
+/**
+ * Two synthetic production brands delivered outbound by direct SMTP, beside the
+ * committed targets: demo-shop on 2599 and demo-books on 2598, each with its
+ * own registry entry and its own identity. Neither appears in any committed
+ * file or in the implementation.
+ *
+ * @return array{policy: array<string, mixed>, registry: array<string, mixed>}
+ */
+function mailRoutingTwoOutboundTargets(): array
+{
+    $rename = static fn (array $data): array => json_decode(
+        str_replace(['demo-shop', 'demo_shop'], ['demo-books', 'demo_books'], json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+
+    $registry = mailRoutingDemoShopRegistry();
+    $registry['targets']['demo-books'] = $rename(provisionDemoTarget());
+
+    $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+    $policy['targets']['demo-shop'] = mailRoutingDemoShopOutboundPolicy();
+    $policy['targets']['demo-books'] = $rename(mailRoutingDemoShopOutboundPolicy());
+    $policy['targets']['demo-books']['submission']['port'] = 2598;
+
+    return ['policy' => $policy, 'registry' => $registry];
+}
+
+/**
+ * The committed registry plus the synthetic demo-shop target.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopRegistry(array $overrides = []): array
+{
+    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
+}
+
+function mailRoutingJson(array $data): string
+{
+    return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
+}
+
+/**
+ * Run the shipped CLI. A policy or registry given here is written to a scratch
+ * file and passed with --file / --registry; one left null is the committed
+ * file, reached through the script's own defaults. A string policy is written
+ * verbatim, for documents that are not a valid policy to begin with.
+ *
+ * stdout and stderr are kept apart: a refusal must print nothing on stdout,
+ * and a plan must be nothing but JSON.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ * @return array{status: int, stdout: string, stderr: string}
+ */
+function mailRoutingRun(array $arguments, array|string|null $policy = null, ?array $registry = null, ?string $script = null): array
+{
+    $scratch = sys_get_temp_dir().'/mail-routing-'.bin2hex(random_bytes(6));
+
+    expect(@mkdir($scratch, 0o755, true))->toBeTrue("could not create scratch directory: {$scratch}");
+
+    try {
+        if ($policy !== null) {
+            file_put_contents($scratch.'/mail-routing.json', is_string($policy) ? $policy : mailRoutingJson($policy));
+            $arguments = [...$arguments, '--file', $scratch.'/mail-routing.json'];
+        }
+
+        if ($registry !== null) {
+            file_put_contents($scratch.'/deployment-targets.json', mailRoutingJson($registry));
+            $arguments = [...$arguments, '--registry', $scratch.'/deployment-targets.json'];
+        }
+
+        $process = proc_open(
+            ['bash', $script ?? mailRoutingScript(), ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $scratch,
+            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
+        );
+
+        expect($process)->not->toBeFalse('could not start mail-routing');
+
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+}
+
+/**
+ * The rendered plan, decoded — after proving the render succeeded cleanly.
+ *
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ * @return array<string, mixed>
+ */
+function mailRoutingPlan(array|string|null $policy = null, ?array $registry = null): array
+{
+    return json_decode(mailRoutingPlanJson($policy, $registry), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * The rendered plan exactly as the CLI printed it on stdout — after proving the
+ * render succeeded and wrote nothing on stderr, so a diagnostic can never end
+ * up inside a plan file a test hands on.
+ *
+ * @param  array<string, mixed>|string|null  $policy
+ * @param  array<string, mixed>|null  $registry
+ */
+function mailRoutingPlanJson(array|string|null $policy = null, ?array $registry = null): string
+{
+    $run = mailRoutingRun(['render-plan'], $policy, $registry);
+
+    expect($run['status'])->toBe(0, "render-plan failed:\n".$run['stderr']);
+    expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
+
+    return $run['stdout'];
 }
 
 /**
@@ -3658,6 +4197,130 @@ function breakCatalogsOf(string $locale): void
     app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
 }
 
+/** The languages the project offers, read afresh. */
+function offeredLocales(): array
+{
+    app(ProjectSettingsManager::class)->flush();
+
+    return app(LocaleManager::class)->enabledCodes();
+}
+
+/** Project settings with every translatable field translated into these languages. */
+function settingsTranslatedInto(array $locales): void
+{
+    $attributes = projectSettingsTranslationsIn($locales);
+
+    foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
+        $attributes[$field] = "{$field} text";
+    }
+
+    ProjectSettings::query()->update(collect($attributes)->map(fn (mixed $value): mixed => is_array($value) ? json_encode($value) : $value)->all());
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
+ * Installs made-up languages after the real ones until there are this many,
+ * each with a copy of a real translation's catalogs, and one of them broken —
+ * the scale the screen has to hold, from a fixture rather than from real
+ * catalogs. Returns every installed code in config order.
+ *
+ * @return list<string>
+ */
+function installLanguagesUpTo(int $total): array
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    [$source] = twoTranslatedLocales();
+    $supported = config('locales.supported');
+
+    for ($i = 0; count($supported) < $total; $i++) {
+        $code = 'x'.chr(97 + intdiv($i, 26)).chr(97 + $i % 26);
+        File::copyDirectory("{$root}/{$source}", "{$root}/{$code}");
+        $supported[$code] = ['label' => 'Language '.strtoupper($code), 'native' => 'Native '.strtoupper($code), 'flag' => '🏳️', 'enabled_by_default' => false];
+    }
+
+    File::delete("{$root}/".array_key_last($supported).'/ui.php');
+    config(['locales.supported' => $supported]);
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+
+    return array_keys($supported);
+}
+
+/** A category in the project's content that no language translates. */
+function untranslatedCategory(string $name = 'Georgian food'): Category
+{
+    return Category::factory()->create(['slug' => Str::slug($name), 'name' => $name, 'name_translations' => null, 'is_active' => true]);
+}
+
+/**
+ * Counts, from here on, every Livewire update the page sends — through the
+ * fetch Livewire calls, and through the browser's own record of requests, so
+ * the proof does not rest on how Livewire happens to send them.
+ */
+function watchLivewireUpdates(mixed $page): void
+{
+    $page->script(<<<'JS'
+        (() => {
+            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
+            const fetch = window.fetch
+
+            window.livewireUri = uri
+            window.livewireFetches = 0
+            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
+            window.notReloaded = true
+            window.fetch = function (input, ...rest) {
+                if (String(input?.url ?? input).startsWith(uri)) {
+                    window.livewireFetches++
+                }
+
+                return fetch.call(this, input, ...rest)
+            }
+        })()
+    JS);
+}
+
+/** What the page has sent to Livewire since watchLivewireUpdates(), and whether it is still the same page. */
+function livewireUpdatesSinceWatching(mixed $page): array
+{
+    return $page->script(<<<'JS'
+        (() => ({
+            fetches: window.livewireFetches ?? null,
+            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
+            sameDocument: window.notReloaded === true,
+        }))()
+    JS);
+}
+
+/**
+ * A rendered Admin v2 screen, queryable: a Livewire component under test, or
+ * the HTML of a plain response.
+ */
+function livewireDom(Testable|string $page): DOMXPath
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML('<?xml encoding="utf-8"?>'.($page instanceof Testable ? $page->html() : $page));
+
+    return new DOMXPath($dom);
+}
+
+/**
+ * The outer HTML of the first element an XPath query finds, or null — without
+ * Livewire's morph markers and the whitespace between tags, so an assertion
+ * can name a button by its exact text.
+ */
+function livewireFragment(Testable|string $page, string $query): ?string
+{
+    $node = livewireDom($page)->query($query)->item(0);
+
+    if ($node === null) {
+        return null;
+    }
+
+    $html = str_replace(['<!--[if BLOCK]><![endif]-->', '<!--[if ENDBLOCK]><![endif]-->'], '', (string) $node->ownerDocument->saveHTML($node));
+
+    return (string) preg_replace(['/>\s+/', '/\s+</'], ['>', '<'], $html);
+}
+
 /**
  * Stored values that are not a translation (TranslatableField::isPresent()):
  * completeness counts each as missing, and a visitor gets the fallback for
@@ -3764,6 +4427,7 @@ function trustedToolingRefs(): array
         'restore-production.yml' => 'main',
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
+        'verify-production-infrastructure.yml' => 'main',
         // Integration and staging.
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
@@ -3771,6 +4435,7 @@ function trustedToolingRefs(): array
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
+        'verify-staging-infrastructure.yml' => 'develop',
     ];
 }
 
@@ -4225,6 +4890,58 @@ function provisionWriteStubs(string $scratch): void
                 printf '%s\n' "${pid}" >> "${STUB_FS}/nginx-worker-pids.txt"
             done
         }
+        # PHP-FPM creates a pool's socket when it loads that pool's configuration,
+        # and never before — and drops the socket of a pool whose configuration is
+        # gone. The fixture used to place the sockets itself, which is a state no
+        # host can be in — a socket for a pool that does not exist yet — and it meant
+        # a verification could pass without anything having produced them.
+        #
+        # So a reload RECONCILES: after it, the sockets under /run/php are exactly
+        # the ones the installed pools declare. Creating without removing would have
+        # left a socket behind for a pool somebody deleted, which is the same kind of
+        # impossible state in the other direction — a verification passing on
+        # evidence of a pool that no longer exists.
+        #
+        # /run/php is PHP-FPM's own directory here, so the reconciliation is scoped
+        # to it: table rows for anything outside it are never touched.
+        sync_fpm_sockets() {
+            local conf listen owner group mode declared socket
+            PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/run/php"
+            declared=""
+            for conf in "${STUB_FS}"/etc/php/*/fpm/pool.d/*.conf; do
+                [[ -f "${conf}" ]] || continue
+                listen="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                [[ "${listen}" == /run/php/*.sock ]] || continue
+                owner="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.owner[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                group="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.group[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                mode="$(PATH="${STUB_REAL_PATH}" sed -n 's/^[[:space:]]*listen\.mode[[:space:]]*=[[:space:]]*//p' "${conf}" | PATH="${STUB_REAL_PATH}" head -n 1)"
+                PATH="${STUB_REAL_PATH}" touch "${STUB_FS}${listen}"
+                PATH="${STUB_REAL_PATH}" chmod "${mode:-0660}" "${STUB_FS}${listen}"
+                # The stat stub reads the type from this table for regular files,
+                # and the owner from the owner table, so both have to say socket.
+                PATH="${STUB_REAL_PATH}" grep -v "^${STUB_FS}${listen}|" "${STUB_TYPE_TABLE}" > "${STUB_TYPE_TABLE}.tmp" 2>/dev/null || : > "${STUB_TYPE_TABLE}.tmp"
+                printf '%s|TYPE|socket\n' "${STUB_FS}${listen}" >> "${STUB_TYPE_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_TYPE_TABLE}.tmp" "${STUB_TYPE_TABLE}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${STUB_FS}${listen}|" "${STUB_OWNER_TABLE}" > "${STUB_OWNER_TABLE}.tmp" 2>/dev/null || : > "${STUB_OWNER_TABLE}.tmp"
+                printf '%s|%s|%s\n' "${STUB_FS}${listen}" "${owner:-www-data}" "${group:-www-data}" >> "${STUB_OWNER_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_OWNER_TABLE}.tmp" "${STUB_OWNER_TABLE}"
+                declared="${declared} ${STUB_FS}${listen}"
+            done
+
+            # Whatever is left in /run/php that no installed pool declares is the
+            # socket of a pool that is gone, and a reload is where PHP-FPM unlinks it.
+            for socket in "${STUB_FS}"/run/php/*.sock; do
+                [[ -e "${socket}" ]] || continue
+                case " ${declared} " in
+                    *" ${socket} "*) continue ;;
+                esac
+                PATH="${STUB_REAL_PATH}" rm -f "${socket}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${socket}|" "${STUB_TYPE_TABLE}" > "${STUB_TYPE_TABLE}.tmp" 2>/dev/null || : > "${STUB_TYPE_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_TYPE_TABLE}.tmp" "${STUB_TYPE_TABLE}"
+                PATH="${STUB_REAL_PATH}" grep -v "^${socket}|" "${STUB_OWNER_TABLE}" > "${STUB_OWNER_TABLE}.tmp" 2>/dev/null || : > "${STUB_OWNER_TABLE}.tmp"
+                PATH="${STUB_REAL_PATH}" mv "${STUB_OWNER_TABLE}.tmp" "${STUB_OWNER_TABLE}"
+            done
+        }
         cmd=""; unit=""
         for arg in "$@"; do
             case "${arg}" in
@@ -4241,11 +4958,18 @@ function provisionWriteStubs(string $scratch): void
             start)
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
                 ;;
-            stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
+            stop)
+                rm -f "${STUB_SVC_STATE}/${unit}.active"
+                if [[ "${unit}" == *fpm* ]]; then PATH="${STUB_REAL_PATH}" rm -f "${STUB_FS}"/run/php/*.sock; fi
+                ;;
             reload|restart)
                 [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
+                # A reload that fails loads nothing, so it creates no socket.
+                [[ -e "${STUB_TOGGLES}/${unit}-reload-fail" ]] && exit 1
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
                 ;;
             *) exit 0 ;;
         esac
@@ -4289,7 +5013,7 @@ function provisionWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
         'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
-        'nightwatch-installer',
+        'nightwatch-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -4302,6 +5026,10 @@ function provisionWriteStubs(string $scratch): void
                 *--supports-deployment-marker*)
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
+                    ;;
+                *--check*)
+                    [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
+                    exit 0
                     ;;
                 *--apply*)
                     [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
@@ -4413,10 +5141,6 @@ function provisionBuildStagingNeighbour(string $scratch): void
 
     symlink('/etc/nginx/sites-available/rateguru-staging', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
 
-    touch($fs.'/run/php/rateguru-staging.sock');
-    chmod($fs.'/run/php/rateguru-staging.sock', 0o660);
-    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-staging.sock|TYPE|socket\n", FILE_APPEND);
-    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-staging.sock', 'www-data', 'www-data');
 }
 
 /**
@@ -4515,10 +5239,6 @@ function provisionFixture(string $scratch, array $options = []): array
     );
 
     // The demo pool's socket, as a running PHP-FPM would present it.
-    touch($fs.'/run/php/rateguru-demo-shop.sock');
-    chmod($fs.'/run/php/rateguru-demo-shop.sock', 0o660);
-    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-demo-shop.sock|TYPE|socket\n", FILE_APPEND);
-    provisionOwnerTableAdd($scratch, $fs.'/run/php/rateguru-demo-shop.sock', 'www-data', 'www-data');
 
     // Nginx workers that predate every RateGuru code group — the state a real
     // host is in before its first reload.
@@ -4546,7 +5266,7 @@ function provisionFixture(string $scratch, array $options = []): array
 
     $realPath = getenv('PATH') ?: '/usr/bin:/bin';
 
-    return [
+    $env = [
         'PATH' => $realPath,
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
@@ -4606,6 +5326,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        // Present so that a target-scoped run touching the host-global mail
+        // gateway would be recorded, not silently run the real installer.
+        'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
@@ -4630,6 +5353,56 @@ function provisionFixture(string $scratch, array $options = []): array
         'STUB_TOGGLES' => $scratch.'/toggles',
         'STUB_FS' => $fs,
     ];
+
+    // The sockets of the pools this host already has, produced the way a host
+    // produces them: by loading the installed pool configuration. The base
+    // services above are marked active by touching their state files, which does
+    // not go through the stub, so the first load is performed explicitly here.
+    //
+    // It matters that this is a RELOAD and not a `touch`: a fixture that places
+    // the sockets itself describes a host that cannot exist — a pool socket with
+    // no pool — and lets a post-apply verification pass without anything having
+    // created one.
+    provisionReloadPhpFpm($env);
+
+    return $env;
+}
+
+/**
+ * Runs the fixture's own systemctl stub, so service state changes the harness
+ * needs go through the same code path a run under test would use.
+ *
+ * @param  array<string, string>  $env
+ */
+function provisionReloadPhpFpm(array $env): void
+{
+    // Into a log of its own, deliberately. Tests read ${STUB_LOG}/systemctl.log to
+    // assert what the RUN did — "check mode reloads nothing" among them — and the
+    // fixture's own setup is not something the run did. Writing there would make
+    // every such assertion fail on the harness rather than on the code.
+    $setupLog = $env['STUB_LOG'].'/fixture-setup';
+    @mkdir($setupLog, 0o755, true);
+
+    $process = proc_open(
+        [$env['RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN'], 'reload', 'php8.5-fpm'],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        ['STUB_LOG' => $setupLog] + $env + ['PATH' => $env['STUB_REAL_PATH']],
+    );
+
+    if ($process === false) {
+        throw new RuntimeException('the fixture could not run its own systemctl stub');
+    }
+
+    $output = (string) stream_get_contents($pipes[1]).(string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+
+    if ($status !== 0) {
+        throw new RuntimeException("the fixture's php-fpm reload failed ({$status}): {$output}");
+    }
 }
 
 /**
@@ -4758,4 +5531,88 @@ function provisionWithMalformedEnv(string $scratch, string $shape): array
     };
 
     return [$env, $root];
+}
+
+/*
+|--------------------------------------------------------------------------
+| install-target-perimeter renderers
+|--------------------------------------------------------------------------
+|
+| The sudoers rule and the backup cron are both rendered from the registry
+| by install-target-perimeter, and both are tested the same way: the
+| shipped renderer, sourced, driven by a registry (and, for the cron, a
+| schedule file) the test supplies. Running the real implementation is the
+| point — a reimplementation here would prove only that two copies agree.
+*/
+
+function perimeterRegistry(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+function perimeterBackupSchedules(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/backup-schedules.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Source install-target-perimeter with its registry and schedule file
+ * pointed at the given fixtures, then run $call. Output is stdout and stderr
+ * together, so a refusal's message is in it.
+ *
+ * @return array{0: int, 1: string}
+ */
+function perimeterRun(string $call, array $registry, ?array $schedules = null, string $prelude = ''): array
+{
+    $scratch = sys_get_temp_dir().'/perimeter-render-'.uniqid('', true);
+    @mkdir($scratch, 0o755, true);
+
+    $encode = fn (array $data): string => json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+    file_put_contents($scratch.'/registry.json', $encode($registry));
+    file_put_contents($scratch.'/backup-schedules.json', $encode($schedules ?? perimeterBackupSchedules()));
+
+    $harness = $scratch.'/render.sh';
+    file_put_contents($harness, implode("\n", [
+        'set -Eeuo pipefail',
+        'source '.escapeshellarg(base_path('infrastructure/scripts/install-target-perimeter')),
+        'SRC_REGISTRY='.escapeshellarg($scratch.'/registry.json'),
+        'SRC_BACKUP_SCHEDULES='.escapeshellarg($scratch.'/backup-schedules.json'),
+        $prelude,
+        $call,
+        '',
+    ]));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes, $scratch, [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+    ]);
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $exit = proc_close($process);
+
+    exec('rm -rf '.escapeshellarg($scratch));
+
+    return [$exit, $output];
+}
+
+function perimeterRender(array $registry, string $renderer = 'render_sudoers_candidate', ?array $schedules = null): string
+{
+    return perimeterRun($renderer, $registry, $schedules)[1];
+}
+
+/**
+ * The operational (runnable) lines of a cron file: everything that is not
+ * blank, a comment, or an environment assignment.
+ *
+ * @return list<string>
+ */
+function cronOperationalLines(string $cron): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', $cron),
+        fn (string $line): bool => ! preg_match('/^\s*(#|$)|^[A-Za-z_][A-Za-z0-9_]*=/', $line),
+    ));
 }

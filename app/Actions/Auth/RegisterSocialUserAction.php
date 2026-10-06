@@ -68,6 +68,13 @@ final class RegisterSocialUserAction
                     'provider' => $identity->provider,
                     'provider_user_id' => $identity->providerUserId,
                     'provider_email' => $identity->email,
+                    // Recorded as the fact it is, including when it is false.
+                    // This row is created from an address the provider may not
+                    // have confirmed — that is why email_verified_at above stays
+                    // null — and a later claim by the real owner has to be able
+                    // to tell that from a confirmed one.
+                    // Non-null by the guard at the top of this method.
+                    'provider_email_verified' => $identity->emailVerifiedByProvider,
                 ]);
 
                 return $user;

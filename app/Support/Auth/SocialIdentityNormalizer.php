@@ -54,10 +54,18 @@ final class SocialIdentityNormalizer
     private function providerVouchesForEmail(SocialProvider $provider, string $email, array $raw): bool
     {
         return match ($provider) {
-            // Google hosts gmail.com itself, and says so explicitly for any
-            // other address it has confirmed with a code. A missing or
-            // malformed claim is not a confirmation.
+            // Google hosts its own mail domains, and says so explicitly for any
+            // other address it has confirmed with a code. A missing or malformed
+            // claim is not a confirmation.
+            //
+            // Both domains, because googlemail.com is not a different mailbox:
+            // Google runs it as the alternate name for the same Gmail account —
+            // it was the primary one in some countries — so every Gmail user has
+            // an address at it and mail to either arrives in one inbox. Listing
+            // only gmail.com would make the same person vouched for under one
+            // spelling of their own address and unvouched under the other.
             SocialProvider::Google => str_ends_with($email, '@gmail.com')
+                || str_ends_with($email, '@googlemail.com')
                 || ($raw['email_verified'] ?? null) === true,
             // Facebook only completes a registration, and only reports an
             // address, after the address has been confirmed.
