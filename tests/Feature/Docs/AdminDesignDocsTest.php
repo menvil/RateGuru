@@ -78,8 +78,38 @@ it('records the shell as production and what it deliberately leaves out for now'
         ->toContain('**Legacy page headers, breadcrumbs and actions**');
 
     $phase2 = substr($plan, (int) strpos($plan, '### Phase 2'), 200);
-    $phase3 = substr($plan, (int) strpos($plan, '### Phase 3'), 200);
 
-    expect($phase2)->toContain('**Status: done.**')
-        ->and($phase3)->toContain('**Status: next.**');
+    expect($phase2)->toContain('**Status: done.**');
+});
+
+it('records Languages as migrated, with its overlays built, and Translation Center next', function () {
+    $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
+    $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
+
+    $phase3 = substr($plan, (int) strpos($plan, '### Phase 3'), 200);
+    $phase4 = substr($plan, (int) strpos($plan, '### Phase 4+'), 200);
+
+    expect($phase3)->toContain('**Status: done.**')
+        ->and($phase4)->toContain('**Status: next**')
+        ->and($phase4)->toContain('Translation Center foundation');
+
+    expect($contract)
+        ->toContain('**Languages** (production, migrated)')
+        ->toContain('| Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |')
+        ->toContain('`x-admin.ui.confirm-dialog` (OVL-01)')
+        ->toContain('`x-admin.ui.drawer` (OVL-02)')
+        ->toContain('`x-admin.ui.toast-stack` (FBK-01)');
+});
+
+it('records the Languages drawer\'s editor links as a bridge until Translation Center, not as the target', function () {
+    $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
+    $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
+
+    // Prose wraps at any word, so the phrases are matched across line breaks.
+    foreach ([$contract, $plan] as $document) {
+        expect((string) preg_replace('/\s+/', ' ', $document))
+            ->toContain('Target design: a missing item')
+            ->toContain('the Languages drawer keeps links to the existing editors')
+            ->toContain('replaces these links with Translation Center filters');
+    }
 });

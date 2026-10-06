@@ -17,8 +17,9 @@ use Filament\Pages\Page;
  * A developer tool rather than part of the admin: it exists only in the local
  * and testing environments (404 anywhere else), is never offered in the
  * navigation, and stays behind the panel's own authentication, so it opens to
- * exactly the people who may open the panel. It draws static specimens only:
- * no queries of its own, no writes, no external calls.
+ * exactly the people who may open the panel. Its specimens make no queries,
+ * no writes and no external calls; the overlays and toasts among them are
+ * live in the browser, driven by Alpine alone.
  */
 final class AdminUiKit extends Page
 {
@@ -89,7 +90,7 @@ final class AdminUiKit extends Page
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
             ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-04', 'TBL-05', 'TBL-06']],
-            ['key' => 'feedback', 'label' => 'Feedback', 'description' => 'Toasts and notices.', 'ids' => ['FBK-01', 'FBK-02']],
+            ['key' => 'feedback', 'label' => 'Overlays and feedback', 'description' => 'Confirmations, drawers, toasts and notices.', 'ids' => ['OVL-01', 'OVL-02', 'FBK-01', 'FBK-02']],
             ['key' => 'localization', 'label' => 'Localization domain', 'description' => 'Patterns that exist only in RateGuru Admin: the translation states Translation Center is built on.', 'ids' => ['DOM-01']],
         ];
     }
@@ -771,28 +772,98 @@ final class AdminUiKit extends Page
                     <x-admin.ui.skeleton width="40px" height="40px" shape="box" tone="soft" />
                     BLADE,
             ],
-            'FBK-01' => [
-                'name' => 'Toast',
-                'source' => 'CSS primitive · .rg-admin-toast',
-                'kind' => 'primitive',
-                'purpose' => 'Confirms what just happened. Reversible actions carry Undo instead of a confirmation dialog. Shown as a static specimen; the toast stack arrives with the shell.',
+            'OVL-01' => [
+                'name' => 'Confirmation dialog',
+                'source' => 'Blade component · x-admin.ui.confirm-dialog',
+                'kind' => 'component',
+                'purpose' => 'Confirms an action with consequences before it runs, or explains why it cannot run. Open the live examples below; they change nothing.',
                 'specs' => [
-                    ['Surface', 'ink · white 14px · radius 12 · shadow-popover'],
-                    ['Position', 'bottom centre of the main area · 24 from bottom'],
-                    ['Duration', '5.2 s · max 3 stacked'],
-                    ['Icon', 'success green-500 · error #FF9AA2 · info gray-400'],
-                    ['Undo', 'only for reversible actions'],
+                    ['Panel', '520 w · radius 16 · shadow-popover · 11vh from the top'],
+                    ['Scrim', 'rgba(14,18,27,.28) · Escape, the scrim, × and Cancel dismiss'],
+                    ['Header', '36 tone circle · title 16/24 600 · body 14/22 secondary'],
+                    ['Light', 'tone default · Cancel + the action, primary'],
+                    ['Warning', 'tone warning · amber circle · a secondary way out, e.g. Review missing'],
+                    ['Blocked', 'explains why and offers the alternative · no confirm'],
+                    ['Focus', 'moves inside · cannot leave · returns to the trigger, or to the page heading once the trigger is gone'],
+                    ['Page behind', 'hidden from assistive technology · does not scroll'],
                 ],
                 'code' => <<<'BLADE'
-                    <div class="rg-admin-toast" role="status">
-                        <x-admin.ui.icon name="check" class="rg-admin-toast__icon--success" />
-                        <span class="rg-admin-toast__text">3 posts approved and published</span>
-                        <button type="button" class="rg-admin-toast__action">Undo</button>
-                        <button type="button" class="rg-admin-toast__close" aria-label="Dismiss">…</button>
-                    </div>
+                    @if ($confirming)
+                        <x-admin.ui.confirm-dialog
+                            tone="warning"
+                            icon="globe"
+                            title="Disable German?"
+                            x-on:dismiss="$wire.closeConfirmation()"
+                        >
+                            <p>Visitors currently using German will get their browser's language…</p>
+
+                            <x-slot:actions>
+                                <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
+                                <x-admin.ui.button variant="primary" wire:click="disableLanguage('de')">Disable German</x-admin.ui.button>
+                            </x-slot:actions>
+                        </x-admin.ui.confirm-dialog>
+                    @endif
+                    BLADE,
+                'rules' => [
+                    'The confirm label repeats the action: “Disable German”, never “OK”.',
+                    '!Never confirm reversible, low-risk actions; use a toast instead.',
+                    '!Never ask for a reason the product does not store.',
+                ],
+            ],
+            'OVL-02' => [
+                'name' => 'Drawer',
+                'source' => 'Blade component · x-admin.ui.drawer',
+                'kind' => 'component',
+                'purpose' => 'Inspects or edits one record without leaving the list: the missing translations of a language, later a category or a media asset.',
+                'specs' => [
+                    ['Size', '448 w · wide 480 for long lists · full height · right · max 100vw'],
+                    ['Header', '62 h · leading · title 15/500 + 12px subtitle · close'],
+                    ['Body', 'scrolls on its own · sections split by hairlines'],
+                    ['Footer', 'note or actions · destructive on the left · hairline above'],
+                    ['Scrim', 'rgba(14,18,27,.2) · Escape, the scrim and × close'],
+                    ['Focus', 'moves inside · cannot leave · returns to the trigger, or to the page heading once the trigger is gone'],
+                ],
+                'code' => <<<'BLADE'
+                    @if ($missingLocale)
+                        <x-admin.ui.drawer
+                            wide
+                            title="Missing in German"
+                            subtitle="de · 82% project content"
+                            x-on:dismiss="$wire.closeMissing()"
+                        >
+                            <x-slot:leading>🇩🇪</x-slot:leading>
+                            …sections…
+                            <x-slot:footer>Visitors see the English text wherever a translation is missing.</x-slot:footer>
+                        </x-admin.ui.drawer>
+                    @endif
+                    BLADE,
+                'rules' => [
+                    'One drawer at a time; a dialog opened from it replaces it.',
+                ],
+            ],
+            'FBK-01' => [
+                'name' => 'Toast',
+                'source' => 'Blade component · x-admin.ui.toast-stack',
+                'kind' => 'component',
+                'purpose' => 'Confirms what just happened. The shell draws one stack on every admin page; a screen raises a toast with a browser event.',
+                'specs' => [
+                    ['Surface', 'ink · white 14px · radius 12 · shadow-popover'],
+                    ['Position', 'bottom centre of the main column · 24 from bottom'],
+                    ['Duration', '5.2 s · max 3 stacked · waits while hovered or focused'],
+                    ['Icon', 'success green-500 · error #FF9AA2 · info gray-400'],
+                    ['Screen readers', 'status region for success and info · alert region for errors · each heard once'],
+                    ['Undo', 'only for reversible actions · not wired into the stack until one needs it'],
+                ],
+                'code' => <<<'BLADE'
+                    {{-- Livewire --}}
+                    $this->dispatch('rg-admin-toast', message: 'German enabled', tone: 'success');
+
+                    {{-- Alpine --}}
+                    <button x-on:click="$dispatch('rg-admin-toast', { message: 'Copied', tone: 'info' })">…</button>
                     BLADE,
                 'rules' => [
                     '!Never confirm reversible, low-risk actions such as Approve or Restore; use a toast with Undo.',
+                    '!A toast is never the only record of a lasting error; the screen shows it too.',
                 ],
             ],
             'FBK-02' => [

@@ -73,6 +73,10 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Reversible, low-risk actions get a toast with Undo, never a confirmation dialog.
 - [ ] Confirm labels repeat the action; irreversible actions need a reason and an acknowledgement.
 - [ ] Drawers and dialogs close with Escape and the scrim.
+- [ ] Drawers and dialogs move focus inside, keep it there and return it to the trigger; the page behind does not
+      scroll.
+- [ ] Nothing asks for a reason the product does not store.
+- [ ] Toasts go through the shell's one stack (`rg-admin-toast`); a lasting error also shows on the screen.
 - [ ] Notices carry their tone icon; danger only in irreversible dialogs.
 
 ## Localization [DOM-01]
