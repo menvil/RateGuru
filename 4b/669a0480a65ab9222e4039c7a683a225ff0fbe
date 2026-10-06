@@ -1,0 +1,30 @@
+database/factories/MediaAssetFactory.php
+  s_c7e782fafc9782::t_6c7d799c35e5e3 70-89
+tests/Feature/PostOpenGraphTest.php
+  s_c7e782fafc9782::t_2f0f939dca773e 216-255
+app/Support/Media/PostImagePresenter.php
+  s_c7e782fafc9782::t_6c7d799c35e5e3 151-157
+app/Support/Seo/PostOpenGraph.php
+  s_c7e782fafc9782::t_fbbfb0e984c288 88-94
+app/Support/Media/ResponsiveImage.php
+  s_c7e782fafc9782::t_fbbfb0e984c288 21
+tests/Feature/Media/ResponsiveImageWithoutDimensionsTest.php
+  s_c7e782fafc9782::t_41cd884db18476 3,7,77-101
+  s_c7e782fafc9782::t_6c7d799c35e5e3 18-20,26-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4b669a0480a65ab9222e4039c7a683a225ff0fbe",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

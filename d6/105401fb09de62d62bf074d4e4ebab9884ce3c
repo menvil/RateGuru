@@ -1,0 +1,23 @@
+tests/Pest.php
+  s_c7e782fafc9782::t_1319055bacf05f 4228-4255,4272-4276,4280-4281,4283
+  s_c7e782fafc9782::t_7d18ce39156556 4576,4660-4682,4690-4694,4696-4709
+  s_c7e782fafc9782::t_bacf631d750c74 4683-4689,4695
+tests/Feature/Architecture/ProvisionFixtureSocketCausalityTest.php
+  s_c7e782fafc9782::t_51050d84581f3a 1-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d6105401fb09de62d62bf074d4e4ebab9884ce3c",
+  "prompts": {},
+  "sessions": {
+    "s_c7e782fafc9782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "91ddcb64-a96c-4d9a-abc8-086e97950093",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
