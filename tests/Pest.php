@@ -1130,6 +1130,8 @@ function removeScratchDir(string $dir): void
  * every link that names $template is rewritten to name $scratch, and then the
  * copy is checked. A file or link that still named $template would let a test
  * read or write the template instead of its own host, so that fails the test.
+ * The path is also matched as JSON writes it (`\/tmp\/…`): registries and
+ * reports built with json_encode() carry it escaped.
  */
 function copyScratchTemplate(string $template, string $scratch): void
 {
@@ -1141,10 +1143,26 @@ function copyScratchTemplate(string $template, string $scratch): void
         RecursiveIteratorIterator::SELF_FIRST,
     );
 
-    $namesTemplate = function (string $path) use ($template): bool {
-        return is_link($path)
-            ? str_starts_with((string) readlink($path), $template)
-            : is_file($path) && str_contains((string) file_get_contents($path), $template);
+    $forms = [$template => $scratch, str_replace('/', '\\/', $template) => str_replace('/', '\\/', $scratch)];
+
+    $namesTemplate = function (string $path) use ($template, $forms): bool {
+        if (is_link($path)) {
+            return str_starts_with((string) readlink($path), $template);
+        }
+
+        if (! is_file($path)) {
+            return false;
+        }
+
+        $contents = (string) file_get_contents($path);
+
+        foreach (array_keys($forms) as $form) {
+            if (str_contains($contents, $form)) {
+                return true;
+            }
+        }
+
+        return false;
     };
 
     foreach ($entries as $entry) {
@@ -1159,7 +1177,7 @@ function copyScratchTemplate(string $template, string $scratch): void
             unlink($path);
             symlink($scratch.substr($target, strlen($template)), $path);
         } else {
-            file_put_contents($path, str_replace($template, $scratch, (string) file_get_contents($path)));
+            file_put_contents($path, strtr((string) file_get_contents($path), $forms));
         }
     }
 
@@ -4519,7 +4537,9 @@ function trustedToolingRef(string $workflow): string
 | recovery deployment the three recover-host test files share:
 | RecoverHostPreconditionsTest (what a recovery refuses before it starts),
 | RecoverHostTest (the apply, its hold, its guard and its compensation) and
-| RecoverHostResumeTest (--inspect, --resume and --verify).
+| RecoverHostResumeTest (--inspect, --resume and --verify); and the applied
+| and completed hosts, built once per worker, that the tests whose subject
+| comes after the apply start from.
 */
 
 function recoverHostScript(): string
@@ -4627,6 +4647,107 @@ function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOU
     );
 
     symlink($root.'/releases/'.$release, $root.'/current');
+}
+
+/**
+ * recoveryFixture() with $fixtureOptions, then a plain recoveryApply(): the
+ * held, awaiting-code host every test of --inspect, --resume and --verify
+ * starts from, and the result of the apply that left it there.
+ *
+ * The apply is a full recover-host --apply, about 1.3 s and most of what each
+ * of those tests costs, and the host it leaves never varies. So a worker
+ * applies once per option set, into a template of its own, and every later
+ * call copies the template into the test's scratch directory: about 15 ms.
+ * Only for a test whose apply is setup; a test about the apply runs its own.
+ *
+ * Every copy carries the operation ID and the timestamps of that one apply.
+ * Each test owns its copy, and none compares them with another test's.
+ *
+ * @return array{exit: int, output: string}
+ */
+function recoveryApplied(string $scratch, array $fixtureOptions = []): array
+{
+    static $templates = [];
+
+    $key = serialize($fixtureOptions);
+
+    if (! isset($templates[$key])) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        recoveryFixture($directory, $fixtureOptions);
+
+        $applied = recoveryApply($directory);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+
+        $templates[$key] = [$directory, $applied];
+    }
+
+    [$directory, $applied] = $templates[$key];
+
+    return copyRecoveryTemplate($directory, $scratch, $applied)[0];
+}
+
+/**
+ * recoveryApplied(), the controlled recovery deployment, then a plain
+ * --resume: the completed recovery every test of --verify, and of what a
+ * finished recovery answers, starts from, and the results of the apply and
+ * the resume.
+ *
+ * The resume is another recover-host run, about 0.6 s on top of the apply,
+ * and the host it leaves never varies either. So a worker resumes once, from
+ * a copy of the applied template, and every later call copies the result.
+ *
+ * @return array{0: array{exit: int, output: string}, 1: array{exit: int, output: string}} [applied, resumed]
+ */
+function recoveryResumed(string $scratch): array
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        $applied = recoveryApplied($directory);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($directory);
+
+        $resumed = recoverHostRun($directory, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+
+        $template = [$directory, $applied, $resumed];
+    }
+
+    [$directory, $applied, $resumed] = $template;
+
+    return copyRecoveryTemplate($directory, $scratch, $applied, $resumed);
+}
+
+/**
+ * copyScratchTemplate() for a recovery host, and the results of the runs that
+ * built it, re-addressed to $scratch.
+ *
+ * Resolving the run environment afterwards writes the parity registry and the
+ * copy the prerequisites check reads for $scratch, exactly as the next
+ * recover-host run would, so the copied host starts in the state a fresh one
+ * reaches before its first run.
+ *
+ * @param  array{exit: int, output: string}  ...$results
+ * @return list<array{exit: int, output: string}>
+ */
+function copyRecoveryTemplate(string $template, string $scratch, array ...$results): array
+{
+    copyScratchTemplate($template, $scratch);
+    recoveryEnv($scratch);
+
+    return array_map(
+        fn (array $result): array => [
+            'exit' => $result['exit'],
+            'output' => str_replace($template, $scratch, $result['output']),
+        ],
+        $results,
+    );
 }
 
 /*
