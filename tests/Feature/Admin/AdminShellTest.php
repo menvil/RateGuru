@@ -107,6 +107,22 @@ it('draws every admin page inside the Admin v2 shell', function () {
         ->assertDontSee('class="fi-topbar"', false);
 });
 
+it('gives every admin page, sign-in included, the site\'s own icon', function () {
+    // Without a declared icon the browser falls back to /favicon.ico, which is
+    // empty, and asks for it again on every address change the admin makes —
+    // each keystroke in a search that keeps its query in the URL.
+    $icon = '<link rel="icon" href="'.asset('favicon.svg').'" />';
+
+    expect(filesize(public_path('favicon.svg')))->toBeGreaterThan(0);
+
+    $this->get('/admin/login')->assertOk()->assertSee($icon, false);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->get(LanguagesPage::getUrl())
+        ->assertOk()
+        ->assertSee($icon, false);
+});
+
 it('groups the navigation exactly as the Admin v2 contract does', function () {
     $html = $this->actingAs(User::factory()->admin()->create())->get('/admin')->getContent();
 

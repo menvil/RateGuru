@@ -11,14 +11,21 @@ name: Configure tits.guru
 # It does NOT activate the target. tits-guru stays lifecycle=planned
 # afterwards, because lifecycle is permission to OPERATE a target, not a
 # description of how much of it exists. It grants no deploy sudo authorization,
-# deploys no application, configures no TLS, DNS or mail, and never writes the
-# registry. A green run is NOT "production is ready".
+# deploys no application, configures no TLS, DNS, mail transport or signing,
+# and never writes the registry. A green run is NOT "production is ready".
 #
-# WHAT IT SENDS. Exactly one thing: the target's deploy PUBLIC key, derived on
-# the runner from DEPLOY_SSH_KEY with `ssh-keygen -y`. Provisioning deliberately
-# left the deploy user's authorized_keys absent, and nothing else installs it,
-# so a target would stay permanently unreachable without this. The private key
+# WHAT IT SENDS. Always the target's deploy PUBLIC key, derived on the runner
+# from DEPLOY_SSH_KEY with `ssh-keygen -y`. Provisioning deliberately left the
+# deploy user's authorized_keys absent, and nothing else installs it, so a
+# target would stay permanently unreachable without this. The private deploy key
 # is used on the runner and never uploaded.
+#
+# And, only when the optional MAIL_DKIM_PRIVATE_KEY secret is set, the target's
+# DKIM signing private key — judged on the runner, uploaded by its exact name
+# into a root-only directory, installed at the one place the server-side
+# installer derives (root:root 0600), and removed from the runner and the host
+# with every other temporary file. Without it nothing is staged: tits-guru's
+# mail is held, so its key is deferred, and this run is exactly what it was.
 #
 # IT NEVER SENDS THE ENVIRONMENT FILE. The target's shared/.env is CANONICAL on
 # the host: an operator creates it there once as
@@ -112,7 +119,8 @@ jobs:
     # BOOTSTRAP_USER as variables, and BOOTSTRAP_SSH_KEY, BOOTSTRAP_KNOWN_HOSTS
     # and DEPLOY_SSH_KEY as secrets. DEPLOY_SSH_KEY is read on the runner only,
     # to derive the public half that becomes this target's authorized_keys;
-    # it is never uploaded. Today
+    # it is never uploaded. MAIL_DKIM_PRIVATE_KEY is an optional secret: the
+    # target's DKIM private key, installed only when present. Today
     # those name the machine staging also lives on — tits-guru has no separate
     # server yet, and it does not need one to be configured. When it gets one,
     # only these values change; nothing in this workflow does.
@@ -167,12 +175,18 @@ jobs:
           # single-sourced.
           deploy-ssh-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
+          # Optional. Empty when the secret is not set, and then nothing is
+          # staged. Never printed, and never an output of this job.
+          mail-dkim-private-key: ${{ secrets.MAIL_DKIM_PRIVATE_KEY }}
+
       # Phrased so a green run cannot be read as more than it is.
       - name: Report what this run did and did not do
         shell: bash
         env:
           CONFIGURED: ${{ steps.configure.outputs.configured }}
           LIFECYCLE: ${{ steps.configure.outputs.lifecycle }}
+          # Whether the secret is set — a boolean, never the key.
+          DKIM_KEY_SUPPLIED: ${{ secrets.MAIL_DKIM_PRIVATE_KEY != '' }}
         run: |
           set -Eeuo pipefail
 
@@ -186,6 +200,12 @@ jobs:
             echo "| Environment file | required to pre-exist on the host; validated, never sent from here and never written |"
             echo "| Database | ready |"
             echo "| Deploy SSH key | public half installed from \`DEPLOY_SSH_KEY\`; the private key never left the runner |"
+            if [[ "${DKIM_KEY_SUPPLIED}" == "true" ]]; then
+              echo "| Mail DKIM private key | installed from \`MAIL_DKIM_PRIVATE_KEY\` at its canonical place (root-only); never printed |"
+            else
+              echo "| Mail DKIM private key | not supplied — deferred while tits-guru's mail is held |"
+            fi
+            echo "| Mail delivery | **held** — no signing service, no outbound route, no DNS change |"
             echo "| Deploy operational sudo access | **NOT enabled** |"
             echo "| Application | **NOT deployed** |"
             echo "| Public traffic | **NOT activated** |"

@@ -345,6 +345,8 @@ Grid templates used in the prototype, for reference:
 
 - **Search (FRM-01):** 40 high, radius 10, search icon 18 tertiary, 15px text; filters as you type, no submit
   button; the placeholder names what is searched (“Search username, name or email”). `⌘K` only on global search.
+  A list's search is clearable: while the field holds text, an `x` 16 button inside it (“Clear search”) empties it
+  in one click and leaves focus in the field.
 - **Text field (FRM-02):** label 13/500 6 above; field 40 high, radius 10; hint 12 tertiary 6 below; an error
   replaces the hint in red-950 and says what to do, not just what is wrong.
 - **Textarea (FRM-03):** padding 10 12, 14/22, min 84 in dialogs, 64 in panels; a “Required” (due colour until

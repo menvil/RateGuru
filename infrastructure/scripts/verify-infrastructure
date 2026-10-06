@@ -1,0 +1,449 @@
+#!/usr/bin/env bash
+#
+# verify-infrastructure — the one read-only verification of everything a
+# deployment target depends on, composed from the authoritative primitives.
+#
+#   verify-infrastructure --target TARGET_ID
+#
+# WHAT IT IS. Orchestration and judgement of RELEVANCE only. Every check is the
+# existing primitive that owns it, run from this same trusted bundle:
+#
+#   verify-mail-capture --read-only   the staging capture services
+#   verify-mail-gateway --read-only   the host-global gateway (install-mail-gateway --verify)
+#   mail-identity validate | dkim-key | check-key | readiness
+#                                     the reviewed host and target mail identity
+#   health-check --target T           the target's application
+#
+# What this file adds is only the decision of which of them the target's
+# CURRENT reviewed state requires — read from the registry (environment class,
+# lifecycle), the mail routing plan (delivery mode) and the host's outbound
+# contract (direct delivery enabled) — never a re-implementation of a check.
+#
+# THREE VERDICTS.
+#
+#   PASS / FAIL  a check the current state requires. Any FAIL fails the run.
+#   DEFERRED     a capability the target's current reviewed lifecycle or
+#                routing deliberately does not require YET — reported, with
+#                what it says today, never silently skipped. Example: a held
+#                production target's DKIM key while it is absent, and its
+#                outbound readiness while it is not activated.
+#   N/A          does not apply to this kind of target at all. Example: a
+#                staging target has no production mail identity.
+#
+# The same command therefore serves a production target before its launch —
+# where its activation requirements are DEFERRED — and years after it, where
+# the same requirements are mandatory on every run, with no change here.
+#
+# STRICTLY READ-ONLY. It installs nothing, rewrites no configuration, starts,
+# stops or reloads nothing, submits no SMTP, touches no mail queue, deploys,
+# restores, rotates and publishes nothing. Every primitive is invoked in its
+# read-only mode — never an --e2e, --apply or --repair — and a tool missing
+# from the host's canonical runtime is a FAIL naming the preparation that
+# installs it, never something this run installs.
+#
+# Repository tooling: it runs from the temporary trusted bundle the
+# verification action uploads, as root, and is never installed on a host.
+#
+# The last line of a completed run is exactly one
+# RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=<json> — counts and identity only,
+# never a secret.
+#
+# Test overrides: the RATEGURU_VERIFYINFRA_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_VERIFYINFRA_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_VERIFYINFRA_FS_ROOT '')"
+# Where the host's canonical runtime tools are looked up: the real PATH.
+RUNTIME_PATH="$(gated_default RATEGURU_VERIFYINFRA_RUNTIME_PATH "${PATH}")"
+
+MAIL_CAPTURE_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
+MAIL_GATEWAY_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_GATEWAY_BIN "${SCRIPT_DIR}/verify-mail-gateway")"
+HEALTH_CHECK="$(gated_default RATEGURU_VERIFYINFRA_HEALTH_CHECK_BIN "${SCRIPT_DIR}/health-check")"
+MAIL_IDENTITY="${SCRIPT_DIR}/mail-identity"
+MAIL_ROUTING="${SCRIPT_DIR}/mail-routing"
+TARGETS_CLI="${SCRIPT_DIR}/targets"
+
+CONFIG_DIR="${REPO_ROOT}/infrastructure/config"
+REGISTRY_FILE="${CONFIG_DIR}/deployment-targets.json"
+IDENTITY_ARGS=(
+    --identity "${CONFIG_DIR}/mail-identity.json"
+    --routing "${CONFIG_DIR}/mail-routing.json"
+    --registry "${REGISTRY_FILE}"
+    --outbound "${CONFIG_DIR}/mail-outbound.json"
+)
+
+RESULT_PREFIX="RATEGURU_INFRASTRUCTURE_VERIFY_RESULT="
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-infrastructure --target TARGET_ID
+
+Read-only verification of everything TARGET_ID depends on, composed from the
+authoritative primitives in this bundle and judged against the target's
+current reviewed state (registry lifecycle and environment class, mail routing
+mode, the host's outbound contract). Requires root. Changes nothing.
+
+Exit 0 only when every check the current state requires passes. DEFERRED
+checks are reported and do not fail the run. The last line is one
+RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=<json>.
+USAGE
+}
+
+# --- Arguments --------------------------------------------------------------------
+
+TARGET_ID=""
+
+parse_args() {
+    [[ $# -gt 0 ]] || { usage >&2; fail "--target is required"; }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ -z "${TARGET_ID}" ]] || fail "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || fail "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${TARGET_ID}" ]] || fail "--target is required"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${TARGET_ID}"
+}
+
+# --- Report -----------------------------------------------------------------------
+
+COUNT_PASS=0
+COUNT_FAIL=0
+COUNT_DEFERRED=0
+COUNT_NA=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL)     COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
+        N/A)      COUNT_NA=$((COUNT_NA + 1)) ;;
+        *)        fail "internal: unknown verdict ${status}" ;;
+    esac
+
+    printf '  %-9s %s — %s\n' "${status}" "${name}" "${detail}"
+}
+
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+# run_child BIN ARGS... — one primitive, its whole report kept for the
+# operator, its exit status as its verdict.
+run_child() {
+    set +e
+    CHILD_OUTPUT="$("$@" 2>&1)"
+    CHILD_STATUS=$?
+    set -e
+}
+
+show_child() {
+    [[ -n "${CHILD_OUTPUT}" ]] || return 0
+    printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/            | /'
+}
+
+# --- The target's current reviewed state ----------------------------------------------
+
+ENVIRONMENT_CLASS=""
+LIFECYCLE=""
+DELIVERY_MODE=""
+DIRECT_ENABLED=""
+
+resolve_target() {
+    [[ -x "${TARGETS_CLI}" ]] || fail "the targets CLI is not executable: ${TARGETS_CLI} — run from a full trusted bundle"
+
+    "${TARGETS_CLI}" validate --file "${REGISTRY_FILE}" >/dev/null \
+        || fail "the deployment target registry is invalid: ${REGISTRY_FILE}"
+
+    local target_json
+    target_json="$("${TARGETS_CLI}" show --target "${TARGET_ID}" --file "${REGISTRY_FILE}" 2>/dev/null)" \
+        || fail "unknown target: ${TARGET_ID}"
+
+    ENVIRONMENT_CLASS="$(jq -r '.environment_class' <<<"${target_json}")"
+    LIFECYCLE="$(jq -r '.lifecycle' <<<"${target_json}")"
+
+    # The delivery mode from the one judge of routing policy, and whether the
+    # host enables direct delivery from its reviewed contract. An unreadable
+    # policy leaves both unknown, and the checks that judge it say so.
+    local plan
+    if plan="$("${MAIL_ROUTING}" render-plan --file "${CONFIG_DIR}/mail-routing.json" --registry "${REGISTRY_FILE}" 2>/dev/null)"; then
+        DELIVERY_MODE="$(jq -r --arg id "${TARGET_ID}" '.listeners[] | select(.identity == $id) | .delivery_mode' <<<"${plan}")"
+    fi
+
+    DIRECT_ENABLED="$(jq -r 'if (.direct | type) == "object" and .direct.enabled == true then "true" else "false" end' \
+        "${CONFIG_DIR}/mail-outbound.json" 2>/dev/null || printf 'false')"
+}
+
+# --- Host runtime -------------------------------------------------------------------
+#
+# What this verification and its primitives need from the host's canonical
+# runtime (install-bootstrap-runtime). A missing one is drift that preparing
+# the host converges — never something a read-only verification installs.
+
+verify_host_runtime() {
+    section "HOST RUNTIME"
+
+    local entry tool package missing=0
+    for entry in jq:jq dig:bind9-dnsutils openssl:openssl curl:curl ss:iproute2 ip:iproute2; do
+        tool="${entry%%:*}"
+        package="${entry#*:}"
+
+        if PATH="${RUNTIME_PATH}" command -v "${tool}" >/dev/null 2>&1; then
+            continue
+        fi
+
+        missing=$((missing + 1))
+        item FAIL "tool:${tool}" "not installed (package ${package}) — host runtime drift: run Prepare Host for this host, which converges the canonical runtime. Verify installs nothing"
+    done
+
+    (( missing > 0 )) || item PASS "runtime" "jq, dig, openssl, curl, ss and ip are present"
+}
+
+# --- Mail capture: staging only ----------------------------------------------------------
+
+verify_mail_capture() {
+    section "MAIL CAPTURE"
+
+    if [[ "${ENVIRONMENT_CLASS}" != staging ]]; then
+        item N/A "mail-capture" "a ${ENVIRONMENT_CLASS} target never captures mail: the staging capture services are verified with a staging target"
+        return 0
+    fi
+
+    run_child "${MAIL_CAPTURE_VERIFIER}" --read-only
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "verify-mail-capture --read-only" "Mailpit and Mailtrap Local active, their loopback listeners up, both APIs answering"
+    else
+        item FAIL "verify-mail-capture --read-only" "exit ${CHILD_STATUS} — the staging capture services are not healthy"
+    fi
+
+    show_child
+}
+
+# --- Mail gateway: host-global, every target --------------------------------------------
+
+verify_mail_gateway() {
+    section "MAIL GATEWAY"
+
+    run_child "${MAIL_GATEWAY_VERIFIER}" --read-only
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "verify-mail-gateway --read-only" "installed exactly as the reviewed policy renders: listeners, routes and holds, no public SMTP listener, no fallback route"
+    else
+        item FAIL "verify-mail-gateway --read-only" "exit ${CHILD_STATUS} — the installed gateway does not match the reviewed mail policy"
+    fi
+
+    show_child
+}
+
+# --- Mail identity ------------------------------------------------------------------------
+
+verify_mail_identity() {
+    section "MAIL IDENTITY"
+
+    if [[ "${ENVIRONMENT_CLASS}" != production ]]; then
+        item N/A "mail-identity" "a ${ENVIRONMENT_CLASS} target has no production mail identity: it captures its mail and never signs it"
+        return 0
+    fi
+
+    run_child "${MAIL_IDENTITY}" validate "${IDENTITY_ARGS[@]}"
+
+    if (( CHILD_STATUS != 0 )); then
+        item FAIL "identity contract" "mail-identity validate refuses the reviewed host or target identity — nothing further about it can be judged"
+        show_child
+        return 0
+    fi
+
+    item PASS "identity contract" "mail-identity validate: the host MTA identity and ${TARGET_ID}'s DKIM and DMARC identity are valid"
+
+    local answer requirement key_path min_bits
+    run_child "${MAIL_IDENTITY}" dkim-key --target "${TARGET_ID}" "${IDENTITY_ARGS[@]}"
+    answer="${CHILD_OUTPUT}"
+
+    if (( CHILD_STATUS != 0 )); then
+        item FAIL "dkim-key" "the key requirement could not be established"
+        show_child
+        return 0
+    fi
+
+    if [[ "${answer}" == none ]]; then
+        item N/A "dkim-key" "${TARGET_ID} has no reviewed DKIM identity yet — its mail is ${DELIVERY_MODE:-unknown}, and an outbound target must have one"
+        item N/A "outbound-readiness" "no reviewed identity to be ready with"
+        return 0
+    fi
+
+    IFS=$'\t' read -r requirement key_path min_bits <<<"${answer}"
+
+    verify_dkim_key "${requirement}" "${key_path}" "${min_bits}"
+    verify_outbound_readiness "${requirement}"
+}
+
+verify_dkim_key() {
+    local requirement="$1" key_path="$2" min_bits="$3" physical_key
+
+    physical_key="${FS_ROOT}${key_path}"
+
+    if [[ ! -e "${physical_key}" && ! -L "${physical_key}" ]]; then
+        if [[ "${requirement}" == required ]]; then
+            item FAIL "dkim-key" "${key_path} is absent, and ${TARGET_ID} delivers outbound — its DKIM key is required"
+        else
+            item DEFERRED "dkim-key" "${key_path} is absent — not required while ${TARGET_ID}'s mail is held; required once it is outbound"
+        fi
+        return 0
+    fi
+
+    # Present: judged whatever the routing, because broken key material on the
+    # host is broken now.
+    run_child "${MAIL_IDENTITY}" check-key --file "${physical_key}" --min-bits "${min_bits}"
+
+    if (( CHILD_STATUS == 0 )); then
+        item PASS "dkim-key" "${key_path} is a usable RSA private key (${requirement} for ${TARGET_ID}; content never printed)"
+    else
+        item FAIL "dkim-key" "${key_path} is installed but not usable: ${CHILD_OUTPUT#ERROR: }"
+    fi
+}
+
+# Readiness is MANDATORY only once the reviewed state says the target delivers
+# outbound on a host that enabled direct delivery. Until then it is reported —
+# A, PTR, SPF, DKIM and DMARC included — as the pre-activation picture, and is
+# DEFERRED.
+verify_outbound_readiness() {
+    local requirement="$1"
+
+    run_child "${MAIL_IDENTITY}" readiness --target "${TARGET_ID}" "${IDENTITY_ARGS[@]}"
+
+    if [[ "${requirement}" == required && "${DIRECT_ENABLED}" == true ]]; then
+        if (( CHILD_STATUS == 0 )); then
+            item PASS "outbound-readiness" "every condition outbound delivery requires holds"
+        else
+            item FAIL "outbound-readiness" "${TARGET_ID} delivers outbound, so mail-identity readiness is required, and it is not ready"
+        fi
+    else
+        item DEFERRED "outbound-readiness" "not activated (delivery_mode ${DELIVERY_MODE:-unknown}, direct delivery $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)) — reported below, required once ${TARGET_ID} delivers outbound"
+    fi
+
+    show_child
+}
+
+# --- Application ------------------------------------------------------------------------
+
+verify_application() {
+    section "APPLICATION"
+
+    case "${LIFECYCLE}" in
+        active)
+            run_child "${HEALTH_CHECK}" --target "${TARGET_ID}"
+
+            if (( CHILD_STATUS == 0 )); then
+                item PASS "health-check" "${TARGET_ID} answers its health endpoint"
+            else
+                item FAIL "health-check" "exit ${CHILD_STATUS} — ${TARGET_ID} is active and its application is not healthy"
+            fi
+
+            show_child
+            ;;
+        planned)
+            item DEFERRED "health-check" "${TARGET_ID} is planned: it serves no application yet, and health-check refuses a target that is not active"
+            ;;
+        *)
+            item N/A "health-check" "${TARGET_ID} is ${LIFECYCLE}: it is not operating"
+            ;;
+    esac
+}
+
+# --- Run -------------------------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || fail "verify-infrastructure must run as root: the checks it composes read root-owned configuration and key material"
+
+    command -v jq >/dev/null 2>&1 || fail "jq is required (package jq) — host runtime drift: run Prepare Host for this host"
+
+    resolve_target
+
+    printf 'VERIFY INFRASTRUCTURE (read-only)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+    printf 'Environment class: %s\n' "${ENVIRONMENT_CLASS}"
+    printf 'Lifecycle: %s\n' "${LIFECYCLE}"
+    printf 'Mail delivery mode: %s\n' "${DELIVERY_MODE:-unknown}"
+    printf 'Direct outbound delivery on this host: %s\n' "$([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)"
+
+    verify_host_runtime
+    verify_mail_capture
+    verify_mail_gateway
+    verify_mail_identity
+    verify_application
+
+    local status=pass
+    (( COUNT_FAIL == 0 )) || status=fail
+
+    section "SUMMARY"
+    printf '  pass=%d\n  fail=%d\n  deferred=%d\n  not_applicable=%d\n\n' \
+        "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DEFERRED}" "${COUNT_NA}"
+    printf 'VERIFY INFRASTRUCTURE: %s\n' "$([[ "${status}" == pass ]] && echo PASS || echo FAIL)"
+
+    printf '%s%s\n' "${RESULT_PREFIX}" "$(jq -cn \
+        --arg target "${TARGET_ID}" \
+        --arg environment_class "${ENVIRONMENT_CLASS}" \
+        --arg lifecycle "${LIFECYCLE}" \
+        --arg delivery_mode "${DELIVERY_MODE:-unknown}" \
+        --arg status "${status}" \
+        --argjson pass "${COUNT_PASS}" \
+        --argjson fail "${COUNT_FAIL}" \
+        --argjson deferred "${COUNT_DEFERRED}" \
+        --argjson not_applicable "${COUNT_NA}" \
+        '{target: $target, environment_class: $environment_class, lifecycle: $lifecycle, delivery_mode: $delivery_mode,
+          status: $status, pass: $pass, fail: $fail, deferred: $deferred, not_applicable: $not_applicable}')"
+
+    [[ "${status}" == pass ]]
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

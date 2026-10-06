@@ -530,6 +530,46 @@ it('clears the search back to every row, and the URL with it, without asking the
         ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 });
 
+it('clears a typed search from the button in the field, which is there only while there is text', function () {
+    [, $withheld] = twoTranslatedLocales();
+    $clearShown = '(() => { const clear = document.querySelector("#rg-admin-languages-search ~ .rg-admin-search__clear"); return getComputedStyle(clear).display !== "none" && clear.getBoundingClientRect().width > 0 })()';
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    languagesWatchLivewire($page);
+
+    // An empty field has nothing to clear.
+    expect($page->script($clearShown))->toBeFalse();
+
+    $page->typeSlowly('#rg-admin-languages-search', $withheld, 40);
+    waitForScript($page, $clearShown);
+
+    // Inside the field's frame, after the text.
+    expect($page->script(<<<'JS'
+        (() => {
+            const input = document.getElementById('rg-admin-languages-search')
+            const frame = input.closest('.rg-admin-search').getBoundingClientRect()
+            const field = input.getBoundingClientRect()
+            const clear = input.closest('.rg-admin-search').querySelector('.rg-admin-search__clear').getBoundingClientRect()
+
+            return clear.left >= field.right && clear.right <= frame.right && clear.top >= frame.top && clear.bottom <= frame.bottom
+        })()
+    JS))->toBeTrue()
+        ->and(languagesScreen($page)['rows'])->toBe([$withheld]);
+
+    $page->click('#rg-admin-languages-search ~ .rg-admin-search__clear');
+    waitForScript($page, '[...document.querySelectorAll(\'[role="table"] [role="row"][id^="rg-admin-language-"]\')].filter((row) => getComputedStyle(row).display !== "none").length', count(supportedLocales()));
+
+    expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
+        ->and($page->script('location.search'))->toBe('')
+        ->and(languagesFocused($page))->toBe('rg-admin-languages-search')
+        ->and($page->script($clearShown))->toBeFalse()
+        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+
+    // Opened with a search, the field has text to clear straight away.
+    $page = visit('/admin/languages?q='.rawurlencode($withheld))->resize(1440, 900)->wait(0.4);
+    waitForScript($page, $clearShown);
+});
+
 it('keeps the search across tabs, in their links, the URL and Back', function () {
     [, $withheld] = twoTranslatedLocales();
     offerEveryInstalledLocaleExcept($withheld);

@@ -92,6 +92,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
+        // The infrastructure verification transport: it runs exactly
+        // verify-infrastructure on a host and installs nothing.
+        'verify-rateguru-infrastructure',
     ]);
 });
 
@@ -120,6 +123,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        // One verification workflow per environment, exactly like every other
+        // operator-facing operation here.
+        'verify-production-infrastructure.yml',
+        'verify-staging-infrastructure.yml',
     ]);
 
     // No workflow may let an operator type, choose or otherwise supply a
@@ -495,6 +502,11 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // Configuring creates that target's database on the same shared
         // machine, for the same reason and with the same consequence.
         'configure-tits-guru.yml:configure' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Verifying a target's infrastructure mutates nothing, but it reads the
+        // shared machine and must never observe it halfway through any of the
+        // mutations above — so both verifications wait in the host's domain.
+        'verify-production-infrastructure.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
+        'verify-staging-infrastructure.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

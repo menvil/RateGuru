@@ -67,6 +67,7 @@
     .rg-admin-breadcrumb__link:focus-visible,
     .rg-admin-pagination__page:focus-visible,
     .rg-admin-filter-chip__remove:focus-visible,
+    .rg-admin-search__clear:focus-visible,
     .rg-admin-toast__action:focus-visible,
     .rg-admin-toast__close:focus-visible {
         outline: 2px solid var(--rg-admin-focus-ring);
@@ -828,6 +829,30 @@
     }
 
     .rg-admin-search__control::-webkit-search-cancel-button {
+        display: none;
+    }
+
+    /* A clearable field's own clear button, there only while the field holds text. */
+    .rg-admin-search__clear {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        color: var(--rg-admin-text-tertiary);
+        cursor: pointer;
+    }
+
+    .rg-admin-search__clear:hover:not(:disabled) {
+        background: var(--rg-admin-surface-pressed);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-search__control:placeholder-shown ~ .rg-admin-search__clear {
         display: none;
     }
 

@@ -47,7 +47,8 @@
         The search: typing filters the rows already on the page and keeps the
         query in the address (?q=) with replaceState, so a link or a reload
         opens the same view, without a Livewire request per keystroke. The
-        tabs carry the query along, and Back restores it with the tab.
+        tabs carry the query along, and Back restores it with the tab. While
+        the field holds text, its clear button empties it in one click.
     --}}
     <div
         class="rg-admin-screen__body"
@@ -111,6 +112,7 @@
                     name="q"
                     id="rg-admin-languages-search"
                     x-model="query"
+                    clearable
                 />
                 {{-- Always present, so a screen reader hears the new count while focus stays in the field. --}}
                 <span

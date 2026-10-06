@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "targets": {
+    "tits-guru": {
+      "dkim": {
+        "selector": "rg1",
+        "algorithm": "rsa-sha256",
+        "minimum_key_bits": 2048
+      },
+      "dmarc": {
+        "policy": "none",
+        "adkim": "strict",
+        "aspf": "strict"
+      }
+    }
+  }
+}

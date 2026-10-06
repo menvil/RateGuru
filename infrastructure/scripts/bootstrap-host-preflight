@@ -696,7 +696,9 @@ report_host_dns() {
 # install-target-operations, install-target-perimeter, install-mail-capture,
 # install-public-storage-access, verify-mail-capture, status, health-check,
 # common, and install-bootstrap-runtime (unzip extracts the pinned rclone
-# release archive). Format: "tool:package".
+# release archive). dig and openssl are what verifying the production mail
+# identity reads public DNS and judges DKIM keys with (mail-identity,
+# verify-infrastructure). Format: "tool:package".
 REQUIRED_BASE_TOOLS=(
     bash:bash
     jq:jq
@@ -749,6 +751,8 @@ REQUIRED_BASE_TOOLS=(
     ip:iproute2
     setfacl:acl
     getfacl:acl
+    dig:bind9-dnsutils
+    openssl:openssl
 )
 
 # Filled by report_tools: php CLI name derived from the deployment.conf

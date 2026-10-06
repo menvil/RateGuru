@@ -150,6 +150,42 @@ it('labels a search field by what it searches and hands bindings to the input', 
         ->assertSee('<label class="rg-admin-search rg-admin-toolbar__search">', false);
 });
 
+it('gives a clearable search field a clear button for its input, in a frame that is not a label', function () {
+    $html = (string) $this->blade('<x-admin.ui.search-field placeholder="Search language or locale code" id="rg-admin-languages-search" x-model="query" class="rg-admin-toolbar__search" clearable />');
+
+    $dom = new DOMDocument;
+    @$dom->loadHTML($html);
+    $xpath = new DOMXPath($dom);
+    $frame = $xpath->query('//*[contains(@class, "rg-admin-search ")]')->item(0);
+    $clear = $xpath->query('//button[contains(@class, "rg-admin-search__clear")]')->item(0);
+
+    // A button may not sit inside a label, so the frame is a div of its own.
+    expect($frame?->nodeName)->toBe('div')
+        ->and($frame->getAttribute('class'))->toBe('rg-admin-search rg-admin-toolbar__search')
+        ->and($frame->hasAttribute('x-data'))->toBeTrue()
+        ->and($xpath->query('//label')->length)->toBe(0);
+
+    // The bindings still land on the input, and the button names what it does and what it acts on.
+    expect($xpath->query('//input[@id="rg-admin-languages-search"][@x-model="query"][@type="search"]')->length)->toBe(1)
+        ->and($clear?->getAttribute('type'))->toBe('button')
+        ->and($clear->getAttribute('aria-label'))->toBe('Clear search')
+        ->and($clear->getAttribute('aria-controls'))->toBe('rg-admin-languages-search')
+        ->and($clear->getAttribute('x-on:click'))->toContain("dispatchEvent(new Event('input', { bubbles: true }))")->toContain('focus()');
+});
+
+it('draws no clear button on a search field that does not ask for one', function () {
+    expect((string) $this->blade('<x-admin.ui.search-field placeholder="Search" />'))
+        ->toContain('<label class="rg-admin-search">')
+        ->not->toContain('rg-admin-search__clear')
+        ->not->toContain('x-data');
+});
+
+it('shows the clear button only while the field holds text', function () {
+    $css = (string) file_get_contents(resource_path('css/filament/admin/components.css'));
+
+    expect($css)->toContain(".rg-admin-search__control:placeholder-shown ~ .rg-admin-search__clear {\n        display: none;\n    }");
+});
+
 it('renders status tabs as links with the current one marked, or as toggles', function () {
     $links = $this->blade('<x-admin.ui.tabs label="Post status" active="pending" :items="$items" />', ['items' => [
         ['id' => 'all', 'label' => 'All', 'count' => '1,262', 'href' => '?status=all'],

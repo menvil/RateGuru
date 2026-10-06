@@ -446,7 +446,9 @@ The contract reproduces what the real staging VPS runs, inspected directly:
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
   staging packages identify as `18.x-1.pgdg22.04+1`.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
-  which extracts the pinned rclone release archive, and `procps`, whose
+  which extracts the pinned rclone release archive, `bind9-dnsutils` and
+  `openssl`, whose `dig` and `openssl` the read-only mail identity
+  verification uses, and `procps`, whose
   `pgrep` slice 5.4 uses to find the running Nginx workers whose
   supplementary groups it verifies) from the Ubuntu 22.04 distribution
   repository.
