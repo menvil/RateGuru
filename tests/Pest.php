@@ -1118,6 +1118,62 @@ function removeScratchDir(string $dir): void
     exec('rm -rf '.escapeshellarg($dir));
 }
 
+/**
+ * Copies a prepared scratch directory into another one, as though the
+ * preparation had been run there.
+ *
+ * Preparing a simulated host is often most of what a test costs — a whole
+ * provision, restore or recovery run — while the state it leaves never varies.
+ * A test file can build it once into a template and give every test a copy.
+ * But the simulated hosts record absolute paths: ownership and type tables, the
+ * stubs' logs, release links, generated configuration. So every text file and
+ * every link that names $template is rewritten to name $scratch, and then the
+ * copy is checked. A file or link that still named $template would let a test
+ * read or write the template instead of its own host, so that fails the test.
+ */
+function copyScratchTemplate(string $template, string $scratch): void
+{
+    exec('cp -a '.escapeshellarg($template.'/.').' '.escapeshellarg($scratch).' 2>&1', $output, $status);
+    expect($status)->toBe(0, "could not copy {$template} into {$scratch}: ".implode("\n", $output));
+
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($scratch, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    $namesTemplate = function (string $path) use ($template): bool {
+        return is_link($path)
+            ? str_starts_with((string) readlink($path), $template)
+            : is_file($path) && str_contains((string) file_get_contents($path), $template);
+    };
+
+    foreach ($entries as $entry) {
+        $path = $entry->getPathname();
+
+        if (! $namesTemplate($path)) {
+            continue;
+        }
+
+        if (is_link($path)) {
+            $target = (string) readlink($path);
+            unlink($path);
+            symlink($scratch.substr($target, strlen($template)), $path);
+        } else {
+            file_put_contents($path, str_replace($template, $scratch, (string) file_get_contents($path)));
+        }
+    }
+
+    $stale = [];
+
+    foreach ($entries as $entry) {
+        if ($namesTemplate($entry->getPathname())) {
+            $stale[] = $entry->getPathname();
+        }
+    }
+
+    expect($stale)->toBe([], "the copy still names the template it came from ({$template})");
+}
+
 function infraScript(string $name): string
 {
     return base_path('infrastructure/scripts/'.$name);
@@ -5502,11 +5558,8 @@ function provisionSummaryCount(string $output, string $label): int
  * template of its own, and every later call copies the template into the
  * test's scratch directory: 30 ms instead of 2–3 s.
  *
- * The simulated host records absolute paths — the ownership and type tables,
- * the stubs' install/chown/chmod logs, the staging neighbour's release links —
- * so the copy rewrites the template's path to the test's, and then proves that
- * no file and no link still names the template. A copy that missed one would
- * let the test read or write the template instead of its own host.
+ * copyScratchTemplate() rewrites the absolute paths the simulated host records
+ * and proves none still names the template; the environment is rewritten here.
  *
  * @return array<string, string>
  */
@@ -5527,44 +5580,7 @@ function provisionDemoShopProvisioned(string $scratch): array
 
     [$directory, $environment] = $template;
 
-    exec('cp -a '.escapeshellarg($directory.'/.').' '.escapeshellarg($scratch).' 2>&1', $copyOutput, $copyStatus);
-    expect($copyStatus)->toBe(0, 'could not copy the provisioned template: '.implode("\n", $copyOutput));
-
-    $entries = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($scratch, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST,
-    );
-
-    $stale = [];
-
-    foreach ($entries as $entry) {
-        $path = $entry->getPathname();
-
-        if (is_link($path)) {
-            $target = (string) readlink($path);
-
-            if (str_starts_with($target, $directory)) {
-                unlink($path);
-                symlink($scratch.substr($target, strlen($directory)), $path);
-            }
-        } elseif ($entry->isFile()) {
-            $contents = (string) file_get_contents($path);
-
-            if (str_contains($contents, $directory)) {
-                file_put_contents($path, str_replace($directory, $scratch, $contents));
-            }
-        }
-    }
-
-    foreach ($entries as $entry) {
-        $path = $entry->getPathname();
-
-        if (is_link($path) ? str_starts_with((string) readlink($path), $directory) : ($entry->isFile() && str_contains((string) file_get_contents($path), $directory))) {
-            $stale[] = $path;
-        }
-    }
-
-    expect($stale)->toBe([], 'the copied host still names the template it came from');
+    copyScratchTemplate($directory, $scratch);
 
     return array_map(
         fn (string $value): string => str_replace($directory, $scratch, $value),
