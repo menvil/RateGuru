@@ -3892,6 +3892,34 @@ function settingsTranslatedInto(array $locales): void
     app(ProjectSettingsManager::class)->flush();
 }
 
+/**
+ * Installs made-up languages after the real ones until there are this many,
+ * each with a copy of a real translation's catalogs, and one of them broken —
+ * the scale the screen has to hold, from a fixture rather than from real
+ * catalogs. Returns every installed code in config order.
+ *
+ * @return list<string>
+ */
+function installLanguagesUpTo(int $total): array
+{
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    [$source] = twoTranslatedLocales();
+    $supported = config('locales.supported');
+
+    for ($i = 0; count($supported) < $total; $i++) {
+        $code = 'x'.chr(97 + intdiv($i, 26)).chr(97 + $i % 26);
+        File::copyDirectory("{$root}/{$source}", "{$root}/{$code}");
+        $supported[$code] = ['label' => 'Language '.strtoupper($code), 'native' => 'Native '.strtoupper($code), 'flag' => '🏳️', 'enabled_by_default' => false];
+    }
+
+    File::delete("{$root}/".array_key_last($supported).'/ui.php');
+    config(['locales.supported' => $supported]);
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+
+    return array_keys($supported);
+}
+
 /** A category in the project's content that no language translates. */
 function untranslatedCategory(string $name = 'Georgian food'): Category
 {

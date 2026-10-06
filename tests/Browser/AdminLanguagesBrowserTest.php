@@ -22,7 +22,13 @@ function languagesScreen(mixed $page): array
             const drawer = document.querySelector('.rg-admin-drawer-layer')
 
             return {
-                rows: [...document.querySelectorAll('[role="table"] [role="row"][id^="rg-admin-language-"]')].map((row) => row.id.replace('rg-admin-language-', '')),
+                // The rows a person sees: the browser's search hides the others.
+                rows: [...document.querySelectorAll('[role="table"] [role="row"][id^="rg-admin-language-"]')]
+                    .filter((row) => getComputedStyle(row).display !== 'none')
+                    .map((row) => row.id.replace('rg-admin-language-', '')),
+                query: document.getElementById('rg-admin-languages-search')?.value ?? null,
+                count: document.querySelector('.rg-admin-toolbar__count')?.textContent.trim() ?? null,
+                noMatch: (() => { const empty = document.querySelector('[x-show="rows.length > 0 && shown === 0"]'); return !! empty && getComputedStyle(empty).display !== 'none' })(),
                 dialog: visible(dialog),
                 drawer: visible(drawer),
                 focusInDialog: !! document.activeElement?.closest('.rg-admin-dialog'),
@@ -45,6 +51,45 @@ function languagesRowText(mixed $page, string $locale): string
 function languagesFocused(mixed $page): ?string
 {
     return $page->script('document.activeElement ? (document.activeElement.id || document.activeElement.innerText.trim()) : null');
+}
+
+/**
+ * Counts, from here on, every Livewire update the page sends — through the
+ * fetch Livewire calls, and through the browser's own record of requests, so
+ * the proof does not rest on how Livewire happens to send them.
+ */
+function languagesWatchLivewire(mixed $page): void
+{
+    $page->script(<<<'JS'
+        (() => {
+            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
+            const fetch = window.fetch
+
+            window.livewireUri = uri
+            window.livewireFetches = 0
+            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
+            window.notReloaded = true
+            window.fetch = function (input, ...rest) {
+                if (String(input?.url ?? input).startsWith(uri)) {
+                    window.livewireFetches++
+                }
+
+                return fetch.call(this, input, ...rest)
+            }
+        })()
+    JS);
+}
+
+/** What the page has sent to Livewire since languagesWatchLivewire(), and whether it is still the same page. */
+function languagesLivewireTraffic(mixed $page): array
+{
+    return $page->script(<<<'JS'
+        (() => ({
+            fetches: window.livewireFetches ?? null,
+            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
+            sameDocument: window.notReloaded === true,
+        }))()
+    JS);
 }
 
 beforeEach(function () {
@@ -94,23 +139,36 @@ it('draws Languages in Admin v2, inside the shell, with nothing left of the Fila
     ]);
 });
 
-it('keeps every column, scrolling the table inside its card rather than the page', function (int $width) {
-    $page = visit('/admin/languages')->resize($width, 900)->wait(0.4);
+it('keeps every column, scrolling the table inside its card rather than the page, with a search on or off', function (int $width, bool $scrolls) {
+    [, $withheld] = twoTranslatedLocales();
+    $page = visit('/admin/languages?q='.$withheld)->resize($width, 900)->wait(0.4);
 
-    expect($page->script(<<<'JS'
-        (() => {
-            const scroll = document.querySelector('.rg-admin-table__scroll')
-            const head = document.querySelector('[role="table"] [role="row"]')
+    expect(languagesScreen($page)['rows'])->toBe([$withheld]);
 
-            return {
-                columns: head.querySelectorAll('[role="columnheader"]').length,
-                gridWidth: Math.round(document.querySelector('[role="table"]').getBoundingClientRect().width) >= 1060,
-                scrolls: scroll.scrollWidth > scroll.clientWidth,
-                overflow: document.documentElement.scrollWidth > window.innerWidth,
-            }
-        })()
-    JS))->toBe(['columns' => 7, 'gridWidth' => true, 'scrolls' => true, 'overflow' => false]);
-})->with([1024, 390]);
+    foreach ([true, false] as $searching) {
+        if (! $searching) {
+            $page->clear('#rg-admin-languages-search')->wait(0.3);
+        }
+
+        expect($page->script(<<<'JS'
+            (() => {
+                const scroll = document.querySelector('.rg-admin-table__scroll')
+                const head = document.querySelector('[role="table"] [role="row"]')
+
+                return {
+                    columns: head.querySelectorAll('[role="columnheader"]').length,
+                    gridWidth: Math.round(document.querySelector('[role="table"]').getBoundingClientRect().width) >= 1060,
+                    scrolls: scroll.scrollWidth > scroll.clientWidth,
+                    overflow: document.documentElement.scrollWidth > window.innerWidth,
+                }
+            })()
+        JS))->toBe(['columns' => 7, 'gridWidth' => true, 'scrolls' => $scrolls, 'overflow' => false]);
+    }
+})->with([
+    '1440' => [1440, false],
+    '1024' => [1024, true],
+    '390' => [390, true],
+]);
 
 it('filters by status tab without a reload, keeping the tab in the URL and in history', function () {
     [, $withheld] = twoTranslatedLocales();
@@ -417,20 +475,115 @@ it('moves focus to the page heading when the confirmed change takes the row out 
         ->and(languagesFocused($page))->toBe('rg-admin-languages-title');
 });
 
-it('narrows the table as you type, keeping the search in the URL', function () {
+it('opens with the search from the URL already applied', function () {
     [, $withheld] = twoTranslatedLocales();
     $native = config("locales.supported.{$withheld}.native");
+    $query = mb_substr($native, 0, 3);
+
+    $page = visit('/admin/languages?q='.rawurlencode($query))->resize(1440, 900)->wait(0.4);
+
+    expect(languagesScreen($page))->toMatchArray([
+        'rows' => [$withheld],
+        'query' => $query,
+        'count' => '1 of '.count(supportedLocales()).' installed',
+        'noMatch' => false,
+    ]);
+});
+
+it('filters as you type, in the page, without a single request to Livewire', function () {
+    [, $withheld] = twoTranslatedLocales();
+    $label = config("locales.supported.{$withheld}.label");
 
     $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->script('window.notReloaded = true');
+    languagesWatchLivewire($page);
 
-    $page->type('#rg-admin-languages-search', mb_substr($native, 0, 3))->wait(1);
+    // English name, case aside; native name; locale code.
+    foreach ([mb_strtoupper(mb_substr($label, 0, 4)), config("locales.supported.{$withheld}.native"), $withheld] as $search) {
+        $page->clear('#rg-admin-languages-search');
+        $page->typeSlowly('#rg-admin-languages-search', $search, 40)->wait(0.3);
 
-    expect(languagesScreen($page)['rows'])->toBe([$withheld])
-        ->and($page->script('document.querySelector(".rg-admin-toolbar__count").textContent.trim()'))->toBe('1 of '.count(supportedLocales()).' installed')
-        ->and($page->script('window.notReloaded ?? false'))->toBeTrue();
-    $page->assertQueryStringHas('q');
+        expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'count' => '1 of '.count(supportedLocales()).' installed'])
+            ->and($page->script('new URLSearchParams(location.search).get("q")'))->toBe($search);
+    }
 
-    $page->clear('#rg-admin-languages-search')->wait(1);
-    expect(languagesScreen($page)['rows'])->toBe(supportedLocales());
+    expect(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+
+    // The watch does see Livewire: a tab is a request.
+    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]')->wait(0.8);
+
+    expect(languagesLivewireTraffic($page)['fetches'])->toBeGreaterThan(0)
+        ->and(languagesLivewireTraffic($page)['requests'])->toBeGreaterThan(0);
+});
+
+it('clears the search back to every row, and the URL with it, without asking the server', function () {
+    $page = visit('/admin/languages?q=klingon')->resize(1440, 900)->wait(0.4);
+    languagesWatchLivewire($page);
+
+    expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'count' => '0 of '.count(supportedLocales()).' installed']);
+    $page->assertSee('No installed language matches “klingon”');
+
+    $page->click('Clear search')->wait(0.3);
+
+    expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
+        ->and($page->script('location.search'))->toBe('')
+        ->and(languagesFocused($page))->toBe('rg-admin-languages-search')
+        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+});
+
+it('keeps the search across tabs, in their links, the URL and Back', function () {
+    [, $withheld] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($withheld);
+    $other = array_values(array_diff(translatedLocales(), [$withheld]))[0];
+    $query = $withheld;
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page->typeSlowly('#rg-admin-languages-search', $query, 40)->wait(0.3);
+
+    // Every tab link carries the search, as a link of its own.
+    expect($page->script('[...document.querySelectorAll("nav[aria-label=\"Language status\"] a")].map((a) => new URL(a.href).searchParams.get("q"))'))
+        ->toBe([$query, $query, $query, $query]);
+
+    $page->click('nav[aria-label="Language status"] a[href*="status=disabled"]')->wait(0.8);
+
+    expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query, 'count' => '1 of '.count(supportedLocales()).' installed'])
+        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']);
+
+    // On Enabled the same search finds nothing, and says so.
+    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]')->wait(0.8);
+    expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'query' => $query]);
+
+    $page->back()->wait(0.8);
+    expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query])
+        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']);
+
+    // A different search on another tab, then back to All: still the search, still in the links.
+    $page->clear('#rg-admin-languages-search');
+    $page->typeSlowly('#rg-admin-languages-search', $other, 40)->wait(0.3);
+    expect(languagesScreen($page)['rows'])->toBe([]);
+
+    $page->click('nav[aria-label="Language status"] a:not([href*="status="])')->wait(0.8);
+    expect(languagesScreen($page))->toMatchArray(['rows' => [$other], 'query' => $other])
+        ->and($page->script('new URLSearchParams(location.search).get("status")'))->toBeNull();
+});
+
+it('searches thirty-five languages in the page', function () {
+    $codes = installLanguagesUpTo(35);
+    $made = $codes[20];
+
+    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    languagesWatchLivewire($page);
+
+    expect(languagesScreen($page))->toMatchArray(['rows' => $codes, 'count' => '35 of 35 installed']);
+
+    $page->typeSlowly('#rg-admin-languages-search', $made, 40)->wait(0.3);
+    expect(languagesScreen($page))->toMatchArray(['rows' => [$made], 'count' => '1 of 35 installed']);
+
+    // "Language X…" is in every made-up name: a search can match many at once.
+    $page->clear('#rg-admin-languages-search');
+    $page->typeSlowly('#rg-admin-languages-search', 'language x', 40)->wait(0.3);
+    expect(languagesScreen($page)['rows'])->toBe(array_values(array_filter($codes, fn (string $code): bool => str_starts_with($code, 'x'))));
+
+    $page->clear('#rg-admin-languages-search')->wait(0.3);
+    expect(languagesScreen($page)['rows'])->toBe($codes)
+        ->and(languagesLivewireTraffic($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 });

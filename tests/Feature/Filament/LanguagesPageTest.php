@@ -148,34 +148,6 @@ function emptyUiCatalogOf(string $locale): void
     app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
 }
 
-/**
- * Installs made-up languages after the real ones until there are this many,
- * each with a copy of a real translation's catalogs, and one of them broken —
- * the scale the screen has to hold, from a fixture rather than from real
- * catalogs. Returns every installed code in config order.
- *
- * @return list<string>
- */
-function installLanguagesUpTo(int $total): array
-{
-    $root = catalogScratchDirectory();
-    File::copyDirectory(lang_path(), $root);
-    [$source] = twoTranslatedLocales();
-    $supported = config('locales.supported');
-
-    for ($i = 0; count($supported) < $total; $i++) {
-        $code = 'x'.chr(97 + intdiv($i, 26)).chr(97 + $i % 26);
-        File::copyDirectory("{$root}/{$source}", "{$root}/{$code}");
-        $supported[$code] = ['label' => 'Language '.strtoupper($code), 'native' => 'Native '.strtoupper($code), 'flag' => '🏳️', 'enabled_by_default' => false];
-    }
-
-    File::delete("{$root}/".array_key_last($supported).'/ui.php');
-    config(['locales.supported' => $supported]);
-    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
-
-    return array_keys($supported);
-}
-
 beforeEach(function () {
     ProjectSettings::factory()->create();
     $this->actingAs(User::factory()->admin()->create());
@@ -483,49 +455,118 @@ it('says when no language is incomplete, and when none is disabled', function ()
 });
 
 // Search ---------------------------------------------------------------------------
+//
+// The search is the browser's: it filters the rows of the open tab already on
+// the page, so a keystroke never reaches the server. The browser tests prove
+// the behaviour; these pin the contract the browser works from, and guard
+// against a live server-side search coming back.
 
-it('searches by English name, native name or locale code, within the open tab', function () {
-    [$offered, $withheld] = twoTranslatedLocales();
+/** A page as a plain HTTP response renders it, queryable. */
+function languagesResponseDom(string $html): DOMXPath
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML('<?xml encoding="utf-8"?>'.$html);
+
+    return new DOMXPath($dom);
+}
+
+it('gives every row what the browser searches: English name, native name and code, lower-cased', function () {
+    $page = languagesPage();
+
+    foreach (config('locales.supported') as $code => $info) {
+        expect(languageRow($page, $code))
+            ->toContain('data-search="'.e(mb_strtolower("{$info['label']} {$info['native']} {$code}")).'"')
+            ->toContain('x-show="matches($el.dataset.search)"');
+    }
+});
+
+it('filters rows by tab only, whatever the search in the URL says', function () {
+    [, $withheld] = twoTranslatedLocales();
     offerEveryInstalledLocaleExcept($withheld);
-    $info = config("locales.supported.{$withheld}");
 
-    foreach ([$info['label'], mb_strtoupper($info['native']), $withheld] as $search) {
-        $page = languagesPage()->set('search', $search);
+    expect(languagesListed(Livewire::withQueryParams(['q' => 'nothing like a language'])->test(LanguagesPage::class)))->toBe(supportedLocales())
+        ->and(languagesListed(Livewire::withQueryParams(['q' => $withheld, 'status' => 'enabled'])->test(LanguagesPage::class)))->toBe(offeredLocales());
 
-        expect(languagesListed($page))->toContain($withheld)->not->toContain('en')
-            ->and(languagesFragment($page, "//*[contains(@class, 'rg-admin-toolbar__count')]"))->toContain(count(languagesListed($page)).' of '.count(supportedLocales()).' installed');
+    $html = $this->get(LanguagesPage::getUrl(['q' => 'nothing like a language']))->assertOk()->getContent();
+
+    foreach (supportedLocales() as $code) {
+        expect($html)->toContain("id=\"rg-admin-language-{$code}\"");
+    }
+});
+
+it('never sends a keystroke in the search to the server', function () {
+    // No property for it on the page, so nothing for a live binding to update…
+    expect(property_exists(LanguagesPage::class, 'search'))->toBeFalse()
+        ->and((string) file_get_contents(app_path('Filament/Pages/LanguagesPage.php')))->not->toContain("as: 'q'");
+
+    // …and the field is bound to the browser's state, never to Livewire.
+    $views = collect(File::allFiles(resource_path('views/filament/pages/languages')))
+        ->map(fn (SplFileInfo $file): string => $file->getContents())
+        ->push((string) file_get_contents(resource_path('views/filament/pages/languages.blade.php')))
+        ->implode("\n");
+
+    expect($views)->not->toContain('wire:model');
+
+    $field = (string) languagesFragment(languagesPage(), "//input[@id='rg-admin-languages-search']");
+
+    expect($field)->toContain('x-model="query"')->not->toContain('wire:');
+});
+
+it('carries the search into every tab link, which stays a real link', function () {
+    $html = $this->get(LanguagesPage::getUrl(['status' => 'disabled', 'q' => 'ger']))->assertOk()->getContent();
+    $xpath = languagesResponseDom($html);
+    $tabs = [];
+
+    foreach ($xpath->query("//nav[@aria-label='Language status']//a") as $tab) {
+        $tabs[trim($tab->firstChild->textContent)] = [$tab->getAttribute('href'), $tab->getAttribute('x-bind:href')];
     }
 
-    // The search narrows the open tab; the tab counts stay over every language.
-    $page = languagesPage()->set('status', 'enabled')->set('search', $withheld);
-    expect(languagesListed($page))->toBe([])
-        ->and(languagesTabs($page)['All'])->toBe(count(supportedLocales()));
+    expect($tabs)->toBe([
+        'All' => [LanguagesPage::getUrl(['q' => 'ger']), "withQuery('".str_replace('/', '\/', LanguagesPage::getUrl())."')"],
+        'Enabled' => [LanguagesPage::getUrl(['status' => 'enabled', 'q' => 'ger']), "withQuery('".str_replace('/', '\/', LanguagesPage::getUrl(['status' => 'enabled']))."')"],
+        'Disabled' => [LanguagesPage::getUrl(['status' => 'disabled', 'q' => 'ger']), "withQuery('".str_replace('/', '\/', LanguagesPage::getUrl(['status' => 'disabled']))."')"],
+        'Incomplete' => [LanguagesPage::getUrl(['status' => 'incomplete', 'q' => 'ger']), "withQuery('".str_replace('/', '\/', LanguagesPage::getUrl(['status' => 'incomplete']))."')"],
+    ]);
+
+    // Opened with a search, the rows wait for the browser to apply it rather than flash unfiltered.
+    expect($xpath->query("//*[contains(@class, 'rg-admin-table__scroll')][@x-cloak]")->length)->toBe(1)
+        ->and(languagesResponseDom($this->get(LanguagesPage::getUrl())->getContent())->query("//*[contains(@class, 'rg-admin-table__scroll')][@x-cloak]")->length)->toBe(0);
 });
 
-it('keeps the search in the URL, and reads it back from there', function () {
-    [, $withheld] = twoTranslatedLocales();
+it('leaves the count and the no-match state for the browser to fill in', function () {
+    $page = languagesPage();
+    $installed = count(supportedLocales());
 
-    $page = Livewire::withQueryParams(['q' => $withheld])->test(LanguagesPage::class)->assertSet('search', $withheld);
+    $count = (string) languagesFragment($page, "//*[contains(@class, 'rg-admin-toolbar__count')]");
+    $noMatch = (string) languagesFragment($page, "//*[@x-show='rows.length > 0 && shown === 0']");
 
-    expect(languagesListed($page))->toBe([$withheld])
-        ->and(languagesFragment($page, "//input[@id='rg-admin-languages-search']"))->toContain('wire:model.live.debounce.250ms="search"');
+    expect($count)
+        ->toContain('role="status"')
+        ->toContain('x-text="`${shown} of '.$installed.' installed`"')
+        ->toContain(">{$installed} of {$installed} installed<")
+        ->and($noMatch)
+        ->toContain('x-cloak')
+        ->toContain('No installed language matches “<span x-text="query.trim()"></span>”')
+        ->toContain('x-on:click="clear()"')
+        ->toContain('Clear search')
+        ->not->toContain('wire:');
 });
 
-it('says when no language matches, and offers to clear the search', function () {
-    $page = languagesPage()->set('search', 'Klingon');
+it('keys the table by the rows it holds, so the browser counts afresh when they change', function () {
+    [$other] = twoTranslatedLocales();
+    offerEveryInstalledLocale();
 
-    expect(languagesListed($page))->toBe([])
-        ->and(languagesFragment($page, "//*[contains(@class, 'rg-admin-empty-state')]"))
-        ->toContain('No installed language matches “Klingon”')
-        ->toContain('Clear search');
+    // XPath reads wire:key as a namespaced name, so the attribute is matched by name().
+    $key = fn (Testable $page): string => (string) languagesDom($page)->query("//*[contains(concat(' ', @class, ' '), ' rg-admin-table ')]/@*[name()='wire:key']")->item(0)?->nodeValue;
 
-    expect(languagesListed($page->set('search', '')))->toBe(supportedLocales());
-});
+    $page = languagesPage()->set('status', 'enabled');
+    $before = $key($page);
 
-it('searches for nothing when sent something other than text', function () {
-    languagesPage()->set('search', ['de'])->assertSet('search', '');
+    // Disabling a language takes it out of the Enabled tab: a different set of rows.
+    $page->call('disableLanguage', $other);
 
-    expect(languagesListed(Livewire::withQueryParams(['q' => ['de']])->test(LanguagesPage::class)))->toBe(supportedLocales());
+    expect($key($page))->not->toBe($before)
+        ->and($key($page->set('status', 'all')))->not->toBe($key($page->set('status', 'disabled')));
 });
 
 // The table's columns -------------------------------------------------------------
@@ -984,6 +1025,11 @@ it('holds thirty-five languages in one table, in config order', function () {
     // Every language is a row of the one table, never a card of its own.
     foreach ($codes as $code) {
         expect(languageRow($page, $code))->not->toBeNull();
+    }
+
+    // Every row carries what the browser's search looks in.
+    foreach ($codes as $code) {
+        expect(languageRow($page, $code))->toContain('data-search="'.e(mb_strtolower(config("locales.supported.{$code}.label").' '.config("locales.supported.{$code}.native")." {$code}")).'"');
     }
 
     // The broken copy is shown as such, and only it.

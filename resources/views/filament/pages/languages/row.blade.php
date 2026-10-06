@@ -24,7 +24,14 @@
     };
 @endphp
 
-<div id="{{ $id }}" class="rg-admin-table__row" role="row" wire:key="language-{{ $row['code'] }}">
+<div
+    id="{{ $id }}"
+    class="rg-admin-table__row"
+    role="row"
+    wire:key="language-{{ $row['code'] }}"
+    data-search="{{ $row['search'] }}"
+    x-show="matches($el.dataset.search)"
+>
     <div class="rg-admin-table__cell" role="cell">
         <div class="rg-admin-languages__language">
             {{-- The flag only accompanies the names; it never identifies the language alone. --}}

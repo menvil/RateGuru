@@ -304,6 +304,9 @@ These are the current migration state, not changes to the target design:
 - **Overflow:** the grid has a `min-width`; the card scrolls horizontally. Never hide a column the moderator needs.
   The scroll container is positioned, so screen-reader-only text in the cells scrolls with it instead of widening
   the page.
+- **Where a search runs:** a bounded list that is already on the page (installed languages) is searched in the
+  browser; a large or paginated list (posts, users, comments) is searched by a server query; the sidebar's global
+  search keeps its own backend.
 - **Toolbar (TBL-02):** padding 14 16, gap 10, wraps. Order: search (320) · filters (button + chevron-down, “Field:
   value”) · segmented control · active filter chips (28 high, radius 8, sunken, removable) · result count on the
   right (13 tertiary, “3 posts match”).
@@ -470,8 +473,12 @@ now, and the action remains the final safeguard.
   catalog that breaks the contract or project content without a translation. The tab is in the query string
   (`?status=…`, none for All) and in the browser history.
 - The table card's toolbar (TBL-02) searches the English name, native name and locale code within the open tab
-  (“Search language or locale code”, `?q=…`) and counts the result (“4 of 4 installed”); a search with no result
-  offers Clear search. No pagination: installed languages are a bounded configuration list.
+  (“Search language or locale code”) and counts the result (“4 of 4 installed”); a search with no result offers
+  Clear search. The search runs in the browser over the rows of the open tab already on the page: typing sends no
+  Livewire request, so it never re-reads the catalogs or the project's content. The query is kept in the address
+  (`?q=…`) with `history.replaceState`, opens filtered from a link, travels with the tab links and comes back with
+  Back; only the tab is decided on the server. No pagination: installed languages are a bounded configuration
+  list.
 - Rows as in the prototype, with these differences. Status shows Enabled (success, dot) or Disabled (neutral) with
   “Offered to visitors” / “Not offered to visitors”; English shows Default (success, dot) and “Reference language”,
   two lines like every other row.

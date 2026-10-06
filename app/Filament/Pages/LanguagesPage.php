@@ -20,6 +20,7 @@ use App\Support\Translations\TranslationCatalogReport;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Js;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -47,12 +48,13 @@ use UnitEnum;
  *
  * Drawn entirely in Admin v2: the view renders the whole screen itself rather
  * than inside Filament's page wrapper, so Filament's own heading, table and
- * action modals are not on it. Confirmations, the missing-translations drawer,
- * the status tab and the search are Livewire state; every public method checks the
+ * action modals are not on it. Confirmations, the missing-translations drawer
+ * and the status tab are Livewire state; the search is the browser's, over the
+ * rows already on the page. Every public method checks the
  * language against what is installed and what is offered now, because what
  * the browser sends is not a permission.
  *
- * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, incomplete: bool}
+ * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, incomplete: bool, search: string}
  */
 final class LanguagesPage extends Page
 {
@@ -86,14 +88,6 @@ final class LanguagesPage extends Page
      */
     #[Url(history: true, except: 'all')]
     public mixed $status = 'all';
-
-    /**
-     * The search over each language's English name, native name and code,
-     * within the open tab. In the query string too; typed loosely for the
-     * same reason as the status.
-     */
-    #[Url(as: 'q', except: '')]
-    public mixed $search = '';
 
     /** The confirmation on screen: enable or disable. */
     #[Locked]
@@ -130,7 +124,6 @@ final class LanguagesPage extends Page
     public function mount(): void
     {
         $this->updatedStatus();
-        $this->updatedSearch();
     }
 
     /** A status that is not a tab shows them all. */
@@ -138,14 +131,6 @@ final class LanguagesPage extends Page
     {
         if (! in_array($this->status, self::STATUSES, true)) {
             $this->status = 'all';
-        }
-    }
-
-    /** Anything but text searches for nothing. */
-    public function updatedSearch(): void
-    {
-        if (! is_string($this->search)) {
-            $this->search = '';
         }
     }
 
@@ -313,15 +298,19 @@ final class LanguagesPage extends Page
     {
         $rows = $this->languages();
         $status = in_array($this->status, self::STATUSES, true) ? $this->status : 'all';
-        $search = is_string($this->search) ? trim($this->search) : '';
+        $query = self::requestedQuery();
         $locales = app(LocaleManager::class);
 
         return [
             'stats' => $this->stats($rows),
-            'tabs' => $this->tabs($rows),
+            'tabs' => $this->tabs($rows, $query),
             'status' => $status,
-            'search' => $search,
-            'rows' => array_filter($rows, fn (array $row): bool => self::shows($status, $row) && self::matches($search, $row)),
+            'query' => $query,
+            // Only the tab is decided here. The search filters these rows in the
+            // browser: the installed languages are a bounded list already on the
+            // page, and a keystroke must not cost a fresh read of every catalog
+            // and of the project's content.
+            'rows' => array_filter($rows, fn (array $row): bool => self::shows($status, $row)),
             'confirmation' => $this->confirmation($rows),
             'missing' => $this->missing($rows),
             'defaultLabel' => $locales->label($locales->default()),
@@ -382,14 +371,15 @@ final class LanguagesPage extends Page
     }
 
     /**
-     * Whether a row answers the search: its English name, native name or
-     * code contains it, whatever the case.
-     *
-     * @param  LanguageRow  $row
+     * The search the page was opened with (`?q=`), so the tab links of the first
+     * response carry it before the browser takes over. A Livewire round trip
+     * has no query string of its own; the browser keeps the links current.
      */
-    private static function matches(string $search, array $row): bool
+    private static function requestedQuery(): string
     {
-        return $search === '' || str_contains(mb_strtolower("{$row['label']} {$row['native']} {$row['code']}"), mb_strtolower($search));
+        $query = request()->query('q');
+
+        return is_string($query) ? Str::limit(trim($query), 100, '') : '';
     }
 
     /**
@@ -420,17 +410,24 @@ final class LanguagesPage extends Page
      * One tab per status. Each count is over every installed language, so
      * choosing a tab never changes the others' counts.
      *
+     * Each is a real link, search included, so it opens in a new tab and copies
+     * as what it shows; the browser keeps its search current as it changes, and
+     * a click switches the tab in place.
+     *
      * @param  array<string, LanguageRow>  $rows
      * @return list<array{id: string, label: string, count: int, href: string, attributes: array<string, string>}>
      */
-    private function tabs(array $rows): array
+    private function tabs(array $rows, string $query): array
     {
         return array_map(fn (string $status): array => [
             'id' => $status,
             'label' => ucfirst($status),
             'count' => count(array_filter($rows, fn (array $row): bool => self::shows($status, $row))),
-            'href' => self::getUrl($status === 'all' ? [] : ['status' => $status]),
-            'attributes' => ['wire:click.prevent' => "\$set('status', '{$status}')"],
+            'href' => self::getUrl(array_filter(['status' => $status === 'all' ? null : $status, 'q' => $query === '' ? null : $query])),
+            'attributes' => [
+                'wire:click.prevent' => "\$set('status', '{$status}')",
+                'x-bind:href' => 'withQuery('.Js::from(self::getUrl($status === 'all' ? [] : ['status' => $status])).')',
+            ],
         ], self::STATUSES);
     }
 
@@ -521,6 +518,8 @@ final class LanguagesPage extends Page
                 'project' => $projects[$code],
                 'missing' => count($projects[$code]->missing),
                 'incomplete' => ! $catalogs[$code]->isComplete() || ! $projects[$code]->isComplete(),
+                // What the browser's search looks in: English name, native name and code.
+                'search' => mb_strtolower("{$info['label']} {$info['native']} {$code}"),
             ];
         }
 
