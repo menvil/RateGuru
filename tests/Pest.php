@@ -2985,6 +2985,50 @@ function restoreTargetHeldOperation(string $scratch): string
     return $operations[0];
 }
 
+/**
+ * A target whose code does not match the backup, restored from it and held for
+ * code alignment in $scratch — the state every test of the hold, of --resume
+ * and of --inspect starts from — and the operation that holds it.
+ *
+ * Getting there is a whole --apply: stage, verify, quiesce, the emergency
+ * backup, both swaps. That is 1.3–2 s, most of what each of those tests costs,
+ * and its result never varies. So a worker holds a target once, into a
+ * template of its own, and every later call copies the template into the
+ * test's scratch directory: about 40 ms, the registry included.
+ *
+ * copyScratchTemplate() rewrites the absolute paths the operation recorded and
+ * proves none still names the template. `cp -a` keeps the hard links between
+ * the staged backup and the backup it was staged from, inside each copy and
+ * never across into the template. The registry is then written again, exactly
+ * as restoreTargetFixture() writes it, so the copy holds what a fresh fixture
+ * would rather than a rewritten one.
+ * Every copy carries the same operation ID and the template's timestamps;
+ * nothing compares either to the clock.
+ */
+function restoreTargetHeldForCodeAlignment(string $scratch): string
+{
+    static $template = null;
+
+    if ($template === null) {
+        $directory = restoreScratchDir();
+        register_shutdown_function(fn () => removeScratchDir($directory));
+
+        restoreTargetFixture($directory, [
+            'current_release' => FIXTURE_OTHER_RELEASE,
+            'current_source_sha' => FIXTURE_OTHER_SOURCE_SHA,
+        ]);
+
+        $template = [$directory, restoreTargetHeldOperation($directory)];
+    }
+
+    [$directory, $operation] = $template;
+
+    copyScratchTemplate($directory, $scratch);
+    parityRegistryFixture($scratch);
+
+    return $operation;
+}
+
 /** Deploys the aligned release, the way the controlled alignment deploy would. */
 function restoreTargetAlignCode(string $scratch): void
 {
