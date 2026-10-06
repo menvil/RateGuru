@@ -1,0 +1,91 @@
+app/Support/TranslationEngine/TranslationProviderRouter.php
+  s_cbcd61fc717774::t_fae46fe910fb35 1-89
+app/Support/TranslationEngine/Enums/TranslationDataClassification.php
+  s_cbcd61fc717774::t_0846fccaa152bd 1-23
+app/Support/TranslationEngine/TranslationService.php
+  s_cbcd61fc717774::t_2e4349f3870f70 1-237
+app/Support/TranslationEngine/Data/TranslationProviderCall.php
+  s_cbcd61fc717774::t_5a98d293e8b54f 1-86
+app/Support/TranslationEngine/TranslationLocale.php
+  s_cbcd61fc717774::t_11a121d7bd2b0a 1-32
+app/Support/TranslationEngine/Exceptions/TranslationConfigurationException.php
+  s_cbcd61fc717774::t_0808c3bf976373 1-56
+app/Support/TranslationEngine/Data/TranslationProviderLimits.php
+  s_cbcd61fc717774::t_9ae258454351fb 1-29
+app/Support/TranslationEngine/Exceptions/InvalidTranslationRequestException.php
+  s_cbcd61fc717774::t_d90ae770faedc5 1-32
+tests/Feature/TranslationEngine/TranslationEngineArchitectureGuardTest.php
+  s_cbcd61fc717774::t_c8c99743ee30d8 1-230
+app/Support/TranslationEngine/Data/TranslationItemResult.php
+  s_cbcd61fc717774::t_57e8e1f5f83036 1-40
+app/Support/TranslationEngine/Data/TranslationChunkPlan.php
+  s_cbcd61fc717774::t_6a4d0b00c1d678 1-19
+app/Support/TranslationEngine/Contracts/TranslationProvider.php
+  s_cbcd61fc717774::t_354527794a703f 1-47
+app/Support/TranslationEngine/Exceptions/TranslationProviderException.php
+  s_cbcd61fc717774::t_e82b03fc74f329 1-31
+app/Support/Observability/NightwatchPrivacy.php
+  s_cbcd61fc717774::t_f785ad5180659d 162-169
+app/Support/TranslationEngine/Data/TranslationProviderResponse.php
+  s_cbcd61fc717774::t_1183e32dfa7e01 1-23
+app/Support/TranslationEngine/Enums/TranslationErrorCode.php
+  s_cbcd61fc717774::t_5ac13edcac81b5 1-63
+app/Support/TranslationEngine/Enums/TranslationStatus.php
+  s_cbcd61fc717774::t_4ad4d3e0f46648 1-12
+config/translation.php
+  s_cbcd61fc717774::t_b2f434b3c2a0b3 1-71
+tests/Unit/Support/TranslationEngine/TranslationBatchChunkerTest.php
+  s_cbcd61fc717774::t_2f04e9560c8b29 1-147,149-152,155-157,159-175
+  s_cbcd61fc717774::t_bba61fb6988cf4 148,153-154,158
+tests/Feature/TranslationEngine/OpenAiTranslationProviderTest.php
+  s_cbcd61fc717774::t_7337b519fe7f8f 1-10,12,14-241,243-447,450-474
+  s_cbcd61fc717774::t_b1ee827120afe7 11,13,448-449
+  s_cbcd61fc717774::t_2d8543ca3fb5f0 242
+app/Support/TranslationEngine/Data/TranslationBatchRequest.php
+  s_cbcd61fc717774::t_e38f5db1eb3189 32-37,41-42,47-48,51-53,80-84,86,90-92,97-100,102-103,105-111,114-118,120,124,128,131,145,147-148
+  s_cbcd61fc717774::t_9e88d89df65be4 1-31,38-40,43-46,49-50,54-79,85,87-89,93-96,101,104,112-113,119,121-123,125-127,129-130,132-144,146,149-150
+app/Support/TranslationEngine/Data/TranslationItem.php
+  s_cbcd61fc717774::t_a7503422f5f859 1-37,44,49-55,58-66,69-77,81-150,156,158-160,162,164-171,173-181,183,186-187,193,197-203,206,209-210
+  s_cbcd61fc717774::t_e38f5db1eb3189 38-43,45-48,56-57,67-68,78-80,151-155,157,161,163,172,182,184-185,188-192,194-196,204-205,207-208
+app/Providers/TranslationEngineServiceProvider.php
+  s_cbcd61fc717774::t_e54504017392be 1-31
+app/Support/TranslationEngine/TranslationPromptBuilder.php
+  s_cbcd61fc717774::t_84a8a42f3c0879 1-136
+app/Support/TranslationEngine/Providers/OpenAiTranslationProvider.php
+  s_cbcd61fc717774::t_3e42dcc2ea8a57 1-71,80,83-347,349-356,358,360-368,370-377,379-386
+  s_cbcd61fc717774::t_0a1a5b8148b8f5 72-79,81-82,348,357,359,369,378
+bootstrap/providers.php
+  s_cbcd61fc717774::t_22ee5eadce5edd 7,13
+tests/Unit/Support/TranslationEngine/TranslationBatchRequestTest.php
+  s_cbcd61fc717774::t_cd219ed92f8d07 1-254
+app/Support/TranslationEngine/Data/TranslationBatchResult.php
+  s_cbcd61fc717774::t_58da10b1960e9a 1-46
+tests/Pest.php
+  s_cbcd61fc717774::t_484f0999e9ec4e 24-30,34,39,7483-7760
+app/Support/TranslationEngine/TranslationBatchChunker.php
+  s_cbcd61fc717774::t_9fd8b4a5c03462 1-74
+tests/Unit/Support/TranslationEngine/TranslationPromptBuilderTest.php
+  s_cbcd61fc717774::t_fa0345d59f2c20 1-177
+tests/Feature/TranslationEngine/TranslationServiceTest.php
+  s_cbcd61fc717774::t_08d496d72de8e2 194-196
+  s_cbcd61fc717774::t_f8f6839635129d 1-193,197-346
+tests/Feature/TranslationEngine/TranslationProviderRouterTest.php
+  s_cbcd61fc717774::t_012e927be41fc4 3,7,22,89,101,130,141,151,176,189,197,232,234
+  s_cbcd61fc717774::t_d7d382c33bf149 1-2,4-6,8-21,23-88,90-100,102-129,131-140,142-150,152-175,177-188,190-196,198-231,233,235-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dd6d78b5c43c86ebcb2eaa43484bbafd32314859",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
