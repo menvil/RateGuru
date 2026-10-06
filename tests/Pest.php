@@ -4579,8 +4579,11 @@ function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOU
 |--------------------------------------------------------------------------
 |
 | The simulated host that provision-target and every installer it delegates
-| to run against, shared by ProvisionTargetTest (the operation) and
-| ProvisionTargetPreconditionsTest (what it refuses before mutating anything):
+| to run against, shared by ProvisionTargetTest (the operation),
+| ProvisionTargetPreconditionsTest (what it refuses before mutating anything),
+| ProvisionTargetConfigureHandoffTest (what each mode answers once the
+| operator has written shared/.env) and ProvisionTargetMalformedEnvTest (a
+| shared/.env that is not a regular file):
 | the run and its logs; the fixture registry — one active staging target and
 | two planned production ones, among them the synthetic `demo-shop` brand;
 | the logging stubs that do the real work inside the scratch directory; the

@@ -30,13 +30,15 @@ use Illuminate\Support\Facades\File;
  * the source guards that keep it an orchestrator. What provision-target
  * refuses before it mutates anything — the lifecycle, the host, the shared
  * namespace, the bundle the host must agree with — is in
- * ProvisionTargetPreconditionsTest; the simulated host they share (the
+ * ProvisionTargetPreconditionsTest, and what each mode answers once the
+ * operator has written shared/.env is in ProvisionTargetConfigureHandoffTest
+ * and ProvisionTargetMalformedEnvTest; the simulated host they share (the
  * fixture registry, the stubs, the run) lives in tests/Pest.php.
  */
 
 // =============================================================================
 // Harness: the helpers only this file uses — the simulated host, the run and
-// the stubs it shares with ProvisionTargetPreconditionsTest are in tests/Pest.php
+// the stubs it shares with the other ProvisionTarget* files are in tests/Pest.php
 // =============================================================================
 
 function provisionSource(): string
