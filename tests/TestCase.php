@@ -37,6 +37,27 @@ abstract class TestCase extends BaseTestCase
      */
     public static array $bootConfiguration = [];
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // With persistent connections (below), every PDO object a worker
+        // creates for PostgreSQL shares ONE server connection, and PHP rolls
+        // that connection's transaction back whenever any of those objects is
+        // freed while a transaction is open. A test that does not use
+        // RefreshDatabase never disconnects, so its PDO object lingered until
+        // the cycle collector freed it — in the middle of a later test, taking
+        // that test's transaction with it. Disconnecting here frees every PDO
+        // object while the application is torn down, when no transaction is
+        // left open. RefreshDatabase's own rollback is registered first, so it
+        // has already run by then.
+        $this->beforeApplicationDestroyed(function (): void {
+            foreach ($this->app['db']->getConnections() as $connection) {
+                $connection->disconnect();
+            }
+        });
+    }
+
     public function createApplication()
     {
         // Mirrors the parent, because the hook has to be registered between
