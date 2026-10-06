@@ -1442,6 +1442,324 @@ function envFileValues(string $path): array
 
 /*
 |--------------------------------------------------------------------------
+| The staging mail-capture slice on a simulated host
+|--------------------------------------------------------------------------
+|
+| install-mail-capture, status-mail-capture and verify-mail-capture ask the
+| host the same questions — systemctl, ss, the two HTTP APIs, journalctl — so
+| their tests answer them from one set of stubs on PATH. Every answer comes
+| from a plain file in the workspace's state directory, every state-changing
+| call writes those files back, and every call is logged to state/calls.
+*/
+
+/**
+ * A throwaway workspace: command stubs in bin/, the files that drive them in
+ * state/. The test owns it and removes it with removeScratchDir($root).
+ *
+ * The stubs and the files they read:
+ *
+ *   systemctl   <unit>.active / .sub / .enabled / .nrestarts / .result /
+ *               .exec_status; fail_<verb>_<unit> makes that verb fail;
+ *               <unit>.nrestarts_step makes NRestarts climb on every read (a
+ *               restart loop); <unit>.stops lists units that go down with it.
+ *   ss          listeners — one "host:port" per line.
+ *   curl        apis — an API answers while one of its endpoints is listed;
+ *               messages-<port> — "<id> <subject>" per stored message;
+ *               messages-body-<port> — a raw body for GET /api/v1/messages;
+ *               downloads/<archive> — what a release download receives.
+ *   nginx       nginx_invalid makes `nginx -t` fail.
+ *   journalctl  journal-<unit> — what the unit's journal holds.
+ *   sleep       nothing: the scripts' bounded waits run without waiting.
+ *
+ * @return array{root:string, bin:string, state:string}
+ */
+function mailCaptureStubWorkspace(): array
+{
+    $root = makeScratchDir('mail-capture-host', ['', '/bin', '/state', '/state/downloads'], 0o700);
+    $bin = $root.'/bin';
+    $state = $root.'/state';
+
+    $systemctl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+state_dir="${STUB_STATE_DIR}"
+printf '%s\n' "systemctl $*" >>"${state_dir}/calls"
+read_state() { cat "${state_dir}/$1" 2>/dev/null || printf '%s' "$2"; }
+
+cmd="${1:-}"
+shift || true
+
+unit="" quiet=false
+for arg in "$@"; do
+    case "${arg}" in
+        --quiet) quiet=true ;;
+        --*) ;;
+        *) [[ -n "${unit}" ]] || unit="${arg}" ;;
+    esac
+done
+
+case "${cmd}" in
+    show)
+        prop=""
+        for arg in "$@"; do
+            case "${arg}" in --property=*) prop="${arg#--property=}" ;; esac
+        done
+        case "${prop}" in
+            ActiveState) read_state "${unit}.active" inactive ;;
+            SubState) read_state "${unit}.sub" dead ;;
+            Result) read_state "${unit}.result" success ;;
+            ExecMainStatus) read_state "${unit}.exec_status" 0 ;;
+            NRestarts)
+                count="$(read_state "${unit}.nrestarts" 0)"
+                # A ".nrestarts_step" marker makes the counter climb on every
+                # read: that is a service restarting under the caller.
+                if [[ -f "${state_dir}/${unit}.nrestarts_step" ]]; then
+                    printf '%s' "$((count + 1))" >"${state_dir}/${unit}.nrestarts"
+                fi
+                printf '%s' "${count}"
+                ;;
+            *) printf '' ;;
+        esac
+        printf '\n'
+        ;;
+    is-enabled)
+        current="$(read_state "${unit}.enabled" not-found)"
+        [[ "${quiet}" == true ]] || printf '%s\n' "${current}"
+        [[ "${current}" == enabled || "${current}" == enabled-runtime ]] || exit 1
+        ;;
+    is-active)
+        current="$(read_state "${unit}.active" inactive)"
+        [[ "${quiet}" == true ]] || printf '%s\n' "${current}"
+        [[ "${current}" == active ]] || exit 3
+        ;;
+    enable)
+        [[ ! -f "${state_dir}/fail_enable_${unit}" ]] || exit 1
+        printf 'enabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    disable)
+        [[ ! -f "${state_dir}/fail_disable_${unit}" ]] || exit 1
+        printf 'disabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    mask)
+        printf 'masked' >"${state_dir}/${unit}.enabled"
+        ;;
+    restart|start)
+        if [[ -f "${state_dir}/fail_restart_${unit}" ]]; then
+            printf 'failed' >"${state_dir}/${unit}.active"
+            printf 'failed' >"${state_dir}/${unit}.sub"
+            exit 1
+        fi
+        printf 'active' >"${state_dir}/${unit}.active"
+        printf 'running' >"${state_dir}/${unit}.sub"
+        ;;
+    stop)
+        [[ ! -f "${state_dir}/fail_stop_${unit}" ]] || exit 1
+        for stopped in "${unit}" $(cat "${state_dir}/${unit}.stops" 2>/dev/null); do
+            printf 'inactive' >"${state_dir}/${stopped}.active"
+            printf 'dead' >"${state_dir}/${stopped}.sub"
+        done
+        ;;
+    reload)
+        [[ ! -f "${state_dir}/fail_reload_${unit}" ]] || exit 1
+        ;;
+    *) ;;
+esac
+exit 0
+SH;
+
+    $ss = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+while read -r hostport; do
+    [[ -n "${hostport}" ]] || continue
+    printf 'LISTEN 0 4096 %s 0.0.0.0:*\n' "${hostport}"
+done <"${STUB_STATE_DIR}/listeners"
+exit 0
+SH;
+
+    // Mailpit (8025) names a message's identifier "ID" and deletes by
+    // {"IDs": [...]}; Mailtrap Local (3550) uses "id" and {"ids": [...]}. The
+    // stub keeps the two dialects apart, so a cleanup that used the wrong key
+    // would leave its messages behind.
+    $curl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+state_dir="${STUB_STATE_DIR}"
+printf '%s\n' "curl $*" >>"${state_dir}/calls"
+
+url="" output="" method="GET" data="" previous=""
+for arg in "$@"; do
+    case "${previous}" in
+        --output) output="${arg}" ;;
+        -X) method="${arg}" ;;
+        -d) data="${arg}" ;;
+    esac
+    case "${arg}" in http://*|https://*) url="${arg}" ;; esac
+    previous="${arg}"
+done
+
+if [[ -n "${output}" ]]; then
+    served="${state_dir}/downloads/${url##*/}"
+    [[ -f "${served}" ]] || exit 22
+    cp "${served}" "${output}"
+    exit 0
+fi
+
+base="${url%%/api/*}"
+grep -Fq "${base}/" "${state_dir}/apis" 2>/dev/null || exit 7
+
+port="${base##*:}"
+store="${state_dir}/messages-${port}"
+id_key="id"
+[[ "${port}" != 8025 ]] || id_key="ID"
+
+case "${method} ${url#"${base}"}" in
+    "GET /api/v1/search?query="*)
+        token="${url#*query=}"
+        separator=""
+        printf '{"messages":['
+        if [[ -f "${store}" ]]; then
+            while read -r id subject; do
+                [[ "${subject}" == "${token}" ]] || continue
+                printf '%s{"%s":"%s"}' "${separator}" "${id_key}" "${id}"
+                separator=","
+            done <"${store}"
+        fi
+        printf ']}\n'
+        ;;
+    "GET /api/v1/messages")
+        if [[ -f "${state_dir}/messages-body-${port}" ]]; then
+            cat "${state_dir}/messages-body-${port}"
+            exit 0
+        fi
+        count=0
+        [[ ! -f "${store}" ]] || count="$(wc -l <"${store}")"
+        printf '{"messages_count":%d,"total":%d}\n' "${count}" "${count}"
+        ;;
+    "DELETE /api/v1/messages")
+        printf '%s %s\n' "${port}" "${data}" >>"${state_dir}/deletions"
+        ids=" $(jq -r ".${id_key}s[]?" <<<"${data}" 2>/dev/null | tr '\n' ' ') "
+        if [[ -f "${store}" ]]; then
+            while read -r id subject; do
+                [[ "${ids}" == *" ${id} "* ]] || printf '%s %s\n' "${id}" "${subject}"
+            done <"${store}" >"${store}.kept"
+            mv "${store}.kept" "${store}"
+        fi
+        ;;
+    *)
+        printf '{}\n'
+        ;;
+esac
+exit 0
+SH;
+
+    $nginx = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "nginx $*" >>"${STUB_STATE_DIR}/calls"
+if [[ -f "${STUB_STATE_DIR}/nginx_invalid" ]]; then
+    printf 'nginx: configuration file test failed\n' >&2
+    exit 1
+fi
+printf 'nginx: configuration file test is successful\n'
+exit 0
+SH;
+
+    $journalctl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "journalctl $*" >>"${STUB_STATE_DIR}/calls"
+unit="" previous=""
+for arg in "$@"; do
+    [[ "${previous}" != -u ]] || unit="${arg}"
+    previous="${arg}"
+done
+cat "${STUB_STATE_DIR}/journal-${unit}" 2>/dev/null
+exit 0
+SH;
+
+    $sleep = <<<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "sleep $*" >>"${STUB_STATE_DIR}/calls"
+exit 0
+SH;
+
+    foreach (['systemctl' => $systemctl, 'ss' => $ss, 'curl' => $curl, 'nginx' => $nginx, 'journalctl' => $journalctl, 'sleep' => $sleep] as $name => $body) {
+        writeExecutable($bin.'/'.$name, rtrim($body, "\n")."\n");
+    }
+
+    foreach (['calls', 'listeners', 'apis'] as $file) {
+        file_put_contents($state.'/'.$file, '');
+    }
+
+    return ['root' => $root, 'bin' => $bin, 'state' => $state];
+}
+
+/**
+ * All four loopback listeners up and both HTTP APIs answering — what two
+ * serving services look like from outside, whatever systemd says.
+ */
+function mailCaptureServingEndpoints(string $state): void
+{
+    file_put_contents(
+        $state.'/listeners',
+        "127.0.0.2:3535\n127.0.0.1:3550\n127.0.0.1:1025\n127.0.0.1:8025\n",
+    );
+    file_put_contents(
+        $state.'/apis',
+        "http://127.0.0.1:3550/api/v1/version\nhttp://127.0.0.1:8025/api/v1/info\n",
+    );
+}
+
+/**
+ * Record the state of two enabled, active, serving mail-capture services.
+ */
+function mailCaptureHealthyState(string $state): void
+{
+    foreach (['staging-mailtrap-local.service', 'staging-mailpit.service'] as $unit) {
+        file_put_contents($state.'/'.$unit.'.active', 'active');
+        file_put_contents($state.'/'.$unit.'.sub', 'running');
+        file_put_contents($state.'/'.$unit.'.enabled', 'enabled');
+        file_put_contents($state.'/'.$unit.'.nrestarts', '0');
+    }
+
+    mailCaptureServingEndpoints($state);
+}
+
+/**
+ * Run a command with the workspace's stubs first on PATH.
+ *
+ * @param  list<string>  $command
+ * @param  array<string, string>  $env
+ * @return array{exit:int, output:string}
+ */
+function mailCaptureRun(array $workspace, array $command, array $env = []): array
+{
+    $environment = array_merge(getenv(), [
+        'STUB_STATE_DIR' => $workspace['state'],
+        'PATH' => $workspace['bin'].':'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        // Deterministic stubs: the bounded waits only need to be non-zero.
+        'MAIL_CAPTURE_RUNTIME_WAIT' => '1',
+        'MAIL_CAPTURE_STABILITY_WAIT' => '1',
+    ], $env);
+
+    $process = proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $workspace['root'], $environment);
+    expect($process)->not->toBeFalse('could not start '.implode(' ', $command));
+
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return ['exit' => proc_close($process), 'output' => rtrim($output, "\n")];
+}
+
+/** Every stubbed command the workspace has seen, in order. */
+function mailCaptureCalls(array $workspace): array
+{
+    return array_values(array_filter(explode("\n", (string) file_get_contents($workspace['state'].'/calls'))));
+}
+
+/*
+|--------------------------------------------------------------------------
 | The mail routing CLI, as its tests and the mail gateway's tests drive it
 |--------------------------------------------------------------------------
 |

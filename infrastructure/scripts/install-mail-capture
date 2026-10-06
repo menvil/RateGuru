@@ -34,26 +34,54 @@ CHECKSUMS_FILE="${CONFIG_DIR}/SHA256SUMS"
 SYSTEMD_SRC="${REPO_ROOT}/infrastructure/config/systemd"
 NGINX_SRC="${REPO_ROOT}/infrastructure/config/nginx"
 
+# --- Test seams -------------------------------------------------------------
+#
+# The gated shape every RateGuru installer uses: an override is honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray variable in a real
+# root shell can never relocate what this script installs. Production sets
+# neither. RATEGURU_MAILCAPTURE_FS_ROOT prefixes every host path below, so the
+# real apply runs against a simulated host; RATEGURU_MAILCAPTURE_EUID is the
+# effective uid the root gate reads.
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — the override when allowed and set, else the
+# default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILCAPTURE_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MAILCAPTURE_FS_ROOT '')"
+
 # Installed target locations.
-BIN_MAILPIT="/usr/local/bin/staging-mailpit"
-BIN_MAILTRAP="/usr/local/bin/staging-mailtrap-local"
-ETC_DIR="/etc/staging-mail-capture"
+BIN_MAILPIT="${FS_ROOT}/usr/local/bin/staging-mailpit"
+BIN_MAILTRAP="${FS_ROOT}/usr/local/bin/staging-mailtrap-local"
+ETC_DIR="${FS_ROOT}/etc/staging-mail-capture"
 ENV_MAILPIT="${ETC_DIR}/mailpit.env"
 YML_MAILPIT_RELAY="${ETC_DIR}/mailpit-relay.yml"
 YML_MAILTRAP="${ETC_DIR}/mailtrap-local.yml"
 VERSIONS_DST="${ETC_DIR}/versions.env"
-UNIT_DIR="/etc/systemd/system"
+UNIT_DIR="${FS_ROOT}/etc/systemd/system"
 UNIT_MAILPIT="${UNIT_DIR}/staging-mailpit.service"
 UNIT_MAILTRAP="${UNIT_DIR}/staging-mailtrap-local.service"
-NGINX_AVAILABLE="/etc/nginx/sites-available"
-NGINX_ENABLED="/etc/nginx/sites-enabled"
+NGINX_AVAILABLE="${FS_ROOT}/etc/nginx/sites-available"
+NGINX_ENABLED="${FS_ROOT}/etc/nginx/sites-enabled"
 NGINX_MAILPIT_NAME="mailpit-staging"
 NGINX_MAILTRAP_NAME="mailtrap-local-staging"
 
-STATE_ROOT="/var/lib/staging-mail-capture"
+STATE_ROOT="${FS_ROOT}/var/lib/staging-mail-capture"
 STATE_MAILPIT="${STATE_ROOT}/mailpit"
 STATE_MAILTRAP="${STATE_ROOT}/mailtrap-local"
-BACKUP_ROOT="/var/backups/staging-mail-capture"
+BACKUP_ROOT="${FS_ROOT}/var/backups/staging-mail-capture"
 
 USER_MAILPIT="staging-mailpit"
 USER_MAILTRAP="staging-mailtrap-local"
@@ -108,7 +136,7 @@ done
 # --- Shared helpers ---------------------------------------------------------
 
 require_root() {
-    [[ "${EUID}" -eq 0 ]] || fail "this command must be executed as root"
+    [[ "${EFFECTIVE_UID}" -eq 0 ]] || fail "this command must be executed as root"
 }
 
 detect_arch() {
@@ -195,8 +223,10 @@ validate_config() {
         || fail "mailpit.env does not bind SMTP to loopback 127.0.0.1:1025"
     grep -Eq '^MP_UI_BIND_ADDR=127\.0\.0\.1:8025$' "${mailpit_env}" \
         || fail "mailpit.env does not bind HTTP to loopback 127.0.0.1:8025"
-    grep -Eq "^MP_SMTP_RELAY_CONFIG=${YML_MAILPIT_RELAY//./\\.}$" "${mailpit_env}" \
-        || fail "mailpit.env does not reference the relay config ${YML_MAILPIT_RELAY}"
+    # Mailpit reads this path on the host, so it is compared without FS_ROOT.
+    local relay_config="${YML_MAILPIT_RELAY#"${FS_ROOT}"}"
+    grep -Eq "^MP_SMTP_RELAY_CONFIG=${relay_config//./\\.}$" "${mailpit_env}" \
+        || fail "mailpit.env does not reference the relay config ${relay_config}"
 
     # Mailtrap Local SMTP binds the 127.0.0.2 IPv4 loopback address (avoids the
     # 0.2.0 IPv6 [::1] expansion), so the relay TARGET must dial 127.0.0.2 too.

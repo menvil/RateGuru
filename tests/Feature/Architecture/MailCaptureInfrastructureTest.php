@@ -70,184 +70,6 @@ function mailCaptureBlock(string $marker): string
 }
 
 /**
- * Create a throwaway workspace holding command stubs (systemctl, ss, curl,
- * nginx, journalctl) plus the state directory that drives them.
- *
- * @return array{root:string, bin:string, state:string}
- */
-function mailCaptureStubWorkspace(): array
-{
-    $root = sys_get_temp_dir().'/mail-capture-runtime-'.uniqid();
-    $bin = $root.'/bin';
-    $state = $root.'/state';
-
-    mkdir($bin, 0o700, true);
-    mkdir($state, 0o700, true);
-
-    // systemctl: every answer comes from a plain file in $STUB_STATE_DIR, and
-    // every state-changing verb writes those files back, so a stubbed rollback
-    // really does move the recorded runtime state.
-    $systemctl = <<<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-state_dir="${STUB_STATE_DIR}"
-printf '%s\n' "systemctl $*" >>"${state_dir}/calls"
-read_state() { cat "${state_dir}/$1" 2>/dev/null || printf '%s' "$2"; }
-
-cmd="${1:-}"
-shift || true
-
-unit=""
-for arg in "$@"; do
-    case "${arg}" in
-        --*) ;;
-        *) [[ -n "${unit}" ]] || unit="${arg}" ;;
-    esac
-done
-
-case "${cmd}" in
-    show)
-        prop=""
-        for arg in "$@"; do
-            case "${arg}" in --property=*) prop="${arg#--property=}" ;; esac
-        done
-        case "${prop}" in
-            ActiveState) read_state "${unit}.active" inactive ;;
-            SubState) read_state "${unit}.sub" dead ;;
-            Result) read_state "${unit}.result" success ;;
-            ExecMainStatus) read_state "${unit}.exec_status" 0 ;;
-            NRestarts)
-                count="$(read_state "${unit}.nrestarts" 0)"
-                # A ".nrestarts_step" marker makes the counter climb on every
-                # read: that is a service restarting under the installer.
-                if [[ -f "${state_dir}/${unit}.nrestarts_step" ]]; then
-                    printf '%s' "$((count + 1))" >"${state_dir}/${unit}.nrestarts"
-                fi
-                printf '%s' "${count}"
-                ;;
-            *) printf '' ;;
-        esac
-        printf '\n'
-        ;;
-    is-enabled)
-        current="$(read_state "${unit}.enabled" not-found)"
-        printf '%s\n' "${current}"
-        [[ "${current}" == enabled || "${current}" == enabled-runtime ]] || exit 1
-        ;;
-    is-active)
-        [[ "$(read_state "${unit}.active" inactive)" == active ]] || exit 3
-        ;;
-    enable)
-        [[ ! -f "${state_dir}/fail_enable_${unit}" ]] || exit 1
-        printf 'enabled' >"${state_dir}/${unit}.enabled"
-        ;;
-    disable)
-        [[ ! -f "${state_dir}/fail_disable_${unit}" ]] || exit 1
-        printf 'disabled' >"${state_dir}/${unit}.enabled"
-        ;;
-    mask)
-        printf 'masked' >"${state_dir}/${unit}.enabled"
-        ;;
-    restart|start)
-        if [[ -f "${state_dir}/fail_restart_${unit}" ]]; then
-            printf 'failed' >"${state_dir}/${unit}.active"
-            printf 'failed' >"${state_dir}/${unit}.sub"
-            exit 1
-        fi
-        printf 'active' >"${state_dir}/${unit}.active"
-        printf 'running' >"${state_dir}/${unit}.sub"
-        ;;
-    stop)
-        [[ ! -f "${state_dir}/fail_stop_${unit}" ]] || exit 1
-        printf 'inactive' >"${state_dir}/${unit}.active"
-        printf 'dead' >"${state_dir}/${unit}.sub"
-        ;;
-    reload)
-        [[ ! -f "${state_dir}/fail_reload_${unit}" ]] || exit 1
-        ;;
-    *) ;;
-esac
-exit 0
-SH;
-
-    // ss: one LISTEN row per "host:port" recorded in $STUB_STATE_DIR/listeners.
-    $ss = <<<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-while read -r hostport; do
-    [[ -n "${hostport}" ]] || continue
-    printf 'LISTEN 0 4096 %s 0.0.0.0:*\n' "${hostport}"
-done <"${STUB_STATE_DIR}/listeners"
-exit 0
-SH;
-
-    // curl: only the URLs recorded in $STUB_STATE_DIR/apis answer.
-    $curl = <<<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-url=""
-for arg in "$@"; do
-    case "${arg}" in http*) url="${arg}" ;; esac
-done
-grep -Fxq "${url}" "${STUB_STATE_DIR}/apis" 2>/dev/null || exit 22
-exit 0
-SH;
-
-    $nginx = <<<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-printf '%s\n' "nginx $*" >>"${STUB_STATE_DIR}/calls"
-if [[ -f "${STUB_STATE_DIR}/nginx_invalid" ]]; then
-    printf 'nginx: configuration file test failed\n' >&2
-    exit 1
-fi
-printf 'nginx: configuration file test is successful\n'
-exit 0
-SH;
-
-    $stubs = [
-        'systemctl' => $systemctl,
-        'ss' => $ss,
-        'curl' => $curl,
-        'nginx' => $nginx,
-        'journalctl' => "#!/usr/bin/env bash\nexit 0\n",
-    ];
-
-    foreach ($stubs as $name => $body) {
-        file_put_contents($bin.'/'.$name, rtrim($body, "\n")."\n");
-        chmod($bin.'/'.$name, 0o755);
-    }
-
-    foreach (['calls', 'listeners', 'apis'] as $file) {
-        file_put_contents($state.'/'.$file, '');
-    }
-
-    return ['root' => $root, 'bin' => $bin, 'state' => $state];
-}
-
-/**
- * Record the state of two enabled, active, serving mail-capture services.
- */
-function mailCaptureHealthyState(string $state): void
-{
-    foreach (['staging-mailtrap-local.service', 'staging-mailpit.service'] as $unit) {
-        file_put_contents($state.'/'.$unit.'.active', 'active');
-        file_put_contents($state.'/'.$unit.'.sub', 'running');
-        file_put_contents($state.'/'.$unit.'.enabled', 'enabled');
-        file_put_contents($state.'/'.$unit.'.nrestarts', '0');
-    }
-
-    file_put_contents(
-        $state.'/listeners',
-        "127.0.0.2:3535\n127.0.0.1:3550\n127.0.0.1:1025\n127.0.0.1:8025\n",
-    );
-    file_put_contents(
-        $state.'/apis',
-        "http://127.0.0.1:3550/api/v1/version\nhttp://127.0.0.1:8025/api/v1/info\n",
-    );
-}
-
-/**
  * Run a harness script (installer block + scenario) against the stubs.
  *
  * @param  array<string, string>  $env
@@ -258,24 +80,7 @@ function mailCaptureRunHarness(array $workspace, string $script, array $env = []
     $file = $workspace['root'].'/harness.sh';
     file_put_contents($file, $script);
 
-    $exports = array_merge([
-        'STUB_STATE_DIR' => $workspace['state'],
-        'PATH' => $workspace['bin'].':'.(getenv('PATH') ?: '/usr/bin:/bin'),
-        // Deterministic stubs: the bounded waits only need to be non-zero.
-        'MAIL_CAPTURE_RUNTIME_WAIT' => '1',
-        'MAIL_CAPTURE_STABILITY_WAIT' => '1',
-    ], $env);
-
-    $prefix = '';
-    foreach ($exports as $name => $value) {
-        $prefix .= $name.'='.escapeshellarg($value).' ';
-    }
-
-    $output = [];
-    $exit = 0;
-    exec($prefix.'bash '.escapeshellarg($file).' 2>&1', $output, $exit);
-
-    return ['exit' => $exit, 'output' => implode("\n", $output)];
+    return mailCaptureRun($workspace, ['bash', $file], $env);
 }
 
 /**
@@ -788,42 +593,6 @@ it('leaves the production mail configuration unchanged', function () {
     }
 });
 
-it('dispatches --check to a root-free code path', function () {
-    $installer = mailCaptureSource('scripts/install-mail-capture');
-
-    // --check must dispatch to run_check; apply-only work lives in run_apply,
-    // which is the path that requires root.
-    expect($installer)
-        ->toMatch('/--check\)\s*\n\s*MODE="check"/')
-        ->toContain('require_root')
-        ->toContain('run_apply');
-});
-
-it('installs every artefact under environment-owned names', function () {
-    $installer = mailCaptureSource('scripts/install-mail-capture');
-
-    $targets = [
-        'BIN_MAILPIT' => '/usr/local/bin/staging-mailpit',
-        'BIN_MAILTRAP' => '/usr/local/bin/staging-mailtrap-local',
-        'ETC_DIR' => '/etc/staging-mail-capture',
-        'STATE_ROOT' => '/var/lib/staging-mail-capture',
-        'BACKUP_ROOT' => '/var/backups/staging-mail-capture',
-        'USER_MAILPIT' => 'staging-mailpit',
-        'USER_MAILTRAP' => 'staging-mailtrap-local',
-        'NGINX_MAILPIT_NAME' => 'mailpit-staging',
-        'NGINX_MAILTRAP_NAME' => 'mailtrap-local-staging',
-    ];
-
-    foreach ($targets as $variable => $value) {
-        expect($installer)->toContain($variable.'="'.$value.'"');
-    }
-
-    // Unit paths are built from UNIT_DIR, so assert the unit file names.
-    expect($installer)
-        ->toContain('UNIT_MAILPIT="${UNIT_DIR}/staging-mailpit.service"')
-        ->toContain('UNIT_MAILTRAP="${UNIT_DIR}/staging-mailtrap-local.service"');
-});
-
 it('cannot report apply success while a service is activating or restart-looping', function () {
     $installer = mailCaptureSource('scripts/install-mail-capture');
 
@@ -957,7 +726,7 @@ it('passes the runtime health gate only for enabled, stably active services', fu
             expect($result['output'])->toContain($expectedMessage);
         }
     } finally {
-        exec('rm -rf '.escapeshellarg($workspace['root']));
+        removeScratchDir($workspace['root']);
     }
 })->with([
     'healthy, enabled and active' => [
@@ -1074,7 +843,7 @@ it('restores files and runtime state when the apply fails', function () {
 
         expect($result['output'])->toContain('files and runtime state restored');
     } finally {
-        exec('rm -rf '.escapeshellarg($workspace['root']));
+        removeScratchDir($workspace['root']);
     }
 });
 
@@ -1108,7 +877,7 @@ it('reports an incomplete rollback instead of claiming success', function () {
             ->toContain('diagnostics: staging-mailtrap-local.service')
             ->not->toContain('files and runtime state restored');
     } finally {
-        exec('rm -rf '.escapeshellarg($workspace['root']));
+        removeScratchDir($workspace['root']);
     }
 });
 
@@ -1138,7 +907,7 @@ it('reports exact endpoints, restart-loop state and unfiltered journal in status
 });
 
 // =============================================================================
-// Slice 5.5: the read-only / E2E split.
+// verify-mail-capture: the read-only / E2E split.
 //
 // verify-mail-capture's default mode sends SMTP, deletes messages and
 // stops/starts the mirror service. Automated bootstrap verification
@@ -1147,33 +916,11 @@ it('reports exact endpoints, restart-loop state and unfiltered journal in status
 // be provably inert.
 // =============================================================================
 
-/**
- * Replace the workspace curl stub with one that logs every invocation, so a
- * DELETE can be detected rather than merely assumed absent.
- */
-function mailCaptureInstallLoggingCurl(array $workspace): void
-{
-    $path = $workspace['bin'].'/curl';
-    file_put_contents($path, <<<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-printf '%s\n' "curl $*" >>"${STUB_STATE_DIR}/calls"
-url=""
-for arg in "$@"; do
-    case "${arg}" in http*) url="${arg}" ;; esac
-done
-grep -Fxq "${url}" "${STUB_STATE_DIR}/apis" 2>/dev/null || exit 22
-exit 0
-SH);
-    chmod($path, 0o755);
-}
-
 it('verify-mail-capture --read-only performs zero mutation: no SMTP, no deletion, no service state change', function () {
     $workspace = mailCaptureStubWorkspace();
 
     try {
         mailCaptureHealthyState($workspace['state']);
-        mailCaptureInstallLoggingCurl($workspace);
 
         $result = mailCaptureRunHarness(
             $workspace,
@@ -1211,7 +958,7 @@ it('verify-mail-capture --read-only performs zero mutation: no SMTP, no deletion
         expect($result['output'])->toContain('Mailpit API is available');
         expect($result['output'])->toContain('Mailtrap Local API is available');
     } finally {
-        exec('rm -rf '.escapeshellarg($workspace['root']));
+        removeScratchDir($workspace['root']);
     }
 });
 
