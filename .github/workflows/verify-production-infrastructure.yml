@@ -7,12 +7,15 @@ name: Verify production infrastructure
 #
 # It exists before the launch, and it is the same command after it. The
 # verifier decides from the target's reviewed state what is required: while
-# tits-guru is planned and its mail is held, the host-global mail gateway and
-# the mail identity contract are required, and the DKIM key, outbound
-# readiness (including its A, PTR, SPF, DKIM and DMARC records) and the
-# application's health are reported as DEFERRED. Once the target is active and
-# delivers outbound, the same run requires all of them. This workflow chooses
-# nothing: the target, the trusted ref and the GitHub Environment are fixed.
+# tits-guru is planned and its mail is held, the host bootstrap, its
+# planned-target contract, the operations and backup perimeter, the host-global
+# mail gateway and the mail identity contract are required, and its live-target
+# contract, DKIM key, outbound readiness (including its A, PTR, SPF, DKIM and
+# DMARC records) and the application's health are reported as DEFERRED. Once
+# the target is active and delivers outbound, the same run requires all of
+# them. A green run before that is NOT "production is live". This workflow
+# chooses nothing: the target, the trusted ref and the GitHub Environment are
+# fixed.
 on:
   workflow_dispatch:
 
@@ -113,29 +116,17 @@ jobs:
           bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
           bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
 
-      # Phrased so a green run cannot be read as "production is live".
-      - name: Report the verification
-        if: ${{ always() }}
+      # The verification action writes the group table of every completed run.
+      # A run that produced no result at all says so here, rather than leaving
+      # an empty summary that could be read as nothing wrong.
+      - name: Report an incomplete verification
+        if: ${{ always() && steps.verify.outputs.status == '' }}
         shell: bash
-        env:
-          STATUS: ${{ steps.verify.outputs.status }}
-          PASS: ${{ steps.verify.outputs.pass }}
-          FAIL: ${{ steps.verify.outputs.fail }}
-          DEFERRED: ${{ steps.verify.outputs.deferred }}
         run: |
           set -Eeuo pipefail
 
           {
             echo "## tits-guru infrastructure"
             echo
-            echo "| | |"
-            echo "| --- | --- |"
-            echo "| Result | \`${STATUS:-not completed}\` |"
-            echo "| Passed | ${PASS:-—} |"
-            echo "| Failed | ${FAIL:-—} |"
-            echo "| Deferred | ${DEFERRED:-—} |"
-            echo
-            echo "DEFERRED items are required only once the target is active and delivers"
-            echo "outbound; a passing run before that is NOT \"production is live\"."
-            echo "Read-only: nothing on the host was changed. The full report is in the job log."
+            echo "The verification did not complete, so there is no result. Nothing on the host was changed; the reason is in the job log."
           } >> "${GITHUB_STEP_SUMMARY}"

@@ -5,12 +5,13 @@ description: >-
 
 # Transport and invocation only.
 #
-# infrastructure/scripts/verify-infrastructure owns every decision: which checks
-# the target's current reviewed state requires, which are deferred, which do not
-# apply, and what each primitive's verdict means. None of that is reproduced
-# here. This action uploads the trusted infrastructure/ tree, runs that one
-# command as root, prints its whole report, checks there is exactly one result,
-# and removes everything it uploaded.
+# infrastructure/scripts/verify-infrastructure owns every decision: which
+# contracts the target's current reviewed state requires, which are deferred,
+# which do not apply, and what each primitive's verdict means. None of that is
+# reproduced here. This action uploads the trusted infrastructure/ tree, runs
+# that one command as root, prints its whole report, checks there is exactly
+# one well-formed result, writes its group table into the job summary, and
+# removes everything it uploaded.
 #
 # READ-ONLY. It never mutates the host: it carries no material, installs
 # nothing and runs no mode of anything but verification. Its only writes are
@@ -338,13 +339,27 @@ runs:
         json="$(grep '^RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=' <<<"${verification_output}")"
         json="${json#RATEGURU_INFRASTRUCTURE_VERIFY_RESULT=}"
 
+        # The whole result is judged before any of it is shown: the target it
+        # names, the verdict, the counts, and one well-formed entry per group —
+        # unique ids, a closed status vocabulary, titles of plain words — whose
+        # failures agree with the overall verdict.
         jq -e --arg target "${DEPLOYMENT_TARGET}" '
           type == "object"
           and .target == $target
           and (.status == "pass" or .status == "fail")
-          and (.pass | type) == "number"
-          and (.fail | type) == "number"
-          and (.deferred | type) == "number"
+          and ([.pass, .fail, .deferred, .not_applicable] | all(type == "number"))
+          and (.lifecycle | type) == "string"
+          and (.environment_class | type) == "string"
+          and (.groups | type) == "array"
+          and (.groups | length) > 0
+          and all(.groups[];
+                type == "object"
+                and (.id | type) == "string" and (.id | test("^[a-z][a-z-]*$"))
+                and (.title | type) == "string" and (.title | test("^[A-Z][A-Za-z &-]*$"))
+                and (.status | IN("pass", "fail", "deferred", "not_applicable"))
+                and ([.pass, .fail, .deferred, .not_applicable] | all(type == "number")))
+          and ([.groups[].id] | length) == ([.groups[].id] | unique | length)
+          and ((.status == "fail") == any(.groups[]; .status == "fail"))
         ' <<<"${json}" >/dev/null || {
           echo "The machine-readable result is not a verification result for ${DEPLOYMENT_TARGET}: ${json}" >&2
           exit 1
@@ -356,6 +371,31 @@ runs:
           echo "fail=$(jq -r '.fail' <<<"${json}")"
           echo "deferred=$(jq -r '.deferred' <<<"${json}")"
         } >> "${GITHUB_OUTPUT}"
+
+        # One row per group, in the order the verifier ran them. Only a result
+        # that passed every check above reaches the summary; without one, the
+        # calling workflow says the verification did not complete.
+        {
+          jq -r '
+            "## \(.target) infrastructure",
+            "",
+            "\(.environment_class), lifecycle \(.lifecycle)",
+            "",
+            "| Group | Result |",
+            "| --- | --- |",
+            (.groups[]
+              | "| \(.title) | \({pass: "PASS", fail: "**FAIL**", deferred: "DEFERRED", not_applicable: "N/A"}[.status])"
+                + (if .status == "pass" and .deferred > 0 then " (\(.deferred) deferred)" else "" end) + " |"),
+            "| **Overall** | **\(.status | ascii_upcase)** |",
+            "",
+            "Checks: \(.pass) passed, \(.fail) failed, \(.deferred) deferred, \(.not_applicable) not applicable.",
+            (if .lifecycle == "planned"
+             then "", "PASS means the CURRENT reviewed planned state is correct. It does NOT mean \(if .environment_class == "production" then "production" else .target end) is live."
+             else empty end),
+            "",
+            "Read-only: nothing on the host was changed. The complete child reports are in the job log."
+          ' <<<"${json}"
+        } >> "${GITHUB_STEP_SUMMARY}"
 
         # The verdict is the verifier's, and its exit status must agree with it.
         if [[ "$(jq -r '.status' <<<"${json}")" != "pass" ]] || (( verification_status != 0 )); then
