@@ -52,6 +52,14 @@
 /public/build
 /public/test-fixtures
 
+# Filament's scripts, styles and fonts, copied out of vendor/ by
+# `php artisan filament:upgrade` on every `composer install` (composer.json,
+# post-autoload-dump) — build output for the installed Filament version, as
+# public/build is for Vite. CI and the release build regenerate them.
+/public/js/filament
+/public/css/filament
+/public/fonts/filament
+
 /plans
 /.claude/worktrees
 /coderabbit-review/results
