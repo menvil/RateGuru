@@ -229,10 +229,6 @@ configuration_blocked() {
     (( CONFLICT_COUNT > 0 || HOSTREQ_COUNT > 0 ))
 }
 
-contract_satisfied() {
-    ! configuration_required && ! configuration_blocked
-}
-
 # --- Argument parsing ---------------------------------------------------------
 
 MODE=""

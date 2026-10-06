@@ -867,13 +867,6 @@ BACKUP_DIR=""
 ROLLBACK_RESTORE=()   # destinations that existed before and were backed up
 ROLLBACK_REMOVE=()    # destinations that did not exist before install
 
-files_differ() {
-    # files_differ <src> <dst> -> true (0) if dst missing or content differs
-    local src="$1" dst="$2"
-    [[ -f "${dst}" ]] || return 0
-    ! cmp -s "${src}" "${dst}"
-}
-
 record_target() {
     # record_target <dst>: snapshot for rollback before it is touched at all.
     local dst="$1"

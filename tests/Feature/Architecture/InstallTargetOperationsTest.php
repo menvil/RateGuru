@@ -194,7 +194,7 @@ function installOpsRunHarness(string $scratch, array $vars, string $body, array 
 /**
  * Run just the "installer core" block (record_target,
  * install_regular_file_transactional, verify_installed_regular_file,
- * rollback_installed_files, files_differ) standalone.
+ * rollback_installed_files) standalone.
  *
  * @return array{0: int, 1: string}
  */
@@ -1461,7 +1461,7 @@ it('--verify requires root', function () {
 
 // =============================================================================
 // Installer core block: record_target, install_regular_file_transactional,
-// verify_installed_regular_file, rollback_installed_files, files_differ —
+// verify_installed_regular_file, rollback_installed_files —
 // extracted and exercised directly against scratch paths owned by the
 // current (non-root) test user.
 // =============================================================================
