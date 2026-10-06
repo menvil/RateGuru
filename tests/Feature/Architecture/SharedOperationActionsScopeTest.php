@@ -502,6 +502,11 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // Configuring creates that target's database on the same shared
         // machine, for the same reason and with the same consequence.
         'configure-tits-guru.yml:configure' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Verifying a target's infrastructure mutates nothing, but it reads the
+        // shared machine and must never observe it halfway through any of the
+        // mutations above — so both verifications wait in the host's domain.
+        'verify-production-infrastructure.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
+        'verify-staging-infrastructure.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

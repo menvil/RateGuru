@@ -99,7 +99,7 @@ it('derives a target it has never heard of the same way, and requires its key on
         ])]);
         expect($outbound['stdout'])->toBe("required\t/etc/opendkim/keys/demo-shop/shop2026.private\t2048\n");
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -156,7 +156,7 @@ it('refuses an identity whose target the registry does not have, or that is not 
 
         expectMailIdentityRefusal(mailIdentityRun(['validate', ...$files]), $reason);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'an unknown target' => [['food-guru' => mailIdentityDemoShopIdentity()], 'food-guru: not a target in the deployment registry'],
@@ -176,7 +176,7 @@ it('refuses a DKIM selector that is not one safe lowercase DNS label', function 
             'demo-shop: dkim.selector must be one lowercase DNS label',
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'uppercase' => 'RG1',
@@ -202,7 +202,7 @@ it('accepts exactly rsa-sha256 as the DKIM algorithm', function (mixed $algorith
             'demo-shop: dkim.algorithm must be one of rsa-sha256, got '.json_encode($algorithm),
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with(['rsa-sha1', 'ed25519-sha256', 'RSA-SHA256', 'rsa', '']);
 
@@ -218,7 +218,7 @@ it('refuses a minimum key size below 2048 bits, or one that is not a whole numbe
             'demo-shop: dkim.minimum_key_bits must be an integer from 2048 to 4096',
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([1024, 2047, 0, -2048, 2048.5, '2048', 8192, null]);
 
@@ -232,7 +232,7 @@ it('accepts every reviewed key size from 2048 to 4096 bits', function (int $bits
         $run = mailIdentityRun(['validate', ...mailIdentityFixtureConfig($scratch.'/config', ['identity' => $identity])]);
         expect($run['status'])->toBe(0, $run['stderr']);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([2048, 3072, 4096]);
 
@@ -248,7 +248,7 @@ it('refuses a DMARC policy outside the reviewed vocabulary', function (array $dm
             $reason,
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'an unknown policy' => [['policy' => 'monitor'], 'demo-shop: dmarc.policy must be one of none, quarantine, reject, got "monitor"'],
@@ -266,7 +266,7 @@ it('never repeats what mail-routing is the authority for, and holds no secret', 
             $reason,
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'the mail domain' => [['mail_domain' => 'demo-shop.example'], 'demo-shop: identity must be exactly {dkim, dmarc}, found ["dkim","dmarc","mail_domain"] — the mail domain, sender, bounce and reply domains stay in mail-routing.json'],
@@ -289,7 +289,7 @@ it('refuses an outbound target that has no reviewed identity', function () {
             'demo-shop: delivers outbound, so it needs a reviewed DKIM and DMARC identity in mail-identity.json',
         );
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -302,7 +302,7 @@ it('refuses an identity document that is not exactly one reviewed object', funct
 
         expectMailIdentityRefusal(mailIdentityRun(['validate', ...$files]), $reason);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'another schema' => ['{"schema_version": 2, "targets": {}}', 'unsupported mail identity schema_version: 2 (expected 1)'],
@@ -324,7 +324,7 @@ it('accepts a reviewed MTA hostname while direct delivery stays disabled, and ju
         $files = mailIdentityFixtureConfig($scratch.'/config', ['outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.rateguru.invalid']]]);
         expectMailIdentityRefusal(mailIdentityRun(['validate', ...$files]), 'direct.mta_hostname "mta1.rateguru.invalid" is under the reserved .invalid domain');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -378,7 +378,7 @@ it('refuses a key reached through a symlink, or that is not a regular file', fun
         expectMailIdentityRefusal(mailIdentityRun(['check-key', '--file', $scratch.'/fs']), 'it is not a regular file');
         expectMailIdentityRefusal(mailIdentityRun(['check-key', '--file', $scratch.'/absent.pem']), 'it does not exist');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -412,7 +412,7 @@ it('prints exactly the records to publish, deriving the DKIM public key from the
         // Deterministic: the same key and host print the same plan.
         expect(mailIdentityRun(['show-dns', '--target', 'tits-guru'], $env)['stdout'])->toBe($run['stdout']);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -437,7 +437,7 @@ it('prints the same records as JSON, with nothing but public values', function (
 
         expectNoKeyMaterial($run['stdout'], $key);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -456,7 +456,7 @@ it('derives the public key from a key the operator holds, before it is installed
             ->toContain('v=spf1 ip4:198.51.100.7 -all');
         expectNoKeyMaterial($run['stdout'].$run['stderr'], mailIdentityKey('rsa2048-pkcs1'));
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -480,7 +480,7 @@ it('says what is still pending instead of inventing a key or an address', functi
 
         expectMailIdentityRefusal(mailIdentityRun(['show-dns', '--target', 'staging-main']), 'staging-main has no mail identity');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -510,7 +510,7 @@ it('verifies correctly published DNS, joining a long DKIM record a provider spli
             ->toContain('DNS VERIFIED: YES');
         expectNoKeyMaterial($run['stdout'].$run['stderr'], $key);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -529,7 +529,7 @@ it('accepts a DKIM value a DNS panel published with whitespace inside the key, a
         expect($run['status'])->toBe(0, $run['stdout']);
         expect($run['stdout'])->toContain('PASS   dkim       rg1._domainkey.tits.guru publishes exactly the public key of the installed private key');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -567,7 +567,7 @@ it('refuses every way public DNS can disagree with the reviewed identity', funct
             ->not->toContain('DNS VERIFIED: YES');
         expectNoKeyMaterial($run['stdout'].$run['stderr'], $key);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 })->with([
     'an A record elsewhere' => [['A mta1.tits.guru' => ['198.51.100.9']], false, 'a', 'mta1.tits.guru A is [198.51.100.9], which does not include this host\'s address 203.0.113.10'],
@@ -616,7 +616,7 @@ it('cannot pass without a usable installed key, whatever DNS says', function () 
         expect($run['status'])->not->toBe(0);
         expect($run['stdout'])->toContain('below the reviewed minimum of 2048 bits')->toContain('DNS VERIFIED: NO');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -635,7 +635,7 @@ it('verifies a target it has never heard of against its own domain, selector and
         expect($run['status'])->toBe(0, $run['stdout'].$run['stderr']);
         expect($run['stdout'])->toContain('shop2026._domainkey.demo-shop.example publishes exactly the public key')->toContain('DNS VERIFIED: YES');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -668,7 +668,7 @@ it('only reads: verifying DNS writes nothing and asks DNS nothing but the five r
             'TXT _dmarc.tits.guru',
         ]);
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -693,7 +693,7 @@ it('reports every outbound condition for the real target, and none of them is me
             ->toContain('OUTBOUND READY: NO')
             ->not->toContain('OUTBOUND READY: YES');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 
@@ -729,7 +729,7 @@ it('passes every identity, key and DNS condition for a prepared outbound target,
         $missing = mailIdentityRun(['readiness', '--target', 'demo-shop', ...$files], mailIdentityDnsHost($scratch, []));
         expect($missing['stdout'])->toContain('FAIL   key        /etc/opendkim/keys/demo-shop/shop2026.private is not usable: it does not exist');
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 });
 

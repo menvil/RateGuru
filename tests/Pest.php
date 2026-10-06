@@ -1090,6 +1090,24 @@ function restoreScratchDir(): string
     return $dir;
 }
 
+/**
+ * A fresh, uniquely named directory under the system temp directory, holding
+ * the given subdirectories ('' is the directory itself). The test owns it and
+ * removes it with removeScratchDir().
+ *
+ * @param  list<string>  $subdirectories
+ */
+function makeScratchDir(string $prefix, array $subdirectories = [''], int $mode = 0o755): string
+{
+    $dir = sys_get_temp_dir().'/'.$prefix.'-'.bin2hex(random_bytes(6));
+
+    foreach ($subdirectories as $sub) {
+        expect(@mkdir($dir.$sub, $mode, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
 function removeScratchDir(string $dir): void
 {
     exec('rm -rf '.escapeshellarg($dir));
@@ -1383,8 +1401,9 @@ function mailIdentityKey(string $kind): string
     static $dir = null;
 
     if ($dir === null) {
-        $dir = sys_get_temp_dir().'/mail-identity-keys-'.getmypid().'-'.bin2hex(random_bytes(4));
-        expect(@mkdir($dir, 0o700, true))->toBeTrue("could not create {$dir}");
+        // Removed when the test process ends, with every key made into it.
+        $dir = makeScratchDir('mail-identity-keys', [''], 0o700);
+        register_shutdown_function(static fn () => removeScratchDir($dir));
     }
 
     $path = "{$dir}/{$kind}.pem";
@@ -1435,18 +1454,7 @@ function mailIdentityPublicKey(string $privateKeyPath): string
 
 function mailIdentityScratch(): string
 {
-    $dir = sys_get_temp_dir().'/mail-identity-'.bin2hex(random_bytes(6));
-
-    foreach (['', '/bin', '/fs', '/dns', '/config'] as $sub) {
-        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create {$dir}{$sub}");
-    }
-
-    return $dir;
-}
-
-function mailIdentityCleanup(string $dir): void
-{
-    exec('rm -rf '.escapeshellarg($dir));
+    return makeScratchDir('mail-identity', ['', '/bin', '/fs', '/dns', '/config']);
 }
 
 /**

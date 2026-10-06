@@ -334,8 +334,7 @@ function configureRunStagingStep(string $scratch, string $keyMaterial): array
 }
 
 it('derives the real public half of the deployment key and destroys the private one', function () {
-    $scratch = sys_get_temp_dir().'/configure-action-'.uniqid('', true);
-    @mkdir($scratch, 0o700, true);
+    $scratch = makeScratchDir('configure-action', [''], 0o700);
 
     try {
         // A real key, so the derivation is checked against ssh-keygen's own
@@ -360,7 +359,7 @@ it('derives the real public half of the deployment key and destroys the private 
         expect(file_exists($runnerTemp.'/rateguru_configure_deploy_key'))->toBeFalse();
         expect(substr(sprintf('%o', fileperms($staged)), -3))->toBe('600');
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 });
 
@@ -368,8 +367,7 @@ it('fails on the runner, before any upload, when the deployment key is unusable'
     // ssh-keygen -y authenticates the credential as a key. A malformed or
     // passphrase-protected one must stop here, where nothing has been uploaded
     // and no remote command has run.
-    $scratch = sys_get_temp_dir().'/configure-action-'.uniqid('', true);
-    @mkdir($scratch, 0o700, true);
+    $scratch = makeScratchDir('configure-action', [''], 0o700);
 
     try {
         [$exit, $output, $runnerTemp] = configureRunStagingStep($scratch, 'this is not an SSH private key');
@@ -382,7 +380,7 @@ it('fails on the runner, before any upload, when the deployment key is unusable'
         expect(is_dir($runnerTemp.'/rateguru-configure-material'))->toBeFalse();
         expect(file_exists($runnerTemp.'/rateguru_configure_deploy_key'))->toBeFalse();
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 });
 
@@ -420,8 +418,7 @@ function configureRunDkimStep(string $scratch, string $keyMaterial): array
 }
 
 it('stages nothing when no DKIM key was supplied, and Configure is exactly what it was', function () {
-    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
-    @mkdir($scratch, 0o700, true);
+    $scratch = makeScratchDir('configure-dkim', [''], 0o700);
 
     try {
         [$exit, $output, $material, $env] = configureRunDkimStep($scratch, '');
@@ -431,13 +428,12 @@ it('stages nothing when no DKIM key was supplied, and Configure is exactly what 
         expect(scandir($material))->toBe(['.', '..', 'deploy-authorized-keys']);
         expect($env)->not->toContain('RATEGURU_DKIM_KEY_STAGED');
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 });
 
 it('stages a usable DKIM key as exactly mail-dkim-private-key, root-only, and never prints it', function () {
-    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
-    @mkdir($scratch, 0o700, true);
+    $scratch = makeScratchDir('configure-dkim', [''], 0o700);
 
     try {
         $key = (string) file_get_contents(mailIdentityKey('rsa2048'));
@@ -455,18 +451,18 @@ it('stages a usable DKIM key as exactly mail-dkim-private-key, root-only, and ne
         // The same key with its trailing newline lost — as a secret store may
         // keep it — stages to the identical bytes, so a re-run converges on the
         // host rather than conflicting with what it installed.
-        exec('rm -rf '.escapeshellarg($scratch.'/runner').' '.escapeshellarg($scratch.'/github-env'));
+        removeScratchDir($scratch.'/runner');
+        removeScratchDir($scratch.'/github-env');
         [$again, $againOutput, $againMaterial] = configureRunDkimStep($scratch, rtrim($key, "\n"));
         expect($again)->toBe(0, $againOutput);
         expect(file_get_contents($againMaterial.'/mail-dkim-private-key'))->toBe($key);
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 });
 
 it('refuses an unusable DKIM key on the runner, before any upload, and deletes it', function (string $kind, string $reason) {
-    $scratch = sys_get_temp_dir().'/configure-dkim-'.uniqid('', true);
-    @mkdir($scratch, 0o700, true);
+    $scratch = makeScratchDir('configure-dkim', [''], 0o700);
 
     try {
         [$exit, $output, $material, $env] = configureRunDkimStep($scratch, (string) file_get_contents(mailIdentityKey($kind)));
@@ -480,7 +476,7 @@ it('refuses an unusable DKIM key on the runner, before any upload, and deletes i
 
         expectNoKeyMaterial($output, mailIdentityKey($kind));
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 })->with([
     'a passphrase-protected key' => ['encrypted', 'it is passphrase-protected'],
@@ -544,8 +540,7 @@ it('passes the optional MAIL_DKIM_PRIVATE_KEY secret through, and nowhere else',
 /** @return array{0: int, 1: string, 2: string} exit, output, step summary */
 function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): array
 {
-    $scratch = sys_get_temp_dir().'/configure-dns-plan-'.bin2hex(random_bytes(6));
-    @mkdir($scratch.'/bin', 0o700, true);
+    $scratch = makeScratchDir('configure-dns-plan', ['/bin'], 0o700);
 
     file_put_contents($scratch.'/remote-output', $remoteOutput);
     file_put_contents($scratch.'/bin/ssh', "#!/bin/bash\nprintf '%s ' \"\$@\" > \"\${STUB_SSH_ARGS}\"\ncat \"\${STUB_REMOTE_OUTPUT}\"\nexit {$remoteStatus}\n");
@@ -576,7 +571,7 @@ function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): a
 
         return [$status, $output, (string) file_get_contents($scratch.'/summary'), (string) @file_get_contents($scratch.'/ssh-args')];
     } finally {
-        exec('rm -rf '.escapeshellarg($scratch));
+        removeScratchDir($scratch);
     }
 }
 
@@ -593,7 +588,7 @@ function configureRealDnsPlan(bool $withKey): array
 
         return [$run['stdout'], $key === null ? null : (string) file_get_contents($key)];
     } finally {
-        mailIdentityCleanup($scratch);
+        removeScratchDir($scratch);
     }
 }
 

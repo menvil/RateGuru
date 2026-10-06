@@ -153,7 +153,7 @@ it('verifies staging-main through the read-only capture, gateway and health prim
             'not_applicable' => 1,
         ]);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -169,7 +169,7 @@ it('fails staging when any check its current state requires fails', function (st
         expect($run['result']['status'])->toBe('fail');
         expect($run['result']['fail'])->toBe(1);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 })->with([
     'the capture services' => ['verify-mail-capture', 'verify-mail-capture --read-only'],
@@ -208,7 +208,7 @@ it('verifies the held, planned production target, with what activation requires 
             ->toContain('VERIFY INFRASTRUCTURE: PASS');
         expect($run['result'])->toMatchArray(['status' => 'pass', 'pass' => 3, 'fail' => 0, 'deferred' => 3, 'lifecycle' => 'planned', 'delivery_mode' => 'held']);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -231,7 +231,7 @@ it('judges an installed DKIM key even while the target is held, and never prints
         expectVerifyItem($run['output'], 'FAIL', 'dkim-key', 'below the reviewed minimum of 2048 bits');
         expectNoKeyMaterial($run['output'], $weak);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -264,7 +264,7 @@ it('makes the DKIM key and outbound readiness mandatory once the target delivers
         expect($run['output'])->toContain('FAIL   signing    no DKIM signing service is installed and verified on this host');
         expect($run['result']['status'])->toBe('fail');
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -285,7 +285,7 @@ it('requires the application\'s health once the target is active, and never asks
         expect($planned['calls'])->not->toContain('health-check --target demo-shop');
         expectVerifyItem($planned['output'], 'DEFERRED', 'health-check', 'demo-shop is planned');
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -301,7 +301,7 @@ it('reports a production target with no reviewed identity yet as not applicable,
         expect($run['status'])->toBe(0, $run['output']);
         expectVerifyItem($run['output'], 'N/A', 'dkim-key', 'demo-shop has no reviewed DKIM identity yet');
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -323,7 +323,7 @@ it('refuses rather than installs when the host runtime lacks a tool it needs', f
                 ->toBeFalse("verify-infrastructure runs {$installer}");
         }
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -344,7 +344,7 @@ it('prints exactly one machine-readable result, with counts and identity only', 
 
         expectNoKeyMaterial($run['output'], $key);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 });
 
@@ -389,7 +389,7 @@ it('runs only as root, for one known target, with no other selector', function (
         expect($unknown['output'])->toContain('unknown target: food-guru');
         expect($unknown['calls'])->toBe([]);
     } finally {
-        mailIdentityCleanup($host['scratch']);
+        removeScratchDir($host['scratch']);
     }
 
     exec('bash '.escapeshellarg(base_path('infrastructure/scripts/verify-infrastructure')).' --target staging-main --environment production 2>&1', $output, $status);
