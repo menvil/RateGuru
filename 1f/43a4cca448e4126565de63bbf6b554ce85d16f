@@ -1,0 +1,44 @@
+infrastructure/runbooks/backups.md
+  s_820a33e44539b3::t_3acd3c228e40f1 386-397
+tests/Pest.php
+  s_820a33e44539b3::t_95c0e6ee1af7ca 4863-4946
+tests/Feature/Architecture/InstallTargetPerimeterTest.php
+  s_820a33e44539b3::t_b904e94d697733 1164,1172-1175
+  s_820a33e44539b3::t_42643d07e45dde 589
+  s_820a33e44539b3::t_6730743b8fcf03 219,449,466-467,469-527,558-560,562-563,595,599-605,607,609-634,642-664,1114-1163,1165-1171,1176-1188
+infrastructure/runbooks/deployment-targets.md
+  s_820a33e44539b3::t_3acd3c228e40f1 1188-1192
+infrastructure/runbooks/target-perimeter.md
+  s_820a33e44539b3::t_32a87ed6f3cf51 39-45,73-79,81-85,206-235,243-267,293-294,296,351-352,367-369
+  s_820a33e44539b3::t_42643d07e45dde 295
+tests/Feature/Architecture/BackupCronPerimeterTest.php
+  s_820a33e44539b3::t_42643d07e45dde 176-177
+  s_820a33e44539b3::t_8d4b21943a2ea6 1-2,4-41,54-175,178-256,259-263,265-267,269-271,273-275,277-279,281-283,285-287,289-318,323-326,328,332-341
+  s_820a33e44539b3::t_c63295aa1b0151 3,42-53,257-258,264,268,272,276,280,284,288,319-322,327,329-331
+infrastructure/config/backup-schedules.json
+  s_820a33e44539b3::t_599e447dd03491 1-18
+infrastructure/scripts/install-target-perimeter
+  s_820a33e44539b3::t_3b7e5d9ebd106a 651-827,847-849,852-924,953,1239-1240,1320-1321,1366
+  s_820a33e44539b3::t_42643d07e45dde 846
+  s_820a33e44539b3::t_585699220ae634 4-7,20,36-41,58-62,94-98,274-275
+infrastructure/ROADMAP.md
+  s_820a33e44539b3::t_6fb5d13540cb30 1680-1695
+tests/Feature/Architecture/DeployPerimeterRegistryTest.php
+  s_820a33e44539b3::t_7648d6bdc45be9 16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1f43a4cca448e4126565de63bbf6b554ce85d16f",
+  "prompts": {},
+  "sessions": {
+    "s_820a33e44539b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0b15c2c0-6c75-4893-9a55-e236562e6b36",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
