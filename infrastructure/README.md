@@ -136,17 +136,21 @@ infrastructure, and moves out once a second project exists.
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - the mail routing contract: every target's own loopback gateway endpoint,
-  its delivery mode (`capture` for staging, `held` for production until an
-  outbound transport is reviewed) and its mail identity, in
-  `config/mail-routing.json`, validated and rendered as a gateway plan by the
-  repository-only `infrastructure/scripts/mail-routing` — see
+  its delivery mode (`capture` for staging; `held` or `outbound` for
+  production) and its mail identity, in `config/mail-routing.json`, validated
+  and rendered as a gateway plan by the repository-only
+  `infrastructure/scripts/mail-routing` — see
   [`runbooks/mail-routing.md`](runbooks/mail-routing.md);
 - the host-global mail gateway (`install-mail-gateway`, `verify-mail-gateway`,
   `status-mail-gateway`): one Postfix instance rendered from that plan,
   listening only on each target's loopback endpoint, queueing staging capture
   into Mailpit, holding production mail with no route, and delivering nothing
-  else. Converged by host bootstrap after mail capture; its mutating acceptance
-  is the manual Verify staging mail gateway workflow — see
+  else. Its direct outbound transport — each outbound target's own smtp client,
+  straight to the recipient domain's MX — is implemented but switched off by
+  the host contract `config/mail-outbound.json`. Converged by host bootstrap
+  after mail capture and accepted on the real staging host;
+  `verify-mail-gateway --e2e` is its mutating low-level acceptance primitive,
+  run on the host by hand — see
   [`runbooks/mail-gateway.md`](runbooks/mail-gateway.md);
 - Nginx configuration;
 - PHP-FPM pools;

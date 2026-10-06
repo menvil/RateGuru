@@ -24,23 +24,33 @@
 #
 # DELIVERY MODES. A closed set, and each one exists because something uses it:
 #
-#   capture  Delivered to a loopback capture service and never off the host.
-#            The only mode of a staging target.
-#   held     The production identity is reviewed and a gateway endpoint is
-#            reserved, but NO route exists: nothing is ever delivered. The only
-#            mode of a production target until its outbound transport has been
-#            implemented and reviewed. A held target may not be active — an
-#            active target whose mail can never leave is a live site silently
-#            losing its mail.
+#   capture   Delivered to a loopback capture service and never off the host.
+#             The only mode of a staging target.
+#   held      The production identity is reviewed and a gateway endpoint is
+#             reserved, but NO route exists: nothing is ever delivered. A held
+#             target may not be active — an active target whose mail can never
+#             leave is a live site silently losing its mail.
+#   outbound  The production identity is reviewed and the mail leaves the host
+#             through the outbound transport its policy names (outbound.kind).
+#             The only way a production target's mail is ever delivered.
 #
-# A mode is added by the change that implements it, never ahead of it as an
-# unused placeholder: a value the validator accepts is a value somebody can
-# configure.
+# OUTBOUND KINDS. Equally closed: `direct` — the gateway's own SMTP client
+# delivers to the recipient domain's MX, with no relay host, no smart host and
+# no credential. The physical identity it delivers under (the MTA hostname the
+# host's PTR names) belongs to the host, not to a target, and is not in this
+# policy at all: it lives in the host-global infrastructure/config/
+# mail-outbound.json, which the gateway installer reads, and a direct route is
+# never installed while that contract leaves direct delivery disabled.
+#
+# A mode or kind is added by the change that implements it, never ahead of it
+# as an unused placeholder: a value the validator accepts is a value somebody
+# can configure.
 #
 # WHAT IT IS NOT. A policy contract, not an installer. It writes nothing,
 # starts nothing, sends nothing and runs no command derived from the policy.
 # `render-plan` prints a JSON description of what a gateway would do; it holds no
-# shell command and no secret, and nothing on a host reads it yet.
+# shell command and no secret. install-mail-gateway, run from the same bundle,
+# is the one reader that turns it into a gateway configuration.
 #
 # Repository tooling: run from a checkout by a developer or by CI, and
 # deliberately absent from the operational bundle installed on a host.
@@ -61,7 +71,7 @@ POLICY_DEFAULT_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
 REGISTRY_DEFAULT_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 TARGETS_CLI="${SCRIPT_DIR}/targets"
 
-SCHEMA_VERSION=1
+SCHEMA_VERSION=2
 
 # Property names that would mean a credential reached committed, world-readable
 # data. The policy's shape is closed, so such a key is refused regardless; this
@@ -116,12 +126,26 @@ def first_submission_port: 1024;
 # delivered: what a capture identity must use, and a production one must not.
 def non_deliverable_tld: "invalid";
 
+# The production identity a held and an outbound policy both carry, and the
+# one set of rules both are judged by: a target moving from held to outbound
+# keeps exactly the identity that was reviewed while it was held.
+def identity_properties: ["bounce_domain", "default_from", "mail_domain", "reply_domain"];
+
 def mode_properties: {
     capture: ["allowed_from_domain", "capture", "delivery_mode", "submission"],
-    held: ["bounce_domain", "default_from", "delivery_mode", "mail_domain", "reply_domain", "submission"]
+    held: (identity_properties + ["delivery_mode", "submission"] | sort),
+    outbound: (identity_properties + ["delivery_mode", "outbound", "submission"] | sort)
 };
 
-# What a held policy may never carry: anything naming somewhere to deliver to.
+def has_production_identity: . == "held" or . == "outbound";
+
+# The outbound transports the gateway implements. Each one is here because the
+# gateway renders it; a relay through a provider is added by the change that
+# implements it.
+def outbound_kinds: ["direct"];
+
+# Anything naming somewhere to deliver to. A held policy may carry none of
+# them, and an outbound policy none but its own `outbound`.
 def destination_properties: ["capture", "destination", "nexthop", "outbound", "relay", "relayhost", "route", "smarthost", "transport"];
 
 def class_modes: {
@@ -130,8 +154,8 @@ def class_modes: {
         reason: "a staging target never delivers: its mail is captured on the host, so it cannot declare production delivery"
     },
     production: {
-        modes: ["held"],
-        reason: "capture would send production mail into the staging capture service, and no outbound transport exists yet, so production mail is held"
+        modes: ["held", "outbound"],
+        reason: "capture would send production mail into the staging capture service, so production mail is either held or delivered outbound"
     }
 };
 '
@@ -158,15 +182,20 @@ def endpoint_problems($what; host_ok; $host_rule; $min_port):
          else "\($what).port must be an integer from \($min_port) to 65535, got \(.port | tojson)" end)
     end;
 
+# "a capture policy", "an outbound policy".
+def a_policy($mode): (if $mode | test("\\A[aeiou]") then "an" else "a" end) + " \($mode) policy";
+
 def shape_problems($id; $mode; $p):
     mode_properties[$mode] as $expected
     | ($p | keys) as $present
-    | (($expected - $present)[] | "\($id): a \($mode) policy must declare \(.)"),
+    | (($expected - $present)[] | "\($id): \(a_policy($mode)) must declare \(.)"),
       (($present - $expected)[] as $key
         | if $mode == "held" and any(destination_properties[]; . == $key) then
               "\($id): held mail has no delivery destination, so it may not declare \($key | tojson) — held is neither capture nor a route"
+          elif $mode == "outbound" and any(destination_properties[]; . == $key) then
+              "\($id): outbound mail leaves only through its own outbound transport, so it may not declare \($key | tojson) — the route is outbound.kind and nothing else"
           else
-              "\($id): unexpected property \($key | tojson) in a \($mode) policy"
+              "\($id): unexpected property \($key | tojson) in \(a_policy($mode))"
           end);
 
 # A property the policy does not declare at all is reported once, by
@@ -191,7 +220,8 @@ def capture_problems($id; $p):
          | endpoint_problems("\($id): capture"; anchored(loopback_re); "an IPv4 loopback address — captured mail never leaves the host"; 1)
      else empty end);
 
-def held_problems($id; $p):
+# The production identity, for held and outbound alike.
+def identity_problems($id; $p):
     (("mail_domain", "bounce_domain", "reply_domain") as $key
       | select($p | has($key))
       | $p[$key] as $value
@@ -211,12 +241,24 @@ def held_problems($id; $p):
            else empty end
      else empty end);
 
+def outbound_problems($id; $p):
+    if $p | has("outbound") then
+        $p.outbound
+        | if type != "object" then
+              "\($id): outbound must be an object {kind}, got \(tojson)"
+          elif keys != ["kind"] then
+              "\($id): outbound must be exactly {kind}, found \(keys | tojson)"
+          elif any(outbound_kinds[]; . == $p.outbound.kind) | not then
+              "\($id): outbound.kind must be one of \(outbound_kinds | join(", ")), got \(.kind | tojson)"
+          else empty end
+    else empty end;
+
 def registry_problems($id; $mode; $target):
     $target.environment_class as $class
     | (if class_modes[$class].modes | any(.[]; . == $mode) then empty
        else "\($id): environment_class \($class) allows delivery_mode \(class_modes[$class].modes | join(" or ")), not \($mode) — \(class_modes[$class].reason)" end),
       (if $mode == "held" and $target.lifecycle == "active" then
-           "\($id): lifecycle=active with held mail — an active target must have a delivery route and held has none; it stays inactive until its outbound transport is reviewed"
+           "\($id): lifecycle=active with held mail — an active target must have a delivery route and held has none; it stays inactive until its policy is outbound"
        else empty end);
 
 def policy_problems($id; $p; $target):
@@ -228,7 +270,8 @@ def policy_problems($id; $p; $target):
         $p.delivery_mode as $mode
         | shape_problems($id; $mode; $p),
           submission_problems($id; $p),
-          (if $mode == "capture" then capture_problems($id; $p) else held_problems($id; $p) end),
+          (if $mode == "capture" then capture_problems($id; $p) else identity_problems($id; $p) end),
+          (if $mode == "outbound" then outbound_problems($id; $p) else empty end),
           registry_problems($id; $mode; $target)
     end;
 
@@ -294,10 +337,11 @@ $registry[0].targets as $targets
             "\($id): capture destination \($destination) is the submission endpoint of \(.id) — its mail would be resubmitted as \(.id)"
         end),
 
-    # A production identity belongs to one target: bounces and replies are
-    # attributed by domain, so a shared one could not be routed back.
+    # A production identity belongs to one target, held or outbound alike:
+    # bounces and replies are attributed by domain, so a shared one could not
+    # be routed back.
     ([$known[]
-        | select(.value.delivery_mode == "held")
+        | select(.value.delivery_mode | has_production_identity)
         | .key as $id
         | .value as $p
         | ("mail_domain", "bounce_domain", "reply_domain") as $key
@@ -333,7 +377,7 @@ $registry[0].targets as $targets
                     sender: {allowed_domain: $p.allowed_from_domain},
                     route: {kind: "capture", host: $p.capture.host, port: $p.capture.port}
                 }
-            elif $p.delivery_mode == "held" then
+            elif $p.delivery_mode | has_production_identity then
                 {
                     sender: {
                         allowed_domain: $p.mail_domain,
@@ -341,7 +385,7 @@ $registry[0].targets as $targets
                         bounce_domain: $p.bounce_domain,
                         reply_domain: $p.reply_domain
                     },
-                    route: null
+                    route: (if $p.delivery_mode == "outbound" then {kind: $p.outbound.kind} else null end)
                 }
             else
                 error("no plan is defined for delivery mode \($p.delivery_mode | tojson)")
@@ -380,55 +424,57 @@ USAGE
 COMMAND=""
 POLICY_FILE="${POLICY_DEFAULT_FILE}"
 REGISTRY_FILE="${REGISTRY_DEFAULT_FILE}"
-FILE_SEEN=false
-REGISTRY_SEEN=false
 
-if [[ $# -eq 0 ]]; then
-    usage >&2
-    exit 1
-fi
+parse_args() {
+    local file_seen=false registry_seen=false
 
-case "${1}" in
-    validate|render-plan)
-        COMMAND="${1}"
-        shift
-        ;;
-    -h|--help)
-        usage
-        exit 0
-        ;;
-    *)
-        printf 'ERROR: unknown command: %s\n' "${1}" >&2
+    if [[ $# -eq 0 ]]; then
         usage >&2
         exit 1
-        ;;
-esac
+    fi
 
-while [[ $# -gt 0 ]]; do
     case "${1}" in
-        --file)
-            [[ "${FILE_SEEN}" != true ]] || fail "--file given more than once"
-            [[ $# -ge 2 ]] || fail "--file requires a value"
-            [[ -n "${2}" ]] || fail "--file requires a non-empty value"
-
-            POLICY_FILE="${2}"
-            FILE_SEEN=true
-            shift 2
+        validate|render-plan)
+            COMMAND="${1}"
+            shift
             ;;
-        --registry)
-            [[ "${REGISTRY_SEEN}" != true ]] || fail "--registry given more than once"
-            [[ $# -ge 2 ]] || fail "--registry requires a value"
-            [[ -n "${2}" ]] || fail "--registry requires a non-empty value"
-
-            REGISTRY_FILE="${2}"
-            REGISTRY_SEEN=true
-            shift 2
+        -h|--help)
+            usage
+            exit 0
             ;;
         *)
-            fail "unknown argument: ${1}"
+            printf 'ERROR: unknown command: %s\n' "${1}" >&2
+            usage >&2
+            exit 1
             ;;
     esac
-done
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --file)
+                [[ "${file_seen}" != true ]] || fail "--file given more than once"
+                [[ $# -ge 2 ]] || fail "--file requires a value"
+                [[ -n "${2}" ]] || fail "--file requires a non-empty value"
+
+                POLICY_FILE="${2}"
+                file_seen=true
+                shift 2
+                ;;
+            --registry)
+                [[ "${registry_seen}" != true ]] || fail "--registry given more than once"
+                [[ $# -ge 2 ]] || fail "--registry requires a value"
+                [[ -n "${2}" ]] || fail "--registry requires a non-empty value"
+
+                REGISTRY_FILE="${2}"
+                registry_seen=true
+                shift 2
+                ;;
+            *)
+                fail "unknown argument: ${1}"
+                ;;
+        esac
+    done
+}
 
 # --- validation -----------------------------------------------------------------
 
@@ -480,7 +526,9 @@ assert_registry_valid() {
         || fail "the deployment target registry is invalid, so no mail routing can be judged against it: ${REGISTRY_FILE}"
 }
 
-# Schema and top-level shape: every rule after this one assumes schema 1.
+# Schema and top-level shape: every rule after this one assumes the current
+# schema. An older one is refused, never reinterpreted: a policy written for a
+# different set of modes is not read as if it had been written for this one.
 assert_policy_shape() {
     local path="${POLICY_FILE}"
 
@@ -543,11 +591,21 @@ command_render_plan() {
     printf '%s\n' "${plan}"
 }
 
-case "${COMMAND}" in
-    validate)
-        command_validate
-        ;;
-    render-plan)
-        command_render_plan
-        ;;
-esac
+main() {
+    parse_args "$@"
+
+    case "${COMMAND}" in
+        validate)
+            command_validate
+            ;;
+        render-plan)
+            command_render_plan
+            ;;
+    esac
+}
+
+# Sourcing defines the rules and the programs without running anything, so the
+# tests read exactly the jq text this script runs.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

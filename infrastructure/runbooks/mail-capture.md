@@ -309,12 +309,13 @@ Staging mail reaches Mailpit by one of two paths, and Mailpit cannot tell them
 apart — this slice is unchanged by either:
 
 - **Through the mail gateway** — what
-  `infrastructure/templates/environment/staging.env.example` now declares. The
-  application submits to the host-global Postfix gateway on `127.0.0.1:2525`,
-  which queues the message and delivers it here, to `127.0.0.1:1025`, retrying
-  while Mailpit is down. See [`mail-gateway.md`](mail-gateway.md).
-- **Directly** — `MAIL_PORT=1025`, the accepted path a host stays on until its
-  operator cuts over to the gateway, and the path a cutover rolls back to.
+  `infrastructure/templates/environment/staging.env.example` declares and what
+  the real staging host runs since its cutover. The application submits to the
+  host-global Postfix gateway on `127.0.0.1:2525`, which queues the message and
+  delivers it here, to `127.0.0.1:1025`, retrying while Mailpit is down. See
+  [`mail-gateway.md`](mail-gateway.md).
+- **Directly** — `MAIL_PORT=1025`, the earlier accepted path, and the one a
+  rollback of the cutover returns to.
 
 ```dotenv
 MAIL_MAILER=smtp

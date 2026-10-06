@@ -477,8 +477,9 @@ function sourcedLibraryNames(): array
  * operator's to own.
  *
  * `mail-routing` is the second, for a plainer reason: it validates the reviewed
- * mail routing policy and renders the plan a mail gateway would follow, and no
- * host has a gateway that reads that plan yet. It describes; it installs nothing.
+ * mail routing policy and renders the plan the mail gateway follows. It
+ * describes and installs nothing; the gateway installer runs it from the same
+ * temporary bundle it arrived in, never from an installed copy.
  *
  * So a script listed here must stay out of required-clis.txt and out of the
  * operational bundle, and the guards that inventory infrastructure/scripts/ know
@@ -1334,6 +1335,49 @@ function mailRoutingDemoShopPolicy(): array
         'bounce_domain' => 'bounce.demo-shop.example',
         'reply_domain' => 'reply.demo-shop.example',
     ];
+}
+
+/**
+ * The synthetic production brand's policy, delivered outbound by direct SMTP:
+ * the same reviewed identity as its held policy, plus its transport kind.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingDemoShopOutboundPolicy(): array
+{
+    return [
+        ...mailRoutingDemoShopPolicy(),
+        'delivery_mode' => 'outbound',
+        'outbound' => ['kind' => 'direct'],
+    ];
+}
+
+/**
+ * Two synthetic production brands delivered outbound by direct SMTP, beside the
+ * committed targets: demo-shop on 2599 and demo-books on 2598, each with its
+ * own registry entry and its own identity. Neither appears in any committed
+ * file or in the implementation.
+ *
+ * @return array{policy: array<string, mixed>, registry: array<string, mixed>}
+ */
+function mailRoutingTwoOutboundTargets(): array
+{
+    $rename = static fn (array $data): array => json_decode(
+        str_replace(['demo-shop', 'demo_shop'], ['demo-books', 'demo_books'], json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+
+    $registry = mailRoutingDemoShopRegistry();
+    $registry['targets']['demo-books'] = $rename(provisionDemoTarget());
+
+    $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+    $policy['targets']['demo-shop'] = mailRoutingDemoShopOutboundPolicy();
+    $policy['targets']['demo-books'] = $rename(mailRoutingDemoShopOutboundPolicy());
+    $policy['targets']['demo-books']['submission']['port'] = 2598;
+
+    return ['policy' => $policy, 'registry' => $registry];
 }
 
 /**
@@ -3936,7 +3980,6 @@ function trustedToolingRefs(): array
         'restore-staging.yml' => 'develop',
         'recover-staging.yml' => 'develop',
         'rollback-staging.yml' => 'develop',
-        'verify-staging-mail-gateway.yml' => 'develop',
     ];
 }
 

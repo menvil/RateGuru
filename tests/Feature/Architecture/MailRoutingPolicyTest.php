@@ -10,17 +10,18 @@ use Symfony\Component\Yaml\Yaml;
  *
  * Every target submits its mail to a gateway on a loopback port of its own, and
  * the gateway routes it by that target's delivery mode: `capture` into the
- * staging capture service, or `held` — no route at all — for a production
- * target whose outbound transport does not exist yet.
+ * staging capture service, `held` — no route at all — or `outbound`, out of the
+ * host by the transport kind its policy names (`direct` only). Only a
+ * production target may be held or outbound, and the real production target is
+ * still held: the outbound mode is proved here against a synthetic demo-shop.
  *
  * Every behavioural test here runs the shipped infrastructure/scripts/
  * mail-routing against fixture files. None restates a rule in PHP: a validator
  * reimplemented here would prove only that two copies agree.
  *
- * Nothing in the repository installs that gateway. Staging still submits
- * straight to Mailpit, and the tests at the end of this file hold that line:
- * no public SMTP listener, an untouched capture slice, and environment
- * templates that still describe the endpoint a host actually has.
+ * The tests at the end of this file hold the line around it: no public SMTP
+ * listener, an untouched capture slice, and environment templates that describe
+ * the endpoint a host actually has.
  */
 /** @return array<string, mixed> */
 function mailRoutingPolicy(): array
@@ -105,7 +106,7 @@ it('renders one loopback listener per registry target, in target order', functio
     $plan = mailRoutingPlan();
 
     expect(array_keys($plan))->toBe(['listeners', 'schema_version']);
-    expect($plan['schema_version'])->toBe(1);
+    expect($plan['schema_version'])->toBe(2);
 
     $registryTargets = array_keys(perimeterRegistry()['targets']);
     sort($registryTargets);
@@ -241,13 +242,13 @@ it('never lets a production target render a capture or an Internet destination',
         ['targets.tits-guru.destination' => ['host' => '203.0.113.25', 'port' => 25]],
         'tits-guru: held mail has no delivery destination, so it may not declare "destination"',
     ],
-    'an outbound delivery mode, which does not exist yet' => [
+    'outbound with no transport named' => [
         ['targets.tits-guru.delivery_mode' => 'outbound'],
-        'tits-guru: delivery_mode must be one of capture, held, got "outbound"',
+        'tits-guru: an outbound policy must declare outbound',
     ],
     'a relay delivery mode' => [
         ['targets.tits-guru.delivery_mode' => 'relay'],
-        'tits-guru: delivery_mode must be one of capture, held, got "relay"',
+        'tits-guru: delivery_mode must be one of capture, held, outbound, got "relay"',
     ],
     'a production target rewritten as capture into staging Mailpit' => [
         ['targets.tits-guru' => [
@@ -256,7 +257,7 @@ it('never lets a production target render a capture or an Internet destination',
             'allowed_from_domain' => 'staging.invalid',
             'capture' => ['host' => '127.0.0.1', 'port' => 1025],
         ]],
-        'tits-guru: environment_class production allows delivery_mode held, not capture',
+        'tits-guru: environment_class production allows delivery_mode held or outbound, not capture',
     ],
 ]);
 
@@ -336,6 +337,211 @@ it('keeps tits-guru planned, and refuses any held target that is active', functi
     } finally {
         exec('rm -rf '.escapeshellarg($scratch));
     }
+});
+
+// =============================================================================
+// OUTBOUND: DIRECT ONLY, PRODUCTION ONLY
+// =============================================================================
+
+it('refuses the committed policy written as the previous schema, rather than reinterpreting it', function () {
+    expect(mailRoutingPolicy()['schema_version'])->toBe(2);
+
+    // Exactly the policy that validates today, under the schema that knew only
+    // capture and held: refused whole, by both commands.
+    $previous = mailRoutingPolicyWith(['schema_version' => 1]);
+
+    expectMailRoutingRefusal(mailRoutingRun(['validate'], $previous), 'unsupported mail routing schema_version: 1 (expected 2)');
+    expectMailRoutingRefusal(mailRoutingRun(['render-plan'], $previous), 'unsupported mail routing schema_version: 1 (expected 2)');
+});
+
+it('validates and renders a production target delivered outbound by direct SMTP', function () {
+    $policy = mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopOutboundPolicy()]);
+    $registry = mailRoutingDemoShopRegistry();
+
+    $run = mailRoutingRun(['validate'], $policy, $registry);
+    expect($run['status'])->toBe(0, $run['stderr']);
+
+    $plan = mailRoutingPlan($policy, $registry);
+
+    // The same identity a held policy renders, and a route naming only its
+    // kind: no host, port, relay, credential or MTA hostname — the physical
+    // identity it delivers under is the host's, never the policy's.
+    expect(mailRoutingListener($plan, 'demo-shop'))->toBe([
+        'delivery_mode' => 'outbound',
+        'environment_class' => 'production',
+        'identity' => 'demo-shop',
+        'lifecycle' => 'planned',
+        'listen' => ['host' => '127.0.0.1', 'port' => 2599],
+        'route' => ['kind' => 'direct'],
+        'sender' => [
+            'allowed_domain' => 'demo-shop.example',
+            'bounce_domain' => 'bounce.demo-shop.example',
+            'default_from' => 'hello@demo-shop.example',
+            'reply_domain' => 'reply.demo-shop.example',
+        ],
+    ]);
+
+    // The real targets render exactly as they do without it.
+    $others = array_values(array_filter(
+        $plan['listeners'],
+        static fn (array $listener): bool => $listener['identity'] !== 'demo-shop',
+    ));
+
+    expect($others)->toBe(mailRoutingPlan()['listeners']);
+});
+
+it('keeps the real production target held and planned, with no outbound route in the real plan', function () {
+    expect(mailRoutingPolicy()['targets']['tits-guru'])->not->toHaveKey('outbound');
+    expect(mailRoutingListener(mailRoutingPlan(), 'tits-guru')['route'])->toBeNull();
+    expect(perimeterRegistry()['targets']['tits-guru']['lifecycle'])->toBe('planned');
+
+    foreach (mailRoutingPlan()['listeners'] as $listener) {
+        expect($listener['delivery_mode'])->not->toBe('outbound', "{$listener['identity']} is outbound in the real plan");
+    }
+});
+
+it('lets an outbound target be active, and still refuses an active held one', function () {
+    // The registry's own allowlist names one active target; this scratch copy
+    // widens it, so the mail rule is the one left to decide.
+    $scratch = sys_get_temp_dir().'/mail-routing-outbound-active-'.bin2hex(random_bytes(6));
+    @mkdir($scratch, 0o755, true);
+
+    try {
+        $repo = provisionRepo($scratch, mailRoutingJson(mailRoutingDemoShopRegistry(['lifecycle' => 'active'])), widenActiveAllowlist: true);
+        $script = $repo.'/infrastructure/scripts/mail-routing';
+
+        $outbound = mailRoutingRun(['render-plan'], mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopOutboundPolicy()]), null, $script);
+        expect($outbound['status'])->toBe(0, $outbound['stderr']);
+        expect(mailRoutingListener(json_decode($outbound['stdout'], true), 'demo-shop'))
+            ->toMatchArray(['lifecycle' => 'active', 'delivery_mode' => 'outbound', 'route' => ['kind' => 'direct']]);
+
+        expectMailRoutingRefusal(
+            mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopPolicy()]), null, $script),
+            'demo-shop: lifecycle=active with held mail — an active target must have a delivery route and held has none; it stays inactive until its policy is outbound',
+        );
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('never lets a staging target deliver outbound', function () {
+    $outbound = mailRoutingDemoShopOutboundPolicy();
+    $outbound['submission']['port'] = 2525;
+
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.staging-main' => $outbound])),
+        'staging-main: environment_class staging allows delivery_mode capture, not outbound — a staging target never delivers',
+    );
+
+    // A staging target the code has never heard of, the same way.
+    expectMailRoutingRefusal(
+        mailRoutingRun(
+            ['render-plan'],
+            mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopOutboundPolicy()]),
+            mailRoutingDemoShopRegistry(['environment_class' => 'staging']),
+        ),
+        'demo-shop: environment_class staging allows delivery_mode capture, not outbound',
+    );
+});
+
+it('accepts direct as the one outbound kind, and nothing beside it', function (mixed $outbound, string $reason) {
+    $policy = mailRoutingDemoShopOutboundPolicy();
+    $policy['outbound'] = $outbound;
+
+    $run = mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.demo-shop' => $policy]), mailRoutingDemoShopRegistry());
+
+    expectMailRoutingRefusal($run, $reason);
+})->with([
+    'a relay kind, which is not implemented' => [['kind' => 'relay'], 'demo-shop: outbound.kind must be one of direct, got "relay"'],
+    'a provider kind' => [['kind' => 'ses'], 'demo-shop: outbound.kind must be one of direct, got "ses"'],
+    'a capitalised kind' => [['kind' => 'Direct'], 'demo-shop: outbound.kind must be one of direct, got "Direct"'],
+    'an empty kind' => [['kind' => ''], 'demo-shop: outbound.kind must be one of direct, got ""'],
+    'a null kind' => [['kind' => null], 'demo-shop: outbound.kind must be one of direct, got null'],
+    'no kind at all' => [new stdClass, 'demo-shop: outbound must be exactly {kind}, found []'],
+    'the kind as a bare string' => ['direct', 'demo-shop: outbound must be an object {kind}, got "direct"'],
+    'a relay host beside the kind' => [['kind' => 'direct', 'relayhost' => '[smtp.example.com]:587'], 'demo-shop: outbound must be exactly {kind}, found ["kind","relayhost"]'],
+    'an MTA hostname beside the kind' => [['kind' => 'direct', 'mta_hostname' => 'mta1.example.net'], 'demo-shop: outbound must be exactly {kind}, found ["kind","mta_hostname"]'],
+    'a credential beside the kind' => [['kind' => 'direct', 'password' => 'hunter2'], 'the policy holds a secret-like property name "password"'],
+]);
+
+it('refuses any destination beside the outbound transport', function (string $property) {
+    $policy = mailRoutingDemoShopOutboundPolicy();
+    $policy[$property] = ['host' => 'smtp.example.com', 'port' => 587];
+
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.demo-shop' => $policy]), mailRoutingDemoShopRegistry()),
+        "demo-shop: outbound mail leaves only through its own outbound transport, so it may not declare \"{$property}\" — the route is outbound.kind and nothing else",
+    );
+})->with(['relay', 'relayhost', 'smarthost', 'capture', 'transport', 'nexthop', 'destination', 'route']);
+
+it('judges an outbound identity by exactly the rules a held one is judged by', function (array $identity) {
+    $problems = [];
+
+    foreach (['held' => mailRoutingDemoShopPolicy(), 'outbound' => mailRoutingDemoShopOutboundPolicy()] as $mode => $policy) {
+        $run = mailRoutingRun(
+            ['validate'],
+            mailRoutingPolicyWith(['targets.demo-shop' => [...$policy, ...$identity]]),
+            mailRoutingDemoShopRegistry(),
+        );
+
+        expect($run['status'])->not->toBe(0, "a {$mode} policy accepted the identity");
+        $problems[$mode] = array_values(preg_grep('/^INVALID: /', preg_split('/\R/', $run['stderr'])));
+    }
+
+    expect($problems['held'])->not->toBe([]);
+    expect($problems['outbound'])->toBe($problems['held']);
+})->with([
+    'a mail domain that is not a lowercase domain' => [['mail_domain' => 'Demo-Shop.example']],
+    'a staging identity' => [[
+        'mail_domain' => 'demo-shop.invalid',
+        'default_from' => 'hello@demo-shop.invalid',
+        'bounce_domain' => 'bounce.demo-shop.invalid',
+        'reply_domain' => 'reply.demo-shop.invalid',
+    ]],
+    'a sender at another domain' => [['default_from' => 'hello@other.example']],
+    'a sender that is not an address' => [['default_from' => 'hello demo-shop.example']],
+    'a bounce domain outside the identity' => [['bounce_domain' => 'bounce.other.example']],
+    'a reply domain that merely ends the same way' => [['reply_domain' => 'replydemo-shop.example']],
+    'a bounce domain that is the mail domain' => [['bounce_domain' => 'demo-shop.example']],
+]);
+
+it('refuses a production identity claimed twice, across held and outbound targets alike', function () {
+    $claim = [
+        'mail_domain' => 'tits.guru',
+        'default_from' => 'shop@tits.guru',
+        'bounce_domain' => 'bounce.shop.tits.guru',
+        'reply_domain' => 'reply.shop.tits.guru',
+    ];
+
+    // An outbound target taking the held target's domain.
+    expectMailRoutingRefusal(
+        mailRoutingRun(
+            ['validate'],
+            mailRoutingPolicyWith(['targets.demo-shop' => [...mailRoutingDemoShopOutboundPolicy(), ...$claim]]),
+            mailRoutingDemoShopRegistry(),
+        ),
+        'mail identity domain tits.guru is claimed more than once: demo-shop mail_domain, tits-guru mail_domain',
+    );
+
+    // Two outbound targets sharing a reply domain.
+    ['policy' => $policy, 'registry' => $registry] = mailRoutingTwoOutboundTargets();
+    expect(mailRoutingRun(['validate'], $policy, $registry)['status'])->toBe(0);
+
+    $policy['targets']['demo-books']['mail_domain'] = 'demo-shop.example';
+    $policy['targets']['demo-books']['default_from'] = 'books@demo-shop.example';
+    $policy['targets']['demo-books']['bounce_domain'] = 'bounce.books.demo-shop.example';
+
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], $policy, $registry),
+        'mail identity domain demo-shop.example is claimed more than once: demo-books mail_domain, demo-shop mail_domain',
+    );
+
+    $policy['targets']['demo-books']['reply_domain'] = 'reply.demo-shop.example';
+
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], $policy, $registry),
+        'mail identity domain reply.demo-shop.example is claimed more than once: demo-books reply_domain, demo-shop reply_domain',
+    );
 });
 
 // =============================================================================
@@ -492,15 +698,16 @@ it('refuses a document that is not one well-formed policy object', function (str
         '{"schema_version": 1, "schema_version": 1, "targets": {}}',
         'mail routing policy declares the same key twice in one object',
     ],
-    'schema version 2' => ['{"schema_version": 2, "targets": {}}', 'unsupported mail routing schema_version: 2 (expected 1)'],
-    'schema version as a string' => ['{"schema_version": "1", "targets": {}}', 'unsupported mail routing schema_version: "1" (expected 1)'],
-    'no schema version' => ['{"targets": {}}', 'unsupported mail routing schema_version: null (expected 1)'],
+    'the previous schema version' => ['{"schema_version": 1, "targets": {}}', 'unsupported mail routing schema_version: 1 (expected 2)'],
+    'a later schema version' => ['{"schema_version": 3, "targets": {}}', 'unsupported mail routing schema_version: 3 (expected 2)'],
+    'schema version as a string' => ['{"schema_version": "2", "targets": {}}', 'unsupported mail routing schema_version: "2" (expected 2)'],
+    'no schema version' => ['{"targets": {}}', 'unsupported mail routing schema_version: null (expected 2)'],
     'an extra top-level property' => [
-        '{"schema_version": 1, "comment": "x", "targets": {"staging-main": {}}}',
+        '{"schema_version": 2, "comment": "x", "targets": {"staging-main": {}}}',
         'mail routing policy must be exactly {schema_version, targets}, found ["comment","schema_version","targets"]',
     ],
-    'targets as an array' => ['{"schema_version": 1, "targets": []}', 'mail routing policy targets must be a non-empty object'],
-    'no targets at all' => ['{"schema_version": 1, "targets": {}}', 'mail routing policy targets must be a non-empty object'],
+    'targets as an array' => ['{"schema_version": 2, "targets": []}', 'mail routing policy targets must be a non-empty object'],
+    'no targets at all' => ['{"schema_version": 2, "targets": {}}', 'mail routing policy targets must be a non-empty object'],
 ]);
 
 it('refuses a policy whose shape is not exactly its mode\'s', function (array $set, array $forget, string $reason) {
@@ -511,7 +718,7 @@ it('refuses a policy whose shape is not exactly its mode\'s', function (array $s
     'no sender domain' => [[], ['targets.staging-main.allowed_from_domain'], 'staging-main: a capture policy must declare allowed_from_domain'],
     'no submission endpoint' => [[], ['targets.tits-guru.submission'], 'tits-guru: a held policy must declare submission'],
     'no bounce domain' => [[], ['targets.tits-guru.bounce_domain'], 'tits-guru: a held policy must declare bounce_domain'],
-    'no delivery mode' => [[], ['targets.tits-guru.delivery_mode'], 'tits-guru: delivery_mode must be one of capture, held, got null'],
+    'no delivery mode' => [[], ['targets.tits-guru.delivery_mode'], 'tits-guru: delivery_mode must be one of capture, held, outbound, got null'],
     'an extra endpoint property' => [
         ['targets.staging-main.submission.tls' => true],
         [],
@@ -796,6 +1003,10 @@ it('renders no command, no path and no secret — only closed vocabulary', funct
         mailRoutingPlan(),
         mailRoutingPlan(
             mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopPolicy()]),
+            mailRoutingDemoShopRegistry(),
+        ),
+        mailRoutingPlan(
+            mailRoutingPolicyWith(['targets.demo-shop' => mailRoutingDemoShopOutboundPolicy()]),
             mailRoutingDemoShopRegistry(),
         ),
     ];
@@ -1143,10 +1354,10 @@ it('documents the template, the host and the future apart, and the template and 
     $current = $section('### CURRENT runtime values (what the staging host runs today)', '### FUTURE gateway values');
     $future = $section('### FUTURE gateway values (not set — tits-guru has no route yet)', '## Adding a target');
 
-    // The template is the plan's staging listener; the host is still on the
-    // direct path until its operator cuts over; the future is tits-guru's.
+    // The template is the plan's staging listener, and so is the host since its
+    // operator cut over to the gateway; the future is tits-guru's.
     expect($template)->toContain("MAIL_MAILER=smtp MAIL_HOST={$staging['listen']['host']} MAIL_PORT={$staging['listen']['port']} MAIL_FROM_ADDRESS=noreply@staging.invalid");
-    expect($current)->toContain('MAIL_MAILER=smtp MAIL_HOST=127.0.0.1 MAIL_PORT=1025 MAIL_FROM_ADDRESS=noreply@staging.invalid');
+    expect($current)->toContain("MAIL_MAILER=smtp MAIL_HOST={$staging['listen']['host']} MAIL_PORT={$staging['listen']['port']} MAIL_FROM_ADDRESS=noreply@staging.invalid");
     expect($future)->toContain("MAIL_MAILER=smtp MAIL_HOST={$titsGuru['listen']['host']} MAIL_PORT={$titsGuru['listen']['port']} MAIL_FROM_ADDRESS={$titsGuru['sender']['default_from']}");
 });
 
