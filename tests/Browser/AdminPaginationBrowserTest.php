@@ -28,7 +28,7 @@ it('draws the records-per-page chooser without a frame or a focus ring, when cli
     Post::factory()->count(30)->published()->create();
     $select = '.fi-pagination-records-per-page-select:not(.fi-compact) select';
 
-    $page = visit('/admin/posts')->resize(1440, 900)->wait(0.5);
+    $page = resizeAndSettle(visit('/admin/posts'), 1440, 900);
     $page->click($select);
 
     // A mouse click is what puts the ring on a select — it matches
@@ -41,7 +41,9 @@ it('draws the records-per-page chooser without a frame or a focus ring, when cli
         'cursor' => 'pointer',
     ]);
 
-    $page->select($select, '25')->wait(0.5);
+    // The style after the table has come back from the server with 25 rows, not the one before it went.
+    $page->select($select, '25');
+    waitForScript($page, 'document.querySelectorAll(".fi-ta-row").length', 25);
 
     expect(perPageSelect($page))
         ->frame->toBe('none')
