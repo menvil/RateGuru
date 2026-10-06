@@ -653,6 +653,76 @@ it('reports a rollback that could not restore the running state, and still fails
     }
 });
 
+it('returns services an operator had turned off to exactly that state', function (bool $disableFails, string $outcome) {
+    $host = mailCaptureOutdatedHost();
+    $state = $host['state'];
+
+    try {
+        // Mailpit disabled and stopped, the mirror masked: the apply enables
+        // and starts both, then fails its health gate.
+        file_put_contents($state.'/staging-mailpit.service.enabled', 'disabled');
+        file_put_contents($state.'/staging-mailtrap-local.service.enabled', 'masked');
+        foreach (['staging-mailpit.service', 'staging-mailtrap-local.service'] as $unit) {
+            file_put_contents("{$state}/{$unit}.active", 'inactive');
+        }
+        file_put_contents($state.'/apis', "http://127.0.0.1:3550/api/v1/version\n");
+        if ($disableFails) {
+            touch($state.'/fail_disable_staging-mailpit.service');
+        }
+
+        $run = mailCaptureInstall($host);
+
+        expect($run['exit'])->toBe(1, $run['output']);
+        expect($run['output'])
+            ->toContain('pre-apply state: staging-mailpit.service (active=inactive, enabled=disabled)')
+            ->toContain('staging-mailpit.service API http://127.0.0.1:8025/api/v1/info did not respond')
+            ->toContain($outcome);
+
+        $calls = mailCaptureCalls($host);
+        expect($calls)
+            ->toContain('systemctl mask staging-mailtrap-local.service')
+            ->toContain('systemctl disable staging-mailpit.service');
+
+        // Both are stopped again, and the mirror is masked again.
+        expect(file_get_contents($state.'/staging-mailtrap-local.service.enabled'))->toBe('masked');
+        foreach (['staging-mailpit.service', 'staging-mailtrap-local.service'] as $unit) {
+            expect(file_get_contents("{$state}/{$unit}.active"))->toBe('inactive');
+        }
+        expect(file_get_contents($state.'/staging-mailpit.service.enabled'))->toBe($disableFails ? 'enabled' : 'disabled');
+    } finally {
+        removeScratchDir($host['root']);
+    }
+})->with([
+    'restored' => [false, 'rollback complete: files and runtime state restored'],
+    'Mailpit cannot be disabled again' => [true, 'rollback could not restore the boot state (disabled) of staging-mailpit.service'],
+]);
+
+it('never reloads Nginx with a configuration that still fails nginx -t after the rollback', function () {
+    $host = mailCaptureFreshHost();
+
+    try {
+        file_put_contents($host['state'].'/nginx.active', 'active');
+        touch($host['state'].'/nginx_invalid');
+
+        $run = mailCaptureInstall($host);
+
+        expect($run['exit'])->toBe(1, $run['output']);
+        expect($run['output'])
+            ->toContain('nginx: configuration file test failed')
+            ->toContain('restored nginx configuration is invalid; nginx was NOT reloaded')
+            ->toContain('rollback INCOMPLETE');
+
+        // The vhosts this run added are gone again, and Nginx was validated
+        // twice — and reloaded never.
+        expect(mailCaptureHostFiles($host))->toBe([]);
+        $calls = mailCaptureCalls($host);
+        expect(count(array_filter($calls, fn (string $call): bool => $call === 'nginx -t')))->toBeGreaterThanOrEqual(2);
+        expect($calls)->not->toContain('systemctl reload nginx');
+    } finally {
+        removeScratchDir($host['root']);
+    }
+});
+
 // =============================================================================
 // Refusing before anything changes
 // =============================================================================
