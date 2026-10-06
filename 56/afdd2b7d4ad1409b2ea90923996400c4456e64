@@ -1,0 +1,29 @@
+tests/Pest.php
+  s_9ce0383c8ffad8::t_0499cd23724d6a 1409-1724
+tests/Feature/Architecture/MailCaptureInstallerTest.php
+  s_9ce0383c8ffad8::t_b47bcdbdc343d7 341-349
+  s_9ce0383c8ffad8::t_aaddd6c04f500e 1-340,350-392
+infrastructure/scripts/install-mail-capture
+  s_9ce0383c8ffad8::t_cfe4a64645cebd 226-229
+  s_9ce0383c8ffad8::t_48d58d1cb6d5cf 76-77
+  s_9ce0383c8ffad8::t_660bbb2de0cda1 37-64,66-68
+  s_9ce0383c8ffad8::t_d95cbfa2635ba0 73
+  s_9ce0383c8ffad8::t_a43984dca94aa2 81,84
+  s_9ce0383c8ffad8::t_07e5c31e5d4f45 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "56afdd2b7d4ad1409b2ea90923996400c4456e64",
+  "prompts": {},
+  "sessions": {
+    "s_9ce0383c8ffad8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39b83c43-4723-4381-aade-182a822779a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
