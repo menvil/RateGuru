@@ -381,4 +381,8 @@ main() {
     run_e2e_checks
 }
 
-main "$@"
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped checks rather than a copy of them.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
