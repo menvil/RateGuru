@@ -322,7 +322,7 @@
             // Target language -----------------------------------------------------
 
             chooseTarget(code) {
-                if (code === this.locale) {
+                if (code === this.locale || this.switching) {
                     return
                 }
 
@@ -347,10 +347,20 @@
                 this.switchTo(code)
             },
             switchTo(code) {
+                const from = this.locale
+
                 this.discardAll(false)
                 this.switching = true
                 window.rgAdminTranslationCenterRefocus = true
-                this.$wire.$set('locale', code)
+
+                // On success the server draws the new language and this component is replaced. A request
+                // that fails changes nothing there, so the screen stays usable on the language it shows.
+                Promise.resolve(this.$wire.$set('locale', code)).catch(() => {
+                    this.$wire.$set('locale', from, false)
+                    this.switching = false
+                    delete window.rgAdminTranslationCenterRefocus
+                    this.toast('The language was not switched: the server did not answer. Try again.', 'error')
+                })
             },
         }))
 
