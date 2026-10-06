@@ -1,0 +1,27 @@
+tests/Feature/Filament/LanguagesPageTest.php
+  s_1aabafa6face67::t_73948c92306976 208-220
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_1aabafa6face67::t_43acb16505c853 18
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_1aabafa6face67::t_7e0d09a5fcd711 142-172
+resources/css/filament/admin/components.css
+  s_1aabafa6face67::t_18437800acc64a 516,520-536,538,2336,2986,3171-3316,3525-3526,3530-3536,3538,3554,3556,3589,3596-3610
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_1aabafa6face67::t_55affebecb5db5 165-227,316-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7d1ee270282da9ed2b3c79d719e17ec26360514d",
+  "prompts": {},
+  "sessions": {
+    "s_1aabafa6face67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0517ea51-76d2-407e-b43f-5a75d3813f33",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
