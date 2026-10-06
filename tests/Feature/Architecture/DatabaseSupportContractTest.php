@@ -154,7 +154,8 @@ it('runs primary and compatibility test suites in ci', function () {
         ->filter(fn (array $job): bool => collect($job['steps'] ?? [])
             ->contains(fn (array $step): bool => ($step['name'] ?? '') === 'Install rclone'))
         ->keys()
-        ->all())->toBe(['tests-architecture']);
+        ->all())->toBe(['tests-architecture'])
+        ->and($coverage)->not->toContain('Install rclone');
 
     $run = fn (string $job, string $step): string => (string) collect($workflow['jobs'][$job]['steps'])
         ->firstWhere('name', $step)['run'];
