@@ -319,7 +319,7 @@ it('refuses the mutating acceptance without root, before a single probe', functi
 })->with([
     '--e2e' => [['--e2e']],
     'no mode, which means --e2e' => [[]],
-])->skip(fn () => getmyuid() === 0, 'proves the root gate, so it must run as a non-root user');
+])->skip(fn () => testProcessIsRoot(), 'proves the root gate, so it must run as a non-root user');
 
 it('takes exactly one known mode', function (array $arguments, int $exit, string $message) {
     $workspace = mailCaptureStubWorkspace();

@@ -1119,6 +1119,16 @@ function removeScratchDir(string $dir): void
 }
 
 /**
+ * Whether this test process runs as root — its effective uid, which is what a
+ * script's root gate reads. getmyuid() is not that: it is the owner of the
+ * running PHP file.
+ */
+function testProcessIsRoot(): bool
+{
+    return posix_geteuid() === 0;
+}
+
+/**
  * Copies a prepared scratch directory into another one, as though the
  * preparation had been run there.
  *
@@ -6301,18 +6311,12 @@ function deployOpsSupportedProtocol(): int
 
 function deployOpsScratchDir(): string
 {
-    $dir = sys_get_temp_dir().'/deploy-ops-'.uniqid('', true).'-'.getmypid();
-
-    foreach (['', '/bin'] as $sub) {
-        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
-    }
-
-    return $dir;
+    return makeScratchDir('deploy-ops', ['', '/bin']);
 }
 
 function deployOpsCleanup(string $dir): void
 {
-    exec('rm -rf '.escapeshellarg($dir));
+    removeScratchDir($dir);
 }
 
 /**
@@ -6967,18 +6971,12 @@ function bsvcScript(): string
 
 function bsvcScratchDir(): string
 {
-    $dir = sys_get_temp_dir().'/bootstrap-services-'.uniqid('', true).'-'.getmypid();
-
-    foreach (['', '/bin', '/fs', '/log', '/svc', '/toggles'] as $sub) {
-        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
-    }
-
-    return $dir;
+    return makeScratchDir('bootstrap-services', ['', '/bin', '/fs', '/log', '/svc', '/toggles']);
 }
 
 function bsvcCleanup(string $dir): void
 {
-    exec('rm -rf '.escapeshellarg($dir));
+    removeScratchDir($dir);
 }
 
 /**

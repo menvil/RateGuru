@@ -29,7 +29,9 @@ use Illuminate\Support\Facades\File;
 function whilePreparingParityHost(string $scratch, Closure $body): mixed
 {
     @mkdir($scratch.'/run', 0o700, true);
-    $handle = fopen($scratch.'/run/prepare-host-parity.lock', 'c');
+    $lockFile = $scratch.'/run/prepare-host-parity.lock';
+    $handle = fopen($lockFile, 'c');
+    expect($handle)->not->toBeFalse("could not open the preparation lock file {$lockFile}");
     expect(flock($handle, LOCK_EX | LOCK_NB))->toBeTrue('could not take the preparation lock');
 
     try {

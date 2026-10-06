@@ -1814,7 +1814,10 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
             ->toEndWith("SUMMARY  pass=7 missing=0 drift=1 conflict=0 deferred=0\n");
 
         expect(mailGatewayLog($host, 'mutations.log'))->toBe('', '--read-only called a mutating command');
-        expect(array_diff_assoc(mailGatewayTree($host), $before))->toBe(['etc/postfix/main.cf' => hash_file('sha256', $host['fs'].'/etc/postfix/main.cf')]);
+        // Exactly the hand edit changed: no file was added, removed or rewritten.
+        $expected = $before;
+        $expected['etc/postfix/main.cf'] = hash_file('sha256', $host['fs'].'/etc/postfix/main.cf');
+        expect(mailGatewayTree($host))->toBe($expected);
     } finally {
         mailGatewayCleanup($host);
     }

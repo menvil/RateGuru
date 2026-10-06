@@ -745,7 +745,7 @@ it('refuses --apply without root, before touching the host, unless the seam is a
     // uid is what the gate sees.
     'a root uid override without the opt-in' => [['RATEGURU_ALLOW_TEST_OVERRIDES' => 'false']],
     'an allowed non-root uid' => [['RATEGURU_MAILCAPTURE_EUID' => '1000']],
-])->skip(fn () => getmyuid() === 0, 'proves the root gate, so it must run as a non-root user');
+])->skip(fn () => testProcessIsRoot(), 'proves the root gate, so it must run as a non-root user');
 
 it('refuses an unsupported platform before changing anything', function (string $file, string $value, string $message) {
     $host = mailCaptureFreshHost();
