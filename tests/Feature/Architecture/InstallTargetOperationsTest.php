@@ -4537,3 +4537,114 @@ it('stages the protocol contract into the staged bundle override set', function 
         ->toContain('local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"')
         ->toContain('"RATEGURU_DEPLOYMENT_PROTOCOL_FILE=${staged_deployment_protocol}"');
 });
+
+// =============================================================================
+// When rollback cannot put the host back
+//
+// A failed apply rolls the bundle back and then re-runs the previously
+// installed health check, so the operator learns both whether the files are
+// back and whether the target is healthy again. Both answers can be "no", and
+// each must be said rather than smoothed over: a half-applied operational
+// bundle is a host whose deploy, rollback and backup scripts disagree with
+// each other.
+// =============================================================================
+
+/**
+ * A candidate health-check that passes as the staged copy and, once it runs
+ * from its installed path after the bundle has landed, runs $sideEffect (bash)
+ * and fails — a genuine post-install failure that also changes the host.
+ */
+function installOpsHealthCheckFailingAfterInstall(array $vars, string $sideEffect): void
+{
+    $forcedFailure = 'printf "forced staging failure (test)\n" >&2; exit 1';
+    $candidate = installOpsHealthCheckStub($vars['DST_HEALTH_CHECK']);
+
+    expect($candidate)->toContain($forcedFailure);
+
+    installOpsWriteExecutable(
+        $vars['SRC_HEALTH_CHECK'],
+        str_replace($forcedFailure, $sideEffect.'; '.$forcedFailure, $candidate),
+    );
+}
+
+it('says the rollback is incomplete, and where the backups are, when a file it installed cannot be removed', function () {
+    if (getmyuid() === 0) {
+        test()->markTestSkipped('a read-only directory does not stop root from removing files in it');
+    }
+
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+        $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse('fixture setup: status must start absent');
+        expect(file_exists($vars['DST_REGISTRY']))->toBeFalse('fixture setup: the registry must start absent');
+
+        // After the whole bundle has landed, the bin directory stops accepting
+        // changes, so the files this run created there cannot be removed again.
+        installOpsHealthCheckFailingAfterInstall($vars, 'chmod a-w '.escapeshellarg($vars['DST_BIN_ROOT']));
+
+        try {
+            [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        } finally {
+            chmod($vars['DST_BIN_ROOT'], 0o755);
+        }
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)
+            ->toContain('files installed; verifying before committing')
+            ->toContain('ERROR: could not remove '.$vars['DST_STATUS'].' during rollback')
+            ->toContain('ERROR: rollback INCOMPLETE — some files may not have been restored')
+            ->not->toContain('rollback complete')
+            ->not->toContain('health check still succeeds after rollback');
+
+        // The operator is pointed at the backups, and they are there.
+        expect(preg_match('/backups remain in (\S+) for manual recovery/', $output, $matches))->toBe(1, $output);
+        expect(is_dir($matches[1]))->toBeTrue();
+        expect(file_get_contents($matches[1].$vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore);
+
+        // Everything that could still be put back was: the pre-existing
+        // health-check is the previous one again, and what this run created
+        // outside the read-only directory is gone.
+        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore);
+        expect(file_exists($vars['DST_REGISTRY']))->toBeFalse('rollback must carry on past a file it could not remove');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('tells the operator the target is still unhealthy after a rollback that restored every file', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+
+        // The previously installed health-check passes until the application
+        // goes down, which happens while the apply is verifying the new bundle.
+        $down = $scratch.'/application-down';
+        installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], "#!/usr/bin/env bash\n"
+            .'if [[ -e '.escapeshellarg($down).' ]]; then printf "staging-main unhealthy (test)\n" >&2; exit 1; fi'."\n"
+            ."printf 'health OK (target staging-main, stub)\\n'\n");
+        $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+
+        installOpsHealthCheckFailingAfterInstall($vars, 'touch '.escapeshellarg($down));
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+
+        // The files are back...
+        expect($output)->toContain('rollback complete: previous files restored');
+        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore);
+
+        // ...but restoring them did not make the target healthy, and the
+        // operator is told so instead of being reassured.
+        expect($output)
+            ->toContain('ERROR: staging-main health check FAILED even after rollback — manual intervention required')
+            ->not->toContain('health check still succeeds after rollback');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
