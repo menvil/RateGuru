@@ -297,6 +297,21 @@ function repairGuard(string $scratch, string $status, string $operation = '20260
     );
 }
 
+/** Writes $contents as staging-main's recovery guard and returns its path. */
+function repairRecoveryGuard(string $scratch, string $contents): string
+{
+    @mkdir($scratch.'/run/recoveries/staging-main', 0o755, true);
+
+    file_put_contents($path = $scratch.'/run/recoveries/staging-main/recovery-guard', $contents);
+
+    return $path;
+}
+
+function repairRecoveryGuardDocument(string $status): string
+{
+    return json_encode(['status' => $status, 'operation' => '20260115-041233-9be21c', 'target' => 'staging-main'])."\n";
+}
+
 /**
  * Structure + content snapshot of everything the repair must not change.
  *
@@ -622,6 +637,87 @@ it('reports a held target as one problem rather than two', function () {
         expect(substr_count($output, 'RESTORE-HOLD'))->toBe(1);
         expect($output)->not->toContain('MAINTENANCE  runtime:maintenance');
         expect($output)->toContain('BLOCKED: 1');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('refuses every recovery guard state with its own diagnosis, and never clears one', function (string $document, string $diagnosis) {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        $guard = repairRecoveryGuard($scratch, $document);
+
+        [$checkExit, $checkOutput] = repairRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, $checkOutput);
+        expect($checkOutput)
+            ->toContain('RECOVERY-HOLD recovery:guard — '.$diagnosis)
+            ->toContain('REPAIR REQUIRED: BLOCKED');
+
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)
+            ->toContain('recovery guard: '.$diagnosis)
+            ->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+
+        // Left byte for byte as it was found, even when it cannot be read:
+        // ending a recovery is that recovery's decision, never a repair's.
+        expect(File::get($guard))->toBe($document);
+    } finally {
+        repairCleanup($scratch);
+    }
+})->with([
+    'awaiting code' => [
+        repairRecoveryGuardDocument('awaiting-code'),
+        "host recovery operation 20260115-041233-9be21c restored this target's data onto a replacement host and is waiting for the exact code that data belongs to. Finish that recovery — the controlled recovery deployment followed by recover-host --resume",
+    ],
+    'in progress' => [
+        repairRecoveryGuardDocument('in-progress'),
+        'host recovery operation 20260115-041233-9be21c is in progress or was interrupted',
+    ],
+    'failed and held' => [
+        repairRecoveryGuardDocument('failed-held'),
+        'host recovery operation 20260115-041233-9be21c failed and left the target held',
+    ],
+    'a status it does not know' => [
+        repairRecoveryGuardDocument('rolled-back'),
+        'host recovery operation 20260115-041233-9be21c left a guard with status rolled-back, which this orchestrator does not recognise',
+    ],
+    // Unreadable is not absent: it still blocks, as an unknown status.
+    'not a JSON document' => [
+        "{not json\n",
+        'host recovery operation unknown left a guard with status unknown, which this orchestrator does not recognise',
+    ],
+]);
+
+it('reports a restore guard and a recovery guard together as one conflict, not as either hold', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairGuard($scratch, 'held');
+        repairRecoveryGuard($scratch, repairRecoveryGuardDocument('awaiting-code'));
+
+        [$checkExit, $checkOutput] = repairRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, $checkOutput);
+        expect($checkOutput)->toContain('CONFLICT     guards:conflict — staging-main carries BOTH a restore guard and a recovery guard');
+
+        // "Finish that restore" and "finish that recovery" are both the wrong
+        // advice here, so the refusal gives neither.
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)
+            ->toContain('conflicting guards: staging-main carries BOTH a restore guard (status held) and a recovery guard (status awaiting-code)')
+            ->not->toContain('restore guard: ')
+            ->not->toContain('recovery guard: ')
+            ->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
     } finally {
         repairCleanup($scratch);
     }
