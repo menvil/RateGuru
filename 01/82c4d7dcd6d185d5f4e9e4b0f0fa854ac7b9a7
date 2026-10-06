@@ -1,0 +1,116 @@
+resources/views/filament/pages/translation-center.blade.php
+  s_1aabafa6face67::t_476222fc6d250c 146
+  s_1aabafa6face67::t_6980e9c52f99b8 1-145,147-180
+resources/views/components/admin/ui/combobox.blade.php
+  s_1aabafa6face67::t_f1d9132ea1123e 59,81,173-174,231-232
+  s_1aabafa6face67::t_24e714440a19ba 19-22,216,220-224
+  s_1aabafa6face67::t_bd1c99d3d6d815 1-18,23-58,60-80,82-172,175-215,217-219,225-230,233-234
+app/Support/Translations/ProjectTranslationUnit.php
+  s_1aabafa6face67::t_14405a96751f34 49,52,103
+  s_1aabafa6face67::t_acd4dbfcfc6190 6-14,16,19-25,28-32,35,42-46,50-51,53-91,93-102,104-112
+tests/Browser/AdminUiKitBrowserTest.php
+  s_1aabafa6face67::t_dfcc3d11e430ab 192,200
+  s_1aabafa6face67::t_24dfc0f2da16b2 132-191,193-199,201-204
+tests/Feature/Filament/LanguagesPageTest.php
+  s_1aabafa6face67::t_73948c92306976 5,848,850,855-860,862-863,865-894,896-899
+  s_1aabafa6face67::t_660552f2af3ff0 37,43,49,57,67,80,94,358,474,481,497,504-505,524,853,922,1016
+app/Filament/Support/AdminShellNavigation.php
+  s_1aabafa6face67::t_ce2ac304cd67a6 9,51
+app/Support/Translations/ProjectTranslationCatalog.php
+  s_1aabafa6face67::t_87c59e461b25d6 1-445,447-467,469-484
+  s_1aabafa6face67::t_14405a96751f34 446,468
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_1aabafa6face67::t_86e1e94b7e2774 225-272,274-282,286
+  s_1aabafa6face67::t_ea1a94355f14da 283-285,287-326
+  s_1aabafa6face67::t_4b710217094b51 12,28-29,220-223,273
+tests/Feature/Admin/AdminShellTest.php
+  s_1aabafa6face67::t_983bf351e95f6e 7,41,127
+  s_1aabafa6face67::t_8199eca6f4cb80 156,248,264
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_1aabafa6face67::t_872630c16fa105 427
+  s_1aabafa6face67::t_6c6a744b09c8a4 350-426,428-440
+app/Filament/Pages/LanguagesPage.php
+  s_1aabafa6face67::t_71e566b32834ee 8,13,454-457,460,477,555-557,559,565,568-576
+app/Actions/Translations/UpdateProjectTranslationAction.php
+  s_1aabafa6face67::t_b1768a2861d320 1-119
+app/Filament/Support/TranslationSourceEditor.php
+  s_1aabafa6face67::t_a8ed0fd355ab66 1-30
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_1aabafa6face67::t_55affebecb5db5 1-184,189-195,199-201,203-264,266-268,270-272,274-329,331-414,416-449,451-528
+  s_1aabafa6face67::t_5c948de635cf26 185-188,196-198,202,265,269,273,330,415,450
+app/Exceptions/Translations/CannotSaveTranslationException.php
+  s_1aabafa6face67::t_b1bbceb550c8db 1-93
+resources/views/filament/pages/admin-ui-kit/foundations.blade.php
+  s_1aabafa6face67::t_dfbcb0b9b0c260 31,33
+app/Support/Translations/ProjectTranslationReport.php
+  s_1aabafa6face67::t_0f318dfb39c951 11,33,42
+resources/views/filament/pages/translation-center/row.blade.php
+  s_1aabafa6face67::t_0816cf5f78dad4 1-50,52-62,64-70,72,76-141
+  s_1aabafa6face67::t_18437800acc64a 51,71
+  s_1aabafa6face67::t_968708d541cf77 73-75
+  s_1aabafa6face67::t_1f7d5e0d2cc766 63
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_1aabafa6face67::t_43acb16505c853 60-141
+resources/views/components/admin/ui/segmented.blade.php
+  s_1aabafa6face67::t_f6c6b3c4c7b33b 1-76
+resources/views/filament/pages/languages/missing.blade.php
+  s_1aabafa6face67::t_93490069a77753 7-12,90,105-109
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_1aabafa6face67::t_5e1ae6f8cb4435 229-254
+resources/views/components/admin/ui/icon.blade.php
+  s_1aabafa6face67::t_2d212f6b7777de 43-46
+tests/Pest.php
+  s_1aabafa6face67::t_660552f2af3ff0 35,3930,3970-3996
+  s_1aabafa6face67::t_58f189f132b607 3931-3969
+resources/views/components/admin/ui/filter-dropdown.blade.php
+  s_1aabafa6face67::t_36f28ab7a290c1 1-123
+resources/views/filament/pages/translation-center/context.blade.php
+  s_1aabafa6face67::t_63b73dc031a962 1-103
+tests/Feature/I18n/UpdateProjectTranslationActionTest.php
+  s_1aabafa6face67::t_2d71b511b874b4 1-209,211-250,252-253,255-316
+  s_1aabafa6face67::t_882c502d56a642 210,251,254
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_1aabafa6face67::t_58f189f132b607 459,470,475-476,481,491,535,549
+  s_1aabafa6face67::t_7e0d09a5fcd711 551-572
+app/Support/Translations/ProjectTranslationCompleteness.php
+  s_1aabafa6face67::t_5cd6c3d0952c0f 10-15,19,34,38-39,41-43,45,47-48,50-51,53,56
+resources/css/filament/admin/components.css
+  s_1aabafa6face67::t_ff467dd6e62b90 889-892,1357-1654
+  s_1aabafa6face67::t_18437800acc64a 3127-3366,3368-3483
+  s_1aabafa6face67::t_f9d8879a2d131b 3367
+app/Filament/Pages/TranslationCenterPage.php
+  s_1aabafa6face67::t_8fa52631b2299b 79-84,86
+  s_1aabafa6face67::t_c56b3ee2eff8db 1-19,21-78,85,87-159,161-245,247-295,297-316,318-322,324,345-392,399-406
+  s_1aabafa6face67::t_21f00836bfe344 160,296,393-398
+  s_1aabafa6face67::t_24e714440a19ba 20,246,317,323,325-344
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_1aabafa6face67::t_32bd7095aeefec 348,353
+  s_1aabafa6face67::t_6fb1b944901de2 17,195,346,352,366,368
+  s_1aabafa6face67::t_e24442aa155ae0 1-16,19-194,196-345,347,349-351,354-365,367,369-477
+  s_1aabafa6face67::t_e456a3eb93bece 18
+tests/Feature/I18n/ProjectTranslationCatalogTest.php
+  s_1aabafa6face67::t_72153ed311fed7 1-4,6-13,15-23,25-302,304-305,316-377
+  s_1aabafa6face67::t_f18e2a47a97f35 5,14,24,303,306-315
+resources/views/filament/pages/translation-center/script.blade.php
+  s_1aabafa6face67::t_798fc7893c0ed4 1-198,200,212-260,262-292,296-359
+  s_1aabafa6face67::t_5f3ea6be725fed 261,293-295
+  s_1aabafa6face67::t_37f7a92bbea90a 199,201-211
+app/Filament/Pages/AdminUiKit.php
+  s_1aabafa6face67::t_caa9705417746e 89,484-561
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0182c4d7dcd6d185d5f4e9e4b0f0fa854ac7b9a7",
+  "prompts": {},
+  "sessions": {
+    "s_1aabafa6face67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0517ea51-76d2-407e-b43f-5a75d3813f33",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
