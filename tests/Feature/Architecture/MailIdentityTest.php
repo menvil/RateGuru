@@ -427,15 +427,41 @@ it('prints the same records as JSON, with nothing but public values', function (
         $plan = json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
 
         expect($plan['mta'])->toBe(['direct_delivery_enabled' => false, 'hostname' => 'mta1.tits.guru', 'ipv4' => '203.0.113.10']);
+        expect($plan['dkim']['key_status'])->toBe('usable');
         expect($plan['records'])->toBe([
-            ['name' => 'mta1.tits.guru', 'type' => 'A', 'value' => '203.0.113.10'],
-            ['name' => '203.0.113.10', 'type' => 'PTR', 'value' => 'mta1.tits.guru'],
-            ['name' => 'rg1._domainkey.tits.guru', 'type' => 'TXT', 'value' => 'v=DKIM1; k=rsa; p='.mailIdentityPublicKey($key)],
-            ['name' => 'tits.guru', 'type' => 'TXT', 'value' => 'v=spf1 ip4:203.0.113.10 -all'],
-            ['name' => '_dmarc.tits.guru', 'type' => 'TXT', 'value' => 'v=DMARC1; p=none; adkim=s; aspf=s'],
+            ['name' => 'mta1.tits.guru', 'purpose' => 'A', 'type' => 'A', 'value' => '203.0.113.10'],
+            ['name' => '203.0.113.10', 'purpose' => 'PTR', 'type' => 'PTR', 'value' => 'mta1.tits.guru'],
+            ['name' => 'rg1._domainkey.tits.guru', 'purpose' => 'DKIM', 'type' => 'TXT', 'value' => 'v=DKIM1; k=rsa; p='.mailIdentityPublicKey($key)],
+            ['name' => 'tits.guru', 'purpose' => 'SPF', 'type' => 'TXT', 'value' => 'v=spf1 ip4:203.0.113.10 -all'],
+            ['name' => '_dmarc.tits.guru', 'purpose' => 'DMARC', 'type' => 'TXT', 'value' => 'v=DMARC1; p=none; adkim=s; aspf=s'],
         ]);
 
         expectNoKeyMaterial($run['stdout'], $key);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('says in its JSON whether the key is usable, absent or unusable, and leaves an underivable value empty', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $plan = fn (): array => json_decode(mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json'], mailIdentityDnsHost($scratch, []))['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        $dkim = fn (array $plan): mixed => collect($plan['records'])->firstWhere('purpose', 'DKIM')['value'];
+
+        expect($plan()['dkim']['key_status'])->toBe('absent')
+            ->and($dkim($plan()))->toBeNull();
+
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        file_put_contents($key, (string) file_get_contents(mailIdentityKey('rsa1024')));
+
+        expect($plan()['dkim']['key_status'])->toBe('unusable')
+            ->and($dkim($plan()))->toBeNull();
+
+        file_put_contents($key, (string) file_get_contents(mailIdentityKey('rsa2048')));
+
+        expect($plan()['dkim']['key_status'])->toBe('usable')
+            ->and($dkim($plan()))->toStartWith('v=DKIM1; k=rsa; p=');
     } finally {
         removeScratchDir($scratch);
     }

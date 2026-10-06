@@ -589,9 +589,15 @@ runs:
     # route. Only public values come back, and only they are shown. Nothing is
     # published, and DNS is not verified here — it does not exist yet.
     #
-    # Never a failure of Configure: a target whose key is not installed — its
-    # mail held, its key deferred — reports the plan as deferred, and one with
-    # no mail identity has no plan at all.
+    # Whether the target has a reviewed identity, and whether its key is
+    # required yet, is `mail-identity dkim-key`'s answer, asked of the same
+    # trusted tree the bundle was packaged from. No identity: no plan, and
+    # Configure succeeds. An identity whose key is absent while its mail is
+    # held: the plan is DEFERRED, and Configure succeeds. Otherwise the plan
+    # must be complete — the MTA hostname, the host's public IPv4 and exactly
+    # one A, PTR, DKIM, SPF and DMARC record, each named and valued — or the
+    # step fails: the target was configured, but no DNS may be published from
+    # this run. Nothing installed is touched either way.
     - name: Report the public DNS publication plan
       shell: bash
       env:
@@ -601,6 +607,44 @@ runs:
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
       run: |
         set -Eeuo pipefail
+
+        summary() { printf '%s\n' "$@" >> "${GITHUB_STEP_SUMMARY}"; }
+
+        # Defence in depth: a plan is public by construction, and anything
+        # that looks like key material is never written anywhere.
+        refuse_key_material() {
+          if grep -q 'PRIVATE KEY' <<<"$1"; then
+            echo "The DNS plan output contained private key armour; it was discarded and nothing was shown." >&2
+            summary "Not shown: the plan output was refused."
+            exit 1
+          fi
+        }
+
+        no_plan() {
+          echo "$1" >&2
+          echo "${DEPLOYMENT_TARGET}: the target itself was configured, but the reviewed public mail DNS plan could not be established; do not publish DNS from this run." >&2
+          summary "**No plan — $1**" "" "The target itself was configured, but the reviewed public mail DNS plan could not be established; **do not publish DNS from this run.**"
+          exit 1
+        }
+
+        summary "## Mail DNS publication plan" ""
+
+        identity_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/mail-identity"
+        test -x "${identity_cli}"
+
+        if ! answer="$("${identity_cli}" dkim-key --target "${DEPLOYMENT_TARGET}")"; then
+          no_plan "mail-identity could not say whether ${DEPLOYMENT_TARGET} has a reviewed mail identity."
+        fi
+
+        if [[ "${answer}" == "none" ]]; then
+          echo "No DNS publication plan: ${DEPLOYMENT_TARGET} has no reviewed mail identity."
+          summary "No plan: \`${DEPLOYMENT_TARGET}\` has no reviewed mail identity."
+          exit 0
+        fi
+
+        requirement="${answer%%$'\t'*}"
+        [[ "${requirement}" == deferred || "${requirement}" == required ]] \
+          || no_plan "mail-identity gave no key requirement for ${DEPLOYMENT_TARGET}."
 
         remote_command=(
           ${RATEGURU_PRIVILEGED_PREFIX:-}
@@ -628,36 +672,62 @@ runs:
         plan_status=$?
         set -e
 
-        summary() { printf '%s\n' "$@" >> "${GITHUB_STEP_SUMMARY}"; }
+        refuse_key_material "${plan}"
 
-        summary "## Mail DNS publication plan"
-        summary ""
+        (( plan_status == 0 )) || no_plan "mail-identity show-dns exited ${plan_status} on the host."
 
-        # Defence in depth: a plan is public by construction, and anything
-        # that looks like key material is never written anywhere.
-        if grep -q 'PRIVATE KEY' <<<"${plan}"; then
-          echo "The DNS plan output contained private key armour; it was discarded and nothing was shown." >&2
-          summary "Not shown: the plan output was refused."
-          exit 1
-        fi
+        jq -e 'type == "object" and (.records | type) == "array" and (.dkim | type) == "object"' <<<"${plan}" >/dev/null 2>&1 \
+          || no_plan "mail-identity show-dns printed no readable plan."
 
-        if (( plan_status != 0 )) || ! jq -e '(.records | type) == "array"' <<<"${plan}" >/dev/null 2>&1; then
-          echo "No DNS publication plan for ${DEPLOYMENT_TARGET} (mail-identity show-dns exited ${plan_status}): it has no reviewed mail identity, or the plan could not be produced."
-          summary "No plan: \`${DEPLOYMENT_TARGET}\` has no reviewed mail identity, or the plan could not be produced."
-          exit 0
-        fi
+        key_status="$(jq -r '.dkim.key_status // "unknown"' <<<"${plan}")"
 
-        if [[ "$(jq -r '.records[] | select(.type == "TXT" and (.name | test("[.]_domainkey[.]"))) | .value // ""' <<<"${plan}")" == "" ]]; then
+        if [[ "${key_status}" == absent && "${requirement}" == deferred ]]; then
           echo "DNS publication plan DEFERRED — DKIM private key not installed."
           summary "**DNS publication plan DEFERRED — DKIM private key not installed.** Set \`MAIL_DKIM_PRIVATE_KEY\` and run Configure again; while \`${DEPLOYMENT_TARGET}\`'s mail is held this is not required."
           exit 0
         fi
 
+        [[ "${key_status}" == usable ]] \
+          || no_plan "the DKIM private key on the host is ${key_status} (${requirement} for ${DEPLOYMENT_TARGET}), so there is no DKIM record to publish."
+
+        # Complete and unambiguous, judged on the plan's own shape — every
+        # value comes from mail-identity, none is restated here.
+        problems="$(jq -r '
+          def present: type == "string" and length > 0;
+          def kind($purpose): if $purpose == "A" or $purpose == "PTR" then $purpose else "TXT" end;
+          (.mta // {}) as $mta
+          | [.records[] | select(type == "object")] as $records
+          | ["A", "PTR", "DKIM", "SPF", "DMARC"] as $purposes
+          | [
+              (if $mta.hostname | present then empty else "no MTA hostname" end),
+              (if $mta.ipv4 | present then empty else "no public IPv4 address was detected on the host" end),
+              ($purposes[] as $purpose
+                | [$records[] | select(.purpose == $purpose)] as $found
+                | if ($found | length) != 1 then "\($found | length) \($purpose) records where exactly one belongs"
+                  elif $found[0].type != kind($purpose) then "the \($purpose) record is not of type \(kind($purpose))"
+                  elif ($found[0].name | present) and ($found[0].value | present) then empty
+                  else "the \($purpose) record has no name or no value" end),
+              ([$records[] | select(.purpose as $purpose | any($purposes[]; . == $purpose) | not)] | length
+                | if . == 0 then empty else "\(.) records of no known purpose" end),
+              (if ($mta.hostname | present) and ($mta.ipv4 | present)
+                  and ([$records[] | select(.purpose == "A" and .name == $mta.hostname and .value == $mta.ipv4)] | length) != 1
+               then "the A record does not map the MTA hostname to the host address" else empty end),
+              (if ($mta.hostname | present) and ($mta.ipv4 | present)
+                  and ([$records[] | select(.purpose == "PTR" and .name == $mta.ipv4 and .value == $mta.hostname)] | length) != 1
+               then "the PTR record does not map the host address back to the MTA hostname" else empty end)
+            ]
+          | join("; ")
+        ' <<<"${plan}")"
+
+        [[ -z "${problems}" ]] || no_plan "the plan is incomplete: ${problems}."
+
         # Public values only: names, the host's public address, and the DKIM
         # PUBLIC key.
         table="$(jq -r '
-          .records[]
-          | "| \(.type) | `\(.name // "—")` | `\(.value // "—")` |"
+          ["A", "PTR", "DKIM", "SPF", "DMARC"][] as $purpose
+          | .records[]
+          | select(type == "object" and .purpose == $purpose)
+          | "| \(.type) | `\(.name)` | `\(.value)` |"
         ' <<<"${plan}")"
 
         echo "Publish these records (public values only):"

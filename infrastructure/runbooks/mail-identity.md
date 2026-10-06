@@ -129,8 +129,11 @@ Then:
    `mail-identity show-dns --target tits-guru --json` from that bundle on the
    host and writes the **public DNS publication plan** into its summary. With no
    installed key it reports `DNS publication plan DEFERRED — DKIM private key
-   not installed.` and still succeeds while the target's mail is held. It
-   never verifies DNS: nothing is published yet.
+   not installed.` and still succeeds while the target's mail is held. With a
+   key, the plan must be complete — host address, A, PTR, DKIM, SPF and DMARC,
+   exactly one of each — or the step fails and says not to publish DNS from
+   that run; the installed key is left as it is. It never verifies DNS:
+   nothing is published yet.
 3. Keep the key in the operator's own secret store as well: a machine recovery
    needs it again, and it is never derivable from anything published. Carrying
    the active signing key in production backup and recovery is a requirement

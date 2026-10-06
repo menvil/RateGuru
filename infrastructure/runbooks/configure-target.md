@@ -114,9 +114,22 @@ target's mail is held. See [`mail-identity.md`](mail-identity.md).
 After the target verifies and before the temporary bundle is removed,
 Configure runs `mail-identity show-dns --target <target> --json` from that
 bundle on the host and puts the **public** DNS publication plan — A, PTR, SPF,
-the DKIM public key and DMARC — into its summary, or reports `DNS publication
-plan DEFERRED — DKIM private key not installed.` It never verifies DNS and never
-fails Configure because a plan is not available.
+the DKIM public key and DMARC — into its summary. It never verifies DNS. Whether
+the target has a reviewed identity, and whether its key is required yet, is
+`mail-identity dkim-key`'s answer:
+
+* **no reviewed identity** — no plan, and Configure succeeds;
+* **an identity, its key not installed, its mail held** — `DNS publication plan
+  DEFERRED — DKIM private key not installed.`, and Configure succeeds;
+* **an identity and a usable installed key** — the plan must be complete: the
+  MTA hostname, the host's public IPv4 and exactly one A, PTR, DKIM, SPF and
+  DMARC record, each with a name and a value.
+
+Anything else — `show-dns` failing, output that is not its JSON, a missing
+address or record, a key that is required but absent, or present but unusable —
+fails the step: *the target itself was configured, but the reviewed public mail
+DNS plan could not be established; do not publish DNS from this run.* Nothing
+installed is touched, so running Configure again with the same key is safe.
 
 ## What it does not do
 

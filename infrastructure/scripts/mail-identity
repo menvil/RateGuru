@@ -141,7 +141,10 @@ Usage:
                   never the key.
   show-dns        Print the DNS records to publish for TARGET: A and PTR for the
                   host's MTA hostname, DKIM (public key derived from the
-                  installed private key, or from --key), SPF and DMARC.
+                  installed private key, or from --key), SPF and DMARC. With
+                  --json each record carries its purpose (A, PTR, DKIM, SPF,
+                  DMARC) and dkim.key_status says whether the key is usable,
+                  absent or unusable.
   verify-dns      Prove, from this host, that public DNS answers exactly that.
   readiness       Whether TARGET may deliver outbound now: every condition the
                   activation of direct delivery requires, each reported.
@@ -1099,7 +1102,7 @@ command_show_dns() {
     load_target
     require_identity
 
-    local hostname enabled ipv4 key_path key_source dkim_value="" key_state
+    local hostname enabled ipv4 key_path key_source dkim_value="" key_state key_status
 
     hostname="$(outbound_field '.direct.mta_hostname')"
     enabled="$(outbound_field '.direct.enabled')"
@@ -1126,15 +1129,19 @@ command_show_dns() {
     if check_private_key "${key_path}" "${T_MIN_BITS}"; then
         dkim_value="v=DKIM1; k=rsa; p=$(dkim_public_key "${key_path}")"
         key_state="derived from ${key_source} (${KEY_BITS}-bit RSA)"
+        key_status=usable
     else
         key_state="pending: ${key_source} is not usable — ${KEY_PROBLEM}"
+        # Absent is the one state a held target may be in; anything else
+        # present at the key's place is a key that cannot be used.
+        if [[ -e "${key_path}" || -L "${key_path}" ]]; then key_status=unusable; else key_status=absent; fi
     fi
 
     if [[ "${JSON_OUTPUT}" == true ]]; then
         jq -n -S \
             --arg target "${TARGET_ID}" --arg domain "${T_DOMAIN}" \
             --arg hostname "${hostname}" --argjson enabled "${enabled}" --arg ipv4 "${ipv4}" \
-            --arg dkim_name "$(dkim_record_name)" --arg dkim_value "${dkim_value}" --arg key_state "${key_state}" \
+            --arg dkim_name "$(dkim_record_name)" --arg dkim_value "${dkim_value}" --arg key_state "${key_state}" --arg key_status "${key_status}" \
             --arg spf "$(if [[ -n "${ipv4}" ]]; then spf_value "${ipv4}"; fi)" \
             --arg dmarc_name "$(dmarc_record_name)" --arg dmarc "$(dmarc_value)" \
             --arg selector "${T_SELECTOR}" --arg algorithm "${T_ALGORITHM}" --argjson min_bits "${T_MIN_BITS}" '
@@ -1143,13 +1150,13 @@ command_show_dns() {
                 target: $target,
                 mail_domain: $domain,
                 mta: {hostname: ($hostname | maybe), direct_delivery_enabled: $enabled, ipv4: ($ipv4 | maybe)},
-                dkim: {selector: $selector, algorithm: $algorithm, minimum_key_bits: $min_bits, key: $key_state},
+                dkim: {selector: $selector, algorithm: $algorithm, minimum_key_bits: $min_bits, key: $key_state, key_status: $key_status},
                 records: [
-                    {type: "A",   name: ($hostname | maybe), value: ($ipv4 | maybe)},
-                    {type: "PTR", name: ($ipv4 | maybe),     value: ($hostname | maybe)},
-                    {type: "TXT", name: $dkim_name,          value: ($dkim_value | maybe)},
-                    {type: "TXT", name: $domain,             value: ($spf | maybe)},
-                    {type: "TXT", name: $dmarc_name,         value: $dmarc}
+                    {purpose: "A",     type: "A",   name: ($hostname | maybe), value: ($ipv4 | maybe)},
+                    {purpose: "PTR",   type: "PTR", name: ($ipv4 | maybe),     value: ($hostname | maybe)},
+                    {purpose: "DKIM",  type: "TXT", name: $dkim_name,          value: ($dkim_value | maybe)},
+                    {purpose: "SPF",   type: "TXT", name: $domain,             value: ($spf | maybe)},
+                    {purpose: "DMARC", type: "TXT", name: $dmarc_name,         value: $dmarc}
                 ]
             }'
         return 0

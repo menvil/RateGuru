@@ -537,14 +537,26 @@ it('passes the optional MAIL_DKIM_PRIVATE_KEY secret through, and nowhere else',
 // The public DNS publication plan
 // =============================================================================
 
-/** @return array{0: int, 1: string, 2: string} exit, output, step summary */
-function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): array
+/**
+ * Runs the DNS-plan step with ssh stubbed: the host answers $plan with
+ * $planStatus. Whether the target has an identity is the real mail-identity's
+ * answer from this repository, unless $identityAnswer stands in for it.
+ *
+ * @return array{0: int, 1: string, 2: string, 3: string} exit, output, step summary, ssh arguments
+ */
+function configureRunDnsPlanStep(string $plan, int $planStatus = 0, string $target = 'tits-guru', ?string $identityAnswer = null, int $identityStatus = 0): array
 {
-    $scratch = makeScratchDir('configure-dns-plan', ['/bin'], 0o700);
+    $scratch = makeScratchDir('configure-dns-plan', ['/bin', '/workspace/infrastructure/scripts'], 0o700);
 
-    file_put_contents($scratch.'/remote-output', $remoteOutput);
-    file_put_contents($scratch.'/bin/ssh', "#!/bin/bash\nprintf '%s ' \"\$@\" > \"\${STUB_SSH_ARGS}\"\ncat \"\${STUB_REMOTE_OUTPUT}\"\nexit {$remoteStatus}\n");
+    file_put_contents($scratch.'/remote-output', $plan);
+    file_put_contents($scratch.'/bin/ssh', "#!/bin/bash\nprintf '%s ' \"\$@\" >> \"\${STUB_SSH_ARGS}\"\ncat \"\${STUB_REMOTE_OUTPUT}\"\nexit {$planStatus}\n");
     chmod($scratch.'/bin/ssh', 0o755);
+
+    if ($identityAnswer !== null) {
+        file_put_contents($scratch.'/workspace/infrastructure/scripts/mail-identity', "#!/bin/bash\nprintf '%s' ".escapeshellarg($identityAnswer)."\nexit {$identityStatus}\n");
+        chmod($scratch.'/workspace/infrastructure/scripts/mail-identity', 0o755);
+    }
+
     touch($scratch.'/summary');
     file_put_contents($scratch.'/step.sh', configureActionStepScript('Report the public DNS publication plan'));
 
@@ -552,6 +564,7 @@ function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): a
         $process = proc_open(['bash', $scratch.'/step.sh'], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
             'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
             'HOME' => $scratch,
+            'GITHUB_WORKSPACE' => $identityAnswer === null ? base_path() : $scratch.'/workspace',
             'STUB_REMOTE_OUTPUT' => $scratch.'/remote-output',
             'STUB_SSH_ARGS' => $scratch.'/ssh-args',
             'GITHUB_STEP_SUMMARY' => $scratch.'/summary',
@@ -562,7 +575,7 @@ function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): a
             'BOOTSTRAP_HOST' => 'host.example',
             'BOOTSTRAP_PORT' => '22',
             'BOOTSTRAP_USER' => 'ops',
-            'DEPLOYMENT_TARGET' => 'tits-guru',
+            'DEPLOYMENT_TARGET' => $target,
         ]);
 
         $output = (string) stream_get_contents($pipes[1]);
@@ -575,14 +588,19 @@ function configureRunDnsPlanStep(string $remoteOutput, int $remoteStatus = 0): a
     }
 }
 
-/** The plan the real mail-identity prints on a host with (or without) tits-guru's key. */
-function configureRealDnsPlan(bool $withKey): array
+/**
+ * The plan the real mail-identity prints for tits-guru on a host with (or
+ * without) its installed key, and with (or without) a route to the Internet.
+ *
+ * @return array{0: string, 1: ?string} the JSON plan, the installed key
+ */
+function configureRealDnsPlan(bool $withKey, bool $withAddress = true): array
 {
     $scratch = mailIdentityScratch();
 
     try {
         $key = $withKey ? mailIdentityInstallKey($scratch, 'tits-guru', 'rg1') : null;
-        $run = mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json'], mailIdentityDnsHost($scratch, []));
+        $run = mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json'], mailIdentityDnsHost($scratch, [], $withAddress ? '203.0.113.10' : null));
 
         expect($run['status'])->toBe(0, $run['stderr']);
 
@@ -590,6 +608,21 @@ function configureRealDnsPlan(bool $withKey): array
     } finally {
         removeScratchDir($scratch);
     }
+}
+
+/** A refusal of the step: it failed, said why, and said not to publish. */
+function expectDnsPlanRefused(array $run, string $reason): void
+{
+    [$exit, $output, $summary] = $run;
+
+    expect($exit)->toBe(1, $output)
+        ->and($output)
+        ->toContain($reason)
+        ->toContain('the target itself was configured, but the reviewed public mail DNS plan could not be established; do not publish DNS from this run.')
+        ->not->toContain('Publish these records')
+        ->and($summary)
+        ->toContain('do not publish DNS from this run')
+        ->not->toContain('| TXT |');
 }
 
 it('reports the DNS plan from the same uploaded bundle, after the target verified and before that bundle is removed', function () {
@@ -606,6 +639,8 @@ it('reports the DNS plan from the same uploaded bundle, after the target verifie
     expect($step)->not->toHaveKey('if', 'the plan is only reported once the target verified');
 
     expect(configureActionStepScript('Report the public DNS publication plan'))
+        ->toContain('"${GITHUB_WORKSPACE}/infrastructure/scripts/mail-identity"')
+        ->toContain('dkim-key --target "${DEPLOYMENT_TARGET}"')
         ->toContain('"${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/mail-identity"')
         ->toContain('show-dns')
         ->toContain('--json')
@@ -613,15 +648,56 @@ it('reports the DNS plan from the same uploaded bundle, after the target verifie
         ->not->toContain('readiness');
 });
 
-it('publishes the public plan of an installed key into the summary, and nothing private', function () {
-    [$plan, $key] = configureRealDnsPlan(true);
+it('takes every target and DNS value from mail-identity, and changes nothing on the host', function () {
+    $script = configureActionStepScript('Report the public DNS publication plan');
 
-    [$exit, $output, $summary, $sshArgs] = configureRunDnsPlanStep($plan);
+    // Which target has an identity is the contract's answer, never this step's;
+    // and no reviewed DNS value is restated here.
+    foreach (['tits-guru', 'tits.guru', 'mta1', '_domainkey', '_dmarc', 'v=spf1', 'DKIM1', 'DMARC1', 'rg1'] as $value) {
+        expect($script)->not->toContain($value);
+    }
+
+    // Read-only: an installed key is never removed or replaced, so running
+    // Configure again with the same key changes nothing.
+    foreach (['rm ', 'install ', 'mv ', 'mail-dkim-private-key', 'install-target-prerequisites'] as $mutation) {
+        expect($script)->not->toContain($mutation);
+    }
+});
+
+it('reports no plan, and Configure succeeds, for a target with no reviewed mail identity', function () {
+    // staging-main is in the registry and has no identity in mail-identity.json.
+    [$exit, $output, $summary, $sshArgs] = configureRunDnsPlanStep('{}', 0, 'staging-main');
+
+    expect($exit)->toBe(0, $output)
+        ->and($output)->toContain('No DNS publication plan: staging-main has no reviewed mail identity.')
+        ->and($summary)->toContain('No plan: `staging-main` has no reviewed mail identity.')->not->toContain('do not publish')
+        ->and($sshArgs)->toBe('', 'nothing is asked of the host for a target without an identity');
+});
+
+it('defers the plan, and Configure succeeds, while the target is held and its key is not installed', function () {
+    [$plan] = configureRealDnsPlan(false);
+
+    expect(json_decode($plan, true)['dkim']['key_status'])->toBe('absent');
+
+    [$exit, $output, $summary] = configureRunDnsPlanStep($plan);
 
     expect($exit)->toBe(0, $output);
+    expect($output)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.');
+    expect($summary)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.')->not->toContain('| TXT |');
+});
+
+it('publishes the complete public plan of an installed key into the summary, and nothing private', function () {
+    [$plan, $key] = configureRealDnsPlan(true);
+
+    // Twice with the same key: the same plan, the same summary.
+    $first = configureRunDnsPlanStep($plan);
+    [$exit, $output, $summary, $sshArgs] = configureRunDnsPlanStep($plan);
+
+    expect($exit)->toBe(0, $output)
+        ->and([$exit, $output, $summary])->toBe(array_slice($first, 0, 3));
     expect($sshArgs)->toContain('mail-identity')->toContain('show-dns')->toContain('--target')->toContain('tits-guru')->toContain('--json');
 
-    $public = json_decode($plan, true)['records'][2]['value'];
+    $public = collect(json_decode($plan, true)['records'])->firstWhere('purpose', 'DKIM')['value'];
     expect($public)->toStartWith('v=DKIM1; k=rsa; p=');
 
     expect($summary)
@@ -630,7 +706,8 @@ it('publishes the public plan of an installed key into the summary, and nothing 
         ->toContain('| PTR | `203.0.113.10` | `mta1.tits.guru` |')
         ->toContain('| TXT | `rg1._domainkey.tits.guru` | `'.$public.'` |')
         ->toContain('| TXT | `tits.guru` | `v=spf1 ip4:203.0.113.10 -all` |')
-        ->toContain('| TXT | `_dmarc.tits.guru` | `v=DMARC1; p=none; adkim=s; aspf=s` |');
+        ->toContain('| TXT | `_dmarc.tits.guru` | `v=DMARC1; p=none; adkim=s; aspf=s` |')
+        ->not->toContain('do not publish');
 
     $keyFile = sys_get_temp_dir().'/configure-plan-key-'.bin2hex(random_bytes(4));
     file_put_contents($keyFile, $key);
@@ -642,21 +719,99 @@ it('publishes the public plan of an installed key into the summary, and nothing 
     }
 });
 
-it('defers the plan, and Configure still succeeds, when no DKIM key is installed', function () {
-    [$plan] = configureRealDnsPlan(false);
-
-    [$exit, $output, $summary] = configureRunDnsPlanStep($plan);
-
-    expect($exit)->toBe(0, $output);
-    expect($output)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.');
-    expect($summary)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.')->not->toContain('| TXT |');
+it('fails when show-dns fails for a target that has a reviewed identity', function () {
+    expectDnsPlanRefused(configureRunDnsPlanStep("ERROR: openssl is required\n", 1), 'mail-identity show-dns exited 1 on the host.');
 });
 
-it('reports no plan for a target without a mail identity, without failing Configure', function () {
-    [$exit, $output, $summary] = configureRunDnsPlanStep("ERROR: staging-main has no mail identity\n", 1);
+it('fails when whether the target has an identity cannot be told', function () {
+    expectDnsPlanRefused(configureRunDnsPlanStep('{}', 0, 'tits-guru', "ERROR: unknown target\n", 1), 'mail-identity could not say whether tits-guru has a reviewed mail identity.');
+    expectDnsPlanRefused(configureRunDnsPlanStep('{}', 0, 'tits-guru', "maybe\n"), 'mail-identity gave no key requirement for tits-guru.');
+});
 
-    expect($exit)->toBe(0, $output);
-    expect($summary)->toContain('No plan: `tits-guru` has no reviewed mail identity, or the plan could not be produced.');
+it('fails on a plan that is not one', function (string $plan) {
+    expectDnsPlanRefused(configureRunDnsPlanStep($plan), 'mail-identity show-dns printed no readable plan.');
+})->with([
+    'not JSON' => ['the plan'],
+    'truncated JSON' => ['{"records": [{"purpose": "A"'],
+    'an array' => ['[]'],
+    'no records' => ['{"dkim": {"key_status": "usable"}}'],
+    'records not a list' => ['{"records": "A", "dkim": {"key_status": "usable"}}'],
+    'no key status' => ['{"records": []}'],
+    'nothing at all' => [''],
+]);
+
+it('fails once the key is required, or present but unusable, and no DKIM record can be derived', function () {
+    [$absent] = configureRealDnsPlan(false);
+
+    // Outbound mail is signed with the key, so its absence is no longer deferred.
+    expectDnsPlanRefused(
+        configureRunDnsPlanStep($absent, 0, 'tits-guru', "required\t/etc/opendkim/keys/tits-guru/rg1.private\t2048\n"),
+        'the DKIM private key on the host is absent (required for tits-guru)',
+    );
+
+    $unusable = json_decode($absent, true);
+    $unusable['dkim']['key_status'] = 'unusable';
+
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($unusable)), 'the DKIM private key on the host is unusable (deferred for tits-guru)');
+});
+
+it('fails when the host detected no public IPv4 address', function () {
+    [$plan] = configureRealDnsPlan(true, false);
+
+    expect(json_decode($plan, true)['mta']['ipv4'])->toBeNull();
+
+    expectDnsPlanRefused(configureRunDnsPlanStep($plan), 'no public IPv4 address was detected on the host');
+});
+
+it('fails on a missing, empty or ambiguous record', function (string $purpose, string $change, string $reason) {
+    [$complete] = configureRealDnsPlan(true);
+    $plan = json_decode($complete, true);
+    $index = collect($plan['records'])->search(fn (array $record): bool => $record['purpose'] === $purpose);
+
+    match ($change) {
+        'removed' => array_splice($plan['records'], $index, 1),
+        'null value' => $plan['records'][$index]['value'] = null,
+        'empty value' => $plan['records'][$index]['value'] = '',
+        'null name' => $plan['records'][$index]['name'] = null,
+        'duplicated' => $plan['records'][] = $plan['records'][$index],
+        'wrong type' => $plan['records'][$index]['type'] = 'CNAME',
+    };
+
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($plan)), $reason);
+})->with([
+    'A removed' => ['A', 'removed', '0 A records where exactly one belongs'],
+    'A null value' => ['A', 'null value', 'the A record has no name or no value'],
+    'A null name' => ['A', 'null name', 'the A record has no name or no value'],
+    'A duplicated' => ['A', 'duplicated', '2 A records where exactly one belongs'],
+    'PTR removed' => ['PTR', 'removed', '0 PTR records where exactly one belongs'],
+    'PTR null value' => ['PTR', 'null value', 'the PTR record has no name or no value'],
+    'PTR null name' => ['PTR', 'null name', 'the PTR record has no name or no value'],
+    'DKIM removed' => ['DKIM', 'removed', '0 DKIM records where exactly one belongs'],
+    'DKIM null value' => ['DKIM', 'null value', 'the DKIM record has no name or no value'],
+    'DKIM empty value' => ['DKIM', 'empty value', 'the DKIM record has no name or no value'],
+    'DKIM duplicated' => ['DKIM', 'duplicated', '2 DKIM records where exactly one belongs'],
+    'SPF removed' => ['SPF', 'removed', '0 SPF records where exactly one belongs'],
+    'SPF null value' => ['SPF', 'null value', 'the SPF record has no name or no value'],
+    'SPF duplicated' => ['SPF', 'duplicated', '2 SPF records where exactly one belongs'],
+    'DMARC removed' => ['DMARC', 'removed', '0 DMARC records where exactly one belongs'],
+    'DMARC null value' => ['DMARC', 'null value', 'the DMARC record has no name or no value'],
+    'DMARC wrong type' => ['DMARC', 'wrong type', 'the DMARC record is not of type TXT'],
+]);
+
+it('fails when the MTA hostname is missing, or the A and PTR records disagree with it', function () {
+    [$complete] = configureRealDnsPlan(true);
+
+    $plan = json_decode($complete, true);
+    $plan['mta']['hostname'] = null;
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($plan)), 'no MTA hostname');
+
+    $plan = json_decode($complete, true);
+    $plan['records'][collect($plan['records'])->search(fn (array $record): bool => $record['purpose'] === 'PTR')]['value'] = 'elsewhere.example';
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($plan)), 'the PTR record does not map the host address back to the MTA hostname');
+
+    $plan = json_decode($complete, true);
+    $plan['records'][] = ['purpose' => 'MX', 'type' => 'MX', 'name' => 'tits.guru', 'value' => '10 mta1.tits.guru'];
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($plan)), '1 records of no known purpose');
 });
 
 it('refuses to show anything that looks like key material', function () {
@@ -666,5 +821,11 @@ it('refuses to show anything that looks like key material', function () {
 
     expect($exit)->not->toBe(0);
     expect($output.$summary)->not->toContain('PRIVATE KEY');
+    expectNoKeyMaterial($output.$summary, mailIdentityKey('rsa2048'));
+
+    // Nor on a failing show-dns.
+    [$exit, $output, $summary] = configureRunDnsPlanStep($pem, 1);
+
+    expect($exit)->not->toBe(0);
     expectNoKeyMaterial($output.$summary, mailIdentityKey('rsa2048'));
 });
