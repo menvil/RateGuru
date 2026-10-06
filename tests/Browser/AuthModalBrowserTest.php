@@ -155,7 +155,7 @@ it('never takes the focus back from a field the person is already in', function 
     expect($focused)->toBe('modal-register-email');
 
     // Longer than the whole initial-focus window: the focus must stay put.
-    $page->wait(1.5)
+    proveNothingHappensFor($page, 1.5, 'the dialog taking the focus back from the field')
         ->assertScript('document.activeElement.id', 'modal-register-email');
 });
 
@@ -166,8 +166,9 @@ it('keeps what is typed in the field it was typed into, however fast', function 
     // initial-focus window — about a second of retries — for nothing in it to
     // move what was typed: an absence, so a fixed wait.
     $page->type('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
-        ->type('[data-testid="auth-modal-register-password"]', 'password')
-        ->wait(1.5)
+        ->type('[data-testid="auth-modal-register-password"]', 'password');
+
+    proveNothingHappensFor($page, 1.5, 'the dialog moving what was typed')
         ->assertValue('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
         ->assertValue('[data-testid="auth-modal-register-password"]', 'password')
         ->assertValue('[data-testid="auth-modal-register-name"]', '');
