@@ -1873,6 +1873,25 @@ Slices, in order:
    [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md)
    and [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
 
+   **8.4B.4.1c Comprehensive infrastructure verification — IMPLEMENTED.**
+   The two Verify workflows become the permanent diagnosis of everything
+   RateGuru installs, configures, provisions or repairs, still read-only and
+   still two buttons. `verify-infrastructure` drops its hand-written host tool
+   list (the runtime is `install-bootstrap-runtime --verify`'s) and composes the
+   contract owners by lifecycle, from the same trusted bundle: an active target
+   is held to `prepare-host --verify` (PREPARATION CONTRACT) and `repair-target
+   --verify` (LIVE TARGET CONTRACT); a planned one to `bootstrap-host --verify`
+   (HOST BOOTSTRAP) and `configure-target --verify` (PLANNED TARGET CONTRACT),
+   its live target and application DEFERRED and never invoked; every target to
+   `install-target-perimeter --verify` (OPERATIONS & BACKUP PERIMETER), the mail
+   sections and the application. `bootstrap-host-preflight --report` prints the
+   full HOST INVENTORY into the log and is never a verdict. Every group runs
+   even after another fails, a child ended by a signal or impossible to run is
+   a FAIL, and the result carries one entry per group, which the action
+   validates and writes into the job summary as a table. *Next, operator:*
+   after merge, run Verify staging infrastructure — the whole real-host
+   acceptance.
+
    **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
    planned.** `mail-identity verify-dns` and then full `mail-identity
    readiness` are hard prerequisites before any activation mutation, and after

@@ -160,9 +160,12 @@ infrastructure, and moves out once a second project exists.
   [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
 - infrastructure verification: the repository-only, read-only
   `infrastructure/scripts/verify-infrastructure --target T`, which composes the
-  read-only primitives a target's current reviewed state requires, run from
-  GitHub by the two permanent operator commands **Verify staging
-  infrastructure** and **Verify production infrastructure** — see
+  contract owners a target's current lifecycle requires — preparation and
+  live-target contracts for an active target, host bootstrap and planned-target
+  contract for a planned one, the operations and backup perimeter, the mail
+  sections, the application and the full host inventory — run from GitHub by
+  the two permanent operator commands **Verify staging infrastructure** and
+  **Verify production infrastructure** — see
   [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md);
 - Nginx configuration;
 - PHP-FPM pools;
