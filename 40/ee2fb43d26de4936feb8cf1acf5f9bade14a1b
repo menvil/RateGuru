@@ -1,0 +1,19 @@
+tests/TestCase.php
+  s_9ce0383c8ffad8::t_3cf191dc218169 5,9,11-13,42-50,53-55,58-59,69-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "40ee2fb43d26de4936feb8cf1acf5f9bade14a1b",
+  "prompts": {},
+  "sessions": {
+    "s_9ce0383c8ffad8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39b83c43-4723-4381-aade-182a822779a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
