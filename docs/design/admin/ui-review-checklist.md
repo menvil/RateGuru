@@ -48,6 +48,10 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Errors say what to do; they replace the hint and set `aria-invalid`.
 - [ ] Required and optional fields are marked in words.
 - [ ] Search placeholders say what is searched; search filters as you type.
+- [ ] A filter over rows already on the page sends no request per keystroke, and keeps its state in the URL with
+      `replaceState`; a value the screen does not know is dropped, never an error.
+- [ ] Comboboxes, menus and segmented controls do what their role promises from the keyboard: arrows move, Enter
+      chooses, Escape returns focus to the trigger.
 - [ ] Slugs and keys never change silently when a name changes.
 
 ## Navigation and layout [NAV-01 – NAV-04, LAY-01 – LAY-03]
@@ -84,13 +88,16 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Saved, Missing, AI suggestion · not saved and Edited · not saved never look alike.
 - [ ] Missing explains the English fallback.
 - [ ] AI output is never written to the database before an administrator saves it.
-- [ ] Placeholder and length errors name the fix and block Save.
+- [ ] Placeholder and length errors name the fix and block Save; the server holds the same limits whatever the
+      browser sends.
+- [ ] A draft survives filtering; switching what is being edited with drafts asks first, and leaving the page
+      gets the browser's question.
 - [ ] One target language at a time; never a column per language.
 - [ ] DB-owned translations are edited in Translation Center once a section has been cut over.
 
 ## Responsive and accessibility
 
-- [ ] Checked at 1440, 1280 and 1024 px; no horizontal page scroll outside tables.
+- [ ] Checked at 1440, 1280, 1024 and 390 px; no horizontal page scroll outside tables.
 - [ ] Every focusable control shows a visible focus state.
 - [ ] State is never encoded by colour alone.
 - [ ] Tertiary text uses `--rg-admin-text-tertiary` (`#68707D`, WCAG AA on white and on the app ground), never

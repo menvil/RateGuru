@@ -48,7 +48,7 @@ admin works, and every screen is either fully v1 or fully v2.
   search over the records each user may find.
 - Deliberately not in this step (see the contract's
   [Transitional omissions](design-contract.md#transitional-omissions)): searching settings, pages, languages and
-  media, which waits for a product-wide search contract; the Translation Center item, which arrives with its page;
+  media, which waits for a product-wide search contract; the Translation Center item, which arrived with its page;
   operational counts, which arrive with each screen's migration; and moving page headers and actions, which
   happens per page.
 
@@ -68,29 +68,51 @@ section describes what runs.
 - The kit elements it is the first to need, built as reusable components and shown live in the kit: the
   confirmation dialog (OVL-01), the drawer (OVL-02) and the toast stack (FBK-01), which the shell draws on every
   admin page.
-- **Transitional bridge.** Target design: a missing item opens Translation Center. Until Translation Center exists,
-  the Languages drawer keeps links to the existing editors so no editing capability is lost; Phase 4 replaces these
-  links with Translation Center filters. Translate and Translate all missing are already drawn, disabled with the
-  reason, so the step that builds Translation Center only has to switch them on. The translation forms in those editors stay as they are.
+- **Transitional bridge**, closed in Phase 4. Target design: a missing item opens Translation Center. Until it
+  existed, the Languages drawer kept links to the existing editors so no editing capability was lost, with Translate
+  and Translate all missing drawn disabled; Phase 4 replaced them with Translation Center filters. The translation
+  forms in those editors stay as they are.
 
-### Phase 4+ — Translation Center
+### Phase 4 — Translation Center
 
-**Status: next** — Phase 4, the Translation Center foundation (step 1 below).
+**Status: done.** `/admin/translation-center` translates the project's own content, one target language at a
+time; the contract's Localization section describes what runs.
+
+- **One catalog.** `ProjectTranslationCatalog` is the one list of translatable project content
+  (`ProjectTranslationUnit`: a stable id from the record id, section, business key, English reference, stored
+  translations, limits and placeholders). Translation Center edits these units and `ProjectTranslationCompleteness`
+  counts them, so Languages' figures are unchanged and always about what Translation Center can edit.
+- **Storage unchanged.** Translations stay where they were — the `{field}_translations` columns and the static
+  pages JSON. No migration, no new table. `UpdateProjectTranslationAction` writes one language of one unit, found
+  again under a lock on its row, held to that unit's limits, every other language left as it is.
+- **The screen** as in the prototype, without AI: the target-language combobox (FRM-11) and its figures; search,
+  Section (FRM-10) and Missing only / All (FRM-08) in the browser, kept in the URL; three-column rows with the
+  DOM-01 Saved, Missing and Edited · not saved states; drafts in the browser only, with Discard, Discard all and a
+  confirmation before switching language; Save and Save & next; the context drawer (OVL-02).
+- **Languages bridge done.** Translate on a missing item opens Translation Center on that item, and Translate all
+  missing on everything the language is missing; Edit source still opens the content's editor. Catalog issues
+  never lead there.
+- **Kit:** FRM-08, FRM-10 and FRM-11 are reusable components, live in `/admin/dev/ui-kit`.
+- **Deliberately not in this step:** AI (Generate missing, AI translate, Regenerate, Save all generated, the AI
+  suggestion state); review states; history and source hashes; the missing count on the navigation item (see the
+  contract's [Transitional omissions](design-contract.md#transitional-omissions)). The editors that translate in
+  place keep their translation tabs and write the same stored values until the cutover.
+
+### Phase 5+ — AI suggestions, workflow and the translation cutover
+
+**Status: next** — Phase 5, AI suggestions.
 
 In separate steps:
 
-1. **Translation Center** — target-language combobox (FRM-11), section filter and the Missing only / All
-   segmented control (FRM-08), the three-column translation rows with DOM-01 states, context drawer, Save and
-   Save & next, and its item in the Localization section of the navigation. In the Languages drawer, the disabled
-   Translate (per item) and Translate all missing become links to Translation Center filtered by language and
-   section; Edit source keeps opening the entity's editor.
-2. **AI suggestions** — a translation provider behind an interface, Generate missing, Regenerate, Save all
-   generated. AI output stays a draft until an administrator saves it.
-3. **Workflow** — review states, if the product needs them.
-4. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
+5. **AI suggestions** — a translation provider behind an interface, Generate missing, AI translate, Regenerate,
+   Save all generated, the AI suggestion · not saved state and what the context drawer shows of a request. AI
+   output stays a draft until an administrator saves it, through the same save Translation Center uses now.
+6. **Workflow** — review states, if the product needs them.
+7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,
   STS-05) and a link to Translation Center. From then on Translation Center is the single admin editor for
-  DB-owned translated content.
+  DB-owned translated content. Whether it then also lists inactive and archived content, which no visitor sees
+  and which today only its own editor translates, is decided there.
 
 ### Then — freeze Admin UI Kit v1
 
@@ -106,8 +128,8 @@ Migrated one at a time, each building any missing kit element first:
 | Posts | TBL-03 bulk bar, FRM-07 checkbox, TBL-04 row menu popover |
 | Comments | — |
 | Reports | DOM-02 report chain, the docked 448 panel |
-| Users and user edit | FRM-06 switch, FRM-08 segmented control, FRM-09 radio cards |
-| Categories and Tags | FRM-04 locked identifier, FRM-10 filter dropdown |
+| Users and user edit | FRM-06 switch, FRM-09 radio cards (FRM-08 segmented control is built) |
+| Categories and Tags | FRM-04 locked identifier (FRM-10 filter dropdown is built) |
 | Rating groups | STS-04 range slots, FRM-05 number stepper |
 | Project settings | — |
 | Media diagnostics | — |
