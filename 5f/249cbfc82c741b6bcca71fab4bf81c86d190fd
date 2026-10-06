@@ -1,0 +1,32 @@
+tests/Feature/Architecture/EnvironmentContractTest.php
+  s_cbcd61fc717774::t_6ef62dbacf6f9c 215-258
+.env.example
+  s_cbcd61fc717774::t_a57bcf63f50b62 181-192
+infrastructure/templates/environment/tits-guru.env.example
+  s_cbcd61fc717774::t_1a8a7aacc2cad4 230-243
+infrastructure/config/environment-contract.json
+  s_cbcd61fc717774::t_1a8a7aacc2cad4 67-70,712-735
+infrastructure/templates/environment/production.env.example
+  s_cbcd61fc717774::t_a57bcf63f50b62 45-48
+infrastructure/templates/environment/staging.env.example
+  s_cbcd61fc717774::t_1a8a7aacc2cad4 230-243
+tests/Feature/Architecture/EnvironmentContractCompletenessTest.php
+  s_cbcd61fc717774::t_6ef62dbacf6f9c 479,854-855,858-927,930-937
+  s_cbcd61fc717774::t_a0d7620b911a5f 928-929
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5f249cbfc82c741b6bcca71fab4bf81c86d190fd",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
