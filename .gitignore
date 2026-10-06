@@ -60,6 +60,7 @@
 /.phpunit.result.cache
 /.pest.cache
 /coverage
+/*junit.xml
 
 /tests/Browser/Screenshots
 /tests/Visual/current/*
