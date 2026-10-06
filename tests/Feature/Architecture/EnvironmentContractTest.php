@@ -212,6 +212,50 @@ it('allows an extra key the template does not declare, and says so', function ()
     }
 });
 
+it('accepts the translation settings with the API key blank, and with one set, printing neither', function (string $key) {
+    // A blank key is a valid deployed state: the application boots and only
+    // an actual translation is refused. The comparison is about which keys the
+    // file declares, never what they hold.
+    $scratch = envContractScratch();
+
+    try {
+        envContractWrite($scratch, envContractRuntime(['TRANSLATION_OPENAI_API_KEY' => $key]));
+
+        [$exit, $output] = envContractRun($scratch);
+
+        expect($exit)->toBe(0, $output);
+
+        if ($key !== '') {
+            expect($output)->not->toContain($key);
+        }
+    } finally {
+        envContractCleanup($scratch);
+    }
+})->with([
+    'blank' => '',
+    'set' => 'translation-key-NEVER-PRINT-THIS-VALUE',
+]);
+
+it('refuses a runtime file that predates the translation settings, naming each one', function () {
+    $scratch = envContractScratch();
+    $keys = ['TRANSLATION_PROVIDER', 'TRANSLATION_OPENAI_API_KEY', 'TRANSLATION_OPENAI_MODEL', 'TRANSLATION_OPENAI_BASE_URL'];
+
+    try {
+        envContractWrite($scratch, envContractRuntime(drop: $keys));
+
+        [$exit, $output] = envContractRun($scratch);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('ENVIRONMENT CONTRACT: BROKEN');
+
+        foreach ($keys as $key) {
+            expect($output)->toContain($key);
+        }
+    } finally {
+        envContractCleanup($scratch);
+    }
+});
+
 // =============================================================================
 // What it must never do
 // =============================================================================
