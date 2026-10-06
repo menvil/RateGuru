@@ -34,6 +34,7 @@ use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use PHPUnit\Framework\AssertionFailedError;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -4508,10 +4509,38 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
             break;
         }
 
-        $page->wait(0.1);
+        // Short, because every wait ends up to one interval after the state is
+        // reached, and a suite waits a few hundred times.
+        usleep(25_000);
     } while (microtime(true) < $deadline);
 
     expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+}
+
+/**
+ * Runs $assertions until they pass, and lets their last failure through once
+ * $timeoutSeconds have gone by — waitForScript() for a state that is easier to
+ * say in PHP than in one JavaScript expression.
+ *
+ * Only for a state the step before produces. An assertion that already held
+ * before that step passes at once, before the step has taken effect: what it
+ * waits for must be something the page did not show until then.
+ */
+function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (true) {
+        try {
+            return $assertions();
+        } catch (AssertionFailedError $failure) {
+            if (microtime(true) >= $deadline) {
+                throw $failure;
+            }
+
+            usleep(25_000);
+        }
+    }
 }
 
 /**
