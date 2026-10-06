@@ -1364,9 +1364,19 @@ it('rejects a checksum located outside the target incoming-artifacts directory',
  *
  * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, verifyCliLog: string, releaseId: string}
  */
-function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false): array
+/**
+ * $artifact, when given, rewrites the fixture's artifact and its checksum
+ * before deploy sees them.
+ *
+ * @param  (callable(array{root: string, incoming: string, artifact: string, checksum: string}): void)|null  $artifact
+ */
+function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null): array
 {
     $fixture = deployOpsBuildFixture($scratch);
+
+    if ($artifact !== null) {
+        $artifact($fixture);
+    }
     $confPath = deployOpsDeploymentConfForFixture($scratch);
     deployOpsInstallCoreStubs($scratch);
     [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
@@ -1447,6 +1457,46 @@ it('deploys via --target: content, ownership, symlinks, links, history, health s
 
         // No artisan in this fixture, so queue:restart must never run.
         expect(File::exists($scratch.'/runuser.log'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses an artifact whose unsafe member is followed by a listing longer than a pipe holds', function () {
+    // The unsafe-path check reads the artifact's whole listing before it
+    // searches it. Piped into `grep -q` under pipefail it would fail open: grep
+    // exits at the unsafe member, tar dies of SIGPIPE writing the rest of a
+    // long listing, and the pipeline's failure reads as "nothing unsafe".
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $result = deployOpsRunFullDeployment($scratch, artifact: function (array $fixture) use ($scratch): void {
+            $source = $scratch.'/unsafe-artifact';
+            mkdir($source.'/public/filler', 0o755, true);
+
+            exec('tar -C '.escapeshellarg($source).' -xzf '.escapeshellarg($fixture['artifact']).' 2>&1', $unpackOutput, $unpackExit);
+            expect($unpackExit)->toBe(0, implode("\n", $unpackOutput));
+
+            // About 300 KB of listing after the unsafe member; a pipe holds 64 KB.
+            for ($i = 0; $i < 3000; $i++) {
+                touch(sprintf('%s/public/filler/%s-%04d', $source, str_repeat('f', 72), $i));
+            }
+
+            $outside = $scratch.'/outside-the-release';
+            file_put_contents($outside, "written outside the release\n");
+
+            // -P keeps the member's absolute name, and it is archived first.
+            exec('tar -P -czf '.escapeshellarg($fixture['artifact']).' '.escapeshellarg($outside).' -C '.escapeshellarg($source).' . 2>&1', $packOutput, $packExit);
+            expect($packExit)->toBe(0, implode("\n", $packOutput));
+
+            exec('cd '.escapeshellarg($fixture['incoming']).' && sha256sum release.tar.gz > release.tar.gz.sha256 2>&1', $shaOutput, $shaExit);
+            expect($shaExit)->toBe(0, implode("\n", $shaOutput));
+        });
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain('artifact contains an unsafe path');
+        expect(is_dir($result['fixture']['root'].'/releases/'.$result['releaseId']))->toBeFalse('nothing is extracted');
+        expect(is_link($result['fixture']['root'].'/current'))->toBeFalse('current is never switched');
     } finally {
         deployOpsCleanup($scratch);
     }

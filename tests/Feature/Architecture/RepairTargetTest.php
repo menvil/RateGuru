@@ -141,6 +141,13 @@ function repairWriteStubs(string $scratch): void
 
             if [[ "\$1" == "--check" ]]; then
                 [[ -e "{$scratch}/toggles/\${me}-hostreq" ]] && { echo "  HOST-REQ host:/var/log/rateguru — absent"; exit 1; }
+                # The same host prerequisite, at the top of a report far longer
+                # than a pipe holds.
+                if [[ -e "{$scratch}/toggles/\${me}-hostreq-long-report" ]]; then
+                    echo "  HOST-REQ host:/var/log/rateguru — absent"
+                    for i in \$(seq 1 4000); do echo "  MISSING  path:/srv/rateguru/staging-main/filler/\${i} — absent"; done
+                    exit 1
+                fi
                 [[ -e "{$scratch}/toggles/\${me}-conflict" ]] && { echo "  CONFLICT path:/x — a regular file occupies a managed directory path"; exit 1; }
                 [[ -e "{$scratch}/toggles/\${me}-broken" ]] && { echo "the installer could not run"; exit 2; }
                 # A child that fails while printing neither MISSING nor DRIFT.
@@ -725,6 +732,29 @@ it('refuses host-level damage instead of becoming a host bootstrap', function ()
         [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
 
         expect($applyExit)->not->toBe(0);
+        expect($applyOutput)->toContain('host-level prerequisites are not satisfied');
+        expect($applyOutput)->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('refuses a host prerequisite at the top of a contract report longer than a pipe holds', function () {
+    // The report is searched as a whole, however long it is. Piped into
+    // `grep -q` under pipefail, a match near the top of a long report reads as
+    // no match at all: grep exits at the first line, the writer still feeding
+    // it dies of SIGPIPE, and the pipeline fails — and the repair would go on
+    // to converge a target whose host it must not touch.
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'host-layout-hostreq-long-report');
+
+        [$applyExit, $applyOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
         expect($applyOutput)->toContain('host-level prerequisites are not satisfied');
         expect($applyOutput)->toContain('No mutation was performed');
         expect(repairCalls($scratch))->not->toContain('--apply');
