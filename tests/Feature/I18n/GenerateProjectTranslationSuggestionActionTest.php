@@ -24,9 +24,9 @@ use Illuminate\Support\Facades\Log;
  * catalog, described to the engine as a batch of one, and the result handed
  * back — never stored. Every refusal happens before the engine is asked.
  */
-function suggestTranslation(mixed $unit, mixed $locale, ?User $actor = null): ProjectTranslationSuggestion
+function suggestTranslation(mixed $unit, mixed $locale, ?User $actor = null, mixed $stored = ''): ProjectTranslationSuggestion
 {
-    return app(GenerateProjectTranslationSuggestionAction::class)->handle($actor ?? User::factory()->admin()->create(), $unit, $locale);
+    return app(GenerateProjectTranslationSuggestionAction::class)->handle($actor ?? User::factory()->admin()->create(), $unit, $locale, $stored);
 }
 
 /** Why no suggestion was made, as "reason: message", or null when one was. */
@@ -105,6 +105,48 @@ it('suggests into an installed language that is not offered to visitors yet', fu
     $category = untranslatedCategory();
 
     expect(suggestTranslation("categories:{$category->id}:name", $disabled)->text)->toBe('Грузинска кухня');
+});
+
+it('offers an alternative to a saved translation, which stays stored until the alternative is saved', function () {
+    [$target] = twoTranslatedLocales();
+    $provider = useScriptedTranslationProvider(answeringTranslationProvider(['Псы']));
+    $category = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Собаки'], 'is_active' => true]);
+    $unit = "categories:{$category->id}:name";
+    $admin = User::factory()->admin()->create();
+
+    $suggestion = suggestTranslation($unit, $target, $admin, 'Собаки');
+
+    // The saved text is only compared: what is sent is the factory's request, the target left out of the context.
+    expect($suggestion->text)->toBe('Псы')
+        ->and($provider->received[0]->items[0]->existingTranslations)->not->toHaveKey($target)
+        ->and(json_encode($provider->received[0]))->not->toContain('Собаки')
+        ->and($category->fresh()->name_translations)->toBe([$target => 'Собаки']);
+
+    app(UpdateProjectTranslationAction::class)->handle($admin, $unit, $target, $suggestion->text);
+
+    expect($category->fresh()->name_translations)->toBe([$target => 'Псы']);
+});
+
+it('refuses an alternative once the saved translation has changed, without asking the engine', function (array $stored, string $seen) {
+    [$target] = twoTranslatedLocales();
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $category = Category::factory()->create(['name' => 'Dogs', 'name_translations' => $stored === [] ? null : [$target => $stored[0]], 'is_active' => true]);
+
+    expect(suggestionRefusal(fn () => suggestTranslation("categories:{$category->id}:name", $target, stored: $seen)))
+        ->toBe('changed: This translation was changed by someone else. Reload the page to review it.')
+        ->and($provider->received)->toBe([]);
+})->with([
+    'edited by someone else' => [['Псы'], 'Собаки'],
+    'removed by someone else' => [[], 'Собаки'],
+]);
+
+it('treats anything but text as no stored translation at all', function () {
+    [$target] = twoTranslatedLocales();
+    $provider = useScriptedTranslationProvider(answeringTranslationProvider(['Грузинская кухня']));
+    $category = untranslatedCategory();
+
+    expect(suggestTranslation("categories:{$category->id}:name", $target, stored: ['Собаки'])->text)->toBe('Грузинская кухня')
+        ->and($provider->received)->toHaveCount(1);
 });
 
 // Refused before the engine is asked ----------------------------------------------------

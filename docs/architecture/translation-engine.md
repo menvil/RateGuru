@@ -64,11 +64,11 @@ is registered by `App\Providers\TranslationEngineServiceProvider`.
 
 ## First consumer: Translation Center
 
-Translation Center's AI translate and Regenerate are the engine's first real consumer:
+Translation Center's AI translate, Suggest alternative and Regenerate are the engine's first real consumer:
 
 ```text
 Translation Center (AI translate / Regenerate on one row)
-→ GenerateProjectTranslationSuggestionAction      unit id + target language only
+→ GenerateProjectTranslationSuggestionAction      unit id, target language, stored text shown (compared only)
 → ProjectTranslationCatalog::find()               the unit as it is now
 → ProjectTranslationRequestFactory                project content → engine contract
 → TranslationBatchRequest(items: [unit])          a batch of one, public_content
@@ -88,8 +88,12 @@ place project content is described to it.
 - **What comes back stays a suggestion.** The action returns a `ProjectTranslationSuggestion` to the browser and
   stores nothing; neither does the engine. A suggestion becomes project content only when an administrator saves
   it, through `UpdateProjectTranslationAction` like any other draft. Reloading the page drops it.
-- **It fills a gap.** The action refuses — before the engine is asked — a target that is English or not installed,
-  a unit the catalog no longer lists or whose English text is blank, and a translation saved meanwhile.
+- **It works from what the administrator sees.** A missing translation gets a suggestion that fills it; a saved one
+  can get an alternative, which replaces nothing until it is saved. The browser names the stored text it shows,
+  and the action compares it with what is stored now — it is never sent for translation, and the target's own
+  translation is never context. Before the engine is asked, the action refuses a target that is English or not
+  installed, a unit the catalog no longer lists or whose English text is blank, and a stored translation that was
+  saved, changed or removed since the page showed it.
 - **The context drawer shows the same request.** Translation Center's “What AI translate sends” is read from the
   request the factory builds, so the preview and what is sent cannot drift.
 - **Bulk generation reuses it.** The factory takes a list: translating every missing unit of a language is the

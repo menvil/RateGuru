@@ -127,17 +127,17 @@ it('sends nothing to the server while typing or filtering: no field is bound to 
         ->and(translationCenter()->html())->not->toContain('wire:model');
 });
 
-it('offers AI translate on a missing row, and nothing that generates in bulk', function () {
+it('offers AI translate on a missing row and an alternative on a saved one, and nothing that generates in bulk', function () {
     [$target] = twoTranslatedLocales();
     $missing = untranslatedCategory();
     $saved = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Собаки'], 'is_active' => true]);
     $page = translationCenter($target);
 
-    $aiButton = fn (string $unit): string => (string) livewireFragment($page, "//*[@data-unit='{$unit}']//button[contains(., 'AI translate')]");
+    $aiButton = fn (string $unit, string $label): string => (string) livewireFragment($page, "//*[@data-unit='{$unit}']//button[contains(., '{$label}')]");
 
-    // Drawn for a missing row; on a saved one it waits, cloaked, for the browser to decide.
-    expect($aiButton("categories:{$missing->id}:name"))->toContain('x-show="offersAi(unit)"')->not->toContain('x-cloak')
-        ->and($aiButton("categories:{$saved->id}:name"))->toContain('x-cloak');
+    // Each drawn as the row opens, labelled by its state; the browser keeps the label from then on.
+    expect($aiButton("categories:{$missing->id}:name", 'AI translate'))->toContain('x-show="offersAi(unit)"')->not->toContain('x-cloak')
+        ->and($aiButton("categories:{$saved->id}:name", 'Suggest alternative'))->toContain('x-show="offersAi(unit)"')->not->toContain('x-cloak');
 
     expect($page->html())->not->toContain('Generate missing')
         ->not->toContain('Save all generated');
@@ -480,6 +480,21 @@ it('builds what it sends from the server alone, whatever else a forged call carr
         ->and($item->placeholders)->toBe([])
         ->and($item->existingTranslations)->toBe([$other => 'Кучета'])
         ->and($provider->received)->toHaveCount(1);
+});
+
+it('suggests an alternative to the saved translation the browser shows, storing nothing', function () {
+    [$target] = twoTranslatedLocales();
+    useScriptedTranslationProvider(answeringTranslationProvider(['Псы']));
+    $category = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Собаки'], 'is_active' => true]);
+    $unit = "categories:{$category->id}:name";
+
+    translationCenter($target)->call('suggest', $unit, $target, 'Собаки')
+        ->assertReturned(fn (array $result): bool => $result['generated'] === true && $result['text'] === 'Псы');
+
+    translationCenter($target)->call('suggest', $unit, $target, 'something else')
+        ->assertReturned(['generated' => false, 'error' => 'This translation was changed by someone else. Reload the page to review it.']);
+
+    expect($category->fresh()->name_translations)->toBe([$target => 'Собаки']);
 });
 
 it('answers a refused suggestion with a safe message, and asks the engine for nothing', function (Closure $arguments, string $error) {

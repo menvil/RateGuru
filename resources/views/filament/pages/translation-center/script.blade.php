@@ -7,8 +7,10 @@
     replaceState. A draft lives here only — typing sends nothing, and visitors
     keep the stored translation until Save sends that one unit. An AI
     suggestion is a draft too: AI translate asks the server for one missing
-    unit, and what comes back sits in the field, marked as AI and unsaved, until
-    it is saved, edited into an ordinary draft, or discarded. Choosing
+    unit, Suggest alternative for another version of a saved one, and what
+    comes back sits in the field, marked as AI and unsaved, until it is saved,
+    edited into an ordinary draft, or discarded — the saved version stays
+    stored meanwhile. Choosing
     another target language is the one thing that re-renders the page, after
     asking whenever it would drop drafts; leaving the page with drafts asks the
     browser's own question.
@@ -100,7 +102,9 @@
                 return {
                     saved: 'Stored translation',
                     missing: 'Visitors see the English text',
-                    ai: `Generated ${this.generatedTime(id)} · AI suggestions are drafts until saved.`,
+                    ai: this.units[id].stored === ''
+                        ? `Generated ${this.generatedTime(id)} · AI suggestions are drafts until saved.`
+                        : `Generated ${this.generatedTime(id)} · Saved version is kept until you save.`,
                     edited: this.units[id].stored === '' ? 'Visitors see the English text until you save' : 'Saved version is kept until you save',
                 }[this.state(id)]
             },
@@ -150,10 +154,14 @@
 
                 return this.isDirty(id) && ! unit.saving && ! unit.generating && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
             },
-            // AI translate fills a missing translation; Regenerate replaces an AI suggestion. Neither
-            // is offered for a stored translation or for a draft someone typed.
+            // AI translate fills a missing translation, Suggest alternative offers another version of a
+            // saved one, Regenerate replaces an AI suggestion. None is offered for a draft someone typed,
+            // which a suggestion would overwrite.
             offersAi(id) {
-                return ['missing', 'ai'].includes(this.state(id))
+                return ['missing', 'saved', 'ai'].includes(this.state(id))
+            },
+            aiLabel(id) {
+                return { missing: 'AI translate', saved: 'Suggest alternative', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
             },
             canSuggest(id) {
                 const unit = this.units[id]
@@ -364,7 +372,9 @@
             // AI suggestion -------------------------------------------------------
 
             // One row at a time, and only that row waits: its field is read-only and its actions
-            // paused until the answer, so nothing typed meanwhile could be overwritten by it.
+            // paused until the answer, so nothing typed meanwhile could be overwritten by it. The
+            // stored text the row shows goes along to be compared, so a suggestion is never made
+            // against a translation someone else has saved or changed since the page was drawn.
             // A suggestion replaces the field only once it has arrived — a failed Regenerate
             // leaves the suggestion before it in place — and is stored nowhere: the figures,
             // which count stored translations, stay as they are until it is saved.
@@ -382,7 +392,7 @@
                 this.announce(`Generating a ${this.label} suggestion for ${name}…`)
 
                 try {
-                    result = await this.$wire.suggest(id, this.locale)
+                    result = await this.$wire.suggest(id, this.locale, unit.stored)
                 } catch (failure) {
                     result = null
                 }
@@ -397,6 +407,14 @@
                 if (! result?.generated || result.unit !== id || result.locale !== this.locale) {
                     this.announce('')
                     this.toast(result?.error ?? 'No suggestion: the server did not answer. Try again.', 'error')
+
+                    return
+                }
+
+                // Word for word what is saved already: nothing to review, so the row stays as it is.
+                if (result.text === unit.stored) {
+                    this.announce('')
+                    this.toast('AI suggested the same text as the saved translation.', 'info')
 
                     return
                 }

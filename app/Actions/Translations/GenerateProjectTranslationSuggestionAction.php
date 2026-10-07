@@ -17,22 +17,25 @@ use App\Support\Translations\TranslatableField;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Asks the translation engine for a suggestion for one missing translation —
- * what Translation Center's AI translate and Regenerate do — and returns it.
- * It stores nothing: a suggestion becomes project content only when an
- * administrator saves it, through UpdateProjectTranslationAction like any
- * other draft.
+ * Asks the translation engine for a suggestion for one unit in one language —
+ * what Translation Center's AI translate, Suggest alternative and Regenerate
+ * do — and returns it. It stores nothing: a suggestion becomes project content
+ * only when an administrator saves it, through UpdateProjectTranslationAction
+ * like any other draft.
  *
- * Only the unit id and the language come from the caller, and neither is
- * trusted. The unit is found again in ProjectTranslationCatalog as it is now,
- * and everything sent for translation — the English text, the limits, the
- * placeholders, the context, the other languages — is the catalog's, never
- * the browser's.
+ * The caller names the unit and the language, and says which stored
+ * translation the administrator is looking at: none for a missing one, the
+ * text for a saved one. None of it is trusted. The unit is found again in
+ * ProjectTranslationCatalog as it is now, and everything sent for translation
+ * — the English text, the limits, the placeholders, the context, the other
+ * languages — is the catalog's, never the browser's. The stored text the
+ * browser names is only compared, never sent: a suggestion is made only while
+ * the stored translation is still the one the administrator sees, so it never
+ * lands against text someone else saved or changed meanwhile, in another tab.
  *
- * It fills a gap and replaces nothing: a unit whose translation in that
- * language has been saved meanwhile — by someone else, in another tab — is
- * refused before anything is sent. Every refusal happens before the engine is
- * asked, so it costs nothing.
+ * A missing translation gets a suggestion that fills it; a saved one gets an
+ * alternative that replaces nothing until it is saved. Every refusal happens
+ * before the engine is asked, so it costs nothing.
  *
  * One unit is a batch of one: the request goes through the engine's one batch
  * contract, exactly as a batch of many would. There is no retry — every
@@ -50,7 +53,7 @@ final class GenerateProjectTranslationSuggestionAction
     /**
      * @throws CannotSuggestTranslationException
      */
-    public function handle(User $actor, mixed $unitId, mixed $targetLocale): ProjectTranslationSuggestion
+    public function handle(User $actor, mixed $unitId, mixed $targetLocale, mixed $stored = ''): ProjectTranslationSuggestion
     {
         if (! Gate::forUser($actor)->allows('manage-project-settings')) {
             throw CannotSuggestTranslationException::becauseUserIsNotAllowed();
@@ -74,8 +77,12 @@ final class GenerateProjectTranslationSuggestionAction
             throw CannotSuggestTranslationException::becauseThereIsNothingToTranslate();
         }
 
-        if ($unit->translation($targetLocale) !== null) {
-            throw CannotSuggestTranslationException::becauseItIsAlreadyTranslated();
+        $seen = is_string($stored) ? $stored : '';
+
+        if (($unit->translation($targetLocale) ?? '') !== $seen) {
+            throw $seen === ''
+                ? CannotSuggestTranslationException::becauseItIsAlreadyTranslated()
+                : CannotSuggestTranslationException::becauseItChanged();
         }
 
         try {

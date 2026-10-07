@@ -13,9 +13,11 @@
      * The field is a single-line input or a textarea, as the content's own
      * editor has it, and is bound to the browser's draft only: typing sends
      * nothing, and nothing is stored until Save. AI translate (on a missing
-     * row) and Regenerate (on an AI suggestion) ask for a suggestion for this
-     * row alone; while one is on its way the field is read-only and the row's
-     * actions wait, and the rest of the screen stays usable.
+     * row), Suggest alternative (on a saved one, whose saved version stays
+     * stored until Save) and Regenerate (on an AI suggestion) ask for a
+     * suggestion for this row alone; while one is on its way the field is
+     * read-only and the row's actions wait, and the rest of the screen stays
+     * usable.
      */
     $dom = $row['dom'];
     $state = $row['stored'] === '' ? 'missing' : 'saved';
@@ -158,12 +160,11 @@
                 <x-admin.ui.button
                     size="sm"
                     icon="sparkles"
-                    :x-cloak="$state !== 'missing'"
                     x-show="offersAi(unit)"
                     x-bind:aria-disabled="units[unit].generating || units[unit].saving ? 'true' : 'false'"
                     x-on:click="suggest(unit)"
                 >
-                    <span x-text="state(unit) === 'ai' ? 'Regenerate' : 'AI translate'">AI translate</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>
+                    <span x-text="aiLabel(unit)">{{ $state === 'saved' ? 'Suggest alternative' : 'AI translate' }}</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>
                 </x-admin.ui.button>
                 <x-admin.ui.button size="sm" disabled x-bind:disabled="! canSave(unit)" x-on:click="save(unit)">
                     Save<span class="rg-admin-sr-only"> {{ $row['name'] }}</span>

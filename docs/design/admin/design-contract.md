@@ -585,18 +585,24 @@ settings (`manage-project-settings`), the boundary Languages uses.
   and an unsaved AI suggestion stays in Missing only. Choosing another language with drafts asks first (OVL-01,
   “Discard unsaved translations?”, Keep editing / Discard and switch); leaving the page with drafts gets the
   browser's own question. AI suggestions are drafts like any other in all of this.
-- **AI suggestions.** A Missing row offers AI translate (sparkles); it sends the unit id and the language, nothing
-  else. `GenerateProjectTranslationSuggestionAction` finds the unit again, refuses one that has been translated
-  meanwhile (“This translation was saved by someone else. Reload the page to review it.”), builds a batch of one
-  through `ProjectTranslationRequestFactory` — English source, the unit's limits, placeholders and usage, the other
-  installed languages as context, public content — and asks the translation engine. Nothing is stored: the text
-  lands in the row's field as AI suggestion · not saved (info badge with dot, info field and cell, “Generated 09:41
-  · AI suggestions are drafts until saved.”), and the figures, which count stored translations, stay as they are.
+- **AI suggestions.** A Missing row offers AI translate (sparkles), a Saved row Suggest alternative — another
+  version of its translation, for when the saved one may not be right. Either sends the unit id, the language and
+  the stored text the row shows (none for a missing one), nothing else; the stored text is only compared, never
+  sent for translation. `GenerateProjectTranslationSuggestionAction` finds the unit again and refuses when the
+  stored translation is no longer the one shown (“This translation was saved by someone else. Reload the page to
+  review it.” for a missing row, “This translation was changed by someone else. …” for a saved one), builds a
+  batch of one through `ProjectTranslationRequestFactory` — English source, the unit's limits, placeholders and
+  usage, the other installed languages as context (never the target's own translation), public content — and asks
+  the translation engine. Nothing is stored: the text lands in the row's field as AI suggestion · not saved (info
+  badge with dot, info field and cell, “Generated 09:41 · AI suggestions are drafts until saved.”, or “… · Saved
+  version is kept until you save.” for an alternative, whose saved version stays stored and served until the
+  alternative is saved), and the figures, which count stored translations, stay as they are. An alternative that
+  is the saved text word for word changes nothing and says so in an info toast.
   While it is on its way only that row waits: its field is read-only, its target cell `aria-busy`, AI translate
   paused (`aria-disabled`, keeping focus) and Save disabled, with “Generating a suggestion from context…” and the
   page's status region saying so; the rest of the screen stays usable. On success focus moves to the field. An AI
   suggestion offers Regenerate, which replaces it only once the new one has arrived — a failed Regenerate keeps it
-  — and Discard, which goes back to Missing. Typing in it turns it into Edited · not saved: the AI mark and
+  — and Discard, which goes back to what is stored: Missing, or the saved translation. Typing in it turns it into Edited · not saved: the AI mark and
   Regenerate go, so nothing can overwrite what was typed. It is saved by the ordinary Save, which turns the row
   Saved and only then changes the figures. A failure — not configured, the provider unavailable, a suggestion
   that broke the field's limits — is a toast in our words, and the row is exactly as it was; manual translation
@@ -687,7 +693,7 @@ state badge and its note, then the actions (see the deviations below).
 | Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
 | Languages top bar and drawer actions | “Open Translation Center”, Translate per item, “Show all in Translation Center”, “Translate all missing” | Translate per item and Translate all missing; no “Open Translation Center” in the top bar and no “Show all” | the navigation already opens Translation Center, and Translate all missing is the drawer's one way into it |
 | Translation Center AI | Generate missing and Save all generated in the top bar, AI translate and Regenerate in each row, the AI suggestion state, “What AI translate sends” in the context drawer, sparkles on the unsaved strip | AI translate on a Missing row and Regenerate on an AI suggestion, the AI suggestion state, “What AI translate sends” in the context drawer, sparkles on the strip while an AI suggestion is unsaved (the info icon otherwise); no Generate missing or Save all generated, so the top bar has no actions | interactive suggestions come first (Phase 5B); bulk generation and saving arrive with background generation (Phase 5C), and no control is drawn that does nothing |
-| Translation Center AI button | AI translate shown on every row, labelled Regenerate once a suggestion exists | AI translate only on a Missing row, Regenerate only on an AI suggestion; neither on a stored translation or a typed draft | a suggestion fills a gap and never replaces stored or typed text |
+| Translation Center AI button | AI translate shown on every row, labelled Regenerate once a suggestion exists | AI translate on a Missing row, Suggest alternative on a Saved row, Regenerate on an AI suggestion; none on a typed draft | the label says what the suggestion will do to the row, and a suggestion never overwrites text somebody typed |
 | Translation Center while generating | the target field is replaced by a box: spinner and “Generating a suggestion from context…” | the field stays where it is, read-only, its cell `aria-busy`; the spinner and the same words take the note's place under it | a field that disappears takes focus and the suggestion being regenerated with it |
 | Translation Center figures | the result count reads “… on this page” and the footer “1–N of M missing items” | the toolbar counts “N of M items”; the footer keeps only the note about interface strings | every unit of the language is on the page; there is no pagination |
 | Translation Center title | none: the header band holds the combobox and the figures | the same, with the page's `h1` visually hidden | the screen still needs a heading for assistive technology and for focus to return to |

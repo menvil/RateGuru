@@ -27,6 +27,8 @@ final class CannotSuggestTranslationException extends DomainException
 
     public const REASON_ALREADY_TRANSLATED = 'already_translated';
 
+    public const REASON_CHANGED = 'changed';
+
     public const REASON_ENGINE_FAILED = 'engine_failed';
 
     private function __construct(
@@ -65,6 +67,11 @@ final class CannotSuggestTranslationException extends DomainException
     public static function becauseItIsAlreadyTranslated(): self
     {
         return new self('This translation was saved by someone else. Reload the page to review it.', self::REASON_ALREADY_TRANSLATED);
+    }
+
+    public static function becauseItChanged(): self
+    {
+        return new self('This translation was changed by someone else. Reload the page to review it.', self::REASON_CHANGED);
     }
 
     /** The engine produced no usable translation; its code says why, in our words. */

@@ -782,7 +782,7 @@ function translationAiState(mixed $page, string $unit): array
             const frame = field.closest('.rg-admin-input') ?? field
             const target = row.querySelector('.rg-admin-translation-row__target')
             const buttons = [...row.querySelectorAll('button')]
-            const ai = buttons.find((button) => button.querySelector('.rg-admin-icon') && ['AI translate', 'Regenerate'].includes(button.querySelector('span')?.textContent.trim()))
+            const ai = buttons.find((button) => button.querySelector('.rg-admin-icon') && ['AI translate', 'Suggest alternative', 'Regenerate'].includes(button.querySelector('span')?.textContent.trim()))
             const save = buttons.find((button) => button.innerText.trim().startsWith('Save') && ! button.innerText.includes('next'))
             // What the info tokens resolve to here, to compare the field and cell against.
             const probe = (token) => {
@@ -876,7 +876,7 @@ function suggestTranslationIn(mixed $page, string $unit, string $expected): void
 function focusAiButton(mixed $page, string $unit): mixed
 {
     $page->script(sprintf(
-        "[...document.querySelectorAll('[data-unit=\"%s\"] button')].find((button) => ['AI translate', 'Regenerate'].includes(button.querySelector('span')?.textContent.trim())).focus()",
+        "[...document.querySelectorAll('[data-unit=\"%s\"] button')].find((button) => ['AI translate', 'Suggest alternative', 'Regenerate'].includes(button.querySelector('span')?.textContent.trim())).focus()",
         $unit,
     ));
 
@@ -927,7 +927,7 @@ it('fills a missing row with an AI suggestion that stays a draft until Save, cou
     $after = translationScreen($page);
 
     expect($this->dogs->fresh()->name_translations)->toBe([$this->target => 'Собаки'])
-        ->and(translationAiState($page, $dogs))->toMatchArray(['infoField' => false, 'infoCell' => false, 'ai' => null, 'canSave' => false])
+        ->and(translationAiState($page, $dogs))->toMatchArray(['infoField' => false, 'infoCell' => false, 'ai' => 'Suggest alternative', 'canSave' => false])
         ->and($after['strip'])->toBeNull()
         ->and($after['stats'][1])->not->toBe($before[1])
         ->and($after['stats'][2])->not->toBe($before[2]);
@@ -965,6 +965,62 @@ it('replaces an AI suggestion with another on Regenerate, and keeps it when Rege
         ])
         ->and($page->script('document.activeElement.querySelector("span")?.textContent.trim()'))->toBe('Regenerate')
         ->and($this->dogs->fresh()->name_translations)->toBeNull();
+});
+
+it('suggests an alternative to a saved translation, keeping the saved one until the alternative is saved', function () {
+    $birds = ($this->unit)($this->birds);
+    useScriptedTranslationProvider(answeringTranslationProvider(['Пернатые', 'Птахи']));
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+    $before = translationScreen($page)['stats'];
+
+    expect(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'ai' => 'Suggest alternative', 'aiDisabled' => 'false']);
+
+    suggestTranslationIn($page, $birds, 'Пернатые');
+
+    $suggested = translationAiState($page, $birds);
+
+    expect($suggested)->toMatchArray(['infoField' => true, 'infoCell' => true, 'ai' => 'Regenerate', 'canSave' => true])
+        ->and($suggested['note'])->toMatch('/^Generated \d\d:\d\d · Saved version is kept until you save\.$/')
+        ->and(translationScreen($page)['stats'])->toBe($before)
+        ->and($this->birds->fresh()->name_translations[$this->target])->toBe('Птицы');
+
+    // Discard goes back to the saved translation, which never left.
+    clickRowButton($page, $birds, 'Discard');
+    eventually(fn () => expect(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'ai' => 'Suggest alternative']));
+
+    // Saving an alternative replaces the saved translation; the figures stay, nothing went missing.
+    suggestTranslationIn($page, $birds, 'Птахи');
+    clickRowButton($page, $birds, 'Save');
+    eventually(fn () => expect(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птахи']));
+
+    expect($this->birds->fresh()->name_translations[$this->target])->toBe('Птахи')
+        ->and(translationScreen($page)['stats'])->toBe($before);
+});
+
+it('says so when the alternative is the saved translation word for word, and leaves the row as it was', function () {
+    $birds = ($this->unit)($this->birds);
+    useScriptedTranslationProvider(answeringTranslationProvider(['Птицы']));
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    focusAiButton($page, $birds)->script('document.activeElement.click()');
+    waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
+
+    expect(translationScreen($page)['toasts'])->toContain('AI suggested the same text as the saved translation.')
+        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false, 'ai' => 'Suggest alternative']);
+});
+
+it('refuses an alternative once someone else has changed the saved translation, and says to reload', function () {
+    $birds = ($this->unit)($this->birds);
+    useScriptedTranslationProvider(answeringTranslationProvider(['Пернатые']));
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    $this->birds->update(['name_translations' => [$this->target => 'Изменено в другой вкладке', $this->other => 'Птици']]);
+
+    focusAiButton($page, $birds)->script('document.activeElement.click()');
+    waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
+
+    expect(translationScreen($page)['toasts'])->toContain('This translation was changed by someone else. Reload the page to review it.')
+        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false]);
 });
 
 it('turns an AI suggestion that is edited into an ordinary edit, saved as typed', function () {

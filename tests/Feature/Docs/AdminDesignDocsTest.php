@@ -163,7 +163,9 @@ it('records production Translation Center\'s interactive AI suggestions, and wha
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
 
     expect($contract)
-        ->toContain('A Missing row offers AI translate (sparkles); it sends the unit id and the language, nothing else.')
+        ->toContain('A Missing row offers AI translate (sparkles), a Saved row Suggest alternative')
+        ->toContain('the stored text is only compared, never sent for translation')
+        ->toContain('Saved version is kept until you save.')
         ->toContain('GenerateProjectTranslationSuggestionAction')
         ->toContain('ProjectTranslationRequestFactory')
         ->toContain('Nothing is stored')

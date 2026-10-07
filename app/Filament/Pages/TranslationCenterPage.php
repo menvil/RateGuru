@@ -44,8 +44,9 @@ use UnitEnum;
  * units already on the page — the search, the section, Missing only / All
  * (kept in the URL with replaceState), and the drafts, which exist only in the
  * browser until they are saved. Typing sends nothing; Save sends one unit id,
- * the language and the text; AI translate and Regenerate send one unit id and
- * the language and get a suggestion back, which is a draft like any other;
+ * the language and the text; AI translate, Suggest alternative and Regenerate
+ * send one unit id, the language and the stored text the row shows, and get a
+ * suggestion back, which is a draft like any other;
  * and the context drawer asks for one unit's details when it opens. None of
  * them re-renders the page, so drafts in other rows stay as they are.
  *
@@ -134,16 +135,18 @@ final class TranslationCenterPage extends Page
     }
 
     /**
-     * A machine translation of one missing unit, as a draft for the browser.
-     * The unit and the language are all the browser sends; the action finds
-     * the unit again and builds everything sent for translation from the
-     * catalog. Nothing is stored, and nothing on the page is re-rendered: the
-     * browser puts the text in the row's field as an unsaved AI suggestion.
+     * A machine translation of one unit, as a draft for the browser: for a
+     * missing translation, or as an alternative to a saved one. The browser
+     * sends the unit, the language and the stored text it shows — compared
+     * with what is stored now, never sent for translation; the action finds
+     * the unit again and builds everything sent from the catalog. Nothing is
+     * stored, and nothing on the page is re-rendered: the browser puts the
+     * text in the row's field as an unsaved AI suggestion.
      *
      * @return array{generated: true, unit: string, locale: string, text: string, provider: string, model: string, generatedAt: string}|array{generated: false, error: string}
      */
     #[Renderless]
-    public function suggest(mixed $unit = null, mixed $locale = null): array
+    public function suggest(mixed $unit = null, mixed $locale = null, mixed $stored = ''): array
     {
         $user = auth()->user();
 
@@ -152,7 +155,7 @@ final class TranslationCenterPage extends Page
                 throw CannotSuggestTranslationException::becauseUserIsNotAllowed();
             }
 
-            $suggestion = app(GenerateProjectTranslationSuggestionAction::class)->handle($user, $unit, $locale);
+            $suggestion = app(GenerateProjectTranslationSuggestionAction::class)->handle($user, $unit, $locale, $stored);
         } catch (CannotSuggestTranslationException $exception) {
             return ['generated' => false, 'error' => $exception->getMessage()];
         }
