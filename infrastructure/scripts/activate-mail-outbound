@@ -686,11 +686,12 @@ gateway_verify() {
 
 # signing_e2e BUNDLE — the signing acceptance from BUNDLE, which must hold the
 # target's mail: a foreign From refused, a valid probe signed, held and removed.
+# Both its exit status and its result must say so.
 signing_e2e() {
-    local count json
+    local count json status=0
 
     run_child "verify-mail-signing --e2e --target ${TARGET_ID} (pre-activation bundle)" \
-        "$(bundle_script "$1" verify-mail-signing)" --e2e --target "${TARGET_ID}" || true
+        "$(bundle_script "$1" verify-mail-signing)" --e2e --target "${TARGET_ID}" || status=$?
 
     count="$(grep -c '^RATEGURU_MAIL_SIGNING_RESULT=' <<<"${CHILD_OUTPUT}" || true)"
     if [[ "${count}" != 1 ]]; then
@@ -701,7 +702,7 @@ signing_e2e() {
     json="$(grep '^RATEGURU_MAIL_SIGNING_RESULT=' <<<"${CHILD_OUTPUT}")"
     json="${json#RATEGURU_MAIL_SIGNING_RESULT=}"
 
-    if jq -e --arg t "${TARGET_ID}" '
+    if (( status == 0 )) && jq -e --arg t "${TARGET_ID}" '
         .target == $t and .mode == "e2e" and .status == "pass"
         and .foreign_from_rejected == true and .held == true and .removed == true
         and (.signature | type) == "object"' <<<"${json}" >/dev/null 2>&1
@@ -710,7 +711,7 @@ signing_e2e() {
         return 0
     fi
 
-    bad "the signing acceptance did not pass: ${json}"
+    bad "the signing acceptance did not pass (exit ${status}): ${json}"
     return 1
 }
 
@@ -1190,7 +1191,7 @@ run_rollback() {
     load_request
     require_initial_launch
     [[ "${REQUESTED}" == true ]] \
-        || die "activation is not requested by this trusted bundle (${TARGET_ID}'s mail is ${T_MODE}, direct delivery $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)), so there is no activation of it to roll back — Prepare host renders the gateway it describes. Nothing was changed"
+        || die "activation is not requested by this trusted bundle (${TARGET_ID}'s mail is ${T_MODE}, direct delivery $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)), so there is no activation of it to roll back. If the host still delivers outbound, this rollback runs only from the bundle that requested the activation — Prepare never crosses the boundary. Nothing was changed"
 
     problems="$(capsule_problems)"
     if [[ -n "${problems}" ]]; then

@@ -319,6 +319,7 @@ it('changes nothing when any part of the pre-activation proof fails', function (
         'bad DNS', 'missing key', 'weak key' => [],
         'signer down' => ['toggles' => ['signer-down']],
         'foreign From accepted' => ['toggles' => ['e2e-foreign-accepted']],
+        'acceptance exited non-zero' => ['toggles' => ['e2e-exits-nonzero']],
         'held mail' => ['queue' => ["0123ABCDEF\thold\tsomeone@example.net", "FOREIGN0001\tdeferred\tsomeone@example.net"]],
         'public SMTP' => [],
         'gateway not held' => ['installed' => 'drifted', 'listeners' => ['127.0.0.1:1025', '127.0.0.1:1026']],
@@ -381,6 +382,8 @@ it('changes nothing when any part of the pre-activation proof fails', function (
     'missing key' => ['missing key', '/etc/opendkim/keys/tits-guru/rg1.private is not usable: it does not exist', false],
     'weak key' => ['weak key', 'below the reviewed minimum of 2048 bits', false],
     'foreign From accepted' => ['foreign From accepted', 'FAIL the signing acceptance did not pass', true],
+    // A passing result line is not enough: the acceptance's exit status must agree.
+    'acceptance exited non-zero' => ['acceptance exited non-zero', 'FAIL the signing acceptance did not pass (exit 1)', true],
     'held mail' => ['held mail', 'FAIL the HOLD queue is not empty (0123ABCDEF)', true],
     'public SMTP' => ['public SMTP', 'something listens on 0.0.0.0:25 — no SMTP service may listen on port 25', false],
     'gateway not held' => ['gateway not held', 'FAIL the installed gateway is not exactly the pre-activation render', false],
@@ -895,7 +898,20 @@ it('runs exactly activate-mail-outbound in the mode its workflow fixed, judges i
         ->toContain('| OUTBOUND READY |')
         ->toContain('Activation is not requested by this trusted bundle')
         ->toContain('**This is the pre-go-live initial activation rollback.**')
-        ->toContain('Revert the activation change to `mail-routing.json` and `mail-outbound.json` on main before the next Prepare or Verify');
+        ->toContain('Revert the activation change to `mail-routing.json` and `mail-outbound.json` on main before the next Prepare or Verify: until then Verify reports the difference, and Prepare refuses to cross back to outbound — that takes another guarded activation.');
+
+    // Prepare never crosses the boundary, so nothing tells an operator it would.
+    foreach (['.github/actions/activate-rateguru-mail-outbound/action.yml', '.github/workflows/rollback-tits-guru-mail-activation.yml', 'infrastructure/scripts/activate-mail-outbound'] as $path) {
+        $text = preg_replace('/\s+/', ' ', File::get(base_path($path)));
+        expect($text)
+            ->not->toContain('Prepare will activate')
+            ->not->toContain('Prepare will render the activation')
+            ->not->toContain('Prepare would otherwise render')
+            ->not->toContain('Prepare host renders the gateway it describes');
+    }
+
+    $rollback = preg_replace('/\s+/', ' ', preg_replace('/^#\s?/m', '', File::get(base_path('.github/workflows/rollback-tits-guru-mail-activation.yml'))));
+    expect($rollback)->toContain('Until it is, Verify reports the difference and Prepare refuses to cross back to outbound; only another guarded activation does.');
 
     $last = array_slice($action['runs']['steps'], -2);
     expect(array_column($last, 'name'))->toBe(['Remove the remote infrastructure bundle', 'Remove temporary local files']);

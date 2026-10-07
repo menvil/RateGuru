@@ -2988,7 +2988,8 @@ function mailGatewayFakeQueueTools(string $bin): void
 | fails), gateway-verify-fails-MODE, leak-direct-route (staging's listener is
 | given tits-guru's direct route after an outbound apply), signer-down,
 | readonly-signing-fails (verify-mail-signing --read-only refuses, so
-| readiness does), e2e-foreign-accepted.
+| readiness does), e2e-foreign-accepted, e2e-exits-nonzero (the acceptance
+| prints a passing result but exits 1).
 */
 
 /**
@@ -3076,6 +3077,7 @@ function mailActivationOwnerStubs(): array
                     toggle e2e-foreign-accepted && refuse "the held listener ACCEPTED a message whose From is outside tits.guru (simulated)" false "${target}"
                     echo "  PASS a foreign From refused; the probe signed, held and removed (simulated)"
                     printf 'RATEGURU_MAIL_SIGNING_RESULT={"target":"%s","mode":"e2e","status":"pass","foreign_from_rejected":true,"queue_id":"E2E0000001","held":true,"removed":true,"signature":{"d":"tits.guru","s":"rg1","a":"rsa-sha256"}}\n' "${target}"
+                    toggle e2e-exits-nonzero && exit 1
                     exit 0
                     ;;
             esac
