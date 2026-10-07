@@ -31,6 +31,21 @@ return [
     'max_batch_items' => 500,
     'max_batch_chars' => 500_000,
 
+    // Generate missing: AI drafts for every missing translation of a language,
+    // made in the background by queued jobs and kept, until an administrator
+    // saves or discards them, in this cache store — temporary workflow state,
+    // never project content. A batch expires a fixed time after it was
+    // created; reading it does not extend it. A chunk a worker claimed and
+    // never finished counts as interrupted after stale_running_seconds, and
+    // one no worker has taken stale_queued_seconds after its batch was
+    // created — a queue that lost the job, or has no worker — does too.
+    'bulk' => [
+        'cache_store' => 'redis',
+        'ttl_seconds' => 172800,
+        'stale_running_seconds' => 180,
+        'stale_queued_seconds' => 3600,
+    ],
+
     // Every provider the router can choose, by name. `driver` is a class
     // implementing App\Support\TranslationEngine\Contracts\TranslationProvider;
     // it reads the rest of its own entry. A provider is added here, without
