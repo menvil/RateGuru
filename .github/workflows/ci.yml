@@ -385,8 +385,14 @@ jobs:
       # browser tests; if a future runner image ever drops a hard library,
       # the test step itself fails loudly with a Chromium launch error, so
       # nothing is silently masked.
+      #
+      # Those fonts are not nothing: the admin UI kit page shows Japanese,
+      # Korean, Chinese and Hebrew, which Chromium draws as empty boxes without
+      # them. So the step stays, but on a short leash. A healthy install takes
+      # 14-25 s; a slow mirror has taken 136 and 173 s, on the critical path.
+      # One minute keeps the fonts in every ordinary run and caps a bad one.
       - name: Install Playwright system dependencies (best effort)
-        timeout-minutes: 6
+        timeout-minutes: 1
         continue-on-error: true
         run: |
           printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
