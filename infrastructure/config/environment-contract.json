@@ -64,6 +64,10 @@
         {
             "name": "Nightwatch",
             "description": "Disabled by default. The vendor default is enabled=true, so the key must\nbe present and explicit rather than omitted."
+        },
+        {
+            "name": "Translation AI",
+            "description": "The provider the translation engine sends machine translation to, and its\ncredentials. An empty API key is a valid state: the application boots and its\nqueues and admin run, and only an actual translation is refused as not\nconfigured, before any request is sent.\n\nThe key is supplied here, in this host's .env, and nowhere else: never in the\nrepository, a workflow, or a GitHub environment secret."
         }
     ],
     "keys": [
@@ -704,6 +708,31 @@
             "section": "Nightwatch",
             "classification": "target",
             "value": "warning"
+        },
+        {
+            "key": "TRANSLATION_PROVIDER",
+            "section": "Translation AI",
+            "classification": "target",
+            "value": "openai"
+        },
+        {
+            "key": "TRANSLATION_OPENAI_API_KEY",
+            "section": "Translation AI",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "TRANSLATION_OPENAI_MODEL",
+            "section": "Translation AI",
+            "classification": "target",
+            "value": "gpt-6-luna"
+        },
+        {
+            "key": "TRANSLATION_OPENAI_BASE_URL",
+            "section": "Translation AI",
+            "classification": "target",
+            "value": "https://api.openai.com/v1"
         },
         {
             "key": "APP_FAKER_LOCALE",

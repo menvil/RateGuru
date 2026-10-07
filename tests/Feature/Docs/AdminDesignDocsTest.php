@@ -99,7 +99,7 @@ it('records Languages as migrated, with its overlays built', function () {
         ->toContain('`x-admin.ui.toast-stack` (FBK-01)');
 });
 
-it('records Translation Center as done, on the one catalog Languages counts, and AI suggestions next', function () {
+it('records Translation Center as done, on the one catalog Languages counts, and AI suggestions in progress', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
@@ -107,7 +107,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 200);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: next** — Phase 5, AI suggestions.');
+        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, is done; 5B, interactive AI suggestions, is next.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -128,6 +128,44 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
         ->toContain("A list's search is clearable");
+});
+
+it('splits AI suggestions into four steps, with the engine done and nothing else marked done', function () {
+    $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
+    $start = strpos($plan, '### Phase 5+');
+    $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
+
+    // Both markers must be found, in order: a missing one would otherwise
+    // become offset 0 and the assertions below would read the wrong text.
+    expect($start)->toBeInt()
+        ->and($end)->toBeInt()
+        ->and($end)->toBeGreaterThan($start);
+
+    $phase5 = substr($plan, (int) $start, (int) $end - (int) $start);
+
+    $steps = [
+        '**5A — Translation engine. Status: done.**',
+        '**5B — Interactive AI suggestions. Status: next.**',
+        '**5C — Background and bulk generation.**',
+        '**5D — Observability, limits and provider policies.**',
+    ];
+    $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
+
+    expect($positions)->not->toContain(false)
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all())
+        ->and(substr_count($phase5, 'Status: done.'))->toBe(1)
+        ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
+        ->and($phase5)->toContain('docs/architecture/translation-engine.md');
+});
+
+it('records that a reusable translation engine exists while Translation Center stays manual-only', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+
+    expect($contract)
+        ->toContain('A reusable translation engine now exists (`App\\Support\\TranslationEngine`')
+        ->toContain('production stays manual-only')
+        ->toContain('its first AI controls arrive with interactive AI suggestions (Phase 5B)')
+        ->toContain('| Translation Center AI |');
 });
 
 it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {

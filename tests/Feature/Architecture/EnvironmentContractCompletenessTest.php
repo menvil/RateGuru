@@ -476,7 +476,7 @@ it('leaves every sensitive value blank, so no secret enters the repository', fun
 
     // Not a vacuous pass: the obvious credentials must actually be marked.
     foreach (['APP_KEY', 'DB_PASSWORD', 'SENTRY_DSN', 'NIGHTWATCH_TOKEN', 'MAIL_PASSWORD',
-        'GOOGLE_CLIENT_SECRET', 'FACEBOOK_CLIENT_SECRET'] as $key) {
+        'GOOGLE_CLIENT_SECRET', 'FACEBOOK_CLIENT_SECRET', 'TRANSLATION_OPENAI_API_KEY'] as $key) {
         expect(in_array($key, $sensitive, true))->toBeTrue("{$key} must be marked sensitive in the contract");
     }
 
@@ -851,7 +851,90 @@ it('documents the first-party settings a local developer needs', function (strin
     'IMPORT_FROM_URL_ENABLED',
     'RATE_LIMIT_UPLOAD_ATTEMPTS', 'RATE_LIMIT_COMMENT_ATTEMPTS',
     'RATE_LIMIT_REPORT_ATTEMPTS', 'RATE_LIMIT_VOTE_ATTEMPTS',
+    'TRANSLATION_PROVIDER', 'TRANSLATION_OPENAI_API_KEY',
+    'TRANSLATION_OPENAI_MODEL', 'TRANSLATION_OPENAI_BASE_URL',
 ]);
+
+// =============================================================================
+// The translation engine's provider settings
+// =============================================================================
+//
+// The API key is the one setting here a host must supply and the repository
+// must never hold. Its home is the target's shared .env, like every other
+// credential in this contract — not a workflow, and not a GitHub environment
+// secret, which would make GitHub a second place the key lives.
+
+it('declares the translation settings in their own section, the API key sensitive and blank', function () {
+    $contract = completenessContract();
+
+    expect(array_column($contract['sections'], 'name'))->toContain('Translation AI');
+
+    $rows = collect($contract['keys'])
+        ->filter(fn (array $entry): bool => str_starts_with($entry['key'], 'TRANSLATION_'))
+        ->keyBy('key')
+        ->all();
+
+    expect(array_keys($rows))->toBe([
+        'TRANSLATION_PROVIDER', 'TRANSLATION_OPENAI_API_KEY', 'TRANSLATION_OPENAI_MODEL', 'TRANSLATION_OPENAI_BASE_URL',
+    ]);
+
+    foreach ($rows as $row) {
+        expect($row['section'])->toBe('Translation AI')
+            ->and($row['classification'])->toBe('target');
+    }
+
+    expect($rows['TRANSLATION_PROVIDER']['value'])->toBe('openai')
+        ->and($rows['TRANSLATION_OPENAI_API_KEY']['value'])->toBe('')
+        ->and($rows['TRANSLATION_OPENAI_API_KEY']['sensitive'] ?? false)->toBeTrue()
+        ->and($rows['TRANSLATION_OPENAI_MODEL']['value'])->toBe('gpt-6-luna')
+        ->and($rows['TRANSLATION_OPENAI_BASE_URL']['value'])->toBe('https://api.openai.com/v1');
+
+    foreach (['TRANSLATION_PROVIDER', 'TRANSLATION_OPENAI_MODEL', 'TRANSLATION_OPENAI_BASE_URL'] as $key) {
+        expect($rows[$key]['sensitive'] ?? false)->toBeFalse("{$key} is not a secret");
+    }
+});
+
+it('renders the translation settings, with the API key as a blank placeholder, in every environment template', function (string $template) {
+    $rendered = File::get(base_path("infrastructure/templates/environment/{$template}.env.example"));
+
+    expect($rendered)
+        ->toMatch('/^TRANSLATION_PROVIDER=openai$/m')
+        ->toMatch('/^TRANSLATION_OPENAI_API_KEY=$/m')
+        ->toMatch('/^TRANSLATION_OPENAI_MODEL=gpt-6-luna$/m')
+        ->toMatch('/^TRANSLATION_OPENAI_BASE_URL=https:\/\/api\.openai\.com\/v1$/m');
+})->with(['staging', 'tits-guru', 'production']);
+
+it('keeps any OpenAI credential out of the repository and out of GitHub', function () {
+    $files = array_merge(
+        [
+            base_path('infrastructure/config/environment-contract.json'),
+            base_path('.env.example'),
+            base_path('config/translation.php'),
+            base_path('phpunit.xml'),
+        ],
+        glob(base_path('infrastructure/templates/environment/*.env.example')) ?: [],
+        glob(base_path('.github/workflows/*.yml')) ?: [],
+        glob(base_path('.github/actions/*/action.yml')) ?: [],
+    );
+
+    foreach ($files as $path) {
+        $relative = str_replace(base_path().'/', '', $path);
+        $contents = File::get($path);
+
+        // The shape of an OpenAI secret key, project-scoped or not.
+        expect($contents)->not->toMatch('/\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}/', "{$relative} holds something shaped like an OpenAI key");
+
+        // Every declaration of the key leaves it empty.
+        // Horizontal whitespace only: \s would run on into the next line.
+        expect($contents)->not->toMatch('/^[ \t]*TRANSLATION_OPENAI_API_KEY[ \t]*=[ \t]*\S/m', "{$relative} gives the translation API key a value");
+    }
+
+    // GitHub is not a second home for it: no workflow or action reads it,
+    // as a secret, a variable or an input.
+    foreach ([...glob(base_path('.github/workflows/*.yml')) ?: [], ...glob(base_path('.github/actions/*/action.yml')) ?: []] as $path) {
+        expect(File::get($path))->not->toContain('TRANSLATION_OPENAI_API_KEY', str_replace(base_path().'/', '', $path).' must not handle the translation API key');
+    }
+});
 
 // =============================================================================
 // Closing the ways around the inventory

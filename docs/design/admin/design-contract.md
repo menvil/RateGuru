@@ -602,7 +602,10 @@ settings (`manage-project-settings`), the boundary Languages uses.
   focused and marked, and the URL drops `unit` once it has been followed. The unit in a link only decides where the
   page opens, never what is written. Translate all missing opens the language in Missing only.
 - **Not in this step.** No AI: no Generate missing, AI translate, Regenerate or Save all generated, no AI
-  suggestion state and no provider payload in the context drawer — they arrive with AI suggestions (Phase 5). No
+  suggestion state and no provider payload in the context drawer — they arrive with AI suggestions (Phase 5). A
+  reusable translation engine now exists (`App\Support\TranslationEngine`, see
+  `docs/architecture/translation-engine.md`), but Translation Center does not use it: production stays manual-only,
+  and its first AI controls arrive with interactive AI suggestions (Phase 5B). No
   review states, no translation history and no source hashes. The editors that translate in place keep doing so
   until the translation cutover (Phase 7).
 
@@ -662,7 +665,7 @@ state badge and its note, then the actions (see the deviations below).
 | Confirmation footnote | “Recorded in the … log as …” | none on Languages | no log records a language change |
 | Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
 | Languages top bar and drawer actions | “Open Translation Center”, Translate per item, “Show all in Translation Center”, “Translate all missing” | Translate per item and Translate all missing; no “Open Translation Center” in the top bar and no “Show all” | the navigation already opens Translation Center, and Translate all missing is the drawer's one way into it |
-| Translation Center AI | Generate missing and Save all generated in the top bar, AI translate and Regenerate in each row, the AI suggestion state, “What AI translate sends” in the context drawer, sparkles on the unsaved strip | none of them; the Missing placeholder reads “Missing · type a translation”, the strip has the info icon, the top bar has no actions | manual translation comes first; AI suggestions are a step of their own (Phase 5), and no control is drawn that does nothing |
+| Translation Center AI | Generate missing and Save all generated in the top bar, AI translate and Regenerate in each row, the AI suggestion state, “What AI translate sends” in the context drawer, sparkles on the unsaved strip | none of them; the Missing placeholder reads “Missing · type a translation”, the strip has the info icon, the top bar has no actions | manual translation comes first; AI controls arrive with interactive AI suggestions (Phase 5B) — the translation engine beneath them exists, but no control is drawn that does nothing |
 | Translation Center figures | the result count reads “… on this page” and the footer “1–N of M missing items” | the toolbar counts “N of M items”; the footer keeps only the note about interface strings | every unit of the language is on the page; there is no pagination |
 | Translation Center other languages | “AI context only” | “Read only” | there is no AI to give them to yet |
 | Translation Center title | none: the header band holds the combobox and the figures | the same, with the page's `h1` visually hidden | the screen still needs a heading for assistive technology and for focus to return to |

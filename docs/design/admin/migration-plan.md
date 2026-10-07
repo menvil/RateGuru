@@ -101,13 +101,27 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: next** — Phase 5, AI suggestions.
+**Status: in progress** — 5A, the translation engine, is done; 5B, interactive AI suggestions, is next.
 
 In separate steps:
 
-5. **AI suggestions** — a translation provider behind an interface, Generate missing, AI translate, Regenerate,
-   Save all generated, the AI suggestion · not saved state and what the context drawer shows of a request. AI
-   output stays a draft until an administrator saves it, through the same save Translation Center uses now.
+5. **AI suggestions**, in four steps. AI output stays a draft until an administrator saves it, through the same save
+   Translation Center uses now.
+   - **5A — Translation engine. Status: done.** A reusable, provider-neutral engine in
+     `app/Support/TranslationEngine`, described in
+     [`docs/architecture/translation-engine.md`](../../architecture/translation-engine.md): one batch-only API
+     (`TranslationService::translate(TranslationBatchRequest)`), logical batches of up to 500 items cut into provider
+     requests of up to 50 items and 60,000 characters, a provider router driven by `config/translation.php`, OpenAI's
+     Responses API with strict structured output as the first provider, and every returned translation checked by id
+     and against its item's constraints. It stores nothing, queues nothing, retries nothing and has no fallback.
+     Translation Center does not use it yet: the screen is unchanged and manual-only.
+   - **5B — Interactive AI suggestions. Status: next.** Translation Center's first AI controls: AI translate and
+     Regenerate on a row, the AI suggestion · not saved state, and what the context drawer shows of a request —
+     built on the engine, with project content sent as `public_content`.
+   - **5C — Background and bulk generation.** Generate missing and Save all generated: a language's missing items
+     translated in the background, in batches, keeping the translations a partly failed batch did produce.
+   - **5D — Observability, limits and provider policies.** What the engine's call metadata feeds: usage and cost
+     visibility, budgets and limits, and the retry and fallback policies the engine deliberately leaves out.
 6. **Workflow** — review states, if the product needs them.
 7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,
