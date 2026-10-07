@@ -44,7 +44,7 @@ For public requests the first **enabled** locale among:
 1. Authenticated user locale preference (`users.locale`)
 2. Session locale (`locale` key)
 3. Cookie locale (`locale` cookie)
-4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`)
+4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`), and `no` matches `nb` — unless it names another script or variant of an installed language (`zh-TW`, `zh-Hant`, `sr-Latn`, `cnr-Cyrl`, `pt-PT`), which reaches nothing and leaves the browser's next language to be tried; `LanguageRules` holds these rules
 5. English, the default — only when nothing above matches
 
 A stored preference for a disabled locale is skipped, not deleted — the search goes on to the next source — and applies again once the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.

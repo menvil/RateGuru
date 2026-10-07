@@ -66,7 +66,12 @@ seeder never change the languages of an existing project.
 1. the account's chosen language (`users.locale`)
 2. the session — a choice made earlier in this visit
 3. the `locale` cookie — a choice made on an earlier visit
-4. the browser's `Accept-Language`, in quality order; `ru-RU` matches `ru`
+4. the browser's `Accept-Language`, in quality order; `ru-RU` matches `ru`,
+   and `no` matches Norwegian Bokmål (`nb`) — but a tag naming another script
+   or variant of an installed language does not: `zh-TW` is not the installed
+   Simplified Chinese, `sr-Latn` not the Cyrillic Serbian, `pt-PT` not the
+   Brazilian Portuguese, so the browser's next language is tried
+   (`App\Support\Locale\LanguageRules`)
 5. English, the default — only when nothing above matches
 
 A stored choice the project no longer offers is skipped, not deleted: a
