@@ -245,6 +245,63 @@ The contract is judged by `infrastructure/scripts/mail-identity`
 (`check-outbound`), the one judge of the host's and the targets' mail
 identity; this installer asks it and restates none of its rules.
 
+## The applied policy and the activation boundary
+
+**What the host accepted is recorded on the host.** Every successful
+`--apply` records, in the same transaction as the configuration, the complete
+public policy it was applied from:
+
+- `/var/lib/rateguru-mail-gateway/applied-plan.json` — the whole canonical
+  `mail-routing render-plan`: every target, its lifecycle and environment
+  class, submission endpoint, delivery mode, mail domain, `default_from`,
+  bounce and reply domains, route and staging capture — including the fields
+  Postfix never reads;
+- `/var/lib/rateguru-mail-gateway/applied-outbound.json` — the canonical host
+  outbound contract.
+
+Both are public (`root:root 0644`, keys sorted), never a key, a key's hash, an
+environment file, a credential or a message. A failed apply restores the
+previous record with the previous configuration, so the two never disagree.
+`--verify` requires both to equal what the bundle requests: **a change to any
+policy field is drift on the host, whether Postfix renders it or not** — a
+different `default_from`, bounce or reply domain, lifecycle or MTA hostname
+fails Verify until it is converged.
+
+A host with no recorded policy (every host before this record existed) records
+its first one on the next Prepare — but only from an inert request: no outbound
+route, direct delivery disabled. An outbound request on a host with no record is
+refused; the inert state is established first.
+
+**Only `activate-mail-outbound` crosses between held and outbound.** A
+production target's mail moving from held to outbound or back, or the host's
+direct delivery switching on or off, is never an ordinary convergence: `--check`
+reports it as a conflict and `--apply` refuses it before changing anything,
+whoever called it — Prepare staging or production host, bootstrap, repair or a
+root shell. It is crossed only with a one-use authorization that
+`activate-mail-outbound` writes after its own proof:
+`/var/lib/rateguru-mail-gateway/transition-authorization.json`, `root:root
+0600`, bound to the target, the direction (`activate` or `rollback`) and the
+SHA-256 of the exact recorded and requested plans and host contracts, valid for
+fifteen minutes, and consumed — recorded in `consumed-transition-authorizations`
+and removed — before the transition starts, so it is never honoured twice.
+There is no flag, variable or mode that does the same.
+
+So **Prepare can converge a state but cannot cross the activation boundary**,
+and a Prepare from a stale branch fails closed instead of activating or
+deactivating mail: after the activation change reaches `main` but before
+Activate, Prepare refuses held → outbound and the host stays held; after
+Activate but before `main` reaches `develop`, Prepare staging refuses outbound →
+held and production keeps delivering.
+
+**Its name.** Postfix calls itself by the host's reviewed MTA hostname from
+`mail-outbound.json` (`myhostname = mta1.tits.guru` here) — its banner, its
+`Received: … by …` hop and a `Message-ID` it adds — so delivered mail never
+carries `mail-gateway.rateguru.invalid`. That non-deliverable name is only the
+fallback of a host whose contract reviews no MTA hostname, which the contract
+allows only while direct delivery is disabled. Staging capture shares the
+instance, so its captured mail shows `mta1.tits.guru` in an internal hop; it
+never leaves the host. `--verify` reads `myhostname` back.
+
 ## Ownership and the package
 
 - `--apply` installs Ubuntu 22.04's `postfix` package with debconf preseeded

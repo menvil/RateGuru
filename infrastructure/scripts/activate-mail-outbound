@@ -64,23 +64,31 @@
 #        releases it.
 #      No connection leaves the host during the proof: the only SMTP it opens
 #      is the signing acceptance's, to the target's own loopback listener.
+#      The pre-activation gateway verify includes the gateway's record of the
+#      complete policy it was last applied from, so a request that changes
+#      anything else of the target — its sender, bounce or reply domain — or of
+#      another target fails here, before anything changes.
 #   4. The rollback capsule, written before the gateway changes:
 #      /var/lib/rateguru-mail-activation/<target>/ holds the two
 #      pre-activation documents and non-secret metadata (the target, when, and
 #      the SHA-256 of the four public documents) — never a key, a key's hash,
 #      an environment file, a credential or a message.
-#   5. install-mail-gateway --apply from the requested bundle — the gateway's
-#      one owner renders and installs it; nothing about Postfix is spelled
-#      here — then its --verify, then `mail-identity readiness`, which must be
+#   5. A one-use ACTIVATE authorization for the gateway, bound to the target,
+#      the direction and the SHA-256 of the exact recorded and requested
+#      policies, then install-mail-gateway --apply from the requested bundle —
+#      the gateway's one owner, which refuses this transition to any caller
+#      without it and consumes it; nothing about Postfix is spelled here —
+#      then its --verify, then `mail-identity readiness`, which must be
 #      PASS on every condition with OUTBOUND READY: YES, then a read-back of
 #      the live routes: the target's listener alone owns its direct route,
 #      every capture listener still captures, nothing listens on a public SMTP
 #      port, and the signer is still on loopback only.
 #   6. Any failure from step 5 on — an installer that refused, a verify that
 #      did not pass, readiness short of YES, an error, a signal — returns the
-#      host to the capsule's pre-activation state through the same code: that
-#      bundle's install-mail-gateway --apply, its --verify, the held read-back
-#      and the signing acceptance again. When even that cannot be proved, the
+#      host to the capsule's pre-activation state through the same code: a
+#      one-use ROLLBACK authorization when the gateway recorded the outbound
+#      policy, that bundle's install-mail-gateway --apply, its --verify, the
+#      held read-back and the signing acceptance again. When even that cannot be proved, the
 #      result is CRITICAL and nothing broader is attempted: held with no route
 #      is the safest state there is, and it is reached by re-rendering, never
 #      by touching the queue.
@@ -91,8 +99,9 @@
 # recorded. It re-applies the capsule's pre-activation gateway, proves it held
 # again, and changes no repository file — so afterwards the runtime is held but
 # the committed configuration still requests outbound delivery, and has to be
-# reverted before the next Prepare or Verify. A live target's mail is never
-# stopped this way.
+# reverted before the next Prepare or Verify — which, until it is, refuses to
+# cross back to outbound: only another guarded activation does. A live
+# target's mail is never stopped this way.
 #
 # --verify is read-only: for a target whose activation is requested, the
 # gateway's and the signer's own verifies, public DNS, full readiness and the
@@ -155,6 +164,11 @@ OUTBOUND_DOCUMENT="infrastructure/config/mail-outbound.json"
 CAPSULE_KIND="rateguru-mail-outbound-activation"
 CAPSULE_SCHEMA_VERSION=1
 
+# The one-use authorization the gateway requires to cross between held and
+# outbound: its kind, and how long it may wait to be used.
+AUTHORIZATION_KIND="rateguru-mail-gateway-transition-authorization"
+AUTHORIZATION_LIFETIME=900
+
 # The ports a public SMTP service lives on. Nothing on a RateGuru host may
 # listen on them, activated or not.
 PUBLIC_SMTP_PORTS=(25 465 587)
@@ -183,6 +197,10 @@ DESIRED_PLAN=""
 
 WORK_DIRS=()
 HOST_LOCK_FD=""
+
+# The authorization this run wrote, until the gateway consumes it.
+AUTHORIZATION_PATH=""
+AUTHORIZATION_NONCE=""
 
 # Set while the gateway may be anything but the pre-activation state this run
 # proved: from the moment the requested gateway is applied until it is fully
@@ -282,6 +300,7 @@ on_exit() {
         fi
     fi
 
+    withdraw_authorization
     remove_work_dirs
 
     if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]] && command -v jq >/dev/null 2>&1; then
@@ -874,6 +893,72 @@ capsule_bundle() {
     CAPSULE_PRE_BUNDLE="${MADE_BUNDLE}"
 }
 
+# --- Transition authorization ------------------------------------------------------
+
+# policy_digest BUNDLE — the SHA-256 of the canonical policy BUNDLE requests and
+# of the one the gateway recorded, and where an authorization belongs, from
+# that bundle's own gateway: one place canonicalizes them.
+policy_digest() {
+    "$(bundle_script "$1" install-mail-gateway)" --policy-digest 2>/dev/null </dev/null
+}
+
+# authorize_transition DIRECTION BUNDLE — the one-use authorization for BUNDLE's
+# gateway to cross from the policy the host recorded to the one BUNDLE
+# requests: bound to the target, the direction and both policies' digests,
+# root-only, short-lived. A previous one this script left is replaced. Fails —
+# never exits — so a rollback that cannot be authorized still reports itself.
+authorize_transition() {
+    local direction="$1" bundle="$2" digest path nonce now tmp
+
+    if ! digest="$(policy_digest "${bundle}")"; then
+        bad "install-mail-gateway --policy-digest failed — the ${direction} of ${TARGET_ID} cannot be authorized"
+        return 1
+    fi
+    if ! jq -e '(.recorded | type) == "object" and (.requested | type) == "object"' <<<"${digest}" >/dev/null 2>&1; then
+        bad "the gateway records no applied policy to authorize the ${direction} of ${TARGET_ID} from"
+        return 1
+    fi
+
+    path="$(jq -r '.authorization' <<<"${digest}")"
+    if [[ "${path}" != /*/transition-authorization.json || ! -d "$(dirname -- "${path}")" ]]; then
+        bad "the gateway names no usable place for a transition authorization (${path})"
+        return 1
+    fi
+
+    nonce="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+    now="$(date -u '+%s')"
+    tmp="${path}.new.$$"
+
+    if ! (
+        umask 077
+        jq -n --arg kind "${AUTHORIZATION_KIND}" --arg target "${TARGET_ID}" --arg direction "${direction}" \
+            --argjson digest "${digest}" --arg nonce "${nonce}" \
+            --argjson now "${now}" --argjson lifetime "${AUTHORIZATION_LIFETIME}" '
+            {kind: $kind, schema_version: 1, target: $target, direction: $direction,
+             from: $digest.recorded, to: $digest.requested, nonce: $nonce,
+             created_at: $now, expires_at: ($now + $lifetime)}' > "${tmp}" \
+            && chmod 0600 "${tmp}" \
+            && mv -f -- "${tmp}" "${path}"
+    ); then
+        rm -f -- "${tmp}"
+        bad "could not write the ${direction} authorization ${path}"
+        return 1
+    fi
+
+    AUTHORIZATION_PATH="${path}"
+    AUTHORIZATION_NONCE="${nonce}"
+    ok "authorized the ${direction} of ${TARGET_ID} for exactly the recorded and the requested policy — one use, valid ${AUTHORIZATION_LIFETIME}s"
+}
+
+# withdraw_authorization — an authorization this run wrote that the gateway did
+# not consume is removed, never left for a later apply.
+withdraw_authorization() {
+    [[ -n "${AUTHORIZATION_PATH}" && -f "${AUTHORIZATION_PATH}" ]] || return 0
+    [[ "$(jq -r '.nonce // ""' "${AUTHORIZATION_PATH}" 2>/dev/null)" == "${AUTHORIZATION_NONCE}" ]] || return 0
+    rm -f -- "${AUTHORIZATION_PATH}"
+    log "withdrew the unused ${AUTHORIZATION_PATH##*/}"
+}
+
 # --- Back to held ----------------------------------------------------------------------
 
 # restore_pre_activation BUNDLE — the pre-activation gateway applied from
@@ -888,9 +973,19 @@ restore_pre_activation() {
         return 1
     fi
 
+    # The gateway crosses back only with its own one-use authorization, and
+    # needs one only when it recorded the outbound policy.
+    local digest
+    if ! digest="$(policy_digest "${bundle}")"; then
+        bad "install-mail-gateway --policy-digest failed for the pre-activation bundle"
+    elif ! jq -e '.recorded == .requested' <<<"${digest}" >/dev/null 2>&1; then
+        authorize_transition rollback "${bundle}" || true
+    fi
+
     log "restoring the pre-activation gateway: install-mail-gateway --apply from the pre-activation bundle"
     run_child "install-mail-gateway --apply (pre-activation bundle)" "$(bundle_script "${bundle}" install-mail-gateway)" --apply \
         || bad "install-mail-gateway --apply of the pre-activation gateway did not succeed"
+    withdraw_authorization
 
     gateway_verify "${bundle}" "the pre-activation" || failures=$((failures + 1))
 
@@ -994,7 +1089,7 @@ run_check() {
 run_apply() {
     local capsule active=0
 
-    require_tools flock sha256sum
+    require_tools flock sha256sum od
     acquire_host_lock
 
     load_request
@@ -1027,12 +1122,15 @@ run_apply() {
     # written first, so every exit from here on has it to return to.
     write_capsule activating "${PRE_BUNDLE}/${ROUTING_DOCUMENT}" "${PRE_BUNDLE}/${OUTBOUND_DOCUMENT}"
     capsule_bundle
+    authorize_transition activate "${REPO_ROOT}" \
+        || die "the activation could not be authorized for the gateway — nothing was changed"
     TRANSACTION_OPEN=true
 
     log "activating: install-mail-gateway --apply from the trusted bundle"
     CHANGED=true
     run_child "install-mail-gateway --apply (trusted bundle)" "$(bundle_script "${REPO_ROOT}" install-mail-gateway)" --apply \
         || die "install-mail-gateway --apply refused or failed"
+    withdraw_authorization
 
     COUNT_FAIL=0
     gateway_verify "${REPO_ROOT}" "the requested" || true
@@ -1111,7 +1209,7 @@ run_rollback() {
         ROLLED_BACK=true
         set_capsule_state rolled-back
         log "RUNTIME HELD AGAIN: ${TARGET_ID}'s listener holds its mail, no direct route exists, and the signing acceptance passed"
-        log "The committed configuration STILL requests outbound delivery for ${TARGET_ID}: revert the activation change to ${ROUTING_DOCUMENT} and ${OUTBOUND_DOCUMENT} before the next Prepare or Verify — Prepare would otherwise render it again"
+        log "The committed configuration STILL requests outbound delivery for ${TARGET_ID}: revert the activation change to ${ROUTING_DOCUMENT} and ${OUTBOUND_DOCUMENT} before the next Prepare or Verify — until then Verify reports the difference and Prepare refuses to cross back to outbound; only another guarded activation does"
         result_line pass
         return 0
     fi

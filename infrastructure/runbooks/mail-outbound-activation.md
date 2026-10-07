@@ -56,7 +56,7 @@ no secret is in it; it is removed on every exit.
 
 | From | Check |
 |------|-------|
-| the pre-activation bundle | `install-mail-gateway --verify` — the listener held, no direct route, direct delivery disabled, no public SMTP listener, the From policy and the signing wiring |
+| the pre-activation bundle | `install-mail-gateway --verify` — the listener held, no direct route, direct delivery disabled, no public SMTP listener, the From policy and the signing wiring, **and the gateway's record of the complete policy it last applied**: an activation request that also changes the target's sender, bounce or reply domain, submission endpoint, mail domain or another target derives a pre-activation state the host never accepted, and stops here |
 | the live Postfix | a read-back: the target's listener holds its mail with no route, no direct transport exists, nothing listens on 25, 465 or 587 |
 | the requested bundle | `mail-identity verify-dns --target tits-guru` — A, PTR, SPF, DKIM and DMARC as `1.1.1.1` and `8.8.8.8` both answer them, and the key usable |
 | the requested bundle | `install-mail-signing --verify --target tits-guru` — OpenDKIM enabled and running on exactly `127.0.0.1:8891`, able to read the key |
@@ -71,8 +71,12 @@ No connection leaves the host during the proof.
    (root-only): the two pre-activation documents, and `capsule.json` with the
    target, the time and the SHA-256 of the four public documents. Never a key, a
    key's hash, an environment file, a credential or a message;
-2. `install-mail-gateway --apply` from the requested bundle — the gateway's one
-   owner; nothing about Postfix is spelled by the activation;
+2. a one-use **ACTIVATE authorization** for the gateway, bound to `tits-guru`,
+   the direction and the SHA-256 of the exact recorded and requested policies,
+   then `install-mail-gateway --apply` from the requested bundle — the
+   gateway's one owner, which refuses this transition to anyone without that
+   authorization and consumes it; nothing about Postfix is spelled by the
+   activation;
 3. `install-mail-gateway --verify`;
 4. `mail-identity readiness --target tits-guru`: every condition PASS —
    target, routing, direct, mta, identity, key, A, PTR, SPF, DKIM, DMARC,
@@ -83,7 +87,8 @@ No connection leaves the host during the proof.
 
 **Any failure from step 2 on** — the installer refusing or failing half-way, a
 verify that does not pass, readiness short of YES, an error or a signal —
-returns the host to held: the capsule's pre-activation bundle's
+returns the host to held: a one-use **ROLLBACK authorization** when the
+gateway recorded the outbound policy, the capsule's pre-activation bundle's
 `install-mail-gateway --apply`, its `--verify`, the held read-back and the
 signing acceptance again. When even that cannot be proved the result is
 **CRITICAL** and nothing broader is attempted. The queue is never flushed,
@@ -120,10 +125,12 @@ gateway's own installer, proves it held — its verify, the read-back and the
 signing acceptance — and changes no repository file. Afterwards:
 
 - the **runtime is held** again;
+- the gateway's **recorded policy is held**, and the authorization is used up;
 - the **committed configuration on `main` still requests outbound delivery**;
 - the activation change to `mail-routing.json` and `mail-outbound.json` **must
-  be reverted on `main` before the next Prepare or Verify** — Prepare would
-  otherwise render the activation again, without this proof.
+  be reverted on `main` before the next Prepare or Verify** — until it is,
+  Verify reports the difference and Prepare refuses to cross back to outbound;
+  only another guarded activation does.
 
 The permanent mail hold of a live production target, and its recovery-time
 fence, are later work (8.4B.7), not this.
@@ -209,8 +216,9 @@ reported as it.
    production gateway before the controlled cutover.
 
 7. After that pull request is merged: run **Activate tits.guru outbound mail**.
-   Do not run **Prepare production host** in between — it would render the
-   activation without this proof.
+   A **Prepare production host** in between cannot activate anything: the
+   gateway refuses held → outbound without the activation's authorization, and
+   the host stays held.
 8. Run **Verify production infrastructure**.
 9. It must report full outbound readiness — `OUTBOUND READY: YES` — while the
    target's lifecycle and application stay deferred, because `tits-guru` is
@@ -230,6 +238,26 @@ reported as it.
 If anything is wrong before go-live: **Rollback tits.guru outbound mail
 activation**, then revert the activation pull request on `main` before the next
 Prepare or Verify.
+
+Between Activate and step 14, `develop` still holds `tits-guru`'s mail. A
+**Prepare staging host** in that window cannot deactivate production mail: the
+gateway refuses outbound → held without a rollback authorization, and
+production keeps delivering. **Verify staging infrastructure** reports that
+difference as drift until `main` reaches `develop`.
+
+## The applied policy and the boundary
+
+The gateway records the complete public routing and outbound policy it was last
+applied from, and Verify fails on any difference — including fields Postfix
+never reads, such as `default_from` or the bounce and reply domains.
+Crossing between held and outbound is protected by the activation interlock:
+Prepare converges a state but cannot cross that boundary, and a Prepare from a
+stale branch fails closed instead of activating or deactivating mail. See
+[`mail-gateway.md`](mail-gateway.md#the-applied-policy-and-the-activation-boundary).
+
+The gateway now calls itself by the reviewed MTA hostname (`mta1.tits.guru`),
+so production mail no longer carries `mail-gateway.rateguru.invalid` in its
+`Received` hop.
 
 ## Application mail transport is not part of this
 
@@ -269,25 +297,26 @@ and sender warm-up are 8.5–8.7.
 ## Rehearsed on a real host
 
 The shipped scripts were run in an Ubuntu 22.04 systemd container with the real
-Postfix 3.6.4 and OpenDKIM `2.11.0~beta2-6` packages, installed by
-`install-mail-signing --apply` and `install-mail-gateway --apply` from the
-committed (held) bundle, with a rehearsal-only key. The container was then cut
-off from every network but two internal ones, on which a DNS fixture answered
-as both `1.1.1.1` and `8.8.8.8` and an isolated Postfix played the recipient's
-MX. No mail could leave, and none did.
+Postfix 3.6.4 and OpenDKIM `2.11.0~beta2-6` packages and a rehearsal-only key.
+The signer and the gateway were first installed by the previous gateway — the
+one the shared host runs today, which records no policy — and the container was
+then cut off from every network but two internal ones, on which a DNS fixture
+answered as both `1.1.1.1` and `8.8.8.8` and an isolated Postfix played the
+recipient's MX. No mail could leave, and none did.
 
 | Step | Result |
 |------|--------|
-| `--apply` from the committed bundle | refused: *activation is not requested by this trusted bundle*, nothing changed |
-| held host: `install-mail-signing --verify`, `install-mail-gateway --verify` | 13 PASS, 10 PASS |
-| held `verify-mail-signing --e2e` | PASS: foreign `From` refused, probe signed `d=tits.guru s=rg1 a=rsa-sha256`, held, deleted |
-| `--check` from a bundle requesting the activation | READY: the derived pre-activation bundle verifies, DNS, signer, empty HOLD |
-| `--apply` | DONE: the whole proof, then `rateguru-outbound-tits-guru:` on `2526` only, staging still `rateguru-capture-staging-main:[127.0.0.1]:1025`, no public SMTP listener, signer on `127.0.0.1:8891` only; readiness 14 PASS, `OUTBOUND READY: YES`; capsule `0700`/`0600`, no key in it |
-| second `--apply` | ALREADY ACTIVE: no gateway change, no probe |
-| `--verify` | `OUTBOUND READY: YES` |
-| canary to the isolated MX | `status=sent` for its own queue ID; the MX stored it with `DKIM-Signature d=tits.guru s=rg1`, HELO `mta1.tits.guru` |
-| canary to a refusing mailbox | `status=bounced` (5.1.1), FAIL |
-| canary to a deferring mailbox | `deferred` (4.2.1) to the end of the window, then its own queue entry deleted; nothing else in the queue |
-| `--rollback` | RUNTIME HELD AGAIN; the committed configuration still requests outbound |
-| `--apply` with a forced failure after the gateway changed | the installer refused the unhealthy gateway, the host returned to held, the signing acceptance passed again: ROLLED BACK |
-| afterwards | committed bundle's gateway verify and signing acceptance PASS, HOLD queue empty, key SHA-256 unchanged, no private key text in any log; the recipient's local part in no output |
+| the new gateway on that host, committed (held) bundle: `--check`, `--verify`, `--apply`, `--verify` | `MISSING policy:applied` (check passes, verify fails), then `applied-plan.json` and `applied-outbound.json` recorded (`root:root 644`, canonical, no key), verify 12 PASS; `myhostname = mta1.tits.guru` |
+| ordinary `install-mail-gateway --apply` from a bundle requesting the activation | `CONFLICT policy:transition` in `--check`; `--apply` refused, nothing changed, still held |
+| `activate-mail-outbound --check` / `--apply` from a request that also changes `default_from` | refused before any change: the recorded policy differs (`listeners.tits-guru.sender.default_from`) |
+| `activate-mail-outbound --apply` | ACTIVATE authorization written and consumed by the gateway, readiness `OUTBOUND READY: YES`, `2526 → rateguru-outbound-tits-guru:` |
+| canary to the isolated MX | `status=sent`; the stored message has `Received: from mail-canary … by mta1.tits.guru` and `Received: from mta1.tits.guru (mta1.tits.guru [1.1.1.10])`, `DKIM-Signature d=tits.guru s=rg1` (verified there by `opendkim-testmsg`), and no `mail-gateway.rateguru.invalid` anywhere |
+| ordinary `install-mail-gateway --apply` from the committed (held) bundle | refused (outbound → held), nothing changed, still outbound |
+| `activate-mail-outbound --rollback` | ROLLBACK authorization written and consumed, RUNTIME HELD AGAIN |
+| ordinary apply of the outbound request after that | refused again; still held |
+| `activate-mail-outbound --apply` again, then `--rollback` | DONE, then held; ledger: activate, rollback, activate, rollback |
+| afterwards | committed bundle's gateway verify 12 PASS and signing acceptance PASS, queue empty, key SHA-256 unchanged (`root:opendkim 640`), no private key text in any log, no route to the Internet |
+
+The first rehearsal of the activation tooling, on the same packages, also
+proved `--check`, idempotence, `--verify`, the bounced and deferred canaries,
+and the automatic return to held after a forced failure.

@@ -22,22 +22,6 @@ use Illuminate\Support\Facades\File;
  * real-host acceptance (verify-mail-gateway --e2e) and a disposable rehearsal
  * with real Postfix exist for.
  */
-function mailGatewayScript(string $name = 'install-mail-gateway'): string
-{
-    return base_path('infrastructure/scripts/'.$name);
-}
-
-function mailGatewayScratch(): string
-{
-    $dir = sys_get_temp_dir().'/mail-gateway-'.bin2hex(random_bytes(6));
-
-    foreach (['', '/bin', '/fs', '/log', '/state', '/toggles'] as $sub) {
-        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create {$dir}{$sub}");
-    }
-
-    return $dir;
-}
-
 /**
  * The host outbound contract as mail-outbound.json spells it.
  *
@@ -253,291 +237,7 @@ function mailGatewaySigningPlanFor(array $policy, array $registry, array $outbou
     }
 }
 
-// --- the simulated host ------------------------------------------------------------
-
-/**
- * A simulated host and the stubs that stand in for its package manager,
- * systemd, ss and Postfix's own tools.
- *
- * Options:
- *   package        'absent' (default) | 'installed' | 'partial'
- *   marker         null (default) | 'installing' | 'installed'
- *   postfixDir     true to create /etc/postfix with no package (an unmanaged leftover)
- *   otherMta       a package name providing mail-transport-agent
- *   ownPolicyRc    true to give the host its own /usr/sbin/policy-rc.d
- *   listeners      extra TCP listeners on the host (default: Mailpit's 127.0.0.1:1025)
- *   policy         a mail routing policy instead of the committed one
- *   registry       a deployment registry instead of the committed one
- *   outbound       a host outbound contract instead of the committed one
- *   identity       a mail identity contract instead of the committed one
- *   signer         false to leave the DKIM signer's endpoint unheard on the host
- *
- * The signer's endpoint is the one the real install-mail-signing prints, and by
- * default something listens on it, as on a host where the signer is installed.
- *
- * @return array{scratch: string, fs: string, env: array<string, string>}
- */
-function mailGatewayHost(array $options = []): array
-{
-    $scratch = mailGatewayScratch();
-    $fs = $scratch.'/fs';
-    $state = $scratch.'/state';
-
-    $package = $options['package'] ?? 'absent';
-    if ($package === 'installed') {
-        file_put_contents($state.'/pkg-status', 'install ok installed');
-        file_put_contents($state.'/pkg-version', '3.6.4-1ubuntu1.4');
-        touch($state.'/units-exist');
-        touch($state.'/postfix.service.enabled');
-        @mkdir($fs.'/etc/postfix', 0o755, true);
-        file_put_contents($fs.'/etc/postfix/main.cf', "# a Postfix main.cf\n");
-        file_put_contents($fs.'/etc/postfix/master.cf', "smtp      inet  n       -       y       -       -       smtpd\n");
-    } elseif ($package === 'partial') {
-        file_put_contents($state.'/pkg-status', 'install ok half-configured');
-    }
-
-    if (($options['marker'] ?? null) !== null) {
-        @mkdir($fs.'/var/lib/rateguru-mail-gateway', 0o755, true);
-        file_put_contents($fs.'/var/lib/rateguru-mail-gateway/ownership', "owner=rateguru\ncomponent=mail-gateway\nstate={$options['marker']}\n");
-    }
-
-    if ($options['postfixDir'] ?? false) {
-        @mkdir($fs.'/etc/postfix', 0o755, true);
-        file_put_contents($fs.'/etc/postfix/main.cf', "# somebody else's\n");
-    }
-
-    $packages = "bash\tinstall ok installed\t\n";
-    if (isset($options['otherMta'])) {
-        $packages .= "{$options['otherMta']}\tinstall ok installed\tmail-transport-agent\n";
-    }
-    file_put_contents($state.'/packages.tsv', $packages);
-
-    if ($options['ownPolicyRc'] ?? false) {
-        @mkdir($fs.'/usr/sbin', 0o755, true);
-        file_put_contents($fs.'/usr/sbin/policy-rc.d', "#!/bin/sh\n# the host's own\nexit 101\n");
-        chmod($fs.'/usr/sbin/policy-rc.d', 0o755);
-    }
-
-    $listeners = $options['listeners'] ?? ['127.0.0.1:1025'];
-    if ($options['signer'] ?? true) {
-        $listeners[] = '127.0.0.1:8891';
-    }
-    file_put_contents($state.'/listeners', implode("\n", $listeners)."\n");
-
-    $stubs = [
-        'dpkg-query' => <<<'STUB'
-            #!/bin/bash
-            if [[ "$*" == *'${Package}'* ]]; then cat "${STUB_STATE}/packages.tsv"; exit 0; fi
-            if [[ "$*" == *'${Version}'* ]]; then cat "${STUB_STATE}/pkg-version" 2>/dev/null; exit 0; fi
-            if [[ -f "${STUB_STATE}/pkg-status" ]]; then cat "${STUB_STATE}/pkg-status"; exit 0; fi
-            echo "dpkg-query: no packages found matching postfix" >&2
-            exit 1
-            STUB,
-        'apt-get' => <<<'STUB'
-            #!/bin/bash
-            printf 'apt-get %s [DEBIAN_FRONTEND=%s]\n' "$*" "${DEBIAN_FRONTEND:-}" >> "${STUB_LOG}/mutations.log"
-            [[ "$1" == install ]] || exit 0
-            policy="${STUB_FS}/usr/sbin/policy-rc.d"
-            if [[ -f "${policy}" ]] && grep -q 'rateguru-mail-gateway' "${policy}" && grep -qx 'exit 101' "${policy}"; then
-                echo "service starts suppressed during install" >> "${STUB_LOG}/apt-suppression.log"
-            else
-                echo "service starts NOT suppressed during install" >> "${STUB_LOG}/apt-suppression.log"
-            fi
-            [[ -e "${STUB_TOGGLES}/apt-fail" ]] && exit 100
-            printf 'install ok installed' > "${STUB_STATE}/pkg-status"
-            printf '3.6.4-1ubuntu1.4' > "${STUB_STATE}/pkg-version"
-            # Preseeded "No configuration": the package installs its master.cf
-            # and writes no main.cf of its own.
-            mkdir -p "${STUB_FS}/etc/postfix"
-            printf 'smtp      inet  n       -       y       -       -       smtpd\n' > "${STUB_FS}/etc/postfix/master.cf"
-            touch "${STUB_STATE}/units-exist" "${STUB_STATE}/postfix.service.enabled"
-            STUB,
-        'dpkg' => <<<'STUB'
-            #!/bin/bash
-            printf 'dpkg %s\n' "$*" >> "${STUB_LOG}/mutations.log"
-            STUB,
-        'debconf-set-selections' => <<<'STUB'
-            #!/bin/bash
-            echo "debconf-set-selections" >> "${STUB_LOG}/mutations.log"
-            cat >> "${STUB_LOG}/debconf.log"
-            STUB,
-        'systemctl' => <<<'STUB'
-            #!/bin/bash
-            S="${STUB_STATE}"
-            case "$1" in
-                is-enabled|show) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log" ;;
-                *) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log" ;;
-            esac
-            case "$1" in
-                is-enabled)
-                    [[ -e "${S}/units-exist" ]] || { echo "Failed to get unit file state for $2" >&2; exit 1; }
-                    if [[ -e "${S}/$2.enabled" ]]; then echo enabled; exit 0; fi
-                    echo disabled; exit 1 ;;
-                show)
-                    case "$3" in
-                        --property=ActiveState) [[ -e "${S}/$2.active" ]] && echo active || echo inactive ;;
-                        --property=SubState) [[ -e "${S}/$2.active" ]] && echo running || echo dead ;;
-                        --property=NRestarts) cat "${S}/$2.nrestarts" 2>/dev/null || echo 0 ;;
-                    esac
-                    exit 0 ;;
-                enable) touch "${S}/$2.enabled" ;;
-                disable) rm -f "${S}/$2.enabled" ;;
-                mask) touch "${S}/$2.masked" ;;
-                start|restart)
-                    [[ -e "${STUB_TOGGLES}/start-fail" ]] && exit 1
-                    touch "${S}/$2.active" ;;
-                stop) rm -f "${S}/$2.active" ;;
-                reload) [[ -e "${S}/$2.active" ]] || exit 1 ;;
-            esac
-            exit 0
-            STUB,
-        'ss' => <<<'STUB'
-            #!/bin/bash
-            sed '/^$/d; s/^/LISTEN 0 100 /; s/$/ 0.0.0.0:*/' "${STUB_STATE}/listeners"
-            if [[ -e "${STUB_STATE}/postfix@-.service.active" && -f "${STUB_FS}/etc/postfix/master.cf" ]]; then
-                awk '/^[^#[:space:]]/ && $2 == "inet" { print "LISTEN 0 100 " $1 " 0.0.0.0:*" }' "${STUB_FS}/etc/postfix/master.cf"
-            fi
-            STUB,
-        // A test double that reads the files back, not Postfix.
-        'postconf' => <<<'STUB'
-            #!/bin/bash
-            printf 'postconf %s\n' "$*" >> "${STUB_LOG}/reads.log"
-            dir="${STUB_FS}/etc/postfix"
-            if [[ "$1" == -c ]]; then dir="$2"; shift 2; fi
-            case "$1" in
-                -n)
-                    [[ -e "${STUB_TOGGLES}/postconf-warn" ]] && echo "postconf: warning: simulated unused parameter" >&2
-                    exit 0 ;;
-                -M)
-                    [[ -e "${STUB_TOGGLES}/postconf-fatal" ]] && { echo "postconf: fatal: bad field count" >&2; exit 1; }
-                    awk '/^[^#[:space:]]/ { print $1, $2, $3, $4, $5, $6, $7, $8 }' "${dir}/master.cf"
-                    exit 0 ;;
-                -h)
-                    awk -v k="$2" 'index($0, k " = ") == 1 { v = substr($0, length(k) + 4) } $0 == k " =" { v = "" } END { print v }' "${dir}/main.cf"
-                    exit 0 ;;
-                -P)
-                    spec="$2"; svc="${spec%%/*}"; rest="${spec#*/}"; type="${rest%%/*}"; param="${rest#*/}"
-                    awk -v s="${svc}" -v t="${type}" -v p="${param}" -v spec="${spec}" '
-                        /^[^#[:space:]]/ { inside = ($1 == s && $2 == t); next }
-                        inside && $1 == "-o" && index($2, p "=") == 1 { print spec " = " substr($2, length(p) + 2) }
-                    ' "${dir}/master.cf"
-                    exit 0 ;;
-            esac
-            STUB,
-        'postfix' => <<<'STUB'
-            #!/bin/bash
-            printf 'postfix %s\n' "$*" >> "${STUB_LOG}/reads.log"
-            [[ -e "${STUB_TOGGLES}/postfix-check-fail" ]] && { echo "postfix: fatal: simulated" >&2; exit 1; }
-            exit 0
-            STUB,
-        // A regexp-table lookup the way postmap -q answers one: the result of
-        // the first pattern that matches, case-insensitive unless the pattern
-        // carries the i flag. A test double, not Postfix.
-        'postmap' => <<<'STUB'
-            #!/bin/bash
-            [[ "$1" == -c ]] && shift 2
-            [[ "$1" == -q && "${3:-}" == regexp:* ]] || exit 64
-            key="$2"; table="${3#regexp:}"
-            [[ -f "${table}" ]] || { echo "postmap: fatal: open ${table}: No such file or directory" >&2; exit 1; }
-            while IFS= read -r line; do
-                [[ -z "${line}" || "${line}" == \#* ]] && continue
-                delim="${line:0:1}"; rest="${line:1}"
-                pattern="${rest%%"${delim}"*}"; after="${rest#*"${delim}"}"
-                flags="${after%% *}"; result="${after#* }"
-                if [[ "${flags}" == *i* ]]; then shopt -u nocasematch; else shopt -s nocasematch; fi
-                if [[ "${key}" =~ ${pattern} ]]; then printf '%s\n' "${result}"; exit 0; fi
-            done < "${table}"
-            exit 1
-            STUB,
-    ];
-
-    foreach ($stubs as $name => $body) {
-        file_put_contents($scratch.'/bin/'.$name, $body."\n");
-        chmod($scratch.'/bin/'.$name, 0o755);
-    }
-
-    $env = [
-        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
-        'HOME' => $scratch,
-        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
-        'RATEGURU_MAILGW_EUID' => '0',
-        'RATEGURU_MAILGW_FS_ROOT' => $fs,
-        'RATEGURU_MAILGW_FILE_OWNER' => trim((string) shell_exec('id -un')),
-        'RATEGURU_MAILGW_FILE_GROUP' => trim((string) shell_exec('id -gn')),
-        'RATEGURU_MAILGW_RUNTIME_WAIT' => '1',
-        'RATEGURU_MAILGW_STABILITY_WAIT' => '1',
-        'RATEGURU_MAILGW_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
-        'RATEGURU_MAILGW_APT_GET_BIN' => $scratch.'/bin/apt-get',
-        'RATEGURU_MAILGW_DPKG_BIN' => $scratch.'/bin/dpkg',
-        'RATEGURU_MAILGW_DPKG_QUERY_BIN' => $scratch.'/bin/dpkg-query',
-        'RATEGURU_MAILGW_DEBCONF_SET_SELECTIONS_BIN' => $scratch.'/bin/debconf-set-selections',
-        'RATEGURU_MAILGW_POSTCONF_BIN' => $scratch.'/bin/postconf',
-        'RATEGURU_MAILGW_POSTFIX_BIN' => $scratch.'/bin/postfix',
-        'RATEGURU_MAILGW_POSTMAP_BIN' => $scratch.'/bin/postmap',
-        'RATEGURU_MAILGW_SS_BIN' => $scratch.'/bin/ss',
-        'STUB_STATE' => $state,
-        'STUB_LOG' => $scratch.'/log',
-        'STUB_TOGGLES' => $scratch.'/toggles',
-        'STUB_FS' => $fs,
-    ];
-
-    foreach (['policy' => 'RATEGURU_MAILGW_POLICY_FILE', 'registry' => 'RATEGURU_MAILGW_REGISTRY_FILE', 'outbound' => 'RATEGURU_MAILGW_OUTBOUND_FILE', 'identity' => 'RATEGURU_MAILGW_IDENTITY_FILE'] as $option => $variable) {
-        if (isset($options[$option])) {
-            file_put_contents($scratch."/{$option}.json", mailRoutingJson($options[$option]));
-            $env[$variable] = $scratch."/{$option}.json";
-        }
-    }
-
-    return ['scratch' => $scratch, 'fs' => $fs, 'env' => $env];
-}
-
-/** @return array{0: int, 1: string} */
-function mailGatewayRun(array $host, string $mode, array $env = [], string $script = 'install-mail-gateway'): array
-{
-    $process = proc_open(
-        ['bash', mailGatewayScript($script), $mode],
-        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
-        $pipes,
-        $host['scratch'],
-        [...$host['env'], ...$env],
-    );
-
-    $output = (string) stream_get_contents($pipes[1]);
-    fclose($pipes[1]);
-
-    return [proc_close($process), $output];
-}
-
-function mailGatewayLog(array $host, string $name): string
-{
-    $path = $host['scratch'].'/log/'.$name;
-
-    return is_file($path) ? (string) file_get_contents($path) : '';
-}
-
-/**
- * Every path and its content under the simulated host, so a mode that must not
- * mutate can be proved not to have.
- *
- * @return array<string, string>
- */
-function mailGatewayTree(array $host): array
-{
-    $tree = [];
-
-    foreach (File::allFiles($host['fs'], true) as $file) {
-        $tree[$file->getRelativePathname()] = hash_file('sha256', $file->getPathname());
-    }
-
-    ksort($tree);
-
-    return $tree;
-}
-
-function mailGatewayCleanup(array $host): void
-{
-    exec('rm -rf '.escapeshellarg($host['scratch']));
-}
+// --- the simulated host: mailGatewayHost() and its helpers are in tests/Pest.php ---
 
 /**
  * status-mail-gateway on the simulated host: the same stubs first on PATH, plus
@@ -1071,6 +771,15 @@ it('installs the package safely on a host that has none, and only then activates
 
         expect(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/ownership'))->toContain('state=installed');
 
+        // The policy it was applied from is recorded beside the marker: the
+        // whole canonical plan and host contract, and the host's first one is
+        // this inert one.
+        expect(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-plan.json'), true))->toEqual(mailRoutingPlan());
+        expect(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-outbound.json'), true))
+            ->toEqual(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true));
+        expect(array_keys(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-outbound.json'), true)))->toBe(['direct', 'schema_version']);
+        expect($output)->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json');
+
         // And the contract holds.
         [$verify, $report] = mailGatewayRun($host, '--verify');
         expect($verify)->toBe(0, $report);
@@ -1078,7 +787,9 @@ it('installs the package safely on a host that has none, and only then activates
             ->toContain('PASS     outbound:direct — direct delivery disabled on this host (mail-outbound.json); 0 outbound route(s) in the plan, and none could be rendered')
             ->toContain('PASS     signing — listeners of tits-guru hand their mail to the signer at inet:127.0.0.1:8891 (install-mail-signing --milter-endpoint), deferred when it cannot sign, each through its own cleanup service and From policy; no other listener is signed')
             ->toContain('PASS     file:/etc/postfix/rateguru-from-tits-guru.regexp — matches the current render')
-            ->toContain('SUMMARY  pass=10 missing=0 drift=0 conflict=0 deferred=0');
+            ->toContain('PASS     file:/var/lib/rateguru-mail-gateway/applied-plan.json — the recorded policy is exactly the one this bundle requests')
+            ->toContain('PASS     file:/var/lib/rateguru-mail-gateway/applied-outbound.json — the recorded policy is exactly the one this bundle requests')
+            ->toContain('SUMMARY  pass=12 missing=0 drift=0 conflict=0 deferred=0');
     } finally {
         mailGatewayCleanup($host);
     }
@@ -1365,10 +1076,12 @@ it('renders the real committed policy byte for byte as the gateway the staging h
     // target must render exactly this, or the host drifts and its read-only
     // verification fails until it is reconverged: a change here is a host
     // change, and has to be deliberate. It differs from the configuration the
-    // staging host was accepted with only in what signs tits-guru's held mail:
+    // staging host was accepted with in what signs tits-guru's held mail —
     // its listener's milter, its own cleanup service and From policy, and no
-    // empty sender on it — see the test below.
-    expect(hash('sha256', $render['main']))->toBe('3a20fbed9aec5bfc6353529aa34c90842c0f1e1bb20197127ca2e42bc1c6bc71');
+    // empty sender on it — and in the name Postfix calls itself, now the
+    // host's reviewed MTA hostname: see the test below.
+    expect(hash('sha256', $render['main']))->toBe('d06bc417c2fbd31c5ad9255c59b6755950a1cb44940f8b16c2ed1195c333cd90');
+    expect(mailGatewayMainParameters($render['main'])['myhostname'])->toBe('mta1.tits.guru');
     expect(hash('sha256', $render['master']))->toBe('79d52c357f8fdda66e34047e8e504da624a4403eca2acd70793a84b6aa662e91');
     expect(hash('sha256', $render['policies']['rateguru-from-tits-guru.regexp']))->toBe('9eef170db8b201fa8a026d4a49c7280fef2e71dab8ddc646627de4e4581c691e');
 
@@ -1417,12 +1130,23 @@ function mailGatewayContractProblems(array $host, string $dir, string $plan, ?st
     return $output;
 }
 
-it('renders exactly the gateway the staging host accepted when nothing is signed', function () {
-    // The milter lines are the whole difference: without a signing identity,
+it('renders exactly the gateway the staging host accepted when nothing is signed and no MTA hostname is reviewed', function () {
+    // The milter lines and the host's name are the whole difference: without
+    // a signing identity, and on a host contract that reviews no MTA hostname,
     // the committed policy renders the accepted configuration byte for byte.
-    $render = mailGatewayRender(signing: ['schema_version' => 1, 'targets' => []]);
+    $unnamed = mailGatewayOutboundContract(false, '');
+    $render = mailGatewayRender(outbound: $unnamed, signing: ['schema_version' => 1, 'targets' => []]);
 
     expect(hash('sha256', $render['main']))->toBe('69997052d869d451ee44815f714fdb92e47c90e791fc39306a6b2e55b64448ba');
+    expect(mailGatewayMainParameters($render['main'])['myhostname'])->toBe('mail-gateway.rateguru.invalid');
+
+    // The committed contract names the host's MTA, and that one line is what
+    // it changes: the name Postfix calls itself in its banner and Received hops.
+    $named = mailGatewayRender(signing: ['schema_version' => 1, 'targets' => []]);
+    expect($named['master'])->toBe($render['master']);
+    expect(array_values(array_diff(explode("\n", $render['main']), explode("\n", $named['main']))))->toBe(['myhostname = mail-gateway.rateguru.invalid']);
+    expect(array_values(array_diff(explode("\n", $named['main']), explode("\n", $render['main']))))->toBe(['myhostname = mta1.tits.guru']);
+    $render = $named;
     expect(hash('sha256', $render['master']))->toBe('2f7aea126dbd670889ca7599887d19794c78cd975a53c66d843e916bfe666f34');
     expect($render['master'])->not->toContain('milter')->not->toContain('signer');
 
@@ -2101,11 +1825,27 @@ it('installs, verifies and reports a direct route once the host enables direct d
     $identity = mailGatewayIdentityWithDemoShop();
 
     // An outbound target always has a reviewed identity, so it is signed too.
-    $host = mailGatewayHost(['policy' => $policy, 'registry' => $registry, 'outbound' => mailGatewayOutboundContract(), 'identity' => $identity]);
+    // The host first records its inert policy — demo-shop held, direct
+    // delivery disabled — and crosses to outbound only with the one-use
+    // authorization activate-mail-outbound would write.
+    $host = mailGatewayHost(['policy' => mailGatewayDemoShopPolicy(), 'registry' => $registry, 'outbound' => mailGatewayOutboundContract(false, 'mta1.example.net'), 'identity' => $identity]);
 
     try {
         [$applied, $log] = mailGatewayRun($host, '--apply');
         expect($applied)->toBe(0, $log);
+
+        file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($policy));
+        file_put_contents($host['scratch'].'/outbound.json', mailRoutingJson(mailGatewayOutboundContract()));
+
+        [$refused, $log] = mailGatewayRun($host, '--apply');
+        expect($refused)->toBe(1, $log);
+        expect($log)->toContain("this bundle moves demo-shop's mail from held to outbound — the activation boundary, which only activate-mail-outbound crosses");
+
+        mailGatewayAuthorize($host, 'activate', 'demo-shop');
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect($log)->toContain('the activate of demo-shop is authorized by activate-mail-outbound for exactly this recorded and requested policy — consuming that one-use authorization');
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json'))->toBeFalse();
 
         $render = mailGatewayRender($policy, $registry, mailGatewayOutboundContract(), mailGatewaySigningPlanFor($policy, $registry, mailGatewayOutboundContract(), $identity));
         $direct = collect(mailGatewayMasterServices($render['master']))->firstWhere('name', '127.0.0.1:2599');
@@ -2119,7 +1859,7 @@ it('installs, verifies and reports a direct route once the host enables direct d
             ->toContain('PASS     outbound:direct — direct delivery enabled on this host as mta1.example.net; 1 outbound route(s) in the plan')
             ->toContain('PASS     signing — listeners of demo-shop, tits-guru hand their mail to the signer')
             ->toContain('PASS     file:/etc/postfix/rateguru-from-demo-shop.regexp — matches the current render')
-            ->toContain('SUMMARY  pass=11 missing=0 drift=0 conflict=0 deferred=0');
+            ->toContain('SUMMARY  pass=13 missing=0 drift=0 conflict=0 deferred=0');
 
         // The read-only status shows the route as what it is, and no address.
         $status = mailGatewayStatus($host);
@@ -2430,7 +2170,7 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
         expect($report)
             ->toStartWith("install-mail-gateway --verify\n")
             ->toContain('PASS     runtime — enabled, stably running, listening on exactly the plan\'s loopback endpoints')
-            ->toEndWith("SUMMARY  pass=10 missing=0 drift=0 conflict=0 deferred=0\n");
+            ->toEndWith("SUMMARY  pass=12 missing=0 drift=0 conflict=0 deferred=0\n");
 
         // A hand edit is the installer's drift, and fails --read-only with it.
         file_put_contents($host['fs'].'/etc/postfix/main.cf', "# a hand edit\n", FILE_APPEND);
@@ -2438,7 +2178,7 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
         expect($drifted)->toBe(1, $report);
         expect($report)
             ->toContain('DRIFT    file:/etc/postfix/main.cf — differs from the current render')
-            ->toEndWith("SUMMARY  pass=9 missing=0 drift=1 conflict=0 deferred=0\n");
+            ->toEndWith("SUMMARY  pass=11 missing=0 drift=1 conflict=0 deferred=0\n");
 
         expect(mailGatewayLog($host, 'mutations.log'))->toBe('', '--read-only called a mutating command');
         // Exactly the hand edit changed: no file was added, removed or rewritten.
@@ -2816,4 +2556,615 @@ it('records the gateway as accepted on the real host, and the direct outbound ca
         ->toContain('| Staging application mail | **Through the gateway**: the host\'s `shared/.env` says `MAIL_PORT=2525`')
         ->toContain('**Implemented, not activated**')
         ->toContain('keeps direct delivery **disabled** on the host');
+});
+
+// =============================================================================
+// THE APPLIED POLICY: THE HOST'S OWN WITNESS OF WHAT WAS ACCEPTED
+// =============================================================================
+
+/** The committed routing policy and host contract, as arrays. */
+function mailGatewayCommittedRequest(): array
+{
+    return [
+        'routing' => json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR),
+        'outbound' => json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR),
+    ];
+}
+
+/** Point the simulated host's bundle at another routing policy and host contract. */
+function mailGatewayRequest(array $host, array $request): void
+{
+    file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($request['routing']));
+    file_put_contents($host['scratch'].'/outbound.json', mailRoutingJson($request['outbound']));
+}
+
+/**
+ * A host whose gateway was applied from the committed policy — tits-guru held,
+ * direct delivery disabled — with its bundle's two documents in files a test
+ * can change.
+ */
+function mailGatewayEstablishedHost(array $options = []): array
+{
+    $committed = mailGatewayCommittedRequest();
+    $host = mailGatewayHost(['policy' => $committed['routing'], 'outbound' => $committed['outbound'], ...$options]);
+
+    [$status, $log] = mailGatewayRun($host, '--apply');
+    expect($status)->toBe(0, $log);
+
+    return $host;
+}
+
+function mailGatewayApplied(array $host, string $name = 'applied-plan.json'): string
+{
+    return $host['fs'].'/var/lib/rateguru-mail-gateway/'.$name;
+}
+
+/** Rewrite one recorded policy document canonically, changed by a path => value map. */
+function mailGatewayTamperApplied(array $host, string $name, array $changes): void
+{
+    $document = json_decode(File::get(mailGatewayApplied($host, $name)), true, 512, JSON_THROW_ON_ERROR);
+
+    foreach ($changes as $path => $value) {
+        data_set($document, $path, $value);
+    }
+
+    $scratch = $host['scratch'].'/tampered.json';
+    file_put_contents($scratch, json_encode($document, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    file_put_contents(mailGatewayApplied($host, $name), shell_exec('jq -S . '.escapeshellarg($scratch)));
+}
+
+it('records the whole canonical plan and host contract it applied, deterministically and with nothing secret', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $plan = File::get(mailGatewayApplied($host));
+        $outbound = File::get(mailGatewayApplied($host, 'applied-outbound.json'));
+
+        // The complete plan, every field — not the part Postfix renders.
+        $recorded = json_decode($plan, true);
+        expect($recorded)->toEqual(mailRoutingPlan());
+        $titsGuru = collect($recorded['listeners'])->firstWhere('identity', 'tits-guru');
+        expect($titsGuru)->toMatchArray(['environment_class' => 'production', 'lifecycle' => 'planned', 'delivery_mode' => 'held', 'route' => null]);
+        expect($titsGuru['sender'])->toBe(['allowed_domain' => 'tits.guru', 'bounce_domain' => 'bounce.tx.tits.guru', 'default_from' => 'noreply@tits.guru', 'reply_domain' => 'reply.tits.guru']);
+        expect(collect($recorded['listeners'])->firstWhere('identity', 'staging-main')['route'])->toBe(['host' => '127.0.0.1', 'kind' => 'capture', 'port' => 1025]);
+        expect(json_decode($outbound, true))->toEqual(mailGatewayCommittedRequest()['outbound']);
+
+        // Canonical: exactly what jq -S makes of it, so equal policies are
+        // equal bytes.
+        expect($plan)->toBe(shell_exec('jq -S . '.escapeshellarg(mailGatewayApplied($host))));
+        expect($outbound)->toBe(shell_exec('jq -S . '.escapeshellarg(mailGatewayApplied($host, 'applied-outbound.json'))));
+
+        // Public, root-owned (here: the test user), and never writable by others.
+        foreach (['applied-plan.json', 'applied-outbound.json'] as $name) {
+            expect(substr(sprintf('%o', fileperms(mailGatewayApplied($host, $name))), -3))->toBe('644');
+            expect(posix_getpwuid(fileowner(mailGatewayApplied($host, $name)))['name'])->toBe($host['env']['RATEGURU_MAILGW_FILE_OWNER']);
+        }
+
+        // Nothing secret in either: no key, no credential, no environment.
+        foreach ([$plan, $outbound] as $document) {
+            expect($document)->not->toContain('PRIVATE KEY')->not->toContain('/etc/opendkim/keys');
+            expect(preg_match('/password|passwd|secret|token|credential|private_?key|MAIL_|APP_KEY/i', $document))->toBe(0);
+        }
+
+        // A second apply records nothing new: the same bytes.
+        [$again, $log] = mailGatewayRun($host, '--apply');
+        expect($again)->toBe(0, $log);
+        expect($log)->not->toContain('recording /var/lib/rateguru-mail-gateway/');
+        expect(File::get(mailGatewayApplied($host)))->toBe($plan);
+        expect(File::get(mailGatewayApplied($host, 'applied-outbound.json')))->toBe($outbound);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('fails --verify on a recorded policy field Postfix never renders, with Postfix itself untouched', function (string $name, string $path, mixed $value, string $field) {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        mailGatewayTamperApplied($host, $name, [$path => $value]);
+
+        [$status, $report] = mailGatewayRun($host, '--verify');
+
+        expect($status)->toBe(1, $report);
+        expect($report)
+            ->toContain("DRIFT    file:/var/lib/rateguru-mail-gateway/{$name} — the recorded policy differs from the one this bundle requests ({$field})")
+            // Not the subset Postfix renders: the rendered gateway, read back
+            // and running, is exactly the current render.
+            ->toContain('PASS     file:/etc/postfix/main.cf — matches the current render')
+            ->toContain('PASS     file:/etc/postfix/master.cf — matches the current render')
+            ->toContain('PASS     config:installed')
+            ->toContain('PASS     runtime')
+            ->toContain('SUMMARY  pass=11 missing=0 drift=1 conflict=0 deferred=0');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with([
+    'default_from' => ['applied-plan.json', 'listeners.1.sender.default_from', 'hello@tits.guru', 'listeners.tits-guru.sender.default_from'],
+    'bounce_domain' => ['applied-plan.json', 'listeners.1.sender.bounce_domain', 'bounces.tits.guru', 'listeners.tits-guru.sender.bounce_domain'],
+    'reply_domain' => ['applied-plan.json', 'listeners.1.sender.reply_domain', 'replies.tits.guru', 'listeners.tits-guru.sender.reply_domain'],
+    'lifecycle' => ['applied-plan.json', 'listeners.1.lifecycle', 'active', 'listeners.tits-guru.lifecycle'],
+    'submission endpoint' => ['applied-plan.json', 'listeners.1.listen.port', 2599, 'listeners.tits-guru.listen.port'],
+    'mail domain' => ['applied-plan.json', 'listeners.1.sender.allowed_domain', 'mail.tits.guru', 'listeners.tits-guru.sender.allowed_domain'],
+    'another target' => ['applied-plan.json', 'listeners.0.route.port', 1026, 'listeners.staging-main.route.port'],
+    'the host MTA identity' => ['applied-outbound.json', 'direct.mta_hostname', 'mta2.tits.guru', 'direct.mta_hostname'],
+]);
+
+it('sees a requested identity change the rendered Postfix never would, and records it when converged', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $request = mailGatewayCommittedRequest();
+        $request['routing']['targets']['tits-guru']['default_from'] = 'hello@tits.guru';
+        $request['routing']['targets']['tits-guru']['reply_domain'] = 'replies.tits.guru';
+        mailGatewayRequest($host, $request);
+
+        // Byte for byte the same Postfix configuration.
+        $before = mailGatewayRender();
+        $after = mailGatewayRender($request['routing']);
+        expect($after['main'])->toBe($before['main'])->and($after['master'])->toBe($before['master']);
+
+        [$status, $report] = mailGatewayRun($host, '--verify');
+        expect($status)->toBe(1, $report);
+        expect($report)->toContain('DRIFT    file:/var/lib/rateguru-mail-gateway/applied-plan.json — the recorded policy differs from the one this bundle requests (listeners.tits-guru.sender.default_from, listeners.tits-guru.sender.reply_domain)');
+
+        // Not a boundary crossing: an ordinary apply converges it.
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect($log)->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json')->not->toContain('installing /etc/postfix');
+
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(0, $report);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('keeps the recorded policy with the configuration when an apply fails, and records nothing it did not prove', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $recorded = [File::get(mailGatewayApplied($host)), File::get(mailGatewayApplied($host, 'applied-outbound.json'))];
+
+        // A changed policy, and a capture destination that has gone away.
+        $request = mailGatewayCommittedRequest();
+        $request['routing']['targets']['staging-main']['submission']['port'] = 2527;
+        mailGatewayRequest($host, $request);
+        file_put_contents($host['scratch'].'/state/listeners', "\n");
+
+        [$status, $output] = mailGatewayRun($host, '--apply');
+
+        expect($status)->not->toBe(0);
+        expect($output)->toContain('rollback complete')->not->toContain('recording /var/lib/rateguru-mail-gateway/');
+        expect([File::get(mailGatewayApplied($host)), File::get(mailGatewayApplied($host, 'applied-outbound.json'))])->toBe($recorded);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('records the applied policy inside the transaction: a rollback puts back the previous record, or removes a first one', function (bool $first) {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $previous = [File::get(mailGatewayApplied($host)), File::get(mailGatewayApplied($host, 'applied-outbound.json'))];
+        if ($first) {
+            unlink(mailGatewayApplied($host));
+            unlink(mailGatewayApplied($host, 'applied-outbound.json'));
+        }
+
+        // A candidate policy that differs, recorded by the shipped function and
+        // then rolled back by the shipped rollback.
+        $candidates = $host['scratch'].'/candidates';
+        @mkdir($candidates, 0o700, true);
+        file_put_contents($candidates.'/applied-plan.json', "{\n  \"changed\": true\n}\n");
+        file_put_contents($candidates.'/applied-outbound.json', "{\n  \"changed\": true\n}\n");
+
+        $harness = 'set -Eeuo pipefail; source '.escapeshellarg(mailGatewayScript())
+            .'; APPLIED_CANDIDATE_DIR='.escapeshellarg($candidates)
+            .'; BACKUP_DIR='.escapeshellarg($host['fs'].'/var/backups/rateguru-mail-gateway/test')
+            .'; install -d -m 0700 "${BACKUP_DIR}"'
+            .'; UNIT_ENABLED_BEFORE=enabled; INSTANCE_ACTIVE_BEFORE=active'
+            .'; install_applied_policy; cat '.escapeshellarg(mailGatewayApplied($host)).'; rollback';
+
+        $process = proc_open(['bash', '-c', $harness], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $host['scratch'], $host['env']);
+        $output = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        expect(proc_close($process))->toBe(0, $output);
+
+        // Recorded, then put back exactly.
+        expect($output)->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json')->toContain('"changed": true')->toContain('rollback complete');
+
+        if ($first) {
+            expect(file_exists(mailGatewayApplied($host)))->toBeFalse();
+            expect(file_exists(mailGatewayApplied($host, 'applied-outbound.json')))->toBeFalse();
+        } else {
+            expect([File::get(mailGatewayApplied($host)), File::get(mailGatewayApplied($host, 'applied-outbound.json'))])->toBe($previous);
+        }
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with(['a replaced record' => [false], 'a first record' => [true]]);
+
+// =============================================================================
+// A HOST WITH NO RECORDED POLICY RECORDS AN INERT ONE FIRST
+// =============================================================================
+
+it('establishes the first recorded policy on an existing gateway from the inert configuration', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        // The host as it was before this policy was recorded.
+        unlink(mailGatewayApplied($host));
+        unlink(mailGatewayApplied($host, 'applied-outbound.json'));
+
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(0, $report);
+        expect($report)->toContain('MISSING  policy:applied — no applied policy is recorded on this host — --apply records this inert one (no outbound route, direct delivery disabled) once the gateway is proved');
+
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(1, $report);
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect($log)->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json')->toContain('recording /var/lib/rateguru-mail-gateway/applied-outbound.json');
+
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(0, $report);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('never records a first policy that already routes mail outbound or enables direct delivery', function (bool $existing) {
+    $host = $existing ? mailGatewayEstablishedHost() : mailGatewayHost(['policy' => mailActivationRequest()['routing'], 'outbound' => mailActivationRequest()['outbound']]);
+
+    try {
+        if ($existing) {
+            unlink(mailGatewayApplied($host));
+            unlink(mailGatewayApplied($host, 'applied-outbound.json'));
+            mailGatewayRequest($host, mailActivationRequest());
+        }
+
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayTree($host);
+
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(1, $report);
+        expect($report)->toContain("CONFLICT policy:applied — no applied policy is recorded on this host, and this bundle routes mail outbound or enables direct delivery — a host's first recorded policy is always the inert one");
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(1, $log);
+        expect($log)->toContain("a host's first recorded policy is always the inert one. Establish it with the held, direct-disabled configuration first; crossing to outbound is activate-mail-outbound's alone. Nothing was changed");
+
+        // Not a file, not a package, not a service.
+        expect(mailGatewayTree($host))->toBe($before);
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with(['on an existing gateway' => [true], 'on a host with no Postfix' => [false]]);
+
+// =============================================================================
+// THE ACTIVATION BOUNDARY: ONLY activate-mail-outbound CROSSES IT
+// =============================================================================
+
+/** The gateway files and the recorded policy, for proving nothing changed. */
+function mailGatewayMutableState(array $host): array
+{
+    return array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
+}
+
+/** The tits-guru delivery mode the host's recorded policy says. */
+function mailGatewayRecordedMode(array $host): string
+{
+    return collect(json_decode(File::get(mailGatewayApplied($host)), true)['listeners'])->firstWhere('identity', 'tits-guru')['delivery_mode'];
+}
+
+/** An established held host, activated to outbound through a valid authorization. */
+function mailGatewayActivatedHost(): array
+{
+    $host = mailGatewayEstablishedHost();
+    mailGatewayRequest($host, mailActivationRequest());
+    mailGatewayAuthorize($host, 'activate', 'tits-guru');
+
+    [$status, $log] = mailGatewayRun($host, '--apply');
+    expect($status)->toBe(0, $log);
+    expect(mailGatewayRecordedMode($host))->toBe('outbound');
+
+    return $host;
+}
+
+it('refuses Prepare with the activation request before Activate ran: the host stays held', function () {
+    // Sequence 1 on the shared host: the activation change reached main, and a
+    // host preparation — not Activate — applies the gateway from it.
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        mailGatewayRequest($host, mailActivationRequest());
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayMutableState($host);
+
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(1, $report);
+        expect($report)->toContain('CONFLICT policy:transition — this bundle moves tits-guru from held to outbound — the activation boundary, which only activate-mail-outbound crosses; ordinary --apply refuses it (no transition authorization is pending)');
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(1, $log);
+        expect($log)->toContain("this bundle moves tits-guru's mail from held to outbound — the activation boundary, which only activate-mail-outbound crosses, and ordinary install-mail-gateway --apply never does (no transition authorization is pending). Nothing was changed");
+
+        // Still held: not a file, not a reload.
+        expect(mailGatewayMutableState($host))->toBe($before);
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->not->toContain('rateguru-outbound-');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('refuses Prepare with the stale held configuration after Activate ran: the host keeps delivering', function () {
+    // Sequence 2 on the shared host: production was activated from main, and a
+    // staging preparation from a develop that still holds tits-guru applies
+    // the gateway before main reached develop.
+    $host = mailGatewayActivatedHost();
+
+    try {
+        mailGatewayRequest($host, mailGatewayCommittedRequest());
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayMutableState($host);
+
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(1, $report);
+        expect($report)->toContain('CONFLICT policy:transition — this bundle moves tits-guru from outbound to held — the activation boundary, which only activate-mail-outbound crosses');
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(1, $log);
+        expect($log)->toContain("this bundle moves tits-guru's mail from outbound to held — the activation boundary, which only activate-mail-outbound crosses, and ordinary install-mail-gateway --apply never does");
+
+        expect(mailGatewayMutableState($host))->toBe($before);
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+        expect(mailGatewayRecordedMode($host))->toBe('outbound');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->toContain('rateguru-outbound-tits-guru');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('crosses the boundary with exactly one valid authorization, consumes it, and crosses back only with another', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        mailGatewayRequest($host, mailActivationRequest());
+        $authorization = mailGatewayAuthorize($host, 'activate', 'tits-guru');
+        $path = $host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json';
+        $bytes = File::get($path);
+
+        // --check sees it as authorized and consumes nothing.
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(0, $report);
+        expect($report)->toContain('PASS     policy:transition — this bundle moves tits-guru from held to outbound, authorized by activate-mail-outbound for exactly this recorded and requested policy (one use)');
+        expect(File::get($path))->toBe($bytes);
+
+        // D: the activation, and the authorization used up.
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect(file_exists($path))->toBeFalse();
+        $ledger = File::get($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations');
+        expect($ledger)->toStartWith(hash('sha256', $bytes).' '.$authorization['nonce'].' activate tits-guru ');
+        expect(mailGatewayRecordedMode($host))->toBe('outbound');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->toContain('rateguru-outbound-tits-guru');
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(0, $report);
+
+        // I: back to held with no authorization — refused, still outbound.
+        mailGatewayRequest($host, mailGatewayCommittedRequest());
+        [$refused, $log] = mailGatewayRun($host, '--apply');
+        expect($refused)->toBe(1, $log);
+        expect(mailGatewayRecordedMode($host))->toBe('outbound');
+
+        // J: with a rollback authorization — held again, and it is used up.
+        mailGatewayAuthorize($host, 'rollback', 'tits-guru');
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect($log)->toContain('the rollback of tits-guru is authorized by activate-mail-outbound');
+        expect(file_exists($path))->toBeFalse();
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->not->toContain('rateguru-outbound-');
+
+        // H: the first authorization, put back word for word now that the host
+        // is in its FROM state again — refused, it was used.
+        mailGatewayRequest($host, mailActivationRequest());
+        file_put_contents($path, $bytes);
+        chmod($path, 0o600);
+        [$reused, $log] = mailGatewayRun($host, '--apply');
+        expect($reused)->toBe(1, $log);
+        expect($log)->toContain('this authorization was already used — one is consumed by the transition it permits, and never honoured twice');
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+
+        // K: and with none at all, the outbound request stays refused.
+        unlink($path);
+        [$refused, $log] = mailGatewayRun($host, '--apply');
+        expect($refused)->toBe(1, $log);
+        expect($log)->toContain('no transition authorization is pending');
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('refuses an authorization that does not permit exactly this transition, and keeps the host as it was', function (string $case, string $problem) {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        mailGatewayRequest($host, mailActivationRequest());
+        $path = $host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json';
+        $now = time();
+
+        match ($case) {
+            'wrong target' => mailGatewayAuthorize($host, 'activate', 'staging-main'),
+            'wrong direction' => mailGatewayAuthorize($host, 'rollback', 'tits-guru'),
+            'wrong FROM' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['from' => ['plan' => str_repeat('0', 64)]]),
+            'wrong TO' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['to' => ['outbound' => str_repeat('0', 64)]]),
+            'another kind' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['kind' => 'something-else']),
+            'no nonce' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['nonce' => 'abc']),
+            'expired' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['created_at' => $now - 7200, 'expires_at' => $now - 3600]),
+            'too long a lifetime' => mailGatewayAuthorize($host, 'activate', 'tits-guru', ['expires_at' => $now + 86400]),
+            'readable by others' => [mailGatewayAuthorize($host, 'activate', 'tits-guru'), chmod($path, 0o644)],
+            'a symlink' => [mailGatewayAuthorize($host, 'activate', 'tits-guru'), rename($path, $path.'.real'), symlink($path.'.real', $path)],
+            'not JSON' => [mailGatewayAuthorize($host, 'activate', 'tits-guru'), file_put_contents($path, "not json\n"), chmod($path, 0o600)],
+        };
+
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayMutableState($host);
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+
+        expect($applied)->toBe(1, $log);
+        expect($log)->toContain('only activate-mail-outbound crosses')->toContain($problem)->toContain('Nothing was changed');
+        expect(mailGatewayMutableState($host))->toBe($before);
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations'))->toBeFalse();
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with([
+    'wrong target' => ['wrong target', 'it authorizes target "staging-main", and this transition is for tits-guru'],
+    'wrong direction' => ['wrong direction', 'it authorizes "rollback", and this transition is activate'],
+    'wrong FROM' => ['wrong FROM', 'it was issued for another recorded policy than the one this host recorded'],
+    'wrong TO' => ['wrong TO', 'it was issued for another policy than the one this bundle requests'],
+    'another kind' => ['another kind', 'it is not a mail gateway transition authorization of schema 1'],
+    'no nonce' => ['no nonce', 'it carries no nonce'],
+    'expired' => ['expired', 'it has expired, or claims a lifetime no authorization has'],
+    'too long a lifetime' => ['too long a lifetime', 'it has expired, or claims a lifetime no authorization has'],
+    'readable by others' => ['readable by others', 'mode 600 — an authorization anyone else could have written is never honoured'],
+    'a symlink' => ['a symlink', '/var/lib/rateguru-mail-gateway/transition-authorization.json is not a regular file'],
+    'not JSON' => ['not JSON', 'it is not a JSON document'],
+]);
+
+it('refuses any change of outbound delivery no single guarded activation makes', function (string $case) {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $request = mailGatewayCommittedRequest();
+
+        match ($case) {
+            // Direct delivery switched on with no target crossing.
+            'direct delivery alone' => $request['outbound']['direct']['enabled'] = true,
+            // A target crossing while direct delivery stays off.
+            'a target without direct delivery' => [$request['routing']['targets']['tits-guru']['delivery_mode'] = 'outbound', $request['routing']['targets']['tits-guru']['outbound'] = ['kind' => 'direct']],
+        };
+
+        mailGatewayRequest($host, $request);
+        $before = mailGatewayMutableState($host);
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+
+        expect($applied)->toBe(1, $log);
+        expect(mailGatewayMutableState($host))->toBe($before);
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+})->with(['direct delivery alone', 'a target without direct delivery']);
+
+it('reports the policy digests an authorization is bound to, from the one place that canonicalizes them', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $digest = mailGatewayPolicyDigest($host);
+
+        expect($digest['recorded'])->toBe([
+            'plan' => hash_file('sha256', mailGatewayApplied($host)),
+            'outbound' => hash_file('sha256', mailGatewayApplied($host, 'applied-outbound.json')),
+        ]);
+        expect($digest['requested'])->toBe($digest['recorded']);
+        expect($digest['authorization'])->toBe($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json');
+
+        mailGatewayRequest($host, mailActivationRequest());
+        $requested = mailGatewayPolicyDigest($host)['requested'];
+        expect($requested['plan'])->not->toBe($digest['recorded']['plan']);
+        expect($requested['outbound'])->not->toBe($digest['recorded']['outbound']);
+
+        unlink(mailGatewayApplied($host));
+        expect(mailGatewayPolicyDigest($host)['recorded'])->toBeNull();
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('has no flag, variable or mode that crosses the boundary without an authorization', function () {
+    $source = File::get(mailGatewayScript());
+    $code = executableSourceLines($source);
+
+    // Four modes and help, and nothing else is an argument.
+    $parser = executableSourceLines(shellFunctionBody($source, 'parse_args'));
+    expect($parser)->toContain('--check|--apply|--verify|--policy-digest)')->toContain('-h|--help)');
+    preg_match_all('/^\s+(-[-a-z|]+)\)/m', $parser, $arguments);
+    expect($arguments[1])->toBe(['--check|--apply|--verify|--policy-digest', '-h|--help']);
+
+    foreach (['--allow-outbound', 'SKIP_ACTIVATION', 'ACTIVATION_GUARD', 'BYPASS', 'RATEGURU_MAILGW_AUTHORIZ', 'RATEGURU_MAILGW_TRANSITION', 'RATEGURU_MAILGW_APPLIED', 'RATEGURU_MAILGW_STATE'] as $forbidden) {
+        expect(str_contains($code, $forbidden))->toBeFalse("install-mail-gateway carries {$forbidden}");
+    }
+
+    // The boundary is judged in --apply before anything changes, and the one
+    // way across consumes the authorization first.
+    $apply = executableSourceLines(shellFunctionBody($source, 'perform_apply'));
+    expect(strpos($apply, 'verdict="$(boundary_verdict)"'))->toBeLessThan(strpos($apply, 'BACKUP_DIR='));
+    expect(strpos($apply, 'consume_authorization "${kind}" "${target}"'))->toBeLessThan(strpos($apply, 'BACKUP_DIR='));
+    expect(strpos($apply, 'install_applied_policy'))->toBeGreaterThan(strpos($apply, 'problems="$(runtime_problems)"'));
+});
+
+// =============================================================================
+// ITS NAME: THE HOST'S REVIEWED MTA HOSTNAME
+// =============================================================================
+
+it('calls itself by the reviewed MTA hostname, which a delivered message carries in its Received hop and HELO', function () {
+    // The committed contract names the host: mta1.tits.guru.
+    expect(mailGatewayMainParameters(mailGatewayRender()['main'])['myhostname'])->toBe('mta1.tits.guru');
+
+    // And an outbound route greets with the same name.
+    $request = mailActivationRequest();
+    $render = mailGatewayRender($request['routing'], null, $request['outbound']);
+    expect(mailGatewayMainParameters($render['main'])['myhostname'])->toBe('mta1.tits.guru');
+    $transport = collect(mailGatewayMasterServices($render['master']))->firstWhere('name', 'rateguru-outbound-tits-guru');
+    expect($transport['options']['smtp_helo_name'])->toBe('mta1.tits.guru');
+
+    // The non-deliverable fallback only when no hostname is reviewed, and
+    // direct delivery is off.
+    expect(mailGatewayMainParameters(mailGatewayRender(outbound: mailGatewayOutboundContract(false, ''))['main'])['myhostname'])->toBe('mail-gateway.rateguru.invalid');
+
+    // Direct delivery with no reviewed name never falls back: refused.
+    $scratch = mailGatewayScratch();
+    try {
+        file_put_contents($scratch.'/outbound.json', mailRoutingJson(mailGatewayOutboundContract(true, '')));
+        exec('bash -c '.escapeshellarg('source '.escapeshellarg(mailGatewayScript()).' && gateway_hostname '.escapeshellarg($scratch.'/outbound.json')).' 2>&1', $output, $status);
+        expect($status)->not->toBe(0);
+        expect(implode("\n", $output))->not->toContain('mail-gateway.rateguru.invalid');
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    // Never from DNS, the OS or /etc/hosts.
+    $code = executableSourceLines(shellFunctionBody(File::get(mailGatewayScript()), 'gateway_hostname'));
+    foreach (['hostname -', 'uname', '/etc/hosts', '/etc/hostname', 'dig', 'getent', 'host '] as $forbidden) {
+        expect(str_contains($code, $forbidden))->toBeFalse("gateway_hostname reads {$forbidden}");
+    }
+});
+
+it('reads its own name back, and refuses any other', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $main = $host['fs'].'/etc/postfix/main.cf';
+        file_put_contents($main, str_replace('myhostname = mta1.tits.guru', 'myhostname = mail-gateway.rateguru.invalid', File::get($main)));
+
+        [$status, $report] = mailGatewayRun($host, '--verify');
+
+        expect($status)->toBe(1, $report);
+        expect($report)
+            ->toContain('DRIFT    file:/etc/postfix/main.cf — differs from the current render')
+            ->toContain('CONFLICT config:installed — myhostname is "mail-gateway.rateguru.invalid", not the host\'s reviewed MTA identity "mta1.tits.guru"');
+    } finally {
+        mailGatewayCleanup($host);
+    }
 });

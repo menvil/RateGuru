@@ -2009,7 +2009,20 @@ Slices, in order:
    and follows only its own queue ID to `status=sent` (the remote MX accepted
    it); a deferred canary is deleted by that ID at the end of the window. The
    SMTP conversation is the one `scripts/smtp-submission` library the signing
-   acceptance now uses too, its accepted behaviour unchanged. New `main`-only
+   acceptance now uses too, its accepted behaviour unchanged. The gateway
+   records the complete public policy it was last applied from
+   (`/var/lib/rateguru-mail-gateway/applied-plan.json` and
+   `applied-outbound.json`, in its transaction), Verify fails on any
+   difference — `default_from`, bounce and reply domains included — and a
+   host's first record may only be the inert one. Crossing between held and
+   outbound, in either direction, is refused by every ordinary gateway apply —
+   Prepare, bootstrap, repair or a root shell — and is made only with a
+   one-use authorization `activate-mail-outbound` writes after its proof
+   (bound to the target, the direction and the SHA-256 of the exact recorded
+   and requested policies, consumed before the transition): a stale-branch
+   Prepare fails closed instead of activating or deactivating mail. Postfix
+   calls itself by the reviewed MTA hostname (`mta1.tits.guru`), so delivered
+   mail no longer names `mail-gateway.rateguru.invalid`. New `main`-only
    workflows: **Activate tits.guru outbound mail**, **Rollback tits.guru
    outbound mail activation** and **Send tits.guru production mail canary**
    (recipient only from the `MAIL_CANARY_RECIPIENT` Environment secret).

@@ -3,9 +3,11 @@
 # install-mail-gateway — the host-global Postfix mail gateway, rendered from the
 # reviewed mail routing plan.
 #
-#   install-mail-gateway --check    read-only: would --apply converge, and what
-#   install-mail-gateway --apply    install/converge the gateway (root)
-#   install-mail-gateway --verify   read-only: the authoritative contract (root)
+#   install-mail-gateway --check          read-only: would --apply converge, and what
+#   install-mail-gateway --apply          install/converge the gateway (root)
+#   install-mail-gateway --verify         read-only: the authoritative contract (root)
+#   install-mail-gateway --policy-digest  read-only: the SHA-256 of the policy this
+#                                         bundle requests and of the one recorded
 #
 # WHERE THE ROUTES COME FROM. Nothing here decides where a target's mail goes.
 # The dependency runs one way only:
@@ -84,6 +86,39 @@
 # the host and the per-target port. Postfix itself binds nothing public — the
 # firewall is never what makes this safe.
 #
+# ITS NAME. Postfix calls itself (myhostname: its banner, its Received hops, a
+# Message-ID it adds) by the host's reviewed MTA hostname whenever
+# mail-outbound.json names one, so a delivered message names the host the
+# public DNS and the HELO name. Only a host whose contract reviews no hostname —
+# which the contract allows only while direct delivery is disabled — falls back
+# to the non-deliverable mail-gateway.rateguru.invalid. Never DNS, the OS
+# hostname or /etc/hosts.
+#
+# THE APPLIED POLICY. Every successful --apply records, in the same
+# transaction, the complete public policy it was applied from:
+# /var/lib/rateguru-mail-gateway/applied-plan.json — the whole canonical
+# `mail-routing render-plan`, every target and every field, including the ones
+# Postfix never reads (lifecycle, sender, bounce and reply domains) — and
+# applied-outbound.json, the canonical host outbound contract. They are public,
+# never a key, a key's hash, an environment file, a credential or a message.
+# --verify requires both to equal what this bundle requests, so a change to any
+# policy field is drift on the host, whether Postfix renders it or not. A host
+# with no recorded policy may record its first one only from an inert request:
+# no outbound route and direct delivery disabled.
+#
+# THE ACTIVATION BOUNDARY. A production target's mail crossing between held and
+# outbound — in either direction, or the host's direct delivery switching on or
+# off — is never an ordinary convergence. --check reports it as a conflict and
+# --apply refuses it before changing anything, whoever called it: preparation,
+# bootstrap, repair or a root shell. It is crossed only with a one-use
+# authorization that infrastructure/scripts/activate-mail-outbound writes after
+# its own proof (transition-authorization.json beside the applied policy,
+# root-owned, mode 0600): bound to the target, the direction and the SHA-256 of
+# the exact recorded and requested plans and host contracts, short-lived, and
+# consumed — recorded in consumed-transition-authorizations and removed —
+# before the transition starts, so it is never honoured twice. There is no flag
+# and no override that does the same.
+#
 # THE PACKAGE. --apply may install Ubuntu's postfix package, and does it so the
 # daemon can never run in a state RateGuru did not choose:
 #
@@ -113,8 +148,9 @@
 # managed files and the service's boot/running state, installs complete
 # candidates atomically, reloads or starts only after validation, and verifies
 # the running gateway — listeners, routes, the capture destination — before it
-# commits. Any failure before that restores the previous files and runtime
-# state, and a rollback that could not finish says so and fails. Backups hold
+# records the applied policy and commits. Any failure before that restores the
+# previous files, the previous recorded policy and runtime state, and a
+# rollback that could not finish says so and fails. Backups hold
 # configuration only, under /var/backups/rateguru-mail-gateway/<timestamp>/:
 # never the queue, never a message.
 #
@@ -217,8 +253,22 @@ BACKUP_ROOT="/var/backups/rateguru-mail-gateway"
 # on them.
 PUBLIC_SMTP_PORTS=(25 465 587)
 
-# A deterministic identity, so the rendered files depend on the plan alone.
+# The name Postfix calls itself when the host reviews no MTA hostname: never a
+# deliverable one, and never used while direct delivery is enabled.
 GATEWAY_HOSTNAME="mail-gateway.rateguru.invalid"
+
+# The complete public policy the gateway was last applied from: the host's own
+# witness of what was accepted.
+APPLIED_PLAN="${STATE_DIR}/applied-plan.json"
+APPLIED_OUTBOUND="${STATE_DIR}/applied-outbound.json"
+APPLIED_FILE_MODE="644"
+
+# The one-use authorization activate-mail-outbound writes for a held/outbound
+# transition, and the ledger of every authorization this installer consumed.
+TRANSITION_AUTHORIZATION="${STATE_DIR}/transition-authorization.json"
+CONSUMED_AUTHORIZATIONS="${STATE_DIR}/consumed-transition-authorizations"
+AUTHORIZATION_KIND="rateguru-mail-gateway-transition-authorization"
+AUTHORIZATION_MAX_LIFETIME=3600
 
 # --- Output ---------------------------------------------------------------------
 
@@ -261,6 +311,7 @@ Usage:
   install-mail-gateway --check
   install-mail-gateway --apply
   install-mail-gateway --verify
+  install-mail-gateway --policy-digest
 
   --check   Read-only. Renders the gateway from the reviewed mail routing plan,
             validates it (with Postfix's own parser when Postfix is installed),
@@ -279,7 +330,17 @@ Usage:
             listening — and fail temporarily without it, each through its own
             cleanup service whose From policy is exactly the current render
             and refuses every From outside the target's domain, and
-            unclassified mail cannot be delivered.
+            unclassified mail cannot be delivered — and the recorded applied
+            policy is exactly the complete plan and host contract this bundle
+            requests.
+  --policy-digest
+            Read-only. One JSON line: the SHA-256 of the canonical plan and host
+            contract this bundle requests, of the ones recorded on this host
+            (null when none), and where a transition authorization belongs.
+
+A production target's held/outbound transition, or direct delivery switching
+on or off, is refused by every mode unless activate-mail-outbound authorized
+exactly that transition; there is no override.
 
 The routes come from infrastructure/scripts/mail-routing render-plan in the same
 bundle; this installer only spells them in Postfix. A direct outbound route is
@@ -325,6 +386,25 @@ assert_outbound_contract() {
 
     "${MAIL_IDENTITY_CLI}" check-outbound --plan "${plan}" --outbound "${path}" >/dev/null \
         || fail "the host outbound contract refuses this gateway: ${path} — nothing was rendered, and nothing on the host was changed"
+}
+
+# gateway_hostname CONTRACT — the name Postfix calls itself: the reviewed MTA
+# hostname whenever the contract names one, the non-deliverable fallback only
+# when it names none and direct delivery is disabled; fails when direct
+# delivery is enabled with no name, which the contract's judge refuses first.
+gateway_hostname() {
+    local contract="$1" hostname enabled
+
+    hostname="$(jq -r '.direct.mta_hostname // ""' "${contract}" 2>/dev/null)" || return 1
+    enabled="$(jq -r '.direct.enabled' "${contract}" 2>/dev/null)" || return 1
+
+    if [[ -n "${hostname}" ]]; then
+        printf '%s\n' "${hostname}"
+        return 0
+    fi
+
+    [[ "${enabled}" != true ]] || return 1
+    printf '%s\n' "${GATEWAY_HOSTNAME}"
 }
 
 # --- Rendering (Postfix spelling of the plan) -------------------------------------
@@ -393,7 +473,7 @@ MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
     "# message is delivered only by the route its listener names in master.cf.",
     "",
     "compatibility_level = 3.6",
-    "myhostname = '"${GATEWAY_HOSTNAME}"'",
+    "myhostname = \($hostname)",
     "myorigin = $myhostname",
     "smtpd_banner = $myhostname ESMTP",
     "biff = no",
@@ -663,7 +743,13 @@ render_gateway_config() {
 
     assert_outbound_contract "${plan}" "${outbound}"
 
-    jq -r --slurpfile signing "${signing}" "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
+    local hostname
+    hostname="$(gateway_hostname "${outbound}")" \
+        || fail "the host outbound contract enables direct delivery under no MTA hostname — a gateway never delivers as ${GATEWAY_HOSTNAME}; nothing was rendered"
+    [[ "${hostname}" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] \
+        || fail "the reviewed MTA hostname \"${hostname}\" is not a plain host name — refusing to splice it into main.cf"
+
+    jq -r --slurpfile signing "${signing}" --arg hostname "${hostname}" "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
     jq -r --slurpfile outbound "${outbound}" --slurpfile signing "${signing}" --arg milter "${milter}" \
         "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
 
@@ -681,6 +767,7 @@ PLAN_FILE=""
 SIGNING_FILE=""
 MILTER_ENDPOINT=""
 CANDIDATE_DIR=""
+APPLIED_CANDIDATE_DIR=""
 
 cleanup_work_dir() {
     [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
@@ -719,6 +806,14 @@ prepare_candidate() {
         || fail "install-mail-signing --milter-endpoint failed — nothing was rendered"
 
     render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${SIGNING_FILE}" "${MILTER_ENDPOINT}" "${CANDIDATE_DIR}"
+
+    # The applied policy this run would record: the whole plan and the host
+    # contract, canonical — keys sorted, one layout — so equal policies are
+    # equal bytes and equal digests.
+    APPLIED_CANDIDATE_DIR="${WORK_DIR}/applied"
+    mkdir -m 0700 "${APPLIED_CANDIDATE_DIR}"
+    jq -S . "${PLAN_FILE}" > "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_PLAN}")"
+    jq -S . "${OUTBOUND_FILE}" > "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_OUTBOUND}")"
 }
 
 # Newline-separated plan facts, read once from the rendered plan.
@@ -909,6 +1004,14 @@ postfix_contract_problems() {
     actual_cleanup="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$1 ~ /^rateguru-cleanup-/ { print $1 }' | sort || true)"
     [[ "${actual_cleanup}" == "${expected_cleanup}" ]] \
         || printf 'target cleanup services are [%s], the signed targets need [%s]\n' "${actual_cleanup//$'\n'/ }" "${expected_cleanup//$'\n'/ }"
+
+    # The name it calls itself is the host's reviewed MTA identity, never a
+    # name of its own choosing.
+    local hostname
+    hostname="$(gateway_hostname "${OUTBOUND_FILE}" 2>/dev/null || true)"
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h myhostname 2>/dev/null || true)"
+    [[ -n "${hostname}" && "${value}" == "${hostname}" ]] \
+        || printf 'myhostname is "%s", not the host'"'"'s reviewed MTA identity "%s"\n' "${value}" "${hostname}"
 
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_interfaces 2>/dev/null || true)"
     [[ "${value}" == 127.0.0.1 ]] || printf 'inet_interfaces is "%s", not 127.0.0.1\n' "${value}"
@@ -1283,6 +1386,290 @@ managed_file_state() {
     fi
 }
 
+# --- The applied policy: what the host accepted ------------------------------------------
+
+sha256_of() {
+    sha256sum -- "$1" | cut -d ' ' -f 1
+}
+
+# recorded_policy — absent | present | corrupt: the applied policy on the host.
+# Both files or neither; a half, a symlink or a document that is not a plan and
+# a contract is not a witness.
+recorded_policy() {
+    local plan outbound
+    plan="$(physical "${APPLIED_PLAN}")"
+    outbound="$(physical "${APPLIED_OUTBOUND}")"
+
+    if [[ ! -e "${plan}" && ! -L "${plan}" && ! -e "${outbound}" && ! -L "${outbound}" ]]; then
+        echo absent
+    elif [[ -f "${plan}" && ! -L "${plan}" && -f "${outbound}" && ! -L "${outbound}" ]] \
+        && jq -e '(.listeners | type) == "array"' "${plan}" >/dev/null 2>&1 \
+        && jq -e '(.direct | type) == "object"' "${outbound}" >/dev/null 2>&1
+    then
+        echo present
+    else
+        echo corrupt
+    fi
+}
+
+# inert_request — this bundle's plan routes nothing outbound and its host
+# contract leaves direct delivery disabled: the only state a host with no
+# recorded policy may record first.
+inert_request() {
+    jq -e '[.listeners[] | select(.delivery_mode == "outbound")] | length == 0' "${PLAN_FILE}" >/dev/null 2>&1 \
+        && jq -e '.direct.enabled == false' "${OUTBOUND_FILE}" >/dev/null 2>&1
+}
+
+# The held/outbound transition between the recorded policy and the requested
+# one, as one line: "none", "activate<TAB>TARGET", "rollback<TAB>TARGET", or
+# "invalid<TAB>REASON" for any other change of who delivers outbound or of the
+# host's direct delivery — the shapes one guarded activation can never be.
+# shellcheck disable=SC2016
+POLICY_TRANSITION_PROGRAM='
+def delivering($plan): [$plan.listeners[] | select(.environment_class == "production" and .delivery_mode == "outbound") | .identity] | sort;
+delivering($recorded_plan[0]) as $before
+| delivering($requested_plan[0]) as $after
+| ($recorded_outbound[0].direct.enabled == true) as $direct_before
+| ($requested_outbound[0].direct.enabled == true) as $direct_after
+| ($after - $before) as $activated
+| ($before - $after) as $rolled_back
+| if $activated == [] and $rolled_back == [] and $direct_before == $direct_after then
+      "none"
+  elif ($activated | length) == 1 and $rolled_back == [] and $direct_after then
+      "activate\t\($activated[0])"
+  elif ($rolled_back | length) == 1 and $activated == [] and $direct_before then
+      "rollback\t\($rolled_back[0])"
+  else
+      "invalid\toutbound delivery [\($before | join(", "))] -> [\($after | join(", "))], direct delivery \($direct_before) -> \($direct_after)"
+  end
+'
+
+policy_transition() {
+    jq -r -n \
+        --slurpfile recorded_plan "$(physical "${APPLIED_PLAN}")" --slurpfile requested_plan "${PLAN_FILE}" \
+        --slurpfile recorded_outbound "$(physical "${APPLIED_OUTBOUND}")" --slurpfile requested_outbound "${OUTBOUND_FILE}" \
+        "${POLICY_TRANSITION_PROGRAM}"
+}
+
+# The policy fields that differ between two applied-policy documents, as dotted
+# paths — listeners keyed by their identity, not their position.
+# shellcheck disable=SC2016
+POLICY_DIFFERENCE_PROGRAM='
+def keyed: if (type == "object") and (.listeners | type) == "array" then .listeners |= (map({(.identity | tostring): .}) | add // {}) else . end;
+($recorded[0] | keyed) as $a
+| ($requested[0] | keyed) as $b
+| [($a | paths(type != "object" and type != "array")), ($b | paths(type != "object" and type != "array"))]
+| unique
+| map(select(. as $p | ($a | getpath($p)) != ($b | getpath($p))))
+| map(map(tostring) | join("."))
+| if length > 8 then .[0:8] + ["..."] else . end
+| join(", ")
+'
+
+policy_differences() {
+    jq -r -n --slurpfile recorded "$1" --slurpfile requested "$2" "${POLICY_DIFFERENCE_PROGRAM}" 2>/dev/null || true
+}
+
+# applied_file_state LOGICAL — PASS | MISSING | DRIFT, against this bundle's
+# canonical policy.
+applied_file_state() {
+    local logical="$1" path candidate
+    path="$(physical "${logical}")"
+    candidate="${APPLIED_CANDIDATE_DIR}/$(basename "${logical}")"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! cmp -s "${candidate}" "${path}" \
+        || [[ "$(file_owner_mode "${path}")" != "${FILE_OWNER}:${FILE_GROUP} ${APPLIED_FILE_MODE}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# The transition authorization, as activate-mail-outbound writes it, judged
+# against this transition. Every reason it does not permit exactly this one is
+# a line; none when it does.
+# shellcheck disable=SC2016
+AUTHORIZATION_PROGRAM='
+if type != "object" then
+    "it is not a JSON object"
+else
+    (if .kind == $kind and .schema_version == 1 then empty
+     else "it is not a mail gateway transition authorization of schema 1" end),
+    (if .target == $target then empty
+     else "it authorizes target \(.target | tojson), and this transition is for \($target)" end),
+    (if .direction == $direction then empty
+     else "it authorizes \(.direction | tojson), and this transition is \($direction)" end),
+    (if .from.plan == $from_plan and .from.outbound == $from_outbound then empty
+     else "it was issued for another recorded policy than the one this host recorded" end),
+    (if .to.plan == $to_plan and .to.outbound == $to_outbound then empty
+     else "it was issued for another policy than the one this bundle requests" end),
+    (if (.nonce | type) == "string" and (.nonce | test("^[0-9a-f]{32}$")) then empty
+     else "it carries no nonce" end),
+    (if (.created_at | type) == "number" and (.expires_at | type) == "number"
+        and .created_at <= ($now + 60) and $now < .expires_at and (.expires_at - .created_at) <= $lifetime then empty
+     else "it has expired, or claims a lifetime no authorization has" end)
+end
+'
+
+# authorization_problems DIRECTION TARGET — why no pending authorization
+# permits exactly this transition; nothing when one does.
+authorization_problems() {
+    local direction="$1" target="$2" path dir meta digest ledger nonce
+    path="$(physical "${TRANSITION_AUTHORIZATION}")"
+    dir="$(physical "${STATE_DIR}")"
+    ledger="$(physical "${CONSUMED_AUTHORIZATIONS}")"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'no transition authorization is pending\n'
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]]; then
+        printf '%s is not a regular file\n' "${TRANSITION_AUTHORIZATION}"
+        return 0
+    fi
+
+    meta="$(file_owner_mode "${path}")"
+    if [[ "${meta}" != "${FILE_OWNER}:"*" 600" ]]; then
+        printf '%s is %s, not %s-owned mode 600 — an authorization anyone else could have written is never honoured\n' "${TRANSITION_AUTHORIZATION}" "${meta}" "${FILE_OWNER}"
+        return 0
+    fi
+
+    meta="$(stat -c '%U %a' "${dir}" 2>/dev/null || true)"
+    if [[ ! "${meta}" =~ ^[^[:space:]]+\ [0-7]{3,4}$ || "${meta%% *}" != "${FILE_OWNER}" ]] || (( (8#${meta##* } & 8#022) != 0 )); then
+        printf '%s is %s, writable by someone other than %s — nothing in it is honoured\n' "${STATE_DIR}" "${meta}" "${FILE_OWNER}"
+        return 0
+    fi
+
+    digest="$(sha256_of "${path}")"
+    nonce="$(jq -r '.nonce // ""' "${path}" 2>/dev/null || true)"
+    if [[ -f "${ledger}" ]] && { grep -q "^${digest} " "${ledger}" || { [[ -n "${nonce}" ]] && grep -q "^[0-9a-f]* ${nonce} " "${ledger}"; }; }; then
+        printf 'this authorization was already used — one is consumed by the transition it permits, and never honoured twice\n'
+        return 0
+    fi
+
+    jq -r \
+        --arg kind "${AUTHORIZATION_KIND}" --arg target "${target}" --arg direction "${direction}" \
+        --arg from_plan "$(sha256_of "$(physical "${APPLIED_PLAN}")")" \
+        --arg from_outbound "$(sha256_of "$(physical "${APPLIED_OUTBOUND}")")" \
+        --arg to_plan "$(sha256_of "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_PLAN}")")" \
+        --arg to_outbound "$(sha256_of "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_OUTBOUND}")")" \
+        --argjson now "$(date -u '+%s')" --argjson lifetime "${AUTHORIZATION_MAX_LIFETIME}" \
+        "${AUTHORIZATION_PROGRAM}" "${path}" 2>/dev/null \
+        || printf 'it is not a JSON document\n'
+}
+
+# consume_authorization DIRECTION TARGET — the pending authorization, used: its
+# digest and nonce recorded in the ledger, the file removed. Before the
+# transition starts, so a failed transition cannot be retried with it either.
+consume_authorization() {
+    local path ledger
+    path="$(physical "${TRANSITION_AUTHORIZATION}")"
+    ledger="$(physical "${CONSUMED_AUTHORIZATIONS}")"
+
+    printf '%s %s %s %s %s\n' "$(sha256_of "${path}")" "$(jq -r '.nonce' "${path}")" "$1" "$2" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${ledger}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${ledger}"
+    chmod 0644 "${ledger}"
+    rm -f "${path}"
+}
+
+# boundary_verdict — what this bundle's request means against the recorded
+# policy: "establish" (none recorded, an inert request), "unwitnessed" (none
+# recorded, a request that is not inert), "corrupt", "none", "activate<TAB>T",
+# "rollback<TAB>T" or "invalid<TAB>REASON".
+boundary_verdict() {
+    case "$(recorded_policy)" in
+        absent)
+            if inert_request; then echo establish; else echo unwitnessed; fi
+            ;;
+        corrupt)
+            echo corrupt
+            ;;
+        present)
+            policy_transition
+            ;;
+    esac
+}
+
+# install_applied_policy — the canonical policy this run applied, recorded in
+# the transaction like every other managed file.
+install_applied_policy() {
+    local logical path candidate tmp
+
+    for logical in "${APPLIED_PLAN}" "${APPLIED_OUTBOUND}"; do
+        [[ "$(applied_file_state "${logical}")" != PASS ]] || continue
+
+        path="$(physical "${logical}")"
+        candidate="${APPLIED_CANDIDATE_DIR}/$(basename "${logical}")"
+
+        action "recording ${logical}"
+        record_target "${path}"
+        install -d -m 0755 "$(dirname "${path}")"
+        tmp="${path}.rateguru-tmp.$$"
+        install -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m "0${APPLIED_FILE_MODE}" "${candidate}" "${tmp}"
+        mv -f "${tmp}" "${path}"
+    done
+}
+
+# report_applied_policy — the recorded policy against this bundle's, and the
+# activation boundary between them.
+report_applied_policy() {
+    local verdict kind target problems logical state differences
+    verdict="$(boundary_verdict)"
+    kind="${verdict%%$'\t'*}"
+    target="${verdict#*$'\t'}"
+
+    case "${kind}" in
+        establish)
+            item MISSING "policy:applied" "no applied policy is recorded on this host — --apply records this inert one (no outbound route, direct delivery disabled) once the gateway is proved"
+            return 0
+            ;;
+        unwitnessed)
+            item CONFLICT "policy:applied" "no applied policy is recorded on this host, and this bundle routes mail outbound or enables direct delivery — a host's first recorded policy is always the inert one: establish it with the held, direct-disabled configuration, then cross with activate-mail-outbound"
+            return 0
+            ;;
+        corrupt)
+            item CONFLICT "policy:applied" "the recorded applied policy (${APPLIED_PLAN}, ${APPLIED_OUTBOUND}) is incomplete or unreadable — it is the host's only witness of what was accepted; restore it from the gateway's backups"
+            return 0
+            ;;
+        activate|rollback)
+            local transition="${target} from held to outbound"
+            [[ "${kind}" == activate ]] || transition="${target} from outbound to held"
+            problems="$(authorization_problems "${kind}" "${target}")"
+            if [[ "${MODE}" == check && -z "${problems}" ]]; then
+                item PASS "policy:transition" "this bundle moves ${transition}, authorized by activate-mail-outbound for exactly this recorded and requested policy (one use)"
+            elif [[ "${MODE}" == check ]]; then
+                item CONFLICT "policy:transition" "this bundle moves ${transition} — the activation boundary, which only activate-mail-outbound crosses; ordinary --apply refuses it (${problems//$'\n'/; })"
+            else
+                item DRIFT "policy:transition" "the host's recorded policy and this bundle differ across the activation boundary (${transition}) — only activate-mail-outbound crosses it"
+            fi
+            ;;
+        invalid)
+            item CONFLICT "policy:transition" "${target} — no single guarded activation makes this change, so no gateway apply makes it"
+            ;;
+    esac
+
+    for logical in "${APPLIED_PLAN}" "${APPLIED_OUTBOUND}"; do
+        state="$(applied_file_state "${logical}")"
+        case "${state}" in
+            PASS)
+                item PASS "file:${logical}" "the recorded policy is exactly the one this bundle requests"
+                ;;
+            MISSING)
+                item MISSING "file:${logical}" "absent — --apply records the current policy"
+                ;;
+            DRIFT)
+                differences="$(policy_differences "$(physical "${logical}")" "${APPLIED_CANDIDATE_DIR}/$(basename "${logical}")")"
+                item DRIFT "file:${logical}" "the recorded policy differs from the one this bundle requests${differences:+ (${differences})} — --apply records the current one"
+                ;;
+        esac
+    done
+}
+
 # --- Check and verify -----------------------------------------------------------------------
 
 report_problems() {
@@ -1388,6 +1775,8 @@ report_contract() {
             item CONFLICT "file:${logical}" "named like a RateGuru From policy, but not written by this installer — never used or removed"
         fi
     done < <(retired_policy_files)
+
+    report_applied_policy
 
     if [[ "${MODE}" == verify ]]; then
         if [[ "${package}" == installed ]]; then
@@ -1658,7 +2047,7 @@ on_apply_error() {
 
 perform_apply() {
     require_root
-    require_tools jq stat cmp install
+    require_tools jq stat cmp install sha256sum
 
     trap cleanup_work_dir EXIT
     prepare_candidate
@@ -1688,6 +2077,34 @@ perform_apply() {
     foreign="$(retired_policy_files | awk -F'\t' '$1 == "foreign" { print $2 }')"
     [[ -z "${foreign}" ]] \
         || fail "${foreign//$'\n'/, } is named like a RateGuru From policy but was not written by this installer — refusing to use or remove it. Nothing was changed"
+
+    # The activation boundary, before anything changes: the recorded policy
+    # against this bundle's.
+    local verdict kind target problems
+    verdict="$(boundary_verdict)"
+    kind="${verdict%%$'\t'*}"
+    target="${verdict#*$'\t'}"
+
+    case "${kind}" in
+        establish|none)
+            ;;
+        unwitnessed)
+            fail "no applied policy is recorded on this host, and this bundle routes mail outbound or enables direct delivery — a host's first recorded policy is always the inert one. Establish it with the held, direct-disabled configuration first; crossing to outbound is activate-mail-outbound's alone. Nothing was changed"
+            ;;
+        corrupt)
+            fail "the recorded applied policy (${APPLIED_PLAN}, ${APPLIED_OUTBOUND}) is incomplete or unreadable — it is the host's only witness of what was accepted. Restore it from the gateway's backups under ${BACKUP_ROOT}. Nothing was changed"
+            ;;
+        activate|rollback)
+            problems="$(authorization_problems "${kind}" "${target}")"
+            [[ -z "${problems}" ]] \
+                || fail "this bundle moves ${target}'s mail $([[ "${kind}" == activate ]] && echo "from held to outbound" || echo "from outbound to held") — the activation boundary, which only activate-mail-outbound crosses, and ordinary install-mail-gateway --apply never does (${problems//$'\n'/; }). Nothing was changed"
+            action "the ${kind} of ${target} is authorized by activate-mail-outbound for exactly this recorded and requested policy — consuming that one-use authorization"
+            consume_authorization "${kind}" "${target}"
+            ;;
+        *)
+            fail "${target} — no single guarded activation makes this change, so no gateway apply makes it. Nothing was changed"
+            ;;
+    esac
 
     # A policy-rc.d an interrupted run left behind is undone before anything
     # else, so this host's package activity is its own again.
@@ -1757,12 +2174,43 @@ perform_apply() {
     [[ -z "${problems}" ]] \
         || fail "the running gateway is not healthy: ${problems//$'\n'/; }"
 
+    # Only a proved gateway is recorded as applied, and in the same
+    # transaction: a later failure restores the previous record with the
+    # previous configuration.
+    install_applied_policy
+
     [[ "$(marker_state)" == installed ]] || write_marker installed
     APPLY_COMMITTED=true
     trap - ERR EXIT
     cleanup_work_dir
 
     action "apply complete — gateway installed, validated and running; run 'install-mail-gateway --verify' or 'verify-mail-gateway --read-only' to confirm"
+}
+
+# --- Policy digest ---------------------------------------------------------------------------
+
+# run_policy_digest — the SHA-256 of this bundle's canonical policy, of the
+# recorded one, and where an authorization belongs: what activate-mail-outbound
+# binds an authorization to, from the one place that canonicalizes it.
+run_policy_digest() {
+    require_tools jq sha256sum
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+
+    local recorded=null
+    if [[ "$(recorded_policy)" == present ]]; then
+        recorded="$(jq -c -n \
+            --arg plan "$(sha256_of "$(physical "${APPLIED_PLAN}")")" \
+            --arg outbound "$(sha256_of "$(physical "${APPLIED_OUTBOUND}")")" \
+            '{plan: $plan, outbound: $outbound}')"
+    fi
+
+    jq -c -n \
+        --arg plan "$(sha256_of "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_PLAN}")")" \
+        --arg outbound "$(sha256_of "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_OUTBOUND}")")" \
+        --argjson recorded "${recorded}" \
+        --arg authorization "$(physical "${TRANSITION_AUTHORIZATION}")" \
+        '{requested: {plan: $plan, outbound: $outbound}, recorded: $recorded, authorization: $authorization}'
 }
 
 # --- Entry point ---------------------------------------------------------------------------
@@ -1772,7 +2220,7 @@ parse_args() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify)
+            --check|--apply|--verify|--policy-digest)
                 [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
                 MODE="${1#--}"
                 shift
@@ -1801,6 +2249,9 @@ main() {
             ;;
         apply)
             perform_apply
+            ;;
+        policy-digest)
+            run_policy_digest
             ;;
     esac
 }

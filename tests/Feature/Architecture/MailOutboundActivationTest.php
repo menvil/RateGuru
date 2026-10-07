@@ -16,6 +16,18 @@ use Symfony\Component\Yaml\Yaml;
  * script derives is judged by exactly what it holds.
  */
 
+/** What the simulated host's postconf reads back: `-P SPEC`, or `-M`. */
+function mailActivationPostconf(array $host, string ...$arguments): string
+{
+    $process = proc_open([$host['scratch'].'/bin/postconf', ...$arguments], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $host['scratch'], $host['env']);
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($process);
+
+    return $output;
+}
+
 // =============================================================================
 // THE COMMITTED STATE IS INERT
 // =============================================================================
@@ -55,7 +67,7 @@ it('refuses every mode from the committed configuration before it changes anythi
         // Nothing was applied, no probe was submitted, no capsule was written.
         expect(array_filter(mailActivationCalls($host), static fn (string $call): bool => str_contains($call, '--apply') || str_contains($call, '--e2e')))->toBe([]);
         expect(mailActivationInstalledMode($host))->toBe('held');
-        expect(is_dir($host['scratch'].'/state/tits-guru'))->toBeFalse();
+        expect(is_dir(mailActivationCapsule($host)))->toBeFalse();
     } finally {
         mailActivationCleanup($host);
     }
@@ -207,6 +219,97 @@ it('refuses a request the host cannot witness as its own pre-activation state', 
     'the MTA hostname' => ['the MTA hostname', 'FAIL public DNS or the key does not verify for tits-guru'],
 ]);
 
+it('refuses an activation that also changes an identity field the host accepted, before anything changes', function (string $field, string $value) {
+    // The legitimate transition, plus one more change of tits-guru's identity
+    // that Postfix never renders: the derived pre-activation state is then a
+    // policy the host never accepted, and its own record says so.
+    $request = mailActivationRequest();
+    $request['routing']['targets']['tits-guru'][$field] = $value;
+    $host = mailActivationHost(['routing' => $request['routing']]);
+
+    try {
+        foreach (['--check', '--apply'] as $mode) {
+            [$status, $output] = mailActivationRun($host, [$mode, '--target', 'tits-guru']);
+
+            expect($status)->toBe(1, $output);
+            expect($output)
+                ->toContain("DRIFT    file:/var/lib/rateguru-mail-gateway/applied-plan.json — the recorded policy differs from the one this bundle requests (listeners.tits-guru.sender.{$field})")
+                ->toContain('FAIL the installed gateway is not exactly the pre-activation render');
+            expect(mailActivationResult($output))->toMatchArray(['status' => 'fail', 'changed' => false, 'rolled_back' => false]);
+        }
+
+        // No probe, no authorization, no capsule, no change.
+        expect(array_filter(mailActivationCalls($host), static fn (string $call): bool => str_contains($call, '--apply') || str_contains($call, '--e2e') || str_contains($call, '--policy-digest')))->toBe([]);
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json'))->toBeFalse();
+        expect(is_dir(mailActivationCapsule($host)))->toBeFalse();
+        expect(mailActivationInstalledMode($host))->toBe('held');
+    } finally {
+        mailActivationCleanup($host);
+    }
+})->with([
+    'default_from' => ['default_from', 'hello@tits.guru'],
+    'bounce_domain' => ['bounce_domain', 'bounces.tits.guru'],
+    'reply_domain' => ['reply_domain', 'replies.tits.guru'],
+]);
+
+it('leaves an ordinary Prepare unable to cross the boundary again after the initial-launch rollback', function () {
+    $host = mailActivationHost();
+
+    try {
+        [$activated] = mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
+        expect($activated)->toBe(0);
+        [$rolledBack] = mailActivationRun($host, ['--rollback', '--target', 'tits-guru']);
+        expect($rolledBack)->toBe(0);
+        expect(mailActivationInstalledMode($host))->toBe('held');
+
+        // main still requests outbound; Prepare applies the gateway from it.
+        [$status, $output] = mailActivationRun($host, ['--apply'], script: 'install-mail-gateway');
+        expect($status)->toBe(1, $output);
+        expect($output)->toContain("this bundle moves tits-guru's mail from held to outbound — the activation boundary, which only activate-mail-outbound crosses");
+        expect(mailActivationInstalledMode($host))->toBe('held');
+
+        // Only another guarded activation crosses it again.
+        [$again, $output] = mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
+        expect($again)->toBe(0, $output);
+        expect(mailActivationInstalledMode($host))->toBe('outbound');
+        expect(substr_count(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations'), ' activate tits-guru '))->toBe(2);
+    } finally {
+        mailActivationCleanup($host);
+    }
+});
+
+it('crosses back with its own rollback authorization only when the gateway recorded the outbound policy, and leaves none behind', function (string $toggle, bool $recordedOutbound) {
+    $host = mailActivationHost(['toggles' => [$toggle]]);
+
+    try {
+        [$status, $output] = mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
+
+        expect($status)->toBe(1, $output);
+        expect(mailActivationResult($output))->toMatchArray(['rolled_back' => true]);
+        expect(mailActivationInstalledMode($host))->toBe('held');
+
+        $ledger = (string) @file_get_contents($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations');
+        if ($recordedOutbound) {
+            // The activation was consumed, then the rollback.
+            expect($ledger)->toContain(' activate tits-guru ')->toContain(' rollback tits-guru ');
+            expect($output)->toContain('authorized the rollback of tits-guru');
+        } else {
+            // The gateway never ran: nothing was consumed, nothing needed
+            // authorizing on the way back, and the unused activation was withdrawn.
+            expect($ledger)->toBe('');
+            expect($output)->not->toContain('authorized the rollback')->toContain('withdrew the unused transition-authorization.json');
+        }
+
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json'))->toBeFalse();
+    } finally {
+        mailActivationCleanup($host);
+    }
+})->with([
+    'the installer refused' => ['gateway-apply-fails-outbound', false],
+    'the installer failed after installing' => ['gateway-apply-breaks-outbound', true],
+    'readiness is not YES' => ['readonly-signing-fails', true],
+]);
+
 // =============================================================================
 // THE PRE-ACTIVATION PROOF: NOTHING CHANGES UNTIL ALL OF IT HOLDS
 // =============================================================================
@@ -217,8 +320,8 @@ it('changes nothing when any part of the pre-activation proof fails', function (
         'signer down' => ['toggles' => ['signer-down']],
         'foreign From accepted' => ['toggles' => ['e2e-foreign-accepted']],
         'held mail' => ['queue' => ["0123ABCDEF\thold\tsomeone@example.net", "FOREIGN0001\tdeferred\tsomeone@example.net"]],
-        'public SMTP' => ['toggles' => ['public-smtp']],
-        'gateway not held' => ['installed' => 'drifted'],
+        'public SMTP' => [],
+        'gateway not held' => ['installed' => 'drifted', 'listeners' => ['127.0.0.1:1025', '127.0.0.1:1026']],
     };
 
     if (($options['installed'] ?? null) === 'drifted') {
@@ -240,6 +343,10 @@ it('changes nothing when any part of the pre-activation proof fails', function (
             ]);
         }
 
+        if ($case === 'public SMTP') {
+            file_put_contents($host['state'].'/listeners', "0.0.0.0:25\n", FILE_APPEND);
+        }
+
         if ($case === 'missing key') {
             unlink($host['key']);
         }
@@ -257,13 +364,13 @@ it('changes nothing when any part of the pre-activation proof fails', function (
         $calls = mailActivationCalls($host);
         expect(array_filter($calls, static fn (string $call): bool => str_contains($call, '--apply')))->toBe([]);
         expect(in_array('verify-mail-signing --e2e --target tits-guru [held]', $calls, true))->toBe($probed);
-        expect(is_dir($host['scratch'].'/state/tits-guru'))->toBeFalse();
+        expect(is_dir(mailActivationCapsule($host)))->toBeFalse();
 
         // Held mail is named by its queue ID alone, and never touched.
         if ($case === 'held mail') {
             expect($output)->not->toContain('someone@example.net');
-            expect(File::get($host['host'].'/queue'))->toContain("0123ABCDEF\thold");
-            expect(File::get($host['host'].'/queue.log'))->toBe("postqueue -j\n");
+            expect(File::get($host['state'].'/queue'))->toContain("0123ABCDEF\thold");
+            expect(File::get($host['log'].'/queue.log'))->toBe("postqueue -j\n");
         }
     } finally {
         mailActivationCleanup($host);
@@ -288,7 +395,8 @@ it('refuses to activate, or roll back, a target that is not planned', function (
             $registry['targets'][$index]['lifecycle'] = 'active';
         }
     }
-    $host = mailActivationHost(['registry' => $registry]);
+    $host = mailActivationHost();
+    file_put_contents($host['bundle'].'/infrastructure/config/deployment-targets.json', mailRoutingJson($registry));
 
     try {
         foreach (['--apply', '--rollback'] as $mode) {
@@ -364,7 +472,7 @@ it('proves everything --apply would and submits nothing in --check', function ()
         expect(mailActivationResult($output))->toMatchArray(['mode' => 'check', 'status' => 'pass', 'changed' => false]);
         expect(array_filter(mailActivationCalls($host), static fn (string $call): bool => str_contains($call, '--apply') || str_contains($call, '--e2e')))->toBe([]);
         expect(mailActivationInstalledMode($host))->toBe('held');
-        expect(is_dir($host['scratch'].'/state/tits-guru'))->toBeFalse();
+        expect(is_dir(mailActivationCapsule($host)))->toBeFalse();
     } finally {
         mailActivationCleanup($host);
     }
@@ -402,6 +510,9 @@ it('activates exactly the requested gateway behind the whole proof, with a capsu
             'install-mail-signing --verify --target tits-guru',
             'verify-mail-signing --e2e --target tits-guru [held]',
             'install-mail-gateway --verify [held]',
+            // The one-use authorization, bound to the digests the gateway
+            // itself reports, then the one change it permits.
+            'install-mail-gateway --policy-digest [outbound]',
             'install-mail-gateway --apply [outbound]',
             'install-mail-gateway --verify [outbound]',
             'verify-mail-signing --read-only --target tits-guru [outbound]',
@@ -409,17 +520,21 @@ it('activates exactly the requested gateway behind the whole proof, with a capsu
             'install-mail-signing --verify --target tits-guru',
         ]);
 
+        // The gateway consumed it: no authorization is left, and the ledger has it.
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json'))->toBeFalse();
+        expect(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations'))->toMatch('/^[0-9a-f]{64} [0-9a-f]{32} activate tits-guru /');
+
         // The host: tits-guru delivers through its own direct transport, and
         // staging still captures.
         expect(mailActivationInstalledMode($host))->toBe('outbound');
-        expect(File::get($host['host'].'/postconf-P'))
-            ->toContain('127.0.0.1:2526/inet/content_filter = rateguru-outbound-tits-guru:')
-            ->toContain('127.0.0.1:2525/inet/content_filter = rateguru-capture-staging-main:[127.0.0.1]:1025');
-        expect(trim(File::get($host['host'].'/postconf-M')))->toBe("rateguru-capture-staging-main unix - - n - - smtp\nrateguru-outbound-tits-guru unix - - n - - smtp");
+        expect(mailActivationPostconf($host, '-P', '127.0.0.1:2526/inet/content_filter'))->toBe("127.0.0.1:2526/inet/content_filter = rateguru-outbound-tits-guru:\n");
+        expect(mailActivationPostconf($host, '-P', '127.0.0.1:2525/inet/content_filter'))->toBe("127.0.0.1:2525/inet/content_filter = rateguru-capture-staging-main:[127.0.0.1]:1025\n");
+        expect(collect(explode("\n", trim(mailActivationPostconf($host, '-M'))))->filter(fn (string $line): bool => str_ends_with($line, ' smtp'))->map(fn (string $line): string => strtok($line, ' '))->values()->all())
+            ->toBe(['rateguru-capture-staging-main', 'rateguru-outbound-tits-guru']);
 
         // The capsule: root-only, the two pre-activation documents — exactly
         // the committed ones — and a non-secret record.
-        $capsule = $host['scratch'].'/state/tits-guru';
+        $capsule = mailActivationCapsule($host);
         expect(fileperms($capsule) & 0o777)->toBe(0o700);
         expect(collect(File::files($capsule))->map->getFilename()->sort()->values()->all())->toBe(['capsule.json', 'mail-outbound.json', 'mail-routing.json']);
         foreach (File::files($capsule) as $file) {
@@ -440,7 +555,7 @@ it('activates exactly the requested gateway behind the whole proof, with a capsu
         expectNoKeyMaterial($output, $host['key']);
         expect(glob($host['scratch'].'/tmp/*'))->toBe([]);
         expect(json_decode(File::get($host['bundle'].'/infrastructure/config/mail-routing.json'), true))->toBe(mailActivationRequest()['routing']);
-        expect(File::get($host['host'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
+        expect(File::get($host['state'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
     } finally {
         mailActivationCleanup($host);
     }
@@ -452,7 +567,7 @@ it('is an idempotent no-op once the host is activated and ready, and verifies it
     try {
         mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
         @unlink($host['host'].'/calls.log');
-        $capsule = File::get($host['scratch'].'/state/tits-guru/capsule.json');
+        $capsule = File::get(mailActivationCapsule($host).'/capsule.json');
 
         [$status, $output] = mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
 
@@ -460,7 +575,7 @@ it('is an idempotent no-op once the host is activated and ready, and verifies it
         expect($output)->toContain('ACTIVATION: ALREADY ACTIVE');
         expect(mailActivationResult($output))->toMatchArray(['status' => 'pass', 'changed' => false, 'rolled_back' => false, 'outbound_ready' => true]);
         expect(array_filter(mailActivationCalls($host), static fn (string $call): bool => str_contains($call, '--apply') || str_contains($call, '--e2e')))->toBe([]);
-        expect(File::get($host['scratch'].'/state/tits-guru/capsule.json'))->toBe($capsule);
+        expect(File::get(mailActivationCapsule($host).'/capsule.json'))->toBe($capsule);
 
         [$status, $output] = mailActivationRun($host, ['--verify', '--target', 'tits-guru']);
 
@@ -515,13 +630,13 @@ it('returns the host to held on any failure once the gateway started changing', 
             'install-mail-gateway --verify [held]',
         ]);
         expect(mailActivationInstalledMode($host))->toBe('held');
-        expect(File::get($host['host'].'/postconf-P'))->not->toContain('rateguru-outbound-');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->not->toContain('rateguru-outbound-');
 
         // The queue: read, never changed — the unrelated entry still there.
-        expect(File::get($host['host'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
-        expect(array_unique(array_filter(explode("\n", File::get($host['host'].'/queue.log')))))->toBe(['postqueue -j']);
+        expect(File::get($host['state'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
+        expect(array_unique(array_filter(explode("\n", File::get($host['log'].'/queue.log')))))->toBe(['postqueue -j']);
 
-        expect(json_decode(File::get($host['scratch'].'/state/tits-guru/capsule.json'), true)['state'])->toBe('rolled-back');
+        expect(json_decode(File::get(mailActivationCapsule($host).'/capsule.json'), true)['state'])->toBe('rolled-back');
         expect(glob($host['scratch'].'/tmp/*'))->toBe([]);
     } finally {
         mailActivationCleanup($host);
@@ -594,17 +709,23 @@ it('returns an activated planned target to held from its capsule, and leaves the
         expect(mailActivationResult($output))->toBe(['target' => 'tits-guru', 'mode' => 'rollback', 'status' => 'pass', 'requested' => true, 'changed' => true, 'rolled_back' => true, 'outbound_ready' => false]);
 
         expect(mailActivationCalls($host))->toBe([
+            // The gateway records outbound, so the way back needs its own
+            // one-use authorization.
+            'install-mail-gateway --policy-digest [held]',
+            'install-mail-gateway --policy-digest [held]',
             'install-mail-gateway --apply [held]',
             'install-mail-gateway --verify [held]',
             'verify-mail-signing --e2e --target tits-guru [held]',
             'install-mail-gateway --verify [held]',
         ]);
+        expect(file_exists($host['fs'].'/var/lib/rateguru-mail-gateway/transition-authorization.json'))->toBeFalse();
+        expect(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/consumed-transition-authorizations'))->toContain(' rollback tits-guru ');
         expect(mailActivationInstalledMode($host))->toBe('held');
         expect([
             File::get($host['bundle'].'/infrastructure/config/mail-routing.json'),
             File::get($host['bundle'].'/infrastructure/config/mail-outbound.json'),
         ])->toBe($documents);
-        expect(json_decode(File::get($host['scratch'].'/state/tits-guru/capsule.json'), true)['state'])->toBe('rolled-back');
+        expect(json_decode(File::get(mailActivationCapsule($host).'/capsule.json'), true)['state'])->toBe('rolled-back');
     } finally {
         mailActivationCleanup($host);
     }
@@ -618,7 +739,7 @@ it('refuses a rollback without its own, current, untampered capsule', function (
             mailActivationRun($host, ['--apply', '--target', 'tits-guru']);
         }
 
-        $capsule = $host['scratch'].'/state/tits-guru';
+        $capsule = mailActivationCapsule($host);
 
         match ($case) {
             'no capsule' => null,
@@ -700,11 +821,12 @@ it('is repository tooling that runs from the trusted bundle, beside the library 
     expect(requiredCliManifestNames())->not->toContain('activate-mail-outbound')->not->toContain('send-mail-canary');
     expect(sourcedLibraryNames())->toContain('smtp-submission');
 
-    // Nothing in ordinary preparation, repair or verification activates mail
-    // or sends a canary.
+    // Nothing in ordinary preparation, repair or verification runs the
+    // activation or sends a canary — they may only name it as the one way
+    // across the boundary.
     foreach (['prepare-host', 'install-bootstrap-services', 'repair-target', 'configure-target', 'provision-target', 'verify-infrastructure', 'install-mail-gateway'] as $script) {
         $code = executableSourceLines(File::get(base_path("infrastructure/scripts/{$script}")));
-        expect($code)->not->toContain('activate-mail-outbound')->not->toContain('send-mail-canary');
+        expect($code)->not->toContain('/activate-mail-outbound')->not->toContain('activate-mail-outbound --')->not->toContain('send-mail-canary');
     }
 });
 
@@ -812,7 +934,10 @@ it('records the signing foundation as accepted and the activation as implemented
         ->toContain('*activation is not requested by this trusted bundle*')
         ->toContain('A separate, tiny **activation pull request directly against `main`** changes exactly two files and nothing else')
         ->toContain('the same change in `develop` would let an ordinary **Prepare staging host** change the real production gateway before the controlled cutover')
-        ->toContain('Do not run **Prepare production host** in between')
+        ->toContain('A **Prepare production host** in between cannot activate anything: the gateway refuses held → outbound without the activation\'s authorization, and the host stays held.')
+        ->toContain('A **Prepare staging host** in that window cannot deactivate production mail: the gateway refuses outbound → held without a rollback authorization, and production keeps delivering.')
+        ->toContain('Prepare converges a state but cannot cross that boundary, and a Prepare from a stale branch fails closed instead of activating or deactivating mail')
+        ->toContain('so production mail no longer carries `mail-gateway.rateguru.invalid` in its `Received` hop')
         ->toContain('must be reverted on `main` before the next Prepare or Verify')
         ->toContain('Only after that acceptance, synchronize `main` → `develop`')
         ->toContain('It is the local Postfix\'s record that the **remote MX accepted** the message. It is not SPF, DKIM or DMARC acceptance at the receiver')
