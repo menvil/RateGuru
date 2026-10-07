@@ -350,8 +350,8 @@ it('clears the search with its ×, shown only while there is text, without askin
 
 // The target language ----------------------------------------------------------------
 
-it('chooses the target language from the keyboard, searching thirty-five languages in the page', function () {
-    $codes = installLanguagesUpTo(35);
+it('chooses the target language from the keyboard, searching sixty languages in the page', function () {
+    $codes = installLanguagesUpTo(60);
     $last = end($codes);
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     watchLivewireUpdates($page);
@@ -360,7 +360,7 @@ it('chooses the target language from the keyboard, searching thirty-five languag
     waitForTranslationTargetList($page, open: true);
 
     expect(translationScreen($page)['focused'])->toBe('rg-admin-translation-target-search')
-        ->and($page->script("document.querySelectorAll('#rg-admin-translation-target-listbox [role=option]').length"))->toBe(34)
+        ->and($page->script("document.querySelectorAll('#rg-admin-translation-target-listbox [role=option]').length"))->toBe(59)
         ->and($page->script("[...document.querySelectorAll('#rg-admin-translation-target-listbox [role=option]')].some((option) => option.dataset.value === 'en')"))->toBeFalse()
         ->and($page->script("getComputedStyle(document.getElementById('rg-admin-translation-target-listbox')).maxHeight"))->toBe('340px');
 
@@ -1233,8 +1233,8 @@ it('shows in the context drawer what AI translate sends, other languages as cont
         ->and(translationScreen($page)['overflow'])->toBeFalse();
 });
 
-it('opens the context of one item, AI context included, with thirty-five languages installed', function () {
-    $codes = installLanguagesUpTo(35);
+it('opens the context of one item, AI context included, with sixty languages installed', function () {
+    $codes = installLanguagesUpTo(60);
     $translations = [];
 
     foreach (array_slice($codes, 2) as $code) {
@@ -1249,7 +1249,7 @@ it('opens the context of one item, AI context included, with thirty-five languag
     $page->click("[data-unit=\"{$dogs}\"] .rg-admin-translation-row__context");
     waitForScript($page, "!! document.activeElement?.closest('.rg-admin-drawer')");
 
-    expect($page->script("document.querySelectorAll('.rg-admin-translation-context__payload-list li').length"))->toBe(33)
+    expect($page->script("document.querySelectorAll('.rg-admin-translation-context__payload-list li').length"))->toBe(58)
         ->and($page->script("Math.round(document.querySelector('.rg-admin-drawer').getBoundingClientRect().width)"))->toBe(390)
         ->and(translationScreen($page)['overflow'])->toBeFalse()
         ->and(livewireUpdatesSinceWatching($page)['fetches'])->toBe(1);

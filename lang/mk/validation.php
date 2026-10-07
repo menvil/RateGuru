@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Полето :attribute мора да биде прифатено.',
+    'required' => 'Полето :attribute е задолжително.',
+    'string' => 'Полето :attribute мора да биде текст.',
+    'max' => [
+        'array' => 'Полето :attribute не смее да има повеќе од :max ставки.',
+        'file' => 'Полето :attribute не смее да биде поголемо од :max килобајти.',
+        'string' => 'Полето :attribute не смее да има повеќе од :max знаци.',
+    ],
+    'min' => [
+        'string' => 'Полето :attribute мора да има најмалку :min знаци.',
+    ],
+    'in' => 'Избраната вредност за :attribute е невалидна.',
+    'unique' => 'Вредноста на полето :attribute е веќе зафатена.',
+    'email' => 'Полето :attribute мора да биде валидна адреса на е-пошта.',
+    'confirmed' => 'Потврдата на полето :attribute не се совпаѓа.',
+    'array' => 'Полето :attribute мора да биде низа.',
+    'boolean' => 'Полето :attribute мора да биде точно или неточно.',
+    'current_password' => 'Лозинката е неточна.',
+    'dimensions' => 'Сликата во полето :attribute има невалидни димензии.',
+    'enum' => 'Избраната вредност за :attribute е невалидна.',
+    'exists' => 'Избраната вредност за :attribute е невалидна.',
+    'image' => 'Полето :attribute мора да биде слика.',
+    'integer' => 'Полето :attribute мора да биде цел број.',
+    'lowercase' => 'Полето :attribute мора да биде со мали букви.',
+    'mimes' => 'Полето :attribute мора да биде датотека од тип: :values.',
+    'not_regex' => 'Форматот на полето :attribute е невалиден.',
+    'regex' => 'Форматот на полето :attribute е невалиден.',
+    'uploaded' => 'Прикачувањето на полето :attribute не успеа.',
+    'url' => 'Полето :attribute мора да биде валиден URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'за мене',
+        'categoryId' => 'категорија',
+        'current_password' => 'тековна лозинка',
+        'description' => 'опис',
+        'display_name' => 'име за прикажување',
+        'email' => 'е-пошта',
+        'image' => 'слика',
+        'locale' => 'јазик',
+        'message' => 'порака',
+        'name' => 'име',
+        'password' => 'лозинка',
+        'profile_website_url' => 'веб-страница',
+        'reason' => 'причина',
+        'sourceUrl' => 'URL на изворот',
+        'subject' => 'тема',
+        'tagIds' => 'ознаки',
+        'title' => 'наслов',
+        'url' => 'URL',
+        'username' => 'корисничко име',
+    ],
+];

@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attributeを承認してください。',
+    'required' => ':attributeは必須です。',
+    'string' => ':attributeは文字列で指定してください。',
+    'max' => [
+        'array' => ':attributeは :max 個以下にしてください。',
+        'file' => ':attributeは :max キロバイト以下のファイルにしてください。',
+        'string' => ':attributeは :max 文字以下で入力してください。',
+    ],
+    'min' => [
+        'string' => ':attributeは :min 文字以上で入力してください。',
+    ],
+    'in' => '選択された:attributeは無効です。',
+    'unique' => 'この:attributeはすでに使用されています。',
+    'email' => ':attributeには有効なメールアドレスを指定してください。',
+    'confirmed' => ':attributeと確認用の入力が一致しません。',
+    'array' => ':attributeは配列で指定してください。',
+    'boolean' => ':attributeには true または false を指定してください。',
+    'current_password' => 'パスワードが正しくありません。',
+    'dimensions' => ':attributeの画像サイズが無効です。',
+    'enum' => '選択された:attributeは無効です。',
+    'exists' => '選択された:attributeは無効です。',
+    'image' => ':attributeには画像を指定してください。',
+    'integer' => ':attributeは整数で指定してください。',
+    'lowercase' => ':attributeは小文字で入力してください。',
+    'mimes' => ':attributeには次の形式のファイルを指定してください：:values。',
+    'not_regex' => ':attributeの形式が正しくありません。',
+    'regex' => ':attributeの形式が正しくありません。',
+    'uploaded' => ':attributeのアップロードに失敗しました。',
+    'url' => ':attributeには有効なURLを指定してください。',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => '自己紹介',
+        'categoryId' => 'カテゴリー',
+        'current_password' => '現在のパスワード',
+        'description' => '説明',
+        'display_name' => '表示名',
+        'email' => 'メールアドレス',
+        'image' => '画像',
+        'locale' => '言語',
+        'message' => 'メッセージ',
+        'name' => '名前',
+        'password' => 'パスワード',
+        'profile_website_url' => 'ウェブサイト',
+        'reason' => '理由',
+        'sourceUrl' => '出典URL',
+        'subject' => '件名',
+        'tagIds' => 'タグ',
+        'title' => 'タイトル',
+        'url' => 'URL',
+        'username' => 'ユーザー名',
+    ],
+];

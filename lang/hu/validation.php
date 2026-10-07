@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'A(z) :attribute mezőt el kell fogadni.',
+    'required' => 'A(z) :attribute mező kitöltése kötelező.',
+    'string' => 'A(z) :attribute mezőnek szövegnek kell lennie.',
+    'max' => [
+        'array' => 'A(z) :attribute mező legfeljebb :max elemet tartalmazhat.',
+        'file' => 'A(z) :attribute mező nem lehet nagyobb :max kilobájtnál.',
+        'string' => 'A(z) :attribute mező nem lehet hosszabb :max karakternél.',
+    ],
+    'min' => [
+        'string' => 'A(z) :attribute mezőnek legalább :min karakterből kell állnia.',
+    ],
+    'in' => 'A(z) :attribute mezőben kiválasztott érték érvénytelen.',
+    'unique' => 'A(z) :attribute mező értéke már foglalt.',
+    'email' => 'A(z) :attribute mezőnek érvényes e-mail-címnek kell lennie.',
+    'confirmed' => 'A(z) :attribute mező megerősítése nem egyezik.',
+    'array' => 'A(z) :attribute mezőnek listának kell lennie.',
+    'boolean' => 'A(z) :attribute mező értéke csak igaz vagy hamis lehet.',
+    'current_password' => 'A jelszó helytelen.',
+    'dimensions' => 'A(z) :attribute mezőben lévő kép méretei érvénytelenek.',
+    'enum' => 'A(z) :attribute mezőben kiválasztott érték érvénytelen.',
+    'exists' => 'A(z) :attribute mezőben kiválasztott érték érvénytelen.',
+    'image' => 'A(z) :attribute mezőnek képnek kell lennie.',
+    'integer' => 'A(z) :attribute mezőnek egész számnak kell lennie.',
+    'lowercase' => 'A(z) :attribute mező csak kisbetűket tartalmazhat.',
+    'mimes' => 'A(z) :attribute mezőnek a következő típusú fájlnak kell lennie: :values.',
+    'not_regex' => 'A(z) :attribute mező formátuma érvénytelen.',
+    'regex' => 'A(z) :attribute mező formátuma érvénytelen.',
+    'uploaded' => 'A(z) :attribute mező feltöltése nem sikerült.',
+    'url' => 'A(z) :attribute mezőnek érvényes URL-nek kell lennie.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bemutatkozás',
+        'categoryId' => 'kategória',
+        'current_password' => 'jelenlegi jelszó',
+        'description' => 'leírás',
+        'display_name' => 'megjelenített név',
+        'email' => 'e-mail-cím',
+        'image' => 'kép',
+        'locale' => 'nyelv',
+        'message' => 'üzenet',
+        'name' => 'név',
+        'password' => 'jelszó',
+        'profile_website_url' => 'weboldal',
+        'reason' => 'indok',
+        'sourceUrl' => 'forrás URL',
+        'subject' => 'tárgy',
+        'tagIds' => 'címkék',
+        'title' => 'cím',
+        'url' => 'URL',
+        'username' => 'felhasználónév',
+    ],
+];

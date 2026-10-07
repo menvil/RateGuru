@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute უნდა იყოს მიღებული.',
+    'required' => ':attribute სავალდებულოა.',
+    'string' => ':attribute უნდა იყოს ტექსტი.',
+    'max' => [
+        'array' => ':attribute უნდა შეიცავდეს არაუმეტეს :max ელემენტს.',
+        'file' => ':attribute არ უნდა აღემატებოდეს :max კილობაიტს.',
+        'string' => ':attribute არ უნდა აღემატებოდეს :max სიმბოლოს.',
+    ],
+    'min' => [
+        'string' => ':attribute უნდა შეიცავდეს მინიმუმ :min სიმბოლოს.',
+    ],
+    'in' => 'არჩეული :attribute არასწორია.',
+    'unique' => ':attribute უკვე დაკავებულია.',
+    'email' => ':attribute უნდა იყოს ელფოსტის სწორი მისამართი.',
+    'confirmed' => ':attribute არ ემთხვევა დადასტურებას.',
+    'array' => ':attribute უნდა იყოს მასივი.',
+    'boolean' => ':attribute უნდა იყოს ჭეშმარიტი ან მცდარი.',
+    'current_password' => 'პაროლი არასწორია.',
+    'dimensions' => 'ველში :attribute მითითებულ სურათს არასწორი ზომები აქვს.',
+    'enum' => 'არჩეული :attribute არასწორია.',
+    'exists' => 'არჩეული :attribute არასწორია.',
+    'image' => ':attribute უნდა იყოს სურათი.',
+    'integer' => ':attribute უნდა იყოს მთელი რიცხვი.',
+    'lowercase' => ':attribute უნდა შედგებოდეს მხოლოდ პატარა ასოებისგან.',
+    'mimes' => ':attribute უნდა იყოს შემდეგი ტიპის ფაილი: :values.',
+    'not_regex' => ':attribute არასწორი ფორმატითაა მითითებული.',
+    'regex' => ':attribute არასწორი ფორმატითაა მითითებული.',
+    'uploaded' => ':attribute ვერ აიტვირთა.',
+    'url' => ':attribute უნდა იყოს სწორი URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'ბიოგრაფია',
+        'categoryId' => 'კატეგორია',
+        'current_password' => 'მიმდინარე პაროლი',
+        'description' => 'აღწერა',
+        'display_name' => 'საჩვენებელი სახელი',
+        'email' => 'ელფოსტა',
+        'image' => 'სურათი',
+        'locale' => 'ენა',
+        'message' => 'შეტყობინება',
+        'name' => 'სახელი',
+        'password' => 'პაროლი',
+        'profile_website_url' => 'ვებსაიტი',
+        'reason' => 'მიზეზი',
+        'sourceUrl' => 'წყაროს URL',
+        'subject' => 'თემა',
+        'tagIds' => 'თეგები',
+        'title' => 'სათაური',
+        'url' => 'ბმული',
+        'username' => 'მომხმარებლის სახელი',
+    ],
+];

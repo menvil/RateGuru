@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'ต้องยอมรับ :attribute',
+    'required' => 'จำเป็นต้องกรอก :attribute',
+    'string' => ':attribute ต้องเป็นข้อความ',
+    'max' => [
+        'array' => ':attribute ต้องมีไม่เกิน :max รายการ',
+        'file' => ':attribute ต้องมีขนาดไม่เกิน :max กิโลไบต์',
+        'string' => ':attribute ต้องมีความยาวไม่เกิน :max ตัวอักษร',
+    ],
+    'min' => [
+        'string' => ':attribute ต้องมีความยาวอย่างน้อย :min ตัวอักษร',
+    ],
+    'in' => ':attribute ที่เลือกไม่ถูกต้อง',
+    'unique' => ':attribute นี้ถูกใช้งานแล้ว',
+    'email' => ':attribute ต้องเป็นที่อยู่อีเมลที่ถูกต้อง',
+    'confirmed' => 'การยืนยัน :attribute ไม่ตรงกัน',
+    'array' => ':attribute ต้องเป็นอาร์เรย์',
+    'boolean' => ':attribute ต้องเป็น true หรือ false',
+    'current_password' => 'รหัสผ่านไม่ถูกต้อง',
+    'dimensions' => ':attribute มีขนาดรูปภาพไม่ถูกต้อง',
+    'enum' => ':attribute ที่เลือกไม่ถูกต้อง',
+    'exists' => ':attribute ที่เลือกไม่ถูกต้อง',
+    'image' => ':attribute ต้องเป็นรูปภาพ',
+    'integer' => ':attribute ต้องเป็นจำนวนเต็ม',
+    'lowercase' => ':attribute ต้องเป็นตัวพิมพ์เล็ก',
+    'mimes' => ':attribute ต้องเป็นไฟล์ประเภท: :values',
+    'not_regex' => 'รูปแบบของ :attribute ไม่ถูกต้อง',
+    'regex' => 'รูปแบบของ :attribute ไม่ถูกต้อง',
+    'uploaded' => 'อัปโหลด :attribute ไม่สำเร็จ',
+    'url' => ':attribute ต้องเป็น URL ที่ถูกต้อง',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'ประวัติย่อ',
+        'categoryId' => 'หมวดหมู่',
+        'current_password' => 'รหัสผ่านปัจจุบัน',
+        'description' => 'คำอธิบาย',
+        'display_name' => 'ชื่อที่แสดง',
+        'email' => 'อีเมล',
+        'image' => 'รูปภาพ',
+        'locale' => 'ภาษา',
+        'message' => 'ข้อความ',
+        'name' => 'ชื่อ',
+        'password' => 'รหัสผ่าน',
+        'profile_website_url' => 'เว็บไซต์',
+        'reason' => 'เหตุผล',
+        'sourceUrl' => 'URL ต้นทาง',
+        'subject' => 'หัวข้อ',
+        'tagIds' => 'แท็ก',
+        'title' => 'ชื่อเรื่อง',
+        'url' => 'URL',
+        'username' => 'ชื่อผู้ใช้',
+    ],
+];

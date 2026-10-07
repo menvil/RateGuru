@@ -96,7 +96,16 @@ the next language silently skips.
 2. Create `lang/{locale}/` and translate every file in `lang/en/` except the
    English-only catalogs listed below.
 3. Map it to its Open Graph locale in `app/Support/Seo/PostOpenGraph.php`.
-4. Run the suite. `TranslationParityTest` lists, by file and key, what the
+4. Make sure Laravel knows its plural rule and Carbon its dates. A language
+   Laravel has no plural rule for gets the first form for every number — "1
+   komentar" for five comments — silently; `LanguageRulesTest` names it, and
+   `App\Support\Locale\LanguageRules` says whose rule it shares (Montenegrin
+   takes Serbian's) and under which locale Carbon writes its dates (Serbian is
+   `sr_Cyrl`, as Carbon's plain `sr` is Latin). Plural lines carry as many
+   `|`-separated forms as the language's rule has, in Laravel's positional
+   order, with no `{0}` or range prefixes: one for Japanese, three for Polish,
+   four for Slovenian.
+5. Run the suite. `TranslationParityTest` lists, by file and key, what the
    catalogs still miss; `PostShowMetaTagsTest` names a language still announced
    to link previews as English. Tests that put every language through the
    public site offer every installed one first

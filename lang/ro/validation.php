@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Câmpul :attribute trebuie să fie acceptat.',
+    'required' => 'Câmpul :attribute este obligatoriu.',
+    'string' => 'Câmpul :attribute trebuie să fie un șir de caractere.',
+    'max' => [
+        'array' => 'Câmpul :attribute nu poate avea mai mult de :max elemente.',
+        'file' => 'Câmpul :attribute nu poate depăși :max kilobyți.',
+        'string' => 'Câmpul :attribute nu poate avea mai mult de :max caractere.',
+    ],
+    'min' => [
+        'string' => 'Câmpul :attribute trebuie să aibă cel puțin :min caractere.',
+    ],
+    'in' => 'Valoarea selectată pentru :attribute nu este validă.',
+    'unique' => 'Valoarea câmpului :attribute este deja folosită.',
+    'email' => 'Câmpul :attribute trebuie să fie o adresă de e-mail validă.',
+    'confirmed' => 'Confirmarea câmpului :attribute nu se potrivește.',
+    'array' => 'Câmpul :attribute trebuie să fie o listă.',
+    'boolean' => 'Câmpul :attribute trebuie să fie adevărat sau fals.',
+    'current_password' => 'Parola este incorectă.',
+    'dimensions' => 'Imaginea din câmpul :attribute are dimensiuni nevalide.',
+    'enum' => 'Valoarea selectată pentru :attribute nu este validă.',
+    'exists' => 'Valoarea selectată pentru :attribute nu este validă.',
+    'image' => 'Câmpul :attribute trebuie să fie o imagine.',
+    'integer' => 'Câmpul :attribute trebuie să fie un număr întreg.',
+    'lowercase' => 'Câmpul :attribute trebuie să conțină doar litere mici.',
+    'mimes' => 'Câmpul :attribute trebuie să fie un fișier de tipul: :values.',
+    'not_regex' => 'Formatul câmpului :attribute nu este valid.',
+    'regex' => 'Formatul câmpului :attribute nu este valid.',
+    'uploaded' => 'Încărcarea câmpului :attribute a eșuat.',
+    'url' => 'Câmpul :attribute trebuie să fie un URL valid.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'despre mine',
+        'categoryId' => 'categorie',
+        'current_password' => 'parola actuală',
+        'description' => 'descriere',
+        'display_name' => 'nume afișat',
+        'email' => 'e-mail',
+        'image' => 'imagine',
+        'locale' => 'limbă',
+        'message' => 'mesaj',
+        'name' => 'nume',
+        'password' => 'parolă',
+        'profile_website_url' => 'site web',
+        'reason' => 'motiv',
+        'sourceUrl' => 'URL sursă',
+        'subject' => 'subiect',
+        'tagIds' => 'etichete',
+        'title' => 'titlu',
+        'url' => 'URL',
+        'username' => 'nume de utilizator',
+    ],
+];

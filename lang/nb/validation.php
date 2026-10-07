@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Feltet :attribute må aksepteres.',
+    'required' => 'Feltet :attribute må fylles ut.',
+    'string' => 'Feltet :attribute må være en tekst.',
+    'max' => [
+        'array' => 'Feltet :attribute kan ikke ha mer enn :max elementer.',
+        'file' => 'Feltet :attribute kan ikke være større enn :max kilobyte.',
+        'string' => 'Feltet :attribute kan ikke være lengre enn :max tegn.',
+    ],
+    'min' => [
+        'string' => 'Feltet :attribute må være minst :min tegn.',
+    ],
+    'in' => 'Valgt :attribute er ugyldig.',
+    'unique' => 'Verdien i feltet :attribute er allerede i bruk.',
+    'email' => 'Feltet :attribute må være en gyldig e-postadresse.',
+    'confirmed' => 'Bekreftelsen av feltet :attribute stemmer ikke.',
+    'array' => 'Feltet :attribute må være en matrise.',
+    'boolean' => 'Feltet :attribute må være sann eller usann.',
+    'current_password' => 'Passordet er feil.',
+    'dimensions' => 'Feltet :attribute har ugyldige bildedimensjoner.',
+    'enum' => 'Valgt :attribute er ugyldig.',
+    'exists' => 'Valgt :attribute er ugyldig.',
+    'image' => 'Feltet :attribute må være et bilde.',
+    'integer' => 'Feltet :attribute må være et heltall.',
+    'lowercase' => 'Feltet :attribute må skrives med små bokstaver.',
+    'mimes' => 'Feltet :attribute må være en fil av typen: :values.',
+    'not_regex' => 'Formatet på feltet :attribute er ugyldig.',
+    'regex' => 'Formatet på feltet :attribute er ugyldig.',
+    'uploaded' => 'Feltet :attribute kunne ikke lastes opp.',
+    'url' => 'Feltet :attribute må være en gyldig URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bio',
+        'categoryId' => 'kategori',
+        'current_password' => 'nåværende passord',
+        'description' => 'beskrivelse',
+        'display_name' => 'visningsnavn',
+        'email' => 'e-post',
+        'image' => 'bilde',
+        'locale' => 'språk',
+        'message' => 'melding',
+        'name' => 'navn',
+        'password' => 'passord',
+        'profile_website_url' => 'nettsted',
+        'reason' => 'årsak',
+        'sourceUrl' => 'kilde-URL',
+        'subject' => 'emne',
+        'tagIds' => 'tagger',
+        'title' => 'tittel',
+        'url' => 'URL',
+        'username' => 'brukernavn',
+    ],
+];

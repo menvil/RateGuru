@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Pole :attribute musí byť prijaté.',
+    'required' => 'Pole :attribute je povinné.',
+    'string' => 'Pole :attribute musí byť reťazec.',
+    'max' => [
+        'array' => 'Pole :attribute nesmie obsahovať viac ako :max položiek.',
+        'file' => 'Súbor v poli :attribute nesmie byť väčší ako :max kB.',
+        'string' => 'Pole :attribute nesmie mať viac ako :max znakov.',
+    ],
+    'min' => [
+        'string' => 'Pole :attribute musí mať aspoň :min znakov.',
+    ],
+    'in' => 'Vybraná hodnota poľa :attribute je neplatná.',
+    'unique' => 'Hodnota poľa :attribute je už obsadená.',
+    'email' => 'Pole :attribute musí byť platná e-mailová adresa.',
+    'confirmed' => 'Potvrdenie poľa :attribute sa nezhoduje.',
+    'array' => 'Pole :attribute musí byť zoznam.',
+    'boolean' => 'Pole :attribute musí mať hodnotu „áno“ alebo „nie“.',
+    'current_password' => 'Heslo je nesprávne.',
+    'dimensions' => 'Obrázok v poli :attribute má neplatné rozmery.',
+    'enum' => 'Vybraná hodnota poľa :attribute je neplatná.',
+    'exists' => 'Vybraná hodnota poľa :attribute je neplatná.',
+    'image' => 'Pole :attribute musí byť obrázok.',
+    'integer' => 'Pole :attribute musí byť celé číslo.',
+    'lowercase' => 'Pole :attribute musí byť napísané malými písmenami.',
+    'mimes' => 'Pole :attribute musí byť súbor typu: :values.',
+    'not_regex' => 'Formát poľa :attribute je neplatný.',
+    'regex' => 'Formát poľa :attribute je neplatný.',
+    'uploaded' => 'Súbor v poli :attribute sa nepodarilo nahrať.',
+    'url' => 'Pole :attribute musí byť platná URL adresa.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'o mne',
+        'categoryId' => 'kategória',
+        'current_password' => 'súčasné heslo',
+        'description' => 'popis',
+        'display_name' => 'zobrazované meno',
+        'email' => 'e-mail',
+        'image' => 'obrázok',
+        'locale' => 'jazyk',
+        'message' => 'správa',
+        'name' => 'meno',
+        'password' => 'heslo',
+        'profile_website_url' => 'webová stránka',
+        'reason' => 'dôvod',
+        'sourceUrl' => 'URL zdroja',
+        'subject' => 'predmet',
+        'tagIds' => 'štítky',
+        'title' => 'názov',
+        'url' => 'URL',
+        'username' => 'používateľské meno',
+    ],
+];

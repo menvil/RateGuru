@@ -10,6 +10,13 @@ The supported locales — every language the application is installed with — a
 - `de` — German / Deutsch (ships disabled)
 - `es` — Spanish / Español (ships disabled)
 
+and, all shipping disabled: French (`fr`), Italian (`it`), Portuguese — Brazil (`pt`), Turkish (`tr`), Japanese (`ja`),
+Polish (`pl`), Romanian (`ro`), Greek (`el`), Dutch (`nl`), Hungarian (`hu`), Czech (`cs`), Slovak (`sk`),
+Serbian — Cyrillic (`sr`), Croatian (`hr`), Slovenian (`sl`), Finnish (`fi`), Swedish (`sv`), Norwegian Bokmål (`nb`),
+Danish (`da`), Estonian (`et`), Lithuanian (`lt`), Latvian (`lv`), Ukrainian (`uk`), Chinese — Simplified (`zh`),
+Georgian (`ka`), Icelandic (`is`), Thai (`th`), Vietnamese (`vi`), Filipino (`fil`), Malay (`ms`), Montenegrin (`cnr`),
+Bosnian (`bs`), Macedonian (`mk`) and Albanian (`sq`). `config/locales.php` is the list; this is a summary of it.
+
 The flag is chosen per language rather than derived from the code: a language is not a country.
 
 ## Installed, complete, enabled — and the default

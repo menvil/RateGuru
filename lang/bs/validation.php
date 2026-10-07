@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Polje :attribute mora biti prihvaćeno.',
+    'required' => 'Polje :attribute je obavezno.',
+    'string' => 'Polje :attribute mora biti tekst.',
+    'max' => [
+        'array' => 'Polje :attribute ne smije imati više od :max stavki.',
+        'file' => 'Polje :attribute ne smije biti veće od :max kilobajta.',
+        'string' => 'Polje :attribute ne smije imati više od :max karaktera.',
+    ],
+    'min' => [
+        'string' => 'Polje :attribute mora sadržavati najmanje :min karaktera.',
+    ],
+    'in' => 'Odabrana vrijednost polja :attribute nije važeća.',
+    'unique' => 'Vrijednost polja :attribute je već zauzeta.',
+    'email' => 'Polje :attribute mora biti ispravna e-mail adresa.',
+    'confirmed' => 'Potvrda polja :attribute se ne podudara.',
+    'array' => 'Polje :attribute mora biti niz.',
+    'boolean' => 'Polje :attribute mora biti tačno ili netačno.',
+    'current_password' => 'Lozinka nije tačna.',
+    'dimensions' => 'Slika u polju :attribute ima nevažeće dimenzije.',
+    'enum' => 'Odabrana vrijednost polja :attribute nije važeća.',
+    'exists' => 'Odabrana vrijednost polja :attribute nije važeća.',
+    'image' => 'Polje :attribute mora biti slika.',
+    'integer' => 'Polje :attribute mora biti cijeli broj.',
+    'lowercase' => 'Polje :attribute mora biti napisano malim slovima.',
+    'mimes' => 'Polje :attribute mora biti datoteka tipa: :values.',
+    'not_regex' => 'Format polja :attribute nije ispravan.',
+    'regex' => 'Format polja :attribute nije ispravan.',
+    'uploaded' => 'Otpremanje polja :attribute nije uspjelo.',
+    'url' => 'Polje :attribute mora biti ispravan URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'o meni',
+        'categoryId' => 'kategorija',
+        'current_password' => 'trenutna lozinka',
+        'description' => 'opis',
+        'display_name' => 'prikazno ime',
+        'email' => 'e-mail',
+        'image' => 'slika',
+        'locale' => 'jezik',
+        'message' => 'poruka',
+        'name' => 'ime',
+        'password' => 'lozinka',
+        'profile_website_url' => 'web-stranica',
+        'reason' => 'razlog',
+        'sourceUrl' => 'URL izvora',
+        'subject' => 'naslov',
+        'tagIds' => 'tagovi',
+        'title' => 'naslov',
+        'url' => 'URL',
+        'username' => 'korisničko ime',
+    ],
+];

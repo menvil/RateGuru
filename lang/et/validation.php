@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Väli „:attribute“ tuleb aktsepteerida.',
+    'required' => 'Väli „:attribute“ on kohustuslik.',
+    'string' => 'Väli „:attribute“ peab olema tekst.',
+    'max' => [
+        'array' => 'Väljal „:attribute“ ei tohi olla rohkem kui :max elementi.',
+        'file' => 'Väli „:attribute“ ei tohi olla suurem kui :max kilobaiti.',
+        'string' => 'Väli „:attribute“ ei tohi olla pikem kui :max tähemärki.',
+    ],
+    'min' => [
+        'string' => 'Väli „:attribute“ peab olema vähemalt :min tähemärki pikk.',
+    ],
+    'in' => 'Välja „:attribute“ valitud väärtus on vigane.',
+    'unique' => 'Välja „:attribute“ väärtus on juba kasutusel.',
+    'email' => 'Väli „:attribute“ peab olema kehtiv e-posti aadress.',
+    'confirmed' => 'Välja „:attribute“ kinnitus ei ühti.',
+    'array' => 'Väli „:attribute“ peab olema massiiv.',
+    'boolean' => 'Välja „:attribute“ väärtus peab olema tõene või väär.',
+    'current_password' => 'Parool on vale.',
+    'dimensions' => 'Välja „:attribute“ pildi mõõtmed on vigased.',
+    'enum' => 'Välja „:attribute“ valitud väärtus on vigane.',
+    'exists' => 'Välja „:attribute“ valitud väärtus on vigane.',
+    'image' => 'Väli „:attribute“ peab olema pilt.',
+    'integer' => 'Väli „:attribute“ peab olema täisarv.',
+    'lowercase' => 'Väli „:attribute“ peab olema väiketähtedega.',
+    'mimes' => 'Väli „:attribute“ peab olema järgmist tüüpi fail: :values.',
+    'not_regex' => 'Välja „:attribute“ vorming on vigane.',
+    'regex' => 'Välja „:attribute“ vorming on vigane.',
+    'uploaded' => 'Välja „:attribute“ üleslaadimine ebaõnnestus.',
+    'url' => 'Väli „:attribute“ peab olema kehtiv URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'minust',
+        'categoryId' => 'kategooria',
+        'current_password' => 'praegune parool',
+        'description' => 'kirjeldus',
+        'display_name' => 'kuvatav nimi',
+        'email' => 'e-post',
+        'image' => 'pilt',
+        'locale' => 'keel',
+        'message' => 'sõnum',
+        'name' => 'nimi',
+        'password' => 'parool',
+        'profile_website_url' => 'veebisait',
+        'reason' => 'põhjus',
+        'sourceUrl' => 'allika URL',
+        'subject' => 'teema',
+        'tagIds' => 'sildid',
+        'title' => 'pealkiri',
+        'url' => 'URL',
+        'username' => 'kasutajanimi',
+    ],
+];

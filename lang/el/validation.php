@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Το πεδίο :attribute πρέπει να γίνει αποδεκτό.',
+    'required' => 'Το πεδίο :attribute είναι υποχρεωτικό.',
+    'string' => 'Το πεδίο :attribute πρέπει να είναι κείμενο.',
+    'max' => [
+        'array' => 'Το πεδίο :attribute δεν πρέπει να έχει περισσότερα από :max στοιχεία.',
+        'file' => 'Το πεδίο :attribute δεν πρέπει να είναι μεγαλύτερο από :max KB.',
+        'string' => 'Το πεδίο :attribute δεν πρέπει να υπερβαίνει τους :max χαρακτήρες.',
+    ],
+    'min' => [
+        'string' => 'Το πεδίο :attribute πρέπει να έχει τουλάχιστον :min χαρακτήρες.',
+    ],
+    'in' => 'Η επιλεγμένη τιμή για το πεδίο :attribute δεν είναι έγκυρη.',
+    'unique' => 'Η τιμή του πεδίου :attribute χρησιμοποιείται ήδη.',
+    'email' => 'Το πεδίο :attribute πρέπει να είναι έγκυρη διεύθυνση email.',
+    'confirmed' => 'Η επιβεβαίωση του πεδίου :attribute δεν ταιριάζει.',
+    'array' => 'Το πεδίο :attribute πρέπει να είναι λίστα.',
+    'boolean' => 'Το πεδίο :attribute πρέπει να είναι αληθές ή ψευδές.',
+    'current_password' => 'Ο κωδικός πρόσβασης είναι λανθασμένος.',
+    'dimensions' => 'Η εικόνα στο πεδίο :attribute έχει μη έγκυρες διαστάσεις.',
+    'enum' => 'Η επιλεγμένη τιμή για το πεδίο :attribute δεν είναι έγκυρη.',
+    'exists' => 'Η επιλεγμένη τιμή για το πεδίο :attribute δεν είναι έγκυρη.',
+    'image' => 'Το πεδίο :attribute πρέπει να είναι εικόνα.',
+    'integer' => 'Το πεδίο :attribute πρέπει να είναι ακέραιος αριθμός.',
+    'lowercase' => 'Το πεδίο :attribute πρέπει να περιέχει μόνο πεζά γράμματα.',
+    'mimes' => 'Το πεδίο :attribute πρέπει να είναι αρχείο τύπου: :values.',
+    'not_regex' => 'Η μορφή του πεδίου :attribute δεν είναι έγκυρη.',
+    'regex' => 'Η μορφή του πεδίου :attribute δεν είναι έγκυρη.',
+    'uploaded' => 'Το ανέβασμα του αρχείου στο πεδίο :attribute απέτυχε.',
+    'url' => 'Το πεδίο :attribute πρέπει να είναι έγκυρο URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'βιογραφικό',
+        'categoryId' => 'κατηγορία',
+        'current_password' => 'τρέχων κωδικός πρόσβασης',
+        'description' => 'περιγραφή',
+        'display_name' => 'εμφανιζόμενο όνομα',
+        'email' => 'διεύθυνση email',
+        'image' => 'εικόνα',
+        'locale' => 'γλώσσα',
+        'message' => 'μήνυμα',
+        'name' => 'όνομα',
+        'password' => 'κωδικός πρόσβασης',
+        'profile_website_url' => 'ιστότοπος',
+        'reason' => 'λόγος',
+        'sourceUrl' => 'URL πηγής',
+        'subject' => 'θέμα',
+        'tagIds' => 'ετικέτες',
+        'title' => 'τίτλος',
+        'url' => 'URL',
+        'username' => 'όνομα χρήστη',
+    ],
+];

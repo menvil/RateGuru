@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Það verður að samþykkja reitinn „:attribute“.',
+    'required' => 'Reiturinn „:attribute“ er nauðsynlegur.',
+    'string' => 'Reiturinn „:attribute“ verður að vera texti.',
+    'max' => [
+        'array' => 'Reiturinn „:attribute“ má ekki innihalda fleiri en :max atriði.',
+        'file' => 'Reiturinn „:attribute“ má ekki vera stærri en :max kílóbæti.',
+        'string' => 'Reiturinn „:attribute“ má ekki vera lengri en :max stafir.',
+    ],
+    'min' => [
+        'string' => 'Reiturinn „:attribute“ verður að vera að minnsta kosti :min stafir.',
+    ],
+    'in' => 'Valið gildi í reitnum „:attribute“ er ógilt.',
+    'unique' => 'Gildið í reitnum „:attribute“ er þegar í notkun.',
+    'email' => 'Reiturinn „:attribute“ verður að vera gilt netfang.',
+    'confirmed' => 'Staðfesting reitsins „:attribute“ passar ekki.',
+    'array' => 'Reiturinn „:attribute“ verður að vera fylki.',
+    'boolean' => 'Reiturinn „:attribute“ verður að vera satt eða ósatt.',
+    'current_password' => 'Lykilorðið er rangt.',
+    'dimensions' => 'Myndin í reitnum „:attribute“ er með ógildar víddir.',
+    'enum' => 'Valið gildi í reitnum „:attribute“ er ógilt.',
+    'exists' => 'Valið gildi í reitnum „:attribute“ er ógilt.',
+    'image' => 'Reiturinn „:attribute“ verður að vera mynd.',
+    'integer' => 'Reiturinn „:attribute“ verður að vera heiltala.',
+    'lowercase' => 'Reiturinn „:attribute“ má aðeins innihalda lágstafi.',
+    'mimes' => 'Reiturinn „:attribute“ verður að vera skrá af gerðinni: :values.',
+    'not_regex' => 'Snið reitsins „:attribute“ er ógilt.',
+    'regex' => 'Snið reitsins „:attribute“ er ógilt.',
+    'uploaded' => 'Upphleðsla í reitinn „:attribute“ mistókst.',
+    'url' => 'Reiturinn „:attribute“ verður að vera gild vefslóð.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'um mig',
+        'categoryId' => 'flokkur',
+        'current_password' => 'núverandi lykilorð',
+        'description' => 'lýsing',
+        'display_name' => 'birtingarnafn',
+        'email' => 'netfang',
+        'image' => 'mynd',
+        'locale' => 'tungumál',
+        'message' => 'skilaboð',
+        'name' => 'nafn',
+        'password' => 'lykilorð',
+        'profile_website_url' => 'vefsíða',
+        'reason' => 'ástæða',
+        'sourceUrl' => 'vefslóð heimildar',
+        'subject' => 'efni',
+        'tagIds' => 'merki',
+        'title' => 'titill',
+        'url' => 'vefslóð',
+        'username' => 'notandanafn',
+    ],
+];

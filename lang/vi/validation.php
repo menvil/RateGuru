@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Trường :attribute phải được chấp nhận.',
+    'required' => 'Trường :attribute không được bỏ trống.',
+    'string' => 'Trường :attribute phải là một chuỗi ký tự.',
+    'max' => [
+        'array' => 'Trường :attribute không được có nhiều hơn :max mục.',
+        'file' => 'Trường :attribute không được lớn hơn :max kilobyte.',
+        'string' => 'Trường :attribute không được dài quá :max ký tự.',
+    ],
+    'min' => [
+        'string' => 'Trường :attribute phải có ít nhất :min ký tự.',
+    ],
+    'in' => 'Giá trị đã chọn cho :attribute không hợp lệ.',
+    'unique' => 'Đã có người sử dụng :attribute này.',
+    'email' => 'Trường :attribute phải là địa chỉ email hợp lệ.',
+    'confirmed' => 'Xác nhận :attribute không khớp.',
+    'array' => 'Trường :attribute phải là một mảng.',
+    'boolean' => 'Trường :attribute phải là true hoặc false.',
+    'current_password' => 'Mật khẩu không chính xác.',
+    'dimensions' => 'Trường :attribute có kích thước hình ảnh không hợp lệ.',
+    'enum' => 'Giá trị đã chọn cho :attribute không hợp lệ.',
+    'exists' => 'Giá trị đã chọn cho :attribute không hợp lệ.',
+    'image' => 'Trường :attribute phải là hình ảnh.',
+    'integer' => 'Trường :attribute phải là số nguyên.',
+    'lowercase' => 'Trường :attribute phải là chữ thường.',
+    'mimes' => 'Trường :attribute phải là tệp thuộc loại: :values.',
+    'not_regex' => 'Định dạng của :attribute không hợp lệ.',
+    'regex' => 'Định dạng của :attribute không hợp lệ.',
+    'uploaded' => 'Không thể tải lên :attribute.',
+    'url' => 'Trường :attribute phải là URL hợp lệ.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'tiểu sử',
+        'categoryId' => 'danh mục',
+        'current_password' => 'mật khẩu hiện tại',
+        'description' => 'mô tả',
+        'display_name' => 'tên hiển thị',
+        'email' => 'địa chỉ email',
+        'image' => 'hình ảnh',
+        'locale' => 'ngôn ngữ',
+        'message' => 'tin nhắn',
+        'name' => 'tên',
+        'password' => 'mật khẩu',
+        'profile_website_url' => 'trang web',
+        'reason' => 'lý do',
+        'sourceUrl' => 'URL nguồn',
+        'subject' => 'chủ đề',
+        'tagIds' => 'thẻ',
+        'title' => 'tiêu đề',
+        'url' => 'URL',
+        'username' => 'tên người dùng',
+    ],
+];

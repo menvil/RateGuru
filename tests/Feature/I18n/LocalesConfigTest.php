@@ -7,7 +7,8 @@ it('has supported locales config', function () {
 
 it('describes every installed locale with a label, a native name and a flag', function () {
     foreach (config('locales.supported') as $locale => $info) {
-        expect($locale)->toMatch('/^[a-z]{2}$/');
+        // ISO 639: two letters, or three for a language with no two-letter code — Filipino (fil), Montenegrin (cnr).
+        expect($locale)->toMatch('/^[a-z]{2,3}$/');
 
         foreach (['label', 'native', 'flag'] as $field) {
             expect($info[$field] ?? null)->toBeString("{$locale} has no {$field}")

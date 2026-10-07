@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Поље :attribute мора бити прихваћено.',
+    'required' => 'Поље :attribute је обавезно.',
+    'string' => 'Поље :attribute мора бити текст.',
+    'max' => [
+        'array' => 'Поље :attribute не сме да има више од :max ставки.',
+        'file' => 'Поље :attribute не сме бити веће од :max килобајта.',
+        'string' => 'Поље :attribute не сме да има више од :max карактера.',
+    ],
+    'min' => [
+        'string' => 'Поље :attribute мора да има најмање :min карактера.',
+    ],
+    'in' => 'Изабрана вредност поља :attribute није важећа.',
+    'unique' => 'Вредност поља :attribute је већ заузета.',
+    'email' => 'Поље :attribute мора бити исправна имејл адреса.',
+    'confirmed' => 'Потврда поља :attribute се не поклапа.',
+    'array' => 'Поље :attribute мора бити низ.',
+    'boolean' => 'Поље :attribute мора бити тачно или нетачно.',
+    'current_password' => 'Лозинка није тачна.',
+    'dimensions' => 'Слика у пољу :attribute има неважеће димензије.',
+    'enum' => 'Изабрана вредност поља :attribute није важећа.',
+    'exists' => 'Изабрана вредност поља :attribute није важећа.',
+    'image' => 'Поље :attribute мора бити слика.',
+    'integer' => 'Поље :attribute мора бити цео број.',
+    'lowercase' => 'Поље :attribute мора бити исписано малим словима.',
+    'mimes' => 'Поље :attribute мора бити датотека типа: :values.',
+    'not_regex' => 'Формат поља :attribute није исправан.',
+    'regex' => 'Формат поља :attribute није исправан.',
+    'uploaded' => 'Отпремање поља :attribute није успело.',
+    'url' => 'Поље :attribute мора бити исправан URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'о мени',
+        'categoryId' => 'категорија',
+        'current_password' => 'тренутна лозинка',
+        'description' => 'опис',
+        'display_name' => 'име за приказ',
+        'email' => 'имејл',
+        'image' => 'слика',
+        'locale' => 'језик',
+        'message' => 'порука',
+        'name' => 'име',
+        'password' => 'лозинка',
+        'profile_website_url' => 'веб-сајт',
+        'reason' => 'разлог',
+        'sourceUrl' => 'URL извора',
+        'subject' => 'тема',
+        'tagIds' => 'ознаке',
+        'title' => 'наслов',
+        'url' => 'URL',
+        'username' => 'корисничко име',
+    ],
+];
