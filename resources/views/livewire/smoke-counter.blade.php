@@ -1,3 +1,0 @@
-<div>
-    Livewire works
-</div>
