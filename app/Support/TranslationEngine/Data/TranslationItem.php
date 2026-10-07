@@ -30,7 +30,17 @@ final readonly class TranslationItem
 
     private const CONTENT_TYPE_PATTERN = '/^[a-z0-9][a-z0-9._-]*$/';
 
-    private const CONTROL_CHARACTERS = '/[\x00-\x1F\x7F]/';
+    /**
+     * Control (C0, DEL and C1), format (zero-width, bidirectional, BOM), line
+     * separator and paragraph separator characters. JSON encoding writes some
+     * of them as escapes even with JSON_UNESCAPED_UNICODE (U+2028, U+2029),
+     * and a model hands back a decoded, normalized or dropped character just
+     * as easily as the original.
+     */
+    private const INVISIBLE_CHARACTERS = '/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u';
+
+    /** Any Unicode whitespace or separator at either end — U+00A0 as much as a space. */
+    private const SURROUNDING_WHITESPACE = '/^[\s\p{Z}]|[\s\p{Z}]$/u';
 
     /** Where the text is used, for the model; null when the consumer gives none. */
     public ?string $context;
@@ -94,10 +104,11 @@ final readonly class TranslationItem
             throw InvalidTranslationRequestException::forItemId('must be at most '.self::MAX_ID_LENGTH.' characters');
         }
 
-        // A provider copies the id back; one with control characters or
-        // padding is one it may not copy exactly.
-        if (preg_match(self::CONTROL_CHARACTERS, $this->id) === 1 || $this->id !== trim($this->id)) {
-            throw InvalidTranslationRequestException::forItemId('must not contain control characters or surrounding whitespace');
+        // A provider copies the id back, and a translation it cannot match by
+        // id fails after the call is paid for. An id with invisible characters
+        // or padding is one it may not copy exactly.
+        if (preg_match(self::INVISIBLE_CHARACTERS, $this->id) === 1 || preg_match(self::SURROUNDING_WHITESPACE, $this->id) === 1) {
+            throw InvalidTranslationRequestException::forItemId('must not contain control, format or separator characters, or surrounding whitespace');
         }
     }
 

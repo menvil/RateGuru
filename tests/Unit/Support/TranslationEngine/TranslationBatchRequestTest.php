@@ -146,15 +146,22 @@ it('builds an item with every field a provider and the checks need', function ()
         ->and($item->existingTranslations)->toHaveKeys(['fr', 'pt_BR']);
 });
 
-it('refuses an id that is blank, too long, padded or carries control characters', function (string $id) {
+it('refuses an id that is blank, too long, padded or carries invisible characters', function (string $id) {
     translationItem(['id' => $id]);
 })->throws(InvalidTranslationRequestException::class, 'A translation item id')->with([
     'empty' => '',
     'blank' => '   ',
     'too long' => str_repeat('a', TranslationItem::MAX_ID_LENGTH + 1),
     'padded' => ' post:1:title',
+    'padded with a no-break space' => "\u{00A0}post:1:title",
+    'trailing ideographic space' => "post:1:title\u{3000}",
     'a newline' => "post:1\n:title",
     'a tab' => "post:1\t:title",
+    'a C1 control (next line)' => "post:1\u{0085}:title",
+    'a line separator' => "post:1\u{2028}:title",
+    'a paragraph separator' => "post:1\u{2029}:title",
+    'a zero-width space' => "post:1\u{200B}:title",
+    'a byte order mark' => "\u{FEFF}post:1:title",
     'invalid UTF-8' => "post:\xC3\x28",
 ]);
 
@@ -164,6 +171,8 @@ it('accepts any opaque id up to the bound, without interpreting it', function (s
     'a record field' => 'categories:17:name',
     'a comment body' => 'comment:9182:body',
     'unicode' => 'страница:о-нас',
+    'an inner space' => 'static page:about us',
+    'an inner no-break space' => "page:about\u{00A0}us",
     'at the bound' => str_repeat('a', TranslationItem::MAX_ID_LENGTH),
 ]);
 
