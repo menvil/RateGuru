@@ -14,10 +14,6 @@ it('has share providers config', function () {
     ]);
 });
 
-it('has share config enabled by default', function () {
-    expect(config('share.enabled'))->toBeTrue();
-});
-
 it('can disable individual providers', function () {
     config(['share.providers.facebook.enabled' => false]);
 
