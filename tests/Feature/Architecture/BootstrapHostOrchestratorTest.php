@@ -769,7 +769,7 @@ it('ignores every RATEGURU_BOOTSTRAPHOST_* override unless test overrides are ex
         // (non-root) test process fails the root gate — and no fixture
         // child is ever reached, proving the child-bin overrides were
         // ignored too.
-        if (getmyuid() === 0) {
+        if (testProcessIsRoot()) {
             test()->markTestSkipped('this test process is running as root — the require-root gate cannot prove the denied override');
         }
 

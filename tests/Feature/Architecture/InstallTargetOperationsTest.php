@@ -1438,7 +1438,7 @@ it('--apply requires root', function () {
     // default), require_root would succeed instead of failing, and --apply
     // would proceed into the real flow against /home/www/rateguru instead of
     // stopping at the gate this test exists to prove.
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
@@ -1449,7 +1449,7 @@ it('--apply requires root', function () {
 });
 
 it('--verify requires root', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
@@ -4568,7 +4568,7 @@ function installOpsHealthCheckFailingAfterInstall(array $vars, string $sideEffec
 }
 
 it('says the rollback is incomplete, and where the backups are, when a file it installed cannot be removed', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('a read-only directory does not stop root from removing files in it');
     }
 

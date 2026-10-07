@@ -859,7 +859,7 @@ it('resolve_target resolves the root only from the registry, via require_active_
 // =============================================================================
 
 it('requires root before anything else, even for --target with an obviously invalid rollback', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
