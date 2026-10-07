@@ -957,7 +957,7 @@ it('keeps --e2e as the mutating acceptance mode, and the default when no mode is
         ->toContain('trap cleanup EXIT');
 
     // A non-root --e2e still refuses, while --read-only does not require root.
-    if (getmyuid() !== 0) {
+    if (! testProcessIsRoot()) {
         $script = escapeshellarg(base_path('infrastructure/scripts/verify-mail-capture'));
         exec("bash {$script} --e2e 2>&1", $e2eOutput, $e2eExit);
         expect($e2eExit)->not->toBe(0);

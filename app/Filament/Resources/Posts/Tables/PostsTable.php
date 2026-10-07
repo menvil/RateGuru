@@ -108,9 +108,14 @@ class PostsTable
                 Filter::make('hidden')
                     ->label('Hidden')
                     ->query(fn (Builder $query) => $query->where('status', PostStatus::Hidden)),
+                // The same posts the dashboard's Reported posts count, which links
+                // here: reported ones, and ones flagged for review even after
+                // their reports were dismissed.
                 Filter::make('reported')
                     ->label('Reported')
-                    ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
+                    ->query(fn (Builder $query) => $query->where(fn (Builder $query) => $query
+                        ->where('reports_count', '>', 0)
+                        ->orWhere('needs_review', true))),
                 Filter::make('author_deleted')
                     ->label('Deleted by author')
                     ->query(fn (Builder $query) => $query
