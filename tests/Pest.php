@@ -5637,14 +5637,16 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
  * — it runs in this process — gets a small reporter at the top of its <head>,
  * which posts each error to a route that exists only for this test.
  *
- * @return ArrayObject<int, array<string, string>>
+ * @return ArrayObject<string, array<string, string>>
  */
 function watchBrowserJavaScriptErrors(Application $app): ArrayObject
 {
     $errors = new ArrayObject;
 
+    // Keyed by the report's own ID: a report resent as a beacon after its fetch
+    // was cut short by a navigation may arrive twice, and counts once.
     $app['router']->post('__browser-test/javascript-errors', function (Request $request) use ($errors) {
-        $errors[] = array_map('strval', $request->only(['kind', 'message', 'source', 'page']));
+        $errors[(string) $request->input('id')] = array_map('strval', $request->only(['kind', 'message', 'source', 'page']));
 
         return response()->noContent();
     });
@@ -5652,12 +5654,23 @@ function watchBrowserJavaScriptErrors(Application $app): ArrayObject
     $reporter = <<<'HTML'
         <script>
         (() => {
-            const report = (kind, message, source) => fetch('/__browser-test/javascript-errors', {
-                method: 'POST',
-                keepalive: true,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ kind, message: String(message), source: String(source ?? ''), page: location.pathname + location.search }),
-            }).catch(() => {});
+            const endpoint = '/__browser-test/javascript-errors';
+
+            // A report that does not get through is not dropped. A refused or
+            // failed fetch is sent again as a beacon, which the browser
+            // delivers even while the page unloads; what neither can send is
+            // kept on the page, where a debugging session can find it.
+            const report = (kind, message, source) => {
+                const body = JSON.stringify({ id: crypto.randomUUID(), kind, message: String(message), source: String(source ?? ''), page: location.pathname + location.search });
+                const resend = () => {
+                    if (! navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }))) {
+                        (window.__rgUndeliveredJavaScriptErrors ??= []).push(body);
+                    }
+                };
+
+                fetch(endpoint, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body })
+                    .then((response) => response.ok || resend(), resend);
+            };
 
             window.addEventListener('error', (event) => report('error', event.message, `${event.filename}:${event.lineno}:${event.colno}`));
             window.addEventListener('unhandledrejection', (event) => report('unhandledrejection', event.reason?.stack ?? event.reason?.message ?? event.reason, ''));
@@ -5678,11 +5691,12 @@ function watchBrowserJavaScriptErrors(Application $app): ArrayObject
             return;
         }
 
+        // The whole opening tag, attributes included (<head prefix="og: …">),
+        // and never <header>.
         $content = (string) $response->getContent();
-        $head = stripos($content, '<head>');
 
-        if ($head !== false) {
-            $response->setContent(substr_replace($content, $reporter, $head + strlen('<head>'), 0));
+        if (preg_match('/<head(?=[\s>])[^>]*>/i', $content, $head, PREG_OFFSET_CAPTURE) === 1) {
+            $response->setContent(substr_replace($content, $reporter, $head[0][1] + strlen($head[0][0]), 0));
         }
     });
 
@@ -5691,19 +5705,33 @@ function watchBrowserJavaScriptErrors(Application $app): ArrayObject
 
 /**
  * Fails the test with every JavaScript error watchBrowserJavaScriptErrors()
- * collected. A report still on its way gets a moment to arrive first: it is
- * sent the instant the error happens, but the server only answers while the
- * test lets the event loop run.
+ * collected.
  *
- * @param  ArrayObject<int, array<string, string>>  $errors
+ * A report is sent the instant its error happens, but the server only answers
+ * while the test lets the event loop run, and the test cannot ask a page what
+ * it still has in flight. So this waits until the reports stop coming: at
+ * least $quietSeconds with none arriving, and never longer than $maxSeconds.
+ *
+ * @param  ArrayObject<string, array<string, string>>  $errors
  */
-function assertNoBrowserJavaScriptErrors(ArrayObject $errors): void
+function assertNoBrowserJavaScriptErrors(ArrayObject $errors, float $quietSeconds = 0.075, float $maxSeconds = 1.0): void
 {
-    browserTestPause(0.05);
+    $start = microtime(true);
+    $seen = count($errors);
+    $lastArrival = $start;
+
+    do {
+        browserTestPause(0.025);
+
+        if (count($errors) !== $seen) {
+            $seen = count($errors);
+            $lastArrival = microtime(true);
+        }
+    } while (microtime(true) - $lastArrival < $quietSeconds && microtime(true) - $start < $maxSeconds);
 
     $reported = array_map(
         fn (array $error): string => "{$error['kind']} on {$error['page']}: {$error['message']} ({$error['source']})",
-        $errors->getArrayCopy(),
+        array_values($errors->getArrayCopy()),
     );
 
     expect($reported)->toBe([], 'the pages this test opened raised JavaScript errors');
