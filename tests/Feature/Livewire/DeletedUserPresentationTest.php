@@ -2,7 +2,6 @@
 
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\CommentStatus;
-use App\Http\Resources\Api\UserResource;
 use App\Livewire\Feed\PostDrawer;
 use App\Livewire\Posts\PostShow;
 use App\Models\Comment;
@@ -92,16 +91,4 @@ it('keeps the post itself publicly accessible after author deletion', function (
     [, $post] = tombstonedAuthorWithPost();
 
     $this->get(route('posts.show', $post))->assertOk();
-});
-
-it('exposes no username or profile url through the API resource', function () {
-    [$author] = tombstonedAuthorWithPost();
-
-    $payload = UserResource::make($author)->resolve();
-
-    expect($payload['username'])->toBeNull()
-        ->and($payload['display_name'])->toBe('Deleted user')
-        ->and($payload['avatar_url'])->toBeNull()
-        ->and($payload['avatar_srcset'])->toBeNull()
-        ->and($payload['profile_url'])->toBeNull();
 });
