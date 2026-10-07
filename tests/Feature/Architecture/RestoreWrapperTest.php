@@ -127,7 +127,7 @@ it('requires root for a real invocation, before anything else runs', function ()
             'HOME' => getenv('HOME') ?: '/tmp',
         ]);
 
-        if (getmyuid() === 0) {
+        if (testProcessIsRoot()) {
             expect($exit)->toBe(0, $output);
 
             return;

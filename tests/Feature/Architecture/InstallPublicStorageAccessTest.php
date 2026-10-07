@@ -521,7 +521,7 @@ it('--check succeeds against a healthy scratch target and performs no writes (as
 // =============================================================================
 
 it('--check requires root', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
@@ -539,7 +539,7 @@ it('--check requires root', function () {
 });
 
 it('--apply requires root', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
@@ -557,7 +557,7 @@ it('--apply requires root', function () {
 });
 
 it('--verify requires root', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 

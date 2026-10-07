@@ -641,7 +641,7 @@ it('rejects a removed --environment flag exactly like any other unknown argument
 // =============================================================================
 
 it('requires root before anything else, even for --target tits-guru', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 
