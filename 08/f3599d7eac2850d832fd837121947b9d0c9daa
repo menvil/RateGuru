@@ -1,0 +1,47 @@
+infrastructure/ROADMAP.md
+  s_1bfa4d0742417e::t_07a2a20652af08 1895-1912
+infrastructure/scripts/mail-identity
+  s_1bfa4d0742417e::t_2acb8dd8f1d3b1 56-59
+  s_1bfa4d0742417e::t_8c01c5e3adbdfe 151-154
+  s_1bfa4d0742417e::t_f83ddbee0777d9 743-760,771-786,788-790,792,795,799,801-802,806-807,813-817,825-848,850-876,878-882,891-900,902
+  s_1bfa4d0742417e::t_376648014d119d 849
+  s_1bfa4d0742417e::t_11b9c4a8a518c2 877
+  s_1bfa4d0742417e::t_fc51147c7aa1a7 883-890
+  s_1bfa4d0742417e::t_1eabc9709220ca 901,903-908
+  s_1bfa4d0742417e::t_00ac96551610f7 1307
+tests/Feature/Architecture/MailIdentityTest.php
+  s_1bfa4d0742417e::t_6ba334cfb2fc26 618-620
+  s_1bfa4d0742417e::t_d5215f8048f717 668
+  s_1bfa4d0742417e::t_172c77be8134c8 689-701,708-753,755-934,938-951,953-968,970-975,978-984
+  s_1bfa4d0742417e::t_70c59fbb2d45a6 754
+  s_1bfa4d0742417e::t_f9af08116c910a 935-937
+  s_1bfa4d0742417e::t_c8d3a712f8f44e 952
+  s_1bfa4d0742417e::t_314cde622ec8c0 969,976-977
+  s_1bfa4d0742417e::t_8220d19e2e9d5b 1048-1086
+  s_1bfa4d0742417e::t_da7df2759afa64 1096
+tests/Pest.php
+  s_1bfa4d0742417e::t_dd98449f229c6b 1936-1945,1965,1983-1997,1999-2000
+  s_1bfa4d0742417e::t_b0ab1542f33050 1951-1958
+  s_1bfa4d0742417e::t_b80990487841c6 1960-1964,1966-1970,1976
+  s_1bfa4d0742417e::t_30554c26a024e8 2034-2044
+infrastructure/runbooks/mail-identity.md
+  s_1bfa4d0742417e::t_b78e859a3051b1 186-233
+  s_1bfa4d0742417e::t_d47086732fe573 246-249
+  s_1bfa4d0742417e::t_659eee0c24c7f2 266-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "08f3599d7eac2850d832fd837121947b9d0c9daa",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

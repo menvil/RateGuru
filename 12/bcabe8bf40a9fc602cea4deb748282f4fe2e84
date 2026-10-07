@@ -1,0 +1,29 @@
+infrastructure/scripts/smtp-submission
+  s_1bfa4d0742417e::t_e3560edb1382f9 119-123,128-130,138-140
+infrastructure/scripts/send-mail-canary
+  s_1bfa4d0742417e::t_e3560edb1382f9 190-191,193,196-198,200,202-218
+infrastructure/scripts/verify-mail-signing
+  s_1bfa4d0742417e::t_e3560edb1382f9 357-358,360,362-363,370-380,458-460,462,469-479,482-491,495-500,542-549,559-560,562,569-570,599-602
+tests/Feature/Architecture/MailSigningTest.php
+  s_1bfa4d0742417e::t_7884b8315b96a7 1443-1473
+tests/Pest.php
+  s_1bfa4d0742417e::t_7884b8315b96a7 2923-2925,2934-2937,2953
+tests/Feature/Architecture/MailCanaryTest.php
+  s_1bfa4d0742417e::t_7884b8315b96a7 144-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "12bcabe8bf40a9fc602cea4deb748282f4fe2e84",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
