@@ -22,7 +22,7 @@ Phase 49 adds full outbound sharing for posts via share URLs, Web Share API, and
 
 ### ShareProvider Enum
 
-`app/Enums/ShareProvider.php` — PHP enum with all 9 providers. Use `ShareProvider::isValid($string)` to check validity and `ShareProvider::urlProviders()` for providers that generate URLs.
+`app/Enums/ShareProvider.php` — PHP enum with all 9 providers. Use `ShareProvider::tryFrom($string) !== null` to check validity and `ShareProvider::urlProviders()` for providers that generate URLs.
 
 ### ShareMetadata Value Object
 

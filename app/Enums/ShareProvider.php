@@ -14,11 +14,6 @@ enum ShareProvider: string
     case Pinterest = 'pinterest';
     case Email = 'email';
 
-    public static function isValid(string $value): bool
-    {
-        return self::tryFrom($value) !== null;
-    }
-
     public static function urlProviders(): array
     {
         return [

@@ -45,31 +45,6 @@ class Post extends Model
         ];
     }
 
-    public function scopePending(Builder $query): Builder
-    {
-        return $query->where('status', PostStatus::Pending);
-    }
-
-    public function scopeHidden(Builder $query): Builder
-    {
-        return $query->where('status', PostStatus::Hidden);
-    }
-
-    public function scopeReported(Builder $query): Builder
-    {
-        return $query->where('reports_count', '>', 0);
-    }
-
-    public function scopeRecent(Builder $query): Builder
-    {
-        return $query->orderByDesc('created_at');
-    }
-
-    public function scopeHot(Builder $query): Builder
-    {
-        return $query->orderByDesc('hot_score');
-    }
-
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);

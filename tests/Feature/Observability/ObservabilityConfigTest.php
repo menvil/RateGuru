@@ -18,7 +18,3 @@ it('has redaction keys configured', function () {
     expect($keys)->toContain('token');
     expect($keys)->toContain('_token');
 });
-
-it('has security events enabled by default', function () {
-    expect(config('observability.security_events.enabled'))->toBeTrue();
-});

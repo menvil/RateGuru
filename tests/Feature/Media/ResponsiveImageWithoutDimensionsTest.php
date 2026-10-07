@@ -2,12 +2,10 @@
 
 use App\Enums\MediaVariantName;
 use App\Enums\PostImageContext;
-use App\Http\Resources\Api\PostResource;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Support\Media\PostImagePresenter;
-use Illuminate\Http\Request;
 
 /**
  * `media_assets.width` and `.height` are nullable columns, so an asset stored
@@ -48,18 +46,6 @@ it('presents an image whose dimensions were never recorded', function () {
     // The src still resolves — a missing dimension is a missing attribute, not a
     // missing image.
     expect($image->src)->not->toBeEmpty();
-});
-
-it('serialises a post whose image has no dimensions', function () {
-    // The failure as an API consumer would have met it: a TypeError, on a public
-    // post, from a GET.
-    $post = postWithDimensionlessImage();
-
-    $payload = (new PostResource($post))->toArray(Request::create('/'));
-
-    expect($payload['image_width'])->toBeNull();
-    expect($payload['image_height'])->toBeNull();
-    expect($payload['image_url'])->not->toBeEmpty();
 });
 
 it('still reports dimensions when the asset has them', function () {

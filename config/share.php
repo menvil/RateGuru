@@ -2,8 +2,6 @@
 
 return [
 
-    'enabled' => true,
-
     'open_graph' => [
         'width' => 1200,
         'height' => 630,

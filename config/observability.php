@@ -30,10 +30,6 @@ return [
         ],
     ],
 
-    'security_events' => [
-        'enabled' => true,
-    ],
-
     // Sentry and Nightwatch are real, installed integrations and are each
     // configured entirely in their own file (config/sentry.php,
     // config/nightwatch.php) — both are deliberately absent from this list, so
