@@ -69,3 +69,20 @@ it('records Translation Center as the first consumer, through the project adapte
         ->toContain('stores nothing; neither does the engine')
         ->toContain('**Bulk generation reuses it.**');
 });
+
+it('records Generate missing as a second consumer that keeps its drafts and queue outside the engine', function () {
+    expect(translationEngineDoc())
+        ->toContain('## Second consumer: Generate missing')
+        ->toContain('→ ProjectTranslationGenerationPlanner')
+        ->toContain('→ GenerateProjectTranslationChunkJob × chunks')
+        ->toContain('Translation engine ≠ translation storage ≠ draft storage')
+        ->toContain('**One job, at most one paid call.**')
+        ->toContain('`tries = 1`')
+        ->toContain('`translation-generation:batch:{uuid}:chunk:{id}`')
+        ->toContain('expires 48 hours after the batch was created')
+        ->toContain('reading never extends it')
+        ->toContain('`worker_interrupted`')
+        ->toContain('never from the browser')
+        ->toContain('never a source text, a translation, a prompt or a provider request')
+        ->toContain('so no test needs a Redis server either');
+});

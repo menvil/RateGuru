@@ -99,6 +99,62 @@ place project content is described to it.
 - **Bulk generation reuses it.** The factory takes a list: translating every missing unit of a language is the
   same call with many units, cut into provider requests by the engine as described below.
 
+## Second consumer: Generate missing
+
+Translation Center's Generate missing translates every translation a language is missing in the background. The
+engine is the same and stays as generic; everything around it — what is missing, the queue, the drafts, Save — is
+project orchestration in `App\Support\Translations\Generation`, `App\Jobs\Translations` and
+`App\Actions\Translations`:
+
+```text
+Translation Center (Generate missing)               the target language — nothing else
+→ StartProjectTranslationGenerationAction           every missing unit, read from the catalog now
+→ ProjectTranslationRequestFactory                  the same request an interactive suggestion uses
+→ ProjectTranslationGenerationPlanner               the engine's chunker, at the configured provider's limits
+→ ProjectTranslationGenerationStore                 a batch: metadata + one chunk per provider request
+→ GenerateProjectTranslationChunkJob × chunks       one job per chunk, on the existing queue
+   → TranslationService::translate(chunk)           at most one provider request per job
+```
+
+```text
+Translation engine  ≠  translation storage  ≠  draft storage
+```
+
+- **One job, at most one paid call.** The planner cuts the request with `TranslationBatchChunker` and the
+  configured provider's own `limits()` — no limit of its own — so each chunk is exactly one provider request; a
+  language can have more than one logical batch's 500 items, in as many chunks as it takes. Each job carries only
+  the batch and chunk ids, has `tries = 1`, a 90-second timeout and `failOnTimeout`, and is never retried: a retry
+  could be a second paid call, and generating again is the administrator's choice. An item too large for any one
+  request is set apart, failed and never sent.
+- **Checked again before anything is sent.** A job first claims its chunk — only a queued chunk can be claimed,
+  so a job delivered twice sends nothing the second time — then checks that whoever started the batch may still
+  manage project settings, that the provider and its limits are the ones planned for, and that each item is still
+  listed, still has the English it was planned from (`ProjectTranslationSourceFingerprint`, SHA-256 of the unit id
+  and its English text) and is still missing. An item that fails is skipped and never sent. What is sent is the
+  item as it was snapshotted when the batch was planned, so the request and the plan cannot drift.
+- **Drafts are temporary workflow state, never project content.** A batch lives in the cache store
+  `translation.bulk.cache_store` (Redis on a deployed target) under keys that carry no text —
+  `translation-generation:active:{user}:{locale}`, `translation-generation:running:{locale}`,
+  `translation-generation:batch:{uuid}` and `translation-generation:batch:{uuid}:chunk:{id}` — as plain arrays
+  only (the cache unserializes no objects). Every key of a batch
+  expires 48 hours after the batch was created (`translation.bulk.ttl_seconds`); reading never extends it. Nothing
+  is written to the database, and there is no migration.
+- **Locks only around state.** Every change of state happens under a short lock on the batch; the provider call
+  happens outside it. A chunk a worker claimed and never finished is failed as `worker_interrupted` once
+  `translation.bulk.stale_running_seconds` (180) have passed, the next time the batch is read — and a result that
+  still arrives afterwards is kept, since it was paid for.
+- **One batch per administrator and language, one running per language.** Starting again returns the batch that
+  is running or still has suggestions to review instead of paying for them twice; a language another administrator
+  is generating is refused until that generation finishes. Partial results are kept: a chunk that fails fails its
+  own items only.
+- **Save stays explicit.** `SaveProjectTranslationGenerationAction` saves one suggestion, or every ready one
+  (Save all generated), with the text read from the store — never from the browser — each through
+  `UpdateProjectTranslationAction` on its own, with no transaction around them. A suggestion whose English changed
+  since it was generated, or for a translation someone saved meanwhile, is skipped and never overwrites anything.
+  `DiscardProjectTranslationGenerationAction` lets suggestions go on the server.
+- **Nothing sensitive in logs.** A failed chunk logs `translation.generation_chunk_failed` with the batch and chunk
+  ids and an error code — never a source text, a translation, a prompt or a provider request.
+
 ## Always a batch
 
 There is one public method, `TranslationService::translate(TranslationBatchRequest): TranslationBatchResult`, and
@@ -284,8 +340,10 @@ stored nowhere.
 ## What the engine deliberately does not do
 
 - **No storage.** No database writes, no migrations, no cache, no Redis, no AI-suggestion store. A result exists only
-  as the returned object; what is kept, and where, is the consumer's decision.
-- **No queue.** No jobs, no dispatch, no orchestration.
+  as the returned object; what is kept, and where, is the consumer's decision — Generate missing keeps its drafts in
+  its own store, outside the engine.
+- **No queue.** No jobs, no dispatch, no orchestration; Generate missing queues its own jobs, each of which calls
+  the engine once.
 - **No fallback.** When the configured provider fails, its items fail; content is never quietly sent to a second,
   possibly paid, provider.
 - **No retry.** See above.
@@ -344,4 +402,6 @@ Authorization header or the key.
 
 No test reaches OpenAI. The provider is tested under `Http::fake()` with stray requests prevented; the service
 against a scripted provider registered like any other. See `tests/Unit/Support/TranslationEngine/` and
-`tests/Feature/TranslationEngine/`.
+`tests/Feature/TranslationEngine/`. Generate missing is tested with the queue faked and its jobs run by hand,
+against the same scripted provider and with the array cache store in place of Redis, so no test needs a Redis
+server either (`tests/Feature/I18n/*Generation*`).
