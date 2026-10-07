@@ -525,6 +525,15 @@ its data verification, or a compensation that put the live data back. A
 recovery the output demands; the path is printed in the `MANUAL RECOVERY
 REQUIRED` block.
 
+Re-labelling it from `in-progress` to `held` at the end of a successful held
+restore is the one write that is allowed to fail without failing the run: the
+guard is already in place and still blocks backups. Continuing, though, starts
+with `--inspect`, which refuses an `in-progress` guard. So the run then prints
+`ACTION REQUIRED FIRST` above the continuation, with the one command that
+finishes the re-label once the cause is fixed. `--inspect` repeats the same
+diagnosis and command for as long as the operation's own state says `held`
+while its guard still says `in-progress`.
+
 ## Resuming a held target
 
 **Do not use the normal deployment path.** A normal deploy is not
