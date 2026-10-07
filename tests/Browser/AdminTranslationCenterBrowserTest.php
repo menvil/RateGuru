@@ -993,12 +993,13 @@ it('replaces an AI suggestion with another on Regenerate, and keeps it when Rege
     focusAiButton($page, $dogs)->script('document.activeElement.click()');
     waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
 
-    expect(translationScreen($page)['toasts'])->toContain('The translation provider is unavailable. Try again.')
+    // The toast is drawn at once; the row hides its "Generating…" indicator a frame later.
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('The translation provider is unavailable. Try again.')
         ->and(translationAiState($page, $dogs))->toMatchArray([
             'value' => 'Псы', 'state' => ['AI suggestion · not saved'], 'generating' => false, 'readonly' => false, 'busy' => 'false', 'ai' => 'Regenerate', 'aiDisabled' => 'false',
         ])
         ->and($page->script('document.activeElement.querySelector("span")?.textContent.trim()'))->toBe('Regenerate')
-        ->and($this->dogs->fresh()->name_translations)->toBeNull();
+        ->and($this->dogs->fresh()->name_translations)->toBeNull());
 });
 
 it('suggests an alternative to a saved translation, keeping the saved one until the alternative is saved', function () {
@@ -1039,8 +1040,9 @@ it('says so when the alternative is the saved translation word for word, and lea
     focusAiButton($page, $birds)->script('document.activeElement.click()');
     waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
 
-    expect(translationScreen($page)['toasts'])->toContain('AI suggested the same text as the saved translation.')
-        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false, 'ai' => 'Suggest alternative']);
+    // The toast is drawn at once; the row hides its "Generating…" indicator a frame later.
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('AI suggested the same text as the saved translation.')
+        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false, 'ai' => 'Suggest alternative']));
 });
 
 it('refuses an alternative once someone else has changed the saved translation, and says to reload', function () {
@@ -1053,8 +1055,9 @@ it('refuses an alternative once someone else has changed the saved translation, 
     focusAiButton($page, $birds)->script('document.activeElement.click()');
     waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
 
-    expect(translationScreen($page)['toasts'])->toContain('This translation was changed by someone else. Reload the page to review it.')
-        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false]);
+    // The toast is drawn at once; the row hides its "Generating…" indicator a frame later.
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('This translation was changed by someone else. Reload the page to review it.')
+        ->and(translationAiState($page, $birds))->toMatchArray(['state' => ['Saved'], 'value' => 'Птицы', 'generating' => false]));
 });
 
 it('turns an AI suggestion that is edited into an ordinary edit, saved as typed', function () {
@@ -1170,11 +1173,12 @@ it('recovers from a suggestion request that fails, leaving manual translation as
     focusAiButton($page, $dogs)->script('document.activeElement.click()');
     waitForScript($page, "document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text').length > 0");
 
-    expect(translationScreen($page)['toasts'])->toContain('No suggestion: the server did not answer. Try again.')
+    // The toast is drawn at once; the row hides its "Generating…" indicator a frame later.
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('No suggestion: the server did not answer. Try again.')
         ->and(translationAiState($page, $dogs))->toMatchArray([
             'state' => ['Missing'], 'value' => '', 'generating' => false, 'readonly' => false, 'busy' => 'false', 'ai' => 'AI translate', 'aiDisabled' => 'false',
         ])
-        ->and(translationScreen($page)['strip'])->toBeNull();
+        ->and(translationScreen($page)['strip'])->toBeNull());
 
     // Manual translation goes on as before, once the server answers again.
     $page->script('window.livewireGate.fail = false');
