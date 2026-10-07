@@ -36,8 +36,11 @@ use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -85,6 +88,14 @@ pest()->extend(TestCase::class)
 pest()->beforeEach(function (): void {
     $this->withoutVite();
 })->in('Feature');
+
+// A Browser test fails on any JavaScript error any page it opened raised,
+// whether or not it asserts on that page: see watchBrowserJavaScriptErrors().
+pest()->beforeEach(function (): void {
+    $this->browserJavaScriptErrors = watchBrowserJavaScriptErrors($this->app);
+})->afterEach(function (): void {
+    assertNoBrowserJavaScriptErrors($this->browserJavaScriptErrors);
+})->in('Browser');
 
 /*
 |--------------------------------------------------------------------------
@@ -5611,6 +5622,91 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
             browserTestPause(0.025);
         }
     }
+}
+
+/**
+ * Collects every uncaught JavaScript error, unhandled promise rejection and
+ * console.error() call of any page served to the browser, for the rest of the
+ * test. Alpine and Livewire report what they catch through console.error(),
+ * and the suite is clean of it, so it counts as a failure as well.
+ *
+ * The browser plugin's own assertNoJavaScriptErrors() reads one page's record:
+ * a navigation starts a new one, a test has to remember to ask, and an
+ * unhandled rejection never makes it into the record at all. This works from
+ * the server's side instead. Every HTML page the application under test sends
+ * — it runs in this process — gets a small reporter at the top of its <head>,
+ * which posts each error to a route that exists only for this test.
+ *
+ * @return ArrayObject<int, array<string, string>>
+ */
+function watchBrowserJavaScriptErrors(Application $app): ArrayObject
+{
+    $errors = new ArrayObject;
+
+    $app['router']->post('__browser-test/javascript-errors', function (Request $request) use ($errors) {
+        $errors[] = array_map('strval', $request->only(['kind', 'message', 'source', 'page']));
+
+        return response()->noContent();
+    });
+
+    $reporter = <<<'HTML'
+        <script>
+        (() => {
+            const report = (kind, message, source) => fetch('/__browser-test/javascript-errors', {
+                method: 'POST',
+                keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kind, message: String(message), source: String(source ?? ''), page: location.pathname + location.search }),
+            }).catch(() => {});
+
+            window.addEventListener('error', (event) => report('error', event.message, `${event.filename}:${event.lineno}:${event.colno}`));
+            window.addEventListener('unhandledrejection', (event) => report('unhandledrejection', event.reason?.stack ?? event.reason?.message ?? event.reason, ''));
+
+            const consoleError = console.error;
+            console.error = (...args) => {
+                report('console.error', args.map(String).join(' '), '');
+                consoleError.apply(console, args);
+            };
+        })();
+        </script>
+        HTML;
+
+    $app['events']->listen(RequestHandled::class, function (RequestHandled $event) use ($reporter): void {
+        $response = $event->response;
+
+        if (! str_contains((string) $response->headers->get('Content-Type'), 'text/html')) {
+            return;
+        }
+
+        $content = (string) $response->getContent();
+        $head = stripos($content, '<head>');
+
+        if ($head !== false) {
+            $response->setContent(substr_replace($content, $reporter, $head + strlen('<head>'), 0));
+        }
+    });
+
+    return $errors;
+}
+
+/**
+ * Fails the test with every JavaScript error watchBrowserJavaScriptErrors()
+ * collected. A report still on its way gets a moment to arrive first: it is
+ * sent the instant the error happens, but the server only answers while the
+ * test lets the event loop run.
+ *
+ * @param  ArrayObject<int, array<string, string>>  $errors
+ */
+function assertNoBrowserJavaScriptErrors(ArrayObject $errors): void
+{
+    browserTestPause(0.05);
+
+    $reported = array_map(
+        fn (array $error): string => "{$error['kind']} on {$error['page']}: {$error['message']} ({$error['source']})",
+        $errors->getArrayCopy(),
+    );
+
+    expect($reported)->toBe([], 'the pages this test opened raised JavaScript errors');
 }
 
 /**
