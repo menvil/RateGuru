@@ -2800,8 +2800,8 @@ it('records the gateway as accepted on the real host, and the direct outbound ca
         ->toContain('*Unchanged on purpose:* `tits-guru` is still `held` and `lifecycle=planned`, the real `mail-outbound.json` keeps direct delivery disabled')
         ->toContain('no email was sent to the public Internet')
         ->toContain('**8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing activated.**')
-        ->toContain('**8.4B.4.2a DKIM signing foundation — IMPLEMENTED — production acceptance pending.**')
-        ->toContain('**8.4B.4.2b DNS-ready activation and the first real delivery — planned.**')
+        ->toContain('**8.4B.4.2a DKIM signing foundation — PRODUCTION-ACCEPTED.**')
+        ->toContain('**8.4B.4.2b Guarded outbound activation and the first real delivery — IMPLEMENTED — production activation pending.**')
         // The backup gate stays; acceptance moves to after activation.
         ->toContain('`backup-cycle` runs only for a `lifecycle=active` target')
         ->toContain('That gate is deliberate and is not weakened to take a backup early.')

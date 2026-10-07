@@ -1,0 +1,142 @@
+# shellcheck shell=bash
+#
+# smtp-submission — the one SMTP conversation RateGuru's mail tooling holds
+# with the host's mail gateway, and the lookups of exact queue entries that go
+# with it. A sourced library, never executed: verify-mail-signing submits its
+# held probes through it and send-mail-canary its one real canary, so a probe
+# and a canary speak to Postfix in exactly the same way.
+#
+# WHAT IT TALKS TO. One loopback gateway listener per submission, and nothing
+# else: smtp_submit_message refuses a host that is not an IPv4 loopback address
+# before it opens a connection, so no caller can turn it into a client of
+# anything on the network. The gateway decides where the message goes; this
+# library only hands it over.
+#
+# WHAT IT NEVER DOES. It never flushes, releases, requeues or deletes anything,
+# never prints the conversation, and never evaluates a value as code. Its
+# callers delete their own entries, by exact queue ID, themselves.
+#
+# The caller provides POSTQUEUE_BIN for the queue lookups. The results of a
+# submission are left in three variables:
+#
+#   SMTP_STAGE     where it ended: connect, ehlo, mail, rcpt, data, "message"
+#                  for a refusal at the end of the data — or "queued"
+#   SMTP_REPLY     the last reply line the gateway gave
+#   SMTP_QUEUE_ID  the queue ID Postfix named when it queued the message
+
+# shellcheck disable=SC2034 # the results callers read
+SMTP_STAGE=""
+SMTP_REPLY=""
+SMTP_QUEUE_ID=""
+
+# _smtp_reply WANT — read one (possibly multi-line) reply from fd 4; succeed
+# when its code starts with WANT.
+_smtp_reply() {
+    local want="$1" line
+    SMTP_REPLY=""
+    while IFS= read -r -t 15 -u 4 line; do
+        line="${line%$'\r'}"
+        SMTP_REPLY="${line}"
+        [[ "${line:3:1}" == "-" ]] && continue
+        [[ "${line:0:1}" == "${want}" ]] && return 0
+        return 1
+    done
+    return 1
+}
+
+# _smtp_step STAGE WANT [COMMAND] — send COMMAND, if any, and require a reply
+# starting with WANT.
+_smtp_step() {
+    local stage="$1" want="$2"
+    SMTP_STAGE="${stage}"
+    if [[ $# -ge 3 ]]; then
+        printf '%s\r\n' "$3" >&4
+    fi
+    _smtp_reply "${want}"
+}
+
+# smtp_submit_message HOST PORT HELO SENDER RECIPIENT MESSAGE — one transaction
+# to the gateway listener HOST:PORT: EHLO HELO, the envelope SENDER and exactly
+# one RECIPIENT, then MESSAGE (its lines separated by newlines, headers, an
+# empty line and the body), sent with CRLF line endings and dot-stuffed.
+# Succeeds only when Postfix queued it.
+#
+# fd 4 is opened and closed with a bare exec; the stderr silencing is on a group
+# around it, so it lasts only for that exec.
+smtp_submit_message() {
+    local host="$1" port="$2" helo="$3" sender="$4" recipient="$5" message="$6" line
+
+    SMTP_STAGE="connect"
+    SMTP_REPLY=""
+    SMTP_QUEUE_ID=""
+
+    if [[ ! "${host}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ || ! "${port}" =~ ^[1-9][0-9]{0,4}$ ]]; then
+        SMTP_REPLY="${host}:${port} is not a loopback gateway endpoint — nothing was submitted"
+        return 1
+    fi
+
+    # Each of these becomes one SMTP command line: nothing in it may end that
+    # line early or start another.
+    for line in "${helo}" "${sender}" "${recipient}"; do
+        if [[ -z "${line}" || "${line}" =~ [[:cntrl:][:space:]\<\>] ]]; then
+            SMTP_REPLY="a greeting or address that is empty or holds a space, a control character or an angle bracket — nothing was submitted"
+            return 1
+        fi
+    done
+
+    { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || return 1
+
+    if _smtp_step connect 2 \
+        && _smtp_step ehlo 2 "EHLO ${helo}" \
+        && _smtp_step mail 2 "MAIL FROM:<${sender}>" \
+        && _smtp_step rcpt 2 "RCPT TO:<${recipient}>" \
+        && _smtp_step data 3 "DATA"
+    then
+        {
+            while IFS= read -r line; do
+                line="${line%$'\r'}"
+                if [[ "${line}" == .* ]]; then
+                    line=".${line}"
+                fi
+                printf '%s\r\n' "${line}"
+            done <<<"${message}"
+            printf '.\r\n'
+        } >&4
+
+        if _smtp_step message 2; then
+            # shellcheck disable=SC2034 # read by the caller
+            SMTP_QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
+            SMTP_STAGE="queued"
+            printf 'QUIT\r\n' >&4 || true
+        fi
+    fi
+
+    { exec 4>&- 4<&-; } 2>/dev/null || true
+    [[ "${SMTP_STAGE}" == queued ]]
+}
+
+# --- The queue: entries by their exact IDs ------------------------------------
+
+# queue_state ID — the queue the entry ID is in (hold, deferred, active,
+# incoming, maildrop), or nothing once it is gone.
+queue_state() {
+    "${POSTQUEUE_BIN}" -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+}
+
+# queue_ids_for RECIPIENT — the entries addressed to RECIPIENT: a caller's own
+# message, found by the unique recipient it chose, even when Postfix's reply
+# never named its ID.
+queue_ids_for() {
+    [[ -n "$1" ]] || return 0
+    "${POSTQUEUE_BIN}" -j 2>/dev/null \
+        | jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
+}
+
+# queue_ids_in QUEUE — the IDs of every entry in one queue (hold, deferred, ...),
+# and nothing else about them. Fails when the queue cannot be read, so an
+# unreadable queue is never mistaken for an empty one.
+queue_ids_in() {
+    local listing
+    listing="$("${POSTQUEUE_BIN}" -j 2>/dev/null)" || return 1
+    jq -r --arg queue "$1" 'select(.queue_name == $queue) | .queue_id' <<<"${listing}" 2>/dev/null
+}

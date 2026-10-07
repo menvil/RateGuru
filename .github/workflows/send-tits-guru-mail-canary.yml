@@ -1,0 +1,155 @@
+name: Send tits.guru production mail canary
+
+# One real, controlled message from tits-guru, followed until the receiving
+# server accepted it: infrastructure/scripts/send-mail-canary --send --target
+# tits-guru, run from trusted main tooling.
+#
+# The recipient is the GitHub Environment secret MAIL_CANARY_RECIPIENT and
+# nothing else: there is no input. Without it the workflow refuses before it
+# touches the host. It travels as a root-only file — never an argument, never
+# echoed — and is removed from the runner and the host on every path; the
+# summary shows its domain only. The sender is the reviewed one
+# (noreply@tits.guru through tits-guru's own listener), never chosen here.
+#
+# Before it connects anywhere the script requires tits-guru to be production,
+# planned, outbound by direct delivery and fully activated
+# (activate-mail-outbound --verify, OUTBOUND READY: YES). It sends exactly one
+# message and follows only that queue ID; a canary that never reaches a final
+# status is deleted by that ID, and nothing else in the queue is touched.
+#
+# A green run means the remote MX accepted the message — NOT that SPF, DKIM and
+# DMARC passed there. The operator reads that from the raw headers of the
+# message as received (the criteria are below and in
+# infrastructure/runbooks/mail-outbound-activation.md). The DKIM private key
+# is already on the host and is never supplied here.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# tits-guru shares its physical host with staging today, so this must never run
+# halfway through a mutation of either target, nor while Verify production
+# infrastructure or the signing acceptance reads that machine. This is the
+# domain Configure tits.guru, Verify production infrastructure, Verify
+# production mail signing and every staging host mutation use for the same
+# reason; it is a fact about today's topology, and moves with the target when it
+# gets a host of its own. It waits rather than cancelling anything. On the host,
+# the canary follows its own queue entry and touches nothing else.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  canary:
+    name: Send one canary from tits-guru
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+
+    # The GitHub Environment holding this target's own credentials and the
+    # canary recipient. Only this job, downstream of the main-only gate, ever
+    # receives them.
+    environment: production-tits-guru
+    timeout-minutes: 30
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from develop.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Send the canary from the production host
+        id: canary
+        uses: ./.github/actions/send-rateguru-mail-canary
+        with:
+          deployment-target: tits-guru
+          canary-recipient: ${{ secrets.MAIL_CANARY_RECIPIENT }}
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the gateway, the signer and
+          # the queue are root's. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      - name: State what the operator still has to read
+        if: ${{ always() && steps.canary.outputs.status == 'pass' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "### The remaining acceptance is the operator's"
+            echo
+            echo "Open the canary in the recipient's mailbox and read its raw headers. Accepted only when all of these hold:"
+            echo
+            echo "- SPF = PASS, DKIM = PASS, DMARC = PASS"
+            echo "- From: noreply@tits.guru"
+            echo "- DKIM d=tits.guru, s=rg1, a=rsa-sha256"
+            echo "- sent from 213.199.41.241, with HELO mta1.tits.guru, and that address's PTR is mta1.tits.guru"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Report an incomplete canary
+        if: ${{ always() && steps.canary.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru production mail canary"
+            echo
+            echo "The canary did not complete, so there is no result; the reason is in the job log. Once submitted, a canary that reaches no final status is deleted by its own queue ID on every exit."
+          } >> "${GITHUB_STEP_SUMMARY}"

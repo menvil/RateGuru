@@ -1,0 +1,1177 @@
+#!/usr/bin/env bash
+#
+# activate-mail-outbound — the guarded switch of one planned production
+# target's mail from HELD to direct OUTBOUND delivery, and the rollback of that
+# switch while the target has not gone live.
+#
+#   activate-mail-outbound --check    --target TARGET   read-only: may --apply proceed
+#   activate-mail-outbound --apply    --target TARGET   activate (root)
+#   activate-mail-outbound --verify   --target TARGET   read-only: the activated target
+#   activate-mail-outbound --rollback --target TARGET   back to held (root)
+#
+# WHAT ASKS FOR IT. Nothing here decides that a target's mail leaves the host.
+# The trusted bundle this script runs from does: its mail-routing.json says the
+# target's mail is `outbound` by `direct` delivery, and its mail-outbound.json
+# enables direct delivery on the host. A bundle that says anything else has not
+# requested an activation, and every mode refuses before it changes anything.
+# The caller names a target and a mode, and nothing else — no file, path, port,
+# domain, hostname or key is ever taken from outside the bundle.
+#
+# THE ONE TRANSITION. From that request this derives the one state the host may
+# be in before activation — the PRE-ACTIVATION state — by undoing exactly
+#
+#   the target's delivery_mode         outbound -> held
+#   the target's `outbound` property   removed
+#   the host's direct.enabled          true -> false
+#
+# and nothing else: every other target, the target's submission endpoint and
+# mail identity, the MTA hostname and the signing identity are the same
+# documents. A request that is not exactly that transition is refused.
+#
+# THE PRE-ACTIVATION BUNDLE. The pre-activation state is judged by the same
+# authoritative code as everything else, never by a second implementation:
+# this script copies the trusted infrastructure/ tree into a root-only
+# temporary directory, replaces only its two public documents
+# (config/mail-routing.json and config/mail-outbound.json) with the derived
+# ones, validates them with that bundle's own mail-routing and mail-identity,
+# and runs that bundle's install-mail-gateway and verify-mail-signing against
+# the host. No file path override exists in any of them for this; none is
+# needed. The copy holds no key and no secret — the trusted tree has none — and
+# is removed on every exit.
+#
+# --apply, in order, under the host's infrastructure lock:
+#
+#   1. The request: both trusted documents valid, the target production and
+#      still planned, its mail outbound by direct delivery, direct delivery
+#      enabled. Otherwise: "activation is not requested by this trusted
+#      bundle", and nothing is touched.
+#   2. Already done? When the installed gateway is already exactly the
+#      requested one and full `mail-identity readiness` passes, --apply is a
+#      no-op that succeeds. It sends nothing.
+#   3. The proof, before anything changes, all of it required:
+#        from the pre-activation bundle — install-mail-gateway --verify (the
+#        target's listener held, no direct route, direct delivery disabled, no
+#        public SMTP listener, its From policy and signing wiring), and
+#        verify-mail-signing --e2e (a foreign From refused before it is
+#        queued; a valid probe signed, held and deleted by its exact ID);
+#        from the requested bundle — mail-identity verify-dns (A, PTR, SPF,
+#        DKIM and DMARC as two independent public resolvers both answer them,
+#        and the target's key usable) and install-mail-signing --verify
+#        --target (the signer running on its one loopback endpoint and able to
+#        read the key);
+#        and the HOLD queue empty: the acceptance deletes its own probe, so
+#        anything held is mail nobody has looked at, and an activation never
+#        releases it.
+#      No connection leaves the host during the proof: the only SMTP it opens
+#      is the signing acceptance's, to the target's own loopback listener.
+#   4. The rollback capsule, written before the gateway changes:
+#      /var/lib/rateguru-mail-activation/<target>/ holds the two
+#      pre-activation documents and non-secret metadata (the target, when, and
+#      the SHA-256 of the four public documents) — never a key, a key's hash,
+#      an environment file, a credential or a message.
+#   5. install-mail-gateway --apply from the requested bundle — the gateway's
+#      one owner renders and installs it; nothing about Postfix is spelled
+#      here — then its --verify, then `mail-identity readiness`, which must be
+#      PASS on every condition with OUTBOUND READY: YES, then a read-back of
+#      the live routes: the target's listener alone owns its direct route,
+#      every capture listener still captures, nothing listens on a public SMTP
+#      port, and the signer is still on loopback only.
+#   6. Any failure from step 5 on — an installer that refused, a verify that
+#      did not pass, readiness short of YES, an error, a signal — returns the
+#      host to the capsule's pre-activation state through the same code: that
+#      bundle's install-mail-gateway --apply, its --verify, the held read-back
+#      and the signing acceptance again. When even that cannot be proved, the
+#      result is CRITICAL and nothing broader is attempted: held with no route
+#      is the safest state there is, and it is reached by re-rendering, never
+#      by touching the queue.
+#
+# --rollback is the INITIAL-LAUNCH rollback, nothing more: allowed only while
+# the target is still planned, with this activation's own capsule, and while
+# the trusted bundle still requests exactly the activation that capsule
+# recorded. It re-applies the capsule's pre-activation gateway, proves it held
+# again, and changes no repository file — so afterwards the runtime is held but
+# the committed configuration still requests outbound delivery, and has to be
+# reverted before the next Prepare or Verify. A live target's mail is never
+# stopped this way.
+#
+# --verify is read-only: for a target whose activation is requested, the
+# gateway's and the signer's own verifies, public DNS, full readiness and the
+# route read-back, ending in OUTBOUND READY.
+#
+# NEVER. No queue is flushed, released or requeued, no held mail is touched,
+# `postsuper` is never run by this script, no key is read, copied, hashed or
+# printed, no external SMTP connection is opened, and no application, lifecycle,
+# environment file or DNS record is changed.
+#
+# Every run whose mode and target were understood ends with exactly one line
+# RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT={target, mode, status, requested,
+# changed, rolled_back, outbound_ready}; status is pass, fail or critical.
+#
+# Test overrides: the RATEGURU_MAILACTIVATE_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILACTIVATE_EUID "${EUID}")"
+
+# The host's one infrastructure lock: the same file prepare-host, provision,
+# configure and repair hold while they change shared infrastructure.
+RUN_ROOT="$(gated_default RATEGURU_MAILACTIVATE_RUN_ROOT /home/www/rateguru/run)"
+HOST_LOCK_NAME="host-infrastructure.lock"
+
+# Where each target's rollback capsule lives. Root-only, non-secret.
+STATE_ROOT="$(gated_default RATEGURU_MAILACTIVATE_STATE_ROOT /var/lib/rateguru-mail-activation)"
+
+# shellcheck disable=SC2034 # read by smtp-submission's queue lookups
+POSTQUEUE_BIN="$(gated_default RATEGURU_MAILACTIVATE_POSTQUEUE_BIN postqueue)"
+POSTCONF_BIN="$(gated_default RATEGURU_MAILACTIVATE_POSTCONF_BIN postconf)"
+SS_BIN="$(gated_default RATEGURU_MAILACTIVATE_SS_BIN ss)"
+
+# The queue lookups the mail tooling shares; this script opens no SMTP.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/smtp-submission"
+
+# The two documents an activation changes, and the ones it never does.
+ROUTING_DOCUMENT="infrastructure/config/mail-routing.json"
+OUTBOUND_DOCUMENT="infrastructure/config/mail-outbound.json"
+
+CAPSULE_KIND="rateguru-mail-outbound-activation"
+CAPSULE_SCHEMA_VERSION=1
+
+# The ports a public SMTP service lives on. Nothing on a RateGuru host may
+# listen on them, activated or not.
+PUBLIC_SMTP_PORTS=(25 465 587)
+
+# Every condition readiness reports, each of which must be PASS.
+READINESS_CONDITIONS=(target routing direct mta identity key host address a ptr spf dkim dmarc signing)
+
+MODE=""
+TARGET_ID=""
+
+RESULT_READY=false
+RESULT_PRINTED=false
+REQUESTED=false
+CHANGED=false
+ROLLED_BACK=false
+OUTBOUND_READY=false
+
+# What the requested bundle says about the target.
+T_ENVIRONMENT=""
+T_LIFECYCLE=""
+T_MODE=""
+T_ROUTE=""
+DIRECT_ENABLED=""
+MTA_HOSTNAME=""
+DESIRED_PLAN=""
+
+WORK_DIRS=()
+HOST_LOCK_FD=""
+
+# Set while the gateway may be anything but the pre-activation state this run
+# proved: from the moment the requested gateway is applied until it is fully
+# accepted. An exit while it is set returns the host to held.
+TRANSACTION_OPEN=false
+CAPSULE_PRE_BUNDLE=""
+
+COUNT_FAIL=0
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+ok() { printf '  PASS %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*"; COUNT_FAIL=$((COUNT_FAIL + 1)); }
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  activate-mail-outbound --check    --target TARGET
+  activate-mail-outbound --apply    --target TARGET
+  activate-mail-outbound --verify   --target TARGET
+  activate-mail-outbound --rollback --target TARGET
+  activate-mail-outbound --help
+
+  --check     Read-only (root): whether --apply would activate, would be a
+              no-op, or must refuse — everything --apply proves except the
+              signing acceptance, which submits a held probe.
+  --apply     Root. Activate TARGET's direct outbound delivery exactly as the
+              trusted bundle requests, behind the full pre-activation proof,
+              with a rollback capsule and automatic return to held on any
+              failure. A no-op when the host is already activated and ready.
+  --verify    Read-only (root): the activated target end to end — the gateway,
+              the signer, public DNS and full readiness, OUTBOUND READY.
+  --rollback  Root. The initial-launch rollback: while TARGET is still
+              planned, re-apply its capsule's pre-activation (held) gateway and
+              prove it held again. Changes no repository file.
+
+The trusted bundle decides everything else; there is nothing to override.
+USAGE
+}
+
+# --- Result -------------------------------------------------------------------------
+
+result_line() {
+    local status="$1"
+
+    [[ "${RESULT_PRINTED}" == false ]] || return 0
+    RESULT_PRINTED=true
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --argjson requested "${REQUESTED}" --argjson changed "${CHANGED}" \
+        --argjson rolled_back "${ROLLED_BACK}" --argjson ready "${OUTBOUND_READY}" '
+        {target: $target, mode: $mode, status: $status, requested: $requested,
+         changed: $changed, rolled_back: $rolled_back, outbound_ready: $ready}' \
+        | sed 's/^/RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT=/'
+}
+
+# --- Exit: work directories, the open transaction, the result --------------------
+
+remove_work_dirs() {
+    local dir
+    for dir in "${WORK_DIRS[@]+"${WORK_DIRS[@]}"}"; do
+        [[ -n "${dir}" && -d "${dir}" ]] && rm -rf -- "${dir}"
+    done
+    WORK_DIRS=()
+}
+
+on_exit() {
+    local status=$?
+    trap - EXIT
+    # Nothing interrupts the return to held: a lost connection or a second
+    # signal must not leave the gateway half-way.
+    trap '' HUP INT PIPE TERM
+    set +e
+
+    if [[ "${TRANSACTION_OPEN}" == true ]]; then
+        TRANSACTION_OPEN=false
+        log "the activation did not complete (exit ${status}) — returning ${TARGET_ID} to its pre-activation state from the rollback capsule"
+
+        if restore_pre_activation "${CAPSULE_PRE_BUNDLE}"; then
+            ROLLED_BACK=true
+            OUTBOUND_READY=false
+            set_capsule_state rolled-back || log "the capsule could not be marked rolled-back; it still holds the pre-activation documents"
+            log "ROLLED BACK: ${TARGET_ID}'s listener holds its mail again and no direct route exists; the activation failed"
+            result_line fail
+            status=1
+        else
+            OUTBOUND_READY=false
+            printf 'CRITICAL: the activation of %s failed AND its return to held could not be proved. Nothing broader was attempted. Inspect the gateway now: install-mail-gateway --verify from a bundle that holds %s'"'"'s mail.\n' "${TARGET_ID}" "${TARGET_ID}" >&2
+            log "ACTIVATION: CRITICAL — rollback not verified"
+            result_line critical
+            status=2
+        fi
+    fi
+
+    remove_work_dirs
+
+    if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]] && command -v jq >/dev/null 2>&1; then
+        result_line "$( (( status == 0 )) && echo pass || echo fail)"
+    fi
+
+    exit "${status}"
+}
+
+# --- Preconditions ------------------------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "activate-mail-outbound --${MODE} must run as root (the gateway, the signer and the queue it inspects are root's)"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || die "required tool not found: ${tool}"
+    done
+}
+
+# acquire_host_lock — this machine's shared-infrastructure lock, for the whole
+# run, or a refusal naming it. Never waits.
+acquire_host_lock() {
+    local path="${RUN_ROOT}/${HOST_LOCK_NAME}"
+
+    [[ -d "${RUN_ROOT}" ]] \
+        || die "the operational lock directory does not exist: ${RUN_ROOT} — this host has not been bootstrapped; nothing was changed"
+
+    exec {HOST_LOCK_FD}>>"${path}" \
+        || die "could not open ${path} to claim this host's shared infrastructure; nothing was changed"
+
+    flock -n "${HOST_LOCK_FD}" \
+        || die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed. Targets share one machine, so host-level operations run one at a time"
+}
+
+# --- Children: the authoritative owners, from one bundle or another --------------------
+
+CHILD_OUTPUT=""
+
+# run_child LABEL COMMAND... — one owner's verdict, its report shown beneath it.
+# Returns the owner's exit status; never aborts this script.
+run_child() {
+    local label="$1" status=0 line
+    shift
+
+    if [[ ! -x "$1" ]]; then
+        CHILD_OUTPUT=""
+        printf '  ---- %s: not executable: %s — run from a full trusted bundle\n' "${label}" "$1"
+        return 127
+    fi
+
+    CHILD_OUTPUT="$("$@" 2>&1 </dev/null)" || status=$?
+
+    printf '  ---- %s (exit %s)\n' "${label}" "${status}"
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && printf '       | %s\n' "${line}"
+    done <<<"${CHILD_OUTPUT}"
+
+    return "${status}"
+}
+
+# bundle_script BUNDLE NAME — a tool of one bundle.
+bundle_script() {
+    printf '%s/infrastructure/scripts/%s\n' "$1" "$2"
+}
+
+# --- The request: what the trusted bundle says ------------------------------------------
+
+# load_request — validate the trusted bundle's documents with its own tools and
+# read what they say about TARGET. Sets REQUESTED; refuses nothing yet.
+load_request() {
+    local routing_cli identity_cli listener
+
+    routing_cli="$(bundle_script "${REPO_ROOT}" mail-routing)"
+    identity_cli="$(bundle_script "${REPO_ROOT}" mail-identity)"
+
+    log "the request: ${ROUTING_DOCUMENT} and ${OUTBOUND_DOCUMENT} of the trusted bundle"
+
+    run_child "mail-routing validate (trusted bundle)" "${routing_cli}" validate \
+        || die "the trusted bundle's mail routing policy is not valid — nothing was changed"
+    run_child "mail-identity validate (trusted bundle)" "${identity_cli}" validate \
+        || die "the trusted bundle's mail identity is not valid — nothing was changed"
+
+    DESIRED_PLAN="$("${routing_cli}" render-plan 2>/dev/null)" \
+        || die "mail-routing render-plan refused the trusted bundle's policy — nothing was changed"
+
+    listener="$(jq -c --arg t "${TARGET_ID}" '.listeners[] | select(.identity == $t)' <<<"${DESIRED_PLAN}")"
+    [[ -n "${listener}" ]] || die "${TARGET_ID} is not a target of the trusted bundle's mail routing plan — nothing was changed"
+
+    T_ENVIRONMENT="$(jq -r '.environment_class' <<<"${listener}")"
+    T_LIFECYCLE="$(jq -r '.lifecycle' <<<"${listener}")"
+    T_MODE="$(jq -r '.delivery_mode' <<<"${listener}")"
+    T_ROUTE="$(jq -r '.route.kind // "none"' <<<"${listener}")"
+
+    DIRECT_ENABLED="$(jq -r '.direct.enabled' "${REPO_ROOT}/${OUTBOUND_DOCUMENT}")"
+    MTA_HOSTNAME="$(jq -r '.direct.mta_hostname // ""' "${REPO_ROOT}/${OUTBOUND_DOCUMENT}")"
+
+    if [[ "${T_MODE}" == outbound && "${T_ROUTE}" == direct && "${DIRECT_ENABLED}" == true ]]; then
+        REQUESTED=true
+        ok "the trusted bundle requests ${TARGET_ID}'s activation: delivery_mode outbound by direct delivery, and direct delivery enabled on this host as ${MTA_HOSTNAME}"
+    fi
+}
+
+# require_requested — refuse unless the trusted bundle requests exactly this.
+require_requested() {
+    [[ "${REQUESTED}" == true ]] \
+        || die "activation is not requested by this trusted bundle: ${TARGET_ID}'s mail is ${T_MODE} (route ${T_ROUTE}) and direct delivery is $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled) — nothing was changed"
+}
+
+# require_planned_production — the initial activation of a production target
+# that has not gone live; nothing else.
+require_planned_production() {
+    [[ "${T_ENVIRONMENT}" == production ]] \
+        || die "${TARGET_ID} is a ${T_ENVIRONMENT} target — only a production target's mail is ever delivered outbound; nothing was changed"
+    [[ "${T_LIFECYCLE}" == planned ]] \
+        || die "${TARGET_ID} is lifecycle=${T_LIFECYCLE}, not planned — this is the initial activation of a target that has not gone live, and it is never used on a live one; nothing was changed"
+}
+
+# require_initial_launch — the rollback's own limit: a target that has not gone
+# live. A live target's mail is never stopped by re-rendering it held.
+require_initial_launch() {
+    [[ "${T_LIFECYCLE}" == planned ]] \
+        || die "${TARGET_ID} is lifecycle=${T_LIFECYCLE}: the initial-launch rollback exists only while a target is planned, and a live target's mail is never stopped this way; nothing was changed"
+}
+
+# --- The transition ---------------------------------------------------------------------
+
+# The derived pre-activation documents: the request with exactly the three
+# changes undone.
+# shellcheck disable=SC2016
+PRE_ROUTING_PROGRAM='.targets[$t].delivery_mode = "held" | .targets[$t] |= del(.outbound)'
+# shellcheck disable=SC2016
+PRE_OUTBOUND_PROGRAM='.direct.enabled = false'
+
+# Every way PRE and DESIRED differ from exactly the one transition, as one JSON
+# array of problems, given the pre-activation and requested routing policies,
+# the pre-activation and requested host outbound contracts, and the target $t.
+# shellcheck disable=SC2016
+TRANSITION_PROGRAM='
+def differing($a; $b): [(($a // {}) + ($b // {}) | keys[]) as $k | select($a[$k] != $b[$k]) | $k] | unique;
+($pre_routing.targets[$t] // null) as $p
+| ($requested_routing.targets[$t] // null) as $d
+| [
+    (if $p == null or $d == null then
+         "\($t) is not a target of both the pre-activation and the requested mail routing policy"
+     else
+         (if $p.delivery_mode == "held" then empty
+          else "before activation \($t)'"'"'s mail must be held, not \($p.delivery_mode | tojson)" end),
+         (if $p | has("outbound") then "before activation \($t) may have no outbound route" else empty end),
+         (if $d.delivery_mode == "outbound" then empty
+          else "the requested state does not deliver \($t)'"'"'s mail outbound (delivery_mode \($d.delivery_mode | tojson))" end),
+         (if $d.outbound == {"kind": "direct"} then empty
+          else "\($t)'"'"'s requested route must be exactly {\"kind\": \"direct\"}, got \($d.outbound | tojson)" end),
+         (differing($p | del(.delivery_mode); $d | del(.delivery_mode, .outbound)) as $changed
+          | if $changed == [] then empty
+            else "\($t)'"'"'s \($changed | join(", ")) differ between the pre-activation and the requested state — an activation changes its delivery mode and route, and nothing else of it" end)
+     end),
+    (differing($pre_routing.targets | del(.[$t]); $requested_routing.targets | del(.[$t])) as $others
+     | if $others == [] then empty
+       else "the mail routing of \($others | join(", ")) differs — an activation changes \($t) alone" end),
+    (differing($pre_routing | del(.targets); $requested_routing | del(.targets)) as $top
+     | if $top == [] then empty
+       else "the mail routing policy differs outside its targets (\($top | join(", ")))" end),
+    (if $pre_outbound.direct.enabled == false then empty
+     else "before activation direct delivery must be disabled (direct.enabled \($pre_outbound.direct.enabled | tojson))" end),
+    (if $requested_outbound.direct.enabled == true then empty
+     else "the requested host contract does not enable direct delivery (direct.enabled \($requested_outbound.direct.enabled | tojson))" end),
+    (differing($pre_outbound | .direct |= del(.enabled, .mta_hostname); $requested_outbound | .direct |= del(.enabled, .mta_hostname)) as $host
+     | if $host == [] then empty
+       else "the host outbound contract differs in more than direct.enabled (\($host | join(", "))) — an activation enables direct delivery and changes nothing else of the host" end),
+    (if ($pre_outbound.direct.mta_hostname // null) == ($requested_outbound.direct.mta_hostname // null) then empty
+     else "the MTA hostname differs: \($pre_outbound.direct.mta_hostname | tojson) before, \($requested_outbound.direct.mta_hostname | tojson) requested" end)
+  ]
+'
+
+# transition_problems PRE_ROUTING DESIRED_ROUTING PRE_OUTBOUND DESIRED_OUTBOUND —
+# one problem per line; nothing when the pair is exactly the activation.
+transition_problems() {
+    jq -r -n --arg t "${TARGET_ID}" \
+        --slurpfile pre_routing "$1" --slurpfile requested_routing "$2" \
+        --slurpfile pre_outbound "$3" --slurpfile requested_outbound "$4" \
+        "\$pre_routing[0] as \$pre_routing | \$requested_routing[0] as \$requested_routing
+         | \$pre_outbound[0] as \$pre_outbound | \$requested_outbound[0] as \$requested_outbound
+         | ${TRANSITION_PROGRAM} | .[]"
+}
+
+# --- Temporary bundles ------------------------------------------------------------------
+
+# make_bundle LABEL ROUTING OUTBOUND — a root-only copy of the trusted
+# infrastructure/ tree with its two activation documents replaced, in
+# MADE_BUNDLE. Removed on every exit. Never called in a command substitution:
+# the directory it records must outlive it.
+MADE_BUNDLE=""
+
+make_bundle() {
+    local label="$1" routing="$2" outbound="$3" dir
+
+    dir="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/rateguru-mail-activation-${label}.XXXXXX")" \
+        || die "could not create a temporary bundle"
+    WORK_DIRS+=("${dir}")
+    chmod 0700 "${dir}"
+
+    (umask 077 && cp -R -P -- "${REPO_ROOT}/infrastructure" "${dir}/infrastructure") \
+        || die "could not copy the trusted infrastructure tree into ${dir}"
+
+    # The trusted tree carries no key; a copy that did would be refused, never
+    # used.
+    if [[ -n "$(find "${dir}/infrastructure" -name '*.private' -print -quit)" ]]; then
+        die "the trusted bundle contains a *.private file — a key never travels in a bundle; nothing was changed"
+    fi
+
+    install -m 0600 -- "${routing}" "${dir}/${ROUTING_DOCUMENT}"
+    install -m 0600 -- "${outbound}" "${dir}/${OUTBOUND_DOCUMENT}"
+
+    MADE_BUNDLE="${dir}"
+}
+
+# derive_pre_bundle — the pre-activation bundle derived from the request, in
+# PRE_BUNDLE: its documents proved to be exactly the transition and valid by
+# its own tools.
+PRE_BUNDLE=""
+
+derive_pre_bundle() {
+    local scratch problems
+
+    scratch="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/rateguru-mail-activation-derive.XXXXXX")" \
+        || die "could not create a temporary directory"
+    WORK_DIRS+=("${scratch}")
+
+    jq --arg t "${TARGET_ID}" "${PRE_ROUTING_PROGRAM}" "${REPO_ROOT}/${ROUTING_DOCUMENT}" > "${scratch}/mail-routing.json" \
+        || die "could not derive the pre-activation mail routing policy"
+    jq "${PRE_OUTBOUND_PROGRAM}" "${REPO_ROOT}/${OUTBOUND_DOCUMENT}" > "${scratch}/mail-outbound.json" \
+        || die "could not derive the pre-activation outbound contract"
+
+    problems="$(transition_problems "${scratch}/mail-routing.json" "${REPO_ROOT}/${ROUTING_DOCUMENT}" \
+        "${scratch}/mail-outbound.json" "${REPO_ROOT}/${OUTBOUND_DOCUMENT}")" \
+        || die "could not compare the pre-activation and the requested state"
+    [[ -z "${problems}" ]] \
+        || die "the request is not exactly the activation of ${TARGET_ID}: ${problems//$'\n'/; } — nothing was changed"
+
+    make_bundle pre "${scratch}/mail-routing.json" "${scratch}/mail-outbound.json"
+    PRE_BUNDLE="${MADE_BUNDLE}"
+    validate_bundle "${PRE_BUNDLE}" "the derived pre-activation"
+}
+
+# validate_bundle BUNDLE WHAT — its documents, by its own tools.
+validate_bundle() {
+    local bundle="$1" what="$2"
+
+    run_child "mail-routing validate (${what} bundle)" "$(bundle_script "${bundle}" mail-routing)" validate \
+        || die "${what} mail routing policy is not valid — nothing was changed"
+    run_child "mail-identity validate (${what} bundle)" "$(bundle_script "${bundle}" mail-identity)" validate \
+        || die "${what} mail identity is not valid — nothing was changed"
+}
+
+# --- The host: live routes, public ports, the HOLD queue ----------------------------------
+
+postconf_service_value() {
+    "${POSTCONF_BIN}" -P "$1" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true
+}
+
+# route_problems PLAN EXPECT — the live routes read back from Postfix, one
+# problem per line, for EXPECT held (the pre-activation state) or outbound (the
+# activated one). A second witness beside the gateway's own --verify, which
+# remains the authority on the whole configuration.
+route_problems() {
+    local plan="$1" expect="$2" identity endpoint mode route filter recipients outbound_services port local_address public_port master sockets
+
+    # A tool that cannot answer is a problem, never an empty answer: an
+    # unreadable socket table must not read as "nothing listens".
+    if ! master="$("${POSTCONF_BIN}" -M 2>/dev/null)"; then
+        printf 'postconf -M could not read the live master.cf — the routes cannot be read back\n'
+        return 0
+    fi
+    if ! sockets="$("${SS_BIN}" -ltnH 2>/dev/null)"; then
+        printf 'ss -ltnH could not list the listening sockets — a public SMTP listener cannot be ruled out\n'
+        return 0
+    fi
+
+    outbound_services="$(awk '$1 ~ /^rateguru-outbound-/ && $8 == "smtp" { print $1 }' <<<"${master}" | sort || true)"
+
+    case "${expect}" in
+        held)
+            [[ -z "${outbound_services}" ]] \
+                || printf 'direct delivery transports exist (%s) — before activation there is no direct route at all\n' "${outbound_services//$'\n'/ }"
+            ;;
+        outbound)
+            [[ "${outbound_services}" == "rateguru-outbound-${TARGET_ID}" ]] \
+                || printf 'the direct delivery transports are [%s], not exactly %s'"'"'s own rateguru-outbound-%s\n' "${outbound_services//$'\n'/ }" "${TARGET_ID}" "${TARGET_ID}"
+            ;;
+    esac
+
+    while IFS=$'\t' read -r identity endpoint mode route; do
+        [[ -n "${identity}" ]] || continue
+        filter="$(postconf_service_value "${endpoint}/inet/content_filter")"
+        recipients="$(postconf_service_value "${endpoint}/inet/smtpd_recipient_restrictions")"
+
+        if [[ "${identity}" == "${TARGET_ID}" ]]; then
+            case "${expect}" in
+                held)
+                    [[ -z "${filter}" && "${recipients}" == *static:HOLD* ]] \
+                        || printf '%s (%s) does not hold its mail with no route (content_filter "%s")\n' "${identity}" "${endpoint}" "${filter}"
+                    ;;
+                outbound)
+                    [[ "${filter}" == "rateguru-outbound-${identity}:" && "${recipients}" != *static:HOLD* ]] \
+                        || printf '%s (%s) does not deliver through its own direct route (content_filter "%s")\n' "${identity}" "${endpoint}" "${filter}"
+                    ;;
+            esac
+            continue
+        fi
+
+        [[ "${filter}" != rateguru-outbound-* ]] \
+            || printf '%s (%s) routes to a direct delivery transport (%s) — only %s may\n' "${identity}" "${endpoint}" "${filter}" "${TARGET_ID}"
+
+        if [[ "${mode}" == capture ]]; then
+            [[ "${filter}" == "rateguru-capture-${identity}:[${route%:*}]:${route##*:}" ]] \
+                || printf '%s (%s) no longer captures to %s (content_filter "%s")\n' "${identity}" "${endpoint}" "${route}" "${filter}"
+        fi
+    done < <(jq -r '.listeners[]
+        | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode,
+           (if .route == null then "-" elif .route.kind == "capture" then "\(.route.host):\(.route.port)" else .route.kind end)]
+        | @tsv' <<<"${plan}")
+
+    while IFS= read -r local_address; do
+        [[ -n "${local_address}" ]] || continue
+        port="${local_address##*:}"
+        for public_port in "${PUBLIC_SMTP_PORTS[@]}"; do
+            [[ "${port}" != "${public_port}" ]] \
+                || printf 'something listens on %s — no SMTP service may listen on port %s\n' "${local_address}" "${public_port}"
+        done
+    done < <(awk '{ print $4 }' <<<"${sockets}")
+}
+
+# check_routes PLAN EXPECT WHAT — route_problems as PASS/FAIL lines.
+check_routes() {
+    local problems problem
+    problems="$(route_problems "$1" "$2")"
+
+    if [[ -z "${problems}" ]]; then
+        ok "$3"
+        return 0
+    fi
+
+    while IFS= read -r problem; do
+        bad "${problem}"
+    done <<<"${problems}"
+    return 1
+}
+
+# check_hold_queue — the HOLD queue holds nothing. IDs only, never a sender,
+# recipient or subject.
+check_hold_queue() {
+    local ids
+
+    if ! ids="$(queue_ids_in hold)"; then
+        bad "the Postfix queue could not be read (postqueue -j) — an activation never proceeds without knowing what is held"
+        return 1
+    fi
+
+    if [[ -n "${ids}" ]]; then
+        bad "the HOLD queue is not empty (${ids//$'\n'/ }) — held mail nobody has reviewed; an activation never releases it. Resolve those entries first"
+        return 1
+    fi
+
+    ok "the HOLD queue is empty"
+}
+
+# --- Owner verdicts --------------------------------------------------------------------
+
+# gateway_verify BUNDLE WHAT — install-mail-gateway --verify from BUNDLE.
+gateway_verify() {
+    if run_child "install-mail-gateway --verify (${2} bundle)" "$(bundle_script "$1" install-mail-gateway)" --verify; then
+        ok "the installed gateway is exactly ${2} render"
+        return 0
+    fi
+    bad "the installed gateway is not exactly ${2} render"
+    return 1
+}
+
+# signing_e2e BUNDLE — the signing acceptance from BUNDLE, which must hold the
+# target's mail: a foreign From refused, a valid probe signed, held and removed.
+signing_e2e() {
+    local count json
+
+    run_child "verify-mail-signing --e2e --target ${TARGET_ID} (pre-activation bundle)" \
+        "$(bundle_script "$1" verify-mail-signing)" --e2e --target "${TARGET_ID}" || true
+
+    count="$(grep -c '^RATEGURU_MAIL_SIGNING_RESULT=' <<<"${CHILD_OUTPUT}" || true)"
+    if [[ "${count}" != 1 ]]; then
+        bad "the signing acceptance gave ${count} results, not exactly one"
+        return 1
+    fi
+
+    json="$(grep '^RATEGURU_MAIL_SIGNING_RESULT=' <<<"${CHILD_OUTPUT}")"
+    json="${json#RATEGURU_MAIL_SIGNING_RESULT=}"
+
+    if jq -e --arg t "${TARGET_ID}" '
+        .target == $t and .mode == "e2e" and .status == "pass"
+        and .foreign_from_rejected == true and .held == true and .removed == true
+        and (.signature | type) == "object"' <<<"${json}" >/dev/null 2>&1
+    then
+        ok "the signing acceptance passed: a foreign From refused before it was queued, a valid probe signed, held and removed"
+        return 0
+    fi
+
+    bad "the signing acceptance did not pass: ${json}"
+    return 1
+}
+
+# signer_verify BUNDLE — install-mail-signing --verify --target from BUNDLE.
+signer_verify() {
+    if run_child "install-mail-signing --verify --target ${TARGET_ID}" "$(bundle_script "$1" install-mail-signing)" --verify --target "${TARGET_ID}"; then
+        ok "the signer runs on its one loopback endpoint and can read ${TARGET_ID}'s key"
+        return 0
+    fi
+    bad "the signer is not verified for ${TARGET_ID}"
+    return 1
+}
+
+# dns_verify BUNDLE — mail-identity verify-dns from BUNDLE.
+dns_verify() {
+    if run_child "mail-identity verify-dns --target ${TARGET_ID}" "$(bundle_script "$1" mail-identity)" verify-dns --target "${TARGET_ID}"; then
+        ok "public DNS — A, PTR, SPF, DKIM and DMARC — and the key verify for ${TARGET_ID}"
+        return 0
+    fi
+    bad "public DNS or the key does not verify for ${TARGET_ID}"
+    return 1
+}
+
+# readiness_verify BUNDLE — mail-identity readiness from BUNDLE: every
+# condition PASS and OUTBOUND READY: YES.
+readiness_verify() {
+    local status=0 condition missing=()
+
+    run_child "mail-identity readiness --target ${TARGET_ID}" "$(bundle_script "$1" mail-identity)" readiness --target "${TARGET_ID}" || status=$?
+
+    for condition in "${READINESS_CONDITIONS[@]}"; do
+        grep -qE "^  PASS +${condition} " <<<"${CHILD_OUTPUT}" || missing+=("${condition}")
+    done
+
+    if (( status == 0 )) && [[ "${#missing[@]}" -eq 0 ]] \
+        && ! grep -qE '^  FAIL ' <<<"${CHILD_OUTPUT}" \
+        && [[ "$(grep -c '^OUTBOUND READY: YES$' <<<"${CHILD_OUTPUT}" || true)" == 1 ]]
+    then
+        ok "mail-identity readiness: every condition PASS — OUTBOUND READY: YES"
+        return 0
+    fi
+
+    bad "mail-identity readiness is not YES (exit ${status}${missing[*]:+; not PASS: ${missing[*]}})"
+    return 1
+}
+
+# --- Rollback capsule ---------------------------------------------------------------------
+
+capsule_dir() {
+    printf '%s/%s\n' "${STATE_ROOT}" "${TARGET_ID}"
+}
+
+sha256_of() {
+    sha256sum -- "$1" | cut -d ' ' -f 1
+}
+
+# capsule_state — absent | owned | foreign, judged by what the directory holds.
+capsule_state() {
+    local dir entry
+    dir="$(capsule_dir)"
+
+    [[ -e "${dir}" ]] || { echo absent; return 0; }
+    [[ -d "${dir}" && ! -L "${dir}" ]] || { echo foreign; return 0; }
+
+    for entry in "${dir}"/* "${dir}"/.[!.]*; do
+        [[ -e "${entry}" || -L "${entry}" ]] || continue
+        case "$(basename -- "${entry}")" in
+            capsule.json|mail-routing.json|mail-outbound.json) [[ -f "${entry}" && ! -L "${entry}" ]] || { echo foreign; return 0; } ;;
+            *) echo foreign; return 0 ;;
+        esac
+    done
+
+    if [[ -f "${dir}/capsule.json" ]] \
+        && jq -e --arg kind "${CAPSULE_KIND}" --arg t "${TARGET_ID}" '.kind == $kind and .target == $t' "${dir}/capsule.json" >/dev/null 2>&1
+    then
+        echo owned
+    elif [[ -z "$(find "${dir}" -mindepth 1 -print -quit)" ]]; then
+        echo owned
+    else
+        echo foreign
+    fi
+}
+
+# write_capsule STATE PRE_ROUTING PRE_OUTBOUND — the pre-activation documents
+# and the non-secret record of this activation, each file replaced atomically.
+write_capsule() {
+    local state="$1" pre_routing="$2" pre_outbound="$3" dir now
+
+    dir="$(capsule_dir)"
+    now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+    install -d -m 0700 -- "${STATE_ROOT}" "${dir}"
+
+    install -m 0600 -- "${pre_routing}" "${dir}/.mail-routing.json.next"
+    install -m 0600 -- "${pre_outbound}" "${dir}/.mail-outbound.json.next"
+
+    jq -n \
+        --arg kind "${CAPSULE_KIND}" --argjson schema "${CAPSULE_SCHEMA_VERSION}" \
+        --arg t "${TARGET_ID}" --arg state "${state}" --arg now "${now}" \
+        --arg pre_routing "$(sha256_of "${pre_routing}")" --arg pre_outbound "$(sha256_of "${pre_outbound}")" \
+        --arg desired_routing "$(sha256_of "${REPO_ROOT}/${ROUTING_DOCUMENT}")" \
+        --arg desired_outbound "$(sha256_of "${REPO_ROOT}/${OUTBOUND_DOCUMENT}")" '
+        {kind: $kind, schema_version: $schema, target: $t, state: $state, recorded_at: $now,
+         pre_activation: {"mail-routing.json": $pre_routing, "mail-outbound.json": $pre_outbound},
+         requested: {"mail-routing.json": $desired_routing, "mail-outbound.json": $desired_outbound}}' \
+        > "${dir}/.capsule.json.next"
+    chmod 0600 "${dir}/.capsule.json.next"
+
+    mv -f -- "${dir}/.mail-routing.json.next" "${dir}/mail-routing.json"
+    mv -f -- "${dir}/.mail-outbound.json.next" "${dir}/mail-outbound.json"
+    mv -f -- "${dir}/.capsule.json.next" "${dir}/capsule.json"
+}
+
+# set_capsule_state STATE — the record's state, and nothing else, changed.
+set_capsule_state() {
+    local dir
+    dir="$(capsule_dir)"
+
+    jq --arg state "$1" --arg now "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '.state = $state | .recorded_at = $now' \
+        "${dir}/capsule.json" > "${dir}/.capsule.json.next" \
+        && chmod 0600 "${dir}/.capsule.json.next" \
+        && mv -f -- "${dir}/.capsule.json.next" "${dir}/capsule.json"
+}
+
+# capsule_problems — why the capsule cannot be the one this rollback undoes,
+# one reason per line; nothing when it is.
+capsule_problems() {
+    local dir state name problems
+    dir="$(capsule_dir)"
+    state="$(capsule_state)"
+
+    case "${state}" in
+        absent)
+            printf 'there is no rollback capsule for %s at %s — nothing recorded an activation to undo\n' "${TARGET_ID}" "${dir}"
+            return 0
+            ;;
+        foreign)
+            printf '%s is not an activation capsule of %s — it is never used or removed\n' "${dir}" "${TARGET_ID}"
+            return 0
+            ;;
+    esac
+
+    if ! jq -e --argjson schema "${CAPSULE_SCHEMA_VERSION}" '
+        .schema_version == $schema
+        and (.state | IN("activating", "activated", "rolled-back"))
+        and (.pre_activation | type) == "object" and (.requested | type) == "object"' "${dir}/capsule.json" >/dev/null 2>&1
+    then
+        printf 'the capsule record %s/capsule.json is incomplete or of another schema\n' "${dir}"
+        return 0
+    fi
+
+    for name in mail-routing.json mail-outbound.json; do
+        if [[ ! -f "${dir}/${name}" ]]; then
+            printf 'the capsule has no pre-activation %s\n' "${name}"
+        elif [[ "$(sha256_of "${dir}/${name}")" != "$(jq -r --arg n "${name}" '.pre_activation[$n]' "${dir}/capsule.json")" ]]; then
+            printf 'the capsule'"'"'s pre-activation %s is not the one it recorded\n' "${name}"
+        fi
+    done
+
+    [[ "$(sha256_of "${REPO_ROOT}/${ROUTING_DOCUMENT}")" == "$(jq -r '.requested["mail-routing.json"]' "${dir}/capsule.json")" \
+        && "$(sha256_of "${REPO_ROOT}/${OUTBOUND_DOCUMENT}")" == "$(jq -r '.requested["mail-outbound.json"]' "${dir}/capsule.json")" ]] \
+        || printf 'the trusted bundle is not the request this capsule recorded — the configuration changed since the activation, so this capsule is stale\n'
+
+    if [[ -f "${dir}/mail-routing.json" && -f "${dir}/mail-outbound.json" ]]; then
+        problems="$(transition_problems "${dir}/mail-routing.json" "${REPO_ROOT}/${ROUTING_DOCUMENT}" \
+            "${dir}/mail-outbound.json" "${REPO_ROOT}/${OUTBOUND_DOCUMENT}" 2>/dev/null)" \
+            || problems="the capsule's documents could not be compared with the trusted bundle"
+        [[ -z "${problems}" ]] || printf '%s\n' "${problems}"
+    fi
+}
+
+# capsule_bundle — a bundle of the capsule's pre-activation documents, in
+# CAPSULE_PRE_BUNDLE.
+capsule_bundle() {
+    local dir
+    dir="$(capsule_dir)"
+
+    make_bundle capsule "${dir}/mail-routing.json" "${dir}/mail-outbound.json"
+    validate_bundle "${MADE_BUNDLE}" "the capsule's pre-activation"
+    CAPSULE_PRE_BUNDLE="${MADE_BUNDLE}"
+}
+
+# --- Back to held ----------------------------------------------------------------------
+
+# restore_pre_activation BUNDLE — the pre-activation gateway applied from
+# BUNDLE by its own installer, then proved: its verify, the held read-back and
+# the signing acceptance. Never touches the queue but through that
+# acceptance's own probe.
+restore_pre_activation() {
+    local bundle="$1" plan failures=0
+
+    if [[ -z "${bundle}" || ! -d "${bundle}" ]]; then
+        bad "there is no pre-activation bundle to restore from"
+        return 1
+    fi
+
+    log "restoring the pre-activation gateway: install-mail-gateway --apply from the pre-activation bundle"
+    run_child "install-mail-gateway --apply (pre-activation bundle)" "$(bundle_script "${bundle}" install-mail-gateway)" --apply \
+        || bad "install-mail-gateway --apply of the pre-activation gateway did not succeed"
+
+    gateway_verify "${bundle}" "the pre-activation" || failures=$((failures + 1))
+
+    if plan="$("$(bundle_script "${bundle}" mail-routing)" render-plan 2>/dev/null)"; then
+        check_routes "${plan}" held "${TARGET_ID}'s listener holds its mail, no direct route exists, nothing listens on a public SMTP port" \
+            || failures=$((failures + 1))
+    else
+        bad "the pre-activation bundle's mail routing plan could not be rendered"
+        failures=$((failures + 1))
+    fi
+
+    # A probe goes only to a listener already proved to hold its mail.
+    if (( failures == 0 )); then
+        signing_e2e "${bundle}" || failures=$((failures + 1))
+    else
+        bad "the signing acceptance is not run: the gateway is not proved to hold ${TARGET_ID}'s mail"
+    fi
+
+    (( failures == 0 ))
+}
+
+# --- Modes ------------------------------------------------------------------------------
+
+# already_activated — 0 when the installed gateway is exactly the requested
+# one and the target is fully ready; 1 when the gateway is not the requested
+# one; 2 when it is, but the target is not ready. Prints its findings.
+already_activated() {
+    log "is the host already activated as requested?"
+    run_child "install-mail-gateway --verify (trusted bundle)" "$(bundle_script "${REPO_ROOT}" install-mail-gateway)" --verify || {
+        log "not yet: the installed gateway is not the requested one"
+        return 1
+    }
+    readiness_verify "${REPO_ROOT}" || return 2
+    check_routes "${DESIRED_PLAN}" outbound "${TARGET_ID}'s listener alone owns its direct route, capture listeners still capture, nothing listens on a public SMTP port" || return 2
+}
+
+# preflight PRE_BUNDLE WITH_E2E — everything that must hold before the gateway
+# changes. Counts failures in COUNT_FAIL.
+preflight() {
+    local pre="$1" with_e2e="$2" pre_plan
+
+    log "the pre-activation proof: the host must be exactly the derived pre-activation state"
+
+    gateway_verify "${pre}" "the pre-activation" || true
+
+    if pre_plan="$("$(bundle_script "${pre}" mail-routing)" render-plan 2>/dev/null)"; then
+        check_routes "${pre_plan}" held "${TARGET_ID}'s listener holds its mail, no direct route exists, nothing listens on a public SMTP port" || true
+    else
+        bad "the pre-activation bundle's mail routing plan could not be rendered"
+    fi
+
+    log "the requested identity: public DNS, the key and the signer"
+    dns_verify "${REPO_ROOT}" || true
+    signer_verify "${REPO_ROOT}" || true
+
+    if [[ "${with_e2e}" == true ]]; then
+        if (( COUNT_FAIL == 0 )); then
+            log "the signing acceptance on the held listener"
+            signing_e2e "${pre}" || true
+        else
+            log "the signing acceptance is not run: the read-only proof already failed"
+        fi
+    fi
+
+    check_hold_queue || true
+}
+
+run_check() {
+    local active=0
+
+    load_request
+    require_requested
+    require_planned_production
+
+    COUNT_FAIL=0
+    already_activated || active=$?
+    if (( active == 0 )); then
+        OUTBOUND_READY=true
+        log "ACTIVATION CHECK: ALREADY ACTIVE — --apply would change nothing"
+        result_line pass
+        return 0
+    fi
+    (( active != 2 )) \
+        || die "${TARGET_ID}'s gateway is already the requested one, but the target is not ready (above) — --apply would change nothing; --rollback returns it to held"
+    COUNT_FAIL=0
+
+    derive_pre_bundle
+    preflight "${PRE_BUNDLE}" false
+
+    if (( COUNT_FAIL == 0 )); then
+        log "ACTIVATION CHECK: READY — --apply would activate ${TARGET_ID} after the signing acceptance passes"
+        result_line pass
+        return 0
+    fi
+
+    log "ACTIVATION CHECK: REFUSED — --apply would change nothing (${COUNT_FAIL} problem(s) above)"
+    result_line fail
+    exit 1
+}
+
+run_apply() {
+    local capsule active=0
+
+    require_tools flock sha256sum
+    acquire_host_lock
+
+    load_request
+    require_requested
+    require_planned_production
+
+    capsule="$(capsule_state)"
+    [[ "${capsule}" != foreign ]] \
+        || die "$(capsule_dir) exists and is not this activation's capsule — it is never used, overwritten or removed; nothing was changed"
+
+    COUNT_FAIL=0
+    already_activated || active=$?
+    if (( active == 0 )); then
+        OUTBOUND_READY=true
+        log "ACTIVATION: ALREADY ACTIVE — ${TARGET_ID} delivers outbound and is ready; nothing was changed"
+        result_line pass
+        return 0
+    fi
+    (( active != 2 )) \
+        || die "${TARGET_ID}'s gateway is already the requested one, but the target is not ready (above) — nothing was changed; --rollback returns it to held"
+    COUNT_FAIL=0
+
+    derive_pre_bundle
+    preflight "${PRE_BUNDLE}" true
+
+    (( COUNT_FAIL == 0 )) \
+        || die "the pre-activation proof failed (${COUNT_FAIL} problem(s) above) — nothing was changed"
+
+    # The point of no return is the gateway, not the capsule: the capsule is
+    # written first, so every exit from here on has it to return to.
+    write_capsule activating "${PRE_BUNDLE}/${ROUTING_DOCUMENT}" "${PRE_BUNDLE}/${OUTBOUND_DOCUMENT}"
+    capsule_bundle
+    TRANSACTION_OPEN=true
+
+    log "activating: install-mail-gateway --apply from the trusted bundle"
+    CHANGED=true
+    run_child "install-mail-gateway --apply (trusted bundle)" "$(bundle_script "${REPO_ROOT}" install-mail-gateway)" --apply \
+        || die "install-mail-gateway --apply refused or failed"
+
+    COUNT_FAIL=0
+    gateway_verify "${REPO_ROOT}" "the requested" || true
+    readiness_verify "${REPO_ROOT}" || true
+    check_routes "${DESIRED_PLAN}" outbound "${TARGET_ID}'s listener alone owns its direct route, capture listeners still capture, nothing listens on a public SMTP port" || true
+    signer_verify "${REPO_ROOT}" || true
+
+    (( COUNT_FAIL == 0 )) \
+        || die "the activated gateway did not prove itself (${COUNT_FAIL} problem(s) above)"
+
+    TRANSACTION_OPEN=false
+    set_capsule_state activated
+    OUTBOUND_READY=true
+
+    log "ACTIVATION: DONE — ${TARGET_ID} delivers outbound by direct delivery as ${MTA_HOSTNAME}; OUTBOUND READY: YES. No message was sent. The capsule $(capsule_dir) allows the initial-launch rollback while ${TARGET_ID} is planned"
+    result_line pass
+}
+
+run_verify() {
+    load_request
+
+    if [[ "${REQUESTED}" != true ]]; then
+        bad "activation is not requested by this trusted bundle: ${TARGET_ID}'s mail is ${T_MODE} (route ${T_ROUTE}) and direct delivery is $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)"
+        log "OUTBOUND READY: NO"
+        result_line fail
+        exit 1
+    fi
+
+    [[ "${T_ENVIRONMENT}" == production ]] \
+        || die "${TARGET_ID} is a ${T_ENVIRONMENT} target — only a production target's mail is delivered outbound"
+
+    COUNT_FAIL=0
+    gateway_verify "${REPO_ROOT}" "the requested" || true
+    signer_verify "${REPO_ROOT}" || true
+    dns_verify "${REPO_ROOT}" || true
+    readiness_verify "${REPO_ROOT}" || true
+    check_routes "${DESIRED_PLAN}" outbound "${TARGET_ID}'s listener alone owns its direct route, capture listeners still capture, nothing listens on a public SMTP port" || true
+
+    if (( COUNT_FAIL == 0 )); then
+        OUTBOUND_READY=true
+        log "OUTBOUND READY: YES — ${TARGET_ID}'s mail is signed and delivered directly as ${MTA_HOSTNAME}"
+        result_line pass
+        return 0
+    fi
+
+    log "OUTBOUND READY: NO (${COUNT_FAIL} problem(s) above)"
+    result_line fail
+    exit 1
+}
+
+run_rollback() {
+    local problems problem
+
+    require_tools flock sha256sum
+    acquire_host_lock
+
+    load_request
+    require_initial_launch
+    [[ "${REQUESTED}" == true ]] \
+        || die "activation is not requested by this trusted bundle (${TARGET_ID}'s mail is ${T_MODE}, direct delivery $([[ "${DIRECT_ENABLED}" == true ]] && echo enabled || echo disabled)), so there is no activation of it to roll back — Prepare host renders the gateway it describes. Nothing was changed"
+
+    problems="$(capsule_problems)"
+    if [[ -n "${problems}" ]]; then
+        while IFS= read -r problem; do
+            bad "${problem}"
+        done <<<"${problems}"
+        die "the rollback capsule cannot be used — nothing was changed"
+    fi
+    ok "the rollback capsule $(capsule_dir) is this activation's, and the trusted bundle is still exactly the request it recorded"
+
+    capsule_bundle
+
+    COUNT_FAIL=0
+    CHANGED=true
+    if restore_pre_activation "${CAPSULE_PRE_BUNDLE}"; then
+        ROLLED_BACK=true
+        set_capsule_state rolled-back
+        log "RUNTIME HELD AGAIN: ${TARGET_ID}'s listener holds its mail, no direct route exists, and the signing acceptance passed"
+        log "The committed configuration STILL requests outbound delivery for ${TARGET_ID}: revert the activation change to ${ROUTING_DOCUMENT} and ${OUTBOUND_DOCUMENT} before the next Prepare or Verify — Prepare would otherwise render it again"
+        result_line pass
+        return 0
+    fi
+
+    printf 'CRITICAL: the rollback of %s could not be proved. Nothing broader was attempted.\n' "${TARGET_ID}" >&2
+    log "ROLLBACK: CRITICAL"
+    result_line critical
+    exit 2
+}
+
+# --- Entry point ---------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--rollback)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                die "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify or --rollback"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+
+    require_tools jq
+    RESULT_READY=true
+    trap on_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 141' PIPE
+    trap 'exit 143' TERM
+
+    require_root
+
+    case "${MODE}" in
+        check)    run_check ;;
+        apply)    run_apply ;;
+        verify)   run_verify ;;
+        rollback) run_rollback ;;
+    esac
+}
+
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped code rather than a copy of it.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

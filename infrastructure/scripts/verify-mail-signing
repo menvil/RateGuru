@@ -91,6 +91,7 @@ ROUTING_FILE="$(gated_default RATEGURU_MAILSIGN_ROUTING_FILE "${REPO_ROOT}/infra
 REGISTRY_FILE="$(gated_default RATEGURU_MAILSIGN_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
 OUTBOUND_FILE="$(gated_default RATEGURU_MAILSIGN_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
 
+# shellcheck disable=SC2034 # read by smtp-submission's queue lookups
 POSTQUEUE_BIN="$(gated_default RATEGURU_MAILSIGN_POSTQUEUE_BIN postqueue)"
 POSTCAT_BIN="$(gated_default RATEGURU_MAILSIGN_POSTCAT_BIN postcat)"
 POSTSUPER_BIN="$(gated_default RATEGURU_MAILSIGN_POSTSUPER_BIN postsuper)"
@@ -100,6 +101,11 @@ POLL_TIMEOUT="$(gated_default RATEGURU_MAILSIGN_POLL_TIMEOUT 30)"
 
 # The probe's recipient domain is reserved: nothing could ever deliver to it.
 PROBE_DOMAIN="rateguru.invalid"
+
+# The SMTP conversation and the exact-queue-entry lookups, shared with
+# send-mail-canary and shipped beside this script.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/smtp-submission"
 
 MODE=""
 TARGET_ID=""
@@ -320,79 +326,26 @@ held_listener() {
         || die "${TARGET_ID}'s reviewed sender is not a plain address — nothing was submitted"
 }
 
-# --- SMTP over /dev/tcp --------------------------------------------------------
-#
-# smtp_submit TOKEN RECIPIENT FROM_HEADER — one transaction to TARGET's held
-# listener, and nowhere else, from TARGET's reviewed sender. Sets SMTP_STAGE to
-# the command a refusal came at ("message" for one at the end of the data), or
-# to "queued", SMTP_REPLY to the last reply and SMTP_QUEUE_ID to the queue ID
-# Postfix names.
-#
-# fd 4 is opened and closed with a bare exec; the stderr silencing is on a group
-# around it, so it lasts only for that exec.
+# --- SMTP: the gateway's own listener, through the shared library --------------
 
-SMTP_STAGE=""
-SMTP_REPLY=""
-SMTP_QUEUE_ID=""
-
-_smtp_reply() {
-    local want="$1" line
-    SMTP_REPLY=""
-    while IFS= read -r -t 15 -u 4 line; do
-        line="${line%$'\r'}"
-        SMTP_REPLY="${line}"
-        [[ "${line:3:1}" == "-" ]] && continue
-        [[ "${line:0:1}" == "${want}" ]] && return 0
-        return 1
-    done
-    return 1
-}
-
-_smtp_step() {
-    # _smtp_step STAGE WANT [COMMAND]
-    local stage="$1" want="$2"
-    SMTP_STAGE="${stage}"
-    if [[ $# -ge 3 ]]; then
-        printf '%s\r\n' "$3" >&4
-    fi
-    _smtp_reply "${want}"
-}
-
+# smtp_submit TOKEN RECIPIENT FROM_HEADER — one probe to TARGET's held listener,
+# and nowhere else, from TARGET's reviewed sender. The conversation is
+# smtp-submission's; SMTP_STAGE, SMTP_REPLY and SMTP_QUEUE_ID say how it ended.
 smtp_submit() {
-    local token="$1" recipient="$2" from_header="$3"
-    SMTP_STAGE="connect"
-    SMTP_REPLY=""
-    SMTP_QUEUE_ID=""
+    local token="$1" recipient="$2" from_header="$3" message
 
-    { exec 4<>"/dev/tcp/${LISTEN_HOST}/${LISTEN_PORT}"; } 2>/dev/null || return 1
+    message="$(
+        printf '%s\n' "${from_header}"
+        printf 'To: <%s>\n' "${recipient}"
+        printf 'Subject: %s\n' "${token}"
+        printf 'Date: %s\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+        printf 'Message-ID: <%s@%s>\n' "${token}" "${PROBE_DOMAIN}"
+        printf 'X-RateGuru-Mail-Signing-Verify: %s\n' "${token}"
+        printf '\n'
+        printf 'RateGuru mail signing acceptance message %s\n' "${token}"
+    )"
 
-    if _smtp_step connect 2 \
-        && _smtp_step ehlo 2 "EHLO mail-signing-verify" \
-        && _smtp_step mail 2 "MAIL FROM:<${PROBE_SENDER}>" \
-        && _smtp_step rcpt 2 "RCPT TO:<${recipient}>" \
-        && _smtp_step data 3 "DATA"
-    then
-        {
-            printf '%s\r\n' "${from_header}"
-            printf 'To: <%s>\r\n' "${recipient}"
-            printf 'Subject: %s\r\n' "${token}"
-            printf 'Date: %s\r\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
-            printf 'Message-ID: <%s@%s>\r\n' "${token}" "${PROBE_DOMAIN}"
-            printf 'X-RateGuru-Mail-Signing-Verify: %s\r\n' "${token}"
-            printf '\r\n'
-            printf 'RateGuru mail signing acceptance message %s\r\n' "${token}"
-            printf '.\r\n'
-        } >&4
-
-        if _smtp_step message 2; then
-            SMTP_QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
-            SMTP_STAGE="queued"
-            printf 'QUIT\r\n' >&4 || true
-        fi
-    fi
-
-    { exec 4>&- 4<&-; } 2>/dev/null || true
-    [[ "${SMTP_STAGE}" == queued ]]
+    smtp_submit_message "${LISTEN_HOST}" "${LISTEN_PORT}" mail-signing-verify "${PROBE_SENDER}" "${recipient}" "${message}"
 }
 
 new_token() {
@@ -400,18 +353,6 @@ new_token() {
 }
 
 # --- The queue: one entry, by its exact ID --------------------------------------------
-
-queue_state() {
-    "${POSTQUEUE_BIN}" -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
-}
-
-# queue_ids_for RECIPIENT — the entries addressed to one of this run's unique
-# recipients: its probe, even when Postfix's reply never named its ID.
-queue_ids_for() {
-    [[ -n "$1" ]] || return 0
-    "${POSTQUEUE_BIN}" -j 2>/dev/null \
-        | jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
-}
 
 wait_queue_state() {
     local id="$1" want="$2" waited=0

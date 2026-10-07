@@ -17,7 +17,7 @@ transport works and stays switched off.
 | `tits-guru` | `lifecycle=planned`, `delivery_mode=held`; its listener exists and **holds** everything; nothing is delivered |
 | DKIM signing of `tits-guru`'s listener | **Implemented — production acceptance pending**: its listener hands each message to the host's DKIM signer before it is held — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
 | Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, not activated**: no target uses it, and `config/mail-outbound.json` keeps direct delivery **disabled** on the host, so no outbound route can be rendered or installed |
-| Production outbound delivery | **None**: no route to the Internet exists on any host |
+| Production outbound delivery | **None**: no route to the Internet exists on any host. A production target is activated only through the guarded `activate-mail-outbound` — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
 ## What is installed
 

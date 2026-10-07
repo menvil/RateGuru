@@ -42,6 +42,7 @@
         "Tests\\Feature\\Architecture\\InstallTargetPerimeterTest": 35.4364,
         "Tests\\Feature\\Architecture\\InstallTargetPrerequisitesTest": 33.2548,
         "Tests\\Feature\\Architecture\\LegacyEnvironmentRemovalTest": 2.7941,
+        "Tests\\Feature\\Architecture\\MailCanaryTest": 60.0,
         "Tests\\Feature\\Architecture\\MailCaptureInfrastructureTest": 2.3065,
         "Tests\\Feature\\Architecture\\MailCaptureInstallerTest": 7.5612,
         "Tests\\Feature\\Architecture\\MailCaptureStatusTest": 0.7939,
@@ -49,6 +50,7 @@
         "Tests\\Feature\\Architecture\\MailGatewayAcceptanceTest": 9.5293,
         "Tests\\Feature\\Architecture\\MailGatewayTest": 52.1409,
         "Tests\\Feature\\Architecture\\MailIdentityTest": 42.556,
+        "Tests\\Feature\\Architecture\\MailOutboundActivationTest": 90.0,
         "Tests\\Feature\\Architecture\\MailRoutingPolicyTest": 22.1549,
         "Tests\\Feature\\Architecture\\MailSigningTest": 60.0,
         "Tests\\Feature\\Architecture\\NightwatchAgentInstallerTest": 13.0254,
@@ -114,6 +116,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.0799,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0706
     },
-    "checksum": "f39b52aa9105da765f431ec2c9e7af96",
+    "checksum": "b3a965e704e80d51074068ae33919577",
     "updated_at": "2026-10-06T19:27:50+00:00"
 }
