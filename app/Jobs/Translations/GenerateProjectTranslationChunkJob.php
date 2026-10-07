@@ -32,12 +32,19 @@ use Throwable;
  *
  * It carries only the batch and chunk ids. What it sends is the snapshot the
  * batch was planned from, sized to fit one request of the provider it was
- * planned for; so one job is at most one paid call, comfortably inside the
- * 45-second request timeout and this job's own 90 — and well inside the queue
- * worker's 120. Exactly once, at most: a job claims its chunk before anything
- * else, and only a queued chunk can be claimed, so a job delivered twice sends
- * nothing the second time. It is never retried: a retry may be a second paid
- * call, and generating again is the administrator's choice.
+ * planned for; so one job is at most one paid call. The timings nest:
+ *
+ *   provider request timeout   45 s
+ *   this job's timeout         75 s   its own, ahead of the worker's
+ *   Redis queue retry_after    90 s
+ *   queue worker timeout      120 s
+ *
+ * The job is stopped well before Redis would hand it to another worker as if
+ * it had been lost, so a reserved job is never run twice at once. Exactly
+ * once, at most: a job claims its chunk before anything else, and only a
+ * queued chunk can be claimed, so a job delivered twice sends nothing the
+ * second time. It is never retried: a retry may be a second paid call, and
+ * generating again is the administrator's choice.
  *
  * Before sending, it checks that nothing it was planned on has changed:
  *
@@ -58,7 +65,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 90;
+    public int $timeout = 75;
 
     public bool $failOnTimeout = true;
 

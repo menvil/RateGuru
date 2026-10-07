@@ -41,14 +41,21 @@ beforeEach(function () {
     $this->unit = fn (Category $category): string => "categories:{$category->id}:name";
 });
 
-it('is never retried, and stops well inside the queue worker\'s own timeout', function () {
+it('is never retried, and stops well before Redis could hand it to another worker', function () {
     $job = new GenerateProjectTranslationChunkJob('batch', 'c1');
     preg_match('/--timeout=(\d+)/', (string) file_get_contents(base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf')), $worker);
+    // The Redis queue's retry_after as the repository ships it — what the targets run with — rather
+    // than whatever this test environment happens to configure; and as configured here as well.
+    preg_match("/env\('REDIS_QUEUE_RETRY_AFTER', (\d+)\)/", (string) file_get_contents(config_path('queue.php')), $shipped);
+    $retryAfter = [(int) $shipped[1], (int) config('queue.connections.redis.retry_after')];
 
     expect($job->tries)->toBe(1)
         ->and($job->failOnTimeout)->toBeTrue()
         ->and(property_exists($job, 'backoff'))->toBeFalse()
-        ->and($job->timeout)->toBe(90)
+        ->and($job->timeout)->toBe(75)
+        ->and($retryAfter[0])->toBe(90)
+        // Stopped with a margin before a reserved job is released again, never at the same moment.
+        ->and($job->timeout)->toBeLessThanOrEqual(min($retryAfter) - 10)
         ->and($job->timeout)->toBeLessThan((int) $worker[1])
         // One provider request, with its own timeout, fits inside the job's.
         ->and((int) config('translation.providers.openai.timeout') + (int) config('translation.providers.openai.connect_timeout'))->toBeLessThan($job->timeout);

@@ -123,9 +123,11 @@ Translation engine  ≠  translation storage  ≠  draft storage
 - **One job, at most one paid call.** The planner cuts the request with `TranslationBatchChunker` and the
   configured provider's own `limits()` — no limit of its own — so each chunk is exactly one provider request; a
   language can have more than one logical batch's 500 items, in as many chunks as it takes. Each job carries only
-  the batch and chunk ids, has `tries = 1`, a 90-second timeout and `failOnTimeout`, and is never retried: a retry
+  the batch and chunk ids, has `tries = 1`, a 75-second timeout and `failOnTimeout`, and is never retried: a retry
   could be a second paid call, and generating again is the administrator's choice. An item too large for any one
-  request is set apart, failed and never sent.
+  request is set apart, failed and never sent. The timings nest — provider request 45 s < job 75 s < Redis
+  `retry_after` 90 s < worker 120 s — so a job is stopped well before Redis would hand it, as if lost, to another
+  worker; the job's own timeout takes precedence over the worker's.
 - **Checked again before anything is sent.** A job first claims its chunk — only a queued chunk can be claimed,
   so a job delivered twice sends nothing the second time — then checks that whoever started the batch may still
   manage project settings, that the provider and its limits are the ones planned for, and that each item is still
