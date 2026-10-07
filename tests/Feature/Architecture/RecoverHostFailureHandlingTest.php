@@ -165,6 +165,47 @@ it('keeps the host held and owned when its scheduler entry cannot be put back af
     'after a compensated activation' => [['RGTEST_RENAME_FAIL_TO_PREFIX' => 'rateguru_pre_'], 'activate database', 'complete'],
 ]);
 
+it('says the scheduler entry is not held when putting it back left it in cron.d', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        // Putting the entry back moves it into cron.d and then restores its
+        // owner. Recorded as root's, that owner cannot be restored by this
+        // unprivileged test, so the move happens and the chown fails: the
+        // entry ends up in cron.d, which is not where a held entry is.
+        $ownedByRoot = 'for state in '.escapeshellarg($scratch.'/run/recoveries/parity-target').'/*/state.json; do '
+            .'jq \'.scheduler_owner = "0:0"\' "$state" > "$state.next" && mv "$state.next" "$state"; done';
+
+        $result = recoveryApply($scratch, [
+            'RGTEST_SUPERVISOR_STOP_STATE' => 'FATAL',
+            'RATEGURU_RESTORE_SUPERVISORCTL_BIN' => executableWithHook($scratch.'/bin/supervisorctl', 'stop', $ownedByRoot),
+        ]);
+        $operation = lastRecoveryRecord($scratch)['operation'];
+        $inCron = $scratch.'/cron.d/parity-scheduler';
+        $held = recoveryHeldSchedulerEntry($scratch, $operation);
+
+        expect($result['exit'])->not->toBe(0);
+        expect(File::exists($inCron))->toBeTrue();
+        expect($result['output'])
+            ->toContain('ERROR: could not restore the scheduler cron entry ownership')
+            ->toContain('MANUAL RECOVERY REQUIRED')
+            ->toContain("# but its scheduler cron entry is NOT held: it is in {$inCron}.")
+            ->toContain("#   mv {$inCron} {$held}")
+            ->not->toContain('is held out of');
+
+        // The command it prints is the one that puts the operation's state
+        // back: the entry where this operation keeps it, and cron.d without it.
+        exec("mv {$inCron} {$held} 2>&1", $moveOutput, $moveExit);
+        expect($moveExit)->toBe(0, implode("\n", $moveOutput));
+        expect(File::exists($inCron))->toBeFalse()
+            ->and(File::exists($held))->toBeTrue();
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->skip(fn (): bool => testProcessIsRoot(), 'root can give the entry back to root, so the chown this case needs to fail would succeed');
+
 // =============================================================================
 // A guard that cannot be written stops the step it was meant to cover
 // =============================================================================

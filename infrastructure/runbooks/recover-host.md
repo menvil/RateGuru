@@ -622,6 +622,10 @@ back:
 * an explicit `MANUAL RECOVERY REQUIRED` report names the failed step, the
   compensation status, the state file and — see below — exactly what rollback
   material still exists;
+* the report says where the scheduler cron entry actually is. If putting it
+  back moved it into `/etc/cron.d` and then failed (its owner or mode could not
+  be restored), it says the entry is **not** held, and prints the `mv` that
+  returns it to the operation's hold before cron runs it;
 * the original error is never masked by a cleanup failure.
 
 ### What the held report says about rollback material
