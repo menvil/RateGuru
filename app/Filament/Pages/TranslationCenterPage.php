@@ -208,17 +208,17 @@ final class TranslationCenterPage extends Page
     }
 
     /**
-     * Save all generated: every ready background suggestion but the rows the
-     * administrator has edited since, each saved on its own.
+     * Save all generated: the background suggestions the page shows untouched,
+     * named by unit — never one it has not shown — each saved on its own.
      *
      * @return array<string, mixed>
      */
     #[Renderless]
-    public function saveAllGenerated(mixed $locale = null, mixed $batch = null, mixed $except = []): array
+    public function saveAllGenerated(mixed $locale = null, mixed $batch = null, mixed $units = []): array
     {
         return $this->generation(fn (User $user): array => [
             'saved' => true,
-            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, null, $except),
+            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, null, $units),
         ], 'saved');
     }
 

@@ -720,16 +720,16 @@
             async saveAll() {
                 this.pendingSaveAll = false
 
+                // Exactly the rows shown untouched: a suggestion that became ready since the last look is not saved unseen.
                 const batch = this.generation?.batch
-                const keep = new Set(this.saveAllUnits)
-                const except = (this.generation?.items ?? []).filter((item) => item.status === 'ready' && ! keep.has(item.unit)).map((item) => item.unit)
+                const units = this.saveAllUnits
                 let result = null
 
                 this.generationBusy = true
-                this.announce(`Saving ${this.figure(keep.size)} generated ${this.label} translations…`)
+                this.announce(`Saving ${this.figure(units.length)} generated ${this.label} translations…`)
 
                 try {
-                    result = await this.server().saveAllGenerated(this.locale, batch, except)
+                    result = await this.server().saveAllGenerated(this.locale, batch, units)
                 } catch (failure) {
                     result = null
                 }

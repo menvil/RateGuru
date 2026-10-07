@@ -35,6 +35,8 @@ final class CannotGenerateTranslationsException extends DomainException
 
     public const REASON_STORE_UNAVAILABLE = 'store_unavailable';
 
+    public const REASON_BUSY = 'busy';
+
     private function __construct(string $message, public readonly string $reason)
     {
         parent::__construct($message);
@@ -83,6 +85,11 @@ final class CannotGenerateTranslationsException extends DomainException
     public static function becauseItCouldNotBeQueued(): self
     {
         return new self('Background generation could not be started. Try again.', self::REASON_DISPATCH_FAILED);
+    }
+
+    public static function becauseTheBatchIsBusy(): self
+    {
+        return new self('These generated translations are busy right now. Try again in a moment.', self::REASON_BUSY);
     }
 
     public static function becauseTheStoreIsUnavailable(): self

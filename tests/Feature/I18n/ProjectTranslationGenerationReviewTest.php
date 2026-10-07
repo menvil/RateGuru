@@ -3,7 +3,6 @@
 use App\Actions\Translations\DiscardProjectTranslationGenerationAction;
 use App\Actions\Translations\SaveProjectTranslationGenerationAction;
 use App\Actions\Translations\UpdateProjectTranslationAction;
-use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Models\Category;
 use App\Models\ProjectSettings;
@@ -26,9 +25,15 @@ use Livewire\Livewire;
  * the ordinary writer — each one on its own, never over a translation someone
  * else saved, never from English that has changed.
  */
-function saveGeneration(User $admin, string $locale, string $batch, ?string $unit = null, array $except = []): array
+function saveGeneration(User $admin, string $locale, string $batch, ?string $unit = null, mixed $units = []): array
 {
-    return app(SaveProjectTranslationGenerationAction::class)->handle($admin, $locale, $batch, $unit, $except);
+    return app(SaveProjectTranslationGenerationAction::class)->handle($admin, $locale, $batch, $unit, $units);
+}
+
+/** The units whose suggestions are ready now — what a page that has just looked shows untouched. */
+function readyGenerationUnits(User $admin, string $locale): array
+{
+    return array_values(array_column(array_filter(translationGenerationOf($admin, $locale)['items'], fn (array $item): bool => $item['status'] === 'ready'), 'unit'));
 }
 
 function discardGeneration(User $admin, string $locale, string $batch, mixed $unit = null): ?array
@@ -59,17 +64,6 @@ function inTheGapAfterTheEarlyRead(Closure $meanwhile): Closure
     return function () use (&$ran): bool {
         return $ran;
     };
-}
-
-function reviewRefusal(Closure $operation): ?string
-{
-    try {
-        $operation();
-    } catch (CannotGenerateTranslationsException $exception) {
-        return $exception->reason;
-    }
-
-    return null;
 }
 
 beforeEach(function () {
@@ -145,7 +139,7 @@ it('saves every ready suggestion on its own, skipping changed English and transl
     $this->categories['B']->update(['name' => 'Plantains']);
     app(UpdateProjectTranslationAction::class)->handle($this->admin, ($this->unit)('C'), $this->target, 'Von jemand anderem');
 
-    $result = saveGeneration($this->admin, $this->target, $this->batch);
+    $result = saveGeneration($this->admin, $this->target, $this->batch, null, readyGenerationUnits($this->admin, $this->target));
     $outcomes = collect($result['results'])->mapWithKeys(fn (array $item): array => [$item['unit'] => $item['outcome']])->all();
 
     expect($outcomes)->toBe([
@@ -167,12 +161,37 @@ it('saves every ready suggestion on its own, skipping changed English and transl
         ]);
 });
 
-it('leaves out the rows the administrator has edited since', function () {
-    $result = saveGeneration($this->admin, $this->target, $this->batch, null, [($this->unit)('A')]);
+it('saves only the suggestions the page names: not a row edited since, not one ready after the page looked', function () {
+    // The page shows B, C and E untouched. A is ready too, but not named — edited there, or ready only since the
+    // page last looked — so it is not saved: nobody approved it.
+    $named = [($this->unit)('B'), ($this->unit)('C'), ($this->unit)('E')];
+    $result = saveGeneration($this->admin, $this->target, $this->batch, null, $named);
 
-    expect(array_column($result['results'], 'unit'))->not->toContain(($this->unit)('A'))
+    expect(array_column($result['results'], 'unit'))->toBe($named)
         ->and($this->categories['A']->fresh()->name_translations)->toBeNull()
         ->and(translationGenerationItem($result['generation'], ($this->unit)('A'))['status'])->toBe('ready');
+});
+
+it('saves nothing when Save all names nothing, or names it as anything but a list', function (mixed $units) {
+    $result = saveGeneration($this->admin, $this->target, $this->batch, null, $units);
+
+    expect([$result['results'], $result['saved']])->toBe([[], 0])
+        ->and(translationGenerationOf($this->admin, $this->target)['counts']['ready'])->toBe(4)
+        ->and($this->categories['A']->fresh()->name_translations)->toBeNull();
+})->with([
+    'an empty list' => [[]],
+    'nothing' => [null],
+    'a string' => ['categories:1:name'],
+    'a number' => [1],
+]);
+
+it('saves through the page exactly the rows it names', function () {
+    Livewire::withQueryParams(['locale' => $this->target])->test(TranslationCenterPage::class)
+        ->call('saveAllGenerated', $this->target, $this->batch, [($this->unit)('B')]);
+
+    expect($this->categories['B']->fresh()->name_translations)->toBe([$this->target => 'KI Bananas'])
+        ->and($this->categories['A']->fresh()->name_translations)->toBeNull()
+        ->and(translationGenerationOf($this->admin, $this->target)['counts']['ready'])->toBe(3);
 });
 
 it('never saves a suggestion made from English that changed afterwards', function () {
@@ -189,9 +208,10 @@ it('never saves a suggestion made from English that changed afterwards', functio
 it('never writes over a translation saved between its early read and the write', function (string $which) {
     $unit = ($this->unit)('A');
     $other = User::factory()->admin()->create();
+    $shown = readyGenerationUnits($this->admin, $this->target);
     $ran = inTheGapAfterTheEarlyRead(fn () => app(UpdateProjectTranslationAction::class)->handle($other, $unit, $this->target, 'Von jemand anderem'));
 
-    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null);
+    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null, $shown);
 
     expect($ran())->toBeTrue()
         ->and(collect($result['results'])->firstWhere('unit', $unit))->toBe([
@@ -206,9 +226,10 @@ it('never writes over a translation saved between its early read and the write',
 
 it('never saves a suggestion whose English changed between its early read and the write', function (string $which) {
     $unit = ($this->unit)('A');
+    $shown = readyGenerationUnits($this->admin, $this->target);
     $ran = inTheGapAfterTheEarlyRead(fn () => Category::query()->whereKey($this->categories['A']->id)->update(['name' => 'Apple lovers']));
 
-    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null);
+    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null, $shown);
 
     // New English that is not blank must not let a suggestion for the old one through.
     expect($ran())->toBeTrue()
@@ -224,8 +245,8 @@ it('writes nothing for a suggestion whose unit is gone, and refuses one that is 
     $this->categories['A']->delete();
 
     expect(saveGeneration($this->admin, $this->target, $this->batch, ($this->unit)('A'))['results'][0]['outcome'])->toBe('unit_unavailable')
-        ->and(reviewRefusal(fn () => saveGeneration($this->admin, $this->target, $this->batch, ($this->unit)('D'))))->toBe('not_ready')
-        ->and(reviewRefusal(fn () => saveGeneration($this->admin, $this->target, $this->batch, 'categories:999999:name')))->toBe('not_ready');
+        ->and(generationRefusal(fn () => saveGeneration($this->admin, $this->target, $this->batch, ($this->unit)('D'))))->toBe('not_ready')
+        ->and(generationRefusal(fn () => saveGeneration($this->admin, $this->target, $this->batch, 'categories:999999:name')))->toBe('not_ready');
 });
 
 it('discards one suggestion so a fresh page does not bring it back, and writes nothing', function () {
@@ -238,7 +259,7 @@ it('discards one suggestion so a fresh page does not bring it back, and writes n
 it('refuses to discard anything but one ready suggestion or, by null alone, every one', function (Closure $unit) {
     $before = translationGenerationOf($this->admin, $this->target);
 
-    expect(reviewRefusal(fn () => discardGeneration($this->admin, $this->target, $this->batch, $unit($this))))->toBe('not_ready')
+    expect(generationRefusal(fn () => discardGeneration($this->admin, $this->target, $this->batch, $unit($this))))->toBe('not_ready')
         ->and(translationGenerationOf($this->admin, $this->target))->toBe($before)
         ->and($before['counts']['ready'])->toBe(4);
 })->with([
@@ -263,7 +284,7 @@ it('refuses to discard a suggestion that was already saved, skipped or discarded
     expect(array_map(fn (string $key): string => translationGenerationItem($before, ($this->unit)($key))['status'], ['A', 'B', 'C']))->toBe(['saved', 'skipped', 'discarded']);
 
     foreach (['A', 'B', 'C'] as $key) {
-        expect(reviewRefusal(fn () => discardGeneration($this->admin, $this->target, $this->batch, ($this->unit)($key))))->toBe('not_ready');
+        expect(generationRefusal(fn () => discardGeneration($this->admin, $this->target, $this->batch, ($this->unit)($key))))->toBe('not_ready');
     }
 
     expect(translationGenerationOf($this->admin, $this->target))->toBe($before)
@@ -313,10 +334,10 @@ it('belongs to the administrator who generated it: another one can neither read,
     $other = User::factory()->admin()->create();
 
     expect(translationGenerationOf($other, $this->target))->toBeNull()
-        ->and(reviewRefusal(fn () => saveGeneration($other, $this->target, $this->batch)))->toBe('unavailable')
-        ->and(reviewRefusal(fn () => saveGeneration($other, $this->target, $this->batch, ($this->unit)('A'))))->toBe('unavailable')
-        ->and(reviewRefusal(fn () => discardGeneration($other, $this->target, $this->batch, ($this->unit)('A'))))->toBe('unavailable')
-        ->and(reviewRefusal(fn () => discardGeneration($other, $this->target, $this->batch)))->toBe('unavailable');
+        ->and(generationRefusal(fn () => saveGeneration($other, $this->target, $this->batch)))->toBe('unavailable')
+        ->and(generationRefusal(fn () => saveGeneration($other, $this->target, $this->batch, ($this->unit)('A'))))->toBe('unavailable')
+        ->and(generationRefusal(fn () => discardGeneration($other, $this->target, $this->batch, ($this->unit)('A'))))->toBe('unavailable')
+        ->and(generationRefusal(fn () => discardGeneration($other, $this->target, $this->batch)))->toBe('unavailable');
 
     // The Livewire answer gives nothing away either: no text, no owner.
     $this->actingAs($other);
@@ -332,7 +353,7 @@ it('belongs to the administrator who generated it: another one can neither read,
 it('refuses a batch for another language, or an id that is not one', function (Closure $batch, Closure $locale) {
     [, $other] = twoTranslatedLocales();
 
-    expect(reviewRefusal(fn () => saveGeneration($this->admin, $locale($this->target, $other), $batch($this->batch))))->toBe('unavailable');
+    expect(generationRefusal(fn () => saveGeneration($this->admin, $locale($this->target, $other), $batch($this->batch))))->toBe('unavailable');
 })->with([
     'another language' => [fn (string $batch) => $batch, fn (string $target, string $other) => $other],
     'not a uuid' => [fn (string $batch) => 'translation-generation:active:1:de', fn (string $target, string $other) => $target],

@@ -142,15 +142,21 @@ Translation engine  ≠  translation storage  ≠  draft storage
   expires 48 hours after the batch was created (`translation.bulk.ttl_seconds`); reading never extends it. Nothing
   is written to the database, and there is no migration.
 - **Locks only around state.** Every change of state happens under a short lock on the batch; the provider call
-  happens outside it. A chunk a worker claimed and never finished is failed as `worker_interrupted` once
+  happens outside it. A lock not had in time is refused as `busy` — the store is there, someone else holds the
+  batch — never as an unreachable store, and a job's result waits for it longer than the lock is ever held, so a paid
+  result outlasts contention. A chunk a worker claimed and never finished is failed as `worker_interrupted` once
   `translation.bulk.stale_running_seconds` (180) have passed, the next time the batch is read — and a result that
-  still arrives afterwards is kept, since it was paid for.
+  still arrives afterwards is kept, since it was paid for. A chunk no worker has taken
+  `translation.bulk.stale_queued_seconds` (3600) after its batch was created — a queue that lost the job, or has no
+  worker — is failed the same way, so the language is not held for the batch's whole lifetime; a job that turns up
+  later finds its chunk no longer queued and sends nothing.
 - **One batch per administrator and language, one running per language.** Starting again returns the batch that
   is running or still has suggestions to review instead of paying for them twice; a language another administrator
   is generating is refused until that generation finishes. Partial results are kept: a chunk that fails fails its
   own items only.
-- **Save stays explicit.** `SaveProjectTranslationGenerationAction` saves one suggestion, or every ready one
-  (Save all generated), with the text read from the store — never from the browser — each through
+- **Save stays explicit.** `SaveProjectTranslationGenerationAction` saves one suggestion, or the ones Save all
+  generated names — exactly the rows the page shows untouched, never a suggestion that became ready after the page
+  last looked — with the text read from the store — never from the browser — each through
   `UpdateProjectTranslationAction` on its own, with no transaction around them. A suggestion whose English changed
   since it was generated, or for a translation someone saved meanwhile, is skipped and never overwrites anything.
   That is decided on the unit's locked row: `UpdateProjectTranslationAction::handleGuarded()` hands the unit, as the

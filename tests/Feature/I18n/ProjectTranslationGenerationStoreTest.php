@@ -7,6 +7,9 @@ use App\Support\Translations\Generation\ProjectTranslationGenerationIssue;
 use App\Support\Translations\Generation\ProjectTranslationGenerationItemStatus;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\ArrayLock;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -25,6 +28,40 @@ function generationCache(): Repository
 function generationStore(): ProjectTranslationGenerationStore
 {
     return app(ProjectTranslationGenerationStore::class);
+}
+
+/**
+ * Puts the drafts in an array store whose locks are held by someone else for
+ * $heldForSeconds: a caller prepared to wait less is turned away as a lock
+ * timeout, one prepared to wait longer gets it. Time stands still in these
+ * tests, so the wait is modelled rather than slept.
+ */
+function contendedGenerationStore(): ArrayStore
+{
+    $store = new class extends ArrayStore
+    {
+        public int $heldForSeconds = 0;
+
+        public function lock($name, $seconds = 0, $owner = null)
+        {
+            return new class($this, $name, $seconds, $owner) extends ArrayLock
+            {
+                public function block($seconds, $callback = null)
+                {
+                    if ($seconds < $this->store->heldForSeconds) {
+                        throw new LockTimeoutException;
+                    }
+
+                    return parent::block($seconds, $callback);
+                }
+            };
+        }
+    };
+
+    Cache::extend('contended', fn () => Cache::repository($store));
+    config(['cache.stores.contended' => ['driver' => 'contended'], 'translation.bulk.cache_store' => 'contended']);
+
+    return $store;
 }
 
 /** Whether a value is made of strings, integers, floats, booleans, null and arrays of those alone. */
@@ -153,6 +190,45 @@ it('gives up a chunk a worker claimed and never finished, once 180 seconds have 
         ->and($generation['counts']['failed'])->toBe($generation['counts']['total'])
         ->and(collect($generation['items'])->pluck('issue')->unique()->all())->toBe([ProjectTranslationGenerationIssue::WorkerInterrupted->value])
         ->and(generationStore()->runningBatchId($this->target))->toBeNull();
+});
+
+it('gives up a chunk no worker has taken an hour after its batch was created, and a job turning up later sends nothing', function () {
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    startTranslationGeneration($this->admin, $this->target);
+
+    Carbon::setTestNow(Carbon::now()->addSeconds(3599));
+    expect(translationGenerationOf($this->admin, $this->target)['status'])->toBe('queued');
+
+    Carbon::setTestNow(Carbon::now()->addSeconds(2));
+    $generation = translationGenerationOf($this->admin, $this->target);
+
+    expect($generation['status'])->toBe('completed')
+        ->and($generation['counts']['failed'])->toBe($generation['counts']['total'])
+        ->and(collect($generation['items'])->pluck('issue')->unique()->all())->toBe([ProjectTranslationGenerationIssue::WorkerInterrupted->value])
+        ->and(generationStore()->runningBatchId($this->target))->toBeNull();
+
+    // The queue delivers the job at last: its chunk is no longer queued, so nothing is sent or paid for.
+    runTranslationGenerationJobs();
+
+    expect($provider->received)->toBe([]);
+});
+
+it('says a batch held by someone else is busy, not that the store is gone, and keeps a paid result through it', function () {
+    $store = contendedGenerationStore();
+    $batch = startTranslationGeneration($this->admin, $this->target)['batch'];
+    $claimed = generationStore()->claim($batch, 'c1', CarbonImmutable::now());
+    $unit = $claimed['chunk']['items'][0]['id'];
+
+    // Held for ten seconds: longer than anything else waits for it, shorter than a result does.
+    $store->heldForSeconds = 10;
+
+    expect(generationRefusal(fn () => generationStore()->claim($batch, 'c1', CarbonImmutable::now())))->toBe('busy')
+        ->and(generationRefusal(fn () => generationStore()->resolve($batch, [], CarbonImmutable::now())))->toBe('busy');
+
+    generationStore()->complete($batch, 'c1', [$unit => ['status' => ProjectTranslationGenerationItemStatus::Ready, 'text' => 'Bezahlt']], CarbonImmutable::now());
+    $store->heldForSeconds = 0;
+
+    expect(translationGenerationItem(translationGenerationOf($this->admin, $this->target), $unit))->toMatchArray(['status' => 'ready', 'text' => 'Bezahlt']);
 });
 
 it('keeps a result that arrives after its chunk was given up as interrupted — it was paid for', function () {

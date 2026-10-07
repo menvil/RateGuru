@@ -16,8 +16,10 @@ use App\Support\Translations\ProjectTranslationUnit;
 use Carbon\CarbonImmutable;
 
 /**
- * Saves background AI suggestions — one, or every ready one: what Save on an
- * untouched generated draft and Save all generated do.
+ * Saves background AI suggestions — one, or the ones the page names: what Save
+ * on an untouched generated draft and Save all generated do. Save all names
+ * the rows it shows untouched, and nothing else is saved — not a suggestion
+ * that became ready after the page last looked, which nobody has seen yet.
  *
  * The text saved is the suggestion as the store holds it, never anything the
  * browser sends. A suggestion is saved only while its unit is still listed,
@@ -45,23 +47,24 @@ final class SaveProjectTranslationGenerationAction
     ) {}
 
     /**
-     * @param  mixed  $unitId  one suggestion's unit, or null for every ready one
-     * @param  mixed  $except  units to leave out of every ready one — rows the administrator has edited since
+     * @param  mixed  $unitId  one suggestion's unit, or null for the ones $units names
+     * @param  mixed  $units  Save all generated: the units whose suggestions the page shows untouched — only those,
+     *                        and only while ready; anything but a list of them saves nothing
      * @return array{results: list<array{unit: string, outcome: string, value: string, message: ?string}>, saved: int, skipped: int, generation: ?array<string, mixed>}
      *
      * @throws CannotGenerateTranslationsException
      */
-    public function handle(User $actor, mixed $locale, mixed $batchId, mixed $unitId = null, mixed $except = []): array
+    public function handle(User $actor, mixed $locale, mixed $batchId, mixed $unitId = null, mixed $units = []): array
     {
         $this->authorize($actor);
         $locale = $this->targetLocale($locale);
         $batch = $this->ownedBatch($this->store, $actor, $locale, $batchId);
-        $except = is_array($except) ? array_filter($except, 'is_string') : [];
+        $units = is_array($units) ? array_values(array_filter($units, 'is_string')) : [];
 
         $ready = array_values(array_filter(
             ProjectTranslationGenerationStore::items($batch),
             fn (array $item): bool => $item['status'] === ProjectTranslationGenerationItemStatus::Ready->value
-                && ($unitId === null ? ! in_array($item['id'], $except, true) : $item['id'] === $unitId),
+                && ($unitId === null ? in_array($item['id'], $units, true) : $item['id'] === $unitId),
         ));
 
         if ($unitId !== null && $ready === []) {

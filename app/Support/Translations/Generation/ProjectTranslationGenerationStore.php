@@ -11,6 +11,7 @@ use Closure;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Str;
 use Throwable;
@@ -40,11 +41,17 @@ use Throwable;
  * chunk can be claimed, so a job delivered twice sends nothing the second
  * time. A chunk a worker claimed and never finished is failed as interrupted
  * once translation.bulk.stale_running_seconds have passed, the next time the
- * batch is read.
+ * batch is read — and so is a chunk still queued
+ * translation.bulk.stale_queued_seconds after its batch was created, whose
+ * job the queue lost or no worker took, so a batch never waits out its whole
+ * lifetime for it. A job that turns up later finds its chunk no longer queued
+ * and sends nothing.
  *
  * When the store cannot be reached, every operation says so as a
  * CannotGenerateTranslationsException — never as a server error — and nothing
- * else in Translation Center depends on it.
+ * else in Translation Center depends on it. A lock not had in time is said
+ * apart, as busy: the store is there, someone else holds the batch. A job's
+ * result waits longer for it than anything else does, since it was paid for.
  *
  * @phpstan-type Item array{id: string, fingerprint: string, snapshot: array<string, mixed>, status: string, text: ?string, provider: ?string, model: ?string, generated_at: ?string, issue: ?string, message: ?string}
  * @phpstan-type Chunk array{id: string, status: string, issue: ?string, target_locale: string, classification: string, glossary: array<array-key, mixed>, running_started_at: ?string, finished_at: ?string, items: list<Item>}
@@ -58,6 +65,12 @@ final class ProjectTranslationGenerationStore
     private const LOCK_SECONDS = 15;
 
     private const LOCK_WAIT_SECONDS = 5;
+
+    /**
+     * How long a job's result waits for the batch: past the longest a lock is
+     * ever held, so it outlasts any holder — one that died holding it too.
+     */
+    private const RESULT_LOCK_WAIT_SECONDS = self::LOCK_SECONDS + 1;
 
     public function __construct(private readonly CacheFactory $caches) {}
 
@@ -227,7 +240,7 @@ final class ProjectTranslationGenerationStore
      */
     public function complete(string $batchId, string $chunkId, array $outcomes, CarbonImmutable $now): void
     {
-        $this->locked($batchId, function () use ($batchId, $chunkId, $outcomes, $now): void {
+        $this->locked($batchId, wait: self::RESULT_LOCK_WAIT_SECONDS, callback: function () use ($batchId, $chunkId, $outcomes, $now): void {
             $batch = $this->load($batchId);
             $chunk = $batch['chunks'][$chunkId] ?? null;
 
@@ -411,9 +424,9 @@ final class ProjectTranslationGenerationStore
      * @param  Closure(): T  $callback
      * @return T
      */
-    private function locked(string $batchId, Closure $callback): mixed
+    private function locked(string $batchId, Closure $callback, int $wait = self::LOCK_WAIT_SECONDS): mixed
     {
-        return $this->withLock(self::PREFIX.":lock:batch:{$batchId}", $callback);
+        return $this->withLock(self::PREFIX.":lock:batch:{$batchId}", $callback, $wait);
     }
 
     /**
@@ -422,9 +435,9 @@ final class ProjectTranslationGenerationStore
      * @param  Closure(): T  $callback
      * @return T
      */
-    private function withLock(string $name, Closure $callback): mixed
+    private function withLock(string $name, Closure $callback, int $wait = self::LOCK_WAIT_SECONDS): mixed
     {
-        $lock = $this->guard(function () use ($name): Lock {
+        $lock = $this->guard(function () use ($name, $wait): Lock {
             $store = $this->cache()->getStore();
 
             if (! $store instanceof LockProvider) {
@@ -432,7 +445,12 @@ final class ProjectTranslationGenerationStore
             }
 
             $lock = $store->lock($name, self::LOCK_SECONDS);
-            $lock->block(self::LOCK_WAIT_SECONDS);
+
+            try {
+                $lock->block($wait);
+            } catch (LockTimeoutException) {
+                throw CannotGenerateTranslationsException::becauseTheBatchIsBusy();
+            }
 
             return $lock;
         });
@@ -536,12 +554,17 @@ final class ProjectTranslationGenerationStore
     private function staleChunkIds(array $batch, CarbonImmutable $now): array
     {
         $limit = $now->subSeconds($this->staleSeconds());
+        // Queued since the batch was created: past this, no worker is going to take it in time.
+        $queuedTooLong = CarbonImmutable::parse($batch['meta']['created_at'])->lessThan($now->subSeconds($this->staleQueuedSeconds()));
         $stale = [];
 
         foreach ($batch['chunks'] as $chunkId => $chunk) {
-            if ($chunk['status'] === ProjectTranslationGenerationChunkStatus::Running->value
+            $abandoned = $chunk['status'] === ProjectTranslationGenerationChunkStatus::Running->value
                 && $chunk['running_started_at'] !== null
-                && CarbonImmutable::parse($chunk['running_started_at'])->lessThan($limit)) {
+                && CarbonImmutable::parse($chunk['running_started_at'])->lessThan($limit);
+            $neverTaken = $chunk['status'] === ProjectTranslationGenerationChunkStatus::Queued->value && $queuedTooLong;
+
+            if ($abandoned || $neverTaken) {
                 $stale[] = $chunkId;
             }
         }
@@ -672,6 +695,11 @@ final class ProjectTranslationGenerationStore
     private function staleSeconds(): int
     {
         return max(1, (int) config('translation.bulk.stale_running_seconds'));
+    }
+
+    private function staleQueuedSeconds(): int
+    {
+        return max(1, (int) config('translation.bulk.stale_queued_seconds'));
     }
 
     /**

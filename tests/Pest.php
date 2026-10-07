@@ -5,6 +5,7 @@ use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -8061,6 +8062,22 @@ function translationValueContains(mixed $value, string $needle): bool
 function startTranslationGeneration(User $admin, string $locale): array
 {
     return app(StartProjectTranslationGenerationAction::class)->handle($admin, $locale);
+}
+
+/**
+ * Why a background generation operation was refused — its reason, or with
+ * $withMessage the reason and the message an administrator reads, as
+ * "reason: message" — or null when it was not.
+ */
+function generationRefusal(Closure $operation, bool $withMessage = false): ?string
+{
+    try {
+        $operation();
+    } catch (CannotGenerateTranslationsException $exception) {
+        return $withMessage ? $exception->reason.': '.$exception->getMessage() : $exception->reason;
+    }
+
+    return null;
 }
 
 /** The administrator's background generation for a language, as Translation Center reads it. */
