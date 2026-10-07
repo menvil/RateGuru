@@ -295,15 +295,25 @@ delete_by_token() {
 # --- Postfix queue (read-only lookups, ID-scoped deletes) ----------------------
 
 # queue_state QUEUE_ID — the queue the entry is in (incoming, active, deferred,
-# hold), or empty when Postfix no longer holds it.
+# hold), or empty when Postfix no longer holds it. Returns non-zero, printing
+# nothing, when the queue could not be read: an entry is never taken to have
+# left the queue because postqueue did not answer.
 queue_state() {
-    postqueue -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+    local listing
+
+    listing="$(postqueue -j 2>/dev/null)" || return 1
+    jq -rs --arg id "$1" 'map(select(.queue_id == $id) | .queue_name) | first // empty' <<<"${listing}"
+}
+
+queue_unreadable() {
+    fail "could not read the Postfix queue (postqueue -j failed), so where $1 is cannot be told"
 }
 
 wait_queue_state() {
-    local id="$1" want="$2" waited=0
+    local id="$1" want="$2" waited=0 state
     while (( waited < POLL_TIMEOUT )); do
-        [[ "$(queue_state "${id}")" == "${want}" ]] && return 0
+        state="$(queue_state "${id}")" || queue_unreadable "${id}"
+        [[ "${state}" == "${want}" ]] && return 0
         sleep 1
         waited=$((waited + 1))
     done
@@ -311,9 +321,10 @@ wait_queue_state() {
 }
 
 wait_queue_gone() {
-    local id="$1" waited=0
+    local id="$1" waited=0 state
     while (( waited < POLL_TIMEOUT )); do
-        [[ -z "$(queue_state "${id}")" ]] && return 0
+        state="$(queue_state "${id}")" || queue_unreadable "${id}"
+        [[ -z "${state}" ]] && return 0
         sleep 1
         waited=$((waited + 1))
     done
@@ -326,7 +337,7 @@ remember_queue_id() {
 }
 
 cleanup() {
-    local status=$? token id
+    local status=$? token id state
 
     if [[ "${MAILPIT_STOPPED}" == true ]]; then
         log "restoring ${MAILPIT_UNIT}"
@@ -337,7 +348,13 @@ cleanup() {
     # not ours to touch.
     for id in "${QUEUE_IDS[@]:-}"; do
         [[ -n "${id}" ]] || continue
-        [[ -n "$(queue_state "${id}")" ]] || continue
+
+        if ! state="$(queue_state "${id}")"; then
+            bad "could not read the Postfix queue to remove entry ${id} — if it is still there, remove it with: postsuper -d ${id}"
+            continue
+        fi
+
+        [[ -n "${state}" ]] || continue
         postsuper -d "${id}" >/dev/null 2>&1 || bad "could not remove queue entry ${id} — remove it with: postsuper -d ${id}"
     done
 
@@ -425,7 +442,7 @@ check_sender_isolation() {
 }
 
 check_held() {
-    local identity host port domain sender route token
+    local identity host port domain sender route token state
     while IFS=$'\t' read -r identity host port domain sender route; do
         [[ -n "${identity}" ]] || continue
 
@@ -440,7 +457,8 @@ check_held() {
         ok "C ${identity}: ${SMTP_QUEUE_ID} is in HOLD"
 
         sleep 3
-        [[ "$(queue_state "${SMTP_QUEUE_ID}")" == hold ]] || fail "C ${identity}: ${SMTP_QUEUE_ID} left HOLD"
+        state="$(queue_state "${SMTP_QUEUE_ID}")" || queue_unreadable "${SMTP_QUEUE_ID}"
+        [[ "${state}" == hold ]] || fail "C ${identity}: ${SMTP_QUEUE_ID} left HOLD"
         (( $(api_count "${MAILPIT_API}" "${token}") == 0 )) || fail "C ${identity}: held mail reached Mailpit"
         ok "C ${identity}: it stays in HOLD and is not in Mailpit — there is no route"
 

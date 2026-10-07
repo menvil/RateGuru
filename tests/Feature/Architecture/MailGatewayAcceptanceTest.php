@@ -233,6 +233,7 @@ function mailGatewayAcceptanceStubs(): array
             S="${STUB_STATE}"
             case "$1" in
                 -j)
+                    [[ ! -e "${S}/toggles/queue-unreadable" ]] || { echo "postqueue: fatal: simulated" >&2; exit 1; }
                     while IFS=$'\t' read -r id queue token; do
                         [[ -n "${id}" ]] || continue
                         printf '{"queue_name": "%s", "queue_id": "%s", "arrival_time": 1767225600, "message_size": 512, "sender": "", "recipients": []}\n' "${queue}" "${id}"
@@ -638,6 +639,22 @@ it('fails each check with its own reason, and still removes what it created', fu
             expect($state['calls'])->toContain("postsuper -d {$state['queued'][0]}");
             expect($state['queue'])->toBe(["UNRELATED01\tdeferred\tsomeone-elses-message"]);
             expect($state['mailpit'])->toBe(['someone-elses-message']);
+        },
+    ],
+    'A: the queue cannot be read' => [
+        ['queue-unreadable'],
+        // Not "still in the queue", and above all not "left the queue": an
+        // entry is never taken to be gone because postqueue did not answer.
+        '/FAIL could not read the Postfix queue \(postqueue -j failed\), so where [0-9A-F]{10} is cannot be told/',
+        // Its own entry cannot be found either, so the cleanup does not pass
+        // over it in silence: it says how to remove it.
+        function (array $host, array $state, string $output): void {
+            $id = $state['queued'][0];
+            expect($output)
+                ->not->toContain('left the queue')
+                ->toContain("FAIL could not read the Postfix queue to remove entry {$id} — if it is still there, remove it with: postsuper -d {$id}");
+            expect($state['calls'])->not->toContain("postsuper -d {$id}");
+            expect($state['mailpit_active'])->toBeTrue();
         },
     ],
     'B: a foreign sender is accepted' => [
