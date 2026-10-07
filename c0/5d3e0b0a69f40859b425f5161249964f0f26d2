@@ -1,0 +1,34 @@
+app/Actions/Translations/UpdateProjectTranslationAction.php
+  s_cbcd61fc717774::t_7a93f0bf96c0d5 13,38-42,58-71,75-87,111-117
+  s_cbcd61fc717774::t_8975b88626370f 72-74
+app/Exceptions/Translations/GeneratedSuggestionOutdatedException.php
+  s_cbcd61fc717774::t_573aa39b4aa539 1-23
+tests/Feature/I18n/UpdateProjectTranslationActionTest.php
+  s_cbcd61fc717774::t_303798bf1a618a 260-269
+  s_cbcd61fc717774::t_c5884eec493fe1 12,202-257
+docs/architecture/translation-engine.md
+  s_cbcd61fc717774::t_df85dc55c9bf7b 154-157
+tests/Feature/Docs/TranslationEngineDocsTest.php
+  s_cbcd61fc717774::t_df85dc55c9bf7b 86
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_cbcd61fc717774::t_63b3f0e205a658 16,18-19,39-63,187-222
+app/Actions/Translations/SaveProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_507487583d37d8 105-109
+  s_cbcd61fc717774::t_8cad3094f8346b 8,15,23-32,71,76-81,84,87,93-103,128-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c05d3e0b0a69f40859b425f5161249964f0f26d2",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
