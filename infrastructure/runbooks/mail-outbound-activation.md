@@ -268,5 +268,26 @@ and sender warm-up are 8.5–8.7.
 
 ## Rehearsed on a real host
 
-See the pull request that introduced this tooling for the commands and results
-of the rehearsal on Ubuntu 22.04 with the real Postfix and OpenDKIM packages.
+The shipped scripts were run in an Ubuntu 22.04 systemd container with the real
+Postfix 3.6.4 and OpenDKIM `2.11.0~beta2-6` packages, installed by
+`install-mail-signing --apply` and `install-mail-gateway --apply` from the
+committed (held) bundle, with a rehearsal-only key. The container was then cut
+off from every network but two internal ones, on which a DNS fixture answered
+as both `1.1.1.1` and `8.8.8.8` and an isolated Postfix played the recipient's
+MX. No mail could leave, and none did.
+
+| Step | Result |
+|------|--------|
+| `--apply` from the committed bundle | refused: *activation is not requested by this trusted bundle*, nothing changed |
+| held host: `install-mail-signing --verify`, `install-mail-gateway --verify` | 13 PASS, 10 PASS |
+| held `verify-mail-signing --e2e` | PASS: foreign `From` refused, probe signed `d=tits.guru s=rg1 a=rsa-sha256`, held, deleted |
+| `--check` from a bundle requesting the activation | READY: the derived pre-activation bundle verifies, DNS, signer, empty HOLD |
+| `--apply` | DONE: the whole proof, then `rateguru-outbound-tits-guru:` on `2526` only, staging still `rateguru-capture-staging-main:[127.0.0.1]:1025`, no public SMTP listener, signer on `127.0.0.1:8891` only; readiness 14 PASS, `OUTBOUND READY: YES`; capsule `0700`/`0600`, no key in it |
+| second `--apply` | ALREADY ACTIVE: no gateway change, no probe |
+| `--verify` | `OUTBOUND READY: YES` |
+| canary to the isolated MX | `status=sent` for its own queue ID; the MX stored it with `DKIM-Signature d=tits.guru s=rg1`, HELO `mta1.tits.guru` |
+| canary to a refusing mailbox | `status=bounced` (5.1.1), FAIL |
+| canary to a deferring mailbox | `deferred` (4.2.1) to the end of the window, then its own queue entry deleted; nothing else in the queue |
+| `--rollback` | RUNTIME HELD AGAIN; the committed configuration still requests outbound |
+| `--apply` with a forced failure after the gateway changed | the installer refused the unhealthy gateway, the host returned to held, the signing acceptance passed again: ROLLED BACK |
+| afterwards | committed bundle's gateway verify and signing acceptance PASS, HOLD queue empty, key SHA-256 unchanged, no private key text in any log; the recipient's local part in no output |

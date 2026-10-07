@@ -358,8 +358,9 @@ bundle_script() {
 load_request() {
     local routing_cli identity_cli listener
 
-    routing_cli="$(bundle_script "${REPO_ROOT}" mail-routing)"
-    identity_cli="$(bundle_script "${REPO_ROOT}" mail-identity)"
+    # The trusted bundle's own judges: the copies next to this script.
+    routing_cli="${SCRIPT_DIR}/mail-routing"
+    identity_cli="${SCRIPT_DIR}/mail-identity"
 
     log "the request: ${ROUTING_DOCUMENT} and ${OUTBOUND_DOCUMENT} of the trusted bundle"
 
