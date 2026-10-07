@@ -34,6 +34,7 @@ use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use PHPUnit\Framework\AssertionFailedError;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -1024,7 +1025,9 @@ function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds
             return;
         }
 
-        usleep(100_000);
+        // As short as waitForScript()'s, and on the event loop like it: the
+        // image is served by this same process.
+        browserTestPause(0.025);
     }
 
     throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
@@ -1061,6 +1064,45 @@ function imageFitGeometry(mixed $page, string $selector): array
     $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
 
     return $geometry;
+}
+
+/**
+ * Waits until the page is laid out at the size resize() asked for, loaded and
+ * with its fonts in — the state a layout measurement after a resize needs.
+ * The new size is in place by the time resize() returns; a font still on its
+ * way would change how wide the text is.
+ */
+function waitForViewportSize(mixed $page, int $width, int $height): void
+{
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height} && document.readyState === 'complete' && document.fonts.status === 'loaded'");
+}
+
+/**
+ * Waits until the page has the sliding post-detail panel a selected post
+ * opens in below the desktop breakpoint: overlay mode's panel, or the one
+ * split view loads lazily, in a request of its own after the page. Until that
+ * one has arrived it ignores a selected post, so the post never opens.
+ */
+function waitForPostDetailOverlay(mixed $page): void
+{
+    waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"]\') !== null');
+}
+
+/**
+ * Waits until the post-detail panel is open and has stopped sliding in — the
+ * state its geometry is measured in.
+ */
+function waitForPostDetailOverlayOpen(mixed $page): void
+{
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+
+            return Boolean(panel)
+                && panel.classList.contains('translate-x-0')
+                && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
 }
 
 /*
@@ -4563,10 +4605,94 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
             break;
         }
 
-        $page->wait(0.1);
+        // Short, because every wait ends up to one interval after the state is
+        // reached, and a suite waits a few hundred times.
+        browserTestPause(0.025);
     } while (microtime(true) < $deadline);
 
     expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+}
+
+/**
+ * Runs $assertions until they pass, and lets their last failure through once
+ * $timeoutSeconds have gone by — waitForScript() for a state that is easier to
+ * say in PHP than in one JavaScript expression.
+ *
+ * Only for a state the step before produces. An assertion that already held
+ * before that step passes at once, before the step has taken effect: what it
+ * waits for must be something the page did not show until then.
+ */
+function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (true) {
+        try {
+            return $assertions();
+        } catch (AssertionFailedError $failure) {
+            if (microtime(true) >= $deadline) {
+                throw $failure;
+            }
+
+            browserTestPause(0.025);
+        }
+    }
+}
+
+/**
+ * Holds the page for $seconds to prove that $what does NOT happen in that time,
+ * and returns the page.
+ *
+ * The one fixed pause the Browser suite allows (BrowserTestWaitingTest keeps it
+ * that way). A state the page reaches can be waited for — waitForScript(),
+ * eventually() — but absence has no event: a request not sent, focus not moved,
+ * a toast not taken away while it is read. The pause is the window in which it
+ * would have shown, so its length belongs in a comment beside the call, and
+ * $what names what the test would have seen.
+ */
+function proveNothingHappensFor(mixed $page, float $seconds, string $what): mixed
+{
+    if (trim($what) === '') {
+        throw new InvalidArgumentException('Say what must not happen during the pause.');
+    }
+
+    browserTestPause($seconds);
+
+    return $page;
+}
+
+/**
+ * Lets $seconds go by without stopping the application under test.
+ *
+ * The browser plugin serves the application from this same PHP process, on its
+ * event loop. usleep() would stop that loop with everything else, so a request
+ * the page sent meanwhile — a Livewire update, a save — would wait for the next
+ * call into the browser to be answered; a wait that only reads the database
+ * would never see it answered at all. Amp's delay() lets the loop, and with it
+ * the server, run while this waits.
+ */
+function browserTestPause(float $seconds): void
+{
+    \Amp\delay($seconds);
+}
+
+/**
+ * Resizes the viewport and returns the page once it is laid out at the new
+ * size, instead of pausing for long enough to be fairly sure.
+ *
+ * The window reports the size once the browser has applied it. Whatever
+ * listens for it runs in the next rendering frame — resize events and media
+ * query listeners come before that frame's animation callbacks — so once two
+ * frames have gone by, those listeners have had their turn as well.
+ */
+function resizeAndSettle(mixed $page, int $width, int $height): mixed
+{
+    $page = $page->resize($width, $height);
+
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height}");
+    $page->script('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+
+    return $page;
 }
 
 /**

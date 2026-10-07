@@ -26,7 +26,6 @@ it('does not crop a portrait image in the desktop feed and keeps it narrower tha
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Portrait Feed Post');
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
@@ -44,7 +43,6 @@ it('lets a landscape image use the available card width in the desktop feed', fu
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Landscape Feed Post');
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
@@ -62,7 +60,6 @@ it('does not crop a panorama image in the desktop feed', function () {
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Panorama Feed Post');
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
@@ -78,8 +75,9 @@ it('does not horizontally overflow the mobile feed with a portrait image', funct
 
     $page = visit(route('feed'))
         ->resize(...MobileViewports::MOBILE)
-        ->wait(0.4)
         ->assertSee('Mobile Portrait Post');
+
+    waitForViewportSize($page, ...MobileViewports::MOBILE);
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
     $overflow = $page->script('document.documentElement.scrollWidth - window.innerWidth');
@@ -96,8 +94,9 @@ it('does not horizontally overflow the tablet feed with a panorama image', funct
 
     $page = visit(route('feed'))
         ->resize(...MobileViewports::TABLET)
-        ->wait(0.4)
         ->assertSee('Tablet Panorama Post');
+
+    waitForViewportSize($page, ...MobileViewports::TABLET);
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
     $overflow = $page->script('document.documentElement.scrollWidth - window.innerWidth');
@@ -114,17 +113,17 @@ it('shows the full image in the desktop split-view drawer without cropping or pa
 
     $page = visit(route('feed'))
         ->resize(1440, 1000)
-        ->wait(0.2)
         // Click the title rather than the card root: a tall portrait image can
         // dominate the card's bounding box, and clicking the card's center
         // would land on the image's own click-to-zoom button instead of
         // bubbling up to the card's select-post handler.
         ->click('[data-testid="post-card-title"]')
         ->waitForText('Drawer Portrait Post')
-        ->assertVisible('[data-testid="post-detail-column"] [data-testid="post-drawer"]')
-        ->wait(0.4);
+        ->assertVisible('[data-testid="post-detail-column"] [data-testid="post-drawer"]');
 
+    // Waits for the drawer's image, which only the opened drawer has.
     $geometry = imageFitGeometry($page, '[data-testid="post-detail-column"] [data-testid="post-drawer-image-open"] img');
+    waitForViewportSize($page, 1440, 1000);
     $overflow = $page->script('document.documentElement.scrollWidth - window.innerWidth');
 
     expect($geometry['ratioDiff'])->toBeLessThan(0.05)
@@ -139,8 +138,9 @@ it('does not crop the standalone post image and does not overflow the viewport',
 
     $page = visit(route('posts.show', $post))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Standalone Portrait Post');
+
+    waitForViewportSize($page, 1440, 1000);
 
     $geometry = imageFitGeometry($page, '[data-testid="post-show-image-open"] img');
     $overflow = $page->script('document.documentElement.scrollWidth - window.innerWidth');
@@ -157,9 +157,16 @@ it('preserves contain behavior for the fullscreen image and does not stretch it'
 
     $page = visit(route('posts.show', $post))
         ->resize(1440, 1000)
-        ->wait(0.2)
-        ->click('[data-testid="post-show-image-open"]')
-        ->wait(0.4);
+        ->click('[data-testid="post-show-image-open"]');
+
+    // Done opening: faded in, which is after it has measured the room below the header.
+    waitForScript($page, <<<'JS'
+        (() => {
+            const style = getComputedStyle(document.querySelector('[data-testid="post-fullscreen-image"]').closest('[role="dialog"]'));
+
+            return style.display !== 'none' && style.opacity === '1';
+        })()
+    JS);
 
     $geometry = imageFitGeometry($page, '[data-testid="post-fullscreen-image"]');
     $viewportHeight = $page->script('window.innerHeight');
@@ -177,7 +184,6 @@ it('does not crop post images in the profile feed', function () {
 
     $page = visit(route('profile.show', 'media_profile_author'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Profile Feed Post');
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');
@@ -197,7 +203,6 @@ it('does not crop post images on the saved posts page', function () {
 
     $page = visit(route('saved-posts.index'))
         ->resize(1440, 1000)
-        ->wait(0.4)
         ->assertSee('Saved Portrait Post');
 
     $geometry = imageFitGeometry($page, '[data-testid="post-card-image-open"] img');

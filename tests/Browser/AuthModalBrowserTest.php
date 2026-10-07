@@ -155,17 +155,20 @@ it('never takes the focus back from a field the person is already in', function 
     expect($focused)->toBe('modal-register-email');
 
     // Longer than the whole initial-focus window: the focus must stay put.
-    $page->wait(1.5)
+    proveNothingHappensFor($page, 1.5, 'the dialog taking the focus back from the field')
         ->assertScript('document.activeElement.id', 'modal-register-email');
 });
 
 it('keeps what is typed in the field it was typed into, however fast', function () {
     $page = visit(route('feed'))->click('[data-testid="header-register-link"]');
 
-    // No pause at all between opening and typing.
+    // No pause at all between opening and typing. Then longer than the whole
+    // initial-focus window — about a second of retries — for nothing in it to
+    // move what was typed: an absence, so a fixed wait.
     $page->type('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
-        ->type('[data-testid="auth-modal-register-password"]', 'password')
-        ->wait(1.5)
+        ->type('[data-testid="auth-modal-register-password"]', 'password');
+
+    proveNothingHappensFor($page, 1.5, 'the dialog moving what was typed')
         ->assertValue('[data-testid="auth-modal-register-email"]', 'fast@rateguru.test')
         ->assertValue('[data-testid="auth-modal-register-password"]', 'password')
         ->assertValue('[data-testid="auth-modal-register-name"]', '');
@@ -352,7 +355,6 @@ it('points the provider links at the page the person is on right now', function 
 it('fits a phone screen in both modes, with every control reachable', function (string $trigger, string $panel, string $switch, array $viewport) {
     $page = visit(route('feed'))
         ->resize(...$viewport)
-        ->wait(0.3)
         ->click('[data-testid="'.$trigger.'"]')
         ->assertVisible(AUTH_MODAL)
         ->assertVisible(AUTH_MODAL.' [data-testid="modal-close"]');

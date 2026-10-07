@@ -11,6 +11,20 @@ use function Pest\Laravel\actingAs;
  * against the computed cursor, not against the markup.
  */
 
+/**
+ * The page at desktop size once it has finished starting up: every component
+ * it loads on demand — Filament's selects among them — has loaded, so each
+ * control shows the cursor it will keep.
+ */
+function pointerCursorPage(string $url): mixed
+{
+    $page = resizeAndSettle(visit($url), 1440, 900);
+
+    waitForScript($page, '! document.querySelector("[x-load][x-ignore]")');
+
+    return $page;
+}
+
 /** The visible controls on the page whose cursor is neither the pointer nor a deliberate zoom-in. */
 function controlsWithoutPointer(mixed $page): array
 {
@@ -26,13 +40,13 @@ function controlsWithoutPointer(mixed $page): array
 it('shows the pointer on every control of the feed', function () {
     Post::factory()->count(2)->published()->withImage()->create();
 
-    expect(controlsWithoutPointer(visit(route('feed'))->resize(1440, 900)->wait(0.3)))->toBe([]);
+    expect(controlsWithoutPointer(pointerCursorPage(route('feed'))))->toBe([]);
 });
 
 it('shows the pointer on the profile controls, including link-styled buttons, checkboxes and the file picker', function () {
     actingAs(User::factory()->unverified()->create());
 
-    $page = visit(route('profile.edit'))->resize(1440, 900)->wait(0.3);
+    $page = pointerCursorPage(route('profile.edit'));
 
     expect(controlsWithoutPointer($page))->toBe([])
         ->and($page->script(<<<'JS'
@@ -58,7 +72,7 @@ it('shows the pointer on the admin table checkboxes and the settings selects', f
     actingAs(User::factory()->admin()->create());
     Post::factory()->count(3)->published()->withImage()->create();
 
-    expect(controlsWithoutPointer(visit($path)->resize(1440, 900)->wait(0.5)))->toBe([]);
+    expect(controlsWithoutPointer(pointerCursorPage($path)))->toBe([]);
 })->with([
     'posts table' => '/admin/posts',
     'project settings' => '/admin/project-settings',
@@ -70,7 +84,7 @@ it('never shows the pointer on a disabled button, whatever classes it carries', 
     actingAs(User::factory()->unverified()->create());
     Post::factory()->published()->withImage()->create();
 
-    $page = visit(route($route))->resize(1440, 900)->wait(0.3);
+    $page = pointerCursorPage(route($route));
 
     $result = $page->script(<<<'JS'
         (() => {

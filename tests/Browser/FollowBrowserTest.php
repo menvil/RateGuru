@@ -22,14 +22,21 @@ it('can follow and unfollow author in browser', function () {
 
     actingAs($viewer);
 
-    visit(route('profile.show', $author->username))
+    $pressed = 'document.querySelector(\'[data-testid="profile-header"] [data-testid="follow-button"]\').getAttribute("aria-pressed")';
+
+    $page = visit(route('profile.show', $author->username))
         ->assertPresent('[data-testid="profile-header"] [data-testid="follow-button"]')
-        ->click('[data-testid="profile-header"] [data-testid="follow-button"]')
-        ->wait(0.5)
-        ->assertSee('Following')
-        ->click('[data-testid="profile-header"] [data-testid="follow-button"]')
-        ->wait(0.5)
-        ->assertSee('Follow');
+        ->click('[data-testid="profile-header"] [data-testid="follow-button"]');
+
+    // The server has answered: the button it rendered back is pressed.
+    waitForScript($page, $pressed, 'true');
+
+    $page->assertSee('Following')
+        ->click('[data-testid="profile-header"] [data-testid="follow-button"]');
+
+    waitForScript($page, $pressed, 'false');
+
+    $page->assertSee('Follow');
 });
 
 it('does not show follow button on own profile in browser', function () {
@@ -62,10 +69,11 @@ it('follow button does not overflow at mobile viewport', function () {
 
     actingAs($viewer);
 
-    $overflow = visit(route('profile.show', $author->username))
-        ->resize(...MobileViewports::MOBILE)
-        ->wait(0.5)
-        ->script('document.documentElement.scrollWidth - window.innerWidth');
+    $page = visit(route('profile.show', $author->username))->resize(...MobileViewports::MOBILE);
+
+    waitForViewportSize($page, ...MobileViewports::MOBILE);
+
+    $overflow = $page->script('document.documentElement.scrollWidth - window.innerWidth');
 
     // 1px tolerance for subpixel rendering differences across browsers
     expect($overflow)->toBeLessThanOrEqual(1);

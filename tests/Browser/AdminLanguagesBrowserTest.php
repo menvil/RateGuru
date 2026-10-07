@@ -53,6 +53,78 @@ function languagesFocused(mixed $page): ?string
     return $page->script('document.activeElement ? (document.activeElement.id || document.activeElement.innerText.trim()) : null');
 }
 
+/**
+ * Opens the screen at this size once Alpine, which also wires Livewire's
+ * buttons, has started on it: the search in the address is applied to the
+ * rows, and the cloak they open under is lifted.
+ */
+function visitLanguages(string $url, int $width = 1440, int $height = 900): mixed
+{
+    $page = visit($url)->resize($width, $height);
+
+    waitForScript($page, "(() => { const body = document.querySelector('.rg-admin-screen__body'); return !! body?._x_dataStack && body.querySelector('[x-cloak]') === null })()");
+
+    return $page;
+}
+
+/**
+ * Waits for the search typed into the field to be applied. The screen writes
+ * it into the address in the same pass that filters the rows, so the address
+ * holding all of it means the last keystroke has reached the rows too.
+ */
+function languagesSearched(mixed $page, string $query): void
+{
+    waitForScript($page, 'new URLSearchParams(location.search).get("q") ?? ""', $query);
+}
+
+/**
+ * Waits for the status tab a click or Back asked for to be the one on screen.
+ * A tab is a Livewire round trip: the answer marks its tab current as it
+ * redraws the rows, and Livewire writes it into the address. Two tabs can
+ * hold the same rows, so the rows alone cannot tell which one is open.
+ */
+function languagesOnTab(mixed $page, string $status): void
+{
+    waitForScript($page, <<<JS
+        (() => {
+            const current = document.querySelector('nav[aria-label="Language status"] a[aria-current="page"]')
+            const tab = current ? (new URL(current.href).searchParams.get('status') ?? 'all') : null
+
+            return tab === '{$status}' && (new URLSearchParams(location.search).get('status') ?? 'all') === '{$status}'
+        })()
+    JS);
+}
+
+/**
+ * Waits for the confirmation ('dialog') or the drawer ('drawer') to be open as
+ * a person meets it: drawn, holding keyboard focus, the page behind it still
+ * and hidden from assistive technology. The server draws it; focus and the
+ * inert page follow a few milliseconds later, once x-trap takes hold.
+ */
+function languagesOverlayOpen(mixed $page, string $overlay): void
+{
+    waitForScript($page, <<<JS
+        (() => {
+            const layer = document.querySelector('.rg-admin-{$overlay}-layer')
+
+            return !! layer && getComputedStyle(layer).display !== 'none'
+                && !! document.activeElement?.closest('.rg-admin-{$overlay}')
+                && getComputedStyle(document.documentElement).overflow === 'hidden'
+                && document.querySelector('.rg-admin-topbar')?.closest('[aria-hidden="true"]') !== null
+        })()
+    JS);
+}
+
+/**
+ * Waits for the confirmation ('dialog') or the drawer ('drawer') to be gone:
+ * hidden by the browser at once, then taken off the page by the server's
+ * answer to being told to forget it, so nothing is still on its way.
+ */
+function languagesOverlayGone(mixed $page, string $overlay): void
+{
+    waitForScript($page, "document.querySelector('.rg-admin-{$overlay}-layer') === null");
+}
+
 beforeEach(function () {
     ProjectSettings::factory()->create();
     actingAs(User::factory()->admin()->create());
@@ -61,7 +133,7 @@ beforeEach(function () {
 afterEach(fn () => removeCatalogScratchDirectory($this));
 
 it('draws Languages in Admin v2, inside the shell, with nothing left of the Filament screen', function () {
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
 
     $page->assertVisible('#rg-admin-sidebar')
         ->assertVisible('.rg-admin-topbar')
@@ -102,13 +174,14 @@ it('draws Languages in Admin v2, inside the shell, with nothing left of the Fila
 
 it('fits the table to its card at every width, as a table or as one block per language, never scrolling sideways', function (int $width, string $layout) {
     [, $withheld] = twoTranslatedLocales();
-    $page = visit('/admin/languages?q='.$withheld)->resize($width, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages?q='.$withheld, $width);
 
     expect(languagesScreen($page)['rows'])->toBe([$withheld]);
 
     foreach ([true, false] as $searching) {
         if (! $searching) {
-            $page->clear('#rg-admin-languages-search')->wait(0.3);
+            $page->clear('#rg-admin-languages-search');
+            languagesSearched($page, '');
         }
 
         expect($page->script(<<<'JS'
@@ -138,7 +211,7 @@ it('fits the table to its card at every width, as a table or as one block per la
 ]);
 
 it('keeps the header figures on one line on a phone', function () {
-    $page = visit('/admin/languages')->resize(390, 844)->wait(0.4);
+    $page = visitLanguages('/admin/languages', 390, 844);
 
     expect($page->script(<<<'JS'
         (() => {
@@ -159,15 +232,16 @@ it('opens a language besides English in Translation Center from its name', funct
     [$target] = twoTranslatedLocales();
     settingsTranslatedInto(supportedLocales());
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
 
     expect($page->script("document.querySelector('#rg-admin-language-en .rg-admin-languages__names--link')"))->toBeNull();
 
-    $page->click("#rg-admin-language-{$target} .rg-admin-languages__names--link")->wait(0.8);
+    $page->click("#rg-admin-language-{$target} .rg-admin-languages__names--link");
 
-    expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}")
+    // A page load: Translation Center shows its rows once its own Alpine has applied the filters.
+    eventually(fn () => expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}")
         // Complete or not, the language's translations are there to improve.
-        ->and($page->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').length"))->toBeGreaterThan(0);
+        ->and($page->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').length"))->toBeGreaterThan(0));
 });
 
 it('filters by status tab without a reload, keeping the tab in the URL and in history', function () {
@@ -176,27 +250,32 @@ it('filters by status tab without a reload, keeping the tab in the URL and in hi
     settingsTranslatedInto(supportedLocales());
     breakCatalogsOf($withheld);
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
     $page->script('window.notReloaded = true');
 
     expect(languagesScreen($page)['rows'])->toBe(supportedLocales());
 
-    $page->click('nav[aria-label="Language status"] a[href$="status=enabled"]')->wait(0.6);
+    $page->click('nav[aria-label="Language status"] a[href$="status=enabled"]');
+    languagesOnTab($page, 'enabled');
     expect(languagesScreen($page)['rows'])->toBe(array_values(array_diff(supportedLocales(), [$withheld])));
     $page->assertQueryStringHas('status', 'enabled');
 
-    $page->click('nav[aria-label="Language status"] a[href$="status=disabled"]')->wait(0.6);
+    $page->click('nav[aria-label="Language status"] a[href$="status=disabled"]');
+    languagesOnTab($page, 'disabled');
     expect(languagesScreen($page)['rows'])->toBe([$withheld]);
     $page->assertQueryStringHas('status', 'disabled');
 
-    $page->click('nav[aria-label="Language status"] a[href$="status=incomplete"]')->wait(0.6);
+    $page->click('nav[aria-label="Language status"] a[href$="status=incomplete"]');
+    languagesOnTab($page, 'incomplete');
     expect(languagesScreen($page)['rows'])->toBe([$withheld]);
 
-    $page->back()->wait(0.8);
+    $page->back();
+    languagesOnTab($page, 'disabled');
     $page->assertQueryStringHas('status', 'disabled');
     expect(languagesScreen($page)['rows'])->toBe([$withheld]);
 
-    $page->click('nav[aria-label="Language status"] a:not([href*="status="])')->wait(0.6);
+    $page->click('nav[aria-label="Language status"] a:not([href*="status="])');
+    languagesOnTab($page, 'all');
     expect(languagesScreen($page)['rows'])->toBe(supportedLocales())
         ->and($page->script('window.notReloaded ?? false'))->toBeTrue();
     $page->assertQueryStringMissing('status');
@@ -208,19 +287,20 @@ it('enables a complete language after a light confirmation, and says so', functi
     settingsTranslatedInto(supportedLocales());
     $label = config("locales.supported.{$withheld}.label");
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button")->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
 
     expect(languagesScreen($page))->toMatchArray(['dialog' => true, 'focusInDialog' => true, 'scrollLocked' => true]);
     $page->assertSee("Enable {$label}?")
         ->assertSee("{$label} has complete project translations and will become available to visitors.")
         ->assertDontSee('Enable anyway');
 
-    $page->click('.rg-admin-dialog .rg-admin-button--primary')->wait(0.8);
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
 
-    expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'scrollLocked' => false, 'toasts' => ["{$label} enabled"]])
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'scrollLocked' => false, 'toasts' => ["{$label} enabled"]])
         ->and(languagesRowText($page, $withheld))->toContain('Enabled')->toContain('Disable')
-        ->and(offeredLocales())->toContain($withheld);
+        ->and(offeredLocales())->toContain($withheld));
 });
 
 it('warns about missing translations, and reviews them instead of enabling', function () {
@@ -230,15 +310,17 @@ it('warns about missing translations, and reviews them instead of enabling', fun
     untranslatedCategory();
     $label = config("locales.supported.{$withheld}.label");
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button")->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
 
     $page->assertVisible('.rg-admin-dialog__icon--warning')
         ->assertSee("{$label} has 1 missing project translation.")
         ->assertSee('Visitors may see English fallback content.')
         ->assertSee('Enable anyway');
 
-    $page->click('.rg-admin-dialog .rg-admin-dialog__footer button:first-of-type')->wait(0.8);
+    $page->click('.rg-admin-dialog .rg-admin-dialog__footer button:first-of-type');
+    languagesOverlayOpen($page, 'drawer');
 
     expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'drawer' => true, 'focusInDrawer' => true, 'scrollLocked' => true])
         ->and(languagesRowText($page, $withheld))->toContain('Disabled')
@@ -252,30 +334,32 @@ it('disables a language after explaining what happens to its visitors, and Engli
     offerEveryInstalledLocale();
     $label = config("locales.supported.{$other}.label");
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
 
     expect(languagesRowText($page, 'en'))->toContain('Always on')->not->toContain('Disable');
 
-    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button")->wait(0.6);
+    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
     $page->assertVisible('.rg-admin-dialog__icon--warning')
         ->assertSee("Their {$label} preference is kept and will apply again if {$label} is enabled later.")
         ->assertSee("Stored {$label} translations are not deleted.");
 
-    $page->click('.rg-admin-dialog .rg-admin-button--primary')->wait(0.8);
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
 
-    expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'toasts' => ["{$label} disabled"]])
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'toasts' => ["{$label} disabled"]])
         ->and(languagesRowText($page, $other))->toContain('Disabled')->toContain('Enable')
-        ->and(offeredLocales())->not->toContain($other);
+        ->and(offeredLocales())->not->toContain($other));
 });
 
 it('keeps keyboard focus inside a confirmation, the page still, and closes it with Escape back to its button', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
     $trigger = "#rg-admin-language-{$other} .rg-admin-table__cell--end button";
 
-    $page->keys($trigger, 'Enter')->wait(0.6);
+    $page->keys($trigger, 'Enter');
+    languagesOverlayOpen($page, 'dialog');
 
     expect(languagesScreen($page))->toMatchArray(['dialog' => true, 'focusInDialog' => true, 'scrollLocked' => true])
         ->and(languagesFocused($page))->toBe('Cancel');
@@ -287,27 +371,32 @@ it('keeps keyboard focus inside a confirmation, the page still, and closes it wi
     }
 
     // Nothing behind it can take focus, not even the shell's search shortcut.
+    // Focus staying put has no event to wait for: each pause is the window in
+    // which a late move would have shown.
     $page->script("document.getElementById('rg-admin-search').focus()");
-    $page->wait(0.1);
+    proveNothingHappensFor($page, 0.1, 'focus leaving the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue();
-    $page->keys(':focus', 'Control+k')->wait(0.2);
+    // The shortcut defers its focus by no more than an Alpine $nextTick, which a tenth of a second covers many times over.
+    proveNothingHappensFor($page->keys(':focus', 'Control+k'), 0.1, 'the search shortcut taking focus from the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue()
         ->and($page->script('document.querySelector(".rg-admin-topbar").closest("[aria-hidden=true]") !== null'))->toBeTrue();
 
-    $page->keys(':focus', 'Escape')->wait(0.6);
+    $page->keys(':focus', 'Escape');
+    languagesOverlayGone($page, 'dialog');
 
-    expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'scrollLocked' => false])
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'scrollLocked' => false])
         ->and($page->script('document.activeElement === document.querySelector('.json_encode($trigger).')'))->toBeTrue()
         ->and($page->script('document.querySelector(".rg-admin-topbar").closest("[aria-hidden=true]") === null'))->toBeTrue()
-        ->and(offeredLocales())->toContain($other);
+        ->and(offeredLocales())->toContain($other));
 });
 
 it('closes a confirmation from its scrim', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button")->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
 
     // A press on the scrim itself, below the dialog.
     $page->script(<<<'JS'
@@ -317,7 +406,7 @@ it('closes a confirmation from its scrim', function () {
             layer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: box.width / 2, clientY: box.height - 10 }))
         })()
     JS);
-    $page->wait(0.6);
+    languagesOverlayGone($page, 'dialog');
 
     expect(languagesScreen($page)['dialog'])->toBeFalse();
 });
@@ -328,8 +417,9 @@ it('opens the missing-translations drawer from the row, 480 wide, and closes it 
     $label = config("locales.supported.{$target}.label");
     $trigger = "#rg-admin-language-{$target} .rg-admin-languages__missing";
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click($trigger)->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click($trigger);
+    languagesOverlayOpen($page, 'drawer');
 
     expect(languagesScreen($page))->toMatchArray(['drawer' => true, 'focusInDrawer' => true, 'scrollLocked' => true])
         ->and($page->script(<<<'JS'
@@ -352,23 +442,28 @@ it('opens the missing-translations drawer from the row, 480 wide, and closes it 
         ->and($page->script('document.querySelector(".rg-admin-drawer a[href*=\"/categories/'.$category->id.'/edit\"]") !== null'))->toBeTrue();
 
     // Escape, back to the row.
-    $page->keys(':focus', 'Escape')->wait(0.6);
-    expect(languagesScreen($page))->toMatchArray(['drawer' => false, 'scrollLocked' => false])
-        ->and($page->script('document.activeElement === document.querySelector('.json_encode($trigger).')'))->toBeTrue();
+    $page->keys(':focus', 'Escape');
+    languagesOverlayGone($page, 'drawer');
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['drawer' => false, 'scrollLocked' => false])
+        ->and($page->script('document.activeElement === document.querySelector('.json_encode($trigger).')'))->toBeTrue());
 
     // The close button.
-    $page->click($trigger)->wait(0.6);
-    $page->click('.rg-admin-drawer__header button[aria-label="Close"]')->wait(0.6);
+    $page->click($trigger);
+    languagesOverlayOpen($page, 'drawer');
+    $page->click('.rg-admin-drawer__header button[aria-label="Close"]');
+    languagesOverlayGone($page, 'drawer');
     expect(languagesScreen($page)['drawer'])->toBeFalse();
 
     // The scrim.
-    $page->click($trigger)->wait(0.6);
+    $page->click($trigger);
+    languagesOverlayOpen($page, 'drawer');
     $page->script("document.querySelector('.rg-admin-drawer-scrim').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))");
-    $page->wait(0.6);
+    languagesOverlayGone($page, 'drawer');
     expect(languagesScreen($page)['drawer'])->toBeFalse();
 
     // Tab stays inside the drawer.
-    $page->click($trigger)->wait(0.6);
+    $page->click($trigger);
+    languagesOverlayOpen($page, 'drawer');
     foreach (range(1, 12) as $press) {
         $page->keys(':focus', 'Tab');
     }
@@ -379,10 +474,10 @@ it('fits the drawer to a phone without the page scrolling sideways', function ()
     [$target] = twoTranslatedLocales();
     untranslatedCategory();
 
-    $page = visit('/admin/languages')->resize(390, 844)->wait(0.4);
+    $page = visitLanguages('/admin/languages', 390, 844);
 
     $page->script("document.querySelector('#rg-admin-language-{$target} .rg-admin-languages__missing').click()");
-    $page->wait(0.8);
+    languagesOverlayOpen($page, 'drawer');
 
     expect($page->script(<<<'JS'
         (() => ({
@@ -399,12 +494,13 @@ it('blocks enabling a language whose catalog breaks the contract, and shows why'
     settingsTranslatedInto(supportedLocales());
     breakCatalogsOf($withheld);
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
 
     expect(languagesRowText($page, $withheld))->toContain('catalog invalid')->toContain('Fix the release first.')->toContain('Catalog issue')
         ->and($page->script("document.querySelector('#rg-admin-language-{$withheld} .rg-admin-table__cell--end button').disabled"))->toBeTrue();
 
-    $page->click("#rg-admin-language-{$withheld} .rg-admin-languages__missing")->wait(0.6);
+    $page->click("#rg-admin-language-{$withheld} .rg-admin-languages__missing");
+    languagesOverlayOpen($page, 'drawer');
 
     $page->assertSee('Application translations')
         ->assertSee('The release breaks the catalog contract for this language, so it cannot be enabled.')
@@ -418,22 +514,24 @@ it('dismisses a toast, and shows at most three without breaking the layout', fun
     offerEveryInstalledLocale();
     $label = config("locales.supported.{$other}.label");
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button")->wait(0.6);
-    $page->click('.rg-admin-dialog .rg-admin-button--primary')->wait(0.8);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
 
-    expect(languagesScreen($page)['toasts'])->toBe(["{$label} disabled"])
-        ->and($page->script('document.querySelector(".rg-admin-toast-stack [role=status]").textContent.trim()'))->toBe("{$label} disabled");
+    // The status region takes the message a moment after the toast shows (x-admin.ui.toast-stack).
+    eventually(fn () => expect(languagesScreen($page)['toasts'])->toBe(["{$label} disabled"])
+        ->and($page->script('document.querySelector(".rg-admin-toast-stack [role=status]").textContent.trim()'))->toBe("{$label} disabled"));
 
-    $page->click('.rg-admin-toast-stack button[aria-label="Dismiss"]')->wait(0.3);
-    expect(languagesScreen($page)['toasts'])->toBe([]);
+    $page->click('.rg-admin-toast-stack button[aria-label="Dismiss"]');
+    // Well inside the toast's own 5.2 s: it is the button that took it away, not its timer.
+    eventually(fn () => expect(languagesScreen($page)['toasts'])->toBe([]), 2.0);
 
     $page->script(<<<'JS'
         ['One', 'Two', 'Three', 'Four', 'Five'].forEach((message) => window.dispatchEvent(new CustomEvent('rg-admin-toast', { detail: { message } })))
     JS);
-    $page->wait(0.3);
 
-    expect(languagesScreen($page))->toMatchArray(['toasts' => ['Three', 'Four', 'Five'], 'overflow' => false])
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['toasts' => ['Three', 'Four', 'Five'], 'overflow' => false])
         ->and($page->script(<<<'JS'
             (() => {
                 const stack = document.querySelector('.rg-admin-toast-stack').getBoundingClientRect()
@@ -444,20 +542,23 @@ it('dismisses a toast, and shows at most three without breaking the layout', fun
                     centred: Math.abs((stack.left + stack.right) / 2 - (main.left + main.right) / 2) < 2,
                 }
             })()
-        JS))->toBe(['bottom' => 24, 'centred' => true]);
+        JS))->toBe(['bottom' => 24, 'centred' => true]));
 });
 
 it('still closes on Escape after a click on the dialog\'s text', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button")->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$other} .rg-admin-table__cell--end button");
+    languagesOverlayOpen($page, 'dialog');
 
-    $page->click('.rg-admin-dialog__description p:first-child')->wait(0.1);
+    // Focus staying in the dialog has no event to wait for: the pause is the window in which a late move would have shown.
+    proveNothingHappensFor($page->click('.rg-admin-dialog__description p:first-child'), 0.1, 'focus leaving the dialog');
     expect(languagesScreen($page)['focusInDialog'])->toBeTrue();
 
-    $page->keys(':focus', 'Escape')->wait(0.6);
+    $page->keys(':focus', 'Escape');
+    languagesOverlayGone($page, 'dialog');
     expect(languagesScreen($page)['dialog'])->toBeFalse();
 });
 
@@ -466,12 +567,14 @@ it('moves focus to the page heading when the confirmed change takes the row out 
     offerEveryInstalledLocaleExcept($withheld);
     settingsTranslatedInto(supportedLocales());
 
-    $page = visit('/admin/languages?status=disabled')->resize(1440, 900)->wait(0.4);
-    $page->keys("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button", 'Enter')->wait(0.6);
-    $page->click('.rg-admin-dialog .rg-admin-button--primary')->wait(0.8);
+    $page = visitLanguages('/admin/languages?status=disabled');
+    $page->keys("#rg-admin-language-{$withheld} .rg-admin-table__cell--end button", 'Enter');
+    languagesOverlayOpen($page, 'dialog');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
 
-    expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'rows' => []])
-        ->and(languagesFocused($page))->toBe('rg-admin-languages-title');
+    // The heading takes focus a moment after the row and the dialog have gone (x-admin.ui.overlay).
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['dialog' => false, 'rows' => []])
+        ->and(languagesFocused($page))->toBe('rg-admin-languages-title'));
 });
 
 it('opens with the search from the URL already applied', function () {
@@ -479,7 +582,7 @@ it('opens with the search from the URL already applied', function () {
     $native = config("locales.supported.{$withheld}.native");
     $query = mb_substr($native, 0, 3);
 
-    $page = visit('/admin/languages?q='.rawurlencode($query))->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages?q='.rawurlencode($query));
 
     expect(languagesScreen($page))->toMatchArray([
         'rows' => [$withheld],
@@ -493,47 +596,53 @@ it('filters as you type, in the page, without a single request to Livewire', fun
     [, $withheld] = twoTranslatedLocales();
     $label = config("locales.supported.{$withheld}.label");
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
     watchLivewireUpdates($page);
 
     // English name, case aside; native name; locale code.
     foreach ([mb_strtoupper(mb_substr($label, 0, 4)), config("locales.supported.{$withheld}.native"), $withheld] as $search) {
         $page->clear('#rg-admin-languages-search');
-        $page->typeSlowly('#rg-admin-languages-search', $search, 40)->wait(0.3);
+        $page->typeSlowly('#rg-admin-languages-search', $search, 40);
+        languagesSearched($page, $search);
 
         expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'count' => '1 of '.count(supportedLocales()).' installed'])
             ->and($page->script('new URLSearchParams(location.search).get("q")'))->toBe($search);
     }
 
+    // A request that is not sent has no event to wait for. Livewire debounces
+    // a live wire:model by 150 ms, so twice that is long enough for one to go out.
+    proveNothingHappensFor($page, 0.3, 'a request to Livewire');
     expect(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 
     // The watch does see Livewire: a tab is a request.
-    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]')->wait(0.8);
+    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]');
 
-    expect(livewireUpdatesSinceWatching($page)['fetches'])->toBeGreaterThan(0)
-        ->and(livewireUpdatesSinceWatching($page)['requests'])->toBeGreaterThan(0);
+    eventually(fn () => expect(livewireUpdatesSinceWatching($page)['fetches'])->toBeGreaterThan(0)
+        ->and(livewireUpdatesSinceWatching($page)['requests'])->toBeGreaterThan(0));
 });
 
 it('clears the search back to every row, and the URL with it, without asking the server', function () {
-    $page = visit('/admin/languages?q=klingon')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages?q=klingon');
     watchLivewireUpdates($page);
 
     expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'count' => '0 of '.count(supportedLocales()).' installed']);
     $page->assertSee('No installed language matches “klingon”');
 
-    $page->click('Clear search')->wait(0.3);
+    // A request that is not sent has no event to wait for. Livewire debounces
+    // a live wire:model by 150 ms, so twice that is long enough for one to go out.
+    proveNothingHappensFor($page->click('Clear search'), 0.3, 'a request to Livewire');
 
-    expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => supportedLocales(), 'query' => '', 'noMatch' => false, 'count' => count(supportedLocales()).' of '.count(supportedLocales()).' installed'])
         ->and($page->script('location.search'))->toBe('')
         ->and(languagesFocused($page))->toBe('rg-admin-languages-search')
-        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]));
 });
 
 it('clears a typed search from the button in the field, which is there only while there is text', function () {
     [, $withheld] = twoTranslatedLocales();
     $clearShown = '(() => { const clear = document.querySelector("#rg-admin-languages-search ~ .rg-admin-search__clear"); return getComputedStyle(clear).display !== "none" && clear.getBoundingClientRect().width > 0 })()';
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
     watchLivewireUpdates($page);
 
     // An empty field has nothing to clear.
@@ -565,7 +674,7 @@ it('clears a typed search from the button in the field, which is there only whil
         ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
 
     // Opened with a search, the field has text to clear straight away.
-    $page = visit('/admin/languages?q='.rawurlencode($withheld))->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages?q='.rawurlencode($withheld));
     waitForScript($page, $clearShown);
 });
 
@@ -575,56 +684,67 @@ it('keeps the search across tabs, in their links, the URL and Back', function ()
     $other = array_values(array_diff(translatedLocales(), [$withheld]))[0];
     $query = $withheld;
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->typeSlowly('#rg-admin-languages-search', $query, 40)->wait(0.3);
+    $page = visitLanguages('/admin/languages');
+    $page->typeSlowly('#rg-admin-languages-search', $query, 40);
+    languagesSearched($page, $query);
 
     // Every tab link carries the search, as a link of its own.
     expect($page->script('[...document.querySelectorAll("nav[aria-label=\"Language status\"] a")].map((a) => new URL(a.href).searchParams.get("q"))'))
         ->toBe([$query, $query, $query, $query]);
 
-    $page->click('nav[aria-label="Language status"] a[href*="status=disabled"]')->wait(0.8);
+    // The answer to a tab redraws its rows unfiltered; the browser's search then hides the rest.
+    $page->click('nav[aria-label="Language status"] a[href*="status=disabled"]');
+    languagesOnTab($page, 'disabled');
 
-    expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query, 'count' => '1 of '.count(supportedLocales()).' installed'])
-        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']);
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query, 'count' => '1 of '.count(supportedLocales()).' installed'])
+        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']));
 
     // On Enabled the same search finds nothing, and says so.
-    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]')->wait(0.8);
-    expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'query' => $query]);
+    $page->click('nav[aria-label="Language status"] a[href*="status=enabled"]');
+    languagesOnTab($page, 'enabled');
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => [], 'noMatch' => true, 'query' => $query]));
 
-    $page->back()->wait(0.8);
-    expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query])
-        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']);
+    $page->back();
+    languagesOnTab($page, 'disabled');
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => [$withheld], 'query' => $query])
+        ->and($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toBe(['q' => $query, 'status' => 'disabled']));
 
     // A different search on another tab, then back to All: still the search, still in the links.
     $page->clear('#rg-admin-languages-search');
-    $page->typeSlowly('#rg-admin-languages-search', $other, 40)->wait(0.3);
+    $page->typeSlowly('#rg-admin-languages-search', $other, 40);
+    languagesSearched($page, $other);
     expect(languagesScreen($page)['rows'])->toBe([]);
 
-    $page->click('nav[aria-label="Language status"] a:not([href*="status="])')->wait(0.8);
-    expect(languagesScreen($page))->toMatchArray(['rows' => [$other], 'query' => $other])
-        ->and($page->script('new URLSearchParams(location.search).get("status")'))->toBeNull();
+    $page->click('nav[aria-label="Language status"] a:not([href*="status="])');
+    languagesOnTab($page, 'all');
+    eventually(fn () => expect(languagesScreen($page))->toMatchArray(['rows' => [$other], 'query' => $other])
+        ->and($page->script('new URLSearchParams(location.search).get("status")'))->toBeNull());
 });
 
 it('searches thirty-five languages in the page', function () {
     $codes = installLanguagesUpTo(35);
     $made = $codes[20];
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
+    $page = visitLanguages('/admin/languages');
     watchLivewireUpdates($page);
 
     expect(languagesScreen($page))->toMatchArray(['rows' => $codes, 'count' => '35 of 35 installed']);
 
-    $page->typeSlowly('#rg-admin-languages-search', $made, 40)->wait(0.3);
+    $page->typeSlowly('#rg-admin-languages-search', $made, 40);
+    languagesSearched($page, $made);
     expect(languagesScreen($page))->toMatchArray(['rows' => [$made], 'count' => '1 of 35 installed']);
 
     // "Language X…" is in every made-up name: a search can match many at once.
     $page->clear('#rg-admin-languages-search');
-    $page->typeSlowly('#rg-admin-languages-search', 'language x', 40)->wait(0.3);
+    $page->typeSlowly('#rg-admin-languages-search', 'language x', 40);
+    languagesSearched($page, 'language x');
     expect(languagesScreen($page)['rows'])->toBe(array_values(array_filter($codes, fn (string $code): bool => str_starts_with($code, 'x'))));
 
-    $page->clear('#rg-admin-languages-search')->wait(0.3);
-    expect(languagesScreen($page)['rows'])->toBe($codes)
-        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]);
+    // A request that is not sent has no event to wait for. Livewire debounces
+    // a live wire:model by 150 ms, so twice that is long enough for one to go out.
+    proveNothingHappensFor($page->clear('#rg-admin-languages-search'), 0.3, 'a request to Livewire');
+    eventually(fn () => expect(languagesScreen($page)['rows'])->toBe($codes)
+        ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true]));
 });
 
 it('opens Translation Center from a missing item on that item, and from Translate all missing on everything missing', function () {
@@ -632,20 +752,24 @@ it('opens Translation Center from a missing item on that item, and from Translat
     $category = untranslatedCategory();
     $unit = "categories:{$category->id}:name";
 
-    $page = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $page->click("#rg-admin-language-{$target} .rg-admin-languages__missing")->wait(0.6);
+    $page = visitLanguages('/admin/languages');
+    $page->click("#rg-admin-language-{$target} .rg-admin-languages__missing");
+    languagesOverlayOpen($page, 'drawer');
 
     $translate = $page->script("[...document.querySelectorAll('.rg-admin-languages__item')].find((item) => item.innerText.includes('Georgian food')).querySelector('a:not(.rg-admin-languages__edit-source)').getAttribute('href')");
-    $page->navigate($translate)->wait(0.8);
+    $page->navigate($translate);
 
-    expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&section=categories&mode=missing")
+    // Translation Center scrolls to the item and focuses it once its filters have drawn the row.
+    eventually(fn () => expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&section=categories&mode=missing")
         ->and($page->script("document.activeElement?.closest('[data-unit]')?.dataset.unit"))->toBe($unit)
-        ->and($page->script("document.querySelector('.rg-admin-translation-row--linked')?.dataset.unit"))->toBe($unit);
+        ->and($page->script("document.querySelector('.rg-admin-translation-row--linked')?.dataset.unit"))->toBe($unit));
 
-    $languages = visit('/admin/languages')->resize(1440, 900)->wait(0.4);
-    $languages->click("#rg-admin-language-{$target} .rg-admin-languages__missing")->wait(0.6);
-    $languages->click('.rg-admin-drawer__footer a')->wait(0.8);
+    $languages = visitLanguages('/admin/languages');
+    $languages->click("#rg-admin-language-{$target} .rg-admin-languages__missing");
+    languagesOverlayOpen($languages, 'drawer');
+    $languages->click('.rg-admin-drawer__footer a');
 
-    expect($languages->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&mode=missing")
-        ->and($languages->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').map((row) => row.dataset.unit)"))->toContain($unit);
+    // A page load: Translation Center shows its rows once its own Alpine has applied the filters.
+    eventually(fn () => expect($languages->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&mode=missing")
+        ->and($languages->script("[...document.querySelectorAll('[data-unit]')].filter((row) => getComputedStyle(row).display !== 'none').map((row) => row.dataset.unit)"))->toContain($unit));
 });
