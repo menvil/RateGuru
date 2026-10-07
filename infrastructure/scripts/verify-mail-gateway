@@ -295,15 +295,25 @@ delete_by_token() {
 # --- Postfix queue (read-only lookups, ID-scoped deletes) ----------------------
 
 # queue_state QUEUE_ID — the queue the entry is in (incoming, active, deferred,
-# hold), or empty when Postfix no longer holds it.
+# hold), or empty when Postfix no longer holds it. Returns non-zero, printing
+# nothing, when the queue could not be read: an entry is never taken to have
+# left the queue because postqueue did not answer.
 queue_state() {
-    postqueue -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+    local listing
+
+    listing="$(postqueue -j 2>/dev/null)" || return 1
+    jq -rs --arg id "$1" 'map(select(.queue_id == $id) | .queue_name) | first // empty' <<<"${listing}"
+}
+
+queue_unreadable() {
+    fail "could not read the Postfix queue (postqueue -j failed), so where $1 is cannot be told"
 }
 
 wait_queue_state() {
-    local id="$1" want="$2" waited=0
+    local id="$1" want="$2" waited=0 state
     while (( waited < POLL_TIMEOUT )); do
-        [[ "$(queue_state "${id}")" == "${want}" ]] && return 0
+        state="$(queue_state "${id}")" || queue_unreadable "${id}"
+        [[ "${state}" == "${want}" ]] && return 0
         sleep 1
         waited=$((waited + 1))
     done
@@ -311,9 +321,10 @@ wait_queue_state() {
 }
 
 wait_queue_gone() {
-    local id="$1" waited=0
+    local id="$1" waited=0 state
     while (( waited < POLL_TIMEOUT )); do
-        [[ -z "$(queue_state "${id}")" ]] && return 0
+        state="$(queue_state "${id}")" || queue_unreadable "${id}"
+        [[ -z "${state}" ]] && return 0
         sleep 1
         waited=$((waited + 1))
     done
@@ -325,20 +336,38 @@ remember_queue_id() {
     QUEUE_IDS+=("${SMTP_QUEUE_ID}")
 }
 
+# cleanup — the EXIT trap: put Mailpit back if this run stopped it, and remove
+# this run's own queue entries and messages. It keeps the run's exit status, and
+# never turns a failure into a success. A run whose checks all passed still
+# fails if it cannot prove its own synthetic artefacts gone: a passing
+# acceptance must leave nothing of its own behind, or say so.
 cleanup() {
-    local status=$? token id
+    local status=$? token id state cleanup_failed=false
 
     if [[ "${MAILPIT_STOPPED}" == true ]]; then
         log "restoring ${MAILPIT_UNIT}"
-        systemctl start "${MAILPIT_UNIT}" >/dev/null 2>&1 || bad "could not restart ${MAILPIT_UNIT} — start it by hand"
+        systemctl start "${MAILPIT_UNIT}" >/dev/null 2>&1 || {
+            bad "could not restart ${MAILPIT_UNIT} — start it by hand"
+            cleanup_failed=true
+        }
     fi
 
     # Only this run's queue entries, by exact ID; anything else in the queue is
-    # not ours to touch.
+    # not ours to touch, and nothing is flushed, released or requeued.
     for id in "${QUEUE_IDS[@]:-}"; do
         [[ -n "${id}" ]] || continue
-        [[ -n "$(queue_state "${id}")" ]] || continue
-        postsuper -d "${id}" >/dev/null 2>&1 || bad "could not remove queue entry ${id} — remove it with: postsuper -d ${id}"
+
+        if ! state="$(queue_state "${id}")"; then
+            bad "could not read the Postfix queue to remove entry ${id} — if it is still there, remove it with: postsuper -d ${id}"
+            cleanup_failed=true
+            continue
+        fi
+
+        [[ -n "${state}" ]] || continue
+        postsuper -d "${id}" >/dev/null 2>&1 || {
+            bad "could not remove queue entry ${id} — remove it with: postsuper -d ${id}"
+            cleanup_failed=true
+        }
     done
 
     for token in "${TOKENS[@]:-}"; do
@@ -348,6 +377,12 @@ cleanup() {
     done
 
     [[ -n "${PLAN_FILE}" ]] && rm -f "${PLAN_FILE}"
+
+    if [[ "${cleanup_failed}" == true ]] && (( status == 0 )); then
+        bad "the acceptance checks passed, but this run could not remove what it created — see above; the run fails"
+        status=1
+    fi
+
     exit "${status}"
 }
 
@@ -425,7 +460,7 @@ check_sender_isolation() {
 }
 
 check_held() {
-    local identity host port domain sender route token
+    local identity host port domain sender route token state
     while IFS=$'\t' read -r identity host port domain sender route; do
         [[ -n "${identity}" ]] || continue
 
@@ -440,7 +475,8 @@ check_held() {
         ok "C ${identity}: ${SMTP_QUEUE_ID} is in HOLD"
 
         sleep 3
-        [[ "$(queue_state "${SMTP_QUEUE_ID}")" == hold ]] || fail "C ${identity}: ${SMTP_QUEUE_ID} left HOLD"
+        state="$(queue_state "${SMTP_QUEUE_ID}")" || queue_unreadable "${SMTP_QUEUE_ID}"
+        [[ "${state}" == hold ]] || fail "C ${identity}: ${SMTP_QUEUE_ID} left HOLD"
         (( $(api_count "${MAILPIT_API}" "${token}") == 0 )) || fail "C ${identity}: held mail reached Mailpit"
         ok "C ${identity}: it stays in HOLD and is not in Mailpit — there is no route"
 
