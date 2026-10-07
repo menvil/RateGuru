@@ -136,6 +136,7 @@ it('recognises a forbidden dependency in every form a source can name it, and ne
         // App\Models\Comment in a comment is prose, not a dependency.
         /** @see \Livewire\Component — prose too */
         use App\Models\Post;
+        use App\Models\{Comment, User};
         final class Example
         {
             public function a(): string { return \App\Filament\Pages\TranslationCenterPage::class; }
@@ -145,7 +146,8 @@ it('recognises a forbidden dependency in every form a source can name it, and ne
         PHP;
 
     expect(translationEngineViolations($source, TRANSLATION_ENGINE_FORBIDDEN_DEPENDENCIES))
-        ->toBe(['App\\Models\\Post', 'App\\Filament\\Pages\\TranslationCenterPage', 'App\\Support\\Translations\\ProjectTranslationUnit'])
+        // A grouped import is read as its namespace, which is itself forbidden.
+        ->toBe(['App\\Models\\Post', 'App\\Models', 'App\\Filament\\Pages\\TranslationCenterPage', 'App\\Support\\Translations\\ProjectTranslationUnit'])
         ->and(translationEngineDispatches($source))->toBeTrue()
         ->and(translationEngineDispatches('<?php // dispatch(new Job) is only mentioned here'))->toBeFalse();
 });

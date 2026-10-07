@@ -132,7 +132,16 @@ it('records Translation Center as done, on the one catalog Languages counts, and
 
 it('splits AI suggestions into four steps, with the engine done and nothing else marked done', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
-    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), (int) strpos($plan, '### Then — freeze Admin UI Kit v1') - (int) strpos($plan, '### Phase 5+'));
+    $start = strpos($plan, '### Phase 5+');
+    $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
+
+    // Both markers must be found, in order: a missing one would otherwise
+    // become offset 0 and the assertions below would read the wrong text.
+    expect($start)->toBeInt()
+        ->and($end)->toBeInt()
+        ->and($end)->toBeGreaterThan($start);
+
+    $phase5 = substr($plan, (int) $start, (int) $end - (int) $start);
 
     $steps = [
         '**5A — Translation engine. Status: done.**',
