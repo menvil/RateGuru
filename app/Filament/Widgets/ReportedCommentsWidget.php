@@ -27,7 +27,7 @@ class ReportedCommentsWidget extends StatsOverviewWidget
             )
                 ->description('Comments requiring moderation attention')
                 ->url(CommentResource::getUrl('index', [
-                    'tableFilters' => [
+                    'filters' => [
                         'reported' => [
                             'isActive' => true,
                         ],

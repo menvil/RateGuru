@@ -28,7 +28,7 @@ class PendingPostsWidget extends StatsOverviewWidget
             )
                 ->description('Posts waiting for review')
                 ->url(PostResource::getUrl('index', [
-                    'tableFilters' => [
+                    'filters' => [
                         'pending' => [
                             'isActive' => true,
                         ],

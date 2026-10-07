@@ -30,7 +30,7 @@ class ReportedPostsWidget extends StatsOverviewWidget
             )
                 ->description('Posts requiring moderation attention')
                 ->url(PostResource::getUrl('index', [
-                    'tableFilters' => [
+                    'filters' => [
                         'reported' => [
                             'isActive' => true,
                         ],
