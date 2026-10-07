@@ -1,0 +1,1491 @@
+#!/usr/bin/env bash
+#
+# install-mail-signing — the host-global DKIM signing service: one OpenDKIM
+# daemon for every production identity on this host, rendered from the reviewed
+# signing plan.
+#
+#   install-mail-signing --check                 read-only: would --apply converge, and what
+#   install-mail-signing --apply                 install/converge the signer (root)
+#   install-mail-signing --verify [--target T]   read-only: the authoritative contract (root)
+#   install-mail-signing --milter-endpoint       the one endpoint the gateway wires to
+#
+# WHAT IS SIGNED COMES FROM ONE PLACE. The dependency runs one way only:
+#
+#   deployment-targets.json + mail-routing.json + mail-identity.json
+#       -> mail-identity render-signing-plan     (the policy, and its only judge)
+#       -> install-mail-signing                  (this file: OpenDKIM syntax only)
+#       -> /etc/opendkim.conf, /etc/opendkim/{KeyTable,SigningTable,TrustedHosts}
+#
+# The plan is read from the mail-identity CLI shipped in the SAME bundle this
+# script runs from. It lists every production target with a reviewed identity —
+# held ones included: the signer is ready before any mail is allowed out — with
+# its mail domain, DKIM selector, algorithm and the canonical place of its key.
+# Nothing here restates those rules or lets a caller choose a domain, selector
+# or key; what this file adds is how OpenDKIM spells them.
+#
+# THE SIGNER. One OpenDKIM daemon, the package's own opendkim.service:
+#
+#   * signing only (Mode s): it never verifies, and needs no DNS of its own;
+#   * it signs a message only when its From domain is exactly a reviewed mail
+#     domain (SigningTable, an exact-domain table: no wildcard, no subdomain),
+#     with exactly that target's key (KeyTable), and only for mail from this
+#     host's loopback (TrustedHosts). Mail for any other domain passes
+#     unsigned, and nothing routes it anywhere — that is the gateway's job;
+#   * rsa-sha256 only, the one algorithm the identity contract admits;
+#   * fail closed on a message it cannot sign by the rules: one that breaks
+#     RFC 5322's header counts — two From fields, say — is refused
+#     (RequiredHeaders), a malformed one is never passed through unsigned
+#     (IgnoreMalformedMail no), and a signing error rejects the message
+#     (On-SignatureError reject). That a signed listener's From is in its
+#     reviewed domain at all is the gateway's From policy, before the signer;
+#   * it runs as the package account opendkim, never as root, and refuses any
+#     key another account could read (RequireSafeKeys);
+#   * it listens on 127.0.0.1:8891 and nowhere else — no other address, no
+#     IPv6, no UNIX socket. That endpoint is part of this file's contract and
+#     is printed by --milter-endpoint, so the gateway wires exactly it without
+#     restating it.
+#
+# Only the gateway decides which listener is signed, and nothing here routes or
+# releases mail: a signed message on a held listener is still held.
+#
+# THE KEYS. Each target's private key is external material, installed by
+# install-target-prerequisites at the path the plan names. This file never
+# creates, copies, rewrites, prints, hashes or measures one. It grants the
+# signer read access, and nothing else, once the key has been judged by
+# `mail-identity check-key`:
+#
+#   /etc/opendkim/keys             root:opendkim 0750
+#   /etc/opendkim/keys/<target>    root:opendkim 0750
+#   .../<selector>.private         root:opendkim 0640
+#
+# A key installed before any signer existed is root:root 0600 in root:root 0700
+# directories. That state — and only that one — is the migration source: --apply
+# changes its owner, group and mode, never its bytes. Any other metadata is
+# refused, never "fixed". A held target's key may be absent (DEFERRED); an
+# outbound target's may not.
+#
+# THE PACKAGE. --apply may install Ubuntu's opendkim package, and does it so the
+# daemon can never run in a state RateGuru did not choose: a policy-rc.d keeps
+# the maintainer scripts from starting it; the rendered configuration is
+# validated by OpenDKIM's own parser (opendkim -n) before it is installed and
+# again once it is in place; and the service is started only after that. The
+# package's own account and group are the signer's: nothing here creates one.
+#
+# OWNERSHIP. Before the package is installed an ownership marker is written to
+# /var/lib/rateguru-mail-signing. An OpenDKIM present on a host WITHOUT that
+# marker — the package, or its configuration — is not RateGuru's, and every
+# mode fails closed on it: an existing signer is never taken over, rewritten or
+# removed. A marker in state=installing is a partial installation this
+# installer started, and --apply resumes it. A package this installer installed
+# is never removed again, as a rollback or otherwise.
+#
+# NOTHING TO SIGN. With no reviewed production identity in the plan, every mode
+# is a no-op: no package is installed, and nothing is verified.
+#
+# TRANSACTION. --apply renders into a private directory, validates, records the
+# managed files, the key metadata and the service's boot/running state, installs
+# complete candidates atomically, grants key access, starts or restarts the
+# service only after validation, and verifies the running signer before it
+# commits. Any failure before that restores the previous files, key metadata and
+# runtime state, and a rollback that could not finish says so and fails.
+# Backups hold configuration only, under
+# /var/backups/rateguru-mail-signing/<timestamp>/ — never a key.
+#
+# Test overrides: every RATEGURU_MAILSIGN_* variable below is honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, the gate every installer here
+# uses. RATEGURU_MAILSIGN_FS_ROOT prefixes every host path so the real code runs
+# against a simulated host. Nothing overrides the milter endpoint.
+
+set -Eeuo pipefail
+umask 022
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — the override when allowed and set, else the
+# default.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILSIGN_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MAILSIGN_FS_ROOT '')"
+
+# The policy and its one judge, from this bundle.
+MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILSIGN_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"
+IDENTITY_FILE="$(gated_default RATEGURU_MAILSIGN_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
+ROUTING_FILE="$(gated_default RATEGURU_MAILSIGN_ROUTING_FILE "${REPO_ROOT}/infrastructure/config/mail-routing.json")"
+REGISTRY_FILE="$(gated_default RATEGURU_MAILSIGN_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+OUTBOUND_FILE="$(gated_default RATEGURU_MAILSIGN_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
+
+SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILSIGN_SYSTEMCTL_BIN systemctl)"
+APT_GET_BIN="$(gated_default RATEGURU_MAILSIGN_APT_GET_BIN apt-get)"
+DPKG_BIN="$(gated_default RATEGURU_MAILSIGN_DPKG_BIN dpkg)"
+DPKG_QUERY_BIN="$(gated_default RATEGURU_MAILSIGN_DPKG_QUERY_BIN dpkg-query)"
+OPENDKIM_BIN="$(gated_default RATEGURU_MAILSIGN_OPENDKIM_BIN opendkim)"
+SS_BIN="$(gated_default RATEGURU_MAILSIGN_SS_BIN ss)"
+PS_BIN="$(gated_default RATEGURU_MAILSIGN_PS_BIN ps)"
+RUNUSER_BIN="$(gated_default RATEGURU_MAILSIGN_RUNUSER_BIN runuser)"
+STAT_BIN="$(gated_default RATEGURU_MAILSIGN_STAT_BIN stat)"
+CHOWN_BIN="$(gated_default RATEGURU_MAILSIGN_CHOWN_BIN chown)"
+PASSWD_FILE="$(gated_default RATEGURU_MAILSIGN_PASSWD_FILE /etc/passwd)"
+GROUP_FILE="$(gated_default RATEGURU_MAILSIGN_GROUP_FILE /etc/group)"
+
+# Owner of every managed configuration file. root:root on a host; the test seam
+# lets the real install path run unprivileged. Key metadata is never overridden:
+# it is read and changed through STAT_BIN and CHOWN_BIN.
+FILE_OWNER="$(gated_default RATEGURU_MAILSIGN_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_MAILSIGN_FILE_GROUP root)"
+
+# Bounded waits; anything that is not a positive integer falls back, so a stray
+# variable can never disable a gate.
+RUNTIME_WAIT="$(gated_default RATEGURU_MAILSIGN_RUNTIME_WAIT 30)"
+STABILITY_WAIT="$(gated_default RATEGURU_MAILSIGN_STABILITY_WAIT 4)"
+[[ "${RUNTIME_WAIT}" =~ ^[1-9][0-9]*$ ]] || RUNTIME_WAIT=30
+[[ "${STABILITY_WAIT}" =~ ^[1-9][0-9]*$ ]] || STABILITY_WAIT=4
+
+# --- Host contract --------------------------------------------------------------
+
+OPENDKIM_PACKAGE="opendkim"
+OPENDKIM_UNIT="opendkim.service"
+
+# The package's own account and group. The signer runs as the one and reads
+# keys through the other; nothing here creates either.
+SIGNER_USER="opendkim"
+SIGNER_GROUP="opendkim"
+
+# The milter: loopback, one port, no other socket. Postfix spells it
+# inet:HOST:PORT and OpenDKIM inet:PORT@HOST — both from these two values.
+MILTER_HOST="127.0.0.1"
+MILTER_PORT="8891"
+
+OPENDKIM_CONF="/etc/opendkim.conf"
+CONFIG_DIR="/etc/opendkim"
+KEY_TABLE="${CONFIG_DIR}/KeyTable"
+SIGNING_TABLE="${CONFIG_DIR}/SigningTable"
+TRUSTED_HOSTS="${CONFIG_DIR}/TrustedHosts"
+MANAGED_FILES=("${OPENDKIM_CONF}" "${KEY_TABLE}" "${SIGNING_TABLE}" "${TRUSTED_HOSTS}")
+MANAGED_FILE_MODE="644"
+
+# Where the package's unit expects the daemon's pid file.
+PID_FILE="/run/opendkim/opendkim.pid"
+
+# Key access, signing-ready and the one migration source.
+KEY_READY_STATE="root:${SIGNER_GROUP} 640"
+KEY_DIR_READY_STATE="root:${SIGNER_GROUP} 750"
+KEY_PRESIGNER_STATE="root:root 600"
+KEY_DIR_PRESIGNER_STATE="root:root 700"
+
+STATE_DIR="/var/lib/rateguru-mail-signing"
+OWNERSHIP_MARKER="${STATE_DIR}/ownership"
+PRESERVED_POLICY_RC="${STATE_DIR}/policy-rc.d.preserved"
+POLICY_RC="/usr/sbin/policy-rc.d"
+POLICY_RC_MARKER="# rateguru-mail-signing: package service starts suppressed until the signing configuration is in place"
+BACKUP_ROOT="/var/backups/rateguru-mail-signing"
+
+# --- Output ---------------------------------------------------------------------
+
+MODE=""
+VERIFY_TARGET=""
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_DRIFT=0
+COUNT_CONFLICT=0
+COUNT_DEFERRED=0
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+# item STATUS NAME DETAIL — one report line, the shape every bootstrap installer
+# prints.
+item() {
+    local status="$1" name="$2" detail="$3"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        DRIFT)    COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+}
+
+action() {
+    printf 'APPLY    %s\n' "$*"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-mail-signing --check
+  install-mail-signing --apply
+  install-mail-signing --verify [--target TARGET]
+  install-mail-signing --milter-endpoint
+
+  --check            Read-only. Renders the signer from the reviewed signing
+                     plan (mail-identity render-signing-plan), validates it with
+                     OpenDKIM's own parser when OpenDKIM is installed, and
+                     reports what --apply would install or change. Exit 0 when
+                     --apply can converge; non-zero on a conflict it must not
+                     resolve.
+  --apply            Install or converge the host-global signer (root). May
+                     install the opendkim package, with service starts
+                     suppressed until the rendered configuration has been
+                     validated; grants the signer read access to each installed
+                     reviewed key, without ever changing its bytes.
+  --verify           Read-only (root). Exit 0 only when the installed signer is
+                     exactly the current render, OpenDKIM accepts it, the service
+                     is enabled and stably running as opendkim, it listens on
+                     exactly 127.0.0.1:8891 and nowhere else, and every installed
+                     key is valid and readable by the signer. A held target's
+                     absent key is DEFERRED; an outbound target's is MISSING.
+  --verify --target TARGET
+                     The same contract, for one target: TARGET must be in the
+                     signing plan, and its key must be installed, valid and
+                     readable by the signer.
+  --milter-endpoint  Print the one milter endpoint the signer listens on, in the
+                     inet:HOST:PORT form the mail gateway names it by. Read-only;
+                     the gateway wires exactly it.
+
+With no reviewed production signing identity, every mode is a no-op.
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "install-mail-signing --${MODE} must run as root"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+milter_endpoint() {
+    printf 'inet:%s:%s\n' "${MILTER_HOST}" "${MILTER_PORT}"
+}
+
+# --- The plan -----------------------------------------------------------------------
+
+WORK_DIR=""
+PLAN_FILE=""
+CANDIDATE_DIR=""
+CHECK_CONF=""
+TARGET_COUNT=0
+
+cleanup_work_dir() {
+    [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
+    return 0
+}
+
+# The guard is not policy — mail-identity judged the plan — it only proves every
+# value spliced into OpenDKIM syntax is a plain token, so nothing in the plan
+# can become a second directive, and that no two targets could claim one domain
+# or one key name.
+# shellcheck disable=SC2016
+PLAN_GUARD_PROGRAM='
+def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+def is_target: type == "string" and anchored("[a-z0-9][a-z0-9-]{1,31}");
+def is_label: type == "string" and anchored(label_re);
+def is_domain: type == "string" and length <= 253 and anchored("(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?");
+def is_key_path: type == "string" and anchored("/[a-z0-9._/-]+\\.private") and (contains("..") | not) and (contains("//") | not);
+.schema_version == 1
+and (keys == ["schema_version", "targets"])
+and (.targets | type == "array")
+and all(.targets[];
+    keys == ["algorithm", "domain", "key_path", "key_requirement", "minimum_key_bits", "selector", "target"]
+    and (.target | is_target) and (.domain | is_domain) and (.selector | is_label)
+    and (.key_path | is_key_path)
+    and (.key_requirement == "deferred" or .key_requirement == "required")
+    and (.minimum_key_bits | type == "number" and . == floor and . >= 2048))
+and ((.targets | map(.target) | unique | length) == (.targets | length))
+and ((.targets | map(.domain) | unique | length) == (.targets | length))
+'
+
+# load_plan — the signing plan from mail-identity, which validates every contract
+# before it renders and prints nothing when one is invalid, so an invalid policy
+# stops here.
+load_plan() {
+    [[ -x "${MAIL_IDENTITY_CLI}" ]] \
+        || fail "the mail identity CLI is not executable: ${MAIL_IDENTITY_CLI} — run from a full repository bundle; this installer never re-derives the signing policy"
+
+    WORK_DIR="$(mktemp -d)"
+    chmod 0700 "${WORK_DIR}"
+    PLAN_FILE="${WORK_DIR}/signing-plan.json"
+
+    "${MAIL_IDENTITY_CLI}" render-signing-plan \
+        --identity "${IDENTITY_FILE}" --routing "${ROUTING_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" > "${PLAN_FILE}" \
+        || fail "mail-identity render-signing-plan refused the reviewed identity (diagnostics above) — nothing was rendered"
+
+    jq -e "${PLAN_GUARD_PROGRAM}" "${PLAN_FILE}" >/dev/null 2>&1 \
+        || fail "the signing plan does not have the shape this renderer spells in OpenDKIM — refusing to render around it"
+
+    TARGET_COUNT="$(jq '.targets | length' "${PLAN_FILE}")"
+}
+
+# The algorithm is one setting for the whole daemon, so every target must use
+# the one this renderer spells.
+assert_single_algorithm() {
+    local others
+    others="$(jq -r '[.targets[] | select(.algorithm != "rsa-sha256") | "\(.target) (\(.algorithm))"] | join(", ")' "${PLAN_FILE}")"
+    [[ -z "${others}" ]] \
+        || fail "no OpenDKIM spelling is defined for the DKIM algorithm of ${others} — this signer signs rsa-sha256 only"
+}
+
+# --- Rendering (OpenDKIM spelling of the plan) -----------------------------------
+#
+# Pure: the plan in, four files out, each a byte-for-byte function of the plan,
+# so --verify can re-render and compare. The configuration names its tables
+# under TABLE_DIR: the installed one under /etc/opendkim, and a copy used only
+# to let OpenDKIM's parser judge the candidate tables before they are installed.
+
+render_opendkim_conf() {
+    local table_dir="$1"
+
+    cat <<CONF
+# RateGuru mail signing — opendkim.conf
+#
+# Rendered by infrastructure/scripts/install-mail-signing from the signing plan
+# that infrastructure/scripts/mail-identity renders out of the reviewed
+# infrastructure/config/mail-identity.json. Never edit it on a host: the next
+# --apply replaces it, and --verify reports any difference.
+#
+# Signing only. A message is signed when its From domain is exactly one of the
+# reviewed mail domains in SigningTable, with exactly that domain's key in
+# KeyTable, and only when it came from this host's loopback (TrustedHosts).
+# The milter listens on loopback and nowhere else, and runs as opendkim. A
+# message that breaks RFC 5322's header counts, a malformed one and one that
+# fails to sign are refused, never passed on unsigned.
+
+Syslog                  yes
+SyslogSuccess           yes
+Mode                    s
+UserID                  ${SIGNER_USER}
+UMask                   007
+Socket                  inet:${MILTER_PORT}@${MILTER_HOST}
+PidFile                 ${PID_FILE}
+Canonicalization        relaxed/simple
+SignatureAlgorithm      rsa-sha256
+OversignHeaders         From
+KeyTable                file:${table_dir}/KeyTable
+SigningTable            file:${table_dir}/SigningTable
+InternalHosts           file:${table_dir}/TrustedHosts
+ExternalIgnoreList      file:${table_dir}/TrustedHosts
+RequireSafeKeys         true
+RequiredHeaders         yes
+IgnoreMalformedMail     no
+On-SignatureError       reject
+CONF
+}
+
+# shellcheck disable=SC2016
+KEY_TABLE_PROGRAM='
+"# RateGuru mail signing — KeyTable",
+"#",
+"# One key per reviewed target: <selector>._domainkey.<domain>, then",
+"# <domain>:<selector>:<the canonical private key path>. Rendered from the",
+"# signing plan; never edit it on a host.",
+"",
+(.targets | sort_by(.target)[] | "\(.selector)._domainkey.\(.domain) \(.domain):\(.selector):\(.key_path)")
+'
+
+# Exact domains only: OpenDKIM looks a plain table up by the From address, then
+# by its exact domain. No entry starts with "." or "*", so no subdomain and no
+# other domain is ever signed.
+# shellcheck disable=SC2016
+SIGNING_TABLE_PROGRAM='
+"# RateGuru mail signing — SigningTable",
+"#",
+"# Mail whose From domain is exactly one of these is signed with the key named",
+"# beside it; no wildcard, no subdomain. Rendered from the signing plan; never",
+"# edit it on a host.",
+"",
+(.targets | sort_by(.target)[] | "\(.domain) \(.selector)._domainkey.\(.domain)")
+'
+
+render_trusted_hosts() {
+    cat <<HOSTS
+# RateGuru mail signing — TrustedHosts
+#
+# The only clients whose mail is signed: this host's loopback, where the mail
+# gateway's listeners are. Never edit it on a host.
+
+${MILTER_HOST}
+HOSTS
+}
+
+# render_signing_config OUT_DIR TABLE_DIR — the four files into OUT_DIR. Called
+# as a plain statement, never inside $(...) or on the left of ||, so a jq
+# failure stops the run instead of leaving a half file.
+render_signing_config() {
+    local out="$1" table_dir="$2"
+
+    render_opendkim_conf "${table_dir}" > "${out}/opendkim.conf"
+    jq -r "${KEY_TABLE_PROGRAM}" "${PLAN_FILE}" > "${out}/KeyTable"
+    jq -r "${SIGNING_TABLE_PROGRAM}" "${PLAN_FILE}" > "${out}/SigningTable"
+    render_trusted_hosts > "${out}/TrustedHosts"
+}
+
+# prepare_candidate — the plan, then its rendering into a private directory,
+# plus a copy of the configuration that names the candidate tables, for
+# OpenDKIM's parser to judge before anything is installed.
+prepare_candidate() {
+    load_plan
+    (( TARGET_COUNT > 0 )) || return 0
+
+    assert_single_algorithm
+
+    CANDIDATE_DIR="${WORK_DIR}/candidate"
+    mkdir -m 0700 "${CANDIDATE_DIR}"
+    render_signing_config "${CANDIDATE_DIR}" "${CONFIG_DIR}"
+
+    local check_dir="${WORK_DIR}/check"
+    mkdir -m 0700 "${check_dir}"
+    render_signing_config "${check_dir}" "${check_dir}"
+    CHECK_CONF="${check_dir}/opendkim.conf"
+}
+
+# candidate_path LOGICAL — the rendered file a managed path is installed from.
+candidate_path() {
+    printf '%s/%s\n' "${CANDIDATE_DIR}" "$(basename "$1")"
+}
+
+# --- Package, accounts and ownership state ----------------------------------------------
+
+# package_status — installed | absent | partial (any other dpkg state).
+package_status() {
+    local status
+    # dpkg-query's own ${field} syntax, never the shell's.
+    # shellcheck disable=SC2016
+    status="$("${DPKG_QUERY_BIN}" -W -f='${Status}' "${OPENDKIM_PACKAGE}" 2>/dev/null || true)"
+
+    case "${status}" in
+        "install ok installed") printf 'installed\n' ;;
+        ""|*" not-installed")   printf 'absent\n' ;;
+        *)                      printf 'partial\n' ;;
+    esac
+}
+
+package_version() {
+    # shellcheck disable=SC2016
+    "${DPKG_QUERY_BIN}" -W -f='${Version}' "${OPENDKIM_PACKAGE}" 2>/dev/null || true
+}
+
+marker_state() {
+    local marker
+    marker="$(physical "${OWNERSHIP_MARKER}")"
+
+    [[ -f "${marker}" && ! -L "${marker}" ]] || return 0
+    sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1 || true
+}
+
+# Anything of an OpenDKIM configuration that exists on the host. The key
+# directory is not: it is target material, installed before any signer.
+existing_configuration() {
+    local logical
+    for logical in "${MANAGED_FILES[@]}"; do
+        if [[ -e "$(physical "${logical}")" || -L "$(physical "${logical}")" ]]; then
+            printf '%s\n' "${logical}"
+        fi
+    done
+}
+
+# What makes an OpenDKIM on this host one RateGuru did not install.
+unmanaged_evidence() {
+    local status logical
+    local -a evidence=()
+
+    status="$(package_status)"
+    [[ "${status}" == absent ]] || evidence+=("the ${OPENDKIM_PACKAGE} package is ${status}")
+
+    while IFS= read -r logical; do
+        [[ -n "${logical}" ]] && evidence+=("${logical} exists")
+    done < <(existing_configuration)
+
+    local joined="" each
+    for each in "${evidence[@]+"${evidence[@]}"}"; do
+        joined+="${joined:+; }${each}"
+    done
+    printf '%s\n' "${joined}"
+}
+
+# ownership — fresh | owned | unmanaged.
+#   fresh      no marker, no package, no OpenDKIM configuration: --apply installs it;
+#   owned      the marker is present (installing or installed);
+#   unmanaged  the package, or an OpenDKIM configuration, exists without the marker.
+ownership() {
+    local state
+    state="$(marker_state)"
+
+    if [[ "${state}" == installing || "${state}" == installed ]]; then
+        printf 'owned\n'
+    elif [[ "$(package_status)" != absent ]] || [[ -n "$(existing_configuration)" ]]; then
+        printf 'unmanaged\n'
+    else
+        printf 'fresh\n'
+    fi
+}
+
+write_marker() {
+    local state="$1" marker tmp
+    marker="$(physical "${OWNERSHIP_MARKER}")"
+
+    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${STATE_DIR}")"
+    tmp="${marker}.tmp.$$"
+    {
+        printf '# RateGuru mail signing ownership marker. Non-secret.\n'
+        printf '#\n'
+        printf '# Written by install-mail-signing before it installs the opendkim package,\n'
+        printf '# so a partial installation it started is recognisable and resumable, and\n'
+        printf '# an OpenDKIM without this file is never taken over. Do not edit.\n'
+        printf 'owner=rateguru\n'
+        printf 'component=mail-signing\n'
+        printf 'state=%s\n' "${state}"
+    } > "${tmp}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+    chmod 0644 "${tmp}"
+    mv -f "${tmp}" "${marker}"
+}
+
+# A policy-rc.d carrying our marker outlived the run that installed it — every
+# package service start on the host is still suppressed.
+leftover_start_suppression() {
+    local path
+    path="$(physical "${POLICY_RC}")"
+
+    [[ -f "${path}" ]] && grep -qF "${POLICY_RC_MARKER}" "${path}"
+}
+
+# account_field FILE NAME FIELD — one colon-separated field of NAME's entry.
+account_field() {
+    awk -F: -v name="$2" -v field="$3" '$1 == name { print $field; exit }' "$1" 2>/dev/null || true
+}
+
+# signer_account_problems — the package's account and group exist, and the group
+# holds nobody else: a key the group can read is then readable by the signer
+# alone, which is what OpenDKIM's RequireSafeKeys insists on.
+signer_account_problems() {
+    local gid members user
+
+    [[ -n "$(account_field "${PASSWD_FILE}" "${SIGNER_USER}" 1)" ]] \
+        || printf 'the %s account does not exist — the opendkim package creates it\n' "${SIGNER_USER}"
+
+    gid="$(account_field "${GROUP_FILE}" "${SIGNER_GROUP}" 3)"
+    if [[ -z "${gid}" ]]; then
+        printf 'the %s group does not exist — the opendkim package creates it\n' "${SIGNER_GROUP}"
+        return 0
+    fi
+
+    members="$(account_field "${GROUP_FILE}" "${SIGNER_GROUP}" 4)"
+    for user in ${members//,/ }; do
+        [[ "${user}" == "${SIGNER_USER}" ]] \
+            || printf 'the %s group also holds %s — a key it can read would be readable by %s too\n' "${SIGNER_GROUP}" "${user}" "${user}"
+    done
+
+    while IFS= read -r user; do
+        if [[ -n "${user}" && "${user}" != "${SIGNER_USER}" ]]; then
+            printf 'the account %s has the %s group as its primary group — a key that group can read would be readable by %s too\n' "${user}" "${SIGNER_GROUP}" "${user}"
+        fi
+    done < <(awk -F: -v gid="${gid}" '$4 == gid { print $1 }' "${PASSWD_FILE}" 2>/dev/null || true)
+}
+
+# --- OpenDKIM's own judgement of a configuration --------------------------------
+
+# opendkim_problems CONF — OpenDKIM parses CONF and opens every table it names.
+opendkim_problems() {
+    local conf="$1" output
+
+    if ! output="$("${OPENDKIM_BIN}" -n -x "${conf}" 2>&1)"; then
+        printf 'opendkim -n rejects the configuration: %s\n' "${output//$'\n'/; }"
+    elif [[ -n "${output}" ]]; then
+        printf 'opendkim -n reports: %s\n' "${output//$'\n'/; }"
+    fi
+}
+
+# --- Keys ---------------------------------------------------------------------------
+
+# metadata PATH — "owner:group mode" of PATH, read through STAT_BIN.
+metadata() {
+    "${STAT_BIN}" -c '%U:%G %a' "$1" 2>/dev/null || true
+}
+
+key_check_problem() {
+    local path="$1" bits="$2" output
+
+    if output="$("${MAIL_IDENTITY_CLI}" check-key --file "${path}" --min-bits "${bits}" 2>&1 >/dev/null)"; then
+        return 0
+    fi
+
+    # check-key's refusal is a fixed sentence; it never carries key material.
+    output="${output#ERROR: }"
+    printf '%s\n' "${output#not a usable DKIM private key: }"
+}
+
+# KEY_STATE: absent | ready | migrate | conflict | unjudged, with KEY_DETAIL.
+# Directories are judged with the key: a key the signer can read sits in
+# directories it can enter, and in nothing anyone else can.
+KEY_STATE=""
+KEY_DETAIL=""
+
+judge_key() {
+    local logical="$1" bits="$2"
+    local path dir keys_dir state migrate=false logical_dir problem
+
+    KEY_STATE=""
+    KEY_DETAIL=""
+    path="$(physical "${logical}")"
+
+    if [[ -L "${path}" ]]; then
+        KEY_STATE=conflict
+        KEY_DETAIL="${logical} is a symlink — a private key is never read through one"
+        return 0
+    fi
+
+    if [[ ! -e "${path}" ]]; then
+        KEY_STATE=absent
+        return 0
+    fi
+
+    if [[ ! -f "${path}" ]]; then
+        KEY_STATE=conflict
+        KEY_DETAIL="${logical} exists and is not a regular file"
+        return 0
+    fi
+
+    if [[ "${EFFECTIVE_UID}" != 0 ]]; then
+        KEY_STATE=unjudged
+        KEY_DETAIL="${logical} is readable by root and the signer only — run as root to judge it"
+        return 0
+    fi
+
+    problem="$(key_check_problem "${path}" "${bits}")"
+    if [[ -n "${problem}" ]]; then
+        KEY_STATE=conflict
+        KEY_DETAIL="${logical} is not a usable DKIM private key: ${problem}"
+        return 0
+    fi
+
+    logical_dir="$(dirname "${logical}")"
+    for dir in "$(dirname "${logical_dir}")" "${logical_dir}"; do
+        keys_dir="$(physical "${dir}")"
+        if [[ -L "${keys_dir}" || ! -d "${keys_dir}" ]]; then
+            KEY_STATE=conflict
+            KEY_DETAIL="${dir} is not a plain directory"
+            return 0
+        fi
+
+        state="$(metadata "${keys_dir}")"
+        if [[ "${state}" == "${KEY_DIR_PRESIGNER_STATE}" ]]; then
+            migrate=true
+        elif [[ "${state}" != "${KEY_DIR_READY_STATE}" ]]; then
+            KEY_STATE=conflict
+            KEY_DETAIL="${dir} is ${state:-unreadable}, neither ${KEY_DIR_READY_STATE} nor the pre-signer ${KEY_DIR_PRESIGNER_STATE} — refusing to change a key directory RateGuru did not lay out"
+            return 0
+        fi
+    done
+
+    state="$(metadata "${path}")"
+    if [[ "${state}" == "${KEY_PRESIGNER_STATE}" ]]; then
+        migrate=true
+    elif [[ "${state}" != "${KEY_READY_STATE}" ]]; then
+        KEY_STATE=conflict
+        KEY_DETAIL="${logical} is ${state:-unreadable}, neither ${KEY_READY_STATE} nor the pre-signer ${KEY_PRESIGNER_STATE} — a key with any other access is refused, never re-permissioned"
+        return 0
+    fi
+
+    if [[ "${migrate}" == true ]]; then
+        KEY_STATE=migrate
+        KEY_DETAIL="${logical} is valid and still root-only (pre-signer ${KEY_PRESIGNER_STATE}) — --apply grants the signer read access (${KEY_READY_STATE}), never touching its contents"
+    else
+        KEY_STATE=ready
+        KEY_DETAIL="${logical} is valid, ${KEY_READY_STATE}, in ${KEY_DIR_READY_STATE} directories"
+    fi
+}
+
+# The signer reads the key itself: one byte, into nothing. Never printed.
+signer_can_read() {
+    "${RUNUSER_BIN}" -u "${SIGNER_USER}" -- head -c 1 -- "$1" >/dev/null 2>&1
+}
+
+# plan_keys [TARGET] — "target<TAB>key_path<TAB>min_bits<TAB>requirement" lines.
+plan_keys() {
+    jq -r --arg only "${1:-}" '.targets[]
+        | select($only == "" or .target == $only)
+        | [.target, .key_path, (.minimum_key_bits | tostring), .key_requirement] | @tsv' "${PLAN_FILE}"
+}
+
+# --- Runtime --------------------------------------------------------------------------
+
+service_property() {
+    "${SYSTEMCTL_BIN}" show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+service_is_running() {
+    [[ "$(service_property "$1" ActiveState)" == active && "$(service_property "$1" SubState)" == running ]]
+}
+
+service_restart_count() {
+    local count
+    count="$(service_property "$1" NRestarts)"
+    [[ "${count}" =~ ^[0-9]+$ ]] || count=0
+    printf '%s\n' "${count}"
+}
+
+# wait_service_running UNIT — only a unit on its way to running is waited for.
+wait_service_running() {
+    local unit="$1" waited=0 state
+    while true; do
+        state="$(service_property "${unit}" ActiveState)"
+        [[ "${state}" == active && "$(service_property "${unit}" SubState)" == running ]] && return 0
+
+        case "${state}" in
+            activating|reloading) ;;
+            *) return 1 ;;
+        esac
+
+        (( waited < RUNTIME_WAIT )) || return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# Every listening socket, with its process: "PROTO LOCAL PROCESS-COLUMN".
+socket_listeners() {
+    "${SS_BIN}" -ltunpH 2>/dev/null | awk '{ print $1, $5, $7 }' || true
+}
+
+milter_listening() {
+    local waited=0
+    while (( waited < RUNTIME_WAIT )); do
+        socket_listeners | awk -v e="${MILTER_HOST}:${MILTER_PORT}" '$1 == "tcp" && $2 == e { found = 1 } END { exit !found }' && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+# runtime_problems — the running signer, read-only. One problem per line.
+runtime_problems() {
+    local pid user before after line
+
+    [[ "$("${SYSTEMCTL_BIN}" is-enabled "${OPENDKIM_UNIT}" 2>/dev/null || true)" == enabled ]] \
+        || printf '%s is not enabled for boot\n' "${OPENDKIM_UNIT}"
+
+    # The package's unit as shipped: a drop-in could start the daemon with a
+    # socket or a user of its own.
+    line="$(service_property "${OPENDKIM_UNIT}" DropInPaths)"
+    [[ -z "${line}" ]] || printf '%s carries drop-in overrides (%s) — the package unit runs unmodified\n' "${OPENDKIM_UNIT}" "${line}"
+
+    if ! wait_service_running "${OPENDKIM_UNIT}"; then
+        printf '%s is not active and running (ActiveState=%s SubState=%s)\n' "${OPENDKIM_UNIT}" \
+            "$(service_property "${OPENDKIM_UNIT}" ActiveState)" "$(service_property "${OPENDKIM_UNIT}" SubState)"
+        return 0
+    fi
+
+    before="$(service_restart_count "${OPENDKIM_UNIT}")"
+    sleep "${STABILITY_WAIT}"
+    after="$(service_restart_count "${OPENDKIM_UNIT}")"
+    service_is_running "${OPENDKIM_UNIT}" \
+        || printf '%s did not stay running for %ss\n' "${OPENDKIM_UNIT}" "${STABILITY_WAIT}"
+    (( after <= before )) \
+        || printf '%s restarted during the %ss stability window (NRestarts %s -> %s)\n' "${OPENDKIM_UNIT}" "${STABILITY_WAIT}" "${before}" "${after}"
+
+    pid="$(service_property "${OPENDKIM_UNIT}" MainPID)"
+    if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]]; then
+        printf '%s has no main process\n' "${OPENDKIM_UNIT}"
+    else
+        user="$("${PS_BIN}" -o user= -p "${pid}" 2>/dev/null | tr -d ' ' || true)"
+        [[ "${user}" == "${SIGNER_USER}" ]] \
+            || printf 'the signer runs as "%s", not %s\n' "${user}" "${SIGNER_USER}"
+    fi
+
+    milter_listening \
+        || printf 'nothing listens on the milter endpoint %s:%s\n' "${MILTER_HOST}" "${MILTER_PORT}"
+
+    # Exactly one socket of the signer's, on loopback — and nothing of anyone's
+    # on the milter port anywhere else.
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        local proto local_address process
+        read -r proto local_address process <<<"${line}"
+
+        if [[ "${process}" == *'"opendkim"'* ]]; then
+            [[ "${proto}" == tcp && "${local_address}" == "${MILTER_HOST}:${MILTER_PORT}" ]] \
+                || printf 'the signer also listens on %s %s — it listens on %s:%s and nowhere else\n' "${proto}" "${local_address}" "${MILTER_HOST}" "${MILTER_PORT}"
+        elif [[ "${local_address##*:}" == "${MILTER_PORT}" ]]; then
+            printf 'something other than the signer listens on %s %s\n' "${proto}" "${local_address}"
+        fi
+    done < <(socket_listeners)
+
+    if ! signer_unix_sockets_absent; then
+        printf 'the signer also listens on a UNIX socket — it listens on %s:%s and nowhere else\n' "${MILTER_HOST}" "${MILTER_PORT}"
+    fi
+}
+
+signer_unix_sockets_absent() {
+    ! "${SS_BIN}" -lxpH 2>/dev/null | grep -qF '"opendkim"'
+}
+
+# --- Managed files ------------------------------------------------------------------------
+
+file_owner_mode() {
+    stat -c '%U:%G %a' "$1" 2>/dev/null || true
+}
+
+# managed_file_state LOGICAL — PASS | MISSING | DRIFT, against the candidate.
+managed_file_state() {
+    local logical="$1" path
+    path="$(physical "${logical}")"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! cmp -s "$(candidate_path "${logical}")" "${path}" \
+        || [[ "$(file_owner_mode "${path}")" != "${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# --- Check and verify -----------------------------------------------------------------------
+
+report_problems() {
+    local name="$1" problems="$2" failure_status="$3" detail_pass="$4"
+
+    if [[ -z "${problems}" ]]; then
+        item PASS "${name}" "${detail_pass}"
+        return 0
+    fi
+
+    local problem
+    while IFS= read -r problem; do
+        [[ -n "${problem}" ]] || continue
+        item "${failure_status}" "${name}" "${problem}"
+    done <<<"${problems}"
+}
+
+report_nothing_to_sign() {
+    printf 'install-mail-signing --%s\n' "${MODE}"
+    item PASS "plan" "no production target has a reviewed signing identity — this host needs no signer, and nothing was inspected or changed"
+    printf 'SUMMARY  pass=%d missing=%d drift=%d conflict=%d deferred=%d\n' \
+        "${COUNT_PASS}" "${COUNT_MISSING}" "${COUNT_DRIFT}" "${COUNT_CONFLICT}" "${COUNT_DEFERRED}"
+}
+
+# report_keys [TARGET] — each planned key, judged.
+report_keys() {
+    local only="${1:-}" target key bits requirement
+
+    while IFS=$'\t' read -r target key bits requirement; do
+        [[ -n "${target}" ]] || continue
+        judge_key "${key}" "${bits}"
+
+        case "${KEY_STATE}" in
+            ready)
+                item PASS "key:${target}" "${KEY_DETAIL}"
+                if [[ "${MODE}" == verify ]]; then
+                    if signer_can_read "$(physical "${key}")"; then
+                        item PASS "key-access:${target}" "the ${SIGNER_USER} account reads ${key} (nothing of it was printed)"
+                    else
+                        item CONFLICT "key-access:${target}" "the ${SIGNER_USER} account cannot read ${key} — the signer could not sign ${target}'s mail"
+                    fi
+                fi
+                ;;
+            migrate)
+                item DRIFT "key:${target}" "${KEY_DETAIL}"
+                ;;
+            conflict)
+                item CONFLICT "key:${target}" "${KEY_DETAIL}"
+                ;;
+            unjudged)
+                item DEFERRED "key:${target}" "${KEY_DETAIL}"
+                ;;
+            absent)
+                if [[ -n "${only}" ]]; then
+                    item MISSING "key:${target}" "${key} is not installed — ${target}'s mail cannot be signed until it is (Configure supplies it)"
+                elif [[ "${requirement}" == required ]]; then
+                    item MISSING "key:${target}" "${key} is not installed, and ${target} delivers outbound — its key is required"
+                else
+                    item DEFERRED "key:${target}" "${key} is not installed; not needed while ${target}'s mail is held — the signer is ready for it once it is"
+                fi
+                ;;
+        esac
+    done < <(plan_keys "${only}")
+}
+
+report_contract() {
+    local owner package
+    owner="$(ownership)"
+    package="$(package_status)"
+
+    printf 'install-mail-signing --%s%s\n' "${MODE}" "${VERIFY_TARGET:+ --target ${VERIFY_TARGET}}"
+    item PASS "plan" "mail-identity render-signing-plan accepted the reviewed identity: ${TARGET_COUNT} target(s) to sign ($(jq -r '[.targets[] | "\(.target)=\(.domain)/\(.selector)"] | join(", ")' "${PLAN_FILE}"))"
+    item PASS "milter" "the signer's endpoint is $(milter_endpoint), loopback only"
+
+    case "${owner}" in
+        owned)
+            item PASS "ownership" "RateGuru ownership marker present (state=$(marker_state))"
+            [[ "${MODE}" == check || "$(marker_state)" == installed ]] \
+                || item CONFLICT "ownership:state" "the marker says state=$(marker_state): an installation RateGuru started is unfinished — --apply resumes it"
+            ;;
+        fresh)
+            if [[ "${MODE}" == check ]]; then
+                item MISSING "ownership" "no OpenDKIM on this host — --apply installs the opendkim package with service starts suppressed"
+            else
+                item MISSING "ownership" "the signer is not installed"
+            fi
+            ;;
+        unmanaged)
+            item CONFLICT "ownership" "an OpenDKIM RateGuru did not install is on this host ($(unmanaged_evidence)), and there is no RateGuru ownership marker — refusing to take over a signer RateGuru did not install"
+            ;;
+    esac
+
+    if leftover_start_suppression; then
+        if [[ "${MODE}" == check ]]; then
+            item DRIFT "package:start-suppression" "a policy-rc.d from an interrupted run still suppresses package service starts — --apply restores the host's own"
+        else
+            item CONFLICT "package:start-suppression" "a policy-rc.d from an interrupted run still suppresses package service starts on this host"
+        fi
+    fi
+
+    if [[ "${package}" == installed ]]; then
+        item PASS "package" "${OPENDKIM_PACKAGE} $(package_version) installed"
+        report_problems "accounts" "$(signer_account_problems)" CONFLICT \
+            "the package's ${SIGNER_USER} account and group exist, and the group holds no other account"
+        if [[ "${MODE}" == check ]]; then
+            report_problems "config:candidate" "$(opendkim_problems "${CHECK_CONF}")" CONFLICT \
+                "OpenDKIM accepts the rendered configuration and opens every table it names"
+        fi
+    elif [[ "${MODE}" == check ]]; then
+        item MISSING "package" "${OPENDKIM_PACKAGE} is ${package} — --apply installs it with service starts suppressed"
+        item DEFERRED "config:candidate" "OpenDKIM is not installed yet, so its own parser runs during --apply, before the configuration is installed"
+    else
+        item MISSING "package" "${OPENDKIM_PACKAGE} is ${package}"
+    fi
+
+    local logical
+    for logical in "${MANAGED_FILES[@]}"; do
+        case "$(managed_file_state "${logical}")" in
+            PASS)    item PASS "file:${logical}" "matches the current render, ${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ;;
+            MISSING) item MISSING "file:${logical}" "absent — --apply installs the current render" ;;
+            DRIFT)   item DRIFT "file:${logical}" "differs from the current render (content, type, owner or mode) — --apply replaces it" ;;
+        esac
+    done
+
+    report_keys "${VERIFY_TARGET}"
+
+    if [[ "${MODE}" == verify ]]; then
+        if [[ "${package}" == installed ]]; then
+            report_problems "config:installed" "$(opendkim_problems "$(physical "${OPENDKIM_CONF}")")" CONFLICT \
+                "OpenDKIM accepts the installed configuration and opens every table it names"
+        fi
+        report_problems "runtime" "$(runtime_problems)" CONFLICT \
+            "enabled, stably running as ${SIGNER_USER}, listening on exactly ${MILTER_HOST}:${MILTER_PORT} and nowhere else"
+    elif [[ "${owner}" != owned ]]; then
+        # Before an install: a port somebody else already holds would make
+        # --apply fail after the package is in.
+        socket_listeners | awk -v p="${MILTER_PORT}" '{ n = split($2, a, ":"); if (a[n] == p) found = 1 } END { exit !found }' \
+            && item CONFLICT "port:${MILTER_PORT}" "already in use by another process — the signer cannot listen there"
+    fi
+
+    printf 'SUMMARY  pass=%d missing=%d drift=%d conflict=%d deferred=%d\n' \
+        "${COUNT_PASS}" "${COUNT_MISSING}" "${COUNT_DRIFT}" "${COUNT_CONFLICT}" "${COUNT_DEFERRED}"
+}
+
+run_check() {
+    require_tools jq stat cmp
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+
+    if (( TARGET_COUNT == 0 )); then
+        report_nothing_to_sign
+        return 0
+    fi
+
+    report_contract
+    (( COUNT_CONFLICT == 0 )) || exit 1
+}
+
+# A held target's absent key is DEFERRED and never fails the host contract: a
+# clean host is bootstrapped before its targets' material is installed. Every
+# other gap does.
+run_verify() {
+    require_root
+    require_tools jq stat cmp
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+
+    if [[ -n "${VERIFY_TARGET}" ]] \
+        && ! jq -e --arg t "${VERIFY_TARGET}" 'any(.targets[]; .target == $t)' "${PLAN_FILE}" >/dev/null
+    then
+        printf 'install-mail-signing --verify --target %s\n' "${VERIFY_TARGET}"
+        item CONFLICT "plan" "${VERIFY_TARGET} has no reviewed signing identity in the signing plan — nothing on this host signs its mail"
+        printf 'SUMMARY  pass=%d missing=%d drift=%d conflict=%d deferred=%d\n' \
+            "${COUNT_PASS}" "${COUNT_MISSING}" "${COUNT_DRIFT}" "${COUNT_CONFLICT}" "${COUNT_DEFERRED}"
+        exit 1
+    fi
+
+    if (( TARGET_COUNT == 0 )); then
+        report_nothing_to_sign
+        return 0
+    fi
+
+    report_contract
+    (( COUNT_CONFLICT + COUNT_MISSING + COUNT_DRIFT == 0 )) || exit 1
+}
+
+# --- Apply: package start suppression ------------------------------------------------------
+
+SUPPRESSION_INSTALLED=false
+
+restore_start_suppression() {
+    local path preserved
+    path="$(physical "${POLICY_RC}")"
+    preserved="$(physical "${PRESERVED_POLICY_RC}")"
+
+    if [[ -f "${path}" ]] && grep -qF "${POLICY_RC_MARKER}" "${path}"; then
+        rm -f "${path}"
+    fi
+
+    if [[ -e "${preserved}" || -L "${preserved}" ]]; then
+        [[ ! -e "${path}" && ! -L "${path}" ]] \
+            || fail "both a preserved policy-rc.d (${preserved}) and a live one (${path}) exist — resolve which is the host's own by hand"
+        mv -f "${preserved}" "${path}"
+        action "restored the host's own policy-rc.d"
+    fi
+
+    SUPPRESSION_INSTALLED=false
+}
+
+install_start_suppression() {
+    local path preserved tmp
+    path="$(physical "${POLICY_RC}")"
+    preserved="$(physical "${PRESERVED_POLICY_RC}")"
+
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        [[ ! -e "${preserved}" && ! -L "${preserved}" ]] \
+            || fail "a policy-rc.d is already preserved at ${preserved} — refusing to overwrite the host's own"
+        install -d -m 0755 "$(dirname "${preserved}")"
+        mv -f "${path}" "${preserved}"
+        action "preserved the host's own policy-rc.d while the package installs"
+    fi
+
+    SUPPRESSION_INSTALLED=true
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.tmp.$$"
+    printf '#!/bin/sh\n%s\nexit 101\n' "${POLICY_RC_MARKER}" > "${tmp}"
+    chmod 0755 "${tmp}"
+    mv -f "${tmp}" "${path}"
+}
+
+install_package() {
+    local status
+    status="$(package_status)"
+    [[ "${status}" != installed ]] || return 0
+
+    action "installing the ${OPENDKIM_PACKAGE} package (service starts suppressed)"
+    install_start_suppression
+
+    # A package an interrupted run left unpacked or half-configured is finished
+    # first; apt refuses to work around it.
+    if [[ "${status}" == partial ]]; then
+        DEBIAN_FRONTEND=noninteractive "${DPKG_BIN}" --configure "${OPENDKIM_PACKAGE}" || true
+    fi
+
+    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" update
+    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" install -y \
+        --no-install-recommends --no-remove \
+        -o Dpkg::Options::=--force-confdef \
+        -o Dpkg::Options::=--force-confold \
+        "${OPENDKIM_PACKAGE}"
+
+    restore_start_suppression
+
+    [[ "$(package_status)" == installed ]] \
+        || fail "the ${OPENDKIM_PACKAGE} package is not installed after apt-get install"
+
+    # Belt and braces: the configuration that will run is not installed yet.
+    if [[ "$(service_property "${OPENDKIM_UNIT}" ActiveState)" == active ]]; then
+        action "stopping the package's own OpenDKIM before the signing configuration is installed"
+        "${SYSTEMCTL_BIN}" stop "${OPENDKIM_UNIT}"
+    fi
+}
+
+# --- Apply: transaction -----------------------------------------------------------------------
+
+BACKUP_DIR=""
+ROLLBACK_RESTORE=()
+ROLLBACK_REMOVE=()
+ROLLBACK_METADATA=()
+APPLY_COMMITTED=false
+MAIN_BASHPID=""
+FILES_CHANGED=false
+KEYS_CHANGED=false
+UNIT_ENABLED_BEFORE=""
+UNIT_ACTIVE_BEFORE=""
+
+capture_runtime_state() {
+    UNIT_ENABLED_BEFORE="$("${SYSTEMCTL_BIN}" is-enabled "${OPENDKIM_UNIT}" 2>/dev/null || true)"
+    [[ -n "${UNIT_ENABLED_BEFORE}" ]] || UNIT_ENABLED_BEFORE="not-found"
+
+    UNIT_ACTIVE_BEFORE=inactive
+    [[ "$(service_property "${OPENDKIM_UNIT}" ActiveState)" == active ]] && UNIT_ACTIVE_BEFORE=active
+
+    action "pre-apply state: ${OPENDKIM_UNIT} ${UNIT_ENABLED_BEFORE}, ${UNIT_ACTIVE_BEFORE}"
+}
+
+record_target() {
+    local path="$1" backup
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
+        install -d -m 0700 "$(dirname "${backup}")"
+        cp -a "${path}" "${backup}"
+        ROLLBACK_RESTORE+=("${path}")
+    else
+        ROLLBACK_REMOVE+=("${path}")
+    fi
+}
+
+install_managed_file() {
+    local logical="$1" path tmp
+    path="$(physical "${logical}")"
+
+    record_target "${path}"
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.rateguru-tmp.$$"
+    install -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m "0${MANAGED_FILE_MODE}" "$(candidate_path "${logical}")" "${tmp}"
+    mv -f "${tmp}" "${path}"
+    FILES_CHANGED=true
+}
+
+# grant_access PATH STATE — owner, group and mode only. The key's bytes are
+# never read, copied or rewritten here; its previous metadata is recorded so a
+# failed run puts it back.
+grant_access() {
+    local path="$1" state="$2" before
+    before="$(metadata "${path}")"
+    [[ "${before}" != "${state}" ]] || return 0
+
+    ROLLBACK_METADATA+=("${path}|${before}")
+    "${CHOWN_BIN}" "${state%% *}" "${path}"
+    chmod "0${state##* }" "${path}"
+    KEYS_CHANGED=true
+}
+
+# migrate_key_access — every installed key the plan names, already judged ready
+# or a valid pre-signer key: the latter's directories and file get the signer's
+# group. An absent key is left for its target's material to supply.
+migrate_key_access() {
+    local target key bits requirement logical_dir
+
+    while IFS=$'\t' read -r target key bits requirement; do
+        [[ -n "${target}" ]] || continue
+        judge_key "${key}" "${bits}"
+
+        case "${KEY_STATE}" in
+            ready)
+                ;;
+            migrate)
+                action "granting the signer read access to ${key} (owner, group and mode only — its contents are not touched)"
+                logical_dir="$(dirname "${key}")"
+                grant_access "$(physical "$(dirname "${logical_dir}")")" "${KEY_DIR_READY_STATE}"
+                grant_access "$(physical "${logical_dir}")" "${KEY_DIR_READY_STATE}"
+                grant_access "$(physical "${key}")" "${KEY_READY_STATE}"
+                ;;
+            absent)
+                if [[ "${requirement}" == required ]]; then
+                    action "${target}'s key ${key} is not installed, and it delivers outbound — its mail cannot be signed until it is (verify reports it MISSING)"
+                else
+                    action "${target}'s key ${key} is not installed — deferred while its mail is held"
+                fi
+                ;;
+            *)
+                fail "${KEY_DETAIL}"
+                ;;
+        esac
+    done < <(plan_keys)
+}
+
+restore_runtime_state() {
+    local status=0
+
+    # The package never got as far as installing its unit: there is no service
+    # state to put back.
+    if [[ -z "$("${SYSTEMCTL_BIN}" is-enabled "${OPENDKIM_UNIT}" 2>/dev/null || true)" ]]; then
+        return 0
+    fi
+
+    case "${UNIT_ENABLED_BEFORE}" in
+        enabled|enabled-runtime) "${SYSTEMCTL_BIN}" enable "${OPENDKIM_UNIT}" >/dev/null 2>&1 || status=1 ;;
+        disabled|not-found)      "${SYSTEMCTL_BIN}" disable "${OPENDKIM_UNIT}" >/dev/null 2>&1 || status=1 ;;
+        masked|masked-runtime)   "${SYSTEMCTL_BIN}" mask "${OPENDKIM_UNIT}" >/dev/null 2>&1 || status=1 ;;
+    esac
+
+    if [[ "${UNIT_ACTIVE_BEFORE}" == active ]]; then
+        "${SYSTEMCTL_BIN}" restart "${OPENDKIM_UNIT}" >/dev/null 2>&1 || true
+        [[ "$(service_property "${OPENDKIM_UNIT}" ActiveState)" == active ]] || status=1
+    else
+        "${SYSTEMCTL_BIN}" stop "${OPENDKIM_UNIT}" >/dev/null 2>&1 || true
+        [[ "$(service_property "${OPENDKIM_UNIT}" ActiveState)" != active ]] || status=1
+    fi
+
+    return "${status}"
+}
+
+rollback() {
+    action "rolling back the managed configuration, the key metadata and the service state"
+    local status=0 path backup entry before
+
+    for path in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${path}" ]] || continue
+        rm -f "${path}" || { action "ERROR: could not remove ${path}"; status=1; }
+    done
+
+    for path in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${path}" ]] || continue
+        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
+        if [[ -e "${backup}" || -L "${backup}" ]]; then
+            rm -f "${path}"
+            cp -a "${backup}" "${path}" || { action "ERROR: could not restore ${path}"; status=1; }
+        else
+            action "ERROR: no backup of ${path}; it was left as installed"
+            status=1
+        fi
+    done
+
+    for entry in "${ROLLBACK_METADATA[@]:-}"; do
+        [[ -n "${entry}" ]] || continue
+        path="${entry%%|*}"
+        before="${entry#*|}"
+        { "${CHOWN_BIN}" "${before%% *}" "${path}" && chmod "0${before##* }" "${path}"; } \
+            || { action "ERROR: could not restore the metadata of ${path} to ${before}"; status=1; }
+    done
+
+    restore_runtime_state || status=1
+
+    if (( status != 0 )); then
+        action "ERROR: rollback INCOMPLETE — the previous configuration, key metadata or service state was not fully restored; backups remain in ${BACKUP_DIR}"
+        return 1
+    fi
+
+    action "rollback complete: configuration, key metadata and service state restored (backups in ${BACKUP_DIR})"
+}
+
+on_apply_error() {
+    local code=$?
+
+    # errtrace carries this trap into every $(...) as well; only the apply's own
+    # shell may roll back, or a failing probe in a subshell would do it twice.
+    [[ "${BASHPID}" == "${MAIN_BASHPID}" ]] || exit "${code}"
+
+    trap - ERR EXIT
+
+    # Never leave every package service start on the host suppressed.
+    if [[ "${SUPPRESSION_INSTALLED}" == true ]]; then
+        ( restore_start_suppression ) || action "ERROR: could not restore the host's policy-rc.d — check ${POLICY_RC} by hand"
+    fi
+
+    if [[ "${APPLY_COMMITTED}" == false && -n "${BACKUP_DIR}" ]]; then
+        rollback || true
+    fi
+
+    cleanup_work_dir
+    action "apply FAILED (exit ${code}); the ownership marker stays, so a re-run resumes"
+    exit "${code}"
+}
+
+perform_apply() {
+    require_root
+    require_tools jq stat cmp install
+
+    trap cleanup_work_dir EXIT
+    prepare_candidate
+
+    if (( TARGET_COUNT == 0 )); then
+        action "no production target has a reviewed signing identity — no signer is needed on this host; nothing was installed or changed"
+        return 0
+    fi
+
+    action "validating the plan, the keys and the host before any mutation"
+
+    local owner
+    owner="$(ownership)"
+    [[ "${owner}" != unmanaged ]] \
+        || fail "an OpenDKIM RateGuru did not install is on this host ($(unmanaged_evidence)), and there is no RateGuru ownership marker — refusing to take over a signer RateGuru did not install. Nothing was changed"
+
+    if [[ "${owner}" == fresh ]] \
+        && socket_listeners | awk -v p="${MILTER_PORT}" '{ n = split($2, a, ":"); if (a[n] == p) found = 1 } END { exit !found }'
+    then
+        fail "milter port ${MILTER_PORT} is already in use by another process — nothing was changed"
+    fi
+
+    # Every installed key is judged before anything changes: a key that is not
+    # a usable one, or that sits anywhere but the two states this file knows,
+    # stops the run here.
+    local target key bits requirement
+    while IFS=$'\t' read -r target key bits requirement; do
+        [[ -n "${target}" ]] || continue
+        judge_key "${key}" "${bits}"
+        [[ "${KEY_STATE}" != conflict ]] || fail "${KEY_DETAIL}. Nothing was changed"
+    done < <(plan_keys)
+
+    # A policy-rc.d an interrupted run left behind is undone before anything
+    # else, so this host's package activity is its own again.
+    if leftover_start_suppression; then
+        action "removing the package start suppression an interrupted run left behind"
+        restore_start_suppression
+    fi
+
+    BACKUP_DIR="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-$$"
+    install -d -m 0700 "$(physical "${BACKUP_ROOT}")" "${BACKUP_DIR}"
+    action "configuration backups for this run: ${BACKUP_DIR}"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    capture_runtime_state
+
+    # The marker goes down before the package does, so an installation this run
+    # starts is recognisable as RateGuru's if it is interrupted.
+    [[ "$(marker_state)" == installed ]] || write_marker installing
+
+    install_package
+
+    local problems
+    problems="$(signer_account_problems)"
+    [[ -z "${problems}" ]] \
+        || fail "the signer's account is not what OpenDKIM needs: ${problems//$'\n'/; }"
+
+    # OpenDKIM judges the candidate — the configuration and every table it
+    # opens — before a single managed file is touched.
+    problems="$(opendkim_problems "${CHECK_CONF}")"
+    [[ -z "${problems}" ]] \
+        || fail "OpenDKIM does not accept the rendered signing configuration: ${problems//$'\n'/; }"
+
+    install -d -m 0755 "$(physical "${CONFIG_DIR}")"
+
+    local logical
+    for logical in "${MANAGED_FILES[@]}"; do
+        if [[ "$(managed_file_state "${logical}")" != PASS ]]; then
+            action "installing ${logical}"
+            install_managed_file "${logical}"
+        fi
+    done
+
+    problems="$(opendkim_problems "$(physical "${OPENDKIM_CONF}")")"
+    [[ -z "${problems}" ]] \
+        || fail "the installed signing configuration does not validate: ${problems//$'\n'/; }"
+
+    migrate_key_access
+
+    action "enabling ${OPENDKIM_UNIT} for boot"
+    "${SYSTEMCTL_BIN}" enable "${OPENDKIM_UNIT}" \
+        || fail "could not enable ${OPENDKIM_UNIT} for boot"
+
+    if [[ "$(service_property "${OPENDKIM_UNIT}" ActiveState)" != active ]]; then
+        action "starting ${OPENDKIM_UNIT}"
+        "${SYSTEMCTL_BIN}" start "${OPENDKIM_UNIT}"
+    elif [[ "${FILES_CHANGED}" == true || "${KEYS_CHANGED}" == true ]]; then
+        # A socket or a table change is read at start, not on reload.
+        action "restarting ${OPENDKIM_UNIT} with the new configuration"
+        "${SYSTEMCTL_BIN}" restart "${OPENDKIM_UNIT}"
+    else
+        action "signing configuration unchanged — ${OPENDKIM_UNIT} left running as it is"
+    fi
+
+    problems="$(runtime_problems)"
+    [[ -z "${problems}" ]] \
+        || fail "the running signer is not healthy: ${problems//$'\n'/; }"
+
+    while IFS=$'\t' read -r target key bits requirement; do
+        [[ -n "${target}" && -e "$(physical "${key}")" ]] || continue
+        signer_can_read "$(physical "${key}")" \
+            || fail "the ${SIGNER_USER} account cannot read ${key} after access was granted"
+    done < <(plan_keys)
+
+    [[ "$(marker_state)" == installed ]] || write_marker installed
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+    cleanup_work_dir
+
+    action "apply complete — signer installed, validated and running on $(milter_endpoint); run 'install-mail-signing --verify' to confirm"
+}
+
+# --- Entry point ---------------------------------------------------------------------------
+
+parse_args() {
+    [[ $# -gt 0 ]] || { usage >&2; fail "one of --check, --apply, --verify or --milter-endpoint is required"; }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--milter-endpoint)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${VERIFY_TARGET}" ]] || fail "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || fail "--target requires a value"
+                VERIFY_TARGET="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check, --apply, --verify or --milter-endpoint is required"; }
+
+    if [[ -n "${VERIFY_TARGET}" ]]; then
+        [[ "${MODE}" == verify ]] || fail "--target is an option of --verify only"
+        [[ "${VERIFY_TARGET}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${VERIFY_TARGET}"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        milter-endpoint) milter_endpoint ;;
+        check)           run_check ;;
+        verify)          run_verify ;;
+        apply)           perform_apply ;;
+    esac
+}
+
+# Sourcing defines the renderer without running anything, so the tests drive the
+# shipped functions rather than a copy of them.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

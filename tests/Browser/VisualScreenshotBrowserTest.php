@@ -56,10 +56,30 @@ it('captures requested visual screenshot target', function () {
     }
 
     if ($target->afterClickWaitSelector !== null) {
-        $page = $page
-            ->assertVisible($target->afterClickWaitSelector)
-            ->wait(0.2);
+        $page = $page->assertVisible($target->afterClickWaitSelector);
     }
+
+    // Still, as the picture is compared pixel for pixel: fonts in, the images
+    // on screen loaded, and every transition that ends has ended.
+    waitForScript($page, <<<'JS'
+        (async () => {
+            await document.fonts.ready;
+
+            const imagesLoaded = [...document.images]
+                .filter((image) => {
+                    const box = image.getBoundingClientRect();
+
+                    return box.width > 0 && box.bottom > 0 && box.top < window.innerHeight;
+                })
+                .every((image) => image.complete);
+
+            const moving = document.getAnimations()
+                .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+                .some((animation) => animation.playState === 'running');
+
+            return imagesLoaded && ! moving;
+        })()
+    JS);
 
     $page->screenshot(false, $browserScreenshot);
 

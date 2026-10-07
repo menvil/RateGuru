@@ -344,6 +344,11 @@ it('refuses to inspect an operation that is not this target own held code alignm
 
             case 'guard-is-in-progress':
                 restoreTargetPatchGuard($scratch, ['status' => 'in-progress']);
+                restoreTargetPatchState($scratch, $operation, ['status' => 'running']);
+                break;
+
+            case 'guard-is-in-progress-but-its-operation-holds-the-target':
+                restoreTargetPatchGuard($scratch, ['status' => 'in-progress']);
                 break;
 
             case 'guard-is-failed-held':
@@ -410,6 +415,9 @@ it('refuses to inspect an operation that is not this target own held code alignm
     // their own rather than a generic refusal: they need manual recovery,
     // never a build and never a deployment.
     ['guard-is-in-progress', 'It is NOT a code-alignment hold'],
+    // Except the one that is not ambiguous: its own operation recorded the
+    // hold, and only re-labelling the guard failed. That gets the fix.
+    ['guard-is-in-progress-but-its-operation-holds-the-target', "re-labelling it to 'held' failed at the end of that run"],
     ['guard-is-failed-held', 'Repair Target is not a way out either'],
     ['guard-and-state-disagree-about-the-commit', 'refusing to align a target whose own restore documents disagree'],
     ['abbreviated-required-commit', 'no full 40-character commit'],

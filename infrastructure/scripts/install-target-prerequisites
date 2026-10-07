@@ -38,9 +38,17 @@
 #                   its DKIM private key here, as mail-dkim-private-key, at the
 #                   one place `mail-identity dkim-key` derives from the target ID
 #                   and the reviewed selector:
-#                   /etc/opendkim/keys/<target>/<selector>.private, root:root
-#                   0600, its directories root-only. It is the target's own
-#                   secret even though it lives under /etc. While the target's
+#                   /etc/opendkim/keys/<target>/<selector>.private,
+#                   root:opendkim 0640 in root:opendkim 0750 directories:
+#                   readable by root and by the host's DKIM signer, and by
+#                   nobody else. It is the target's own secret even though it
+#                   lives under /etc. A key installed before any signer existed
+#                   is root:root 0600 in root:root 0700 directories; that one
+#                   layout is accepted as it is and left for
+#                   install-mail-signing --apply, which grants the signer read
+#                   access without touching the key's bytes. Any other metadata
+#                   is a CONFLICT. A new key is installed only once the signer's
+#                   group exists, which host bootstrap guarantees. While the target's
 #                   mail is HELD the key may be absent: that row is DEFERRED —
 #                   reported, never an error — because nothing signs with it
 #                   yet. Once the target is OUTBOUND an absent key is MISSING.
@@ -174,6 +182,9 @@ MAIL_IDENTITY_BIN="$(gated_default RATEGURU_TARGETPREREQ_MAIL_IDENTITY_BIN "${SC
 # Ownership enforcement is disabled only when the owning accounts do not exist,
 # which is exclusively a scratch test tree. Production always leaves this true.
 ENFORCE_OWNERSHIP="$(gated_default RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP true)"
+# Where a group's existence is read from: the DKIM key's group is the host
+# signer's, created by its package during host bootstrap.
+GROUP_FILE="$(gated_default RATEGURU_TARGETPREREQ_GROUP_FILE /etc/group)"
 
 # The committed registry (infrastructure/config/deployment-targets.json in a
 # checkout) and the committed vhost sources, resolved through CONFIG_DIR so the
@@ -613,6 +624,17 @@ DKIM_KEY_NAME="mail-dkim-private-key"
 DKIM_REQUIREMENT=""
 DKIM_MIN_BITS=""
 
+# The key's access: readable by root and by the host signer's group, the
+# package account opendkim, and by nobody else — the key itself and the two
+# directories above it. The pre-signer layout, root-only, is the one other
+# layout accepted, as the migration source install-mail-signing --apply
+# converts by metadata alone.
+DKIM_SIGNER_GROUP="opendkim"
+DKIM_KEY_MODE="0640"
+DKIM_DIR_MODE="0750"
+DKIM_PRESIGNER_KEY_MODE="0600"
+DKIM_PRESIGNER_DIR_MODE="0700"
+
 build_mail_identity_rows() {
     local answer requirement path bits
 
@@ -645,8 +667,98 @@ build_mail_identity_rows() {
     DKIM_REQUIREMENT="${requirement}"
     DKIM_MIN_BITS="${bits}"
 
-    emit_row target "${DKIM_KEY_NAME}" "${path}" root root 0600 secret \
+    emit_row target "${DKIM_KEY_NAME}" "${path}" root "${DKIM_SIGNER_GROUP}" "${DKIM_KEY_MODE}" secret \
         "DKIM signing private key for ${TARGET_ID} mail"
+}
+
+# metadata_matches PATH OWNER GROUP MODE — PATH has exactly that mode and, where
+# ownership is enforced, that owner and group. Reads only.
+metadata_matches() {
+    local dst="$1" owner="$2" group="$3" mode="$4" actual
+
+    actual="$("${STAT_BIN}" -L -c '%a' "${dst}")" || return 1
+    (( 8#${actual} == 8#${mode} )) || return 1
+
+    [[ "${ENFORCE_OWNERSHIP}" == true ]] || return 0
+    [[ "$("${STAT_BIN}" -L -c '%U' "${dst}"):$("${STAT_BIN}" -L -c '%G' "${dst}")" == "${owner}:${group}" ]]
+}
+
+describe_metadata() {
+    local dst="$1"
+
+    if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
+        printf '%s:%s %s\n' "$("${STAT_BIN}" -L -c '%U' "${dst}")" "$("${STAT_BIN}" -L -c '%G' "${dst}")" "$("${STAT_BIN}" -L -c '%a' "${dst}")"
+    else
+        printf 'mode %s\n' "$("${STAT_BIN}" -L -c '%a' "${dst}")"
+    fi
+}
+
+# dkim_directories_problem LOGICAL_KEY — empty when each directory between the
+# key and /etc/opendkim that exists is signing-ready or pre-signer; otherwise
+# what is wrong. Directories that do not exist yet are created by install_row.
+dkim_directories_problem() {
+    local target_dir keys_dir dir dst
+    target_dir="$(dirname "$1")"
+    keys_dir="$(dirname "${target_dir}")"
+
+    for dir in "${keys_dir}" "${target_dir}"; do
+        dst="$(physical "${dir}")"
+        [[ -e "${dst}" || -L "${dst}" ]] || continue
+
+        if [[ -L "${dst}" ]]; then
+            printf '%s is a symlink — refusing to write a private key through one\n' "${dir}"
+            return 0
+        fi
+
+        if [[ ! -d "${dst}" ]]; then
+            printf '%s exists and is not a directory\n' "${dir}"
+            return 0
+        fi
+
+        metadata_matches "${dst}" root "${DKIM_SIGNER_GROUP}" "${DKIM_DIR_MODE}" && continue
+        metadata_matches "${dst}" root root "${DKIM_PRESIGNER_DIR_MODE}" && continue
+
+        printf '%s is %s, neither root:%s %s nor the pre-signer root:root %s\n' \
+            "${dir}" "$(describe_metadata "${dst}")" "${DKIM_SIGNER_GROUP}" "${DKIM_DIR_MODE}" "${DKIM_PRESIGNER_DIR_MODE}"
+        return 0
+    done
+}
+
+# dkim_metadata_is_acceptable DESTINATION DESCRIPTION — the installed key, and
+# the directories above it, are each either signing-ready or the pre-signer
+# layout. Sets METADATA_DRIFT_REASON and DKIM_PRESIGNER on the way.
+DKIM_PRESIGNER=false
+
+dkim_metadata_is_acceptable() {
+    local destination="$1" description="$2" dst problem
+
+    METADATA_DRIFT_REASON=""
+    DKIM_PRESIGNER=false
+    dst="$(physical "${destination}")"
+
+    if metadata_matches "${dst}" root "${DKIM_SIGNER_GROUP}" "${DKIM_KEY_MODE}"; then
+        :
+    elif metadata_matches "${dst}" root root "${DKIM_PRESIGNER_KEY_MODE}"; then
+        DKIM_PRESIGNER=true
+    else
+        METADATA_DRIFT_REASON="is $(describe_metadata "${dst}"), neither the signing-ready root:${DKIM_SIGNER_GROUP} ${DKIM_KEY_MODE} nor the pre-signer root:root ${DKIM_PRESIGNER_KEY_MODE}: ${destination} (${description}) — a key with any other access is refused, never re-permissioned here"
+        return 1
+    fi
+
+    problem="$(dkim_directories_problem "${destination}")"
+    if [[ -n "${problem}" ]]; then
+        METADATA_DRIFT_REASON="sits under a directory with the wrong access: ${problem} (${description}) — refused, never re-permissioned here"
+        return 1
+    fi
+
+    return 0
+}
+
+# The signer's group exists — on a host, only once host bootstrap installed the
+# signing service; a new key is never installed before that.
+dkim_signer_group_exists() {
+    [[ "${ENFORCE_OWNERSHIP}" == true ]] || return 0
+    awk -F: -v name="${DKIM_SIGNER_GROUP}" '$1 == name { found = 1 } END { exit !found }' "${GROUP_FILE}" 2>/dev/null
 }
 
 # dkim_key_problem PATH — empty when PATH holds a usable DKIM private key;
@@ -1003,7 +1115,7 @@ classify_row() {
             return 0
         fi
 
-        local problem
+        local problem note=""
         if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
             problem="$(dkim_key_problem "${dst}")"
             if [[ -n "${problem}" ]]; then
@@ -1011,12 +1123,16 @@ classify_row() {
                 CLASSIFY_REASON="the installed key at ${destination} is ${problem} — it is never replaced here; rotation is a separate deliberate operation"
                 return 0
             fi
+
+            if [[ "${DKIM_PRESIGNER}" == true ]]; then
+                note=" (pre-signer root:root ${DKIM_PRESIGNER_KEY_MODE}: install-mail-signing --apply grants the signer read access, never touching its contents)"
+            fi
         fi
 
         if [[ -n "${material}" ]] && [[ -f "${material}" ]]; then
             if cmp -s "${material}" "${dst}"; then
                 CLASSIFY_STATE=CONVERGED
-                CLASSIFY_REASON="already present and identical to the supplied material: ${destination}"
+                CLASSIFY_REASON="already present and identical to the supplied material: ${destination}${note}"
             else
                 # Never says HOW they differ. Reporting a length, a hash or a
                 # first differing byte would leak information about material
@@ -1026,7 +1142,7 @@ classify_row() {
             fi
         else
             CLASSIFY_STATE=PRESENT
-            CLASSIFY_REASON="already present; left untouched: ${destination}"
+            CLASSIFY_REASON="already present; left untouched: ${destination}${note}"
         fi
 
         return 0
@@ -1045,6 +1161,19 @@ classify_row() {
             if [[ -n "${supplied_problem}" ]]; then
                 CLASSIFY_STATE=CONFLICT
                 CLASSIFY_REASON="the supplied ${name} is ${supplied_problem} — nothing is installed from it"
+                return 0
+            fi
+
+            supplied_problem="$(dkim_directories_problem "${destination}")"
+            if [[ -n "${supplied_problem}" ]]; then
+                CLASSIFY_STATE=CONFLICT
+                CLASSIFY_REASON="cannot install ${name}: ${supplied_problem} — refused, never re-permissioned here"
+                return 0
+            fi
+
+            if ! dkim_signer_group_exists; then
+                CLASSIFY_STATE=CONFLICT
+                CLASSIFY_REASON="cannot install ${name}: the host signer's group ${DKIM_SIGNER_GROUP} does not exist — the key is readable by root and the signer only, and the signer is installed by host bootstrap (install-mail-signing) before any target's key"
                 return 0
             fi
         fi
@@ -1156,13 +1285,15 @@ install_row() {
     log "INSTALLED ${name} -> ${destination} (${owner}:${group} ${mode}; content never read or logged)"
 }
 
-# ensure_dkim_key_directories LOGICAL_DIR — /etc/opendkim (0755), its keys
-# directory and the target's own directory under it (both 0700), root:root.
-# Only what is missing is created; an existing directory is never re-owned or
-# re-moded, and a symlink anywhere on the way is refused.
+# ensure_dkim_key_directories LOGICAL_DIR — /etc/opendkim (root:root 0755), its
+# keys directory and the target's own directory under it (both root:opendkim
+# 0750, enterable by the signer and by nobody else). Only what is missing is
+# created; an existing directory is never re-owned or re-moded — classification
+# already refused one that is neither signing-ready nor pre-signer — and a
+# symlink anywhere on the way is refused.
 ensure_dkim_key_directories() {
     local target_dir="$1"
-    local keys_dir parent dir mode
+    local keys_dir parent dir mode group
 
     keys_dir="$(dirname "${target_dir}")"
     parent="$(dirname "${keys_dir}")"
@@ -1177,18 +1308,22 @@ ensure_dkim_key_directories() {
             continue
         fi
 
-        mode=0700
-        [[ "${dir}" != "${parent}" ]] || mode=0755
+        mode="${DKIM_DIR_MODE}"
+        group="${DKIM_SIGNER_GROUP}"
+        if [[ "${dir}" == "${parent}" ]]; then
+            mode=0755
+            group=root
+        fi
 
         "${INSTALL_BIN}" -d -m "${mode}" -- "$(physical "${dir}")" \
             || fail "cannot create ${dir}"
 
         if [[ "${ENFORCE_OWNERSHIP}" == true ]]; then
-            "${CHOWN_BIN}" -- root:root "$(physical "${dir}")" \
+            "${CHOWN_BIN}" -- "root:${group}" "$(physical "${dir}")" \
                 || fail "cannot set ownership on ${dir}"
         fi
 
-        log "created ${dir} (root:root ${mode})"
+        log "created ${dir} (root:${group} ${mode})"
     done
 }
 
@@ -1370,6 +1505,12 @@ row_metadata_is_correct() {
 
     METADATA_DRIFT_REASON=""
 
+    # The DKIM key has two acceptable layouts, not one.
+    if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
+        dkim_metadata_is_acceptable "${destination}" "${description}"
+        return
+    fi
+
     dst="$(physical "${destination}")"
 
     actual_mode="$("${STAT_BIN}" -L -c '%a' "${dst}")"
@@ -1442,6 +1583,10 @@ verify_rows() {
             problem="$(dkim_key_problem "${dst}")"
             [[ -z "${problem}" ]] \
                 || fail "external prerequisite ${name} at ${destination} is ${problem}"
+
+            if [[ "${DKIM_PRESIGNER}" == true ]]; then
+                log "NOTE ${name}: pre-signer metadata root:root ${DKIM_PRESIGNER_KEY_MODE} — install-mail-signing --apply grants the signer read access, never touching its contents: ${destination}"
+            fi
         fi
 
         count=$((count + 1))

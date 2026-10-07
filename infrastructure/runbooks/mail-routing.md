@@ -366,12 +366,16 @@ The roadmap orders this work.
    activated: the `outbound` mode with `kind: direct`, the gateway's dedicated
    per-target smtp client, and the host-global `config/mail-outbound.json`,
    which keeps direct delivery disabled. `tits-guru` is still `held`.
-3. **The production mail identity** (ROADMAP 8.4B.4.1) — implemented: the
-   reviewed host MTA hostname `mta1.tits.guru` (still disabled), the
-   `tits-guru` DKIM and DMARC identity, DKIM key provisioning and the read-only
-   DNS verification — see [`mail-identity.md`](mail-identity.md). No key, DNS
-   record or PTR has been created.
-4. **Signing and activation** (ROADMAP 8.4B.4.2): OpenDKIM, then `tits-guru`
-   from `held` to `outbound` once DNS verifies, and a controlled real canary.
-5. **Bounces, replies and the support mailbox** (8.4B.5), **suppression and
+3. **The production mail identity** (ROADMAP 8.4B.4.1) — implemented and
+   production-accepted: the reviewed host MTA hostname `mta1.tits.guru` (still
+   disabled), the `tits-guru` DKIM and DMARC identity, its key installed and
+   validated on the host, and A, PTR, SPF, DKIM and DMARC verified through two
+   independent public resolvers — see [`mail-identity.md`](mail-identity.md).
+4. **The DKIM signing foundation** (ROADMAP 8.4B.4.2a) — implemented,
+   production acceptance pending: OpenDKIM and the gateway's per-listener
+   milter; `tits-guru`'s held mail is signed and still held — see
+   [`mail-signing.md`](mail-signing.md).
+5. **Activation** (ROADMAP 8.4B.4.2b): `tits-guru` from `held` to `outbound`
+   behind full readiness, and a controlled real canary.
+6. **Bounces, replies and the support mailbox** (8.4B.5), **suppression and
    delivery state** (8.4B.6), and **mail operations and recovery** (8.4B.7).

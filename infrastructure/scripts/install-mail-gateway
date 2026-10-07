@@ -62,6 +62,24 @@
 #     listener. Mail with no rendered route cannot reach the Internet: the only
 #     smtp clients are the ones the plan's listeners name.
 #
+# SIGNING. A listener whose target is in the signing plan that
+# infrastructure/scripts/mail-identity renders (render-signing-plan) hands every
+# message it accepts to the host's DKIM signer before Postfix queues it — at the
+# endpoint `install-mail-signing --milter-endpoint` prints, never one spelled
+# here — with milter protocol 6 and a temporary failure whenever the signer cannot
+# sign: a signed target's mail is deferred, never accepted unsigned. No other
+# listener, and no locally submitted mail, passes through the signer. Signing
+# routes nothing: a held listener still holds every message it signed.
+#
+# The signer signs by the message's From header, and the listener checks only
+# the envelope sender — so a signed listener also has its OWN cleanup service,
+# whose header_checks are the target's From policy, rendered here from the
+# plan's allowed domain into /etc/postfix/rateguru-from-<target>.regexp: exactly
+# one From address in that domain, or the message is refused (5.7.1) before it
+# is queued. A missing From is added from the envelope sender, which the
+# listener holds to that domain and never lets be empty. The policy only
+# accepts or refuses; it never selects a route.
+#
 # Listeners on loopback only, IPv4 only, no SMTP AUTH, no TLS: the boundary is
 # the host and the per-target port. Postfix itself binds nothing public — the
 # firewall is never what makes this safe.
@@ -141,6 +159,12 @@ REGISTRY_FILE="$(gated_default RATEGURU_MAILGW_REGISTRY_FILE "${REPO_ROOT}/infra
 OUTBOUND_FILE="$(gated_default RATEGURU_MAILGW_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
 MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"
 
+# Which targets are signed, judged by mail-identity from the reviewed identity,
+# and where the signer listens, from the signer's own installer — both from this
+# bundle.
+IDENTITY_FILE="$(gated_default RATEGURU_MAILGW_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
+MAIL_SIGNING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_SIGNING_CLI "${SCRIPT_DIR}/install-mail-signing")"
+
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
 DPKG_BIN="$(gated_default RATEGURU_MAILGW_DPKG_BIN dpkg)"
@@ -148,6 +172,7 @@ DPKG_QUERY_BIN="$(gated_default RATEGURU_MAILGW_DPKG_QUERY_BIN dpkg-query)"
 DEBCONF_SET_SELECTIONS_BIN="$(gated_default RATEGURU_MAILGW_DEBCONF_SET_SELECTIONS_BIN debconf-set-selections)"
 POSTCONF_BIN="$(gated_default RATEGURU_MAILGW_POSTCONF_BIN postconf)"
 POSTFIX_BIN="$(gated_default RATEGURU_MAILGW_POSTFIX_BIN postfix)"
+POSTMAP_BIN="$(gated_default RATEGURU_MAILGW_POSTMAP_BIN postmap)"
 SS_BIN="$(gated_default RATEGURU_MAILGW_SS_BIN ss)"
 
 # Owner of every managed file. root:root on a host; the test seam lets the real
@@ -168,8 +193,13 @@ POSTFIX_PACKAGE="postfix"
 POSTFIX_DIR="/etc/postfix"
 MAIN_CF="${POSTFIX_DIR}/main.cf"
 MASTER_CF="${POSTFIX_DIR}/master.cf"
-MANAGED_FILES=("${MAIN_CF}" "${MASTER_CF}")
 MANAGED_FILE_MODE="644"
+
+# Each signed target's From policy: one file per target, named from its ID, and
+# beginning with this line. A file of that name without it is not this
+# installer's, and is never used or removed.
+FROM_POLICY_NAME_PATTERN='^rateguru-from-[a-z0-9][a-z0-9-]{1,31}\.regexp$'
+FROM_POLICY_MARKER="# RateGuru mail gateway — From policy for "
 
 # Ubuntu runs Postfix as postfix@-.service, pulled in at boot by the
 # postfix.service wrapper the package enables.
@@ -244,13 +274,19 @@ Usage:
             stably active, the listeners are exactly the plan's loopback
             endpoints, no public SMTP port is open, every capture destination is
             listening, held mail has no route, each outbound route is its
-            target's own direct smtp client and nothing else's, and
+            target's own direct smtp client and nothing else's, exactly the
+            signed targets' listeners hand their mail to the signer — which is
+            listening — and fail temporarily without it, each through its own
+            cleanup service whose From policy is exactly the current render
+            and refuses every From outside the target's domain, and
             unclassified mail cannot be delivered.
 
 The routes come from infrastructure/scripts/mail-routing render-plan in the same
 bundle; this installer only spells them in Postfix. A direct outbound route is
 refused in every mode unless infrastructure/config/mail-outbound.json enables
-direct delivery on this host under a valid public MTA hostname.
+direct delivery on this host under a valid public MTA hostname. The signed
+listeners come from mail-identity render-signing-plan, and the signer's endpoint
+from install-mail-signing --milter-endpoint, in the same bundle.
 USAGE
 }
 
@@ -320,6 +356,11 @@ def service($name; $type; $private; $unpriv; $chroot; $wakeup; $maxproc; $comman
     ($name | pad(15)) + ($type | pad(6)) + ($private | pad(8)) + ($unpriv | pad(8))
     + ($chroot | pad(8)) + ($wakeup | pad(8)) + ($maxproc | pad(8)) + $command;
 def no_route: "error:5.7.1 RateGuru mail gateway: no delivery route for this mail";
+def signed: .identity as $id | any($signing[0].targets[]; .target == $id);
+def has_signed: any(.listeners[]; signed);
+def cleanup_service: "rateguru-cleanup-" + .identity;
+def from_policy_name: "rateguru-from-" + .identity + ".regexp";
+def from_policy_path: "'"${POSTFIX_DIR}"'/" + from_policy_name;
 '
 
 # shellcheck disable=SC2016
@@ -397,8 +438,12 @@ MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
     "disable_vrfy_command = yes",
     "",
     "# Each target'"'"'s sender authorization, applied by its own listener.",
+    (if has_signed then
+         "# A signed listener admits no empty sender: a message without an author",
+         "# in its own domain could never be signed."
+     else empty end),
     (.listeners[]
-        | "\(param)_sender_restrictions = check_sender_access inline:{ \(.sender.allowed_domain)=OK, <>=OK }, reject"),
+        | "\(param)_sender_restrictions = check_sender_access inline:{ \(.sender.allowed_domain)=OK\(if signed then "" else ", <>=OK" end) }, reject"),
     (if has_outbound then
          "",
          "# Direct outbound. An outbound listener names its own smtp client as a",
@@ -433,7 +478,24 @@ def listener:
             "  -o content_filter=\(outbound_transport):"
         else
             error("no Postfix rendering is defined for delivery mode \(.delivery_mode | tojson) of \(.identity)")
-        end
+        end,
+        if signed then
+            "  -o smtpd_milters=\($milter)",
+            "  -o milter_protocol=6",
+            "  -o milter_default_action=tempfail",
+            "  -o cleanup_service_name=\(cleanup_service)"
+        else empty end
+    );
+
+# The own cleanup service of a signed target: its From policy as header checks,
+# none for attached messages, and a missing From added from the envelope sender.
+def signed_cleanup:
+    (
+        service(cleanup_service; "unix"; "n"; "-"; "n"; "-"; "0"; "cleanup"),
+        "  -o syslog_name=postfix/\(cleanup_service)",
+        "  -o header_checks=regexp:\(from_policy_path)",
+        "  -o nested_header_checks=",
+        "  -o always_add_missing_headers=yes"
     );
 
 def direct_helo:
@@ -483,11 +545,23 @@ def capture_route:
     "# service type  private unpriv  chroot  wakeup  maxproc command + args",
     "",
     "# --- target listeners: the port is the routing identity",
+    (if has_signed then
+         "# A signed listener hands each message to the DKIM signer before it is",
+         "# queued, and defers it when the signer cannot sign: never unsigned.",
+         "# Signing routes nothing."
+     else empty end),
     (.listeners[] | listener),
     "",
     "# --- capture routes: queued, then delivered to the capture destination",
     (.listeners[] | select(.delivery_mode == "capture") | capture_route),
     "",
+    (if has_signed then
+         "# --- signed listeners'"'"' cleanup: each target'"'"'s own From policy. A message",
+         "# whose From is not exactly one address in its target'"'"'s domain is refused",
+         "# before it is queued. Nothing here routes.",
+         (.listeners[] | select(signed) | signed_cleanup),
+         ""
+     else empty end),
     (if has_outbound then
          "# --- outbound routes: queued, then delivered by the target'"'"'s own smtp client",
          "# straight to each recipient domain'"'"'s MX. No relay host, no smart host, no",
@@ -523,27 +597,89 @@ def capture_route:
 )
 '
 
-# render_gateway_config PLAN OUTBOUND OUT_DIR — judges the host outbound
-# contract and the plan's use of it, then writes OUT_DIR/main.cf and
-# OUT_DIR/master.cf. Called as a plain statement, never inside $(...) or on the
-# left of ||, so a refusal or a jq failure stops the run instead of leaving a
-# half file.
+# The signing plan's shape, as far as this renderer reads it: the targets it
+# signs. Its policy was judged by mail-identity.
+# shellcheck disable=SC2016
+SIGNING_GUARD_PROGRAM='
+.schema_version == 1
+and (.targets | type == "array")
+and all(.targets[]; (.target | type == "string") and (.target | test("\\A[a-z0-9][a-z0-9-]{1,31}\\z")))
+'
+
+# One signed target's From policy, as Postfix regexp header checks. Anchored
+# whole-header patterns, case-insensitive like DNS and the signer's lookup: a
+# bare address, an angle address, or an angle address after one display name —
+# quoted, or plain words — and nothing else, so a list, a group, a comment or an
+# address in any other domain (a subdomain or a longer name included) falls
+# through to the last line. Only DUNNO and REJECT: the policy never routes.
+# shellcheck disable=SC2016
+FROM_POLICY_PROGRAM="${RENDER_DEFINITIONS}"'
+.listeners[] | select(.identity == $identity)
+| .sender.allowed_domain as $domain
+| if ($domain | test("\\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+\\z") | not) then
+      error("\(.identity) has no plain domain to write a From policy for: \($domain | tojson)")
+  else . end
+| ("[[:alnum:]._%+-]+@" + ($domain | gsub("\\."; "\\."))) as $mailbox
+| "[[:alnum:]._'"'"'=?!#%&*+^{|}~-]" as $word
+| "[[:alnum:][:blank:]._'"'"'=?!#%&*+^{|}~-]" as $phrase
+| (
+    "'"${FROM_POLICY_MARKER}"'\(.identity)",
+    "#",
+    "# Rendered by infrastructure/scripts/install-mail-gateway from the reviewed",
+    "# mail routing plan. Never edit it on a host: the next --apply replaces it, and",
+    "# --verify reports any difference. The header checks of \(cleanup_service)",
+    "# alone: a message through \(.identity)'"'"'s listener carries exactly one From",
+    "# address in \($domain), or it is refused before it is queued, so the DKIM",
+    "# signer always finds the domain it signs for. Nothing here selects a route.",
+    "",
+    "/^From:[[:space:]]*\($mailbox)[[:space:]]*$/ DUNNO",
+    "/^From:[[:space:]]*<\($mailbox)>[[:space:]]*$/ DUNNO",
+    "/^From:[[:space:]]*\"[^\"<>@,;:\\\\]*\"[[:space:]]*<\($mailbox)>[[:space:]]*$/ DUNNO",
+    "/^From:[[:space:]]*\($word)\($phrase)*<\($mailbox)>[[:space:]]*$/ DUNNO",
+    "/^From:/ REJECT 5.7.1 RateGuru mail gateway: the From header must be exactly one address in the reviewed sender domain"
+  )
+'
+
+# The signer's endpoint as Postfix spells a milter: on loopback, and nowhere
+# else, whatever port the signer chose.
+MILTER_ENDPOINT_PATTERN='^inet:127\.0\.0\.1:[1-9][0-9]{0,4}$'
+
+# render_gateway_config PLAN OUTBOUND SIGNING MILTER OUT_DIR — judges the host
+# outbound contract and the plan's use of it, then writes OUT_DIR/main.cf and
+# OUT_DIR/master.cf, wiring each listener the signing plan names to the MILTER
+# endpoint. Called as a plain statement, never inside $(...) or on the left of
+# ||, so a refusal or a jq failure stops the run instead of leaving a half file.
 render_gateway_config() {
-    local plan="$1" outbound="$2" out="$3"
+    local plan="$1" outbound="$2" signing="$3" milter="$4" out="$5"
 
     jq -e "${PLAN_GUARD_PROGRAM}" "${plan}" >/dev/null \
         || fail "the mail routing plan does not have the shape this renderer spells in Postfix — refusing to render around it"
 
+    jq -e "${SIGNING_GUARD_PROGRAM}" "${signing}" >/dev/null 2>&1 \
+        || fail "the signing plan does not have the shape this renderer reads — refusing to render around it"
+
+    [[ "${milter}" =~ ${MILTER_ENDPOINT_PATTERN} ]] \
+        || fail "the signer's milter endpoint is \"${milter}\", not a loopback inet endpoint — refusing to wire a listener to it"
+
     assert_outbound_contract "${plan}" "${outbound}"
 
-    jq -r "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
-    jq -r --slurpfile outbound "${outbound}" "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+    jq -r --slurpfile signing "${signing}" "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
+    jq -r --slurpfile outbound "${outbound}" --slurpfile signing "${signing}" --arg milter "${milter}" \
+        "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+
+    local identity
+    while IFS= read -r identity; do
+        [[ -n "${identity}" ]] || continue
+        jq -r --arg identity "${identity}" "${FROM_POLICY_PROGRAM}" "${plan}" > "${out}/rateguru-from-${identity}.regexp"
+    done < <(jq -r --slurpfile signing "${signing}" '.listeners[] | select(.identity as $id | any($signing[0].targets[]; .target == $id)) | .identity' "${plan}")
 }
 
 # --- The plan -----------------------------------------------------------------------
 
 WORK_DIR=""
 PLAN_FILE=""
+SIGNING_FILE=""
+MILTER_ENDPOINT=""
 CANDIDATE_DIR=""
 
 cleanup_work_dir() {
@@ -567,7 +703,22 @@ prepare_candidate() {
     "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
         || fail "mail-routing render-plan refused the reviewed policy (diagnostics above) — nothing was rendered"
 
-    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${CANDIDATE_DIR}"
+    # The host contract's own verdict comes first, so a route the host has not
+    # enabled is refused for that reason and no other.
+    assert_outbound_contract "${PLAN_FILE}" "${OUTBOUND_FILE}"
+
+    SIGNING_FILE="${WORK_DIR}/signing-plan.json"
+    "${MAIL_IDENTITY_CLI}" render-signing-plan \
+        --identity "${IDENTITY_FILE}" --routing "${POLICY_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" > "${SIGNING_FILE}" \
+        || fail "mail-identity render-signing-plan refused the reviewed identity (diagnostics above) — nothing was rendered"
+
+    [[ -x "${MAIL_SIGNING_CLI}" ]] \
+        || fail "the signing installer is not executable: ${MAIL_SIGNING_CLI} — run from a full repository bundle; the signer's endpoint is never spelled here"
+    MILTER_ENDPOINT="$("${MAIL_SIGNING_CLI}" --milter-endpoint)" \
+        || fail "install-mail-signing --milter-endpoint failed — nothing was rendered"
+
+    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${SIGNING_FILE}" "${MILTER_ENDPOINT}" "${CANDIDATE_DIR}"
 }
 
 # Newline-separated plan facts, read once from the rendered plan.
@@ -590,6 +741,16 @@ plan_smtp_transports() {
         | if .delivery_mode == "capture" then "rateguru-capture-\(.identity)"
           elif .delivery_mode == "outbound" then "rateguru-outbound-\(.identity)"
           else empty end' "${PLAN_FILE}" || true
+}
+
+# The targets whose listeners hand their mail to the signer.
+signed_identities() {
+    jq -r '.targets[].target' "${SIGNING_FILE}" 2>/dev/null || true
+}
+
+# The signer's endpoint as host:port, the way a listening socket shows it.
+milter_listen_address() {
+    printf '%s\n' "${MILTER_ENDPOINT#inet:}"
 }
 
 plan_outbound_count() {
@@ -730,6 +891,25 @@ postfix_contract_problems() {
     value="$("${POSTCONF_BIN}" -c "${dir}" -h default_filter_nexthop 2>/dev/null || true)"
     [[ -z "${value}" ]] || printf 'default_filter_nexthop is "%s", not empty — an outbound route would deliver there instead of to the recipient domain MX\n' "${value}"
 
+    # No global milter: only a signed listener names the signer, so locally
+    # submitted mail and every other listener never reach it.
+    for name in smtpd_milters non_smtpd_milters; do
+        value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
+        [[ -z "${value}" ]] || printf '%s is "%s", not empty — the signer is wired per listener, never globally\n' "${name}" "${value}"
+    done
+
+    # No global header checks: a From policy belongs to one signed target's own
+    # cleanup service, and must never reach staging or local mail.
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h header_checks 2>/dev/null || true)"
+    [[ -z "${value}" ]] || printf 'header_checks is "%s", not empty — a From policy is one signed target'"'"'s, never global\n' "${value}"
+
+    # A cleanup service of RateGuru'"'"'s exists exactly for each signed target.
+    local expected_cleanup actual_cleanup
+    expected_cleanup="$(signed_identities | sed 's/^/rateguru-cleanup-/' | sort)"
+    actual_cleanup="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$1 ~ /^rateguru-cleanup-/ { print $1 }' | sort || true)"
+    [[ "${actual_cleanup}" == "${expected_cleanup}" ]] \
+        || printf 'target cleanup services are [%s], the signed targets need [%s]\n' "${actual_cleanup//$'\n'/ }" "${expected_cleanup//$'\n'/ }"
+
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_interfaces 2>/dev/null || true)"
     [[ "${value}" == 127.0.0.1 ]] || printf 'inet_interfaces is "%s", not 127.0.0.1\n' "${value}"
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_protocols 2>/dev/null || true)"
@@ -786,6 +966,8 @@ postfix_contract_problems() {
                 printf '%s has delivery mode %s with route %s, which this gateway has no spelling for\n' "${identity}" "${mode}" "${route}"
                 ;;
         esac
+
+        listener_signing_problems "${dir}" "${identity}" "${endpoint}"
     done < <(jq -r '.listeners[]
         | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode,
            (if .route == null then "-" elif .route.kind == "direct" then "direct" else "\(.route.host):\(.route.port)" end)]
@@ -799,6 +981,108 @@ postfix_contract_problems() {
             printf 'postfix check reports: %s\n' "${warnings}"
         fi
     fi
+}
+
+# listener_signing_problems DIR IDENTITY ENDPOINT — a signed target's listener
+# hands its mail to exactly the signer, with protocol 6, and defers it when the
+# signer cannot sign; it uses its own cleanup service, with its From policy, and
+# admits no empty sender. Any other listener names no milter and no cleanup
+# service of its own.
+listener_signing_problems() {
+    local dir="$1" identity="$2" endpoint="$3" milters action protocol cleanup restrictions
+    milters="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/smtpd_milters" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    cleanup="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/cleanup_service_name" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+
+    if grep -qxF "${identity}" <<<"$(signed_identities)"; then
+        action="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/milter_default_action" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+        protocol="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/milter_protocol" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+
+        [[ "${milters}" == "${MILTER_ENDPOINT}" ]] \
+            || printf '%s (%s) is signed but hands its mail to "%s", not the signer at %s\n' "${identity}" "${endpoint}" "${milters}" "${MILTER_ENDPOINT}"
+        [[ "${action}" == tempfail ]] \
+            || printf '%s (%s) has milter_default_action "%s", not tempfail — a signed target'"'"'s mail would be accepted unsigned when the signer fails\n' "${identity}" "${endpoint}" "${action}"
+        [[ "${protocol}" == 6 ]] \
+            || printf '%s (%s) has milter_protocol "%s", not 6\n' "${identity}" "${endpoint}" "${protocol}"
+
+        [[ "${cleanup}" == "rateguru-cleanup-${identity}" ]] \
+            || printf '%s (%s) is signed but uses the cleanup service "%s", not its own rateguru-cleanup-%s — its From policy would not apply\n' "${identity}" "${endpoint}" "${cleanup}" "${identity}"
+
+        restrictions="$("${POSTCONF_BIN}" -c "${dir}" -h "rateguru_${identity//-/_}_sender_restrictions" 2>/dev/null || true)"
+        [[ "${restrictions}" != *"<>"* ]] \
+            || printf '%s (%s) is signed but admits an empty sender — a message without an author in its domain could not be signed\n' "${identity}" "${endpoint}"
+
+        signed_cleanup_problems "${dir}" "${identity}"
+    else
+        [[ -z "${milters}" ]] \
+            || printf '%s (%s) is not signed but hands its mail to the milter "%s"\n' "${identity}" "${endpoint}" "${milters}"
+        [[ -z "${cleanup}" ]] \
+            || printf '%s (%s) is not signed but uses the cleanup service "%s" — a From policy is a signed target'"'"'s alone\n' "${identity}" "${endpoint}" "${cleanup}"
+    fi
+}
+
+# signed_cleanup_problems DIR IDENTITY — the target's own cleanup service:
+# exactly one, a cleanup(8), whose header checks are exactly its From policy,
+# with none for attached messages and a missing From added; then the policy
+# itself, asked through Postfix's own table lookup.
+signed_cleanup_problems() {
+    local dir="$1" identity="$2" service policy count value
+    service="rateguru-cleanup-${identity}"
+    policy="${POSTFIX_DIR}/rateguru-from-${identity}.regexp"
+
+    count="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk -v s="${service}" '$1 == s' | wc -l | tr -d ' ' || true)"
+    if [[ "${count}" != 1 ]]; then
+        printf '%s has %s cleanup services named %s, not exactly one\n' "${identity}" "${count:-0}" "${service}"
+        return 0
+    fi
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk -v s="${service}" '$1 == s { print $2 "/" $8 }' | head -n 1 || true)"
+    [[ "${value}" == unix/cleanup ]] || printf '%s is "%s", not a unix cleanup service\n' "${service}" "${value}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${service}/unix/header_checks" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ "${value}" == "regexp:${policy}" ]] \
+        || printf '%s has header_checks "%s", not its own From policy regexp:%s\n' "${service}" "${value}" "${policy}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${service}/unix/nested_header_checks" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ -z "${value}" ]] || printf '%s has nested_header_checks "%s", not empty\n' "${service}" "${value}"
+
+    value="$("${POSTCONF_BIN}" -c "${dir}" -P "${service}/unix/always_add_missing_headers" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+    [[ "${value}" == yes ]] \
+        || printf '%s has always_add_missing_headers "%s", not yes — a message without a From could pass unsigned\n' "${service}" "${value}"
+
+    from_policy_problems "${dir}" "${identity}"
+}
+
+# from_policy_problems DIR IDENTITY — the From policy in DIR, read by Postfix:
+# every ordinary single address in the target's domain passes, and every other
+# From — another domain, a subdomain, a longer name, a list — is refused.
+from_policy_problems() {
+    local dir="$1" identity="$2" domain table header result
+    domain="$(jq -r --arg id "${identity}" '.listeners[] | select(.identity == $id) | .sender.allowed_domain' "${PLAN_FILE}")"
+    table="${dir}/rateguru-from-${identity}.regexp"
+
+    if [[ ! -f "${table}" ]]; then
+        printf '%s has no From policy at %s\n' "${identity}" "${POSTFIX_DIR}/rateguru-from-${identity}.regexp"
+        return 0
+    fi
+
+    for header in "From: noreply@${domain}" "From: <noreply@${domain}>" \
+        "From: RateGuru <noreply@${domain}>" "From: \"RateGuru\" <noreply@${domain}>"
+    do
+        result="$("${POSTMAP_BIN}" -c "${dir}" -q "${header}" "regexp:${table}" 2>/dev/null || true)"
+        [[ "${result}" == DUNNO ]] \
+            || printf '%s From policy refuses "%s" (%s) — an address in %s must pass\n' "${identity}" "${header}" "${result:-no match}" "${domain}"
+    done
+
+    for header in "From: intruder@foreign.invalid" "From: Intruder <intruder@foreign.invalid>" \
+        "From: noreply@${domain}, intruder@foreign.invalid" "From: intruder@foreign.invalid, noreply@${domain}" \
+        "From: Intruder <intruder@foreign.invalid>, RateGuru <noreply@${domain}>" \
+        "From: RateGuru <noreply@${domain}>, Intruder <intruder@foreign.invalid>" \
+        "From: noreply@mail.${domain}" "From: noreply@${domain}.foreign.invalid" "From: noreply@foreign${domain}"
+    do
+        result="$("${POSTMAP_BIN}" -c "${dir}" -q "${header}" "regexp:${table}" 2>/dev/null || true)"
+        [[ "${result}" == "REJECT "* ]] \
+            || printf '%s From policy admits "%s" (%s) — only one address in %s may pass\n' "${identity}" "${header}" "${result:-no match}" "${domain}"
+    done
 }
 
 # outbound_transport_problems DIR IDENTITY TRANSPORT HELO — the target's
@@ -935,12 +1219,50 @@ runtime_problems() {
         grep -qxF "${endpoint}" <<<"${listeners}" \
             || printf 'capture destination %s is not listening — its mail would only queue\n' "${endpoint}"
     done < <(plan_capture_destinations)
+
+    # The signer is there to sign with: without it, a signed listener defers
+    # everything it is given.
+    if [[ -n "$(signed_identities)" ]]; then
+        grep -qxF "$(milter_listen_address)" <<<"${listeners}" \
+            || printf 'the signer is not listening on %s — every signed listener would defer its mail\n' "$(milter_listen_address)"
+    fi
 }
 
 # --- Managed files ------------------------------------------------------------------------
 
 file_owner_mode() {
     stat -c '%U:%G %a' "$1" 2>/dev/null || true
+}
+
+# managed_files — every file the current render installs: main.cf, master.cf
+# and one From policy per signed target.
+managed_files() {
+    local policy
+    printf '%s\n' "${MAIN_CF}" "${MASTER_CF}"
+    for policy in "${CANDIDATE_DIR}"/rateguru-from-*.regexp; do
+        [[ -f "${policy}" ]] || continue
+        printf '%s/%s\n' "${POSTFIX_DIR}" "$(basename "${policy}")"
+    done
+}
+
+# retired_policy_files — "owned|foreign<TAB>LOGICAL" for every From policy file
+# on the host that the current render no longer installs. Only a file with the
+# exact name shape and this installer's own first line is owned, and only an
+# owned one is ever removed; nothing else under /etc/postfix is looked at.
+retired_policy_files() {
+    local path name
+    for path in "$(physical "${POSTFIX_DIR}")"/rateguru-from-*.regexp; do
+        [[ -e "${path}" || -L "${path}" ]] || continue
+        name="$(basename "${path}")"
+        [[ "${name}" =~ ${FROM_POLICY_NAME_PATTERN} ]] || continue
+        [[ ! -e "${CANDIDATE_DIR}/${name}" ]] || continue
+
+        if [[ -f "${path}" && ! -L "${path}" ]] && [[ "$(head -n 1 "${path}" 2>/dev/null)" == "${FROM_POLICY_MARKER}"* ]]; then
+            printf 'owned\t%s/%s\n' "${POSTFIX_DIR}" "${name}"
+        else
+            printf 'foreign\t%s/%s\n' "${POSTFIX_DIR}" "${name}"
+        fi
+    done
 }
 
 # managed_file_state LOGICAL — PASS | MISSING | DRIFT, against the candidate.
@@ -997,6 +1319,14 @@ report_contract() {
         item PASS "outbound:direct" "direct delivery disabled on this host (mail-outbound.json); ${outbound_count} outbound route(s) in the plan, and none could be rendered"
     fi
 
+    local signed
+    signed="$(signed_identities | paste -sd ',' - | sed 's/,/, /g')"
+    if [[ -n "${signed}" ]]; then
+        item PASS "signing" "listeners of ${signed} hand their mail to the signer at ${MILTER_ENDPOINT} (install-mail-signing --milter-endpoint), deferred when it cannot sign, each through its own cleanup service and From policy; no other listener is signed"
+    else
+        item PASS "signing" "no target is in the signing plan, so no listener names the signer"
+    fi
+
     if [[ -n "${others}" ]]; then
         item CONFLICT "mta:other" "another mail transport agent is installed (${others//$'\n'/, }) — it is not RateGuru's, and installing Postfix would remove it"
     fi
@@ -1041,14 +1371,23 @@ report_contract() {
     fi
 
     local logical state
-    for logical in "${MANAGED_FILES[@]}"; do
+    while IFS= read -r logical; do
         state="$(managed_file_state "${logical}")"
         case "${state}" in
             PASS)    item PASS "file:${logical}" "matches the current render, ${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ;;
             MISSING) item MISSING "file:${logical}" "absent — --apply installs the current render" ;;
             DRIFT)   item DRIFT "file:${logical}" "differs from the current render (content, type, owner or mode) — --apply replaces it" ;;
         esac
-    done
+    done < <(managed_files)
+
+    while IFS=$'\t' read -r state logical; do
+        [[ -n "${logical}" ]] || continue
+        if [[ "${state}" == owned ]]; then
+            item DRIFT "file:${logical}" "the From policy of a target that is no longer signed — --apply removes it"
+        else
+            item CONFLICT "file:${logical}" "named like a RateGuru From policy, but not written by this installer — never used or removed"
+        fi
+    done < <(retired_policy_files)
 
     if [[ "${MODE}" == verify ]]; then
         if [[ "${package}" == installed ]]; then
@@ -1056,7 +1395,7 @@ report_contract() {
                 "Postfix reads the installed configuration back fail-closed: listeners, routes and holds exactly as planned"
         fi
         report_problems "runtime" "$(runtime_problems)" CONFLICT \
-            "enabled, stably running, listening on exactly the plan's loopback endpoints, no public SMTP port open, every capture destination listening"
+            "enabled, stably running, listening on exactly the plan's loopback endpoints, no public SMTP port open, every capture destination and the signer listening"
     elif [[ "${owner}" != owned ]]; then
         # Before an install: a gateway port somebody else already holds would
         # make --apply fail after the package is in.
@@ -1215,6 +1554,15 @@ record_target() {
     fi
 }
 
+retire_managed_file() {
+    local path
+    path="$(physical "$1")"
+
+    record_target "${path}"
+    rm -f "${path}"
+    FILES_CHANGED=true
+}
+
 install_managed_file() {
     local logical="$1" path candidate tmp
     path="$(physical "${logical}")"
@@ -1336,6 +1684,11 @@ perform_apply() {
         done < <(plan_endpoints)
     fi
 
+    local foreign
+    foreign="$(retired_policy_files | awk -F'\t' '$1 == "foreign" { print $2 }')"
+    [[ -z "${foreign}" ]] \
+        || fail "${foreign//$'\n'/, } is named like a RateGuru From policy but was not written by this installer — refusing to use or remove it. Nothing was changed"
+
     # A policy-rc.d an interrupted run left behind is undone before anything
     # else, so this host's package activity is its own again.
     if leftover_start_suppression; then
@@ -1364,13 +1717,22 @@ perform_apply() {
     [[ -z "${problems}" ]] \
         || fail "Postfix does not accept the rendered gateway configuration: ${problems//$'\n'/; }"
 
-    local logical
-    for logical in "${MANAGED_FILES[@]}"; do
+    local logical state
+    while IFS= read -r logical; do
         if [[ "$(managed_file_state "${logical}")" != PASS ]]; then
             action "installing ${logical}"
             install_managed_file "${logical}"
         fi
-    done
+    done < <(managed_files)
+
+    # A From policy the render no longer has is removed in the same
+    # transaction, backed up first; one this installer did not write was
+    # refused before anything changed.
+    while IFS=$'\t' read -r state logical; do
+        [[ "${state}" == owned ]] || continue
+        action "removing ${logical} (the From policy of a target that is no longer signed)"
+        retire_managed_file "${logical}"
+    done < <(retired_policy_files)
 
     problems="$(postfix_contract_problems "$(physical "${POSTFIX_DIR}")")"
     [[ -z "${problems}" ]] \

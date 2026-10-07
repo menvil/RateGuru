@@ -2,10 +2,15 @@
 
 use App\Models\User;
 
+/** Waits until the sign-in has landed on a page with the signed-in header. */
+function waitForSignedInPage(mixed $page): void
+{
+    waitForScript($page, 'document.querySelector(\'[data-testid="header-auth-actions"]\') !== null');
+}
+
 it('keeps the logo and toggle search in landscape mobile', function () {
     $page = visit(route('feed'))
         ->resize(844, 390)
-        ->wait(0.2)
         ->assertVisible('[data-testid="site-brand"]')
         ->assertVisible('[data-testid="mobile-search-trigger"]')
         ->assertMissing('[data-testid="app-header-search"]')
@@ -25,7 +30,6 @@ it('keeps the logo and toggle search in landscape mobile', function () {
 it('clears an active search from the desktop search field', function () {
     visit(route('feed', ['search' => 'desktop query']))
         ->resize(1280, 800)
-        ->wait(0.2)
         ->assertVisible('[data-testid="app-header-search"]')
         ->assertVisible('[data-testid="desktop-search-clear"]')
         ->click('[data-testid="desktop-search-clear"]')
@@ -33,10 +37,11 @@ it('clears an active search from the desktop search field', function () {
 });
 
 it('keeps the desktop header distributed across its full width', function () {
-    $page = visit(route('feed'))
-        ->resize(1440, 900)
-        ->wait(0.2)
-        ->assertVisible('[data-testid="site-brand"]')
+    $page = visit(route('feed'))->resize(1440, 900);
+
+    waitForViewportSize($page, 1440, 900);
+
+    $page->assertVisible('[data-testid="site-brand"]')
         ->assertVisible('[data-testid="app-header-search"]')
         ->assertVisible('[data-testid="desktop-header-theme"]');
 
@@ -72,9 +77,12 @@ it('keeps authenticated desktop header actions aligned to the right', function (
         ->type('[data-testid="login-email"]', 'desktop-header@rateguru.test')
         ->type('[data-testid="login-password"]', 'password')
         ->click('[data-testid="login-submit"]')
-        ->resize(1440, 900)
-        ->wait(0.2)
-        ->assertVisible('[data-testid="site-brand"]')
+        ->resize(1440, 900);
+
+    waitForSignedInPage($page);
+    waitForViewportSize($page, 1440, 900);
+
+    $page->assertVisible('[data-testid="site-brand"]')
         ->assertVisible('[data-testid="app-header-search"]')
         ->assertVisible('[data-testid="header-user-menu-trigger"]');
 
@@ -107,8 +115,10 @@ it('keeps mobile search beside authenticated actions and opens an eighty five pe
         ->type('[data-testid="login-email"]', 'mobile-header@rateguru.test')
         ->type('[data-testid="login-password"]', 'password')
         ->click('[data-testid="login-submit"]')
-        ->resize(844, 390)
-        ->wait(0.2);
+        ->resize(844, 390);
+
+    waitForSignedInPage($page);
+    waitForViewportSize($page, 844, 390);
 
     $headerGap = $page->script(<<<'JS'
         (() => {

@@ -4,7 +4,8 @@ Who production mail claims to be, and how a receiving server can check it: the
 host's MTA identity, each production target's DKIM key and DMARC policy, the DNS
 records that publish them, and the read-only proof that public DNS says exactly
 that. How mail is routed is [`mail-routing.md`](mail-routing.md); the gateway
-that delivers it is [`mail-gateway.md`](mail-gateway.md).
+that delivers it is [`mail-gateway.md`](mail-gateway.md); the host's DKIM signer
+is [`mail-signing.md`](mail-signing.md).
 
 ## Status
 
@@ -12,14 +13,15 @@ that delivers it is [`mail-gateway.md`](mail-gateway.md).
 |------|-------|
 | Host MTA identity (`config/mail-outbound.json`) | **`mta1.tits.guru`, reviewed — direct delivery still disabled** |
 | `tits-guru` identity (`config/mail-identity.json`) | **Reviewed**: DKIM selector `rg1`, `rsa-sha256`, at least 2048 bits; DMARC `p=none`, `adkim=s`, `aspf=s`, no report address |
-| `infrastructure/scripts/mail-identity` | **Implemented**: `validate`, `dkim-key`, `check-key`, `show-dns`, `verify-dns`, `readiness` |
-| DKIM private key on the host | **Not installed** — supplied by the operator, never generated or committed |
-| Public DNS (A, PTR, SPF, DKIM, DMARC) | **Not published** — nothing in this repository changes DNS or PTR |
-| DKIM signing (OpenDKIM) | **Not installed** |
-| `tits-guru` mail | **Held**; `lifecycle=planned`; no production `MAIL_*` value is set |
+| `infrastructure/scripts/mail-identity` | **Implemented**: `validate`, `dkim-key`, `check-key`, `show-dns`, `verify-dns`, `readiness`, `render-signing-plan` |
+| DKIM private key on the production host | **Installed and validated** at `/etc/opendkim/keys/tits-guru/rg1.private` — supplied by the operator, never generated or committed |
+| Public DNS (A, PTR, SPF, DKIM, DMARC) | **Published; production verification PASS** for all five, through both public resolvers (the resolver isolation is production-accepted) |
+| DKIM signing (OpenDKIM + Postfix milter) | **Implemented — production acceptance pending**: see [`mail-signing.md`](mail-signing.md). Installed by the next Prepare of the shared host; accepted by **Verify production mail signing** |
+| `tits-guru` mail | **Held**; `lifecycle=planned`; direct delivery disabled; no production `MAIL_*` value is set |
 
-Nothing here sends mail or signs anything. It is the identity outbound delivery
-will depend on, made reviewable and checkable first.
+Nothing here sends mail. The identity, the key, public DNS and — once the
+signing foundation is installed and accepted — signing are what outbound
+delivery depends on, made checkable before anything is allowed out.
 
 ## Two contracts
 
@@ -81,12 +83,22 @@ never committed**. Its one place on the host is derived from the target ID and
 the reviewed selector:
 
 ```
-/etc/opendkim/keys/<target>/<selector>.private       root:root 0600
+/etc/opendkim/keys                                   root:opendkim 0750
+/etc/opendkim/keys/<target>                          root:opendkim 0750
+/etc/opendkim/keys/<target>/<selector>.private       root:opendkim 0640
 /etc/opendkim/keys/tits-guru/rg1.private
 ```
 
-`/etc/opendkim/keys` and `/etc/opendkim/keys/<target>` are root-only (0700).
-Read access for a signing service is granted later, and only to that service.
+Readable by root and by the host's DKIM signer — the `opendkim` package
+account, through its own group, which holds no other account — and by nobody
+else. The signer never runs as root. A key installed before any signer existed
+is root-only, `root:root 0600` in `root:root 0700` directories: that one layout
+is accepted as it is, and `install-mail-signing --apply` converts it by owner,
+group and mode alone, never touching the key's bytes. Any other metadata — a
+world- or group-writable key, another owner, a directory anyone can enter — is a
+**CONFLICT**, never "fixed". A new key is installed only once the signer's
+group exists, which host bootstrap guarantees: a host's services are installed
+before its targets' material.
 
 It is installed by `install-target-prerequisites` as the logical material
 `mail-dkim-private-key` (target scope), under the same rules as every other
@@ -122,7 +134,8 @@ Then:
 2. Run **Configure tits.guru** (from `main`). The runner judges the key with
    `check-key` before anything is uploaded, sends it by its exact name into a
    root-only directory, `install-target-prerequisites` installs it at
-   `/etc/opendkim/keys/tits-guru/rg1.private`, and every temporary copy — on the
+   `/etc/opendkim/keys/tits-guru/rg1.private` (`root:opendkim 0640`), and every
+   temporary copy — on the
    runner and on the host — is removed whether the run succeeds or fails. The
    key never appears in a log, an output, an artifact or the job summary.
    Before its temporary bundle is removed, Configure runs
@@ -145,7 +158,7 @@ The whole sequence, from merging to the first production verification, is in
 ## Publishing DNS
 
 Configure tits.guru prints the plan in its summary. On the host, from a trusted
-bundle and as root (the key is root-only), the same plan is:
+bundle and as root (the key is readable by root and the signer only), the same plan is:
 
 ```bash
 sudo infrastructure/scripts/mail-identity show-dns --target tits-guru
@@ -265,16 +278,23 @@ checked and reported:
 6. a valid private key is installed at its canonical place;
 7. public DNS verifies — A, PTR, SPF, DKIM and DMARC, asked of both public
    resolvers and judged exactly as `verify-dns` judges them;
-8. a DKIM signing service is installed and healthy.
+8. the target's mail is signed: `verify-mail-signing --read-only --target T`
+   passes — the signer installed, configured, running on loopback and able to
+   read the key, and the gateway wiring the target's listener to it. Readiness
+   restates none of that; it takes the verifier's verdict, and shows its report
+   when it fails.
 
-Today it always ends `OUTBOUND READY: NO`: no signing service exists yet, and
-`tits-guru` is held with direct delivery disabled. The signing slice installs
-the signing service and gates the switch from held to outbound on this command.
+Once the signing foundation is installed on the production host, `tits-guru`
+reads PASS for every condition but two — `routing` (still held) and `direct`
+(still disabled) — and ends `OUTBOUND READY: NO` for exactly those reasons. The
+activation slice gates the switch from held to outbound on this command.
 
 ## What this does not do
 
-No OpenDKIM package, no milter, no signing configuration in Postfix, no
-enabled direct delivery, no change of `tits-guru` from `held`, no production
+No enabled direct delivery, no change of `tits-guru` from `held`, no production
 `MAIL_*` value, no `shared/.env` change, no DNS or PTR record and no mail of any
-kind. Bounce reception, reply routing and the support mailbox, suppression and
-delivery state, and mail operations and recovery are later, separate slices.
+kind. Signing itself — the OpenDKIM package, its configuration and the
+gateway's milter — belongs to [`mail-signing.md`](mail-signing.md), and signs
+held mail without routing any of it. Activation, bounce reception, reply
+routing and the support mailbox, suppression and delivery state, and mail
+operations and recovery are later, separate slices.

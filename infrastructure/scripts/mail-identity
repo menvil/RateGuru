@@ -10,6 +10,7 @@
 #   mail-identity show-dns       --target TARGET [--key KEY] [--ipv4 ADDRESS] [--json] [FILES]
 #   mail-identity verify-dns     --target TARGET [FILES]
 #   mail-identity readiness      --target TARGET [FILES]
+#   mail-identity render-signing-plan [FILES]
 #
 #   FILES: [--identity PATH] [--routing PATH] [--registry PATH] [--outbound PATH]
 #
@@ -32,12 +33,14 @@
 # Every rule about either contract lives here and nowhere else. The gateway
 # installer asks `check-outbound` before it renders a route; the prerequisite
 # installer asks `dkim-key` where a target's key belongs and whether it is
-# needed yet, and `check-key` whether a key is one; readiness for outbound
-# delivery is `readiness`. None of them restates a rule.
+# needed yet, and `check-key` whether a key is one; the signing service and
+# the gateway sign exactly what `render-signing-plan` lists; readiness for
+# outbound delivery is `readiness`. None of them restates a rule.
 #
 # THE DKIM PRIVATE KEY is external secret material, never generated and never
 # committed. Its one canonical place is /etc/opendkim/keys/<target>/<selector>.private,
-# derived from the target ID and the reviewed selector, root:root 0600; it is
+# derived from the target ID and the reviewed selector, readable by root and by
+# the signing service's own group and nobody else (root:opendkim 0640). It is
 # delivered and installed by install-target-prerequisites as the logical
 # material `mail-dkim-private-key`. While a target is held its key may be
 # absent (deferred); once it is outbound the key is required. Nothing here ever
@@ -94,6 +97,11 @@ IP_BIN="$(gated_default RATEGURU_MAILIDENTITY_IP_BIN ip)"
 OPENSSL_BIN="$(gated_default RATEGURU_MAILIDENTITY_OPENSSL_BIN openssl)"
 MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
 
+# Whether a target's mail is signed on this host is never judged here: the
+# signing verifier from the same bundle composes the signer and the gateway
+# that wire it, and readiness takes its verdict.
+SIGNING_VERIFIER="$(gated_default RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN "${SCRIPT_DIR}/verify-mail-signing")"
+
 IDENTITY_FILE="${REPO_ROOT}/infrastructure/config/mail-identity.json"
 ROUTING_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
 REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
@@ -101,10 +109,11 @@ OUTBOUND_FILE="${REPO_ROOT}/infrastructure/config/mail-outbound.json"
 
 IDENTITY_SCHEMA_VERSION=1
 OUTBOUND_SCHEMA_VERSION=1
+SIGNING_PLAN_SCHEMA_VERSION=1
 
 # Where every target's DKIM private key lives: one directory per target, one
-# file per selector. Root-only until a signing service is installed and granted
-# exactly the read access it needs.
+# file per selector. Readable by root and by the signing service's group, and
+# by nobody else.
 DKIM_KEY_ROOT="/etc/opendkim/keys"
 
 # A private key file larger than this is not one key.
@@ -128,6 +137,7 @@ Usage:
   mail-identity show-dns       --target TARGET [--key KEY] [--ipv4 ADDRESS] [--json] [FILES]
   mail-identity verify-dns     --target TARGET [FILES]
   mail-identity readiness      --target TARGET [FILES]
+  mail-identity render-signing-plan [FILES]
 
   validate        Judge the host contract (mail-outbound.json) and the target
                   identity contract (mail-identity.json) against the mail
@@ -153,7 +163,15 @@ Usage:
                   8.8.8.8 directly, and accepted only when both agree. This
                   host's own resolver is never asked.
   readiness       Whether TARGET may deliver outbound now: every condition the
-                  activation of direct delivery requires, each reported.
+                  activation of direct delivery requires, each reported. Its
+                  signing condition is verify-mail-signing --read-only's
+                  verdict, from the same bundle.
+  render-signing-plan
+                  Print, as JSON, what the host's signing service signs: every
+                  production target with a reviewed identity — held ones
+                  included — with its mail domain, DKIM selector, algorithm,
+                  minimum key size, canonical key path and whether its key is
+                  required yet. Nothing is chosen by the caller.
 
   FILES default to infrastructure/config/{mail-identity,mail-routing,
   deployment-targets,mail-outbound}.json beside this script.
@@ -190,7 +208,7 @@ parse_args() {
     fi
 
     case "$1" in
-        validate|check-outbound|dkim-key|check-key|show-dns|verify-dns|readiness)
+        validate|check-outbound|dkim-key|check-key|show-dns|verify-dns|readiness|render-signing-plan)
             COMMAND="$1"
             shift
             ;;
@@ -239,6 +257,7 @@ parse_args() {
         show-dns)       allowed="--target --key --ipv4 --json --identity --routing --registry --outbound" ;;
         verify-dns)     allowed="--target --identity --routing --registry --outbound" ;;
         readiness)      allowed="--target --identity --routing --registry --outbound" ;;
+        render-signing-plan) allowed="--identity --routing --registry --outbound" ;;
     esac
 
     for flag in "${!SEEN[@]}"; do
@@ -607,7 +626,7 @@ check_private_key() {
     if [[ -L "${path}" ]]; then KEY_PROBLEM="it is a symlink"; return 1; fi
     if [[ ! -e "${path}" ]]; then KEY_PROBLEM="it does not exist"; return 1; fi
     if [[ ! -f "${path}" ]]; then KEY_PROBLEM="it is not a regular file"; return 1; fi
-    if [[ ! -r "${path}" ]]; then KEY_PROBLEM="it is not readable by this user (it is root-only: run as root)"; return 1; fi
+    if [[ ! -r "${path}" ]]; then KEY_PROBLEM="it is not readable by this user (only root and the signing service may read it: run as root)"; return 1; fi
 
     size="$(wc -c < "${path}" | tr -d ' ')"
     if (( size == 0 )); then KEY_PROBLEM="it is empty"; return 1; fi
@@ -615,7 +634,7 @@ check_private_key() {
 
     # The PEM structure, judged by its armour lines only.
     if grep -q -- '-----BEGIN ENCRYPTED PRIVATE KEY-----' "${path}" || grep -q '^Proc-Type: 4,ENCRYPTED' "${path}"; then
-        KEY_PROBLEM="it is passphrase-protected — the signing service reads it unattended, so it must be unencrypted (and is protected by being root-only instead)"
+        KEY_PROBLEM="it is passphrase-protected — the signing service reads it unattended, so it must be unencrypted (and is protected by being readable only by root and the signing service instead)"
         return 1
     fi
 
@@ -1196,12 +1215,54 @@ command_dkim_key() {
         return 0
     fi
 
-    # Held mail goes nowhere, so a missing key costs nothing yet; outbound mail
-    # is signed with it, so from then on it is required.
-    local requirement=deferred
-    [[ "${T_MODE}" != outbound ]] || requirement=required
+    printf '%s\t%s\t%s\n' "$(dkim_key_requirement)" "$(dkim_key_path)" "${T_MIN_BITS}"
+}
 
-    printf '%s\t%s\t%s\n' "${requirement}" "$(dkim_key_path)" "${T_MIN_BITS}"
+# Held mail goes nowhere, so a missing key costs nothing yet; outbound mail is
+# signed with it, so from then on it is required.
+dkim_key_requirement() {
+    if [[ "${T_MODE}" == outbound ]]; then
+        printf 'required\n'
+    else
+        printf 'deferred\n'
+    fi
+}
+
+# render-signing-plan — what the host's one signing service signs, after the
+# same full validation as every other command: each production target with a
+# reviewed identity, held ones included, because signing is ready before mail is
+# allowed out. Every value comes from its one authority — the domain from the
+# routing plan, the DKIM policy from mail-identity.json, the key's place and its
+# requirement from the derivation above — and none from the caller.
+command_render_signing_plan() {
+    load_contracts
+
+    local id
+    local -a entries=()
+
+    while IFS= read -r id; do
+        [[ -n "${id}" ]] || continue
+
+        TARGET_ID="${id}"
+        T_HAS_IDENTITY=false
+        load_target
+
+        # Validation admits only production identities; a target that is not
+        # one would sign nothing, so it is never planned.
+        [[ "${T_HAS_IDENTITY}" == true && "${T_ENVIRONMENT}" == production ]] || continue
+
+        entries+=("$(jq -n -c \
+            --arg target "${TARGET_ID}" --arg domain "${T_DOMAIN}" \
+            --arg selector "${T_SELECTOR}" --arg algorithm "${T_ALGORITHM}" \
+            --argjson min_bits "${T_MIN_BITS}" \
+            --arg key_path "$(dkim_key_path)" --arg requirement "$(dkim_key_requirement)" \
+            '{target: $target, domain: $domain, selector: $selector, algorithm: $algorithm,
+              minimum_key_bits: $min_bits, key_path: $key_path, key_requirement: $requirement}')")
+    done < <(jq -r '.targets | keys[]' "${IDENTITY_FILE}")
+
+    printf '%s\n' "${entries[@]+"${entries[@]}"}" \
+        | jq -s -S --argjson schema_version "${SIGNING_PLAN_SCHEMA_VERSION}" \
+            '{schema_version: $schema_version, targets: sort_by(.target)}'
 }
 
 command_check_key() {
@@ -1318,6 +1379,34 @@ command_verify_dns() {
     return 1
 }
 
+# check_signing — verify-mail-signing --read-only's verdict on this target: the
+# signing service, its read access to the target's key and the gateway's wiring
+# of the target's listener to it. Whatever the verifier's exit, the verdict here
+# is PASS or FAIL, never its status passed through; its report is shown when it
+# fails.
+check_signing() {
+    local output status=0
+
+    if [[ ! -x "${SIGNING_VERIFIER}" ]]; then
+        check FAIL signing "the signing verifier is not executable: ${SIGNING_VERIFIER} — run from a full repository bundle"
+        return 0
+    fi
+
+    output="$("${SIGNING_VERIFIER}" --read-only --target "${TARGET_ID}" 2>&1 </dev/null)" || status=$?
+
+    if (( status == 0 )); then
+        check PASS signing "verify-mail-signing --read-only --target ${TARGET_ID}: the signing service, its access to the key and the gateway's wiring of this target are verified"
+        return 0
+    fi
+
+    check FAIL signing "verify-mail-signing --read-only --target ${TARGET_ID} did not pass (exit ${status})"
+
+    local line
+    while IFS= read -r line; do
+        printf '             | %s\n' "${line}"
+    done <<<"${output}"
+}
+
 # readiness — the whole contract direct delivery of a target's mail depends on.
 # Every condition is checked and reported, so an operator sees all that is
 # missing at once. It activates nothing.
@@ -1371,10 +1460,12 @@ command_readiness() {
         run_dns_checks
     fi
 
-    # Signing is the last condition, and nothing in this release can satisfy
-    # it: no signing service is installed or verified yet, so no target is
-    # ever outbound-ready here.
-    check FAIL signing "no DKIM signing service is installed and verified on this host"
+    # Signing is the last condition, and its judge is the signing verifier.
+    if [[ "${T_HAS_IDENTITY}" == true ]]; then
+        check_signing
+    else
+        check FAIL signing "${TARGET_ID} has no reviewed signing identity, so nothing on this host signs its mail"
+    fi
 
     printf 'SUMMARY  pass=%d fail=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}"
 
@@ -1398,6 +1489,7 @@ main() {
         show-dns)       command_show_dns ;;
         verify-dns)     command_verify_dns ;;
         readiness)      command_readiness ;;
+        render-signing-plan) command_render_signing_plan ;;
     esac
 }
 

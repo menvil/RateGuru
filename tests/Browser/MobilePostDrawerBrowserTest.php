@@ -5,15 +5,17 @@ use App\Models\ProjectSettings;
 use Tests\Browser\Support\MobileViewports;
 
 it('renders the feed empty state square on mobile and rounded at the responsive breakpoint', function () {
-    $page = visit(route('feed'))
-        ->resize(...MobileViewports::MOBILE)
-        ->wait(0.3);
+    $page = visit(route('feed'))->resize(...MobileViewports::MOBILE);
+
+    waitForViewportSize($page, ...MobileViewports::MOBILE);
 
     expect($page->script(<<<'JS'
         getComputedStyle(document.querySelector('[data-testid="feed-empty-state"]')).borderTopLeftRadius
     JS))->toBe('0px');
 
-    $page->resize(768, 1024)->wait(0.2);
+    $page->resize(768, 1024);
+
+    waitForViewportSize($page, 768, 1024);
 
     expect($page->script(<<<'JS'
         getComputedStyle(document.querySelector('[data-testid="feed-empty-state"]')).borderTopLeftRadius
@@ -28,17 +30,18 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
         'title' => 'Mobile overlay browser post',
     ]);
 
-    $page = visit(route('feed'))
-        ->resize(...MobileViewports::MOBILE)
-        ->wait(0.3);
+    $page = visit(route('feed'))->resize(...MobileViewports::MOBILE);
+
+    waitForPostDetailOverlay($page);
 
     $scrollBefore = $page->script('window.scrollY');
 
     $page
         ->click('[data-testid="post-card"]')
         ->waitForText('Mobile overlay browser post')
-        ->assertVisible('[data-testid="post-detail-overlay"]')
-        ->wait(0.3);
+        ->assertVisible('[data-testid="post-detail-overlay"]');
+
+    waitForPostDetailOverlayOpen($page);
 
     $geometry = $page->script(<<<'JS'
         (() => {
@@ -58,9 +61,11 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
         ->and($geometry['width'])->toBeGreaterThanOrEqual($geometry['viewport'] - 1)
         ->and(abs($geometry['scrollY'] - $scrollBefore))->toBeLessThanOrEqual(1);
 
-    $page
-        ->click('[data-testid="post-detail-overlay"] [data-testid="post-detail-close"]')
-        ->wait(0.4);
+    $page->click('[data-testid="post-detail-overlay"] [data-testid="post-detail-close"]');
+
+    // The panel moves out the moment it is told to; the server's answer —
+    // the panel rendered without the post — is what may not move it back.
+    waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"] [data-testid="post-drawer-title"]\') === null');
 
     expect($page->script(
         'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'translate-x-full\')'

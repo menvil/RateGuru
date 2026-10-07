@@ -53,7 +53,7 @@ it('resolves post drawer screenshot target', function () {
         ->and($target->viewportHeight)->toBe(1000)
         ->and($target->authenticated)->toBeFalse()
         ->and($target->clickSelector)->toBe('[data-testid="post-card"]')
-        ->and($target->afterClickWaitSelector)->toBe('[data-testid="post-drawer"]')
+        ->and($target->afterClickWaitSelector)->toBe('[data-testid="post-drawer"]:visible')
         ->and($target->outputPath())->toEndWith('tests/Visual/current/post-drawer.png')
         ->and($target->outputPath(baseline: true))->toEndWith('tests/Visual/baselines/post-drawer.png');
 });

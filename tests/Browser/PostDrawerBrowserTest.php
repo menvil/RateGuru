@@ -26,11 +26,11 @@ it('keeps the sliding post drawer bounded on desktop so the feed remains visible
 
     $page = visit(route('feed'))
         ->resize(1440, 900)
-        ->wait(0.2)
         ->click('[data-testid="post-card"]')
         ->waitForText('Bounded desktop drawer post')
-        ->assertVisible('[data-testid="post-detail-overlay"]')
-        ->wait(0.3);
+        ->assertVisible('[data-testid="post-detail-overlay"]');
+
+    waitForPostDetailOverlayOpen($page);
 
     $geometry = $page->script(<<<'JS'
         (() => {

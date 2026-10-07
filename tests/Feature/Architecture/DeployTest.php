@@ -225,7 +225,7 @@ function deployOpsWwwDataAvailable(): bool
         return false;
     }
 
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         return true;
     }
 
@@ -627,7 +627,7 @@ it('ignores RATEGURU_HEALTH_CHECK_BIN/RATEGURU_VERIFY_REQUIRED_CLIS_BIN without 
 // =============================================================================
 
 it('requires root before anything else, even for --target with an obviously invalid deployment', function () {
-    if (getmyuid() === 0) {
+    if (testProcessIsRoot()) {
         test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
     }
 

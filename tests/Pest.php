@@ -21,19 +21,31 @@ use App\Support\Import\ResolvedImportTarget;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\TranslationEngine\Contracts\TranslationProvider;
+use App\Support\TranslationEngine\Data\TranslationBatchRequest;
+use App\Support\TranslationEngine\Data\TranslationItem;
+use App\Support\TranslationEngine\Data\TranslationProviderCall;
+use App\Support\TranslationEngine\Data\TranslationProviderLimits;
+use App\Support\TranslationEngine\Data\TranslationProviderResponse;
+use App\Support\TranslationEngine\Enums\TranslationDataClassification;
+use App\Support\TranslationEngine\Enums\TranslationErrorCode;
+use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use PHPUnit\Framework\AssertionFailedError;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -1024,7 +1036,9 @@ function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds
             return;
         }
 
-        usleep(100_000);
+        // As short as waitForScript()'s, and on the event loop like it: the
+        // image is served by this same process.
+        browserTestPause(0.025);
     }
 
     throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
@@ -1061,6 +1075,45 @@ function imageFitGeometry(mixed $page, string $selector): array
     $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
 
     return $geometry;
+}
+
+/**
+ * Waits until the page is laid out at the size resize() asked for, loaded and
+ * with its fonts in — the state a layout measurement after a resize needs.
+ * The new size is in place by the time resize() returns; a font still on its
+ * way would change how wide the text is.
+ */
+function waitForViewportSize(mixed $page, int $width, int $height): void
+{
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height} && document.readyState === 'complete' && document.fonts.status === 'loaded'");
+}
+
+/**
+ * Waits until the page has the sliding post-detail panel a selected post
+ * opens in below the desktop breakpoint: overlay mode's panel, or the one
+ * split view loads lazily, in a request of its own after the page. Until that
+ * one has arrived it ignores a selected post, so the post never opens.
+ */
+function waitForPostDetailOverlay(mixed $page): void
+{
+    waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"]\') !== null');
+}
+
+/**
+ * Waits until the post-detail panel is open and has stopped sliding in — the
+ * state its geometry is measured in.
+ */
+function waitForPostDetailOverlayOpen(mixed $page): void
+{
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+
+            return Boolean(panel)
+                && panel.classList.contains('translate-x-0')
+                && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
 }
 
 /*
@@ -1943,6 +1996,10 @@ function mailIdentityScratch(): string
  * `@server` it was given and asks the host's own resolver, the way code that
  * never named one would.
  *
+ * The same environment stands in for the signing verifier readiness asks
+ * (verify-mail-signing --read-only): on this simulated host no signer is
+ * installed, so it refuses, until mailIdentitySigningVerdict() says otherwise.
+ *
  * @param  array<string, list<string>|array<string, mixed>>  $answers
  * @return array<string, string>
  */
@@ -2020,15 +2077,51 @@ function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '2
         : "#!/bin/bash\nprintf '1.1.1.1 via 203.0.113.1 dev eth0 src %s uid 0\\n    cache\\n' '{$ipv4}'\n";
     file_put_contents($scratch.'/bin/ip', $route);
 
+    file_put_contents($scratch.'/bin/verify-mail-signing', <<<'STUB'
+        #!/bin/bash
+        printf '%s\n' "$*" >> "${STUB_SIGNING}/calls.log"
+        if [[ "$(cat "${STUB_SIGNING}/verdict" 2>/dev/null)" == pass ]]; then
+            echo "  PASS the signer and the gateway's wiring of this target (simulated)"
+            exit 0
+        fi
+        echo "  FAIL the signer: install-mail-signing --verify --target ${3:-} (exit 1) — no signer on this simulated host"
+        exit 1
+        STUB."\n");
+
+    @mkdir($scratch.'/signing', 0o755, true);
+
     chmod($scratch.'/bin/dig', 0o755);
     chmod($scratch.'/bin/ip', 0o755);
+    chmod($scratch.'/bin/verify-mail-signing', 0o755);
 
     return [
         'RATEGURU_MAILIDENTITY_DIG_BIN' => $scratch.'/bin/dig',
         'RATEGURU_MAILIDENTITY_IP_BIN' => $scratch.'/bin/ip',
         'RATEGURU_MAILIDENTITY_FS_ROOT' => $scratch.'/fs',
+        'RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => $scratch.'/bin/verify-mail-signing',
         'STUB_DNS' => $scratch.'/dns',
+        'STUB_SIGNING' => $scratch.'/signing',
     ];
+}
+
+/**
+ * What the simulated signing verifier of mailIdentityDnsHost() answers: pass
+ * when a signer and its wiring would verify, refuse otherwise.
+ */
+function mailIdentitySigningVerdict(string $scratch, bool $passes): void
+{
+    @mkdir($scratch.'/signing', 0o755, true);
+    file_put_contents($scratch.'/signing/verdict', $passes ? "pass\n" : "fail\n");
+}
+
+/**
+ * Every call the simulated signing verifier received, as its argument list.
+ *
+ * @return list<string>
+ */
+function mailIdentitySigningCalls(string $scratch): array
+{
+    return array_values(array_filter(explode("\n", (string) @file_get_contents($scratch.'/signing/calls.log'))));
 }
 
 /**
@@ -4563,10 +4656,94 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
             break;
         }
 
-        $page->wait(0.1);
+        // Short, because every wait ends up to one interval after the state is
+        // reached, and a suite waits a few hundred times.
+        browserTestPause(0.025);
     } while (microtime(true) < $deadline);
 
     expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+}
+
+/**
+ * Runs $assertions until they pass, and lets their last failure through once
+ * $timeoutSeconds have gone by — waitForScript() for a state that is easier to
+ * say in PHP than in one JavaScript expression.
+ *
+ * Only for a state the step before produces. An assertion that already held
+ * before that step passes at once, before the step has taken effect: what it
+ * waits for must be something the page did not show until then.
+ */
+function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (true) {
+        try {
+            return $assertions();
+        } catch (AssertionFailedError $failure) {
+            if (microtime(true) >= $deadline) {
+                throw $failure;
+            }
+
+            browserTestPause(0.025);
+        }
+    }
+}
+
+/**
+ * Holds the page for $seconds to prove that $what does NOT happen in that time,
+ * and returns the page.
+ *
+ * The one fixed pause the Browser suite allows (BrowserTestWaitingTest keeps it
+ * that way). A state the page reaches can be waited for — waitForScript(),
+ * eventually() — but absence has no event: a request not sent, focus not moved,
+ * a toast not taken away while it is read. The pause is the window in which it
+ * would have shown, so its length belongs in a comment beside the call, and
+ * $what names what the test would have seen.
+ */
+function proveNothingHappensFor(mixed $page, float $seconds, string $what): mixed
+{
+    if (trim($what) === '') {
+        throw new InvalidArgumentException('Say what must not happen during the pause.');
+    }
+
+    browserTestPause($seconds);
+
+    return $page;
+}
+
+/**
+ * Lets $seconds go by without stopping the application under test.
+ *
+ * The browser plugin serves the application from this same PHP process, on its
+ * event loop. usleep() would stop that loop with everything else, so a request
+ * the page sent meanwhile — a Livewire update, a save — would wait for the next
+ * call into the browser to be answered; a wait that only reads the database
+ * would never see it answered at all. Amp's delay() lets the loop, and with it
+ * the server, run while this waits.
+ */
+function browserTestPause(float $seconds): void
+{
+    \Amp\delay($seconds);
+}
+
+/**
+ * Resizes the viewport and returns the page once it is laid out at the new
+ * size, instead of pausing for long enough to be fairly sure.
+ *
+ * The window reports the size once the browser has applied it. Whatever
+ * listens for it runs in the next rendering frame — resize events and media
+ * query listeners come before that frame's animation callbacks — so once two
+ * frames have gone by, those listeners have had their turn as well.
+ */
+function resizeAndSettle(mixed $page, int $width, int $height): mixed
+{
+    $page = $page->resize($width, $height);
+
+    waitForScript($page, "window.innerWidth === {$width} && window.innerHeight === {$height}");
+    $page->script('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+
+    return $page;
 }
 
 /**
@@ -4988,6 +5165,7 @@ function trustedToolingRefs(): array
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
         'verify-production-infrastructure.yml' => 'main',
+        'verify-production-mail-signing.yml' => 'main',
         // Integration and staging.
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
@@ -5679,7 +5857,7 @@ function provisionWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
         'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
-        'nightwatch-installer', 'mail-gateway-installer',
+        'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -5993,7 +6171,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
         // Present so that a target-scoped run touching the host-global mail
-        // gateway would be recorded, not silently run the real installer.
+        // signer or gateway would be recorded, not silently run the real
+        // installer.
+        'RATEGURU_BOOTSTRAPSVC_MAIL_SIGNING_INSTALLER_BIN' => $scratch.'/bin/mail-signing-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
@@ -7244,7 +7424,8 @@ function bsvcWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
         'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
-        'verify-mail-capture', 'nightwatch-installer', 'mail-gateway-installer',
+        'verify-mail-capture', 'nightwatch-installer', 'mail-signing-installer',
+        'mail-gateway-installer',
     ] as $child) {
         bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -7258,8 +7439,9 @@ function bsvcWriteStubs(string $scratch): void
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
                     ;;
-                # The mail gateway's plan question, which no other child is
-                # asked: it passes unless the toggle says the plan is refused.
+                # The mail signer's and the mail gateway's plan question, which
+                # no other child is asked: it passes unless the toggle says the
+                # plan is refused.
                 *--check*)
                     [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
                     exit 0
@@ -7464,7 +7646,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
             'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
-            'nightwatch-installer', 'mail-gateway-installer',
+            'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
         }
@@ -7497,6 +7679,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_SIGNING_INSTALLER_BIN' => $scratch.'/bin/mail-signing-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
@@ -7534,4 +7717,325 @@ function bsvcSystemctlMutations(string $scratch): array
         $lines,
         fn (string $line): bool => ! str_contains($line, 'is-enabled') && ! str_contains($line, 'is-active'),
     ));
+}
+
+/*
+|--------------------------------------------------------------------------
+| Translation engine
+|--------------------------------------------------------------------------
+|
+| Shared by the engine's unit tests (items, batches, chunking, prompts) and
+| its feature tests (service, router, OpenAI provider). No test reaches a real
+| provider: the OpenAI tests run under Http::fake() with stray requests
+| prevented, and the service tests use ScriptedTranslationProvider.
+|
+*/
+
+/**
+ * The API key the OpenAI tests configure. Deliberately not shaped like a real
+ * OpenAI key, so no secret scanner ever mistakes a fixture for a credential —
+ * and distinctive, so a test can prove it never appears where it must not.
+ */
+const TRANSLATION_TEST_API_KEY = 'translation-test-credential-never-real-4f1c';
+
+/**
+ * One valid item — a category name — with any named argument replaced.
+ *
+ * @param  array<string, mixed>  $overrides  TranslationItem constructor arguments by name
+ */
+function translationItem(array $overrides = []): TranslationItem
+{
+    return new TranslationItem(...array_replace([
+        'id' => 'categories:17:name',
+        'sourceLocale' => 'en',
+        'sourceText' => 'Dogs',
+        'contentType' => 'category.name',
+        'multiline' => false,
+        'context' => 'The category name shown on posts.',
+        'maxLength' => 80,
+        'placeholders' => [],
+        'existingTranslations' => [],
+    ], $overrides));
+}
+
+/**
+ * $count short, distinct items with the ids item:1 … item:N, in that order.
+ *
+ * @param  array<string, mixed>  $overrides  applied to every item
+ * @return list<TranslationItem>
+ */
+function translationItems(int $count, array $overrides = []): array
+{
+    return array_map(
+        static fn (int $number): TranslationItem => translationItem(array_replace([
+            'id' => "item:{$number}",
+            'sourceText' => "Text number {$number}",
+        ], $overrides)),
+        $count > 0 ? range(1, $count) : [],
+    );
+}
+
+/**
+ * A batch into German of public project content, by default of one item.
+ *
+ * @param  list<TranslationItem>|null  $items
+ * @param  array<array-key, string>  $glossary
+ */
+function translationBatch(
+    ?array $items = null,
+    string $targetLocale = 'de',
+    TranslationDataClassification $classification = TranslationDataClassification::PublicContent,
+    array $glossary = [],
+): TranslationBatchRequest {
+    return new TranslationBatchRequest($targetLocale, $classification, $items ?? [translationItem()], $glossary);
+}
+
+/**
+ * Routes the engine to OpenAI with the test key and the given settings
+ * replaced — so a test reads as "OpenAI, configured", whatever .env holds.
+ *
+ * @param  array<string, mixed>  $overrides  keys of translation.providers.openai
+ */
+function configureOpenAiTranslation(array $overrides = []): void
+{
+    config(['translation.default' => 'openai']);
+
+    foreach (array_replace(['api_key' => TRANSLATION_TEST_API_KEY], $overrides) as $key => $value) {
+        config(["translation.providers.openai.{$key}" => $value]);
+    }
+}
+
+/**
+ * A completed Responses API body whose assistant message carries this
+ * output_text — after a reasoning item, as real responses often are, so a
+ * parser that assumed output[0].content[0] would miss it.
+ *
+ * @param  array<string, mixed>  $overrides  top-level keys replaced or added
+ * @return array<string, mixed>
+ */
+function openAiResponseBody(string $outputText, array $overrides = []): array
+{
+    return array_replace([
+        'id' => 'resp_translation_test',
+        'object' => 'response',
+        'status' => 'completed',
+        'model' => 'gpt-6-luna-2026-09-01',
+        'output' => [
+            ['type' => 'reasoning', 'id' => 'rs_test', 'summary' => []],
+            [
+                'type' => 'message',
+                'id' => 'msg_test',
+                'status' => 'completed',
+                'role' => 'assistant',
+                'content' => [
+                    ['type' => 'output_text', 'text' => $outputText, 'annotations' => []],
+                ],
+            ],
+        ],
+        'usage' => ['input_tokens' => 120, 'output_tokens' => 30, 'total_tokens' => 150],
+    ], $overrides);
+}
+
+/**
+ * A Responses API body carrying these translations as its structured output.
+ *
+ * @param  list<array{id: string, text: string}>  $translations
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function openAiTranslationsBody(array $translations, array $overrides = []): array
+{
+    return openAiResponseBody(json_encode(['translations' => $translations], JSON_THROW_ON_ERROR), $overrides);
+}
+
+/**
+ * The translation document a recorded request sent the model, decoded.
+ *
+ * @return array{target_locale: string, glossary: array<string, string>, items: list<array<string, mixed>>}
+ */
+function sentTranslationPayload(HttpClientRequest $request): array
+{
+    return json_decode($request->data()['input'][0]['content'][0]['text'], true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * An Http::fake() responder playing OpenAI: every item a request carries comes
+ * back, by id, translated by $translate — "[de] <source text>" by default.
+ *
+ * @param  (Closure(array<string, mixed>, string): string)|null  $translate  item payload and target locale to translation
+ */
+function openAiTranslatingResponder(?Closure $translate = null): Closure
+{
+    $translate ??= static fn (array $item, string $targetLocale): string => "[{$targetLocale}] {$item['source_text']}";
+
+    return static function (HttpClientRequest $request) use ($translate) {
+        $payload = sentTranslationPayload($request);
+
+        return Http::response(openAiTranslationsBody(array_map(
+            static fn (array $item): array => ['id' => $item['id'], 'text' => $translate($item, $payload['target_locale'])],
+            $payload['items'],
+        )), 200, ['x-request-id' => 'req_translation_test']);
+    };
+}
+
+/**
+ * A provider that answers each request with whatever its script says, and
+ * records what it was sent. $respond gets the request and its 1-based call
+ * number, and returns a response or throws TranslationProviderException.
+ */
+final class ScriptedTranslationProvider implements TranslationProvider
+{
+    /** @var list<TranslationBatchRequest> */
+    public array $received = [];
+
+    /** @param  Closure(TranslationBatchRequest, int): TranslationProviderResponse  $respond */
+    public function __construct(
+        private readonly Closure $respond,
+        private readonly TranslationProviderLimits $limits = new TranslationProviderLimits(50, 60_000),
+        private readonly string $name = 'scripted',
+    ) {}
+
+    /** A provider that translates every item it is sent as "[target] source". */
+    public static function translating(?TranslationProviderLimits $limits = null, string $name = 'scripted'): self
+    {
+        return new self(
+            static fn (TranslationBatchRequest $request): TranslationProviderResponse => scriptedTranslationResponse(
+                $request,
+                array_map(
+                    static fn (TranslationItem $item): array => ['id' => $item->id, 'text' => "[{$request->targetLocale}] {$item->sourceText}"],
+                    $request->items,
+                ),
+            ),
+            $limits ?? new TranslationProviderLimits(50, 60_000),
+            $name,
+        );
+    }
+
+    public function name(): string
+    {
+        return $this->name;
+    }
+
+    public function limits(): TranslationProviderLimits
+    {
+        return $this->limits;
+    }
+
+    public function translateBatch(TranslationBatchRequest $request): TranslationProviderResponse
+    {
+        $this->received[] = $request;
+
+        return ($this->respond)($request, count($this->received));
+    }
+
+    /** @return list<int> the number of items in each request, in order */
+    public function chunkSizes(): array
+    {
+        return array_map(static fn (TranslationBatchRequest $request): int => count($request->items), $this->received);
+    }
+}
+
+/**
+ * What a scripted provider returns for a request: these translations, from
+ * one successful call carrying the request's items.
+ *
+ * @param  list<array{id: string, text: string}>  $translations
+ */
+function scriptedTranslationResponse(TranslationBatchRequest $request, array $translations): TranslationProviderResponse
+{
+    return new TranslationProviderResponse(
+        $translations,
+        TranslationProviderCall::succeeded('scripted', 'scripted-model', $request->itemIds(), 1, 'scripted-request', 200, 10, 5, 15),
+    );
+}
+
+/**
+ * Makes a scripted provider the default, registered the way any provider is —
+ * a driver class under a name in translation.providers — and accepting every
+ * data classification unless $settings says otherwise.
+ *
+ * @param  array<string, mixed>  $settings  keys of its registry entry
+ */
+function useScriptedTranslationProvider(ScriptedTranslationProvider $provider, string $name = 'scripted', array $settings = []): ScriptedTranslationProvider
+{
+    config([
+        'translation.default' => $name,
+        "translation.providers.{$name}" => array_replace([
+            'driver' => ScriptedTranslationProvider::class,
+            'allowed_classifications' => array_map(
+                static fn (TranslationDataClassification $classification): string => $classification->value,
+                TranslationDataClassification::cases(),
+            ),
+        ], $settings),
+    ]);
+
+    // A closure binding, because the router passes the registry name as a
+    // parameter and the container builds afresh, past any instance binding,
+    // whenever it is given parameters.
+    app()->bind(ScriptedTranslationProvider::class, static fn (): ScriptedTranslationProvider => $provider);
+
+    return $provider;
+}
+
+/**
+ * A provider whose every request fails with this code, as a provider call
+ * that came to nothing does — recorded, and failing its items.
+ */
+function failingTranslationProvider(TranslationErrorCode $code): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static fn (TranslationBatchRequest $request): TranslationProviderResponse => throw new TranslationProviderException(
+            $code,
+            TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $code),
+        ),
+    );
+}
+
+/**
+ * A provider that answers its requests in turn: the nth request gets the nth
+ * answer — a text for every item it carries, or a code it fails with. The
+ * last answer repeats once the list runs out.
+ *
+ * @param  list<string|TranslationErrorCode>  $answers
+ */
+function answeringTranslationProvider(array $answers): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static function (TranslationBatchRequest $request, int $call) use ($answers): TranslationProviderResponse {
+            $answer = $answers[min($call, count($answers)) - 1];
+
+            if ($answer instanceof TranslationErrorCode) {
+                throw new TranslationProviderException(
+                    $answer,
+                    TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $answer),
+                );
+            }
+
+            return scriptedTranslationResponse($request, array_map(
+                static fn (TranslationItem $item): array => ['id' => $item->id, 'text' => $answer],
+                $request->items,
+            ));
+        },
+    );
+}
+
+/**
+ * Whether a string, or any string inside an array, contains $needle. Objects
+ * are not entered: the question is what a frame's own arguments carry.
+ */
+function translationValueContains(mixed $value, string $needle): bool
+{
+    if (is_string($value)) {
+        return str_contains($value, $needle);
+    }
+
+    if (is_array($value)) {
+        foreach ($value as $key => $element) {
+            if ((is_string($key) && str_contains($key, $needle)) || translationValueContains($element, $needle)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }

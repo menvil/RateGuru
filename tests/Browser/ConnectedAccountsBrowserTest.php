@@ -33,7 +33,7 @@ it('asks before disconnecting, and cancelling keeps the provider', function (arr
     SocialAccount::factory()->for($user)->google()->create(['provider_email' => 'ivan.personal@gmail.com']);
     actingAs($user);
 
-    $page = visit(route('profile.edit'))->resize(...$screen)->wait(0.3);
+    $page = visit(route('profile.edit'))->resize(...$screen);
 
     $page->click('[data-testid="disconnect-google"]');
 
@@ -54,7 +54,7 @@ it('disconnects the provider once confirmed', function () {
     SocialAccount::factory()->for($user)->google()->create(['provider_email' => 'ivan.personal@gmail.com']);
     actingAs($user);
 
-    $page = visit(route('profile.edit'))->resize(1440, 790)->wait(0.3);
+    $page = visit(route('profile.edit'))->resize(1440, 790);
 
     $page->click('[data-testid="disconnect-google"]');
     waitForScript($page, DISCONNECT_GOOGLE_DIALOG_ON_TOP);

@@ -101,13 +101,36 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: next** — Phase 5, AI suggestions.
+**Status: in progress** — 5A, the translation engine, and 5B, interactive AI suggestions, are done; 5C, background and bulk generation, is next.
 
 In separate steps:
 
-5. **AI suggestions** — a translation provider behind an interface, Generate missing, AI translate, Regenerate,
-   Save all generated, the AI suggestion · not saved state and what the context drawer shows of a request. AI
-   output stays a draft until an administrator saves it, through the same save Translation Center uses now.
+5. **AI suggestions**, in four steps. AI output stays a draft until an administrator saves it, through the same save
+   Translation Center uses now.
+   - **5A — Translation engine. Status: done.** A reusable, provider-neutral engine in
+     `app/Support/TranslationEngine`, described in
+     [`docs/architecture/translation-engine.md`](../../architecture/translation-engine.md): one batch-only API
+     (`TranslationService::translate(TranslationBatchRequest)`), logical batches of up to 500 items cut into provider
+     requests of up to 50 items and 60,000 characters, a provider router driven by `config/translation.php`, OpenAI's
+     Responses API with strict structured output as the first provider, and every returned translation checked by id
+     and against its item's constraints. It stores nothing, queues nothing, retries nothing and has no fallback.
+     This step left Translation Center manual-only; 5B connects it.
+   - **5B — Interactive AI suggestions. Status: done.** One row at a time: AI translate on a Missing row, Suggest
+     alternative on a Saved row (the saved version stays stored until the alternative is saved) and Regenerate on
+     an AI suggestion, the AI suggestion · not saved state, an AI-aware unsaved strip, and “What AI translate sends”
+     in the context drawer. The generic engine is reused through a project adapter,
+     `ProjectTranslationRequestFactory`, which describes catalog units to it as `public_content` — English source,
+     the unit's limits, placeholders and usage, the other installed languages as context — and takes a list, so the
+     interactive suggestion is simply a batch of one. `GenerateProjectTranslationSuggestionAction` takes only the
+     unit, the language and the stored text the row shows from the browser — the text only compared, never sent —
+     finds the unit again and refuses one whose stored translation changed meanwhile. A suggestion
+     is a browser-only draft: it is never stored, the figures ignore it, and Save stays explicit, through the same
+     `UpdateProjectTranslationAction` as any edit. No background work and no persistence: a reload drops it.
+   - **5C — Background and bulk generation. Status: next.** Generate missing and Save all generated: a language's
+     missing items translated in the background, in batches through the same factory, keeping the translations a
+     partly failed batch did produce, as drafts that survive a reload.
+   - **5D — Observability, limits and provider policies.** What the engine's call metadata feeds: usage and cost
+     visibility, budgets and limits, and the retry and fallback policies the engine deliberately leaves out.
 6. **Workflow** — review states, if the product needs them.
 7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,

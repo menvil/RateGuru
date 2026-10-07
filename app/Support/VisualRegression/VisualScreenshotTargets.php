@@ -47,7 +47,10 @@ final class VisualScreenshotTargets
                 viewportHeight: 1000,
                 outputFile: 'post-drawer.png',
                 clickSelector: '[data-testid="post-card"]',
-                afterClickWaitSelector: '[data-testid="post-drawer"]',
+                // The feed renders the post twice at this width: in its detail
+                // column, and in the overlay it keeps for narrow screens, which
+                // is hidden here. The capture waits for the one on screen.
+                afterClickWaitSelector: '[data-testid="post-drawer"]:visible',
             ),
             'post-show' => new VisualScreenshotTarget(
                 name: 'post-show',

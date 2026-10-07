@@ -1120,9 +1120,10 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         ->not->toContain('mail-routing');
 
     // Its only consumers are the gateway's installer and its verifier, the
-    // mail identity judge and the read-only infrastructure verifier, which
-    // reads a target's delivery mode from the plan — each running the copy
-    // next to itself. No workflow, action, orchestrator or other installer
+    // mail identity judge, the read-only infrastructure verifier, which reads
+    // a target's delivery mode from the plan, and the signing acceptance,
+    // which reads the one held listener it may submit to — each running the
+    // copy next to itself. No workflow, action, orchestrator or other installer
     // invokes it. The one other file
     // that may name the POLICY is the prerequisite installer, which hands its
     // configuration directory's copy to the identity judge — never to this CLI.
@@ -1131,6 +1132,7 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/verify-mail-gateway',
         'infrastructure/scripts/mail-identity',
         'infrastructure/scripts/verify-infrastructure',
+        'infrastructure/scripts/verify-mail-signing',
     ];
 
     foreach (operationalFiles() as $path) {
@@ -1171,11 +1173,14 @@ it('configures no public SMTP listener anywhere in the repository', function () 
 
     // Only the gateway's own three scripts speak a mail transfer agent's
     // language; its configuration is rendered on the host, never committed.
-    // What it renders is proved loopback-only in MailGatewayTest.
+    // What it renders is proved loopback-only in MailGatewayTest. The signing
+    // acceptance reads and deletes its own one queue entry, by its exact ID,
+    // and configures nothing; MailSigningTest proves it.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
         'infrastructure/scripts/status-mail-gateway',
+        'infrastructure/scripts/verify-mail-signing',
     ];
 
     foreach (operationalFiles() as $path) {

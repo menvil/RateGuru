@@ -70,7 +70,7 @@ it('requires root for every mode, before anything else', function (string $mode)
     } finally {
         removeScratchDir($scratch);
     }
-})->with(['check', 'apply'])->skip(fn (): bool => getmyuid() === 0, 'the root gate cannot be observed as root');
+})->with(['check', 'apply'])->skip(fn (): bool => testProcessIsRoot(), 'the root gate cannot be observed as root');
 
 it('refuses a deployed target and names the operation that actually applies', function () {
     $scratch = restoreScratchDir();

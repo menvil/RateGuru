@@ -10,8 +10,8 @@
 # deployment: the installed operational bundle, the target perimeter, the
 # committed SSH restriction, the active-target Nginx/PHP-FPM/Supervisor/cron
 # configuration, the public-storage ACL, the shared staging mail capture, the
-# host-global mail gateway in front of it, and the enablement of the required
-# host services.
+# host-global DKIM signer, the host-global mail gateway in front of them, and
+# the enablement of the required host services.
 #
 # Modes (all root-only — the prerequisite gates run other root-only verifies,
 # and even the read-only inspection must see root-owned state exactly as the
@@ -27,8 +27,8 @@
 #             converges in dependency order: service-support directory,
 #             target operations bundle, perimeter, SSH restriction, PHP-FPM
 #             pool, active-target Nginx, Supervisor, scheduler cron,
-#             public-storage ACL, mail capture, mail gateway, base
-#             services — validating
+#             public-storage ACL, mail capture, mail signing, mail gateway,
+#             base services — validating
 #             every configuration family before its service is ever
 #             reloaded, and ending with the authoritative --verify report.
 #   --verify  Read-only. The authoritative install-bootstrap-services contract gate: exits 0
@@ -65,7 +65,20 @@
 #                                capture, because capture is where its staging
 #                                route delivers. Verified through its own
 #                                read-only --verify — never the mutating
-#                                `verify-mail-gateway --e2e` acceptance.
+#                                `verify-mail-gateway --e2e` acceptance;
+#   install-mail-signing         owns the host-global DKIM signer end to end
+#                                (package, rendered OpenDKIM configuration,
+#                                service, ownership marker, the signer's read
+#                                access to each reviewed key), rendered from
+#                                the reviewed signing plan and converged AFTER
+#                                mail capture and BEFORE the mail gateway,
+#                                because the gateway wires its signed
+#                                listeners to the signer only once the signer
+#                                is owned and validated. Verified through its
+#                                own read-only --verify — never the mutating
+#                                `verify-mail-signing --e2e` acceptance. With
+#                                no reviewed production signing identity it is
+#                                a no-op.
 # This installer directly owns only the service files that have committed
 # sources but no dedicated installer: the active-target Nginx site (plus its
 # enabled symlink), the PHP-FPM pool, the Supervisor queue program, the
@@ -260,6 +273,9 @@ VERIFY_MAIL_CAPTURE_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTU
 # The host-global mail gateway. Host scope only: no target owns it, so a
 # target-scoped repair or provisioning run never reports, verifies or touches it.
 MAIL_GATEWAY_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-gateway")"
+# The host-global DKIM signer the gateway's signed listeners hand their mail to.
+# Host scope only, for the same reason.
+MAIL_SIGNING_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_MAIL_SIGNING_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-signing")"
 
 # Host tools.
 SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN systemctl)"
@@ -419,7 +435,8 @@ All modes require root.
             public-storage ACL. This target's own layout is verified at the
             same scope, and the base services are checked but never started.
             Everything host-wide — the operations bundle, the sudo perimeter,
-            the SSH restriction, mail capture, the mail gateway and the
+            the SSH restriction, mail capture, the mail signer, the mail
+            gateway and the
             material their vhosts reference — is out of scope entirely: not
             reported, not verified, not touched. Without it, this installer is exactly the host
             service bootstrap it has always been.
@@ -1996,6 +2013,16 @@ report_child_contracts() {
             "shared-host-service Mailpit/Mailtrap Local (never per-target; read-only probe)" \
             "${VERIFY_MAIL_CAPTURE_BIN}" --read-only
 
+        # The signer, before the gateway, as it is converged: the gateway's
+        # signed listeners hand their mail to it.
+        if [[ "${MODE}" == check ]]; then
+            report_mail_signing_plan
+        fi
+
+        report_child_state "mail-signing:install-mail-signing" \
+            "host-global DKIM signer rendered from the reviewed signing plan (never per-target; read-only verify)" \
+            "${MAIL_SIGNING_INSTALLER_BIN}" --verify
+
         # After capture, as it is converged: capture is where the gateway's
         # staging route delivers, so the gateway is only healthy once capture
         # is. In --check the plan is asked separately, because "not installed
@@ -2007,6 +2034,24 @@ report_child_contracts() {
         report_child_state "mail-gateway:install-mail-gateway" \
             "host-global mail gateway rendered from the reviewed mail routing plan (never per-target; read-only verify)" \
             "${MAIL_GATEWAY_INSTALLER_BIN}" --verify
+    fi
+}
+
+# report_mail_signing_plan — whether --apply could converge the signer at all:
+# the reviewed identity renders, every installed key is one, and no OpenDKIM
+# RateGuru does not own is in the way. A failure is a CONFLICT in every mode.
+report_mail_signing_plan() {
+    if [[ ! -x "${MAIL_SIGNING_INSTALLER_BIN}" ]]; then
+        item CONFLICT "mail-signing:plan" "not executable: ${MAIL_SIGNING_INSTALLER_BIN}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${MAIL_SIGNING_INSTALLER_BIN}" --check >/dev/null 2>&1; then
+        item PASS "mail-signing:plan" "install-mail-signing --check: the reviewed signing plan renders and the signer can be converged"
+    else
+        item CONFLICT "mail-signing:plan" "install-mail-signing --check refuses (an invalid identity, an unusable key, or an OpenDKIM RateGuru does not own)" \
+            "run install-mail-signing --check for the reason; --apply never takes over an existing signer or re-permissions an unknown key"
     fi
 }
 
@@ -2315,7 +2360,7 @@ contract_satisfied() {
 
 run_contract_report() {
     printf 'RateGuru bootstrap services installer (%s mode)\n' "${MODE}"
-    printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture, mail gateway; directly owns the active-target service files\n'
+    printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture, mail signing, mail gateway; directly owns the active-target service files\n'
 
     if provisioning; then
         printf 'Scope: planned production target %s only — host-wide families are out of scope entirely, base services are inspected and never started, and this run never activates the target\n' "${TARGET_SCOPE}"
@@ -3123,6 +3168,25 @@ converge_mail_capture() {
         || fail "verify-mail-capture --read-only still fails after install-mail-capture --apply"
 }
 
+# converge_mail_signing — after mail capture and before the gateway: the
+# gateway wires its signed listeners to the signer, and its own verify requires
+# the signer listening. The skip probe and the confirmation are the signer's
+# read-only --verify; the mutating `verify-mail-signing --e2e` acceptance is an
+# operator action, never part of convergence.
+converge_mail_signing() {
+    if "${MAIL_SIGNING_INSTALLER_BIN}" --verify >/dev/null 2>&1; then
+        action "child:mail-signing already compliant (install-mail-signing --verify passes) — skipped, no service restarted"
+        return 0
+    fi
+
+    action "child:install-mail-signing --apply (host-global; owns the package, the rendered OpenDKIM configuration, the service, its ownership marker and the signer's read access to each reviewed key)"
+    "${MAIL_SIGNING_INSTALLER_BIN}" --apply \
+        || fail "install-mail-signing --apply failed — aborting before any later component (its own transaction restored its configuration, key metadata and service state)"
+
+    "${MAIL_SIGNING_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
+        || fail "install-mail-signing --verify still fails after install-mail-signing --apply"
+}
+
 # converge_mail_gateway — after mail capture, never before it: the gateway's
 # own apply verifies that every capture destination is listening, and it is
 # not healthy until it is. The skip probe and the confirmation are its
@@ -3140,6 +3204,19 @@ converge_mail_gateway() {
 
     "${MAIL_GATEWAY_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
         || fail "install-mail-gateway --verify still fails after install-mail-gateway --apply"
+}
+
+# apply_gate_mail_signing — host scope, before the first mutation: an identity
+# that does not render, an installed key that is not one, or an OpenDKIM
+# RateGuru does not own would stop the run near its end; it stops it here.
+apply_gate_mail_signing() {
+    target_scoped && return 0
+
+    [[ -x "${MAIL_SIGNING_INSTALLER_BIN}" ]] \
+        || fail "install-mail-signing is not executable: ${MAIL_SIGNING_INSTALLER_BIN} — run from a full repository checkout"
+
+    "${MAIL_SIGNING_INSTALLER_BIN}" --check >/dev/null 2>&1 \
+        || fail "install-mail-signing --check refuses (run it for the reason) — nothing was changed"
 }
 
 # apply_gate_mail_gateway — host scope, before the first mutation: a routing
@@ -3288,7 +3365,9 @@ perform_apply() {
     # committed vhosts being activated reference them.
     gate_external_prerequisites
 
-    # 4b. The mail gateway's plan and ownership, for the same reason.
+    # 4b. The mail signer's and the mail gateway's plans and ownership, for the
+    # same reason.
+    apply_gate_mail_signing
     apply_gate_mail_gateway
 
     # Destination safety.
@@ -3375,13 +3454,14 @@ perform_apply() {
         converge_deployment_marker "${target_id}"
     done
 
-    # 14-15. Shared mail capture, the mail gateway in front of it, and base
-    # service enablement. Host-wide, and for the same reason: mail capture and
-    # the gateway are shared by every target, and
+    # 14-15. Shared mail capture, the mail signer, the mail gateway in front of
+    # them, and base service enablement. Host-wide, and for the same reason:
+    # mail capture, the signer and the gateway are shared by every target, and
     # enabling PostgreSQL or Redis is a host decision. A target-scoped run
     # verifies them as prerequisites and changes neither.
     if ! target_scoped; then
         converge_mail_capture
+        converge_mail_signing
         converge_mail_gateway
 
         ensure_service_enabled_active postgresql
