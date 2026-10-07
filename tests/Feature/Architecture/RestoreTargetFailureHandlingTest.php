@@ -120,6 +120,44 @@ it('keeps the guard in place, and says so, when a held restore cannot re-label i
         expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
         expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
         expect(restoreTargetHistory($scratch)[0])->toMatchArray(['status' => 'held']);
+
+        // Continuing starts with --inspect, which refuses an in-progress guard.
+        // So the report does not just say "continue": it says what has to be
+        // done first, and gives the one command that does it.
+        $relabel = sprintf(
+            "jq '.status = \"held\"' %1\$s > %1\$s.tmp && chmod 0600 %1\$s.tmp && mv %1\$s.tmp %1\$s",
+            restoreGuardFile($scratch),
+        );
+
+        expect($result['output'])
+            ->toContain('ACTION REQUIRED FIRST: the restore guard still reads in-progress.')
+            ->toContain($relabel);
+        expect(mb_strpos($result['output'], 'ACTION REQUIRED FIRST'))
+            ->toBeLessThan(mb_strpos($result['output'], 'mode=continue-held'));
+
+        $inspect = fn (): array => restoreTargetRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+
+        // Until then, --inspect refuses with the same diagnosis and the same fix.
+        $refused = $inspect();
+        expect($refused['exit'])->not->toBe(0, $refused['output']);
+        expect($refused['output'])
+            ->toContain("re-labelling it to 'held' failed at the end of that run")
+            ->toContain($relabel);
+
+        // The cause goes away, the operator runs the command as printed, and
+        // the operation continues like any other held one.
+        rmdir(restoreGuardFile($scratch).'.tmp');
+        exec($relabel.' 2>&1', $relabelOutput, $relabelExit);
+        expect($relabelExit)->toBe(0, implode("\n", $relabelOutput));
+        expect(json_decode(File::get(restoreGuardFile($scratch)), true))->toMatchArray([
+            'operation' => $operation,
+            'status' => 'held',
+            'required_source_sha' => FIXTURE_SOURCE_SHA,
+        ]);
+
+        $continued = $inspect();
+        expect($continued['exit'])->toBe(0, $continued['output']);
+        expect($continued['output'])->toContain('RATEGURU_RESTORE_RESULT=');
     } finally {
         removeScratchDir($scratch);
     }
