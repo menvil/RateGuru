@@ -3,6 +3,8 @@
 use App\Enums\CommentStatus;
 use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
+use App\Filament\Resources\Comments\Pages\ListComments;
+use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
@@ -10,6 +12,7 @@ use App\Filament\Widgets\SuspiciousUsersWidget;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use Filament\Widgets\StatsOverviewWidget\Stat;
 use Livewire\Livewire;
 
 it('allows admin to access moderation dashboard', function () {
@@ -124,4 +127,49 @@ it('shows suspicious users count on moderation dashboard', function () {
     Livewire::actingAs($admin)
         ->test(SuspiciousUsersWidget::class)
         ->assertSeeInOrder(['Suspicious users', '3']);
+});
+
+/**
+ * The query string of the link a stat widget's only card points at.
+ *
+ * @param  class-string  $widget
+ * @return array<string, mixed>
+ */
+function moderationWidgetLinkQuery(string $widget): array
+{
+    /** @var list<Stat> $stats */
+    $stats = (fn (): array => $this->getStats())->call(Livewire::test($widget)->instance());
+
+    parse_str((string) parse_url((string) $stats[0]->getUrl(), PHP_URL_QUERY), $query);
+
+    return $query;
+}
+
+it('opens each moderation widget\'s list on exactly the records the widget counts', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    $pending = Post::factory()->pending()->create();
+    $reported = Post::factory()->published()->create(['reports_count' => 2]);
+    // Flagged once, and its reports dismissed since: still counted.
+    $flagged = Post::factory()->published()->create(['reports_count' => 0, 'needs_review' => true]);
+    $clean = Post::factory()->published()->create(['reports_count' => 0]);
+
+    $reportedComment = Comment::factory()->create(['reports_count' => 3, 'status' => CommentStatus::Visible]);
+    $cleanComment = Comment::factory()->create(['reports_count' => 0, 'status' => CommentStatus::Visible]);
+
+    Livewire::withQueryParams(moderationWidgetLinkQuery(PendingPostsWidget::class))
+        ->test(ListPosts::class)
+        ->assertCanSeeTableRecords([$pending])
+        ->assertCanNotSeeTableRecords([$reported, $flagged, $clean]);
+
+    Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedPostsWidget::class))
+        ->test(ListPosts::class)
+        ->assertCanSeeTableRecords([$reported, $flagged])
+        ->assertCanNotSeeTableRecords([$pending, $clean]);
+
+    Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))
+        ->test(ListComments::class)
+        ->assertCanSeeTableRecords([$reportedComment])
+        ->assertCanNotSeeTableRecords([$cleanComment]);
 });
