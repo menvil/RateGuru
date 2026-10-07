@@ -1942,13 +1942,24 @@ Slices, in order:
    wires only the signed listeners — `tits-guru`'s held `127.0.0.1:2526`, never
    the staging capture listener — with milter protocol 6 and `tempfail`, so a
    signed target's mail is deferred rather than accepted unsigned; held mail is
-   signed and still held. `scripts/verify-mail-signing` proves it:
+   signed and still held. Because the signer signs by the `From` header and the
+   listener authorizes only the envelope sender, each signed listener also gets
+   its own cleanup service whose `header_checks` are the target's From policy
+   (`/etc/postfix/rateguru-from-<target>.regexp`, rendered from the plan's
+   allowed domain, installed, verified with `postmap` and retired in the
+   gateway's transaction): exactly one `From` address in the reviewed domain, or
+   `550 5.7.1` before queueing; a missing `From` is added from the envelope
+   sender, which on a signed listener may not be empty; and OpenDKIM refuses two
+   `From` fields, malformed mail and signing errors (`RequiredHeaders`,
+   `IgnoreMalformedMail no`, `On-SignatureError reject`). `scripts/verify-mail-signing` proves it:
    `--read-only` composes the plan, the signer's and the gateway's verifies,
    and is what `mail-identity readiness` now asks for its signing condition
    (the hard-coded signing FAIL is gone); `--e2e` refuses unless the target is
-   held with no route, submits exactly one synthetic message, requires its
-   exact queue entry in HOLD with exactly one `DKIM-Signature` of the target's
-   `d=`, `s=` and `a=`, and deletes that entry, flushing and releasing nothing.
+   held with no route, first requires a message with a foreign `From` to be
+   refused and never queued (`foreign_from_rejected`), then submits exactly one
+   synthetic message, requires its exact queue entry in HOLD with exactly one
+   `DKIM-Signature` of the target's `d=`, `s=` and `a=`, and deletes that entry,
+   flushing and releasing nothing.
    The new workflow **Verify production mail signing** (`main` only,
    `production-tits-guru`, the shared host's concurrency domain, no inputs)
    runs it on the host. Rehearsed end to end on a real Ubuntu 22.04 host with

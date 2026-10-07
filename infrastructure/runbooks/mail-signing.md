@@ -9,6 +9,15 @@ gateway the signer sits behind is [`mail-gateway.md`](mail-gateway.md).
 Signing is not delivery. A signed message on a held listener is still held:
 nothing here routes, releases or sends any mail.
 
+**A signed listener never accepts mail unsigned.** The signer signs by the
+`From` header, the listener authorizes by the envelope sender, so the gateway
+refuses — before the message is queued — any `From` that is not exactly one
+address in the target's reviewed domain (its From policy, see
+[`mail-gateway.md`](mail-gateway.md#signing-held-mail-is-signed-and-still-held)),
+adds a missing `From` from the envelope sender, and refuses an empty envelope
+sender on that listener; the signer refuses two `From` fields, malformed mail
+and a signing error; and when the signer is down the listener defers.
+
 ## Status
 
 | What | State |
@@ -55,6 +64,13 @@ own `opendkim.service`, owned end to end by
   setting or option moves it.
 - **Never as root.** The daemon runs as the package's `opendkim` account and
   refuses a key anybody else could read (`RequireSafeKeys`).
+- **Fail closed.** `RequiredHeaders yes` refuses a message that breaks RFC
+  5322's header counts — two `From` fields, say; `IgnoreMalformedMail no`
+  never passes malformed mail on unsigned; `On-SignatureError reject` refuses a
+  message it failed to sign. A message with no `From` at all is the gateway's to
+  prevent: OpenDKIM, which signs by `From`, would pass it unsigned ("can't
+  determine message sender; accepting"), so the gateway adds one from the
+  envelope sender first.
 - **`rsa-sha256`**, the one algorithm the identity contract admits.
 
 The managed files, `root:root 0644`, byte-for-byte functions of the plan:
@@ -195,19 +211,25 @@ and its workflow, **Verify production mail signing** (`main` only, the
 1. refuses — before any SMTP connection — unless the target's mail is `held`
    with no route, so its message can go nowhere but the hold queue;
 2. proves the read-only contract above, and submits nothing if it fails;
-3. submits exactly one synthetic message, from the target's reviewed sender, to
-   a recipient under the reserved `.invalid` domain, through the target's own
-   loopback listener;
-4. takes the exact queue ID from the gateway's reply, and requires that entry
+3. **the negative probe:** submits a message from the target's reviewed
+   envelope sender whose `From` is `Intruder <intruder@foreign.invalid>`, to a
+   unique recipient under `.invalid`, and requires a permanent (5xx) refusal at
+   the end of its data — no queue ID — and nothing addressed to that recipient
+   in any queue. Accepted, deferred or found queued is a FAIL;
+4. **the positive probe:** submits exactly one synthetic message, from the
+   target's reviewed sender with its `From` in the target's domain, to another
+   unique `.invalid` recipient, through the target's own loopback listener;
+5. takes the exact queue ID from the gateway's reply, and requires that entry
    in **HOLD**;
-5. reads only that entry's headers, and requires exactly one `DKIM-Signature`
+6. reads only that entry's headers, and requires exactly one `DKIM-Signature`
    with the target's domain (`d=`), selector (`s=`) and algorithm (`a=`), a
    body hash and a signature, over at least `From`;
-6. still held, deletes that exact entry, and requires it gone.
+7. still held, deletes that exact entry, and requires it gone.
 
 It never flushes, empties or releases the queue, never connects anywhere but the
 target's listener, prints no message and no signature value, and removes its
-own entry — by its exact ID, or by its unique recipient — on every exit. It
+own entries — by their exact IDs, or by their unique recipients — on every
+exit. Its result line carries `foreign_from_rejected`, and a pass requires it. It
 proves the signature's shape and identity; cryptographic verification by
 receiving servers is the activation canary's to prove, against the public DKIM
 record `verify-dns` already checks.
@@ -217,12 +239,31 @@ Expected result:
 ```
 PASS tits-guru is signed as d=tits.guru s=rg1 a=rsa-sha256
 PASS the signer / the gateway's wiring
+PASS a message from noreply@tits.guru with a From outside tits.guru was refused before it was queued (550 5.7.1), and nothing of it is in the queue
 PASS Postfix queued the probe as <ID>
 PASS queue entry <ID> is in the HOLD queue
 PASS the probe carries exactly one DKIM-Signature: d=tits.guru s=rg1 a=rsa-sha256
 PASS queue entry <ID> stayed held until it was deleted, and is gone
 SIGNING E2E: PASS
 ```
+
+## Rehearsed on a real host
+
+The shipped scripts were run end to end in an Ubuntu 22.04 systemd container
+with the real `opendkim` 2.11.0~beta2-6 and Postfix 3.6.4 packages:
+
+| Probe on the held listener 2526 | Result |
+|---|---|
+| `opendkim -n` on the rendered configuration (with the three fail-closed directives) | accepted |
+| `MAIL FROM:<noreply@tits.guru>`, `From: Intruder <intruder@foreign.invalid>` | `550 5.7.1`, nothing queued |
+| a list containing a `tits.guru` address, a subdomain | `550 5.7.1` |
+| `From: "RateGuru" <noreply@tits.guru>`, an encoded-word name | signed `d=tits.guru s=rg1 a=rsa-sha256`, held |
+| no `From` | `From: noreply@tits.guru` added, signed, held |
+| two `From` fields | `550 5.0.0` (RequiredHeaders) |
+| `MAIL FROM:<>` | `554 5.7.1` |
+| OpenDKIM stopped | `451 4.7.1`, nothing queued |
+| `verify-mail-signing --e2e --target tits-guru` | PASS, `foreign_from_rejected: true`, queue empty afterwards |
+| staging listener 2525 with a foreign `From` | accepted unsigned and routed to capture, as before |
 
 ## Rollout after merge
 

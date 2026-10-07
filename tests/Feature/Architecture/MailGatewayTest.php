@@ -76,7 +76,7 @@ function mailGatewayCommittedSigningPlan(): string
  * and the signer's milter endpoint (the one install-mail-signing prints) in,
  * main.cf and master.cf out.
  *
- * @return array{status: int, output: string, main: string, master: string}
+ * @return array{status: int, output: string, main: string, master: string, policies: array<string, string>}
  */
 function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbound = null, ?string $signing = null, ?string $milter = null): array
 {
@@ -91,11 +91,17 @@ function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbo
         .escapeshellarg($milter ?? trim((string) shell_exec('bash '.escapeshellarg(mailGatewayScript('install-mail-signing')).' --milter-endpoint'))).' '
         .escapeshellarg($out)).' 2>&1', $output, $status);
 
+    $policies = [];
+    foreach (glob($out.'/rateguru-from-*.regexp') ?: [] as $policy) {
+        $policies[basename($policy)] = (string) file_get_contents($policy);
+    }
+
     return [
         'status' => $status,
         'output' => implode("\n", $output),
         'main' => is_file($out.'/main.cf') ? (string) file_get_contents($out.'/main.cf') : '',
         'master' => is_file($out.'/master.cf') ? (string) file_get_contents($out.'/master.cf') : '',
+        'policies' => $policies,
     ];
 }
 
@@ -104,7 +110,7 @@ function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbo
  * plan (the committed ones when null).
  *
  * @param  array<string, mixed>|null  $signing
- * @return array{main: string, master: string, plan: array<string, mixed>}
+ * @return array{main: string, master: string, policies: array<string, string>, plan: array<string, mixed>}
  */
 function mailGatewayRender(?array $policy = null, ?array $registry = null, ?array $outbound = null, ?array $signing = null, ?string $milter = null): array
 {
@@ -135,6 +141,7 @@ function mailGatewayRender(?array $policy = null, ?array $registry = null, ?arra
         return [
             'main' => $render['main'],
             'master' => $render['master'],
+            'policies' => $render['policies'],
             'plan' => json_decode((string) file_get_contents($plan), true, 512, JSON_THROW_ON_ERROR),
         ];
     } finally {
@@ -423,6 +430,25 @@ function mailGatewayHost(array $options = []): array
             [[ -e "${STUB_TOGGLES}/postfix-check-fail" ]] && { echo "postfix: fatal: simulated" >&2; exit 1; }
             exit 0
             STUB,
+        // A regexp-table lookup the way postmap -q answers one: the result of
+        // the first pattern that matches, case-insensitive unless the pattern
+        // carries the i flag. A test double, not Postfix.
+        'postmap' => <<<'STUB'
+            #!/bin/bash
+            [[ "$1" == -c ]] && shift 2
+            [[ "$1" == -q && "${3:-}" == regexp:* ]] || exit 64
+            key="$2"; table="${3#regexp:}"
+            [[ -f "${table}" ]] || { echo "postmap: fatal: open ${table}: No such file or directory" >&2; exit 1; }
+            while IFS= read -r line; do
+                [[ -z "${line}" || "${line}" == \#* ]] && continue
+                delim="${line:0:1}"; rest="${line:1}"
+                pattern="${rest%%"${delim}"*}"; after="${rest#*"${delim}"}"
+                flags="${after%% *}"; result="${after#* }"
+                if [[ "${flags}" == *i* ]]; then shopt -u nocasematch; else shopt -s nocasematch; fi
+                if [[ "${key}" =~ ${pattern} ]]; then printf '%s\n' "${result}"; exit 0; fi
+            done < "${table}"
+            exit 1
+            STUB,
     ];
 
     foreach ($stubs as $name => $body) {
@@ -447,6 +473,7 @@ function mailGatewayHost(array $options = []): array
         'RATEGURU_MAILGW_DEBCONF_SET_SELECTIONS_BIN' => $scratch.'/bin/debconf-set-selections',
         'RATEGURU_MAILGW_POSTCONF_BIN' => $scratch.'/bin/postconf',
         'RATEGURU_MAILGW_POSTFIX_BIN' => $scratch.'/bin/postfix',
+        'RATEGURU_MAILGW_POSTMAP_BIN' => $scratch.'/bin/postmap',
         'RATEGURU_MAILGW_SS_BIN' => $scratch.'/bin/ss',
         'STUB_STATE' => $state,
         'STUB_LOG' => $scratch.'/log',
@@ -586,12 +613,25 @@ it('renders the committed plan into exactly the reviewed listeners and routes', 
         'smtpd_milters' => 'inet:127.0.0.1:8891',
         'milter_protocol' => '6',
         'milter_default_action' => 'tempfail',
+        'cleanup_service_name' => 'rateguru-cleanup-tits-guru',
     ]);
 
-    // Each listener's sender authorization: exactly its own domain, or empty.
+    // Its own cleanup service, whose header checks are its From policy.
+    $cleanup = $services->firstWhere('name', 'rateguru-cleanup-tits-guru');
+    expect([$cleanup['type'], $cleanup['command']])->toBe(['unix', 'cleanup']);
+    expect($cleanup['options'])->toBe([
+        'syslog_name' => 'postfix/rateguru-cleanup-tits-guru',
+        'header_checks' => 'regexp:/etc/postfix/rateguru-from-tits-guru.regexp',
+        'nested_header_checks' => '',
+        'always_add_missing_headers' => 'yes',
+    ]);
+    expect(array_keys($render['policies']))->toBe(['rateguru-from-tits-guru.regexp']);
+
+    // Each listener's sender authorization: exactly its own domain — or empty,
+    // except on a signed listener, whose author must be in its domain.
     $main = mailGatewayMainParameters($render['main']);
     expect($main['rateguru_staging_main_sender_restrictions'])->toBe('check_sender_access inline:{ staging.invalid=OK, <>=OK }, reject');
-    expect($main['rateguru_tits_guru_sender_restrictions'])->toBe('check_sender_access inline:{ tits.guru=OK, <>=OK }, reject');
+    expect($main['rateguru_tits_guru_sender_restrictions'])->toBe('check_sender_access inline:{ tits.guru=OK }, reject');
 });
 
 it('follows whatever plan it is given, never a table of its own', function () {
@@ -914,9 +954,23 @@ it('selects a route by listener only, never by sender or recipient', function ()
     expect($render['main'].$render['master'])
         ->not->toContain('FILTER')
         ->not->toContain('check_recipient_access')
-        ->not->toContain('header_checks')
         ->not->toContain('recipient_bcc_maps')
         ->not->toContain('virtual_alias_maps');
+
+    // Header checks exist only as a signed target's From policy, in its own
+    // cleanup service, and only accept or refuse: none of them routes.
+    expect($render['main'])->not->toContain('header_checks');
+    expect(substr_count($render['master'], 'header_checks=regexp:'))->toBe(1);
+    foreach ($render['policies'] as $policy) {
+        foreach (preg_split('/\R/', $policy) as $line) {
+            if ($line !== '' && ! str_starts_with($line, '#')) {
+                expect($line)->toMatch('#^/.*/ (DUNNO|REJECT 5\.7\.1 .*)$#');
+            }
+        }
+        foreach (['FILTER', 'HOLD', 'REDIRECT', 'PREPEND', 'REPLACE', 'DISCARD', 'BCC', 'OK'] as $action) {
+            expect(preg_match('#/ '.$action.'\b#', $policy))->toBe(0, "a From policy uses {$action}");
+        }
+    }
 
     // The content filter is set per listener in master.cf, never globally.
     foreach (mailGatewayMasterServices($render['master']) as $service) {
@@ -966,7 +1020,11 @@ it('authorizes each listener\'s senders by exact domain, refused at MAIL FROM', 
 
         expect($service['options']['smtpd_sender_restrictions'])->toBe('$'.$parameter);
         expect($service['options']['smtpd_delay_reject'])->toBe('no');
-        expect($main[$parameter])->toBe("check_sender_access inline:{ {$listener['sender']['allowed_domain']}=OK, <>=OK }, reject");
+
+        // A signed listener's mail needs an author in its own domain, so it
+        // admits no empty sender; every other listener does.
+        $empty = $listener['identity'] === 'tits-guru' ? '' : ', <>=OK';
+        expect($main[$parameter])->toBe("check_sender_access inline:{ {$listener['sender']['allowed_domain']}=OK{$empty} }, reject");
     }
 });
 
@@ -1018,8 +1076,9 @@ it('installs the package safely on a host that has none, and only then activates
         expect($verify)->toBe(0, $report);
         expect($report)
             ->toContain('PASS     outbound:direct — direct delivery disabled on this host (mail-outbound.json); 0 outbound route(s) in the plan, and none could be rendered')
-            ->toContain('PASS     signing — listeners of tits-guru hand their mail to the signer at inet:127.0.0.1:8891 (install-mail-signing --milter-endpoint), deferred when it cannot sign; no other listener is signed')
-            ->toContain('SUMMARY  pass=9 missing=0 drift=0 conflict=0 deferred=0');
+            ->toContain('PASS     signing — listeners of tits-guru hand their mail to the signer at inet:127.0.0.1:8891 (install-mail-signing --milter-endpoint), deferred when it cannot sign, each through its own cleanup service and From policy; no other listener is signed')
+            ->toContain('PASS     file:/etc/postfix/rateguru-from-tits-guru.regexp — matches the current render')
+            ->toContain('SUMMARY  pass=10 missing=0 drift=0 conflict=0 deferred=0');
     } finally {
         mailGatewayCleanup($host);
     }
@@ -1305,11 +1364,13 @@ it('renders the real committed policy byte for byte as the gateway the staging h
     // The configuration the real staging host runs. A plan with no outbound
     // target must render exactly this, or the host drifts and its read-only
     // verification fails until it is reconverged: a change here is a host
-    // change, and has to be deliberate. main.cf is byte for byte the one the
-    // staging host was accepted with; master.cf differs from it only in
-    // tits-guru's held listener handing its mail to the DKIM signer.
-    expect(hash('sha256', $render['main']))->toBe('69997052d869d451ee44815f714fdb92e47c90e791fc39306a6b2e55b64448ba');
-    expect(hash('sha256', $render['master']))->toBe('c39097b4300bbdb451e5fbe254bd810a1fed6295de2d374f1ef55c783a4c7358');
+    // change, and has to be deliberate. It differs from the configuration the
+    // staging host was accepted with only in what signs tits-guru's held mail:
+    // its listener's milter, its own cleanup service and From policy, and no
+    // empty sender on it — see the test below.
+    expect(hash('sha256', $render['main']))->toBe('3a20fbed9aec5bfc6353529aa34c90842c0f1e1bb20197127ca2e42bc1c6bc71');
+    expect(hash('sha256', $render['master']))->toBe('79d52c357f8fdda66e34047e8e504da624a4403eca2acd70793a84b6aa662e91');
+    expect(hash('sha256', $render['policies']['rateguru-from-tits-guru.regexp']))->toBe('9eef170db8b201fa8a026d4a49c7280fef2e71dab8ddc646627de4e4581c691e');
 
     // No outbound transport, no MTA identity, no filter next-hop setting, and
     // the only smtp client is the staging capture transport.
@@ -1344,6 +1405,7 @@ function mailGatewayContractProblems(array $host, string $dir, string $plan, ?st
         .' SIGNING_FILE='.escapeshellarg($signing ?? mailGatewayCommittedSigningPlan())
         .' MILTER_ENDPOINT=inet:127.0.0.1:8891'
         .' POSTCONF_BIN='.escapeshellarg($host['scratch'].'/bin/postconf')
+        .' POSTMAP_BIN='.escapeshellarg($host['scratch'].'/bin/postmap')
         .' EFFECTIVE_UID=1000'
         .' && postfix_contract_problems '.escapeshellarg($dir);
 
@@ -1364,7 +1426,11 @@ it('renders exactly the gateway the staging host accepted when nothing is signed
     expect(hash('sha256', $render['master']))->toBe('2f7aea126dbd670889ca7599887d19794c78cd975a53c66d843e916bfe666f34');
     expect($render['master'])->not->toContain('milter')->not->toContain('signer');
 
-    // And the signed render differs from it in tits-guru's listener alone.
+    expect($render['policies'])->toBe([]);
+
+    // And the signed render differs from it in tits-guru's signing alone: its
+    // listener's milter and cleanup service, that service with the From
+    // policy, and no empty sender on its listener.
     $signed = mailGatewayRender();
     $removed = array_values(array_diff(explode("\n", $render['master']), explode("\n", $signed['master'])));
     $added = array_values(array_diff(explode("\n", $signed['master']), explode("\n", $render['master'])));
@@ -1376,6 +1442,23 @@ it('renders exactly the gateway the staging host accepted when nothing is signed
         '  -o smtpd_milters=inet:127.0.0.1:8891',
         '  -o milter_protocol=6',
         '  -o milter_default_action=tempfail',
+        '  -o cleanup_service_name=rateguru-cleanup-tits-guru',
+        "# --- signed listeners' cleanup: each target's own From policy. A message",
+        "# whose From is not exactly one address in its target's domain is refused",
+        '# before it is queued. Nothing here routes.',
+        'rateguru-cleanup-tits-guru unix  n       -       n       -       0       cleanup',
+        '  -o syslog_name=postfix/rateguru-cleanup-tits-guru',
+        '  -o header_checks=regexp:/etc/postfix/rateguru-from-tits-guru.regexp',
+        '  -o nested_header_checks=',
+        '  -o always_add_missing_headers=yes',
+    ]);
+
+    expect(array_values(array_diff(explode("\n", $render['main']), explode("\n", $signed['main']))))
+        ->toBe(['rateguru_tits_guru_sender_restrictions = check_sender_access inline:{ tits.guru=OK, <>=OK }, reject']);
+    expect(array_values(array_diff(explode("\n", $signed['main']), explode("\n", $render['main']))))->toBe([
+        '# A signed listener admits no empty sender: a message without an author',
+        '# in its own domain could never be signed.',
+        'rateguru_tits_guru_sender_restrictions = check_sender_access inline:{ tits.guru=OK }, reject',
     ]);
 });
 
@@ -1449,11 +1532,18 @@ it('reads the signing wiring back through Postfix, and refuses every way it coul
 
         file_put_contents($dir.'/main.cf', $render['main']);
         file_put_contents($dir.'/master.cf', $render['master']);
+        foreach ($render['policies'] as $name => $policy) {
+            file_put_contents("{$dir}/{$name}", $policy);
+        }
         expect(mailGatewayContractProblems($host, $dir, $host['scratch'].'/plan.json'))->toBe('', 'the untouched render must read back clean');
 
-        $original = $file === 'main' ? $render['main'] : $render['master'];
+        [$original, $path] = match ($file) {
+            'main' => [$render['main'], $dir.'/main.cf'],
+            'master' => [$render['master'], $dir.'/master.cf'],
+            'policy' => [$render['policies']['rateguru-from-tits-guru.regexp'], $dir.'/rateguru-from-tits-guru.regexp'],
+        };
         expect(substr_count($original, $from))->toBe(1, "the tamper anchor is not unique: {$from}");
-        file_put_contents($dir."/{$file}.cf", str_replace($from, $to, $original));
+        file_put_contents($path, str_replace($from, $to, $original));
 
         expect(mailGatewayContractProblems($host, $dir, $host['scratch'].'/plan.json'))->toContain($problem);
     } finally {
@@ -1468,7 +1558,223 @@ it('reads the signing wiring back through Postfix, and refuses every way it coul
     'the capture listener signed too' => ['master', "  -o content_filter=rateguru-capture-staging-main:[127.0.0.1]:1025\n", "  -o content_filter=rateguru-capture-staging-main:[127.0.0.1]:1025\n  -o smtpd_milters=inet:127.0.0.1:8891\n", 'staging-main (127.0.0.1:2525) is not signed but hands its mail to the milter "inet:127.0.0.1:8891"'],
     'a global milter' => ['main', "disable_vrfy_command = yes\n", "disable_vrfy_command = yes\nsmtpd_milters = inet:127.0.0.1:8891\n", 'smtpd_milters is "inet:127.0.0.1:8891", not empty — the signer is wired per listener, never globally'],
     'locally submitted mail signed' => ['main', "disable_vrfy_command = yes\n", "disable_vrfy_command = yes\nnon_smtpd_milters = inet:127.0.0.1:8891\n", 'non_smtpd_milters is "inet:127.0.0.1:8891", not empty'],
+    'the cleanup service missing' => ['master', "rateguru-cleanup-tits-guru unix  n       -       n       -       0       cleanup\n  -o syslog_name=postfix/rateguru-cleanup-tits-guru\n  -o header_checks=regexp:/etc/postfix/rateguru-from-tits-guru.regexp\n  -o nested_header_checks=\n  -o always_add_missing_headers=yes\n", '', 'tits-guru has 0 cleanup services named rateguru-cleanup-tits-guru, not exactly one'],
+    'the listener on the shared cleanup' => ['master', '  -o cleanup_service_name=rateguru-cleanup-tits-guru', '  -o cleanup_service_name=cleanup', 'tits-guru (127.0.0.1:2526) is signed but uses the cleanup service "cleanup", not its own rateguru-cleanup-tits-guru'],
+    'another From policy file' => ['master', 'header_checks=regexp:/etc/postfix/rateguru-from-tits-guru.regexp', 'header_checks=regexp:/etc/postfix/other.regexp', 'rateguru-cleanup-tits-guru has header_checks "regexp:/etc/postfix/other.regexp", not its own From policy'],
+    'no missing From added' => ['master', '  -o always_add_missing_headers=yes', '  -o always_add_missing_headers=no', 'has always_add_missing_headers "no", not yes'],
+    'header checks on attached messages' => ['master', '  -o nested_header_checks=', '  -o nested_header_checks=regexp:/etc/postfix/rateguru-from-tits-guru.regexp', 'has nested_header_checks "regexp:/etc/postfix/rateguru-from-tits-guru.regexp", not empty'],
+    'staging given the production cleanup' => ['master', "  -o content_filter=rateguru-capture-staging-main:[127.0.0.1]:1025\n", "  -o content_filter=rateguru-capture-staging-main:[127.0.0.1]:1025\n  -o cleanup_service_name=rateguru-cleanup-tits-guru\n", 'staging-main (127.0.0.1:2525) is not signed but uses the cleanup service "rateguru-cleanup-tits-guru"'],
+    'a global header check' => ['main', "disable_vrfy_command = yes\n", "disable_vrfy_command = yes\nheader_checks = regexp:/etc/postfix/rateguru-from-tits-guru.regexp\n", 'header_checks is "regexp:/etc/postfix/rateguru-from-tits-guru.regexp", not empty'],
+    'an empty sender on the signed listener' => ['main', 'inline:{ tits.guru=OK }', 'inline:{ tits.guru=OK, <>=OK }', 'tits-guru (127.0.0.1:2526) is signed but admits an empty sender'],
+    'a policy admitting any From' => ['policy', '/^From:/ REJECT', '/^From:/ DUNNO', 'tits-guru From policy admits "From: intruder@foreign.invalid"'],
+    'a policy admitting another domain' => ['policy', "\n/^From:/ REJECT", "\n/^From:[[:space:]]*[[:alnum:]._%+-]+@foreign\\.invalid[[:space:]]*$/ DUNNO\n/^From:/ REJECT", 'tits-guru From policy admits "From: intruder@foreign.invalid" (DUNNO)'],
+    'a policy matching a substring' => ['policy', '/^From:[[:space:]]*[[:alnum:]._%+-]+@tits\\.guru[[:space:]]*$/ DUNNO', '/@tits\\.guru/ DUNNO', 'tits-guru From policy admits "From: noreply@tits.guru, intruder@foreign.invalid"'],
 ]);
+
+/**
+ * What a From policy answers for HEADER, read the way Postfix reads a regexp
+ * table — the first matching pattern's result, case-insensitive unless the
+ * pattern carries the i flag — but through PCRE, a witness independent of the
+ * renderer and of the postmap test double.
+ */
+function mailGatewayFromPolicyVerdict(string $policy, string $header): ?string
+{
+    foreach (preg_split('/\R/', $policy) as $line) {
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+
+        expect(preg_match('#^/(.*)/([a-z]*) (.+)$#', $line, $matches))->toBe(1, "not a regexp table line: {$line}");
+        $flags = str_contains($matches[2], 'i') ? 'D' : 'Di';
+
+        if (preg_match('/'.str_replace('/', '\/', $matches[1]).'/'.$flags, $header) === 1) {
+            return $matches[3];
+        }
+    }
+
+    return null;
+}
+
+it('gives each signed target its own cleanup service and From policy, from the domain the plan reviews', function () {
+    $policy = mailGatewayDemoShopPolicy();
+    $policy['targets']['demo-shop'] = mailRoutingDemoShopOutboundPolicy();
+    $registry = mailRoutingDemoShopRegistry();
+    $render = mailGatewayRender($policy, $registry, mailGatewayOutboundContract(), mailGatewaySigningPlanFor($policy, $registry, mailGatewayOutboundContract(), mailGatewayIdentityWithDemoShop()));
+    $services = collect(mailGatewayMasterServices($render['master']));
+
+    foreach (['tits-guru' => ['127.0.0.1:2526', 'tits.guru'], 'demo-shop' => ['127.0.0.1:2599', 'demo-shop.example']] as $target => [$endpoint, $domain]) {
+        expect($services->firstWhere('name', $endpoint)['options']['cleanup_service_name'])->toBe("rateguru-cleanup-{$target}");
+        expect($services->firstWhere('name', "rateguru-cleanup-{$target}")['options']['header_checks'])->toBe("regexp:/etc/postfix/rateguru-from-{$target}.regexp");
+
+        $file = $render['policies']["rateguru-from-{$target}.regexp"];
+        expect($file)->toStartWith("# RateGuru mail gateway — From policy for {$target}\n");
+        expect(mailGatewayFromPolicyVerdict($file, "From: noreply@{$domain}"))->toBe('DUNNO');
+    }
+
+    // Each policy is its own target's: neither admits the other's domain.
+    expect(mailGatewayFromPolicyVerdict($render['policies']['rateguru-from-tits-guru.regexp'], 'From: hello@demo-shop.example'))->toStartWith('REJECT');
+    expect(mailGatewayFromPolicyVerdict($render['policies']['rateguru-from-demo-shop.regexp'], 'From: noreply@tits.guru'))->toStartWith('REJECT');
+
+    // The staging capture listener has none of it.
+    $staging = $services->firstWhere('name', '127.0.0.1:2525');
+    expect($staging['options'])->not->toHaveKey('cleanup_service_name')->not->toHaveKey('smtpd_milters');
+    expect(array_keys($render['policies']))->toBe(['rateguru-from-demo-shop.regexp', 'rateguru-from-tits-guru.regexp']);
+    expect($services->pluck('name')->filter(static fn (string $name): bool => str_starts_with($name, 'rateguru-cleanup-'))->values()->all())
+        ->toEqualCanonicalizing(['rateguru-cleanup-tits-guru', 'rateguru-cleanup-demo-shop']);
+});
+
+it('admits exactly one From address in the reviewed domain, and refuses every other From', function (string $header, bool $admitted) {
+    $policy = mailGatewayRender()['policies']['rateguru-from-tits-guru.regexp'];
+    $verdict = mailGatewayFromPolicyVerdict($policy, $header);
+
+    if ($admitted) {
+        expect($verdict)->toBe('DUNNO', "{$header} must pass");
+    } else {
+        expect($verdict)->toBe('REJECT 5.7.1 RateGuru mail gateway: the From header must be exactly one address in the reviewed sender domain', "{$header} must be refused");
+    }
+})->with([
+    'a bare address' => ['From: noreply@tits.guru', true],
+    'an angle address' => ['From: <noreply@tits.guru>', true],
+    'a display name' => ['From: RateGuru <noreply@tits.guru>', true],
+    'a quoted display name' => ['From: "RateGuru" <noreply@tits.guru>', true],
+    'an encoded-word display name' => ['From: =?utf-8?Q?Rate_Guru?= <noreply@tits.guru>', true],
+    'the domain in capitals, signed all the same' => ['From: noreply@TITS.GURU', true],
+    'another domain' => ['From: intruder@example.net', false],
+    'another domain with a name' => ['From: Intruder <intruder@example.net>', false],
+    'a list ending in another domain' => ['From: noreply@tits.guru, intruder@example.net', false],
+    'a list starting in another domain' => ['From: intruder@example.net, noreply@tits.guru', false],
+    'two named mailboxes, the foreign one first' => ['From: Intruder <intruder@example.net>, RateGuru <noreply@tits.guru>', false],
+    'two named mailboxes, the foreign one last' => ['From: RateGuru <noreply@tits.guru>, Intruder <intruder@example.net>', false],
+    'a subdomain' => ['From: user@mail.tits.guru', false],
+    'a longer name ending elsewhere' => ['From: user@tits.guru.attacker.example', false],
+    'a name that only ends in it' => ['From: user@eviltits.guru', false],
+    'an address hidden in the display name' => ['From: "a <x@evil.example>" <noreply@tits.guru>', false],
+    'a group' => ['From: undisclosed-recipients:;', false],
+    'an empty From' => ['From: ', false],
+    'a comment' => ['From: noreply@tits.guru (hidden@evil.example)', false],
+]);
+
+it('renders no From policy where nothing is signed, and spells no domain itself', function () {
+    expect(mailGatewayRender(signing: ['schema_version' => 1, 'targets' => []])['policies'])->toBe([]);
+
+    $code = executableSourceLines(File::get(mailGatewayScript()));
+    expect($code)
+        ->toContain('.sender.allowed_domain as $domain')
+        ->not->toContain('tits')
+        ->not->toContain('header_checks=regexp:/etc/postfix/rateguru-from-tits');
+    foreach (['FILTER', 'REDIRECT', 'PREPEND', 'REPLACE'] as $action) {
+        expect(preg_match('#/ '.$action.'\b#', $code))->toBe(0, "the From policy renderer uses {$action}");
+    }
+});
+
+it('refuses to write a From policy for a domain it cannot spell as a plain pattern', function () {
+    $scratch = mailGatewayScratch();
+
+    try {
+        file_put_contents($scratch.'/plan.json', mailRoutingPlanJson());
+        $plan = json_decode((string) file_get_contents($scratch.'/plan.json'), true);
+        $plan['listeners'][1]['sender']['allowed_domain'] = 'tits.guru|x';
+        file_put_contents($scratch.'/plan.json', json_encode($plan));
+
+        $render = mailGatewayRenderPlanFile($scratch, $scratch.'/plan.json');
+        expect($render['status'])->not->toBe(0);
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('installs, repairs and retires the From policies in its transaction, and never touches a file it did not write', function () {
+    $host = mailGatewayHost();
+
+    try {
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+
+        $policy = $host['fs'].'/etc/postfix/rateguru-from-tits-guru.regexp';
+        expect(File::get($policy))->toBe(mailGatewayRender()['policies']['rateguru-from-tits-guru.regexp']);
+        expect(substr(sprintf('%o', fileperms($policy)), -3))->toBe('644');
+
+        // Weakened by hand: drift, and Postfix's own lookup says it admits a
+        // foreign From; --apply puts the render back.
+        file_put_contents($policy, str_replace('/^From:/ REJECT', '/^From:/ DUNNO', File::get($policy)));
+        [$weakened, $report] = mailGatewayRun($host, '--verify');
+        expect($weakened)->not->toBe(0);
+        expect($report)
+            ->toContain('DRIFT    file:/etc/postfix/rateguru-from-tits-guru.regexp — differs from the current render')
+            ->toContain('tits-guru From policy admits "From: intruder@foreign.invalid"');
+
+        [$repaired, $log] = mailGatewayRun($host, '--apply');
+        expect($repaired)->toBe(0, $log);
+        expect($log)->toContain('installing /etc/postfix/rateguru-from-tits-guru.regexp');
+        expect(File::get($policy))->toBe(mailGatewayRender()['policies']['rateguru-from-tits-guru.regexp']);
+
+        // The policy of a target no longer signed: drift, removed by the next
+        // apply with a backup, and nothing else.
+        $stale = $host['fs'].'/etc/postfix/rateguru-from-old-target.regexp';
+        file_put_contents($stale, "# RateGuru mail gateway — From policy for old-target\n/^From:/ DUNNO\n");
+        file_put_contents($host['fs'].'/etc/postfix/sender_access', "somebody's own map\n");
+
+        [$check, $report] = mailGatewayRun($host, '--verify');
+        expect($check)->not->toBe(0);
+        expect($report)->toContain('DRIFT    file:/etc/postfix/rateguru-from-old-target.regexp — the From policy of a target that is no longer signed — --apply removes it');
+
+        [$retired, $log] = mailGatewayRun($host, '--apply');
+        expect($retired)->toBe(0, $log);
+        expect($log)->toContain('removing /etc/postfix/rateguru-from-old-target.regexp');
+        expect(file_exists($stale))->toBeFalse();
+        expect(glob($host['fs'].'/var/backups/rateguru-mail-gateway/*/etc/postfix/rateguru-from-old-target.regexp') ?: [])->toHaveCount(1);
+
+        // Named like a policy, but not written by this installer: refused in
+        // every mode, never used or removed.
+        $foreign = $host['fs'].'/etc/postfix/rateguru-from-other-one.regexp';
+        file_put_contents($foreign, "somebody else's\n");
+        file_put_contents($host['scratch'].'/log/mutations.log', '');
+        $before = mailGatewayTree($host);
+
+        [$conflicted, $report] = mailGatewayRun($host, '--check');
+        expect($conflicted)->not->toBe(0);
+        expect($report)->toContain('CONFLICT file:/etc/postfix/rateguru-from-other-one.regexp — named like a RateGuru From policy, but not written by this installer');
+
+        [$refused, $log] = mailGatewayRun($host, '--apply');
+        expect($refused)->not->toBe(0);
+        expect($log)->toContain('/etc/postfix/rateguru-from-other-one.regexp is named like a RateGuru From policy but was not written by this installer — refusing to use or remove it. Nothing was changed');
+        expect(mailGatewayTree($host))->toBe($before);
+        expect(mailGatewayLog($host, 'mutations.log'))->toBe('');
+
+        // A file outside the name shape is never even looked at.
+        expect(File::get($host['fs'].'/etc/postfix/sender_access'))->toBe("somebody's own map\n");
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
+it('puts a retired From policy back when the apply that retired it rolls back', function () {
+    $host = mailGatewayHost();
+
+    try {
+        [$first, $log] = mailGatewayRun($host, '--apply');
+        expect($first)->toBe(0, $log);
+        $installed = array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
+
+        // No signing identity any more, so the policy is retired — and the
+        // capture destination has gone, so the apply fails after that.
+        file_put_contents($host['scratch'].'/identity.json', '{"schema_version": 1, "targets": {}}');
+        file_put_contents($host['scratch'].'/state/listeners', "127.0.0.1:8891\n");
+
+        [$status, $output] = mailGatewayRun($host, '--apply', ['RATEGURU_MAILGW_IDENTITY_FILE' => $host['scratch'].'/identity.json']);
+
+        expect($status)->not->toBe(0);
+        expect($output)
+            ->toContain('removing /etc/postfix/rateguru-from-tits-guru.regexp')
+            ->toContain('rollback complete: configuration and service state restored');
+
+        $restored = array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
+        expect($restored)->toBe($installed);
+        expect($restored)->toHaveKey('etc/postfix/rateguru-from-tits-guru.regexp');
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
 
 it('requires the signer listening before it calls a signing gateway healthy', function () {
     // Without the signer, the apply fails at its runtime check and puts the
@@ -1812,7 +2118,8 @@ it('installs, verifies and reports a direct route once the host enables direct d
         expect($report)
             ->toContain('PASS     outbound:direct — direct delivery enabled on this host as mta1.example.net; 1 outbound route(s) in the plan')
             ->toContain('PASS     signing — listeners of demo-shop, tits-guru hand their mail to the signer')
-            ->toContain('SUMMARY  pass=9 missing=0 drift=0 conflict=0 deferred=0');
+            ->toContain('PASS     file:/etc/postfix/rateguru-from-demo-shop.regexp — matches the current render')
+            ->toContain('SUMMARY  pass=11 missing=0 drift=0 conflict=0 deferred=0');
 
         // The read-only status shows the route as what it is, and no address.
         $status = mailGatewayStatus($host);
@@ -1849,6 +2156,7 @@ it('reads a direct route back through Postfix, and refuses every way it could be
                 .' SIGNING_FILE='.escapeshellarg(mailGatewayCommittedSigningPlan())
                 .' MILTER_ENDPOINT=inet:127.0.0.1:8891'
                 .' POSTCONF_BIN='.escapeshellarg($host['scratch'].'/bin/postconf')
+                .' POSTMAP_BIN='.escapeshellarg($host['scratch'].'/bin/postmap')
                 .' EFFECTIVE_UID=1000'
                 .' && postfix_contract_problems '.escapeshellarg($dir);
 
@@ -1863,6 +2171,9 @@ it('reads a direct route back through Postfix, and refuses every way it could be
         try {
             file_put_contents($dir.'/main.cf', $render['main']);
             file_put_contents($dir.'/master.cf', $render['master']);
+            foreach ($render['policies'] as $name => $policy) {
+                file_put_contents("{$dir}/{$name}", $policy);
+            }
             expect($read())->toBe('', 'the untouched render must read back clean');
 
             $original = $file === 'main' ? $render['main'] : $render['master'];
@@ -2119,7 +2430,7 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
         expect($report)
             ->toStartWith("install-mail-gateway --verify\n")
             ->toContain('PASS     runtime — enabled, stably running, listening on exactly the plan\'s loopback endpoints')
-            ->toEndWith("SUMMARY  pass=9 missing=0 drift=0 conflict=0 deferred=0\n");
+            ->toEndWith("SUMMARY  pass=10 missing=0 drift=0 conflict=0 deferred=0\n");
 
         // A hand edit is the installer's drift, and fails --read-only with it.
         file_put_contents($host['fs'].'/etc/postfix/main.cf', "# a hand edit\n", FILE_APPEND);
@@ -2127,7 +2438,7 @@ it('keeps --read-only read-only by delegating it to the installer\'s own --verif
         expect($drifted)->toBe(1, $report);
         expect($report)
             ->toContain('DRIFT    file:/etc/postfix/main.cf — differs from the current render')
-            ->toEndWith("SUMMARY  pass=8 missing=0 drift=1 conflict=0 deferred=0\n");
+            ->toEndWith("SUMMARY  pass=9 missing=0 drift=1 conflict=0 deferred=0\n");
 
         expect(mailGatewayLog($host, 'mutations.log'))->toBe('', '--read-only called a mutating command');
         // Exactly the hand edit changed: no file was added, removed or rewritten.

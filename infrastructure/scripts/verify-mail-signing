@@ -26,29 +26,35 @@
 #                MUTATING operator acceptance (root), and the only proof that a
 #                message through TARGET's listener is really signed. It refuses
 #                — before any SMTP connection — unless TARGET's mail is HELD and
-#                its listener has no route at all, so the probe can go nowhere
+#                its listener has no route at all, so a probe can go nowhere
 #                but the hold queue. Then:
 #                  1. everything --read-only checks;
-#                  2. exactly one synthetic message, from TARGET's reviewed
-#                     sender, to a recipient under the reserved .invalid
-#                     domain, through TARGET's loopback listener;
-#                  3. its exact queue ID, from Postfix's reply, must be in HOLD;
-#                  4. only that entry's headers are read, and they must carry
+#                  2. a message from TARGET's reviewed sender whose From header
+#                     is in a foreign domain must be refused permanently at the
+#                     end of its data — never queued, so never held unsigned —
+#                     and nothing addressed to its unique recipient may be in
+#                     the queue;
+#                  3. exactly one synthetic message, from TARGET's reviewed
+#                     sender with a From in its own domain, to a recipient under
+#                     the reserved .invalid domain, through TARGET's loopback
+#                     listener;
+#                  4. its exact queue ID, from Postfix's reply, must be in HOLD;
+#                  5. only that entry's headers are read, and they must carry
 #                     exactly one DKIM-Signature with TARGET's domain (d=),
 #                     selector (s=) and algorithm (a=), a body hash and a
 #                     signature, over at least the From header;
-#                  5. still in HOLD, that exact entry is deleted, and must be
+#                  6. still in HOLD, that exact entry is deleted, and must be
 #                     gone.
 #                It never flushes, empties or releases the queue, never opens a
 #                connection to anything but TARGET's loopback listener, prints
-#                no message and no signature value, and removes its own entry —
-#                found by its exact queue ID, or by its unique recipient — on
-#                every exit. A real external delivery is the activation canary,
+#                no message and no signature value, and removes its own entries
+#                — found by their exact queue IDs, or by their unique
+#                recipients — on every exit. A real external delivery is the activation canary,
 #                never this.
 #
 # There is no default mode: a mutating acceptance run is always asked for by
-# name. Both modes end with one machine-readable line,
-# RATEGURU_MAIL_SIGNING_RESULT={...}.
+# name. Once its mode and target are known, every run — a pass, a failure or a
+# refusal — ends with one machine-readable line, RATEGURU_MAIL_SIGNING_RESULT={...}.
 #
 # Test overrides: the RATEGURU_MAILSIGN_* variables below — the prefix
 # install-mail-signing reads — are honoured only alongside
@@ -100,6 +106,10 @@ TARGET_ID=""
 WORK_DIR=""
 COUNT_FAIL=0
 
+# Set once MODE and TARGET_ID are validated: from then on every exit, a refusal
+# included, reports its result.
+RESULT_READY=false
+
 # What the result line reports.
 SIGNED_DOMAIN=""
 SIGNED_SELECTOR=""
@@ -109,6 +119,12 @@ PROBE_RECIPIENT=""
 PROBE_HELD=false
 PROBE_REMOVED=false
 SIGNATURE_VERIFIED=false
+FOREIGN_RECIPIENT=""
+FOREIGN_QUEUE_ID=""
+FOREIGN_FROM_REJECTED=false
+
+# The From of the negative probe: a domain nothing signs.
+FOREIGN_FROM="From: Intruder <intruder@foreign.invalid>"
 
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 ok() { printf '  PASS %s\n' "$*"; }
@@ -116,6 +132,13 @@ bad() { printf '  FAIL %s\n' "$*"; COUNT_FAIL=$((COUNT_FAIL + 1)); }
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
+
+    # A refusal after the arguments were understood is still a result the
+    # caller reads; one before that has no mode or target to report.
+    if [[ "${RESULT_READY}" == true ]] && command -v jq >/dev/null 2>&1; then
+        result_line fail
+    fi
+
     exit 1
 }
 
@@ -131,11 +154,13 @@ Usage:
                install-mail-gateway --verify. No SMTP, no queue change, no
                service change. What mail-identity readiness asks.
   --e2e        Mutating operator acceptance (root), for a HELD target only:
-               --read-only, then exactly one synthetic message through TARGET's
-               loopback listener, its exact queue entry required in HOLD and
-               signed with TARGET's domain, selector and algorithm, then that
-               entry deleted. Never flushes, empties or releases the queue, and
-               never connects to anything but TARGET's listener.
+               --read-only; then a message whose From is in a foreign domain,
+               required to be refused before it is queued; then exactly one
+               synthetic message from TARGET's own domain, its exact queue entry
+               required in HOLD and signed with TARGET's domain, selector and
+               algorithm, then that entry deleted. Never flushes, empties or
+               releases the queue, and never connects to anything but TARGET's
+               listener.
 USAGE
 }
 
@@ -160,10 +185,12 @@ result_line() {
         --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
         --arg d "${SIGNED_DOMAIN}" --arg s "${SIGNED_SELECTOR}" --arg a "${SIGNED_ALGORITHM}" \
         --arg queue_id "${QUEUE_ID}" \
-        --argjson verified "${SIGNATURE_VERIFIED}" --argjson held "${PROBE_HELD}" --argjson removed "${PROBE_REMOVED}" '
+        --argjson verified "${SIGNATURE_VERIFIED}" --argjson held "${PROBE_HELD}" --argjson removed "${PROBE_REMOVED}" \
+        --argjson foreign "${FOREIGN_FROM_REJECTED}" '
         {target: $target, mode: $mode, status: $status}
         + if $mode == "e2e" then
               {
+                  foreign_from_rejected: $foreign,
                   queue_id: (if $queue_id == "" then null else $queue_id end),
                   held: $held,
                   removed: $removed,
@@ -295,15 +322,18 @@ held_listener() {
 
 # --- SMTP over /dev/tcp --------------------------------------------------------
 #
-# smtp_submit TOKEN — one transaction to TARGET's held listener, and nowhere
-# else. Sets SMTP_STAGE to the command a refusal came at, or to "queued",
-# SMTP_REPLY to the last reply and QUEUE_ID to the queue ID Postfix names.
+# smtp_submit TOKEN RECIPIENT FROM_HEADER — one transaction to TARGET's held
+# listener, and nowhere else, from TARGET's reviewed sender. Sets SMTP_STAGE to
+# the command a refusal came at ("message" for one at the end of the data), or
+# to "queued", SMTP_REPLY to the last reply and SMTP_QUEUE_ID to the queue ID
+# Postfix names.
 #
 # fd 4 is opened and closed with a bare exec; the stderr silencing is on a group
 # around it, so it lasts only for that exec.
 
 SMTP_STAGE=""
 SMTP_REPLY=""
+SMTP_QUEUE_ID=""
 
 _smtp_reply() {
     local want="$1" line
@@ -329,21 +359,22 @@ _smtp_step() {
 }
 
 smtp_submit() {
-    local token="$1"
+    local token="$1" recipient="$2" from_header="$3"
     SMTP_STAGE="connect"
     SMTP_REPLY=""
+    SMTP_QUEUE_ID=""
 
     { exec 4<>"/dev/tcp/${LISTEN_HOST}/${LISTEN_PORT}"; } 2>/dev/null || return 1
 
     if _smtp_step connect 2 \
         && _smtp_step ehlo 2 "EHLO mail-signing-verify" \
         && _smtp_step mail 2 "MAIL FROM:<${PROBE_SENDER}>" \
-        && _smtp_step rcpt 2 "RCPT TO:<${PROBE_RECIPIENT}>" \
+        && _smtp_step rcpt 2 "RCPT TO:<${recipient}>" \
         && _smtp_step data 3 "DATA"
     then
         {
-            printf 'From: <%s>\r\n' "${PROBE_SENDER}"
-            printf 'To: <%s>\r\n' "${PROBE_RECIPIENT}"
+            printf '%s\r\n' "${from_header}"
+            printf 'To: <%s>\r\n' "${recipient}"
             printf 'Subject: %s\r\n' "${token}"
             printf 'Date: %s\r\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
             printf 'Message-ID: <%s@%s>\r\n' "${token}" "${PROBE_DOMAIN}"
@@ -354,7 +385,7 @@ smtp_submit() {
         } >&4
 
         if _smtp_step message 2; then
-            QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
+            SMTP_QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
             SMTP_STAGE="queued"
             printf 'QUIT\r\n' >&4 || true
         fi
@@ -374,12 +405,12 @@ queue_state() {
     "${POSTQUEUE_BIN}" -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
 }
 
-# The entries addressed to this run's unique recipient — the probe, even when
-# Postfix's reply never named its ID.
-probe_queue_ids() {
-    [[ -n "${PROBE_RECIPIENT}" ]] || return 0
+# queue_ids_for RECIPIENT — the entries addressed to one of this run's unique
+# recipients: its probe, even when Postfix's reply never named its ID.
+queue_ids_for() {
+    [[ -n "$1" ]] || return 0
     "${POSTQUEUE_BIN}" -j 2>/dev/null \
-        | jq -r --arg rcpt "${PROBE_RECIPIENT}" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
+        | jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
 }
 
 wait_queue_state() {
@@ -472,13 +503,14 @@ check_signature() {
 cleanup() {
     local status=$? id
 
-    # Only this run's own entry, by its exact ID — and any entry addressed to
-    # this run's unique recipient. Anything else in the queue is not ours.
+    # Only this run's own entries, by their exact IDs — and any entry addressed
+    # to one of this run's unique recipients. Anything else is not ours.
     local -a ids=()
     [[ -z "${QUEUE_ID}" ]] || ids+=("${QUEUE_ID}")
+    [[ -z "${FOREIGN_QUEUE_ID}" ]] || ids+=("${FOREIGN_QUEUE_ID}")
     while IFS= read -r id; do
         [[ -z "${id}" ]] || ids+=("${id}")
-    done < <(probe_queue_ids)
+    done < <(queue_ids_for "${PROBE_RECIPIENT}"; queue_ids_for "${FOREIGN_RECIPIENT}")
 
     for id in "${ids[@]+"${ids[@]}"}"; do
         [[ -n "$(queue_state "${id}")" ]] || continue
@@ -509,14 +541,18 @@ run_e2e() {
     local token
     token="$(new_token)"
     PROBE_RECIPIENT="signing-probe-${token}@${PROBE_DOMAIN}"
+    FOREIGN_RECIPIENT="signing-probe-foreign-${token}@${PROBE_DOMAIN}"
 
     trap cleanup EXIT
 
+    foreign_from_refused "${token}"
+
     log "submitting one synthetic message to ${TARGET_ID}'s held listener ${LISTEN_HOST}:${LISTEN_PORT}"
-    if ! smtp_submit "${token}"; then
+    if ! smtp_submit "${token}" "${PROBE_RECIPIENT}" "From: <${PROBE_SENDER}>"; then
         bad "the held listener did not accept the probe from ${PROBE_SENDER} (${SMTP_STAGE}: ${SMTP_REPLY})"
         e2e_verdict
     fi
+    QUEUE_ID="${SMTP_QUEUE_ID}"
 
     if [[ -z "${QUEUE_ID}" ]]; then
         bad "Postfix accepted the probe but named no queue ID (${SMTP_REPLY})"
@@ -554,9 +590,38 @@ run_e2e() {
     e2e_verdict
 }
 
+# foreign_from_refused TOKEN — the reviewed envelope sender with a From in a
+# domain nothing signs: the listener must refuse it permanently once it has the
+# headers, and it must not be in the queue. A message the signer could not sign
+# is never accepted.
+foreign_from_refused() {
+    local token="$1" queued
+
+    log "submitting a message from ${PROBE_SENDER} with a foreign From to ${TARGET_ID}'s held listener — it must be refused before it is queued"
+    if smtp_submit "${token}-foreign" "${FOREIGN_RECIPIENT}" "${FOREIGN_FROM}"; then
+        FOREIGN_QUEUE_ID="${SMTP_QUEUE_ID}"
+        bad "the held listener ACCEPTED a message whose From is outside ${SIGNED_DOMAIN} (${SMTP_REPLY}) — it would have been held unsigned"
+        e2e_verdict
+    fi
+
+    if [[ "${SMTP_STAGE}" != message || "${SMTP_REPLY:0:1}" != 5 ]]; then
+        bad "a message with a foreign From was not refused permanently at the end of its data (${SMTP_STAGE}: ${SMTP_REPLY})"
+        e2e_verdict
+    fi
+
+    queued="$(queue_ids_for "${FOREIGN_RECIPIENT}")"
+    if [[ -n "${queued}" ]]; then
+        bad "the refused message is in the queue all the same (${queued//$'\n'/, })"
+        e2e_verdict
+    fi
+
+    FOREIGN_FROM_REJECTED=true
+    ok "a message from ${PROBE_SENDER} with a From outside ${SIGNED_DOMAIN} was refused before it was queued (${SMTP_REPLY:0:9}), and nothing of it is in the queue"
+}
+
 e2e_verdict() {
     if (( COUNT_FAIL == 0 )); then
-        log "SIGNING E2E: PASS — ${TARGET_ID}'s held listener signs as d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR} a=${SIGNED_ALGORITHM}; nothing left the host"
+        log "SIGNING E2E: PASS — ${TARGET_ID}'s held listener refuses a foreign From and signs as d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR} a=${SIGNED_ALGORITHM}; nothing left the host"
         result_line pass
         exit 0
     fi
@@ -596,6 +661,7 @@ main() {
     [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --read-only or --e2e (the mutating acceptance is never a default)"; }
     [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
     [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+    RESULT_READY=true
 
     case "${MODE}" in
         read-only) run_read_only ;;

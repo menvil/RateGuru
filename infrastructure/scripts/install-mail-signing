@@ -32,6 +32,12 @@
 #     host's loopback (TrustedHosts). Mail for any other domain passes
 #     unsigned, and nothing routes it anywhere — that is the gateway's job;
 #   * rsa-sha256 only, the one algorithm the identity contract admits;
+#   * fail closed on a message it cannot sign by the rules: one that breaks
+#     RFC 5322's header counts — two From fields, say — is refused
+#     (RequiredHeaders), a malformed one is never passed through unsigned
+#     (IgnoreMalformedMail no), and a signing error rejects the message
+#     (On-SignatureError reject). That a signed listener's From is in its
+#     reviewed domain at all is the gateway's From policy, before the signer;
 #   * it runs as the package account opendkim, never as root, and refuses any
 #     key another account could read (RequireSafeKeys);
 #   * it listens on 127.0.0.1:8891 and nowhere else — no other address, no
@@ -371,7 +377,9 @@ render_opendkim_conf() {
 # Signing only. A message is signed when its From domain is exactly one of the
 # reviewed mail domains in SigningTable, with exactly that domain's key in
 # KeyTable, and only when it came from this host's loopback (TrustedHosts).
-# The milter listens on loopback and nowhere else, and runs as opendkim.
+# The milter listens on loopback and nowhere else, and runs as opendkim. A
+# message that breaks RFC 5322's header counts, a malformed one and one that
+# fails to sign are refused, never passed on unsigned.
 
 Syslog                  yes
 SyslogSuccess           yes
@@ -388,6 +396,9 @@ SigningTable            file:${table_dir}/SigningTable
 InternalHosts           file:${table_dir}/TrustedHosts
 ExternalIgnoreList      file:${table_dir}/TrustedHosts
 RequireSafeKeys         true
+RequiredHeaders         yes
+IgnoreMalformedMail     no
+On-SignatureError       reject
 CONF
 }
 

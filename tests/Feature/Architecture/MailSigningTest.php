@@ -421,6 +421,12 @@ it('renders the committed signing plan into exactly the reviewed OpenDKIM config
             'InternalHosts' => 'file:/etc/opendkim/TrustedHosts',
             'ExternalIgnoreList' => 'file:/etc/opendkim/TrustedHosts',
             'RequireSafeKeys' => 'true',
+            // Fail closed on what it cannot sign by the rules: header counts
+            // RFC 5322 forbids (two From fields), malformed mail, and a
+            // signing error are refused, never passed on unsigned.
+            'RequiredHeaders' => 'yes',
+            'IgnoreMalformedMail' => 'no',
+            'On-SignatureError' => 'reject',
         ]);
 
         expect(File::get($host['fs'].'/etc/opendkim/KeyTable'))->toBe(mailSigningExpectedKeyTable());
@@ -1228,9 +1234,13 @@ it('keeps --read-only free of SMTP, queue and service commands', function () {
  * as the toggle says. The postqueue, postcat and postsuper stubs read and change
  * only that queue file.
  *
+ * Like the gateway's From policy, it refuses — 550, nothing queued — a message
+ * whose From is not exactly one address at tits.guru.
+ *
  * Toggles (files under state/toggles): signature — the DKIM-Signature header to
  * add (none when absent); queue — the queue the probe lands in (hold when
- * absent); no-queue-id; refuse-rcpt.
+ * absent); no-queue-id; refuse-rcpt; accept-foreign — no From policy at all;
+ * tempfail-foreign — a foreign From deferred (451) rather than refused.
  */
 function mailSigningFakePostfix(): string
 {
@@ -1275,6 +1285,12 @@ function mailSigningFakePostfix(): string
                         $message .= $data;
                     }
                     $headers = substr($message, 0, (int) strpos($message, "\r\n\r\n"));
+                    preg_match('/^From:(.*)$/mi', str_replace("\r", '', $headers), $from);
+                    $ours = preg_match('/^\s*(?:"[^"<>@,]*"\s*|[^"<>@,]+)?<?[A-Za-z0-9._%+-]+@tits\.guru>?\s*$/i', $from[1] ?? '') === 1;
+                    if (! $ours && $toggle('accept-foreign') === null) {
+                        $say($toggle('tempfail-foreign') !== null ? '451 4.7.1 Service unavailable - try again later' : '550 5.7.1 RateGuru mail gateway: the From header must be exactly one address in the reviewed sender domain');
+                        continue;
+                    }
                     $id = strtoupper(bin2hex(random_bytes(5)));
                     $signature = $toggle('signature');
                     file_put_contents("{$state}/headers-{$id}", ($signature !== null ? $signature : '').str_replace("\r\n", "\n", $headers)."\n");
@@ -1394,6 +1410,7 @@ it('submits one held probe, finds it signed by the target\'s identity in HOLD, a
         expect($status)->toBe(0, $output);
         $result = mailSigningResult($output);
         expect($result['status'])->toBe('pass');
+        expect($result['foreign_from_rejected'])->toBeTrue();
         expect($result['held'])->toBeTrue();
         expect($result['removed'])->toBeTrue();
         expect($result['signature'])->toBe(['d' => 'tits.guru', 's' => 'rg1', 'a' => 'rsa-sha256']);
@@ -1401,17 +1418,21 @@ it('submits one held probe, finds it signed by the target\'s identity in HOLD, a
         $id = $result['queue_id'];
 
         expect($output)
+            ->toContain('PASS a message from noreply@tits.guru with a From outside tits.guru was refused before it was queued (550 5.7.1), and nothing of it is in the queue')
             ->toContain("PASS queue entry {$id} is in the HOLD queue")
             ->toContain('PASS the probe carries exactly one DKIM-Signature: d=tits.guru s=rg1 a=rsa-sha256')
             ->toContain("PASS queue entry {$id} stayed held until it was deleted, and is gone")
             ->toContain('SIGNING E2E: PASS');
 
-        // Exactly one message, from the reviewed sender, to a reserved
-        // recipient, through tits-guru's listener alone.
+        // Two messages, both from the reviewed sender, to reserved recipients,
+        // through tits-guru's listener alone: the foreign From first, refused;
+        // then the one that is signed.
         $smtp = File::get($host['scratch'].'/state/smtp.log');
-        expect(substr_count($smtp, 'DATA'))->toBe(1);
-        expect($smtp)->toContain('MAIL FROM:<noreply@tits.guru>');
+        expect(substr_count($smtp, 'DATA'))->toBe(2);
+        expect(substr_count($smtp, 'MAIL FROM:<noreply@tits.guru>'))->toBe(2);
+        expect(preg_match('/^RCPT TO:<signing-probe-foreign-mgsign\d+@rateguru\.invalid>$/m', $smtp))->toBe(1);
         expect(preg_match('/^RCPT TO:<signing-probe-mgsign\d+@rateguru\.invalid>$/m', $smtp))->toBe(1);
+        expect(strpos($smtp, 'signing-probe-foreign-'))->toBeLessThan(strpos($smtp, 'RCPT TO:<signing-probe-mgsign'));
 
         // The queue: read, its one entry's headers read, that entry deleted
         // from HOLD — and nothing else, ever.
@@ -1457,6 +1478,78 @@ it('fails on every signature that is not exactly the target\'s, and still remove
     'From not covered' => [mailSigningSignature(['h' => 'To:Subject:Date']), 'does not cover the From header'],
     'another DKIM version' => [mailSigningSignature(['v' => '2']), 'has v=2, not v=1'],
 ]);
+
+it('fails when a foreign From is accepted, removes only that probe, and never goes on to sign anything', function () {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature(), 'accept-foreign' => '1']);
+
+    try {
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'tits-guru'], script: 'verify-mail-signing');
+
+        expect($status)->toBe(1, $output);
+        expect($output)
+            ->toContain('FAIL the held listener ACCEPTED a message whose From is outside tits.guru')
+            ->toContain('SIGNING E2E: FAIL');
+
+        $result = mailSigningResult($output);
+        expect($result['status'])->toBe('fail');
+        expect($result['foreign_from_rejected'])->toBeFalse();
+        expect($result['signature'])->toBeNull();
+
+        // Only the refused-to-be-refused message was submitted, and only it was
+        // removed — by its exact ID; someone else's entry is untouched.
+        expect(substr_count(File::get($host['scratch'].'/state/smtp.log'), 'DATA'))->toBe(1);
+        expect(mailSigningE2eQueue($host))->toBe(["FOREIGN0001\tdeferred\tsomeone@example.net"]);
+        $calls = implode("\n", mailSigningVerifierLog($host, 'queue.log'));
+        expect($calls)->toMatch('/^postsuper -d [0-9A-F]{10}$/m')->not->toContain('postcat')->not->toContain('FOREIGN0001');
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+});
+
+it('fails when a foreign From is only deferred, not refused', function () {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature(), 'tempfail-foreign' => '1']);
+
+    try {
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'tits-guru'], script: 'verify-mail-signing');
+
+        expect($status)->toBe(1);
+        expect($output)->toContain('FAIL a message with a foreign From was not refused permanently at the end of its data (message: 451 4.7.1');
+        expect(mailSigningResult($output)['foreign_from_rejected'])->toBeFalse();
+        expect(substr_count(File::get($host['scratch'].'/state/smtp.log'), 'DATA'))->toBe(1);
+        expect(mailSigningE2eQueue($host))->toBe(["FOREIGN0001\tdeferred\tsomeone@example.net"]);
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+});
+
+it('reports a refusal as a machine-readable failure once the target is known, and before that reports nothing', function () {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature()]);
+
+    try {
+        // Refused before any connection: still one result line, a failure.
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'staging-main'], script: 'verify-mail-signing');
+        expect($status)->toBe(1);
+        expect(substr_count($output, 'RATEGURU_MAIL_SIGNING_RESULT='))->toBe(1);
+        expect(mailSigningResult($output))->toBe([
+            'target' => 'staging-main', 'mode' => 'e2e', 'status' => 'fail',
+            'foreign_from_rejected' => false, 'queue_id' => null, 'held' => false, 'removed' => false, 'signature' => null,
+        ]);
+
+        // Not root: the same.
+        [$status, $output] = mailSigningRun($host, ['--read-only', '--target', 'tits-guru'], ['RATEGURU_MAILSIGN_EUID' => '1000'], 'verify-mail-signing');
+        expect($status)->toBe(1);
+        expect(mailSigningResult($output))->toBe(['target' => 'tits-guru', 'mode' => 'read-only', 'status' => 'fail']);
+
+        // Arguments it never understood carry no mode or target to report.
+        foreach ([['--e2e'], ['--target', 'tits-guru'], ['--e2e', '--target', 'Not_A_Target']] as $arguments) {
+            [$status, $output] = mailSigningRun($host, $arguments, script: 'verify-mail-signing');
+            expect($status)->toBe(1);
+            expect($output)->not->toContain('RATEGURU_MAIL_SIGNING_RESULT=');
+        }
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+});
 
 it('fails when the probe is not held, and removes it from wherever it went', function () {
     $host = mailSigningE2eHost(['signature' => mailSigningSignature(), 'queue' => 'deferred']);
@@ -1512,6 +1605,7 @@ it('refuses an outbound target before any SMTP connection', function () {
         expect($output)
             ->toContain("demo-shop's mail is outbound with route {\"kind\":\"direct\"}: the signing acceptance only ever submits to a HELD listener with no route")
             ->toContain('nothing was submitted');
+        expect(mailSigningResult($output)['status'])->toBe('fail');
 
         // No connection, no owner asked, no queue touched.
         expect(file_exists($host['scratch'].'/state/smtp.log'))->toBeFalse();
@@ -1721,7 +1815,12 @@ it('runs exactly verify-mail-signing --e2e on the host, and removes its bundle o
     expect($code)
         ->toContain("grep -c '^RATEGURU_MAIL_SIGNING_RESULT='")
         ->toContain('and .mode == "e2e"')
-        ->toContain('and (.status == "fail" or (.held and .removed and .signature != null))')
+        ->toContain('and (.foreign_from_rejected | type) == "boolean"')
+        ->toContain('and (.status == "fail" or (.foreign_from_rejected and .held and .removed and .signature != null))')
+        ->toContain('| Foreign RFC5322 From rejected |')
+        ->toContain('| Valid probe signed |')
+        ->toContain('| Valid probe stayed HOLD |')
+        ->toContain('| Probe removed |')
         ->toContain('>> "${GITHUB_STEP_SUMMARY}"');
 
     // The last two steps remove the remote bundle and the local files, always.

@@ -7,15 +7,17 @@ description: >-
 #
 # infrastructure/scripts/verify-mail-signing owns every decision: which target's
 # listener it may submit to (a held one with no route, and nothing else), the
-# read-only signing contract it proves first, the one synthetic message it
+# read-only signing contract it proves first, the message with a foreign From
+# that must be refused before it is queued, the one synthetic message it then
 # submits, what makes its signature the target's, and the removal of exactly
 # that queue entry. None of that is reproduced here. This action uploads the
 # trusted infrastructure/ tree, runs that one command as root, prints its whole
 # report, checks there is exactly one well-formed result, writes it into the job
 # summary, and removes everything it uploaded.
 #
-# MUTATING, AND CONTAINED. The acceptance puts one synthetic message on the
-# target's held listener and deletes it again; it sends nothing anywhere. This
+# MUTATING, AND CONTAINED. The acceptance offers the target's held listener one
+# message it must refuse and one it must sign and hold, and deletes that one
+# again; it sends nothing anywhere. This
 # action carries no material: the private key is already on the host, and no
 # secret but the bootstrap credential is read.
 #
@@ -317,20 +319,22 @@ runs:
         json="${json#RATEGURU_MAIL_SIGNING_RESULT=}"
 
         # The whole result is judged before any of it is shown: the target and
-        # mode it names, the verdict, and — for a pass — a signature with the
-        # three tags, a probe that was held and then removed.
+        # mode it names, the verdict, and — for a pass — a foreign From that
+        # was refused, and a signature with the three tags on a probe that was
+        # held and then removed.
         jq -e --arg target "${DEPLOYMENT_TARGET}" '
           type == "object"
           and .target == $target
           and .mode == "e2e"
           and (.status == "pass" or .status == "fail")
+          and (.foreign_from_rejected | type) == "boolean"
           and (.held | type) == "boolean"
           and (.removed | type) == "boolean"
           and (.queue_id == null or ((.queue_id | type) == "string" and (.queue_id | test("^[0-9A-Za-z]+$"))))
           and (.signature == null
                or ((.signature | type) == "object"
                    and ([.signature.d, .signature.s, .signature.a] | all(type == "string" and test("^[a-z0-9][a-z0-9.-]*$")))))
-          and (.status == "fail" or (.held and .removed and .signature != null))
+          and (.status == "fail" or (.foreign_from_rejected and .held and .removed and .signature != null))
         ' <<<"${json}" >/dev/null || {
           echo "The machine-readable result is not a signing acceptance result for ${DEPLOYMENT_TARGET}: ${json}" >&2
           exit 1
@@ -345,13 +349,14 @@ runs:
             "",
             "| Check | Result |",
             "| --- | --- |",
-            "| One synthetic message queued | \(.queue_id // "**none**") |",
-            "| Held, not routed | \(.held | yesno) |",
-            "| DKIM-Signature | \(if .signature then "d=\(.signature.d) s=\(.signature.s) a=\(.signature.a)" else "**not the reviewed one**" end) |",
-            "| That exact entry removed | \(.removed | yesno) |",
+            "| Foreign RFC5322 From rejected | \(.foreign_from_rejected | yesno) |",
+            "| Valid probe signed | \(if .signature then "yes: d=\(.signature.d) s=\(.signature.s) a=\(.signature.a)" else "**no**" end) |",
+            "| Valid probe stayed HOLD | \(.held | yesno) |",
+            "| Probe removed | \(.removed | yesno) |",
+            "| Queue entry | \(.queue_id // "**none**") |",
             "| **Overall** | **\(.status | ascii_upcase)** |",
             "",
-            "Nothing was sent: the message went only to the held listener of \(.target), and its exact queue entry was deleted. Nothing was routed, released or flushed. The complete report is in the job log."
+            "Nothing was sent: both messages went only to the held listener of \(.target); the one with a foreign From was refused before it was queued, and the signed one was deleted by its exact queue entry. Nothing was routed, released or flushed. The complete report is in the job log."
           ' <<<"${json}"
         } >> "${GITHUB_STEP_SUMMARY}"
 
