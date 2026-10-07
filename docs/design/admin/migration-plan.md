@@ -101,7 +101,7 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: in progress** — 5A, the translation engine, and 5B, interactive AI suggestions, are done; 5C, background and bulk generation, is next.
+**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is next.
 
 In separate steps:
 
@@ -126,11 +126,22 @@ In separate steps:
      finds the unit again and refuses one whose stored translation changed meanwhile. A suggestion
      is a browser-only draft: it is never stored, the figures ignore it, and Save stays explicit, through the same
      `UpdateProjectTranslationAction` as any edit. No background work and no persistence: a reload drops it.
-   - **5C — Background and bulk generation. Status: next.** Generate missing and Save all generated: a language's
-     missing items translated in the background, in batches through the same factory, keeping the translations a
-     partly failed batch did produce, as drafts that survive a reload.
-   - **5D — Observability, limits and provider policies.** What the engine's call metadata feeds: usage and cost
-     visibility, budgets and limits, and the retry and fallback policies the engine deliberately leaves out.
+   - **5C — Background and bulk generation. Status: done.** Generate missing and Save all generated. Generate
+     missing sends only the language: `StartProjectTranslationGenerationAction` takes every unit the catalog lists
+     as missing, describes them through the same factory, plans them with the engine's chunker at the configured
+     provider's limits — one chunk per provider request, any number of chunks — and queues one
+     `GenerateProjectTranslationChunkJob` per chunk on the existing queue; it never waits for a provider. Each job
+     claims its chunk once, re-checks the actor, the provider and every item (still listed, same English by source
+     fingerprint, still missing) before sending, makes at most one provider call and is never retried. Suggestions
+     are temporary workflow state in Redis (`translation.bulk.cache_store`), plain arrays under text-free keys, 48
+     hours from creation — never the database, so no migration — kept per administrator and language, one running
+     generation per language. The page restores them on load, polls while generation runs and fills only rows that
+     are still missing and untouched; a partly failed batch keeps what it produced. Save, Save all generated (after
+     OVL-01) and Discard go through the server, which holds the text: each suggestion is saved on its own through
+     `UpdateProjectTranslationAction`, and one whose English or stored translation changed is skipped.
+   - **5D — Observability, limits and provider policies. Status: next.** What the engine's call metadata feeds:
+     usage and cost visibility, budgets and limits, and the retry and fallback policies the engine deliberately
+     leaves out.
 6. **Workflow** — review states, if the product needs them.
 7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,
