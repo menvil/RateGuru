@@ -1,0 +1,99 @@
+app/Support/Translations/Generation/ProjectTranslationGenerationPlan.php
+  s_cbcd61fc717774::t_4156e4a0ebb338 1-16,18-21,25-31
+  s_cbcd61fc717774::t_8a31cde504b6ed 17,22-24
+config/translation.php
+  s_cbcd61fc717774::t_7da7e29d94912b 34-45
+tests/TestCase.php
+  s_cbcd61fc717774::t_7da7e29d94912b 81-85
+app/Support/Translations/Generation/ProjectTranslationGenerationPlanner.php
+  s_cbcd61fc717774::t_68931425b851a4 1-21,26-43,47-52,70-71
+  s_cbcd61fc717774::t_8a31cde504b6ed 44-46
+  s_cbcd61fc717774::t_7d37b14b5870ae 22-25,53-69
+app/Actions/Translations/ReadProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_47963c9d93d21b 1-54
+app/Support/Translations/Generation/ProjectTranslationGenerationIssue.php
+  s_cbcd61fc717774::t_334937e3ed41df 1-24,26-38,40-42
+  s_cbcd61fc717774::t_7510c190e1bdde 25,39
+tests/Feature/I18n/ProjectTranslationGenerationPlannerTest.php
+  s_cbcd61fc717774::t_5b4e17dd2aa942 81,89,93
+  s_cbcd61fc717774::t_9402b8db9301be 1-4,6-8,13-17,25-26,29,33-34,42-67,71-72,75,82-85,87,92,95,98-113
+  s_cbcd61fc717774::t_e7f14b4b70af05 76-78
+  s_cbcd61fc717774::t_af805050e76a5a 18-23,28,30-32,73-74,79-80,88,90-91,94
+  s_cbcd61fc717774::t_09fee591faa2bb 9-12,24,41
+  s_cbcd61fc717774::t_8f9a0101e358e5 5,27,35-40,68-70,86,96-97
+app/Exceptions/Translations/CannotSuggestTranslationException.php
+  s_cbcd61fc717774::t_cfda472b8c3300 80-89
+app/Support/Translations/Generation/ProjectTranslationGenerationChunkStatus.php
+  s_cbcd61fc717774::t_1c906593c5d1c1 1-24
+app/Support/Translations/Generation/ProjectTranslationGenerationStore.php
+  s_cbcd61fc717774::t_3ad9ff7e9cad0f 1-80,82-85,87-515,530-555,557-561,565-696
+  s_cbcd61fc717774::t_8a31cde504b6ed 81,86,516-529,556,562-564
+tests/Pest.php
+  s_cbcd61fc717774::t_ae35d43195d6bc 4-5,45,8046-8092
+  s_cbcd61fc717774::t_09fee591faa2bb 8
+tests/Feature/I18n/ProjectTranslationGenerationStoreTest.php
+  s_cbcd61fc717774::t_1c7b43745e6aa5 1-6,8-9,11-19,21-164,166-180
+  s_cbcd61fc717774::t_09fee591faa2bb 7,10,20,165
+app/Jobs/Translations/GenerateProjectTranslationChunkJob.php
+  s_cbcd61fc717774::t_958d609dbbb989 9,11,169,174,176
+  s_cbcd61fc717774::t_dfe7b9f04d8eae 1-8,10,12-15,23-72,74-97,99-104,108-168,170-173,175,177-238
+  s_cbcd61fc717774::t_09fee591faa2bb 16-22
+  s_cbcd61fc717774::t_7d37b14b5870ae 73,98,105-107
+app/Exceptions/Translations/CannotGenerateTranslationsException.php
+  s_cbcd61fc717774::t_82e5cb481e8ce9 1-92
+tests/Feature/TranslationEngine/TranslationEngineArchitectureGuardTest.php
+  s_cbcd61fc717774::t_7d37b14b5870ae 205-212,225,234-238
+app/Support/Translations/ProjectTranslationCatalog.php
+  s_cbcd61fc717774::t_5f918b4acde9b2 136-191
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_cbcd61fc717774::t_09fee591faa2bb 12,15-16,69,71
+  s_cbcd61fc717774::t_2dad8065376ea5 1-11,13-14,17-50,52-68,70,72-225
+  s_cbcd61fc717774::t_a04bdb794095fd 51
+app/Actions/Translations/SaveProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_15f000bec46801 90
+  s_cbcd61fc717774::t_1c29934db2e22c 1-89,91-109
+tests/Feature/I18n/StartProjectTranslationGenerationActionTest.php
+  s_cbcd61fc717774::t_09fee591faa2bb 3,11-12,124,157
+  s_cbcd61fc717774::t_a75bc7e3cabd4a 1-2,4-10,13-123,125-156,158-216
+app/Support/Translations/Generation/ProjectTranslationGenerationStatus.php
+  s_cbcd61fc717774::t_2ccbb1ffab0e62 1-15
+app/Actions/Translations/DiscardProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_c002c3acd281dd 1-63,68-81
+  s_cbcd61fc717774::t_8036048c316ba8 64-67
+tests/Feature/I18n/GenerateProjectTranslationChunkJobTest.php
+  s_cbcd61fc717774::t_af3bc0e5995b2a 210-211
+  s_cbcd61fc717774::t_a91d7f0bf67ef8 199,203-204,207-208
+  s_cbcd61fc717774::t_b8a4611f123600 183-196
+  s_cbcd61fc717774::t_0e293cd8981620 1-8,14-108,110,112-182,197-198,200-202,205-206,209,212-270
+  s_cbcd61fc717774::t_09fee591faa2bb 9-13,109,111
+app/Support/Translations/Generation/ProjectTranslationGenerationSnapshot.php
+  s_cbcd61fc717774::t_869a4f4281d744 1-72
+app/Actions/Translations/StartProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_f342bb2472e92b 88,99-100,106,109-114
+  s_cbcd61fc717774::t_69f5865b0fc294 1-9,12-87,89-98,101-105,107-108,115-165
+  s_cbcd61fc717774::t_09fee591faa2bb 10-11
+app/Support/Translations/Generation/ProjectTranslationGenerationItemStatus.php
+  s_cbcd61fc717774::t_b4469f14ffe026 1-29
+app/Actions/Translations/Concerns/ResolvesProjectTranslationGeneration.php
+  s_cbcd61fc717774::t_12827a09b5824d 12,52
+  s_cbcd61fc717774::t_b64aa56d9d954f 55
+  s_cbcd61fc717774::t_160f4d4be1e3cd 1-11,13-51,53-54,56-62
+app/Support/Translations/Generation/ProjectTranslationSourceFingerprint.php
+  s_cbcd61fc717774::t_48fc4e841b8019 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7980eb3cc3cd3f2c981aff35311b83ff5e2b0b9f",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

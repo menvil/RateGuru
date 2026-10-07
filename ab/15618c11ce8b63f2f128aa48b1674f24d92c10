@@ -1,0 +1,35 @@
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_cbcd61fc717774::t_802dd2bd6fbaf2 204
+resources/views/filament/pages/translation-center/row.blade.php
+  s_cbcd61fc717774::t_cdf82400f61ba3 139-143
+resources/views/filament/pages/translation-center.blade.php
+  s_cbcd61fc717774::t_cfd5bd20584e4e 154
+docs/design/admin/design-contract.md
+  s_cbcd61fc717774::t_cfd5bd20584e4e 652-654
+  s_cbcd61fc717774::t_dc24ccbafa0a57 581
+  s_cbcd61fc717774::t_aa071fd19da650 579-580,582-584,736
+resources/css/filament/admin/components.css
+  s_cbcd61fc717774::t_d8b4df3ecfcd59 3575-3576,3579
+  s_cbcd61fc717774::t_cdf82400f61ba3 3561,3566
+  ai_agent 3562-3565
+  s_cbcd61fc717774::t_3c0f97275c51d6 3570,3590
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_cbcd61fc717774::t_ee0c2d5fb06a5a 274,285,287-291,295-303
+  s_cbcd61fc717774::t_c3c0d92d119390 275-284,286,292-294
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab15618c11ce8b63f2f128aa48b1674f24d92c10",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
