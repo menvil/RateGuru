@@ -28,6 +28,8 @@ use App\Support\TranslationEngine\Data\TranslationProviderCall;
 use App\Support\TranslationEngine\Data\TranslationProviderLimits;
 use App\Support\TranslationEngine\Data\TranslationProviderResponse;
 use App\Support\TranslationEngine\Enums\TranslationDataClassification;
+use App\Support\TranslationEngine\Enums\TranslationErrorCode;
+use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -7927,6 +7929,48 @@ function useScriptedTranslationProvider(ScriptedTranslationProvider $provider, s
     app()->bind(ScriptedTranslationProvider::class, static fn (): ScriptedTranslationProvider => $provider);
 
     return $provider;
+}
+
+/**
+ * A provider whose every request fails with this code, as a provider call
+ * that came to nothing does — recorded, and failing its items.
+ */
+function failingTranslationProvider(TranslationErrorCode $code): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static fn (TranslationBatchRequest $request): TranslationProviderResponse => throw new TranslationProviderException(
+            $code,
+            TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $code),
+        ),
+    );
+}
+
+/**
+ * A provider that answers its requests in turn: the nth request gets the nth
+ * answer — a text for every item it carries, or a code it fails with. The
+ * last answer repeats once the list runs out.
+ *
+ * @param  list<string|TranslationErrorCode>  $answers
+ */
+function answeringTranslationProvider(array $answers): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static function (TranslationBatchRequest $request, int $call) use ($answers): TranslationProviderResponse {
+            $answer = $answers[min($call, count($answers)) - 1];
+
+            if ($answer instanceof TranslationErrorCode) {
+                throw new TranslationProviderException(
+                    $answer,
+                    TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $answer),
+                );
+            }
+
+            return scriptedTranslationResponse($request, array_map(
+                static fn (TranslationItem $item): array => ['id' => $item->id, 'text' => $answer],
+                $request->items,
+            ));
+        },
+    );
 }
 
 /**

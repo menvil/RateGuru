@@ -149,9 +149,12 @@ it('shows the four translation field states, each drawn differently', function (
         ->toContain('rg-admin-badge--warning')
         ->toContain('rg-admin-badge--info')
         ->toContain('rg-admin-badge--outline')
-        // …and the two unsaved drafts their own field.
+        // …and the two unsaved drafts their own field, single line or not, an AI draft its own cell too.
         ->toContain('rg-admin-textarea--info')
         ->toContain('rg-admin-textarea--changed')
+        ->toContain('rg-admin-input--info')
+        ->toContain('rg-admin-input--changed')
+        ->toContain('rg-admin-translation-row__target--generated')
         ->toContain('Visitors see the English text')
         ->toContain('Regenerate')
         ->toContain('Discard')

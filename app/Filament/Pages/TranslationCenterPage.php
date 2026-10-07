@@ -2,16 +2,20 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Translations\GenerateProjectTranslationSuggestionAction;
 use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Exceptions\Translations\CannotSaveTranslationException;
+use App\Exceptions\Translations\CannotSuggestTranslationException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\TranslationSourceEditor;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
+use App\Support\TranslationEngine\Exceptions\InvalidTranslationRequestException;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
+use App\Support\Translations\ProjectTranslationRequestFactory;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 use Filament\Pages\Page;
@@ -40,9 +44,10 @@ use UnitEnum;
  * units already on the page — the search, the section, Missing only / All
  * (kept in the URL with replaceState), and the drafts, which exist only in the
  * browser until they are saved. Typing sends nothing; Save sends one unit id,
- * the language and the text, and the context drawer asks for one unit's
- * details when it opens. Neither re-renders the page, so drafts in other rows
- * stay as they are.
+ * the language and the text; AI translate and Regenerate send one unit id and
+ * the language and get a suggestion back, which is a draft like any other;
+ * and the context drawer asks for one unit's details when it opens. None of
+ * them re-renders the page, so drafts in other rows stay as they are.
  *
  * Every method checks what the browser sends against the catalog and the
  * installed languages now; UpdateProjectTranslationAction is the final
@@ -129,6 +134,41 @@ final class TranslationCenterPage extends Page
     }
 
     /**
+     * A machine translation of one missing unit, as a draft for the browser.
+     * The unit and the language are all the browser sends; the action finds
+     * the unit again and builds everything sent for translation from the
+     * catalog. Nothing is stored, and nothing on the page is re-rendered: the
+     * browser puts the text in the row's field as an unsaved AI suggestion.
+     *
+     * @return array{generated: true, unit: string, locale: string, text: string, provider: string, model: string, generatedAt: string}|array{generated: false, error: string}
+     */
+    #[Renderless]
+    public function suggest(mixed $unit = null, mixed $locale = null): array
+    {
+        $user = auth()->user();
+
+        try {
+            if (! $user instanceof User) {
+                throw CannotSuggestTranslationException::becauseUserIsNotAllowed();
+            }
+
+            $suggestion = app(GenerateProjectTranslationSuggestionAction::class)->handle($user, $unit, $locale);
+        } catch (CannotSuggestTranslationException $exception) {
+            return ['generated' => false, 'error' => $exception->getMessage()];
+        }
+
+        return [
+            'generated' => true,
+            'unit' => $suggestion->unitId,
+            'locale' => $suggestion->locale,
+            'text' => $suggestion->text,
+            'provider' => $suggestion->provider,
+            'model' => $suggestion->model,
+            'generatedAt' => $suggestion->generatedAt->format(DATE_ATOM),
+        ];
+    }
+
+    /**
      * What the context drawer shows for one unit, read when it opens — the
      * unit's row only, never every language of every unit up front. Null for
      * a unit or language that is not one now.
@@ -160,7 +200,7 @@ final class TranslationCenterPage extends Page
             'subtitle' => self::name($found),
             'section' => $found->section->label(),
             'entity' => $found->label,
-            'field' => self::fieldName($found),
+            'field' => $found->fieldName(),
             'key' => $found->qualifiedKey(),
             'reference' => $found->reference,
             'target' => "{$target['label']} — {$target['native']} · {$target['code']}",
@@ -171,6 +211,54 @@ final class TranslationCenterPage extends Page
             'placeholders' => $found->placeholders(),
             'sourceUrl' => TranslationSourceEditor::url($found),
             'others' => $others,
+            'ai' => self::aiPreview($found, $target),
+        ];
+    }
+
+    /**
+     * What AI translate sends for this unit, read from the very request the
+     * suggestion action builds (ProjectTranslationRequestFactory) — so the
+     * drawer cannot describe one request while another is sent. Provider-
+     * neutral content only: what the text is, its limits and the context it
+     * travels with, never a provider, a model, a credential or a raw request.
+     * Null when the unit could not be sent at all.
+     *
+     * @param  TargetLanguage  $target
+     * @return array<string, mixed>|null
+     */
+    private static function aiPreview(ProjectTranslationUnit $unit, array $target): ?array
+    {
+        try {
+            $request = app(ProjectTranslationRequestFactory::class)->make([$unit], $target['code']);
+        } catch (InvalidTranslationRequestException) {
+            return null;
+        }
+
+        $item = $request->items[0];
+        $languages = app(LocaleManager::class);
+        $supplied = [];
+
+        foreach ($item->existingTranslations as $code => $text) {
+            $supplied[] = ['code' => $code, 'flag' => $languages->flag($code), 'label' => "{$languages->label($code)} — {$languages->nativeLabel($code)}", 'text' => $text];
+        }
+
+        $stored = count(array_filter(
+            array_keys(self::targets()),
+            fn (string $code): bool => $code !== $target['code'] && $unit->translation($code) !== null,
+        ));
+
+        return [
+            'target' => "{$target['label']} — {$target['native']} · {$request->targetLocale}",
+            'source' => "{$languages->label((string) $item->sourceLocale)} · {$item->sourceLocale}",
+            'sourceText' => $item->sourceText,
+            'contentType' => $item->contentType,
+            'context' => $item->context,
+            'max' => $item->maxLength !== null ? number_format($item->maxLength).' characters' : 'No limit',
+            'format' => $item->multiline ? 'Multiline' : 'Single line',
+            'placeholders' => $item->placeholders,
+            'others' => $supplied,
+            'omitted' => $stored - count($supplied),
+            'glossary' => array_map(fn (string $term, string $form): string => "{$term} → {$form}", array_keys($request->glossary), $request->glossary),
         ];
     }
 
@@ -262,6 +350,7 @@ final class TranslationCenterPage extends Page
                 'units' => array_map(fn (array $row): array => [
                     'id' => $row['id'],
                     'dom' => $row['dom'],
+                    'name' => $row['name'],
                     'section' => $row['sectionValue'],
                     'max' => $row['max'],
                     'multiline' => $row['multiline'],
@@ -304,7 +393,7 @@ final class TranslationCenterPage extends Page
                 'sourceUrl' => TranslationSourceEditor::url($unit),
                 // What the browser's search looks in besides the translation: the
                 // English text, the content's name, its field, its keys and its id.
-                'search' => mb_strtolower(implode(' ', [$unit->reference, $unit->label, self::fieldName($unit), $unit->qualifiedKey(), $unit->key, $unit->id])),
+                'search' => mb_strtolower(implode(' ', [$unit->reference, $unit->label, $unit->fieldName(), $unit->qualifiedKey(), $unit->key, $unit->id])),
             ];
         }
 
@@ -396,11 +485,5 @@ final class TranslationCenterPage extends Page
     private static function name(ProjectTranslationUnit $unit): string
     {
         return $unit->label.($unit->fieldLabel() !== null ? ' · '.$unit->fieldLabel() : '');
-    }
-
-    /** The field a unit is, for a person: “Name”, or the setting itself. */
-    private static function fieldName(ProjectTranslationUnit $unit): string
-    {
-        return $unit->fieldLabel() ?? ucfirst(str_replace('_', ' ', $unit->field));
     }
 }

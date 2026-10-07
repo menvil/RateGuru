@@ -100,6 +100,48 @@
                         </div>
                     </div>
                 </div>
+                {{-- The same row holding an AI suggestion: info field, info cell, Regenerate in place of AI translate. --}}
+                <div class="rg-admin-translation-row" role="row">
+                    <div class="rg-admin-translation-row__cell rg-admin-translation-row__item" role="cell">
+                        <x-admin.ui.badge tone="outline">Tags</x-admin.ui.badge>
+                        <div class="rg-admin-translation-row__entity">zoomies</div>
+                        <div class="rg-admin-translation-row__field">Name</div>
+                        <div class="rg-admin-translation-row__key">tags.zoomies.name</div>
+                        <ul class="rg-admin-translation-row__chips" aria-label="Constraints">
+                            <li class="rg-admin-constraint-chip">Max 80</li>
+                            <li class="rg-admin-constraint-chip">Single line</li>
+                        </ul>
+                        <button type="button" class="rg-admin-translation-row__context"><x-admin.ui.icon name="info" :size="14" />Context</button>
+                    </div>
+                    <div class="rg-admin-translation-row__cell" role="cell">
+                        <span class="rg-admin-translation-row__cell-label">English · reference</span>
+                        <div class="rg-admin-translation-row__source" lang="en">zoomies</div>
+                        <div class="rg-admin-translation-row__meta">
+                            <span>7 characters</span>
+                            <a href="#DOM-01" class="rg-admin-link rg-admin-link--quiet rg-admin-translation-row__source-link">Edit source <x-admin.ui.icon name="arrow-up-right" :size="12" /></a>
+                        </div>
+                    </div>
+                    <div class="rg-admin-translation-row__cell rg-admin-translation-row__target rg-admin-translation-row__target--generated" role="cell">
+                        <span class="rg-admin-translation-row__cell-label">Български · bg</span>
+                        <label for="kit-translation-row-ai" class="rg-admin-sr-only">Bulgarian translation of zoomies · Name</label>
+                        <div class="rg-admin-input rg-admin-input--info">
+                            <input id="kit-translation-row-ai" type="text" lang="bg" value="Лудо тичане" class="rg-admin-input__control" aria-describedby="kit-translation-row-ai-note kit-translation-row-ai-counter" />
+                        </div>
+                        <div class="rg-admin-translation-row__foot">
+                            <span id="kit-translation-row-ai-counter" class="rg-admin-field__counter rg-admin-translation-row__counter">11 / 80</span>
+                            <span class="rg-admin-translation-row__state">
+                                <x-admin.ui.badge tone="info" dot>AI suggestion · not saved</x-admin.ui.badge>
+                                <span id="kit-translation-row-ai-note" class="rg-admin-translation-row__note">Generated 09:41 · AI suggestions are drafts until saved.</span>
+                            </span>
+                            <div class="rg-admin-translation-row__actions">
+                                <x-admin.ui.button variant="ghost" size="sm">Discard</x-admin.ui.button>
+                                <x-admin.ui.button size="sm" icon="sparkles">Regenerate</x-admin.ui.button>
+                                <x-admin.ui.button size="sm">Save</x-admin.ui.button>
+                                <x-admin.ui.button variant="primary" size="sm" trailing-icon="arrow-down">Save &amp; next</x-admin.ui.button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
