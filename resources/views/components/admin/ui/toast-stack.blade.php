@@ -61,9 +61,13 @@
             setTimeout(() => this[region] = toast.message, 50)
         },
         remove(id) {
+            // Taken now: called from a toast's own Dismiss button, $root is
+            // looked up from that button, which is gone by the next tick.
+            const stack = this.$root
+
             clearTimeout(this.toasts.find((toast) => toast.id === id)?.timer)
             this.toasts = this.toasts.filter((toast) => toast.id !== id)
-            this.$nextTick(() => this.hold(this.hovered, this.$root.contains(document.activeElement)))
+            this.$nextTick(() => this.hold(this.hovered, stack.contains(document.activeElement)))
         },
         hold(hovered, focused) {
             const held = this.hovered || this.focused
