@@ -1,0 +1,676 @@
+#!/usr/bin/env bash
+#
+# verify-mail-signing — verification of DKIM signing for one target, in two
+# explicitly separated modes.
+#
+#   --read-only --target TARGET
+#                STRICTLY READ-ONLY. No SMTP, no queue change, no service
+#                change. It composes the owners of the signing contract and
+#                restates none of them:
+#                  * mail-identity render-signing-plan — TARGET has a reviewed
+#                    signing identity, and which (domain, selector, algorithm);
+#                  * install-mail-signing --verify --target TARGET — the signer
+#                    is RateGuru's, its configuration is exactly the current
+#                    render and OpenDKIM accepts it, it runs as opendkim on
+#                    exactly 127.0.0.1:8891 and nowhere else, and TARGET's key is
+#                    installed, valid, signer-readable and readable by nobody
+#                    else;
+#                  * install-mail-gateway --verify — Postfix is exactly the
+#                    current render: TARGET's listener hands its mail to the
+#                    signer and defers it without one, and no other listener —
+#                    staging capture included — names the signer.
+#                This is what `mail-identity readiness` asks for its signing
+#                condition.
+#
+#   --e2e --target TARGET
+#                MUTATING operator acceptance (root), and the only proof that a
+#                message through TARGET's listener is really signed. It refuses
+#                — before any SMTP connection — unless TARGET's mail is HELD and
+#                its listener has no route at all, so a probe can go nowhere
+#                but the hold queue. Then:
+#                  1. everything --read-only checks;
+#                  2. a message from TARGET's reviewed sender whose From header
+#                     is in a foreign domain must be refused permanently at the
+#                     end of its data — never queued, so never held unsigned —
+#                     and nothing addressed to its unique recipient may be in
+#                     the queue;
+#                  3. exactly one synthetic message, from TARGET's reviewed
+#                     sender with a From in its own domain, to a recipient under
+#                     the reserved .invalid domain, through TARGET's loopback
+#                     listener;
+#                  4. its exact queue ID, from Postfix's reply, must be in HOLD;
+#                  5. only that entry's headers are read, and they must carry
+#                     exactly one DKIM-Signature with TARGET's domain (d=),
+#                     selector (s=) and algorithm (a=), a body hash and a
+#                     signature, over at least the From header;
+#                  6. still in HOLD, that exact entry is deleted, and must be
+#                     gone.
+#                It never flushes, empties or releases the queue, never opens a
+#                connection to anything but TARGET's loopback listener, prints
+#                no message and no signature value, and removes its own entries
+#                — found by their exact queue IDs, or by their unique
+#                recipients — on every exit. A real external delivery is the activation canary,
+#                never this.
+#
+# There is no default mode: a mutating acceptance run is always asked for by
+# name. Once its mode and target are known, every run — a pass, a failure or a
+# refusal — ends with one machine-readable line, RATEGURU_MAIL_SIGNING_RESULT={...}.
+#
+# Test overrides: the RATEGURU_MAILSIGN_* variables below — the prefix
+# install-mail-signing reads — are honoured only alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILSIGN_EUID "${EUID}")"
+
+# The owners this verifier composes, from this bundle.
+SIGNING_INSTALLER="$(gated_default RATEGURU_MAILSIGN_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-signing")"
+GATEWAY_INSTALLER="$(gated_default RATEGURU_MAILSIGN_GATEWAY_INSTALLER_BIN "${SCRIPT_DIR}/install-mail-gateway")"
+MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILSIGN_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"
+MAIL_ROUTING_CLI="$(gated_default RATEGURU_MAILSIGN_MAIL_ROUTING_CLI "${SCRIPT_DIR}/mail-routing")"
+IDENTITY_FILE="$(gated_default RATEGURU_MAILSIGN_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
+ROUTING_FILE="$(gated_default RATEGURU_MAILSIGN_ROUTING_FILE "${REPO_ROOT}/infrastructure/config/mail-routing.json")"
+REGISTRY_FILE="$(gated_default RATEGURU_MAILSIGN_REGISTRY_FILE "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+OUTBOUND_FILE="$(gated_default RATEGURU_MAILSIGN_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
+
+POSTQUEUE_BIN="$(gated_default RATEGURU_MAILSIGN_POSTQUEUE_BIN postqueue)"
+POSTCAT_BIN="$(gated_default RATEGURU_MAILSIGN_POSTCAT_BIN postcat)"
+POSTSUPER_BIN="$(gated_default RATEGURU_MAILSIGN_POSTSUPER_BIN postsuper)"
+
+POLL_TIMEOUT="$(gated_default RATEGURU_MAILSIGN_POLL_TIMEOUT 30)"
+[[ "${POLL_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] || POLL_TIMEOUT=30
+
+# The probe's recipient domain is reserved: nothing could ever deliver to it.
+PROBE_DOMAIN="rateguru.invalid"
+
+MODE=""
+TARGET_ID=""
+WORK_DIR=""
+COUNT_FAIL=0
+
+# Set once MODE and TARGET_ID are validated: from then on every exit, a refusal
+# included, reports its result.
+RESULT_READY=false
+
+# What the result line reports.
+SIGNED_DOMAIN=""
+SIGNED_SELECTOR=""
+SIGNED_ALGORITHM=""
+QUEUE_ID=""
+PROBE_RECIPIENT=""
+PROBE_HELD=false
+PROBE_REMOVED=false
+SIGNATURE_VERIFIED=false
+FOREIGN_RECIPIENT=""
+FOREIGN_QUEUE_ID=""
+FOREIGN_FROM_REJECTED=false
+
+# The From of the negative probe: a domain nothing signs.
+FOREIGN_FROM="From: Intruder <intruder@foreign.invalid>"
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+ok() { printf '  PASS %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*"; COUNT_FAIL=$((COUNT_FAIL + 1)); }
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+
+    # A refusal after the arguments were understood is still a result the
+    # caller reads; one before that has no mode or target to report.
+    if [[ "${RESULT_READY}" == true ]] && command -v jq >/dev/null 2>&1; then
+        result_line fail
+    fi
+
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-mail-signing --read-only --target TARGET
+  verify-mail-signing --e2e --target TARGET
+  verify-mail-signing --help
+
+  --read-only  Strictly read-only (root): TARGET's reviewed signing identity,
+               install-mail-signing --verify --target TARGET and
+               install-mail-gateway --verify. No SMTP, no queue change, no
+               service change. What mail-identity readiness asks.
+  --e2e        Mutating operator acceptance (root), for a HELD target only:
+               --read-only; then a message whose From is in a foreign domain,
+               required to be refused before it is queued; then exactly one
+               synthetic message from TARGET's own domain, its exact queue entry
+               required in HOLD and signed with TARGET's domain, selector and
+               algorithm, then that entry deleted. Never flushes, empties or
+               releases the queue, and never connects to anything but TARGET's
+               listener.
+USAGE
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "verify-mail-signing --${MODE} must run as root (the signer's configuration and the key are root's)"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || die "required tool not found: ${tool}"
+    done
+}
+
+# --- Result -------------------------------------------------------------------------
+
+result_line() {
+    local status="$1"
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --arg d "${SIGNED_DOMAIN}" --arg s "${SIGNED_SELECTOR}" --arg a "${SIGNED_ALGORITHM}" \
+        --arg queue_id "${QUEUE_ID}" \
+        --argjson verified "${SIGNATURE_VERIFIED}" --argjson held "${PROBE_HELD}" --argjson removed "${PROBE_REMOVED}" \
+        --argjson foreign "${FOREIGN_FROM_REJECTED}" '
+        {target: $target, mode: $mode, status: $status}
+        + if $mode == "e2e" then
+              {
+                  foreign_from_rejected: $foreign,
+                  queue_id: (if $queue_id == "" then null else $queue_id end),
+                  held: $held,
+                  removed: $removed,
+                  signature: (if $verified then {d: $d, s: $s, a: $a} else null end)
+              }
+          else {} end' \
+        | sed 's/^/RATEGURU_MAIL_SIGNING_RESULT=/'
+}
+
+# --- Read-only: the owners' verdicts ------------------------------------------------
+
+# run_owner LABEL COMMAND... — one owner's own verify, its report shown beneath.
+run_owner() {
+    local label="$1" output status=0
+    shift
+
+    if [[ ! -x "$1" ]]; then
+        bad "${label}: not executable: $1 — run from a full repository bundle"
+        return 0
+    fi
+
+    output="$("$@" 2>&1 </dev/null)" || status=$?
+
+    if (( status == 0 )); then
+        ok "${label}"
+    else
+        bad "${label} (exit ${status})"
+    fi
+
+    local line
+    while IFS= read -r line; do
+        if [[ -n "${line}" ]]; then
+            printf '      | %s\n' "${line}"
+        fi
+    done <<<"${output}"
+}
+
+# signing_identity — TARGET's entry in the signing plan, the one judged by
+# mail-identity. Sets SIGNED_DOMAIN, SIGNED_SELECTOR and SIGNED_ALGORITHM.
+signing_identity() {
+    local plan entry
+
+    [[ -x "${MAIL_IDENTITY_CLI}" ]] || { bad "the mail identity CLI is not executable: ${MAIL_IDENTITY_CLI}"; return 1; }
+
+    if ! plan="$("${MAIL_IDENTITY_CLI}" render-signing-plan \
+        --identity "${IDENTITY_FILE}" --routing "${ROUTING_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" 2>&1)"
+    then
+        bad "mail-identity render-signing-plan refused the reviewed identity: ${plan//$'\n'/; }"
+        return 1
+    fi
+
+    entry="$(jq -c --arg t "${TARGET_ID}" '.targets[] | select(.target == $t)' <<<"${plan}")"
+    if [[ -z "${entry}" ]]; then
+        bad "${TARGET_ID} has no reviewed signing identity in the signing plan — nothing on this host signs its mail"
+        return 1
+    fi
+
+    SIGNED_DOMAIN="$(jq -r '.domain' <<<"${entry}")"
+    SIGNED_SELECTOR="$(jq -r '.selector' <<<"${entry}")"
+    SIGNED_ALGORITHM="$(jq -r '.algorithm' <<<"${entry}")"
+    ok "${TARGET_ID} is signed as d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR} a=${SIGNED_ALGORITHM} (mail-identity render-signing-plan)"
+}
+
+read_only_checks() {
+    log "verify-mail-signing --${MODE} --target ${TARGET_ID}: the signing contract (read-only)"
+
+    if ! signing_identity; then
+        return 0
+    fi
+
+    run_owner "the signer: install-mail-signing --verify --target ${TARGET_ID}" \
+        "${SIGNING_INSTALLER}" --verify --target "${TARGET_ID}"
+    run_owner "the gateway's wiring: install-mail-gateway --verify" \
+        "${GATEWAY_INSTALLER}" --verify
+}
+
+run_read_only() {
+    require_root
+    require_tools jq
+    read_only_checks
+
+    if (( COUNT_FAIL == 0 )); then
+        log "SIGNING VERIFIED: YES — ${TARGET_ID}'s mail is signed on this host as d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR}"
+        result_line pass
+        return 0
+    fi
+
+    log "SIGNING VERIFIED: NO"
+    result_line fail
+    exit 1
+}
+
+# --- E2E: the target's listener ---------------------------------------------------------
+
+LISTEN_HOST=""
+LISTEN_PORT=""
+PROBE_SENDER=""
+
+# held_listener — TARGET's listener from mail-routing's plan, accepted only when
+# its mail is held and it has no route: then nothing it accepts can leave the
+# host. Read before any connection.
+held_listener() {
+    local plan listener mode route
+
+    [[ -x "${MAIL_ROUTING_CLI}" ]] || die "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI}"
+
+    plan="$("${MAIL_ROUTING_CLI}" render-plan --file "${ROUTING_FILE}" --registry "${REGISTRY_FILE}")" \
+        || die "mail-routing render-plan refused the reviewed policy — nothing was submitted"
+
+    listener="$(jq -c --arg t "${TARGET_ID}" '.listeners[] | select(.identity == $t)' <<<"${plan}")"
+    [[ -n "${listener}" ]] || die "${TARGET_ID} has no listener in the mail routing plan — nothing was submitted"
+
+    mode="$(jq -r '.delivery_mode' <<<"${listener}")"
+    route="$(jq -c '.route' <<<"${listener}")"
+
+    [[ "${mode}" == held && "${route}" == null ]] \
+        || die "${TARGET_ID}'s mail is ${mode} with route ${route}: the signing acceptance only ever submits to a HELD listener with no route, so its probe can go nowhere but the hold queue — nothing was submitted"
+
+    LISTEN_HOST="$(jq -r '.listen.host' <<<"${listener}")"
+    LISTEN_PORT="$(jq -r '.listen.port' <<<"${listener}")"
+    PROBE_SENDER="$(jq -r '.sender.default_from // ("rateguru-signing-verify@" + .sender.allowed_domain)' <<<"${listener}")"
+
+    [[ "${LISTEN_HOST}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ && "${LISTEN_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] \
+        || die "${TARGET_ID}'s listener ${LISTEN_HOST}:${LISTEN_PORT} is not a loopback endpoint — nothing was submitted"
+    [[ "${PROBE_SENDER}" =~ ^[A-Za-z0-9._+-]+@[a-z0-9.-]+$ ]] \
+        || die "${TARGET_ID}'s reviewed sender is not a plain address — nothing was submitted"
+}
+
+# --- SMTP over /dev/tcp --------------------------------------------------------
+#
+# smtp_submit TOKEN RECIPIENT FROM_HEADER — one transaction to TARGET's held
+# listener, and nowhere else, from TARGET's reviewed sender. Sets SMTP_STAGE to
+# the command a refusal came at ("message" for one at the end of the data), or
+# to "queued", SMTP_REPLY to the last reply and SMTP_QUEUE_ID to the queue ID
+# Postfix names.
+#
+# fd 4 is opened and closed with a bare exec; the stderr silencing is on a group
+# around it, so it lasts only for that exec.
+
+SMTP_STAGE=""
+SMTP_REPLY=""
+SMTP_QUEUE_ID=""
+
+_smtp_reply() {
+    local want="$1" line
+    SMTP_REPLY=""
+    while IFS= read -r -t 15 -u 4 line; do
+        line="${line%$'\r'}"
+        SMTP_REPLY="${line}"
+        [[ "${line:3:1}" == "-" ]] && continue
+        [[ "${line:0:1}" == "${want}" ]] && return 0
+        return 1
+    done
+    return 1
+}
+
+_smtp_step() {
+    # _smtp_step STAGE WANT [COMMAND]
+    local stage="$1" want="$2"
+    SMTP_STAGE="${stage}"
+    if [[ $# -ge 3 ]]; then
+        printf '%s\r\n' "$3" >&4
+    fi
+    _smtp_reply "${want}"
+}
+
+smtp_submit() {
+    local token="$1" recipient="$2" from_header="$3"
+    SMTP_STAGE="connect"
+    SMTP_REPLY=""
+    SMTP_QUEUE_ID=""
+
+    { exec 4<>"/dev/tcp/${LISTEN_HOST}/${LISTEN_PORT}"; } 2>/dev/null || return 1
+
+    if _smtp_step connect 2 \
+        && _smtp_step ehlo 2 "EHLO mail-signing-verify" \
+        && _smtp_step mail 2 "MAIL FROM:<${PROBE_SENDER}>" \
+        && _smtp_step rcpt 2 "RCPT TO:<${recipient}>" \
+        && _smtp_step data 3 "DATA"
+    then
+        {
+            printf '%s\r\n' "${from_header}"
+            printf 'To: <%s>\r\n' "${recipient}"
+            printf 'Subject: %s\r\n' "${token}"
+            printf 'Date: %s\r\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+            printf 'Message-ID: <%s@%s>\r\n' "${token}" "${PROBE_DOMAIN}"
+            printf 'X-RateGuru-Mail-Signing-Verify: %s\r\n' "${token}"
+            printf '\r\n'
+            printf 'RateGuru mail signing acceptance message %s\r\n' "${token}"
+            printf '.\r\n'
+        } >&4
+
+        if _smtp_step message 2; then
+            SMTP_QUEUE_ID="$(sed -n 's/.*queued as \([0-9A-Za-z]\{1,\}\).*/\1/p' <<<"${SMTP_REPLY}")"
+            SMTP_STAGE="queued"
+            printf 'QUIT\r\n' >&4 || true
+        fi
+    fi
+
+    { exec 4>&- 4<&-; } 2>/dev/null || true
+    [[ "${SMTP_STAGE}" == queued ]]
+}
+
+new_token() {
+    printf 'mgsign%s%s\n' "$(date -u '+%Y%m%d%H%M%S')" "${RANDOM}${RANDOM}"
+}
+
+# --- The queue: one entry, by its exact ID --------------------------------------------
+
+queue_state() {
+    "${POSTQUEUE_BIN}" -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+}
+
+# queue_ids_for RECIPIENT — the entries addressed to one of this run's unique
+# recipients: its probe, even when Postfix's reply never named its ID.
+queue_ids_for() {
+    [[ -n "$1" ]] || return 0
+    "${POSTQUEUE_BIN}" -j 2>/dev/null \
+        | jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
+}
+
+wait_queue_state() {
+    local id="$1" want="$2" waited=0
+    while (( waited < POLL_TIMEOUT )); do
+        [[ "$(queue_state "${id}")" == "${want}" ]] && return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+# --- The signature ---------------------------------------------------------------
+
+# probe_headers — only the header section of the probe's own queue entry,
+# unfolded to one header per line. Never printed.
+probe_headers() {
+    "${POSTCAT_BIN}" -h -q "${QUEUE_ID}" 2>/dev/null \
+        | awk '
+            /^\*\*\* / { next }
+            /^[ \t]/ { sub(/^[ \t]+/, " "); current = current $0; next }
+            { if (current != "") print current; current = $0 }
+            END { if (current != "") print current }'
+}
+
+# tag_value SIGNATURE TAG — one tag of a DKIM-Signature value, whitespace removed.
+tag_value() {
+    tr -d ' \t' <<<"$1" | tr ';' '\n' | sed -n "s/^$2=//p" | head -n 1
+}
+
+# check_signature TOKEN — exactly one DKIM-Signature on the probe's own entry,
+# for the target's domain, selector and algorithm, with a body hash and a
+# signature over at least From. Reports tags only, never a signature value.
+check_signature() {
+    local token="$1" headers signatures count signature tag
+
+    headers="$(probe_headers)"
+    if [[ -z "${headers}" ]]; then
+        bad "the headers of queue entry ${QUEUE_ID} could not be read"
+        return 1
+    fi
+
+    if ! grep -qiE "^(Subject|X-RateGuru-Mail-Signing-Verify): *${token}\$" <<<"${headers}"; then
+        bad "queue entry ${QUEUE_ID} does not carry this run's token — it is not the probe, and it is not inspected further"
+        return 1
+    fi
+
+    signatures="$(grep -i '^DKIM-Signature:' <<<"${headers}" || true)"
+    count="$(grep -c . <<<"${signatures}" || true)"
+
+    if [[ -z "${signatures}" ]]; then
+        bad "the probe was not signed: its queue entry carries no DKIM-Signature"
+        return 1
+    fi
+
+    if [[ "${count}" != 1 ]]; then
+        bad "the probe carries ${count} DKIM-Signature headers — exactly one, the signer's, is expected"
+        return 1
+    fi
+
+    signature="${signatures#*:}"
+
+    tag="$(tag_value "${signature}" v)"
+    [[ "${tag}" == 1 ]] || { bad "the DKIM-Signature has v=${tag}, not v=1"; return 1; }
+
+    tag="$(tag_value "${signature}" d)"
+    [[ "${tag,,}" == "${SIGNED_DOMAIN}" ]] || { bad "the DKIM-Signature signs as d=${tag}, not ${TARGET_ID}'s d=${SIGNED_DOMAIN}"; return 1; }
+
+    tag="$(tag_value "${signature}" s)"
+    [[ "${tag}" == "${SIGNED_SELECTOR}" ]] || { bad "the DKIM-Signature has s=${tag}, not ${TARGET_ID}'s selector s=${SIGNED_SELECTOR}"; return 1; }
+
+    tag="$(tag_value "${signature}" a)"
+    [[ "${tag}" == "${SIGNED_ALGORITHM}" ]] || { bad "the DKIM-Signature has a=${tag}, not ${TARGET_ID}'s algorithm a=${SIGNED_ALGORITHM}"; return 1; }
+
+    tag="$(tag_value "${signature}" bh)"
+    [[ "${tag}" =~ ^[A-Za-z0-9+/]+=*$ ]] || { bad "the DKIM-Signature carries no body hash (bh=)"; return 1; }
+
+    tag="$(tag_value "${signature}" b)"
+    [[ "${tag}" =~ ^[A-Za-z0-9+/]{16,}=*$ ]] || { bad "the DKIM-Signature carries no signature (b=)"; return 1; }
+
+    tag="$(tag_value "${signature}" h)"
+    [[ ":${tag,,}:" == *":from:"* ]] || { bad "the DKIM-Signature does not cover the From header (h=${tag})"; return 1; }
+
+    SIGNATURE_VERIFIED=true
+    ok "the probe carries exactly one DKIM-Signature: d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR} a=${SIGNED_ALGORITHM}, with a body hash and a signature over From (values not printed)"
+}
+
+# --- E2E -----------------------------------------------------------------------
+
+cleanup() {
+    local status=$? id
+
+    # Only this run's own entries, by their exact IDs — and any entry addressed
+    # to one of this run's unique recipients. Anything else is not ours.
+    local -a ids=()
+    [[ -z "${QUEUE_ID}" ]] || ids+=("${QUEUE_ID}")
+    [[ -z "${FOREIGN_QUEUE_ID}" ]] || ids+=("${FOREIGN_QUEUE_ID}")
+    while IFS= read -r id; do
+        [[ -z "${id}" ]] || ids+=("${id}")
+    done < <(queue_ids_for "${PROBE_RECIPIENT}"; queue_ids_for "${FOREIGN_RECIPIENT}")
+
+    for id in "${ids[@]+"${ids[@]}"}"; do
+        [[ -n "$(queue_state "${id}")" ]] || continue
+        "${POSTSUPER_BIN}" -d "${id}" >/dev/null 2>&1 \
+            || printf '  FAIL could not remove the probe queue entry %s — remove it with: postsuper -d %s\n' "${id}" "${id}"
+    done
+
+    [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
+    exit "${status}"
+}
+
+run_e2e() {
+    require_root
+    require_tools jq
+
+    # Refuse anything but a held listener with no route before anything else —
+    # before a single connection is opened.
+    held_listener
+
+    read_only_checks
+    if (( COUNT_FAIL > 0 )); then
+        log "the read-only signing contract does not hold — nothing was submitted"
+        log "SIGNING E2E: FAIL"
+        result_line fail
+        exit 1
+    fi
+
+    local token
+    token="$(new_token)"
+    PROBE_RECIPIENT="signing-probe-${token}@${PROBE_DOMAIN}"
+    FOREIGN_RECIPIENT="signing-probe-foreign-${token}@${PROBE_DOMAIN}"
+
+    trap cleanup EXIT
+
+    foreign_from_refused "${token}"
+
+    log "submitting one synthetic message to ${TARGET_ID}'s held listener ${LISTEN_HOST}:${LISTEN_PORT}"
+    if ! smtp_submit "${token}" "${PROBE_RECIPIENT}" "From: <${PROBE_SENDER}>"; then
+        bad "the held listener did not accept the probe from ${PROBE_SENDER} (${SMTP_STAGE}: ${SMTP_REPLY})"
+        e2e_verdict
+    fi
+    QUEUE_ID="${SMTP_QUEUE_ID}"
+
+    if [[ -z "${QUEUE_ID}" ]]; then
+        bad "Postfix accepted the probe but named no queue ID (${SMTP_REPLY})"
+        e2e_verdict
+    fi
+    ok "Postfix queued the probe as ${QUEUE_ID}"
+
+    if ! wait_queue_state "${QUEUE_ID}" hold; then
+        bad "queue entry ${QUEUE_ID} is not in the HOLD queue (it is in: $(queue_state "${QUEUE_ID}"))"
+        e2e_verdict
+    fi
+    PROBE_HELD=true
+    ok "queue entry ${QUEUE_ID} is in the HOLD queue"
+
+    check_signature "${token}" || e2e_verdict
+
+    # Still held, then deleted from HOLD only — a deletion that does not find it
+    # there would leave it in the queue, and fail below.
+    if [[ "$(queue_state "${QUEUE_ID}")" != hold ]]; then
+        PROBE_HELD=false
+        bad "queue entry ${QUEUE_ID} left the HOLD queue before it was deleted (it is in: $(queue_state "${QUEUE_ID}"))"
+        e2e_verdict
+    fi
+
+    "${POSTSUPER_BIN}" -d "${QUEUE_ID}" hold >/dev/null 2>&1 \
+        || { bad "could not delete the held probe ${QUEUE_ID}"; e2e_verdict; }
+
+    if [[ -n "$(queue_state "${QUEUE_ID}")" ]]; then
+        bad "queue entry ${QUEUE_ID} is still queued after its deletion from HOLD"
+        e2e_verdict
+    fi
+    PROBE_REMOVED=true
+    ok "queue entry ${QUEUE_ID} stayed held until it was deleted, and is gone"
+
+    e2e_verdict
+}
+
+# foreign_from_refused TOKEN — the reviewed envelope sender with a From in a
+# domain nothing signs: the listener must refuse it permanently once it has the
+# headers, and it must not be in the queue. A message the signer could not sign
+# is never accepted.
+foreign_from_refused() {
+    local token="$1" queued
+
+    log "submitting a message from ${PROBE_SENDER} with a foreign From to ${TARGET_ID}'s held listener — it must be refused before it is queued"
+    if smtp_submit "${token}-foreign" "${FOREIGN_RECIPIENT}" "${FOREIGN_FROM}"; then
+        FOREIGN_QUEUE_ID="${SMTP_QUEUE_ID}"
+        bad "the held listener ACCEPTED a message whose From is outside ${SIGNED_DOMAIN} (${SMTP_REPLY}) — it would have been held unsigned"
+        e2e_verdict
+    fi
+
+    if [[ "${SMTP_STAGE}" != message || "${SMTP_REPLY:0:1}" != 5 ]]; then
+        bad "a message with a foreign From was not refused permanently at the end of its data (${SMTP_STAGE}: ${SMTP_REPLY})"
+        e2e_verdict
+    fi
+
+    queued="$(queue_ids_for "${FOREIGN_RECIPIENT}")"
+    if [[ -n "${queued}" ]]; then
+        bad "the refused message is in the queue all the same (${queued//$'\n'/, })"
+        e2e_verdict
+    fi
+
+    FOREIGN_FROM_REJECTED=true
+    ok "a message from ${PROBE_SENDER} with a From outside ${SIGNED_DOMAIN} was refused before it was queued (${SMTP_REPLY:0:9}), and nothing of it is in the queue"
+}
+
+e2e_verdict() {
+    if (( COUNT_FAIL == 0 )); then
+        log "SIGNING E2E: PASS — ${TARGET_ID}'s held listener refuses a foreign From and signs as d=${SIGNED_DOMAIN} s=${SIGNED_SELECTOR} a=${SIGNED_ALGORITHM}; nothing left the host"
+        result_line pass
+        exit 0
+    fi
+
+    log "SIGNING E2E: FAIL"
+    result_line fail
+    exit 1
+}
+
+# --- Entry point ---------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --read-only|--e2e)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                die "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --read-only or --e2e (the mutating acceptance is never a default)"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+    RESULT_READY=true
+
+    case "${MODE}" in
+        read-only) run_read_only ;;
+        e2e)       run_e2e ;;
+    esac
+}
+
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped code rather than a copy of it.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

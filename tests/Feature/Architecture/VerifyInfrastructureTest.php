@@ -460,8 +460,8 @@ it('makes the DKIM key and outbound readiness mandatory once the target delivers
         expectVerifyItem($run['output'], 'FAIL', 'outbound-readiness', 'demo-shop delivers outbound, so mail-identity readiness is required');
 
         // A valid key and correct public DNS: the key passes, and readiness is
-        // still required — it fails on the one condition this release cannot
-        // meet, which is exactly what keeps an outbound target from passing.
+        // still required — without a verified signer it fails on signing,
+        // which is exactly what keeps an outbound target from passing.
         $key = mailIdentityInstallKey($host['scratch'], 'demo-shop', 'shop2026');
         $host['env'] = [...$host['env'], ...mailIdentityDnsHost($host['scratch'], mailIdentityGoodDns(mailIdentityPublicKey($key), '203.0.113.10', 'demo-shop.example', 'shop2026', 'mta1.example.net'))];
 
@@ -469,8 +469,14 @@ it('makes the DKIM key and outbound readiness mandatory once the target delivers
         expect($run['status'])->not->toBe(0);
         expectVerifyItem($run['output'], 'PASS', 'dkim-key');
         expectVerifyItem($run['output'], 'FAIL', 'outbound-readiness');
-        expect($run['output'])->toContain('FAIL   signing    no DKIM signing service is installed and verified on this host');
+        expect($run['output'])->toContain('FAIL   signing    verify-mail-signing --read-only --target demo-shop did not pass (exit 1)');
         expect($run['result']['status'])->toBe('fail');
+
+        // Once the signing verifier passes, readiness is met as well.
+        mailIdentitySigningVerdict($host['scratch'], true);
+        $run = verifyInfraRun($host, 'demo-shop', $script);
+        expectVerifyItem($run['output'], 'PASS', 'outbound-readiness');
+        expect($run['output'])->toContain('PASS   signing')->toContain('OUTBOUND READY: YES');
     } finally {
         removeScratchDir($host['scratch']);
     }
@@ -776,16 +782,31 @@ it('gates production verification to main before any job holds production creden
     expect($staging)->toBe(verifyInfraWorkflow('prepare-staging-host.yml')['jobs']['validate-ref']['steps'][0]['run']);
 });
 
-it('creates no subsystem-specific verification workflow', function () {
+it('creates no subsystem-specific verification workflow beyond the one signing acceptance', function () {
     $workflows = array_map('basename', glob(base_path('.github/workflows/*.yml')) ?: []);
     $verify = array_values(array_filter($workflows, static fn (string $file): bool => str_starts_with($file, 'verify-')));
 
-    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-staging-infrastructure.yml']);
+    // The two permanent read-only verifications, and the one deliberate
+    // exception: the live proof that held production mail is signed, which no
+    // read-only check can give. MailSigningTest guards it.
+    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml']);
 
-    // The deep primitives stay on the host, and no workflow or action runs them.
+    // The deep primitives stay on the host, and no workflow or action runs
+    // them — except that one acceptance, through its own transport, which runs
+    // exactly verify-mail-signing --e2e and no other mutating mode.
+    $signing = base_path('.github/actions/verify-rateguru-mail-signing/action.yml');
+
     foreach ([...(glob(base_path('.github/workflows/*.yml')) ?: []), ...(glob(base_path('.github/actions/*/action.yml')) ?: [])] as $path) {
-        expect(executableSourceLines(File::get($path)))
-            ->not->toContain('--e2e')
+        $code = executableSourceLines(File::get($path));
+
+        if ($path === $signing) {
+            expect(substr_count($code, '--e2e'))->toBe(1);
+            expect($code)->toMatch('#"\$\{RATEGURU_REMOTE_ROOT\}/infrastructure/scripts/verify-mail-signing"\s+--e2e\s+--target "\$\{DEPLOYMENT_TARGET\}"#');
+        } else {
+            expect($code)->not->toContain('--e2e');
+        }
+
+        expect($code)
             ->not->toContain('verify-mail-gateway')
             ->not->toContain('scripts/verify-mail-capture');
     }

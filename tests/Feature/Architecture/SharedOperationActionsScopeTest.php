@@ -95,6 +95,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // The infrastructure verification transport: it runs exactly
         // verify-infrastructure on a host and installs nothing.
         'verify-rateguru-infrastructure',
+        // The signing acceptance transport: it runs exactly
+        // verify-mail-signing --e2e on a host and installs nothing.
+        'verify-rateguru-mail-signing',
     ]);
 });
 
@@ -124,8 +127,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'rollback-production.yml',
         'rollback-staging.yml',
         // One verification workflow per environment, exactly like every other
-        // operator-facing operation here.
+        // operator-facing operation here, and the production signing
+        // acceptance.
         'verify-production-infrastructure.yml',
+        'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
     ]);
 
@@ -507,6 +512,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // mutations above — so both verifications wait in the host's domain.
         'verify-production-infrastructure.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
         'verify-staging-infrastructure.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
+        // The signing acceptance queues and deletes one held message on that
+        // same machine, so it waits in the same domain.
+        'verify-production-mail-signing.yml:accept' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

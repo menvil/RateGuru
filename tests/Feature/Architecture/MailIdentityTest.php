@@ -937,14 +937,15 @@ it('fixes its public resolvers in the implementation, with no way to choose anot
     expect(preg_match_all('/(?<!command -v )"\$\{DIG_BIN\}"/', $code))->toBe(1);
     expect($code)->toContain('"${DIG_BIN}" "@${resolver}" +nosearch ');
 
-    // The only overrides are the test seams that existed before: none of them
-    // names a resolver.
+    // The only overrides are the gated test seams, and none of them names a
+    // resolver.
     preg_match_all('/RATEGURU_MAILIDENTITY_[A-Z_]+/', $code, $overrides);
     expect(array_values(array_unique($overrides[0])))->toBe([
         'RATEGURU_MAILIDENTITY_FS_ROOT',
         'RATEGURU_MAILIDENTITY_DIG_BIN',
         'RATEGURU_MAILIDENTITY_IP_BIN',
         'RATEGURU_MAILIDENTITY_OPENSSL_BIN',
+        'RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN',
     ]);
 
     // Nothing reads or changes the host's resolver configuration, and nothing
@@ -985,6 +986,138 @@ it('fixes its public resolvers in the implementation, with no way to choose anot
 });
 
 // =============================================================================
+// THE SIGNING PLAN: WHAT THE HOST'S SIGNER SIGNS
+// =============================================================================
+
+it('renders the real signing plan: tits-guru, held, signed as tits.guru with rg1', function () {
+    $run = mailIdentityRun(['render-signing-plan']);
+
+    expect($run['status'])->toBe(0, $run['stderr']);
+    expect(json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR))->toBe([
+        'schema_version' => 1,
+        'targets' => [[
+            'algorithm' => 'rsa-sha256',
+            'domain' => 'tits.guru',
+            'key_path' => '/etc/opendkim/keys/tits-guru/rg1.private',
+            'key_requirement' => 'deferred',
+            'minimum_key_bits' => 2048,
+            'selector' => 'rg1',
+            'target' => 'tits-guru',
+        ]],
+    ]);
+
+    // Canonical: the same plan, byte for byte, every time.
+    expect(mailIdentityRun(['render-signing-plan'])['stdout'])->toBe($run['stdout']);
+});
+
+it('plans every production identity, held ones included, and never a staging target', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $plan = static fn (array $files): array => json_decode(mailIdentityRun(['render-signing-plan', ...$files])['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        // demo-shop held: planned, its key deferred.
+        $held = $plan(mailIdentityFixtureConfig($scratch.'/config'));
+        expect(collect($held['targets'])->pluck('target')->all())->toBe(['demo-shop', 'tits-guru']);
+        expect(collect($held['targets'])->firstWhere('target', 'demo-shop'))->toBe([
+            'algorithm' => 'rsa-sha256',
+            'domain' => 'demo-shop.example',
+            'key_path' => '/etc/opendkim/keys/demo-shop/shop2026.private',
+            'key_requirement' => 'deferred',
+            'minimum_key_bits' => 2048,
+            'selector' => 'shop2026',
+            'target' => 'demo-shop',
+        ]);
+
+        // demo-shop outbound: its key is required from now on.
+        $outbound = $plan(mailIdentityFixtureConfig($scratch.'/config', [
+            'mode' => 'outbound',
+            'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.example.net']],
+        ]));
+        expect(collect($outbound['targets'])->firstWhere('target', 'demo-shop')['key_requirement'])->toBe('required');
+
+        // staging-main captures its mail and never signs it.
+        foreach ([$held, $outbound] as $each) {
+            expect(collect($each['targets'])->pluck('target')->all())->not->toContain('staging-main');
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('derives every value of the plan from its one authority, never from the caller', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        // A different selector and minimum in mail-identity.json, and a
+        // different mail domain in mail-routing.json, reach the plan unchanged.
+        $identity = mailIdentityDemoShopIdentity();
+        $identity['dkim']['selector'] = 'brand7';
+        $identity['dkim']['minimum_key_bits'] = 3072;
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['identity' => $identity]);
+
+        $routing = json_decode((string) file_get_contents($scratch.'/config/mail-routing.json'), true);
+        $routing['targets']['demo-shop']['mail_domain'] = 'books.demo-shop.example';
+        $routing['targets']['demo-shop']['default_from'] = 'hello@books.demo-shop.example';
+        $routing['targets']['demo-shop']['bounce_domain'] = 'bounce.books.demo-shop.example';
+        $routing['targets']['demo-shop']['reply_domain'] = 'reply.books.demo-shop.example';
+        file_put_contents($scratch.'/config/mail-routing.json', mailRoutingJson($routing));
+
+        $run = mailIdentityRun(['render-signing-plan', ...$files]);
+        expect($run['status'])->toBe(0, $run['stderr']);
+
+        $entry = collect(json_decode($run['stdout'], true)['targets'])->firstWhere('target', 'demo-shop');
+        expect($entry['domain'])->toBe('books.demo-shop.example');
+        expect($entry['selector'])->toBe('brand7');
+        expect($entry['minimum_key_bits'])->toBe(3072);
+        expect($entry['key_path'])->toBe('/etc/opendkim/keys/demo-shop/brand7.private');
+
+        // The key path is the same derivation dkim-key answers with.
+        expect(mailIdentityRun(['dkim-key', '--target', 'demo-shop', ...$files])['stdout'])
+            ->toBe("deferred\t/etc/opendkim/keys/demo-shop/brand7.private\t3072\n");
+
+        // Nothing about a target can be chosen on the command line.
+        foreach ([['--target', 'demo-shop'], ['--key', '/tmp/k'], ['--file', '/tmp/k'], ['--json']] as $option) {
+            expectMailIdentityRefusal(mailIdentityRun(['render-signing-plan', ...$option]), "{$option[0]} is not an option of render-signing-plan");
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('renders no signing plan from contracts it refuses', function (string $file, string $document, string $reason) {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $files = mailIdentityFixtureConfig($scratch.'/config');
+        file_put_contents($scratch."/config/{$file}", $document);
+
+        expectMailIdentityRefusal(mailIdentityRun(['render-signing-plan', ...$files]), $reason);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'a malformed identity' => ['mail-identity.json', '{"schema_version": 1, "targets": {"tits-guru": {"dkim": {"selector": "RG1"}}}}', 'the mail identity contract refuses this'],
+    'an identity that is not JSON' => ['mail-identity.json', '{"schema_version": 1,', 'the mail identity contract is not valid JSON'],
+    'a malformed routing policy' => ['mail-routing.json', '{"schema_version": 2, "targets": {"tits-guru": {"delivery_mode": "teleport"}}}', 'mail-routing render-plan refused the routing policy'],
+]);
+
+it('prints an empty signing plan when no production target has a reviewed identity', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false]);
+        file_put_contents($scratch.'/config/mail-identity.json', '{"schema_version": 1, "targets": {}}');
+
+        $run = mailIdentityRun(['render-signing-plan', ...$files]);
+        expect($run['status'])->toBe(0, $run['stderr']);
+        expect(json_decode($run['stdout'], true))->toBe(['schema_version' => 1, 'targets' => []]);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
 // READINESS: WHAT OUTBOUND DELIVERY WILL REQUIRE
 // =============================================================================
 
@@ -1001,15 +1134,65 @@ it('reports every outbound condition for the real target, and none of them is me
             ->toContain('FAIL   direct     direct delivery is disabled on this host')
             ->toContain('PASS   mta        the reviewed public MTA hostname is mta1.tits.guru')
             ->toContain('FAIL   key        /etc/opendkim/keys/tits-guru/rg1.private is not usable: it does not exist')
-            ->toContain('FAIL   signing    no DKIM signing service is installed and verified on this host')
+            ->toContain('FAIL   signing    verify-mail-signing --read-only --target tits-guru did not pass (exit 1)')
+            ->toContain('| ')
             ->toContain('OUTBOUND READY: NO')
-            ->not->toContain('OUTBOUND READY: YES');
+            ->not->toContain('OUTBOUND READY: YES')
+            ->not->toContain('no DKIM signing service is installed and verified on this host');
+
+        // The signing condition is the verifier's verdict, asked read-only.
+        expect(mailIdentitySigningCalls($scratch))->toBe(['--read-only --target tits-guru']);
     } finally {
         removeScratchDir($scratch);
     }
 });
 
-it('passes every identity, key and DNS condition for a prepared outbound target, and still refuses without a signing service', function () {
+it('takes the signing condition from the signing verifier: PASS only when it passes', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+        $env = mailIdentityDnsHost($scratch, mailIdentityGoodDns(mailIdentityPublicKey($key)));
+        $failures = static function (string $stdout): array {
+            preg_match_all('/^  FAIL   (\S+)/m', $stdout, $matches);
+
+            return $matches[1];
+        };
+
+        // The accepted production state once the signer is installed: every
+        // identity, key, DNS and signing condition holds, and the two gates
+        // that keep the target held and the host without a direct route still
+        // fail, each on its own.
+        mailIdentitySigningVerdict($scratch, true);
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], $env);
+
+        expect($run['status'])->not->toBe(0);
+        expect($failures($run['stdout']))->toBe(['routing', 'direct']);
+        expect($run['stdout'])
+            ->toContain('PASS   signing    verify-mail-signing --read-only --target tits-guru: the signing service, its access to the key and the gateway\'s wiring of this target are verified')
+            ->toContain('PASS   key        /etc/opendkim/keys/tits-guru/rg1.private is a usable 2048-bit RSA private key')
+            ->toContain('PASS   ptr        203.0.113.10 PTR is mta1.tits.guru')
+            ->toContain('OUTBOUND READY: NO');
+
+        // The verifier refusing is a FAIL — and only that changes.
+        mailIdentitySigningVerdict($scratch, false);
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], $env);
+
+        expect($failures($run['stdout']))->toBe(['routing', 'direct', 'signing']);
+        expect($run['stdout'])
+            ->toContain('FAIL   signing    verify-mail-signing --read-only --target tits-guru did not pass (exit 1)')
+            ->toContain('             |   FAIL the signer: install-mail-signing --verify --target tits-guru (exit 1)');
+
+        // A verifier that cannot run at all is a FAIL too, never a pass.
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], [...$env, 'RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => $scratch.'/bin/absent']);
+        expect($run['stdout'])->toContain('FAIL   signing    the signing verifier is not executable');
+        expectNoKeyMaterial($run['stdout'].$run['stderr'], $key);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('is outbound-ready only when every condition holds, the signer included', function () {
     $scratch = mailIdentityScratch();
 
     try {
@@ -1018,15 +1201,12 @@ it('passes every identity, key and DNS condition for a prepared outbound target,
             'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.example.net']],
         ]);
         $key = mailIdentityInstallKey($scratch, 'demo-shop', 'shop2026');
+        $env = mailIdentityDnsHost($scratch, mailIdentityGoodDns(mailIdentityPublicKey($key), '203.0.113.10', 'demo-shop.example', 'shop2026', 'mta1.example.net'));
 
-        $run = mailIdentityRun(
-            ['readiness', '--target', 'demo-shop', ...$files],
-            mailIdentityDnsHost($scratch, mailIdentityGoodDns(mailIdentityPublicKey($key), '203.0.113.10', 'demo-shop.example', 'shop2026', 'mta1.example.net')),
-        );
+        // Without a verified signer, exactly that condition fails.
+        $run = mailIdentityRun(['readiness', '--target', 'demo-shop', ...$files], $env);
 
         expect($run['status'])->not->toBe(0);
-
-        // Every condition this release can judge passes; exactly one fails.
         preg_match_all('/^  FAIL   (\S+)/m', $run['stdout'], $failures);
         expect($failures[1])->toBe(['signing']);
         expect($run['stdout'])
@@ -1036,6 +1216,14 @@ it('passes every identity, key and DNS condition for a prepared outbound target,
             ->toContain('PASS   dkim')
             ->toContain('OUTBOUND READY: NO');
 
+        // With it, the target is ready — the one state readiness was waiting for.
+        mailIdentitySigningVerdict($scratch, true);
+        $ready = mailIdentityRun(['readiness', '--target', 'demo-shop', ...$files], $env);
+
+        expect($ready['status'])->toBe(0, $ready['stdout']);
+        expect($ready['stdout'])->toContain('PASS   signing')->toContain('OUTBOUND READY: YES')->not->toContain('FAIL ');
+        expect(mailIdentitySigningCalls($scratch))->toBe(['--read-only --target demo-shop', '--read-only --target demo-shop']);
+
         // And without its key, the target is not ready on that count as well.
         unlink($key);
         $missing = mailIdentityRun(['readiness', '--target', 'demo-shop', ...$files], mailIdentityDnsHost($scratch, []));
@@ -1043,6 +1231,66 @@ it('passes every identity, key and DNS condition for a prepared outbound target,
     } finally {
         removeScratchDir($scratch);
     }
+});
+
+it('never asks the signer of a target without a reviewed identity, and fails its signing condition', function () {
+    $scratch = mailIdentityScratch();
+
+    try {
+        mailIdentitySigningVerdict($scratch, true);
+        $run = mailIdentityRun(['readiness', '--target', 'staging-main'], mailIdentityDnsHost($scratch, []));
+
+        expect($run['stdout'])
+            ->toContain('FAIL   identity   no reviewed DKIM and DMARC identity in mail-identity.json')
+            ->toContain('FAIL   signing    staging-main has no reviewed signing identity, so nothing on this host signs its mail')
+            ->toContain('OUTBOUND READY: NO');
+        expect(mailIdentitySigningCalls($scratch))->toBe([]);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('cannot be pointed at another signing verifier without the test-override gate', function () {
+    $verifier = static function (array $environment): string {
+        $process = proc_open(
+            ['bash', '-c', 'source "$1" && printf "%s" "${SIGNING_VERIFIER}"', 'bash', mailIdentityScript()],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => sys_get_temp_dir(), ...$environment],
+        );
+        $stdout = (string) stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $stdout;
+    };
+
+    $own = base_path('infrastructure/scripts/verify-mail-signing');
+
+    expect($verifier([]))->toBe($own);
+    expect($verifier(['RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => '/tmp/always-passes']))->toBe($own);
+    expect($verifier(['RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => '/tmp/always-passes', 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'false']))->toBe($own);
+    expect($verifier(['RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => '/tmp/always-passes', 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true']))->toBe('/tmp/always-passes');
+
+    // And no option of readiness names a verifier.
+    expectMailIdentityRefusal(
+        mailIdentityRun(['readiness', '--target', 'tits-guru', '--verifier', '/tmp/always-passes']),
+        'unknown argument: --verifier',
+    );
+});
+
+it('asks the signing verifier read-only, and only that', function () {
+    $code = executableSourceLines(File::get(mailIdentityScript()));
+
+    expect($code)
+        ->toContain('SIGNING_VERIFIER="$(gated_default RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN "${SCRIPT_DIR}/verify-mail-signing")"')
+        ->toContain('"${SIGNING_VERIFIER}" --read-only --target "${TARGET_ID}"')
+        ->not->toContain('--e2e')
+        ->not->toContain('no DKIM signing service is installed and verified on this host');
+    expect(substr_count($code, '"${SIGNING_VERIFIER}" --'))->toBe(1);
 });
 
 it('judges public DNS for readiness exactly as verify-dns does: both public resolvers, never the host\'s', function () {
@@ -1094,7 +1342,8 @@ it('records the identity foundation and keeps the remaining mail work in its own
     expect($roadmap)
         ->toContain('**8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing activated.**')
         ->toContain('**8.4B.4.1d Public DNS verified by independent public resolvers — IMPLEMENTED.**')
-        ->toContain('**8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery — planned.**')
+        ->toContain('**8.4B.4.2a DKIM signing foundation — IMPLEMENTED — production acceptance pending.**')
+        ->toContain('**8.4B.4.2b DNS-ready activation and the first real delivery — planned.**')
         ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.6 Suppression, delivery state and per-target metrics — planned.**')
         ->toContain('**8.4B.7 Mail operations, recovery and security acceptance — planned.**');

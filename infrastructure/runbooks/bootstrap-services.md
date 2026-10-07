@@ -44,6 +44,7 @@ installer's logic:
 | `install-target-perimeter` | generic deploy/rollback/cleanup wrappers, sudoers, backup cron, legacy-wrapper absence |
 | `install-public-storage-access` | the narrow `user:www-data:--x` POSIX ACL on `shared` and `shared/storage` (active targets only) |
 | `install-mail-capture` (+ `verify-mail-capture --read-only`) | Mailpit/Mailtrap Local end to end: users, state, units, pinned binaries, their Nginx vhosts — a shared-host-service, never per-target |
+| `install-mail-signing` (`--check` / `--verify`) | the host-global DKIM signer end to end: the `opendkim` package, `/etc/opendkim.conf` and its KeyTable, SigningTable and TrustedHosts rendered from the reviewed signing plan, the service, its ownership marker and the signer's read access to each reviewed key (metadata only) — host scope only, never per-target, and a no-op with no reviewed signing identity; see [`mail-signing.md`](mail-signing.md) |
 | `install-mail-gateway` (`--check` / `--verify`) | the host-global Postfix mail gateway end to end: the package, `/etc/postfix/main.cf` and `master.cf` rendered from the reviewed mail routing plan, the service and the ownership marker — host scope only, never per-target; see [`mail-gateway.md`](mail-gateway.md) |
 
 Each child is invoked through its own `--apply` only when its own
@@ -286,10 +287,19 @@ generalized in Phase 8.
     idempotent `--apply` — and every `--check`/`--verify` — mutating. The
     full acceptance run is an explicit operator command, documented in
     [`mail-capture.md`](mail-capture.md)
+14a. mail signing (`install-mail-signing --verify` → skip |
+    `install-mail-signing --apply`), after mail capture and before the
+    gateway, because the gateway wires each signed listener to the signer and
+    requires it listening. Its `--check` ran before the first mutation, so an
+    identity that does not render, an installed key that is not a usable one or
+    sits in an unknown layout, or an OpenDKIM RateGuru does not own stops the
+    run with nothing changed. The mutating `verify-mail-signing --e2e` is an
+    operator action, never part of this convergence (see
+    [`mail-signing.md`](mail-signing.md))
 14b. mail gateway (`install-mail-gateway --verify` → skip |
     `install-mail-gateway --apply`), after mail capture because capture is
     where the staging route delivers and the gateway is not healthy until its
-    capture destination listens. Its `--check` already ran before the first
+    capture destination listens — and after the signer, for the same reason. Its `--check` already ran before the first
     mutation, so an unrenderable routing plan, or a mail transport agent
     RateGuru does not own, stops the run with nothing changed. The mutating
     `verify-mail-gateway --e2e` is an operator action, never part of this

@@ -105,7 +105,8 @@ secret, the action judges it on the runner with `mail-identity check-key` —
 an unencrypted RSA private key of at least the reviewed size — before anything
 is uploaded, sends it by its exact name into the same root-only material
 directory, and `install-target-prerequisites` installs it at
-`/etc/opendkim/keys/tits-guru/rg1.private` (root:root 0600). It is never
+`/etc/opendkim/keys/tits-guru/rg1.private` (root:opendkim 0640, readable by
+root and the host's DKIM signer only). It is never
 printed, never an output or artifact, never in the summary, and every
 temporary copy on the runner and the host is removed whatever the outcome.
 Without the secret nothing is staged, and the key stays DEFERRED while the
@@ -139,7 +140,8 @@ installed is touched, so running Configure again with the same key is safe.
 * no lifecycle change, and the registry is never written;
 * no TLS, no public `server_name`, no DNS;
 * no mail transport, gateway, signing service or DNS record — a supplied DKIM
-  key is installed as material, and nothing signs with it;
+  key is installed as material, readable by the host's signer, and the signer
+  itself is host bootstrap's (see [`mail-signing.md`](mail-signing.md));
 * no deployment, no release, no `current`/`previous`, no migration;
 * no queue worker started;
 * no backup schedule, and no offsite credential — not its rotation, and not its

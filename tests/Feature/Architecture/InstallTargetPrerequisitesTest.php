@@ -1637,7 +1637,7 @@ it('defers a held target\'s absent DKIM key without making the target unready', 
     }
 });
 
-it('installs a supplied DKIM key root-only at the destination the identity derives, and only once', function () {
+it('installs a supplied DKIM key readable by root and the signer only, at the destination the identity derives, and only once', function () {
     $scratch = itpScratchDir();
 
     try {
@@ -1646,13 +1646,17 @@ it('installs a supplied DKIM key root-only at the destination the identity deriv
 
         [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
         expect($apply)->toBe(0, $log);
-        expect($log)->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/tits-guru/rg1.private (root:root 0600; content never read or logged)');
+        expect($log)
+            ->toContain('created /etc/opendkim (root:root 0755)')
+            ->toContain('created /etc/opendkim/keys (root:opendkim 0750)')
+            ->toContain('created /etc/opendkim/keys/tits-guru (root:opendkim 0750)')
+            ->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/tits-guru/rg1.private (root:opendkim 0640; content never read or logged)');
 
         $installed = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
         expect(file_get_contents($installed))->toBe(file_get_contents(mailIdentityKey('rsa2048')));
-        expect(itpMode($installed))->toBe('0600');
-        expect(itpMode($scratch.'/etc/opendkim/keys/tits-guru'))->toBe('0700');
-        expect(itpMode($scratch.'/etc/opendkim/keys'))->toBe('0700');
+        expect(itpMode($installed))->toBe('0640');
+        expect(itpMode($scratch.'/etc/opendkim/keys/tits-guru'))->toBe('0750');
+        expect(itpMode($scratch.'/etc/opendkim/keys'))->toBe('0750');
         expect(itpMode($scratch.'/etc/opendkim'))->toBe('0755');
 
         // A held target with a valid key is simply ready.
@@ -1739,7 +1743,93 @@ it('never overwrites or rotates an installed DKIM key, and refuses one that is n
     }
 });
 
-it('refuses a DKIM key reached through a symlink, or with a mode wider than root-only', function () {
+it('accepts an installed key in the signing-ready layout and in the pre-signer layout, and leaves the second for the signer', function (int $keyMode, int $dirMode, bool $presigner) {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+        @mkdir($scratch.'/etc/opendkim/keys/tits-guru', 0o700, true);
+        $key = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+        copy(mailIdentityKey('rsa2048'), $key);
+        chmod($key, $keyMode);
+        chmod(dirname($key), $dirMode);
+        chmod(dirname($key, 2), $dirMode);
+        $before = hash_file('sha256', $key);
+
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($check)->toBe(0, $report);
+        expect($report)->toMatch('/^PRESENT +target +mail-dkim-private-key +already present; left untouched: \/etc\/opendkim\/keys\/tits-guru\/rg1.private/m');
+
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        expect($verify)->toBe(0, $verified);
+
+        // The pre-signer key is named as such, and left exactly as it is: the
+        // signer's installer grants its access, never this one.
+        if ($presigner) {
+            expect($report)->toContain('(pre-signer root:root 0600: install-mail-signing --apply grants the signer read access, never touching its contents)');
+            expect($verified)->toContain('NOTE mail-dkim-private-key: pre-signer metadata root:root 0600');
+        } else {
+            expect($report.$verified)->not->toContain('pre-signer');
+        }
+
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        expect($apply)->toBe(0, $log);
+        expect(itpMode($key))->toBe(sprintf('%04o', $keyMode));
+        expect(itpMode(dirname($key)))->toBe(sprintf('%04o', $dirMode));
+        expect(hash_file('sha256', $key))->toBe($before);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'signing-ready: 0640 in 0750 directories' => [0o640, 0o750, false],
+    'pre-signer: 0600 in 0700 directories' => [0o600, 0o700, true],
+]);
+
+it('installs a new DKIM key only once the host signer\'s group exists', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpSupplyDkimKey($scratch, 'rsa2048');
+
+        // The shipped classifier, with ownership enforced as on a host: a
+        // test process cannot own a root material directory, so the row is
+        // classified directly rather than through --check.
+        $classify = static function (string $groups) use ($scratch): string {
+            file_put_contents($scratch.'/group', $groups);
+            $harness = 'source '.escapeshellarg(itpScript())
+                .' && MATERIAL_DIR=/root/material DKIM_MIN_BITS=2048 DKIM_REQUIREMENT=deferred TARGET_ID=tits-guru'
+                .' && classify_row mail-dkim-private-key /etc/opendkim/keys/tits-guru/rg1.private root opendkim 0640 "DKIM signing private key for tits-guru mail"'
+                .' && printf "%s|%s" "${CLASSIFY_STATE}" "${CLASSIFY_REASON}"';
+
+            $process = proc_open(['bash', '-c', $harness], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
+                'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_TARGETPREREQ_FS_ROOT' => $scratch,
+                'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'true',
+                'RATEGURU_TARGETPREREQ_GROUP_FILE' => $scratch.'/group',
+            ]);
+            $output = (string) stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            proc_close($process);
+
+            return $output;
+        };
+
+        // No opendkim group yet means no signer yet, and the key is not
+        // installed ahead of it.
+        expect($classify("root:x:0:\nwww-data:x:33:\n"))
+            ->toBe("CONFLICT|cannot install mail-dkim-private-key: the host signer's group opendkim does not exist — the key is readable by root and the signer only, and the signer is installed by host bootstrap (install-mail-signing) before any target's key");
+
+        // Once the signer's package has created it, the key is installable.
+        expect($classify("root:x:0:\nwww-data:x:33:\nopendkim:x:106:\n"))->toStartWith('INSTALLABLE|');
+
+        expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a DKIM key reached through a symlink, or with any access but the signing-ready or pre-signer layout', function () {
     $scratch = itpScratchDir();
 
     try {
@@ -1753,9 +1843,19 @@ it('refuses a DKIM key reached through a symlink, or with a mode wider than root
 
         unlink($key);
         copy(mailIdentityKey('rsa2048'), $key);
+        foreach ([0o644, 0o660, 0o604, 0o700, 0o400] as $mode) {
+            chmod($key, $mode);
+            [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+            expect($check)->not->toBe(0);
+            expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +is mode '.decoct($mode).', neither the signing-ready root:opendkim 0640 nor the pre-signer root:root 0600/m');
+        }
+
+        // Its directory, too: one anybody can enter is refused.
         chmod($key, 0o640);
-        [, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
-        expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +has mode 640, expected 0600/m');
+        chmod(dirname($key), 0o755);
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($check)->not->toBe(0);
+        expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +sits under a directory with the wrong access: \/etc\/opendkim\/keys\/tits-guru is mode 755, neither root:opendkim 0750 nor the pre-signer root:root 0700/m');
 
         // A symlinked key directory is refused before anything is written
         // through it.
@@ -1799,7 +1899,7 @@ it('requires the DKIM key once the target delivers outbound', function () {
         itpSupplyDkimKey($scratch, 'rsa2048');
         [$installed, $installLog] = itpRun($scratch, ['--apply', ...$args, '--material-dir', '/root/material'], $env);
         expect($installed)->toBe(0, $installLog);
-        expect(itpMode($scratch.'/etc/opendkim/keys/demo-shop/shop2026.private'))->toBe('0600');
+        expect(itpMode($scratch.'/etc/opendkim/keys/demo-shop/shop2026.private'))->toBe('0640');
     } finally {
         removeScratchDir($scratch);
     }
