@@ -77,7 +77,16 @@ final class CannotSuggestTranslationException extends DomainException
     /** The engine produced no usable translation; its code says why, in our words. */
     public static function becauseTheEngineFailed(TranslationErrorCode $code): self
     {
-        $message = match ($code) {
+        return new self(self::messageFor($code), self::REASON_ENGINE_FAILED, $code);
+    }
+
+    /**
+     * What an administrator is told about one of the engine's error codes —
+     * for an interactive suggestion and a background one alike.
+     */
+    public static function messageFor(TranslationErrorCode $code): string
+    {
+        return match ($code) {
             TranslationErrorCode::NotConfigured => 'Machine translation is not configured.',
             TranslationErrorCode::ClassificationNotAllowed => 'The configured translation provider may not receive project content.',
             TranslationErrorCode::AuthenticationFailed => 'The translation provider rejected the credentials. Machine translation is unavailable until they are fixed.',
@@ -90,7 +99,5 @@ final class CannotSuggestTranslationException extends DomainException
             TranslationErrorCode::ConstraintViolation => 'The AI translation did not meet this field’s constraints. Try generating again or translate it manually.',
             TranslationErrorCode::RequestTooLarge => 'This text is too long to translate in one request. Translate it manually.',
         };
-
-        return new self($message, self::REASON_ENGINE_FAILED, $code);
     }
 }

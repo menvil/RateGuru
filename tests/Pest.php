@@ -1,8 +1,11 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Translations\ReadProjectTranslationGenerationAction;
+use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -39,6 +42,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
@@ -8038,4 +8042,52 @@ function translationValueContains(mixed $value, string $needle): bool
     }
 
     return false;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Background translation generation
+|--------------------------------------------------------------------------
+|
+| Generate missing plans, stores and queues; its jobs call the translation
+| engine later. Tests fake the queue, then run the collected jobs the way a
+| worker would — so "the request did not call a provider" and "the job did"
+| are both observable. The draft store is the application's array store
+| (tests/TestCase.php), so no test needs Redis.
+|
+*/
+
+/** Starts Generate missing as this administrator, the way Translation Center does. */
+function startTranslationGeneration(User $admin, string $locale): array
+{
+    return app(StartProjectTranslationGenerationAction::class)->handle($admin, $locale);
+}
+
+/** The administrator's background generation for a language, as Translation Center reads it. */
+function translationGenerationOf(User $admin, string $locale): ?array
+{
+    return app(ReadProjectTranslationGenerationAction::class)->handle($admin, $locale);
+}
+
+/**
+ * Runs every chunk job the faked queue has collected, each once, as a worker
+ * would — or only the ones $which selects — and returns how many ran.
+ *
+ * @param  (Closure(GenerateProjectTranslationChunkJob): bool)|null  $which
+ */
+function runTranslationGenerationJobs(?Closure $which = null): int
+{
+    $jobs = Queue::pushed(GenerateProjectTranslationChunkJob::class, $which)->values()->all();
+
+    foreach ($jobs as $job) {
+        app()->call([$job, 'handle']);
+    }
+
+    return count($jobs);
+}
+
+/** One item of a generation summary, by unit id. */
+function translationGenerationItem(array $generation, string $unit): ?array
+{
+    return collect($generation['items'] ?? [])->firstWhere('unit', $unit);
 }

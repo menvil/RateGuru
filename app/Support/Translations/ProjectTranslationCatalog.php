@@ -133,6 +133,63 @@ final class ProjectTranslationCatalog
     }
 
     /**
+     * Several units, read together and as they are now: by id, for the ids
+     * that name something the catalog lists; any other id is simply absent.
+     * The same units find() returns one at a time, from at most one read of
+     * the settings row and one query per model section, however many ids.
+     *
+     * @param  array<mixed>  $ids
+     * @return array<string, ProjectTranslationUnit>
+     */
+    public function findMany(array $ids): array
+    {
+        $addresses = [];
+
+        foreach ($ids as $id) {
+            $address = $this->address($id);
+
+            if ($address !== null) {
+                $addresses[(string) $id] = $address;
+            }
+        }
+
+        $settingsRow = null;
+        $records = [];
+        $recordIds = [];
+
+        foreach ($addresses as $address) {
+            if (! in_array($address['section'], [ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages], true)) {
+                $recordIds[$address['section']->value][] = $address['record'];
+            }
+        }
+
+        if (array_filter($addresses, fn (array $address): bool => $address['record'] === null) !== []) {
+            $settingsRow = ProjectSettings::query()->find(1);
+        }
+
+        foreach ($recordIds as $section => $ids) {
+            $records[$section] = $this->records(ProjectContentSection::from($section))
+                ->whereIn('id', array_values(array_unique($ids)))
+                ->get()
+                ->keyBy('id')
+                ->all();
+        }
+
+        $units = [];
+
+        foreach ($addresses as $id => $address) {
+            $row = $address['record'] === null ? $settingsRow : ($records[$address['section']->value][$address['record']] ?? null);
+            $unit = $this->unitIn($address['section'], $row, $id);
+
+            if ($unit !== null) {
+                $units[$id] = $unit;
+            }
+        }
+
+        return $units;
+    }
+
+    /**
      * Writes one language's text of one unit where the unit lives, touching
      * that language's entry and nothing else: the row is locked and read
      * again, so a translation saved meanwhile — in another language, or by
