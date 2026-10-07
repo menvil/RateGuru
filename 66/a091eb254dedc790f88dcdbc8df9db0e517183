@@ -1,0 +1,25 @@
+app/Support/TranslationEngine/Data/TranslationItem.php
+  s_cbcd61fc717774::t_a7503422f5f859 1-32,44-47,54,59-65,68-76,79-87,91-106,112-161,167,169-171,173,175-182,184-192,194,197-198,204,208-214,217,220-221
+  s_cbcd61fc717774::t_e38f5db1eb3189 48-53,55-58,66-67,77-78,88-90,162-166,168,172,174,183,193,195-196,199-203,205-207,215-216,218-219,33,39,41
+  s_cbcd61fc717774::t_0902cb10716889 34-38,40,42-43,107-111
+tests/Unit/Support/TranslationEngine/TranslationBatchRequestTest.php
+  s_cbcd61fc717774::t_cd219ed92f8d07 1-66,68-148,150-155,158-159,165-173,176-263
+  s_cbcd61fc717774::t_1ac6dccb86f4a9 67
+  s_cbcd61fc717774::t_5b6a9d00ef537f 149,156-157,160-164,174-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "66a091eb254dedc790f88dcdbc8df9db0e517183",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
