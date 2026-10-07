@@ -1,0 +1,44 @@
+resources/views/filament/pages/translation-center.blade.php
+  s_cbcd61fc717774::t_59df836fcf0d51 11-13,88-111,143-160,223-226,228-244,246-256
+  s_cbcd61fc717774::t_bf03f9472675fa 14-16,227,245
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_cbcd61fc717774::t_d38d902ae621f8 1305,1337,1355,1386,1419,1441,1494,1519,1560,1592
+  s_cbcd61fc717774::t_d2391b4c512d24 1458-1487
+  s_cbcd61fc717774::t_cd6bde4c2335c0 1542
+  s_cbcd61fc717774::t_c2b73026f7b037 8,1242-1304,1306-1336,1338-1354,1356-1385,1387-1418,1420-1440,1442-1457,1488-1493,1495-1518,1520-1541,1543-1559,1561-1591,1593-1605
+resources/views/filament/pages/translation-center/row.blade.php
+  s_cbcd61fc717774::t_59df836fcf0d51 25,84,100,121,133-138,151-153,155,159,170
+resources/views/filament/pages/translation-center/script.blade.php
+  s_cbcd61fc717774::t_96e0a7c5f13a8a 54-57,59,63-64,66,472
+  s_cbcd61fc717774::t_f85f33a8320c8b 58,62,65,67,425,498,665,698,732,764,816,856,909-910
+  s_cbcd61fc717774::t_6ad0bdb1fe6f9c 13-27,46-53,71-76,80-83,103-104,107-110,168,202,216-220,315-322,324,326,329,355-356,359-367,374,377,381,389-397,399,417-420,445-454,458-464,529-530,538-664,666-697,699-731,733-763,765-815,817-850,878-879,888,902-903
+  s_cbcd61fc717774::t_f88ed03fa2ea34 371-373,375-376,378-380
+  s_cbcd61fc717774::t_d75f43d2bd4b73 913
+app/Filament/Pages/TranslationCenterPage.php
+  s_cbcd61fc717774::t_2b502914853d11 27,53-61,243,246
+  s_cbcd61fc717774::t_7dba5985dca30c 5,7-9,11,144-146,150-242,244-245,247-260,477-478,488,523-524,535-554
+  s_cbcd61fc717774::t_9d55b998935e19 52
+  s_cbcd61fc717774::t_09fee591faa2bb 19
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_cbcd61fc717774::t_80706349245fb4 131,289
+  s_cbcd61fc717774::t_88b5f0d0694a01 567-569,571-586,588-621,748-753
+  s_cbcd61fc717774::t_09fee591faa2bb 19,570,587
+resources/css/filament/admin/components.css
+  s_cbcd61fc717774::t_c8531b91613aac 3342-3372,3588-3601
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "67aa2980fe3f586d9bb01cb3926a1d794f4f4fd6",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
