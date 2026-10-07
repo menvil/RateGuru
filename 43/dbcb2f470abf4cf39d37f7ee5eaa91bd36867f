@@ -1,0 +1,23 @@
+infrastructure/scripts/activate-mail-outbound
+  s_1bfa4d0742417e::t_434a0be55d42bf 361-363
+infrastructure/runbooks/mail-outbound-activation.md
+  s_1bfa4d0742417e::t_cb4cc371740acd 271-293
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_1bfa4d0742417e::t_c0b27be002d27b 1125-1130,1139-1140,1183-1187,1193-1194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "43dbcb2f470abf4cf39d37f7ee5eaa91bd36867f",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
