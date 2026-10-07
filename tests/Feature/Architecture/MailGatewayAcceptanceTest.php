@@ -234,12 +234,28 @@ function mailGatewayAcceptanceStubs(): array
             case "$1" in
                 -j)
                     [[ ! -e "${S}/toggles/queue-unreadable" ]] || { echo "postqueue: fatal: simulated" >&2; exit 1; }
+                    # Reads after the retry: the first is the run's own check that
+                    # the retried entry left the queue, the rest are its cleanup's.
+                    cleanup_read=false
+                    if [[ -e "${S}/retried" ]]; then
+                        reads=$(( $(cat "${S}/reads-after-retry" 2>/dev/null || echo 0) + 1 ))
+                        echo "${reads}" > "${S}/reads-after-retry"
+                        (( reads >= 2 )) && cleanup_read=true
+                    fi
+                    if [[ "${cleanup_read}" == true && -e "${S}/toggles/queue-unreadable-in-cleanup" ]]; then
+                        echo "postqueue: fatal: simulated" >&2; exit 1
+                    fi
                     while IFS=$'\t' read -r id queue token; do
                         [[ -n "${id}" ]] || continue
                         printf '{"queue_name": "%s", "queue_id": "%s", "arrival_time": 1767225600, "message_size": 512, "sender": "", "recipients": []}\n' "${queue}" "${id}"
-                    done < "${S}/queue" ;;
+                    done < "${S}/queue"
+                    # The retried entry back in the queue by the time the cleanup looks.
+                    if [[ "${cleanup_read}" == true && -e "${S}/toggles/retried-entry-back-in-cleanup" ]]; then
+                        printf '{"queue_name": "deferred", "queue_id": "%s", "arrival_time": 1767225600, "message_size": 512, "sender": "", "recipients": []}\n' "$(cat "${S}/retried")"
+                    fi ;;
                 -i)
                     printf 'postqueue -i %s\n' "$2" >> "${STUB_LOG}"
+                    printf '%s' "$2" > "${S}/retried"
                     [[ -e "${S}/mailpit-active" && ! -e "${S}/toggles/retry-lost" ]] || exit 0
                     token="$(awk -F'\t' -v id="$2" '$1 == id { print $3 }' "${S}/queue")"
                     [[ -n "${token}" ]] || exit 0
@@ -253,6 +269,8 @@ function mailGatewayAcceptanceStubs(): array
             S="${STUB_STATE}"
             printf 'postsuper %s\n' "$*" >> "${STUB_LOG}"
             [[ ! -e "${S}/toggles/postsuper-fails" ]] || { echo "postsuper: fatal: simulated" >&2; exit 1; }
+            # Only the cleanup's form, `postsuper -d ID`, without a queue name.
+            [[ ! ( -e "${S}/toggles/postsuper-fails-without-queue-name" && -z "${3:-}" ) ]] || { echo "postsuper: fatal: simulated" >&2; exit 1; }
             [[ "$1" == -d && -n "${2:-}" ]] || exit 1
             awk -F'\t' -v id="$2" -v queue="${3:-}" '!($1 == id && (queue == "" || $2 == queue))' "${S}/queue" > "${S}/queue.next" \
                 && mv "${S}/queue.next" "${S}/queue"
@@ -751,6 +769,58 @@ it('fails each check with its own reason, and still removes what it created', fu
             $id = $state['queued'][2];
             expect($state['calls'])->toContain("postqueue -i {$id}")->toContain("postsuper -d {$id}");
             expect($state['queue'])->toBe(["UNRELATED01\tdeferred\tsomeone-elses-message"]);
+        },
+    ],
+]);
+
+it('fails a passing run whose cleanup cannot prove its own entries gone', function (array $toggles, Closure $expectCleanupFailure) {
+    // Every check passes; only the EXIT cleanup runs into trouble. A passing
+    // acceptance must leave nothing of its own behind or say so, so the run
+    // then exits 1, never 0 with a FAIL in its output.
+    $host = mailGatewayAcceptanceHost($toggles);
+
+    try {
+        $run = mailGatewayAcceptanceRun($host);
+        $state = mailGatewayAcceptanceState($host);
+
+        expect($state['queued'])->toHaveCount(3);
+        expect($run['output'])
+            ->toContain('end-to-end acceptance passed; removing the synthetic messages')
+            ->toContain('FAIL the acceptance checks passed, but this run could not remove what it created — see above; the run fails');
+        expect($run['status'])->toBe(1, $run['output']);
+
+        $expectCleanupFailure($state, $run['output']);
+
+        // Never anyone else's: no foreign entry touched, and nothing flushed,
+        // released or requeued. Every queue command it ran names one of its
+        // own entries: the held removal, the one retry, the cleanup's removal.
+        expect($state['queue'])->toContain("UNRELATED01\tdeferred\tsomeone-elses-message");
+
+        foreach (array_filter($state['calls'], static fn (string $call): bool => preg_match('/^post(super|queue) /', $call) === 1) as $call) {
+            expect(preg_match('/^(?:postsuper -d (\S+)(?: hold)?|postqueue -i (\S+))$/', $call, $named))->toBe(1, "a queue command it should not run: {$call}");
+            expect($state['queued'])->toContain(($named[1] ?? '') !== '' ? $named[1] : $named[2]);
+        }
+
+        expect($state['mailpit'])->toContain('someone-elses-message');
+    } finally {
+        mailGatewayAcceptanceCleanup($host);
+    }
+})->with([
+    'the queue cannot be read during cleanup' => [
+        ['queue-unreadable-in-cleanup'],
+        // Each of its own entries gets the exact command, by its own ID.
+        function (array $state, string $output): void {
+            foreach ($state['queued'] as $id) {
+                expect($output)->toContain("FAIL could not read the Postfix queue to remove entry {$id} — if it is still there, remove it with: postsuper -d {$id}");
+            }
+        },
+    ],
+    'its own entry is still queued and cannot be removed' => [
+        ['retried-entry-back-in-cleanup', 'postsuper-fails-without-queue-name'],
+        function (array $state, string $output): void {
+            $id = $state['queued'][2];
+            expect($output)->toContain("FAIL could not remove queue entry {$id} — remove it with: postsuper -d {$id}");
+            expect($state['calls'])->toContain("postsuper -d {$id}");
         },
     ],
 ]);
