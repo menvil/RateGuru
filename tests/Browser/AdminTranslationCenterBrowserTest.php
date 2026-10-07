@@ -574,6 +574,7 @@ it('opens with the filters in the URL, drops the ones it does not know, and clea
 });
 
 it('says when nothing is missing in Missing only, rather than that nothing matches', function () {
+    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$this->target]))]);
     $page = visitTranslationCenter("/admin/translation-center?locale={$this->target}&section=static_pages&mode=missing", 1440, 900);
 
     expect(translationScreen($page)['rows'])->toBe([])

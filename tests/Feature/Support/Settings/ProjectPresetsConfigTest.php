@@ -57,7 +57,8 @@ it('project presets have required shape', function () {
                     'name',
                     'sort_order',
                 ]);
-                expect($category['name'])->toHaveKeys(supportedLocales());
+                // English alone: a project translates its content itself, in Translation Center.
+                expect(array_keys($category['name']))->toBe(['en']);
             }
         }
 
@@ -79,7 +80,7 @@ it('project presets have required shape', function () {
 
         if ($preset['tags'] !== null) {
             foreach ($preset['tags'] as $tag) {
-                expect($tag)->toHaveKeys(supportedLocales());
+                expect(array_keys($tag))->toBe(['en']);
             }
         }
     }

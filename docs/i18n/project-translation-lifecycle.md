@@ -11,7 +11,7 @@ Three kinds of localized text, kept apart on purpose:
 |---|---|---|---|
 | **Application** | `lang/{locale}/*.php` | a release | UI, auth, buttons, forms, validation, errors, mail wording, password reset, email verification, notification wording |
 | **Project content** | the database | an administrator | project settings, categories, tags, rating groups and options, static pages |
-| **Bootstrap donors** | — (not read at runtime) | a release | `config/project_presets.php`, `config/static-pages.php` |
+| **Bootstrap donors** | — (not read at runtime) | a release | `config/project_presets.php`, `config/static-pages.php` — English alone |
 
 **Application text** is the release's. It is never copied into the database
 and the backfill never touches it: a release that changes `lang/de/mail.php`
@@ -24,10 +24,14 @@ nothing else: a category name is its `name` and `name_translations`, a static
 page is `project_settings.static_pages`. Content an administrator creates
 needs no counterpart anywhere in the repository.
 
-**Bootstrap donors** seed a new project and lend the backfill the
-translations it is missing. They are not a runtime fallback: once a value is
-in the database, the database owns it, and a later release that changes the
-donor changes nothing an existing project shows.
+**Bootstrap donors** seed a new project, in English alone. They ship no other
+language: a project translates its own content in Translation Center — what a
+preset seeded and what an administrator created alike — so no language is
+half-shipped in the repository and half-made in a project, and adding a
+language never means translating presets (`RepositoryProjectContentLanguageTest`
+holds them to that). They are not a runtime fallback: once a value is in the
+database, the database owns it, and a later release that changes the donor
+changes nothing an existing project shows.
 
 ## English is the default
 
@@ -124,7 +128,11 @@ content of every page, since nothing falls back for English.
 `php artisan rateguru:translations:backfill` (`BackfillProjectTranslationsAction`)
 lends a project the repository's translations it does not have yet — for every
 installed language, enabled or not, so a new language is filled in before
-anyone enables it. It writes a translation only when **all** of these hold:
+anyone enables it. The repository ships its project content in English alone
+today, so on a deploy the backfill lends no translation: what it still does is
+give a built-in page with no English the repository's English (below). Its
+rules stand for whatever the repository holds. It writes a translation only
+when **all** of these hold:
 
 1. the content exists in the database, found by the identity preset
    application uses — a category by `slug`, a rating group by `key`, an option
@@ -193,8 +201,9 @@ deployment before the switch.
 On a development checkout, run the command after pulling a release that adds a
 language or a page.
 
-Nothing in production translates text automatically; every translation comes
-with a release or from an administrator.
+Nothing in production translates text on its own: Translation Center's AI
+suggestions are drafts, and every translation of project content is saved by
+an administrator; every translation of the application comes with a release.
 
 ## Adding a language
 
@@ -202,17 +211,13 @@ German as the example:
 
 1. Add `de` to `config/locales.php` with its label, native name, flag and
    `enabled_by_default => false`.
-2. Add `lang/de/*` — every catalog English has except `admin.php`.
-3. Add a `de` value to every translatable value of every preset in
-   `config/project_presets.php`.
-4. Add `de` to every page of `config/static-pages.php`.
-5. Map `de` to `de_DE` in `app/Support/Seo/PostOpenGraph.php`.
-6. CI: application parity and repository content parity both green.
-7. Merge and deploy.
-8. The deploy's backfill fills in German for the content the project still
-   shows as the repository wrote it.
-9. Languages page: German is installed and disabled, with its project
-   completeness.
-10. Translate the remaining customized and administrator-created content in
-    the existing editors.
-11. An administrator enables German.
+2. Add `lang/de/*` — every catalog English has except `admin.php`. Only a
+   release can translate the application.
+3. Map `de` to `de_DE` in `app/Support/Seo/PostOpenGraph.php`.
+4. CI: application parity green.
+5. Merge and deploy.
+6. Languages page: German is installed and disabled, its project content not
+   translated yet.
+7. Translation Center, German: Generate missing, review the suggestions, and
+   Save all generated — or translate item by item.
+8. An administrator enables German.

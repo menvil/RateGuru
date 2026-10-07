@@ -71,10 +71,10 @@ it('publishes a legal or contact page after an administrator supplies content', 
 ]);
 
 it('renders static page content in the selected locale', function (string $locale) {
+    $page = storedPages(function (array &$pages): void {
+        $pages = staticPagesTranslatedInto(translatedLocales());
+    })['about'][$locale];
     offerEveryInstalledLocale();
-    $page = config("static-pages.defaults.about.{$locale}");
-
-    expect($page)->toBeArray("config/static-pages.php has no default about page in {$locale}");
 
     $this->withSession(['locale' => $locale])
         ->get(route('pages.about'))
@@ -134,7 +134,9 @@ it('shows the stored English rather than the repository translation a language i
 
 it('keeps showing the stored text after the repository text changes', function () {
     [$target] = twoTranslatedLocales();
-    $pages = storedPages();
+    $pages = storedPages(function (array &$pages) use ($target): void {
+        $pages = staticPagesTranslatedInto([$target]);
+    });
 
     config([
         'static-pages.defaults.about.en.title' => 'A new English title in a later release',
