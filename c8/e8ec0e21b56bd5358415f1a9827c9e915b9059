@@ -1,0 +1,37 @@
+app/Actions/Translations/DiscardProjectTranslationGenerationAction.php
+  s_cbcd61fc717774::t_f3e2607e69747e 18-22,47-49,64-68,78,81-91
+  s_cbcd61fc717774::t_0139ea9520eeb6 25-26,46,79-80
+tests/Feature/Docs/TranslationEngineDocsTest.php
+  s_cbcd61fc717774::t_d99532bb457af0 87
+docs/architecture/translation-engine.md
+  s_cbcd61fc717774::t_d99532bb457af0 158-161
+app/Filament/Pages/TranslationCenterPage.php
+  s_cbcd61fc717774::t_1e0f359c100adf 156,172
+  s_cbcd61fc717774::t_87ad7b8fc60a0b 199-201
+  s_cbcd61fc717774::t_f98b7e824dcfae 226-229,231,238,245,261
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_cbcd61fc717774::t_d99532bb457af0 34,238-288,327
+resources/views/filament/pages/translation-center/script.blade.php
+  s_cbcd61fc717774::t_507877f0635873 821-828
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_cbcd61fc717774::t_87ad7b8fc60a0b 612
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_cbcd61fc717774::t_303798bf1a618a 1513-1523,1525-1533
+  s_cbcd61fc717774::t_7301de1b27531b 3,1524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c8e8ec0e21b56bd5358415f1a9827c9e915b9059",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
