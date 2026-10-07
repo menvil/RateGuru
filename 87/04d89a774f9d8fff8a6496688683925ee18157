@@ -1,0 +1,41 @@
+.github/workflows/verify-staging-infrastructure.yml
+  s_0a5cecf498a4dd::t_2a5ae61da6c65e 136-140,148
+  s_0a5cecf498a4dd::t_04f0b8a7bad1fe 9-14
+infrastructure/scripts/verify-infrastructure
+  s_0a5cecf498a4dd::t_4517c8f243494f 251-261,629,635-637,642,654-655
+  s_0a5cecf498a4dd::t_65c20a4a996ae4 189-194,199-216,220-221,223-226,233-248,265-267,270,280-297,330-351,353-358,360-365,367-368,370-375,377-413,415-436,442,450-452,459,462-464,471,481,493,530,532-533,540,546-551,562,567-569,573,589-591,595,604-623,633-634,640-641,643-649,653,656-657,668,670
+  s_0a5cecf498a4dd::t_c061b47748c06d 8-12,14-32,34-35,37-45,47-52,56-58,60-64,66-68,74-75,102-107,141-144,146-148
+  s_0a5cecf498a4dd::t_8af4d544fd61c4 638-639
+infrastructure/ROADMAP.md
+  s_0a5cecf498a4dd::t_45b7c97dce98a0 1876-1894
+infrastructure/README.md
+  s_0a5cecf498a4dd::t_45b7c97dce98a0 163-168
+infrastructure/runbooks/infrastructure-verification.md
+  s_0a5cecf498a4dd::t_7c1949ceb687de 13-50,55-60,77-95,103-107,109-112,114,116,118-127,131-183,196-198,216-218
+.github/actions/verify-rateguru-infrastructure/action.yml
+  s_0a5cecf498a4dd::t_2a5ae61da6c65e 375-377
+  s_0a5cecf498a4dd::t_497e642ab71c0e 8-14,342-345,350-362,378-398
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  s_0a5cecf498a4dd::t_c42f903c421fff 846,849,855,864,878,880,884-891,893-908,910-914,917,919-920,924,932,937-1010,1044-1061
+  s_0a5cecf498a4dd::t_dff90c7d773ef3 12-19,22-34,36-41,43,51-55,59-61,67-70,82-85,91,93,95-96,98,115,117,144-167,169,172,179-193,196-202,208-212,218,228,235,239-243,248-341,345,348,356-375,377-380,386,393-395,401-421,439,447,479,485-492,494,500-501,508-525,546-561,564,567-568,574,582,585-598,601,612-629,635-636,639,650-665
+  s_0a5cecf498a4dd::t_e334bbb9e0eddd 643
+.github/workflows/verify-production-infrastructure.yml
+  s_0a5cecf498a4dd::t_04f0b8a7bad1fe 10-18
+  s_0a5cecf498a4dd::t_2a5ae61da6c65e 119-123,131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8704d89a774f9d8fff8a6496688683925ee18157",
+  "prompts": {},
+  "sessions": {
+    "s_0a5cecf498a4dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23fb19-18e1-4699-a801-b61f26f4e4d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
