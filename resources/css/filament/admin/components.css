@@ -923,6 +923,11 @@
         background: var(--rg-admin-status-info-field);
     }
 
+    .rg-admin-input--info {
+        border-color: var(--rg-admin-status-info-border);
+        background: var(--rg-admin-status-info-field);
+    }
+
     /* A manual change that is not saved yet. */
     .rg-admin-textarea--changed {
         border-color: var(--rg-admin-border-changed);
@@ -3549,6 +3554,43 @@
         margin-left: 0;
     }
 
+    /* An AI suggestion nobody has saved: the target cell takes the info tint under its info field. */
+    .rg-admin-translation-row__target--generated {
+        background: var(--rg-admin-status-info-cell);
+    }
+
+    /* One row waiting for its suggestion; the field above it is read-only meanwhile. */
+    .rg-admin-translation-row__generating {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-status-info-fg);
+    }
+
+    @keyframes rg-admin-translation-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .rg-admin-translation-row__spinner {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--rg-admin-status-info-border);
+        border-top-color: var(--rg-admin-status-info-fg);
+        border-radius: var(--rg-admin-radius-full);
+        animation: rg-admin-translation-spin 0.8s linear infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rg-admin-translation-row__spinner {
+            animation-duration: 2.4s;
+        }
+    }
+
     .rg-admin-translation-row__actions {
         display: flex;
         flex-wrap: wrap;
@@ -3692,6 +3734,89 @@
     .rg-admin-translation-context__note {
         flex: 1;
         min-width: 0;
+    }
+
+    .rg-admin-translation-context__explainer {
+        margin: 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    /* What AI translate sends: a read-only list of the request's content, on the sunken ground. */
+    .rg-admin-translation-context__section--sunken {
+        padding-bottom: var(--rg-admin-space-5);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-translation-context__payload {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 0;
+    }
+
+    .rg-admin-translation-context__payload-row {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        gap: 10px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-translation-context__payload-row dt {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-context__payload-row dd {
+        min-width: 0;
+        margin: 0;
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-context__payload-text {
+        white-space: pre-wrap;
+    }
+
+    .rg-admin-translation-context__payload-mono {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    .rg-admin-translation-context__payload-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-translation-context__payload-list li {
+        display: flex;
+        flex-direction: column;
+        white-space: pre-wrap;
+    }
+
+    .rg-admin-translation-context__payload-language {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-context__payload-note {
+        display: block;
+        margin: var(--rg-admin-space-3) 0 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* A narrow drawer stacks each label over its value. */
+    @media (max-width: 479.98px) {
+        .rg-admin-translation-context__payload-row {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 2px;
+        }
     }
 
     /* Dev UI kit page (/admin/dev/ui-kit) */

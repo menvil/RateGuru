@@ -87,6 +87,12 @@ final readonly class ProjectTranslationUnit
         return strcasecmp($field, $this->label) === 0 ? null : $field;
     }
 
+    /** The field for a person, always present: “Name”, or a setting by its own name, “Site tagline”. */
+    public function fieldName(): string
+    {
+        return $this->fieldLabel() ?? ucfirst(str_replace('_', ' ', $this->field));
+    }
+
     /** The business key with its section and field, as an administrator would write it: `categories.small-pets.name`. */
     public function qualifiedKey(): string
     {
