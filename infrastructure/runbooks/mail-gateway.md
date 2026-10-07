@@ -15,6 +15,7 @@ transport works and stays switched off.
 | Real-host acceptance (`verify-mail-gateway --e2e`) | **Passed** on the real staging host — see [Real-host acceptance](#real-host-acceptance) |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
 | `tits-guru` | `lifecycle=planned`, `delivery_mode=held`; its listener exists and **holds** everything; nothing is delivered |
+| DKIM signing of `tits-guru`'s listener | **Implemented — production acceptance pending**: its listener hands each message to the host's DKIM signer before it is held — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
 | Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, not activated**: no target uses it, and `config/mail-outbound.json` keeps direct delivery **disabled** on the host, so no outbound route can be rendered or installed |
 | Production outbound delivery | **None**: no route to the Internet exists on any host |
 
@@ -51,7 +52,8 @@ One Postfix instance for the host, owned end to end by
   depended on Mailpit being up at that moment. Mailpit then mirrors to Mailtrap
   Local exactly as [`mail-capture.md`](mail-capture.md) describes.
 - **Held means HOLD.** The `tits-guru` listener accepts a message from its own
-  domain and places it on Postfix's hold queue. Nothing names a route for it:
+  domain and places it on Postfix's hold queue — DKIM-signed first, see
+  [below](#signing-held-mail-is-signed-and-still-held). Nothing names a route for it:
   no Mailpit, no other target's transport, no relayhost, no DNS delivery. A
   held message released by hand still has nowhere to go — it bounces into the
   error transport.
@@ -76,6 +78,44 @@ Nothing else under `/etc/postfix` is RateGuru's. The routes are never restated
 in the installer: it runs `infrastructure/scripts/mail-routing render-plan`
 from the same bundle and only spells the plan in Postfix syntax, and a delivery
 mode it has no spelling for is a refusal.
+
+## Signing: held mail is signed, and still held
+
+A listener whose target has a reviewed signing identity — the targets
+`mail-identity render-signing-plan` lists, today `tits-guru` alone — hands every
+message it accepts to the host's DKIM signer before Postfix queues it:
+
+```
+127.0.0.1:2526 inet n - n - - smtpd
+  ...
+  -o smtpd_recipient_restrictions=check_client_access,static:HOLD,permit_mynetworks,reject
+  -o content_filter=
+  -o smtpd_milters=inet:127.0.0.1:8891
+  -o milter_protocol=6
+  -o milter_default_action=tempfail
+```
+
+- **Only the signed listeners.** The staging capture listener names no milter,
+  and neither `main.cf` nor locally submitted mail does: `smtpd_milters` and
+  `non_smtpd_milters` stay empty globally. With no signing identity the render
+  is byte for byte the gateway staging accepted.
+- **The endpoint is the signer's.** The gateway asks
+  `install-mail-signing --milter-endpoint` — in the same bundle — where the
+  signer listens, refuses anything but a loopback `inet:` endpoint, and spells
+  no address or port of its own.
+- **Never unsigned.** `milter_default_action=tempfail`: when the signer is down
+  or cannot sign, the listener defers the message (`451 4.7.1`) rather than
+  accept it unsigned. Proved on a real Ubuntu 22.04 host.
+- **Signing routes nothing.** The held listener still has no content filter and
+  still holds everything; the milter only adds a `DKIM-Signature` header.
+- **Verified.** `--verify` reads the wiring back through Postfix — the exact
+  endpoint, protocol 6 and `tempfail` on each signed listener, no milter on any
+  other, none globally — and requires the signer listening.
+
+The signer itself — the OpenDKIM package, its configuration and its access to
+each key — is installed, verified and accepted as
+[`mail-signing.md`](mail-signing.md) describes, before the gateway in host
+bootstrap.
 
 ## Direct outbound (implemented, switched off)
 

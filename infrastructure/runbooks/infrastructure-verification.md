@@ -141,7 +141,7 @@ host and the target are judged by the contracts that apply to a planned target.
 | Operations & backup perimeter | `install-target-perimeter --verify` | required | required |
 | Mail capture | — | `N/A` | `N/A` |
 | Mail gateway | `verify-mail-gateway --read-only` | required: 2526 → HOLD, no outbound route | required: 2526 → its own direct transport |
-| Mail identity | `mail-identity validate`, `dkim-key`, `check-key`, `readiness` | contract required; key absent → `DEFERRED`, installed → judged; readiness `DEFERRED`, shown in full | key and `OUTBOUND READY: YES` required |
+| Mail identity | `mail-identity validate`, `dkim-key`, `check-key`, `readiness` | contract required; key absent → `DEFERRED`, installed → judged; readiness `DEFERRED`, shown in full — its signing condition is `verify-mail-signing --read-only` | key and `OUTBOUND READY: YES` required |
 | Application | `health-check` | `DEFERRED` — never called | required |
 
 Expected today: `VERIFY INFRASTRUCTURE: PASS` with deferred items. **PASS means
@@ -209,9 +209,14 @@ today; when it moves to its own host, its concurrency moves with it.
 9. Run **Verify production infrastructure** repeatedly while DNS propagates; the
    outbound-readiness section shows each record's state while it is still
    deferred.
-10. When the identity checks are ready, the signing and activation slice:
-    OpenDKIM, signing, `tits-guru` from held to outbound, `direct.enabled`, the
-    production `MAIL_*` values and a controlled canary.
+10. When the identity checks are ready, the signing foundation: after it is
+    merged, **Prepare staging host** installs OpenDKIM on the shared host and
+    wires `tits-guru`'s held listener to it; **Verify production
+    infrastructure** then shows `signing PASS` in readiness, and **Verify
+    production mail signing** proves a held message is signed — see
+    [`mail-signing.md`](mail-signing.md).
+11. Then the activation slice: `tits-guru` from held to outbound,
+    `direct.enabled`, the production `MAIL_*` values and a controlled canary.
 
 A change to Verify itself needs no preparation: it uploads its own bundle each
 run. After merging one, running **Verify staging infrastructure** again is the

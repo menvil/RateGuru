@@ -36,8 +36,11 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'rollback-production.yml',
         'rollback-staging.yml',
         // The permanent read-only infrastructure verification, one per
-        // environment, guarded by VerifyInfrastructureTest.
+        // environment, guarded by VerifyInfrastructureTest — and the live
+        // proof that a held production target's mail is signed, guarded by
+        // MailSigningTest.
         'verify-production-infrastructure.yml',
+        'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
     ]);
 
@@ -65,6 +68,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'sentry-release',
         // Their one transport: runs verify-infrastructure and changes nothing.
         'verify-rateguru-infrastructure',
+        // The signing acceptance's transport: runs verify-mail-signing --e2e.
+        'verify-rateguru-mail-signing',
     ]);
 
     $wrappers = collect(glob(base_path('infrastructure/config/wrappers/*')) ?: [])

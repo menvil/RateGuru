@@ -62,6 +62,15 @@
 #     listener. Mail with no rendered route cannot reach the Internet: the only
 #     smtp clients are the ones the plan's listeners name.
 #
+# SIGNING. A listener whose target is in the signing plan that
+# infrastructure/scripts/mail-identity renders (render-signing-plan) hands every
+# message it accepts to the host's DKIM signer before Postfix queues it — at the
+# endpoint `install-mail-signing --milter-endpoint` prints, never one spelled
+# here — with milter protocol 6 and a temporary failure whenever the signer cannot
+# sign: a signed target's mail is deferred, never accepted unsigned. No other
+# listener, and no locally submitted mail, passes through the signer. Signing
+# routes nothing: a held listener still holds every message it signed.
+#
 # Listeners on loopback only, IPv4 only, no SMTP AUTH, no TLS: the boundary is
 # the host and the per-target port. Postfix itself binds nothing public — the
 # firewall is never what makes this safe.
@@ -140,6 +149,12 @@ REGISTRY_FILE="$(gated_default RATEGURU_MAILGW_REGISTRY_FILE "${REPO_ROOT}/infra
 # The host's own outbound contract, and its one judge, from this bundle.
 OUTBOUND_FILE="$(gated_default RATEGURU_MAILGW_OUTBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
 MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_DIR}/mail-identity")"
+
+# Which targets are signed, judged by mail-identity from the reviewed identity,
+# and where the signer listens, from the signer's own installer — both from this
+# bundle.
+IDENTITY_FILE="$(gated_default RATEGURU_MAILGW_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
+MAIL_SIGNING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_SIGNING_CLI "${SCRIPT_DIR}/install-mail-signing")"
 
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
@@ -244,13 +259,17 @@ Usage:
             stably active, the listeners are exactly the plan's loopback
             endpoints, no public SMTP port is open, every capture destination is
             listening, held mail has no route, each outbound route is its
-            target's own direct smtp client and nothing else's, and
-            unclassified mail cannot be delivered.
+            target's own direct smtp client and nothing else's, exactly the
+            signed targets' listeners hand their mail to the signer — which is
+            listening — and fail temporarily without it, and unclassified mail
+            cannot be delivered.
 
 The routes come from infrastructure/scripts/mail-routing render-plan in the same
 bundle; this installer only spells them in Postfix. A direct outbound route is
 refused in every mode unless infrastructure/config/mail-outbound.json enables
-direct delivery on this host under a valid public MTA hostname.
+direct delivery on this host under a valid public MTA hostname. The signed
+listeners come from mail-identity render-signing-plan, and the signer's endpoint
+from install-mail-signing --milter-endpoint, in the same bundle.
 USAGE
 }
 
@@ -320,6 +339,8 @@ def service($name; $type; $private; $unpriv; $chroot; $wakeup; $maxproc; $comman
     ($name | pad(15)) + ($type | pad(6)) + ($private | pad(8)) + ($unpriv | pad(8))
     + ($chroot | pad(8)) + ($wakeup | pad(8)) + ($maxproc | pad(8)) + $command;
 def no_route: "error:5.7.1 RateGuru mail gateway: no delivery route for this mail";
+def signed: .identity as $id | any($signing[0].targets[]; .target == $id);
+def has_signed: any(.listeners[]; signed);
 '
 
 # shellcheck disable=SC2016
@@ -433,7 +454,12 @@ def listener:
             "  -o content_filter=\(outbound_transport):"
         else
             error("no Postfix rendering is defined for delivery mode \(.delivery_mode | tojson) of \(.identity)")
-        end
+        end,
+        if signed then
+            "  -o smtpd_milters=\($milter)",
+            "  -o milter_protocol=6",
+            "  -o milter_default_action=tempfail"
+        else empty end
     );
 
 def direct_helo:
@@ -483,6 +509,11 @@ def capture_route:
     "# service type  private unpriv  chroot  wakeup  maxproc command + args",
     "",
     "# --- target listeners: the port is the routing identity",
+    (if has_signed then
+         "# A signed listener hands each message to the DKIM signer before it is",
+         "# queued, and defers it when the signer cannot sign: never unsigned.",
+         "# Signing routes nothing."
+     else empty end),
     (.listeners[] | listener),
     "",
     "# --- capture routes: queued, then delivered to the capture destination",
@@ -523,27 +554,49 @@ def capture_route:
 )
 '
 
-# render_gateway_config PLAN OUTBOUND OUT_DIR — judges the host outbound
-# contract and the plan's use of it, then writes OUT_DIR/main.cf and
-# OUT_DIR/master.cf. Called as a plain statement, never inside $(...) or on the
-# left of ||, so a refusal or a jq failure stops the run instead of leaving a
-# half file.
+# The signing plan's shape, as far as this renderer reads it: the targets it
+# signs. Its policy was judged by mail-identity.
+# shellcheck disable=SC2016
+SIGNING_GUARD_PROGRAM='
+.schema_version == 1
+and (.targets | type == "array")
+and all(.targets[]; (.target | type == "string") and (.target | test("\\A[a-z0-9][a-z0-9-]{1,31}\\z")))
+'
+
+# The signer's endpoint as Postfix spells a milter: on loopback, and nowhere
+# else, whatever port the signer chose.
+MILTER_ENDPOINT_PATTERN='^inet:127\.0\.0\.1:[1-9][0-9]{0,4}$'
+
+# render_gateway_config PLAN OUTBOUND SIGNING MILTER OUT_DIR — judges the host
+# outbound contract and the plan's use of it, then writes OUT_DIR/main.cf and
+# OUT_DIR/master.cf, wiring each listener the signing plan names to the MILTER
+# endpoint. Called as a plain statement, never inside $(...) or on the left of
+# ||, so a refusal or a jq failure stops the run instead of leaving a half file.
 render_gateway_config() {
-    local plan="$1" outbound="$2" out="$3"
+    local plan="$1" outbound="$2" signing="$3" milter="$4" out="$5"
 
     jq -e "${PLAN_GUARD_PROGRAM}" "${plan}" >/dev/null \
         || fail "the mail routing plan does not have the shape this renderer spells in Postfix — refusing to render around it"
 
+    jq -e "${SIGNING_GUARD_PROGRAM}" "${signing}" >/dev/null 2>&1 \
+        || fail "the signing plan does not have the shape this renderer reads — refusing to render around it"
+
+    [[ "${milter}" =~ ${MILTER_ENDPOINT_PATTERN} ]] \
+        || fail "the signer's milter endpoint is \"${milter}\", not a loopback inet endpoint — refusing to wire a listener to it"
+
     assert_outbound_contract "${plan}" "${outbound}"
 
     jq -r "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
-    jq -r --slurpfile outbound "${outbound}" "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+    jq -r --slurpfile outbound "${outbound}" --slurpfile signing "${signing}" --arg milter "${milter}" \
+        "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
 }
 
 # --- The plan -----------------------------------------------------------------------
 
 WORK_DIR=""
 PLAN_FILE=""
+SIGNING_FILE=""
+MILTER_ENDPOINT=""
 CANDIDATE_DIR=""
 
 cleanup_work_dir() {
@@ -567,7 +620,22 @@ prepare_candidate() {
     "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
         || fail "mail-routing render-plan refused the reviewed policy (diagnostics above) — nothing was rendered"
 
-    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${CANDIDATE_DIR}"
+    # The host contract's own verdict comes first, so a route the host has not
+    # enabled is refused for that reason and no other.
+    assert_outbound_contract "${PLAN_FILE}" "${OUTBOUND_FILE}"
+
+    SIGNING_FILE="${WORK_DIR}/signing-plan.json"
+    "${MAIL_IDENTITY_CLI}" render-signing-plan \
+        --identity "${IDENTITY_FILE}" --routing "${POLICY_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" > "${SIGNING_FILE}" \
+        || fail "mail-identity render-signing-plan refused the reviewed identity (diagnostics above) — nothing was rendered"
+
+    [[ -x "${MAIL_SIGNING_CLI}" ]] \
+        || fail "the signing installer is not executable: ${MAIL_SIGNING_CLI} — run from a full repository bundle; the signer's endpoint is never spelled here"
+    MILTER_ENDPOINT="$("${MAIL_SIGNING_CLI}" --milter-endpoint)" \
+        || fail "install-mail-signing --milter-endpoint failed — nothing was rendered"
+
+    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${SIGNING_FILE}" "${MILTER_ENDPOINT}" "${CANDIDATE_DIR}"
 }
 
 # Newline-separated plan facts, read once from the rendered plan.
@@ -590,6 +658,16 @@ plan_smtp_transports() {
         | if .delivery_mode == "capture" then "rateguru-capture-\(.identity)"
           elif .delivery_mode == "outbound" then "rateguru-outbound-\(.identity)"
           else empty end' "${PLAN_FILE}" || true
+}
+
+# The targets whose listeners hand their mail to the signer.
+signed_identities() {
+    jq -r '.targets[].target' "${SIGNING_FILE}" 2>/dev/null || true
+}
+
+# The signer's endpoint as host:port, the way a listening socket shows it.
+milter_listen_address() {
+    printf '%s\n' "${MILTER_ENDPOINT#inet:}"
 }
 
 plan_outbound_count() {
@@ -730,6 +808,13 @@ postfix_contract_problems() {
     value="$("${POSTCONF_BIN}" -c "${dir}" -h default_filter_nexthop 2>/dev/null || true)"
     [[ -z "${value}" ]] || printf 'default_filter_nexthop is "%s", not empty — an outbound route would deliver there instead of to the recipient domain MX\n' "${value}"
 
+    # No global milter: only a signed listener names the signer, so locally
+    # submitted mail and every other listener never reach it.
+    for name in smtpd_milters non_smtpd_milters; do
+        value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
+        [[ -z "${value}" ]] || printf '%s is "%s", not empty — the signer is wired per listener, never globally\n' "${name}" "${value}"
+    done
+
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_interfaces 2>/dev/null || true)"
     [[ "${value}" == 127.0.0.1 ]] || printf 'inet_interfaces is "%s", not 127.0.0.1\n' "${value}"
     value="$("${POSTCONF_BIN}" -c "${dir}" -h inet_protocols 2>/dev/null || true)"
@@ -786,6 +871,8 @@ postfix_contract_problems() {
                 printf '%s has delivery mode %s with route %s, which this gateway has no spelling for\n' "${identity}" "${mode}" "${route}"
                 ;;
         esac
+
+        listener_signing_problems "${dir}" "${identity}" "${endpoint}"
     done < <(jq -r '.listeners[]
         | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode,
            (if .route == null then "-" elif .route.kind == "direct" then "direct" else "\(.route.host):\(.route.port)" end)]
@@ -798,6 +885,29 @@ postfix_contract_problems() {
         elif [[ -n "${warnings}" ]]; then
             printf 'postfix check reports: %s\n' "${warnings}"
         fi
+    fi
+}
+
+# listener_signing_problems DIR IDENTITY ENDPOINT — a signed target's listener
+# hands its mail to exactly the signer, with protocol 6, and defers it when the
+# signer cannot sign; any other listener names no milter at all.
+listener_signing_problems() {
+    local dir="$1" identity="$2" endpoint="$3" milters action protocol
+    milters="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/smtpd_milters" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+
+    if grep -qxF "${identity}" <<<"$(signed_identities)"; then
+        action="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/milter_default_action" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+        protocol="$("${POSTCONF_BIN}" -c "${dir}" -P "${endpoint}/inet/milter_protocol" 2>/dev/null | sed -n 's/^[^=]*= *//p' || true)"
+
+        [[ "${milters}" == "${MILTER_ENDPOINT}" ]] \
+            || printf '%s (%s) is signed but hands its mail to "%s", not the signer at %s\n' "${identity}" "${endpoint}" "${milters}" "${MILTER_ENDPOINT}"
+        [[ "${action}" == tempfail ]] \
+            || printf '%s (%s) has milter_default_action "%s", not tempfail — a signed target'"'"'s mail would be accepted unsigned when the signer fails\n' "${identity}" "${endpoint}" "${action}"
+        [[ "${protocol}" == 6 ]] \
+            || printf '%s (%s) has milter_protocol "%s", not 6\n' "${identity}" "${endpoint}" "${protocol}"
+    else
+        [[ -z "${milters}" ]] \
+            || printf '%s (%s) is not signed but hands its mail to the milter "%s"\n' "${identity}" "${endpoint}" "${milters}"
     fi
 }
 
@@ -935,6 +1045,13 @@ runtime_problems() {
         grep -qxF "${endpoint}" <<<"${listeners}" \
             || printf 'capture destination %s is not listening — its mail would only queue\n' "${endpoint}"
     done < <(plan_capture_destinations)
+
+    # The signer is there to sign with: without it, a signed listener defers
+    # everything it is given.
+    if [[ -n "$(signed_identities)" ]]; then
+        grep -qxF "$(milter_listen_address)" <<<"${listeners}" \
+            || printf 'the signer is not listening on %s — every signed listener would defer its mail\n' "$(milter_listen_address)"
+    fi
 }
 
 # --- Managed files ------------------------------------------------------------------------
@@ -997,6 +1114,14 @@ report_contract() {
         item PASS "outbound:direct" "direct delivery disabled on this host (mail-outbound.json); ${outbound_count} outbound route(s) in the plan, and none could be rendered"
     fi
 
+    local signed
+    signed="$(signed_identities | paste -sd ',' - | sed 's/,/, /g')"
+    if [[ -n "${signed}" ]]; then
+        item PASS "signing" "listeners of ${signed} hand their mail to the signer at ${MILTER_ENDPOINT} (install-mail-signing --milter-endpoint), deferred when it cannot sign; no other listener is signed"
+    else
+        item PASS "signing" "no target is in the signing plan, so no listener names the signer"
+    fi
+
     if [[ -n "${others}" ]]; then
         item CONFLICT "mta:other" "another mail transport agent is installed (${others//$'\n'/, }) — it is not RateGuru's, and installing Postfix would remove it"
     fi
@@ -1056,7 +1181,7 @@ report_contract() {
                 "Postfix reads the installed configuration back fail-closed: listeners, routes and holds exactly as planned"
         fi
         report_problems "runtime" "$(runtime_problems)" CONFLICT \
-            "enabled, stably running, listening on exactly the plan's loopback endpoints, no public SMTP port open, every capture destination listening"
+            "enabled, stably running, listening on exactly the plan's loopback endpoints, no public SMTP port open, every capture destination and the signer listening"
     elif [[ "${owner}" != owned ]]; then
         # Before an install: a gateway port somebody else already holds would
         # make --apply fail after the package is in.

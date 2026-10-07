@@ -1,0 +1,134 @@
+name: Verify production mail signing
+
+# The live proof, on the production host, that tits-guru's mail is DKIM-signed:
+# infrastructure/scripts/verify-mail-signing --e2e --target tits-guru, run from
+# trusted main tooling.
+#
+# It first proves the read-only signing contract — the signer installed,
+# configured, running on loopback and able to read the target's key, and the
+# mail gateway wiring tits-guru's listener to it — then submits exactly one
+# synthetic message to tits-guru's HELD listener, requires that exact queue
+# entry to sit in HOLD carrying exactly one DKIM-Signature with tits-guru's
+# domain, selector and algorithm, and deletes that entry. It refuses before
+# connecting unless tits-guru's mail is held with no route, so its message can
+# go nowhere: nothing is sent, nothing is routed, released or flushed, and no
+# routing, outbound or application configuration is changed. The private key is
+# already on the host; no secret but the bootstrap credential is read.
+#
+# It may be run any number of times. A green run proves signing, not delivery:
+# tits-guru stays held and its host has no direct route. This workflow chooses
+# nothing: the target, the trusted ref and the GitHub Environment are fixed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# tits-guru shares its physical host with staging today, so the acceptance must
+# never run halfway through a mutation of either target. This is the domain
+# Configure tits.guru, Verify production infrastructure and every staging host
+# mutation use for the same reason; it is a fact about today's topology, and
+# moves with the target when it gets a host of its own. It waits rather than
+# cancelling anything.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  accept:
+    name: Prove tits-guru's held mail is DKIM-signed
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 15
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from develop.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove signing on the production host
+        id: accept
+        uses: ./.github/actions/verify-rateguru-mail-signing
+        with:
+          deployment-target: tits-guru
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the acceptance reads
+          # root-owned configuration and manages its own queue entry. Never the
+          # deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The acceptance action writes the result of every completed run. A run
+      # that produced no result at all says so here, rather than leaving an
+      # empty summary that could be read as nothing wrong.
+      - name: Report an incomplete acceptance
+        if: ${{ always() && steps.accept.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru mail signing"
+            echo
+            echo "The signing acceptance did not complete, so there is no result. Once it has submitted its message it removes that one queue entry on every exit; the reason is in the job log."
+          } >> "${GITHUB_STEP_SUMMARY}"

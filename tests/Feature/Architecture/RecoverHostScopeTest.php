@@ -550,8 +550,11 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'rollback-production.yml',
         'rollback-staging.yml',
         // The permanent read-only infrastructure verification, one per
-        // environment, guarded by VerifyInfrastructureTest.
+        // environment, guarded by VerifyInfrastructureTest — and the live
+        // proof that a held production target's mail is signed, guarded by
+        // MailSigningTest.
         'verify-production-infrastructure.yml',
+        'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
     ]);
 });
