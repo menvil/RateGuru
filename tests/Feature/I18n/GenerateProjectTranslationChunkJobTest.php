@@ -187,6 +187,21 @@ it('skips, without sending, what was translated meanwhile or left the catalog', 
         ->and($generation['status'])->toBe('completed');
 });
 
+it('asks for the language by its precise tag, and still checks the catalog by the installed code', function () {
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    startTranslationGeneration($this->admin, 'sr');
+
+    // Saved in Serbian meanwhile: still a translation the job must not overwrite.
+    app(UpdateProjectTranslationAction::class)->handle($this->admin, ($this->unit)($this->dogs), 'sr', 'Пси');
+    runTranslationGenerationJobs();
+
+    $generation = translationGenerationOf($this->admin, 'sr');
+
+    expect(collect($provider->received)->pluck('targetLocale')->unique()->all())->toBe(['sr-Cyrl'])
+        ->and(translationGenerationItem($generation, ($this->unit)($this->dogs))['issue'])->toBe('already_translated')
+        ->and(translationGenerationItem($generation, ($this->unit)($this->cats))['status'])->toBe('ready');
+});
+
 it('skips, without sending, an item whose English was cleared since', function () {
     $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     startTranslationGeneration($this->admin, $this->target);

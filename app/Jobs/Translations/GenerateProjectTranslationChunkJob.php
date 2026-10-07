@@ -88,7 +88,9 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
 
         $meta = $claimed['meta'];
         $chunk = $claimed['chunk'];
-        $locale = $chunk['target_locale'];
+        // The installed language, for the catalog; the chunk keeps the tag its request names it by.
+        $locale = $meta['target_locale'];
+        $writtenAs = $chunk['target_locale'];
 
         $user = User::query()->find($meta['user_id']);
 
@@ -99,7 +101,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         }
 
         $snapshots = array_map(fn (array $item): array => $item['snapshot'], $chunk['items']);
-        $planned = ProjectTranslationGenerationSnapshot::request($locale, $chunk['classification'], $snapshots, $chunk['glossary']);
+        $planned = ProjectTranslationGenerationSnapshot::request($writtenAs, $chunk['classification'], $snapshots, $chunk['glossary']);
 
         try {
             $provider = $planner->current($planned);
@@ -140,7 +142,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         }
 
         if ($send !== []) {
-            $outcomes += $this->translate($translations, ProjectTranslationGenerationSnapshot::request($locale, $chunk['classification'], $send, $chunk['glossary']));
+            $outcomes += $this->translate($translations, ProjectTranslationGenerationSnapshot::request($writtenAs, $chunk['classification'], $send, $chunk['glossary']));
         }
 
         $store->complete($this->batchId, $this->chunkId, $outcomes, CarbonImmutable::now());

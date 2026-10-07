@@ -3,12 +3,14 @@
 namespace App\Support\Locale;
 
 /**
- * What the framework's own tables need to be told about installed languages
- * they do not cover by their code. Laravel picks a plural form, and Carbon
- * writes "2 hours ago", from tables keyed by locale: Montenegrin (cnr) is in
- * neither, so it takes Serbian's plural rule and Carbon's Montenegrin Latin
- * dates; and Carbon's plain "sr" is Serbian in Latin script, while the
- * installed Serbian is Cyrillic.
+ * What others need to be told about installed languages that their code alone
+ * does not pin down. Laravel picks a plural form, and Carbon writes "2 hours
+ * ago", from tables keyed by locale: Montenegrin (cnr) is in neither, so it
+ * takes Serbian's plural rule and Carbon's Montenegrin Latin dates; and
+ * Carbon's plain "sr" is Serbian in Latin script, while the installed Serbian
+ * is Cyrillic. A machine translator is told the script or variant a language
+ * is written in — Serbian in Cyrillic, Brazilian Portuguese, Simplified
+ * Chinese — so its suggestions match the rest of the site.
  *
  * A language Laravel has no plural rule for gets the first form for every
  * number — "1 komentar" for five comments — and nothing says so; the tests
@@ -26,6 +28,19 @@ final class LanguageRules
         'sr' => 'sr_Cyrl',
         'cnr' => 'sr_Latn_ME',
     ];
+
+    /** The tag a translation into an installed language is asked for under, by code. */
+    public const TRANSLATION_LOCALES = [
+        'sr' => 'sr-Cyrl',
+        'cnr' => 'cnr-Latn',
+        'pt' => 'pt-BR',
+        'zh' => 'zh-Hans',
+    ];
+
+    public static function translationLocale(string $locale): string
+    {
+        return self::TRANSLATION_LOCALES[$locale] ?? $locale;
+    }
 
     public static function pluralLocale(string $locale): string
     {
