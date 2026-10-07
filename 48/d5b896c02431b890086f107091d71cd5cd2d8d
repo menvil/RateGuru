@@ -1,0 +1,51 @@
+tests/Feature/Actions/BackfillProjectTranslationsActionTest.php
+  s_cbcd61fc717774::t_3b68350848676d 22-24,75
+tests/Feature/I18n/UpdateProjectTranslationActionTest.php
+  s_cbcd61fc717774::t_4ee23749cb841c 117,133-134,326
+tests/Pest.php
+  s_cbcd61fc717774::t_e83ae1c9dab9d0 4783-4838
+  s_cbcd61fc717774::t_9c82b92e781635 5007-5010,5019
+tests/Feature/Routes/StaticPageRouteTest.php
+  s_cbcd61fc717774::t_c28cf2e5fda6f3 74-76,137-139
+app/Support/Settings/ProjectSettingsManager.php
+  s_cbcd61fc717774::t_da3585b99e1e8a 10-13
+app/Support/Translations/RepositoryTranslations.php
+  s_cbcd61fc717774::t_4bf27a050a8f09 67-70,74,80-82
+tests/Feature/I18n/ProjectTranslationCompletenessTest.php
+  s_cbcd61fc717774::t_3b389040c67120 72,81,95,104,117,184,237
+  s_cbcd61fc717774::t_7f7cabd6470b4d 33,36
+tests/Feature/Support/Settings/ProjectPresetsConfigTest.php
+  s_cbcd61fc717774::t_9c53c4f9b69061 60-61,83
+docs/admin/project-presets.md
+  s_cbcd61fc717774::t_da3585b99e1e8a 83-89,99,106-107,112,119,124-129,136
+app/Actions/Translations/BackfillProjectTranslationsAction.php
+  s_cbcd61fc717774::t_da3585b99e1e8a 26-30
+tests/Feature/I18n/ProjectTranslationCatalogTest.php
+  s_cbcd61fc717774::t_1f782e8495a212 85,96,103
+config/project_presets.php
+  s_cbcd61fc717774::t_d392fdda36ac83 12-18,33-35,40-41,44-45,50-51,54-56,64,70-71,75-78,93-96,101-102,105-106,111-112,115-118,123-142,147,153-154,158-161,176-179,184-185,188-191,196-197,200-204,209-219,224,230-231,235-238,253-256,261-262,265-266,271-272,275-285,290-301
+tests/Feature/Architecture/RepositoryProjectContentLanguageTest.php
+  s_cbcd61fc717774::t_63a2ae2caf03ca 8-10,12-17,24-25,27,42-54,57-58,60
+lang/README.md
+  s_cbcd61fc717774::t_3fa8c2bbb35b80 22-25,98-100,106-115
+docs/i18n/project-translation-lifecycle.md
+  s_cbcd61fc717774::t_3fa8c2bbb35b80 14,27-34,131-135,204-206,214-223
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_cbcd61fc717774::t_f830cd366d6eb5 577
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "48d5b896c02431b890086f107091d71cd5cd2d8d",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

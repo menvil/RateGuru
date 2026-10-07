@@ -1,0 +1,692 @@
+lang/ja/mail.php
+  s_cbcd61fc717774::t_95a0844f9e52d5 1-49
+lang/uk/ui.php
+  s_cbcd61fc717774::t_8acf539f478e30 1-322
+lang/sr/mail.php
+  s_cbcd61fc717774::t_577382012d7f19 1-12,14,16-22,24-40,42-45,47-49
+lang/nb/validation.php
+  s_cbcd61fc717774::t_129c5ce601a699 16
+  s_cbcd61fc717774::t_5b520de0f56d30 1-15,17-57
+config/locales.php
+  s_cbcd61fc717774::t_c6489d79c667bb 33-66
+lang/sq/follows.php
+  s_cbcd61fc717774::t_172b34db727d86 1-18
+lang/mk/auth.php
+  s_cbcd61fc717774::t_a8f0637e7add0b 1-74
+lang/ro/sharing.php
+  s_cbcd61fc717774::t_9d82f8543f3061 1-20
+lang/it/validation.php
+  s_cbcd61fc717774::t_10c1a24d2ecf22 1-57
+lang/bs/import.php
+  s_cbcd61fc717774::t_da71e72b17a5e5 1-26
+lang/sr/saved_posts.php
+  s_cbcd61fc717774::t_0b9887a76ce4c5 1-15
+lang/fi/auth.php
+  s_cbcd61fc717774::t_c22affdd634b87 1-74
+lang/sq/validation.php
+  s_cbcd61fc717774::t_965dd8c1fcca30 1-57
+lang/fi/passwords.php
+  s_cbcd61fc717774::t_4c24087d8b3029 1-9
+lang/et/follows.php
+  s_cbcd61fc717774::t_4ed7509dee3cf3 1-18
+lang/hr/auth.php
+  s_cbcd61fc717774::t_584211508612bb 27,38
+  s_cbcd61fc717774::t_48c76756a90fe4 1-26,28-37,39-74
+lang/ja/sharing.php
+  s_cbcd61fc717774::t_2459579fd314a4 1-20
+lang/ro/mail.php
+  s_cbcd61fc717774::t_22f5907822cecf 1-49
+lang/lt/ui.php
+  s_cbcd61fc717774::t_70384f115ff894 87
+  s_cbcd61fc717774::t_cfe4295aeb07cb 1-86,88-324
+lang/sl/mail.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-49
+lang/el/import.php
+  s_cbcd61fc717774::t_661eef37cd8e3c 1-26
+lang/lv/follows.php
+  s_cbcd61fc717774::t_e6053f45ddd5a4 10
+  s_cbcd61fc717774::t_eb8b9d2b580034 1-9,11-18
+lang/fi/profile.php
+  s_cbcd61fc717774::t_3d23ee0b2ca991 1-79
+lang/is/sharing.php
+  s_cbcd61fc717774::t_89a3d4aa1b83c9 1-20
+lang/it/auth.php
+  s_cbcd61fc717774::t_2f05f8d3a106de 1-74
+lang/hr/import.php
+  s_cbcd61fc717774::t_d7ef571e7e750e 1-26
+lang/ms/validation.php
+  s_cbcd61fc717774::t_babce089e8cbb3 1-14,17-22,25-30,32-57
+lang/sv/profile.php
+  s_cbcd61fc717774::t_3849237c96ba93 1-79
+lang/sl/follows.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-18
+lang/fr/mail.php
+  s_cbcd61fc717774::t_9a5aea748c3c70 4,6-7,9,27,36
+  s_cbcd61fc717774::t_c6dd6827a8e57d 1-3,5,8,10-26,28-35,37-49
+lang/pt/passwords.php
+  s_cbcd61fc717774::t_676b2f665c6d96 1-9
+lang/sl/validation.php
+  s_cbcd61fc717774::t_c0ec67c4ba871d 1-57
+lang/ka/profile.php
+  s_cbcd61fc717774::t_e7e17e9bd5589f 1-79
+lang/pt/import.php
+  s_cbcd61fc717774::t_8825114ea9a6c1 1-6,9-26
+lang/lt/passwords.php
+  s_cbcd61fc717774::t_d55126e5b89753 1-9
+lang/mk/passwords.php
+  s_cbcd61fc717774::t_159f215707e931 1-9
+lang/hu/follows.php
+  s_cbcd61fc717774::t_43fea1b6fc6fa2 1-18
+lang/ja/profile.php
+  s_cbcd61fc717774::t_2c4111de321c3d 1-79
+lang/bs/validation.php
+  s_cbcd61fc717774::t_32d14427df66a3 1-57
+lang/ro/profile.php
+  s_cbcd61fc717774::t_5fffa01ea17410 1-79
+lang/hr/profile.php
+  s_cbcd61fc717774::t_bb5cb5fa07e977 1-22,24-79
+  s_cbcd61fc717774::t_584211508612bb 23
+lang/hu/validation.php
+  s_cbcd61fc717774::t_31ba625a0265dd 1-57
+lang/hr/validation.php
+  s_cbcd61fc717774::t_0c8e9de026cc8c 1-57
+lang/ka/validation.php
+  s_cbcd61fc717774::t_e7e17e9bd5589f 1-57
+lang/cnr/passwords.php
+  s_cbcd61fc717774::t_f903dc847c1796 1-9
+lang/mk/saved_posts.php
+  s_cbcd61fc717774::t_e53cca5487c1c9 1-15
+lang/it/passwords.php
+  s_cbcd61fc717774::t_0ea3d840a5d86f 1-9
+lang/th/saved_posts.php
+  s_cbcd61fc717774::t_449f2bdf1dc708 1-15
+lang/et/mail.php
+  s_cbcd61fc717774::t_e787fe55e0c67c 1-49
+lang/el/mail.php
+  s_cbcd61fc717774::t_437f2b32a94a5d 1-49
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_cbcd61fc717774::t_d8a09aa5f84fe7 353-354,363,1232-1233,1248
+lang/ms/auth.php
+  s_cbcd61fc717774::t_3211f4d56abd21 1-74
+lang/fil/mail.php
+  s_cbcd61fc717774::t_44176ba6ff4722 1-49
+lang/hu/sharing.php
+  s_cbcd61fc717774::t_2aa5ae46d263bc 1-20
+lang/bs/ui.php
+  s_cbcd61fc717774::t_eb3db1c6264a0b 20,124-125,165,204-205,230
+  s_cbcd61fc717774::t_d24e7087e6598b 1-19,21-123,126-164,166-203,206-229,231-322
+lang/el/follows.php
+  s_cbcd61fc717774::t_a30be2a52a45e8 1-18
+lang/hu/profile.php
+  s_cbcd61fc717774::t_b3619c5ee19c85 1-79
+lang/uk/passwords.php
+  s_cbcd61fc717774::t_dda54ca6139169 1-9
+lang/th/import.php
+  s_cbcd61fc717774::t_40514c35b019fc 1-26
+lang/ro/validation.php
+  s_cbcd61fc717774::t_8a4c72edf9847a 1-57
+lang/vi/follows.php
+  s_cbcd61fc717774::t_2da66eb71c61fe 1-18
+lang/sk/saved_posts.php
+  s_cbcd61fc717774::t_284163f7093e61 1-15
+lang/vi/ui.php
+  s_cbcd61fc717774::t_0c992665f972c5 1-322
+lang/is/profile.php
+  s_cbcd61fc717774::t_418a5a4238fec1 1-79
+lang/da/auth.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-74
+lang/cnr/follows.php
+  s_cbcd61fc717774::t_c2285cca051d7e 1-18
+lang/pt/follows.php
+  s_cbcd61fc717774::t_271d7a25b9edcf 1-13,15-18
+lang/sl/saved_posts.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-15
+lang/is/passwords.php
+  s_cbcd61fc717774::t_d2796f2e02cc1a 1-9
+lang/cs/profile.php
+  s_cbcd61fc717774::t_a4370156013f9e 1-79
+lang/sl/import.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-4,6-9,11-26
+  s_cbcd61fc717774::t_c5d3af230046de 5,10
+lang/zh/ui.php
+  s_cbcd61fc717774::t_3b9e59b5865a29 1-322
+lang/fi/follows.php
+  s_cbcd61fc717774::t_ca350431ee365d 1-18
+lang/it/profile.php
+  s_cbcd61fc717774::t_b885be9b526261 1-22,24-79
+  s_cbcd61fc717774::t_4dd4ea74fe1132 23
+lang/it/follows.php
+  s_cbcd61fc717774::t_5dcfe5761d6865 1-18
+lang/uk/validation.php
+  s_cbcd61fc717774::t_ff8a50c7cd2cbc 1-57
+lang/da/mail.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-49
+lang/sv/import.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-26
+lang/lv/saved_posts.php
+  s_cbcd61fc717774::t_b610814d89d3f3 1-15
+lang/bs/saved_posts.php
+  s_cbcd61fc717774::t_6fd347689ec628 1-11,13-15
+  s_cbcd61fc717774::t_eb3db1c6264a0b 12
+lang/sk/follows.php
+  s_cbcd61fc717774::t_284163f7093e61 1-18
+lang/ka/auth.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-74
+lang/sq/import.php
+  s_cbcd61fc717774::t_57b68c378eec63 1-26
+lang/tr/auth.php
+  s_cbcd61fc717774::t_961c1d10987351 1-74
+lang/is/import.php
+  s_cbcd61fc717774::t_4c03c85698cde5 1-26
+lang/el/validation.php
+  s_cbcd61fc717774::t_19b823187ac05d 1-57
+lang/sq/ui.php
+  s_cbcd61fc717774::t_6fca212a497606 1-322
+lang/ja/auth.php
+  s_cbcd61fc717774::t_26b2eba4d86271 1-74
+lang/sr/sharing.php
+  s_cbcd61fc717774::t_55cbfd7609dfb7 1-20
+lang/it/import.php
+  s_cbcd61fc717774::t_339723e3ac655e 1-26
+lang/sr/ui.php
+  s_cbcd61fc717774::t_f7985e9ac821aa 20
+  s_cbcd61fc717774::t_bc4ec118853cf7 1-19,21-322
+lang/cnr/auth.php
+  s_cbcd61fc717774::t_ac5bcaa9f59862 1-74
+lang/mk/mail.php
+  s_cbcd61fc717774::t_071aa6cf39f2e7 1-49
+lang/tr/profile.php
+  s_cbcd61fc717774::t_9521331547e0f8 1-79
+lang/hr/sharing.php
+  s_cbcd61fc717774::t_6ed8efb237aeb9 1-20
+lang/zh/saved_posts.php
+  s_cbcd61fc717774::t_c00c0670c30fe4 1-15
+lang/uk/sharing.php
+  s_cbcd61fc717774::t_d7ac77a3e14785 1-20
+lang/lt/import.php
+  s_cbcd61fc717774::t_2bbe5c988e4bae 1-26
+lang/hr/passwords.php
+  s_cbcd61fc717774::t_ced73003d5316c 1-9
+lang/is/saved_posts.php
+  s_cbcd61fc717774::t_e65bbcdc946a22 1-15
+lang/vi/auth.php
+  s_cbcd61fc717774::t_6d8b683f742c10 1-74
+lang/fr/follows.php
+  s_cbcd61fc717774::t_7668e571d756bc 1-13,15-18
+  s_cbcd61fc717774::t_9a5aea748c3c70 14
+lang/th/passwords.php
+  s_cbcd61fc717774::t_8b8de7c0ce3fe1 1-9
+lang/hu/saved_posts.php
+  s_cbcd61fc717774::t_7446063e2970af 1-15
+lang/ka/follows.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-18
+lang/et/sharing.php
+  s_cbcd61fc717774::t_aeaccdc7957122 1-20
+lang/zh/auth.php
+  s_cbcd61fc717774::t_a413c02a633fab 1-74
+lang/th/sharing.php
+  s_cbcd61fc717774::t_694fb9fdbee010 1-20
+lang/cs/mail.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-49
+lang/hr/mail.php
+  s_cbcd61fc717774::t_625a1501c6cf1f 1-49
+lang/sk/import.php
+  s_cbcd61fc717774::t_284163f7093e61 1-26
+lang/fil/ui.php
+  s_cbcd61fc717774::t_9d88cc944a80b2 1-322
+lang/da/sharing.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-20
+lang/lt/mail.php
+  s_cbcd61fc717774::t_2efd002a8aef4c 1-49
+lang/mk/sharing.php
+  s_cbcd61fc717774::t_4030e3d27b5ca6 1-20
+lang/sv/mail.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-49
+lang/sv/validation.php
+  s_cbcd61fc717774::t_3849237c96ba93 1-57
+lang/ms/profile.php
+  s_cbcd61fc717774::t_1a77806407126c 1-79
+lang/sl/sharing.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-20
+lang/pt/sharing.php
+  s_cbcd61fc717774::t_2942c6db0e6aaa 1-20
+lang/ka/mail.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-49
+lang/sq/saved_posts.php
+  s_cbcd61fc717774::t_4934dcc157e5ee 1-15
+lang/lv/import.php
+  s_cbcd61fc717774::t_dee8dfb833f28d 1-26
+lang/sv/auth.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-74
+lang/cs/auth.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-74
+lang/cs/passwords.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-9
+lang/et/import.php
+  s_cbcd61fc717774::t_4d51008ca3f086 1-26
+lang/fi/ui.php
+  s_cbcd61fc717774::t_c65c6815ee2306 1-322
+lang/it/mail.php
+  s_cbcd61fc717774::t_00031ea13a4976 1-49
+lang/hr/saved_posts.php
+  s_cbcd61fc717774::t_40cbdc50722f4b 1-15
+lang/cs/import.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-26
+lang/sk/ui.php
+  s_cbcd61fc717774::t_719e1feae38cde 1-322
+lang/mk/ui.php
+  s_cbcd61fc717774::t_a953bf35b8d400 1-322
+lang/tr/saved_posts.php
+  s_cbcd61fc717774::t_6d82f4f001312f 1-15
+lang/th/profile.php
+  s_cbcd61fc717774::t_9fcb964bd6e7af 1-79
+lang/ms/mail.php
+  s_cbcd61fc717774::t_e697e14276b237 1-49
+lang/is/follows.php
+  s_cbcd61fc717774::t_45c165210bcaa9 1-18
+lang/ja/saved_posts.php
+  s_cbcd61fc717774::t_25334413508de2 1-15
+lang/sk/sharing.php
+  s_cbcd61fc717774::t_284163f7093e61 1-20
+lang/sq/passwords.php
+  s_cbcd61fc717774::t_f326b76b392f9c 1-9
+lang/fil/passwords.php
+  s_cbcd61fc717774::t_9c06d916b7d103 1-9
+lang/sl/ui.php
+  s_cbcd61fc717774::t_c5d3af230046de 1-322
+lang/sq/auth.php
+  s_cbcd61fc717774::t_0030cbbec7b054 1-74
+lang/lt/follows.php
+  s_cbcd61fc717774::t_77853ed1cc6362 1-18
+tests/Feature/Filament/LanguagesPageTest.php
+  s_cbcd61fc717774::t_de4bc8283edf17 1029-1030,1036,1039-1041
+lang/ja/import.php
+  s_cbcd61fc717774::t_f41ef647afcf4f 1-26
+lang/lv/passwords.php
+  s_cbcd61fc717774::t_ce862e84960c66 1-9
+lang/bs/follows.php
+  s_cbcd61fc717774::t_c7d58390a8e69e 1-8,10-13,15-18
+  s_cbcd61fc717774::t_eb3db1c6264a0b 9,14
+lang/sr/passwords.php
+  s_cbcd61fc717774::t_645601d7f5110b 1-9
+lang/fil/import.php
+  s_cbcd61fc717774::t_caa3ba581faade 1-26
+lang/pt/profile.php
+  s_cbcd61fc717774::t_8ecd893bd80c3b 1-79
+lang/it/saved_posts.php
+  s_cbcd61fc717774::t_54de70cf925ced 1-15
+app/Support/Locale/LanguageRules.php
+  s_cbcd61fc717774::t_2977ffcedee367 6-11
+  s_cbcd61fc717774::t_27d70d182406c1 1-5,12-39
+tests/Browser/AdminLanguagesBrowserTest.php
+  s_cbcd61fc717774::t_d8a09aa5f84fe7 724-727,732,736
+lang/pt/auth.php
+  s_cbcd61fc717774::t_41b73eab1598da 1-74
+lang/ro/passwords.php
+  s_cbcd61fc717774::t_41d375360de439 1-9
+lang/ms/ui.php
+  s_cbcd61fc717774::t_e3cecd1775dcf0 1-322
+lang/cs/saved_posts.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-15
+lang/th/auth.php
+  s_cbcd61fc717774::t_615232a9f89884 1-74
+lang/lt/profile.php
+  s_cbcd61fc717774::t_c7a06f584d2af4 1-79
+lang/th/mail.php
+  s_cbcd61fc717774::t_40903ab0b5e90a 1-49
+lang/fr/passwords.php
+  s_cbcd61fc717774::t_4f3ef2ed8a3781 1-9
+lang/uk/import.php
+  s_cbcd61fc717774::t_06c4b47a8b3da5 1-26
+lang/ka/ui.php
+  s_cbcd61fc717774::t_141088fecf36fd 1-322
+lang/fr/ui.php
+  s_cbcd61fc717774::t_da2634969514b9 1-17,19-59,62-90,92-125,128-175,177-288,290-322
+  s_cbcd61fc717774::t_9a5aea748c3c70 18,60-61,91,126-127,176,289
+lang/sr/follows.php
+  s_cbcd61fc717774::t_3595c4080a9561 1-7,11-13,15-18
+lang/README.md
+  s_cbcd61fc717774::t_c6489d79c667bb 99-108
+lang/da/validation.php
+  s_cbcd61fc717774::t_b6b94cbe6e5323 1-57
+lang/fil/profile.php
+  s_cbcd61fc717774::t_7b5d3c4d2df87f 1-79
+lang/tr/ui.php
+  s_cbcd61fc717774::t_f3bda5a6c03fe1 1-322
+lang/sq/mail.php
+  s_cbcd61fc717774::t_3c87711fc61549 1-49
+lang/cs/ui.php
+  s_cbcd61fc717774::t_2746272872cf5c 1-322
+lang/ro/follows.php
+  s_cbcd61fc717774::t_e6d9cf1b4c914a 1-18
+lang/lv/auth.php
+  s_cbcd61fc717774::t_f28ae35821ed32 1-74
+lang/bs/profile.php
+  s_cbcd61fc717774::t_4977d397e846d4 56
+  s_cbcd61fc717774::t_c345266448da27 1-22,24-55,57-63,65-69,71-79
+  s_cbcd61fc717774::t_eb3db1c6264a0b 23,64,70
+lang/zh/passwords.php
+  s_cbcd61fc717774::t_a6d19abbfe3e6f 1-9
+lang/cnr/saved_posts.php
+  s_cbcd61fc717774::t_deb4ea34601b73 1-15
+lang/ka/import.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-26
+lang/hu/import.php
+  s_cbcd61fc717774::t_5fdc8830bd7561 1-26
+lang/vi/import.php
+  s_cbcd61fc717774::t_6037f6f567b11e 1-26
+lang/vi/profile.php
+  s_cbcd61fc717774::t_e85b2cf232dd2d 1-79
+lang/lv/profile.php
+  s_cbcd61fc717774::t_86e2d22198e8e3 1-79
+app/Support/Locale/PluralSelector.php
+  s_cbcd61fc717774::t_27d70d182406c1 1-21
+lang/it/sharing.php
+  s_cbcd61fc717774::t_84d92a42da203c 1-20
+lang/sk/passwords.php
+  s_cbcd61fc717774::t_284163f7093e61 1-9
+lang/lt/saved_posts.php
+  s_cbcd61fc717774::t_693318bd7d00e3 1-15
+lang/sv/ui.php
+  s_cbcd61fc717774::t_1c6cdc7c6c5976 1-322
+lang/sv/passwords.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-9
+bootstrap/providers.php
+  s_cbcd61fc717774::t_27d70d182406c1 5,12
+lang/fr/sharing.php
+  s_cbcd61fc717774::t_9005b4e29c1fa0 1-20
+lang/ja/ui.php
+  s_cbcd61fc717774::t_db6a03f81f6211 1-322
+lang/lv/validation.php
+  s_cbcd61fc717774::t_a264d6083860eb 1-57
+lang/ms/saved_posts.php
+  s_cbcd61fc717774::t_919bb437d6e9a7 1-15
+lang/ja/passwords.php
+  s_cbcd61fc717774::t_78b77560ba99e4 1-9
+lang/et/validation.php
+  s_cbcd61fc717774::t_f66e47f6b14a54 1-57
+lang/lv/ui.php
+  s_cbcd61fc717774::t_c3c0c5dee379fb 1-325
+lang/da/saved_posts.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-15
+lang/mk/follows.php
+  s_cbcd61fc717774::t_11df03a2909ede 1-18
+lang/ro/ui.php
+  s_cbcd61fc717774::t_d79e08445bf231 1-322
+lang/fi/saved_posts.php
+  s_cbcd61fc717774::t_ece5f9e9b7dd71 1-15
+lang/fr/profile.php
+  s_cbcd61fc717774::t_9a5aea748c3c70 46,56,58,73
+  s_cbcd61fc717774::t_b244ca4da25131 1-45,47-55,57,59-63,65-72,74-79
+  s_cbcd61fc717774::t_eb2827a3a57313 64
+lang/uk/profile.php
+  s_cbcd61fc717774::t_e5b004ec9f0795 1-79
+lang/ja/follows.php
+  s_cbcd61fc717774::t_b5f92023406a11 1-18
+lang/ka/sharing.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-20
+lang/el/sharing.php
+  s_cbcd61fc717774::t_96a497b44b8087 1-20
+lang/fi/import.php
+  s_cbcd61fc717774::t_74b3f0ad0a6fa1 1-26
+lang/fil/auth.php
+  s_cbcd61fc717774::t_a0e0752d91641d 1-74
+lang/cs/validation.php
+  s_cbcd61fc717774::t_a4370156013f9e 1-57
+lang/et/auth.php
+  s_cbcd61fc717774::t_28dc5b36c75e54 1-74
+lang/sr/profile.php
+  s_cbcd61fc717774::t_433db586dd979d 1-22,24-55,57-63,65-69,71-79
+  s_cbcd61fc717774::t_efbdd13ec04374 23,56,64,70
+lang/th/ui.php
+  s_cbcd61fc717774::t_fd5d99f23085ce 1-322
+lang/bs/passwords.php
+  s_cbcd61fc717774::t_06add13bba2832 1-9
+lang/pt/ui.php
+  s_cbcd61fc717774::t_f7f04b3848675b 15,91
+  s_cbcd61fc717774::t_60e4905fdd54d5 1-14,16-90,92-322
+lang/zh/sharing.php
+  s_cbcd61fc717774::t_2351167ccdd2dd 1-20
+lang/sv/follows.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-18
+lang/el/passwords.php
+  s_cbcd61fc717774::t_7f326cfcb0b0e0 1-9
+lang/fr/saved_posts.php
+  s_cbcd61fc717774::t_dea3bc9c273000 1-15
+lang/et/passwords.php
+  s_cbcd61fc717774::t_697ead27e8df29 1-9
+lang/fil/follows.php
+  s_cbcd61fc717774::t_34921c899d0d9a 1-18
+lang/ka/saved_posts.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-15
+lang/is/mail.php
+  s_cbcd61fc717774::t_a81e8feaf11d09 1-49
+lang/da/follows.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-18
+lang/fil/validation.php
+  s_cbcd61fc717774::t_ecdf3fd7101f51 1-57
+lang/cnr/validation.php
+  s_cbcd61fc717774::t_3a6827f5172a34 1-57
+lang/pt/mail.php
+  s_cbcd61fc717774::t_535099dbff8d6e 1-49
+lang/zh/profile.php
+  s_cbcd61fc717774::t_46db5bf07f545d 1-79
+lang/ms/sharing.php
+  s_cbcd61fc717774::t_8e52eafe835498 1-20
+lang/cnr/profile.php
+  s_cbcd61fc717774::t_376b9a7ebba95d 1-79
+lang/sr/import.php
+  s_cbcd61fc717774::t_8b4f2be4c1c450 1-26
+lang/mk/profile.php
+  s_cbcd61fc717774::t_901e44521e916b 1-79
+lang/ka/passwords.php
+  s_cbcd61fc717774::t_3ecaff9fdfb073 1-9
+lang/lt/auth.php
+  s_cbcd61fc717774::t_f7ee87193e494c 1-74
+lang/el/auth.php
+  s_cbcd61fc717774::t_9ea1d9edc59efd 1-74
+lang/ms/import.php
+  s_cbcd61fc717774::t_e87ceb9c48e680 1-26
+lang/ms/passwords.php
+  s_cbcd61fc717774::t_ed717c7bd9798e 1-9
+lang/sl/profile.php
+  s_cbcd61fc717774::t_c0ec67c4ba871d 1-79
+lang/sk/auth.php
+  s_cbcd61fc717774::t_284163f7093e61 1-74
+tests/Feature/I18n/LocalesConfigTest.php
+  s_cbcd61fc717774::t_de4bc8283edf17 10-11
+lang/el/profile.php
+  s_cbcd61fc717774::t_9bd3a5108c14d4 1-79
+lang/sl/passwords.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-9
+lang/it/ui.php
+  s_cbcd61fc717774::t_d44534ac30640e 1-322
+lang/sv/saved_posts.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-15
+lang/sl/auth.php
+  s_cbcd61fc717774::t_61f8f17d2ab4a7 1-74
+lang/ro/saved_posts.php
+  s_cbcd61fc717774::t_ac2b3790a4461e 1-15
+lang/is/auth.php
+  s_cbcd61fc717774::t_5f0f1712681114 1-74
+lang/fr/auth.php
+  s_cbcd61fc717774::t_9a5aea748c3c70 11-12,27,38,52,65,68
+  s_cbcd61fc717774::t_51ccc3ad3d2816 1-10,13-26,28-37,39-51,53-64,66-67,69-74
+lang/tr/sharing.php
+  s_cbcd61fc717774::t_dcabf4d5ea55c6 1-20
+lang/ms/follows.php
+  s_cbcd61fc717774::t_6878ac3c3e9ca1 1-18
+lang/tr/validation.php
+  s_cbcd61fc717774::t_5cadaa6c406175 1-57
+lang/fil/sharing.php
+  s_cbcd61fc717774::t_c00841fa407428 1-20
+lang/is/ui.php
+  s_cbcd61fc717774::t_7d5136a8e13073 1-322
+lang/lt/sharing.php
+  s_cbcd61fc717774::t_0d68482915678e 1-20
+lang/zh/follows.php
+  s_cbcd61fc717774::t_3710c2778079de 1-18
+lang/fil/saved_posts.php
+  s_cbcd61fc717774::t_6c3c0d5fef344d 1-15
+lang/sq/sharing.php
+  s_cbcd61fc717774::t_9ffa00a72d1640 1-20
+lang/pt/saved_posts.php
+  s_cbcd61fc717774::t_c4d99a94a86639 1-15
+lang/vi/saved_posts.php
+  s_cbcd61fc717774::t_91a329bf7687b7 1-15
+lang/tr/passwords.php
+  s_cbcd61fc717774::t_5f82554d5aa2b8 1-9
+lang/zh/mail.php
+  s_cbcd61fc717774::t_be8debc398913f 1-49
+lang/bs/mail.php
+  s_cbcd61fc717774::t_eb3db1c6264a0b 13,15,23,41,46
+  s_cbcd61fc717774::t_4c73f1fb88f343 1-12,14,16-22,24-40,42-45,47-49
+lang/cnr/import.php
+  s_cbcd61fc717774::t_488c80fbbfe6e5 1-26
+lang/hu/auth.php
+  s_cbcd61fc717774::t_3e6b745daa7902 1-74
+lang/fi/sharing.php
+  s_cbcd61fc717774::t_b85d966cd05ab3 1-20
+lang/fi/validation.php
+  s_cbcd61fc717774::t_56285f788f88e6 1-57
+docs/i18n/multilingual-ui.md
+  s_cbcd61fc717774::t_c6489d79c667bb 13-19
+lang/sk/mail.php
+  s_cbcd61fc717774::t_284163f7093e61 1-49
+lang/vi/validation.php
+  s_cbcd61fc717774::t_fb99f0aacf3f98 1-57
+lang/pt/validation.php
+  s_cbcd61fc717774::t_dd4d4761e704fc 1-5,7-14,17-22,25-30,32-57
+  s_cbcd61fc717774::t_f7f04b3848675b 6,15-16,23-24,31
+lang/fr/import.php
+  s_cbcd61fc717774::t_0057d6807b6aeb 1-26
+lang/fr/validation.php
+  s_cbcd61fc717774::t_9a5aea748c3c70 28
+  s_cbcd61fc717774::t_3ee80dd0599d3c 1-27,29-55
+lang/cnr/mail.php
+  s_cbcd61fc717774::t_fca43b30da19d3 1-49
+lang/ro/auth.php
+  s_cbcd61fc717774::t_a134b2ff42b7cd 1-74
+lang/lt/validation.php
+  s_cbcd61fc717774::t_543dfd2ffb5223 1-57
+lang/et/profile.php
+  s_cbcd61fc717774::t_5e9bb778f83897 1-79
+lang/uk/auth.php
+  s_cbcd61fc717774::t_642a67d74f5f8c 1-74
+lang/hr/ui.php
+  s_cbcd61fc717774::t_423393ab32dd5c 1-203,206-322
+  s_cbcd61fc717774::t_584211508612bb 204-205
+lang/cnr/sharing.php
+  s_cbcd61fc717774::t_48e0ab82bb68b4 1-20
+lang/lv/sharing.php
+  s_cbcd61fc717774::t_2d4b83fa3aa8a5 1-20
+lang/hr/follows.php
+  s_cbcd61fc717774::t_ace8dafca0229f 1-13,15-18
+  s_cbcd61fc717774::t_584211508612bb 14
+lang/da/passwords.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-9
+lang/sr/validation.php
+  s_cbcd61fc717774::t_4ab39c5a81ead6 1-57
+lang/cs/sharing.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-20
+lang/ro/import.php
+  s_cbcd61fc717774::t_da7e6870afd7a0 1-26
+lang/zh/validation.php
+  s_cbcd61fc717774::t_a9e4f4d3768482 1-57
+lang/lv/mail.php
+  s_cbcd61fc717774::t_2c072d449cfad7 1-49
+lang/hu/mail.php
+  s_cbcd61fc717774::t_c360398858355c 1-49
+lang/uk/saved_posts.php
+  s_cbcd61fc717774::t_509e28b130bcb9 1-15
+lang/th/validation.php
+  s_cbcd61fc717774::t_0b91955ae5dc32 1-57
+lang/mk/import.php
+  s_cbcd61fc717774::t_ecf493b28cfe02 1-26
+lang/vi/passwords.php
+  s_cbcd61fc717774::t_018d5ac2b0c4ed 1-9
+lang/hu/ui.php
+  s_cbcd61fc717774::t_e043f1cd30f10c 1-322
+lang/sv/sharing.php
+  s_cbcd61fc717774::t_497ac488b8ca5f 1-20
+app/Support/Seo/PostOpenGraph.php
+  s_cbcd61fc717774::t_89dba635a0be2e 79
+lang/el/saved_posts.php
+  s_cbcd61fc717774::t_db8fd9502a31b5 1-15
+lang/nl/ui.php
+  s_cbcd61fc717774::t_4d4bcccf4fd34c 1-322
+lang/da/import.php
+  s_cbcd61fc717774::t_2d2c4d795eef82 1-26
+lang/zh/import.php
+  s_cbcd61fc717774::t_16cc702a3ccdc2 1-26
+lang/sq/profile.php
+  s_cbcd61fc717774::t_a4a511cfeae25b 1-79
+lang/uk/follows.php
+  s_cbcd61fc717774::t_b7b4b029263ca7 1-18
+lang/et/saved_posts.php
+  s_cbcd61fc717774::t_aebc58a8a18fd2 1-15
+lang/el/ui.php
+  s_cbcd61fc717774::t_98b7f49282c73f 1-322
+lang/nb/ui.php
+  s_cbcd61fc717774::t_03981129557e66 311
+  s_cbcd61fc717774::t_129c5ce601a699 1-310,312-322
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_cbcd61fc717774::t_de4bc8283edf17 225-226,231,677-678,697-698
+lang/is/validation.php
+  s_cbcd61fc717774::t_0c8376c784710d 1-57
+lang/cs/follows.php
+  s_cbcd61fc717774::t_9fc81c0f4481fc 1-18
+lang/pl/ui.php
+  s_cbcd61fc717774::t_c3d1f7d5ad0b24 1-322
+lang/hu/passwords.php
+  s_cbcd61fc717774::t_11299a96574e27 1-9
+lang/fi/mail.php
+  s_cbcd61fc717774::t_5fdf26222a9bc3 1-49
+lang/et/ui.php
+  s_cbcd61fc717774::t_3b4a7fa59fa555 1-322
+lang/vi/sharing.php
+  s_cbcd61fc717774::t_63ba1194b14f24 1-20
+lang/ja/validation.php
+  s_cbcd61fc717774::t_a7d37ae958249c 1-57
+lang/tr/follows.php
+  s_cbcd61fc717774::t_d1a7f4e41400c4 1-18
+lang/tr/mail.php
+  s_cbcd61fc717774::t_a962730cf2ffe2 1-49
+lang/bs/auth.php
+  s_cbcd61fc717774::t_abd9bb101ec69a 1-26,28-37,39-52,54-59,61-67,69-74
+  s_cbcd61fc717774::t_eb3db1c6264a0b 27,38,53,60,68
+lang/bs/sharing.php
+  s_cbcd61fc717774::t_498af768091bca 1-20
+lang/vi/mail.php
+  s_cbcd61fc717774::t_ffb2a32d938ae4 1-49
+lang/tr/import.php
+  s_cbcd61fc717774::t_8a13302751571a 1-26
+lang/mk/validation.php
+  s_cbcd61fc717774::t_8b2f4029e124b3 1-57
+lang/cnr/ui.php
+  s_cbcd61fc717774::t_a881342846d5b0 1-322
+lang/th/follows.php
+  s_cbcd61fc717774::t_bfac7a9cf39d65 1-18
+app/Providers/LanguageRulesServiceProvider.php
+  s_cbcd61fc717774::t_27d70d182406c1 1-49
+lang/sr/auth.php
+  s_cbcd61fc717774::t_ef45d7a80f109b 1-26,28-37,39-52,54-59,61-65,67,69-74
+lang/uk/mail.php
+  s_cbcd61fc717774::t_76294b60b47d8c 1-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e8736a97be77791ee91d89b76f189cd2e5fff2b9",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

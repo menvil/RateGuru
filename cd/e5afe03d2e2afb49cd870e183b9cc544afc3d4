@@ -1,0 +1,44 @@
+docs/i18n/multilingual-ui.md
+  s_cbcd61fc717774::t_e7afbb896c350e 11
+lang/es/sharing.php
+  s_cbcd61fc717774::t_ea8d85e62af208 1-20
+lang/es/saved_posts.php
+  s_cbcd61fc717774::t_0daa35659ef02d 1-15
+lang/es/mail.php
+  s_cbcd61fc717774::t_64fcfcaf30e1c9 1-49
+lang/es/auth.php
+  s_cbcd61fc717774::t_6de47439013533 1-74
+config/locales.php
+  s_cbcd61fc717774::t_61336567642802 32
+lang/es/import.php
+  s_cbcd61fc717774::t_5dc3e4a661c031 1-26
+lang/es/validation.php
+  s_cbcd61fc717774::t_c63e9a59d9adb5 31
+  s_cbcd61fc717774::t_9dfed6407b3557 1-30,32-57
+lang/es/follows.php
+  s_cbcd61fc717774::t_0887b2585fe35c 1-18
+app/Support/Seo/PostOpenGraph.php
+  s_cbcd61fc717774::t_61336567642802 48
+lang/es/ui.php
+  s_cbcd61fc717774::t_f87603b59d6801 1-322
+lang/es/passwords.php
+  s_cbcd61fc717774::t_95db42352c7b24 1-9
+lang/es/profile.php
+  s_cbcd61fc717774::t_765c8f35a027b5 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cde5afe03d2e2afb49cd870e183b9cc544afc3d4",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
