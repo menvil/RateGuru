@@ -863,6 +863,16 @@ hold_runtime() {
 
 RESTORE_GUARD_WRITTEN=false
 
+# restore_guard_relabel_command MARKER — the command an operator runs to finish
+# a re-label to `held` that the run itself could not write. Only the status
+# changes: the operation, the target and the required commit stay as written.
+restore_guard_relabel_command() {
+    local marker="$1"
+
+    printf "jq '.status = \"held\"' %s > %s.tmp && chmod 0600 %s.tmp && mv %s.tmp %s" \
+        "${marker}" "${marker}" "${marker}" "${marker}" "${marker}"
+}
+
 write_restore_guard() {
     local hold_status="$1" marker marker_dir
 
@@ -1659,8 +1669,12 @@ decide_code_alignment() {
     # re-labels it with the outcome. Non-fatal precisely because it is already
     # doing its job: a failed re-label leaves it at `in-progress`, which blocks
     # an ordinary backup just as firmly.
-    write_restore_guard held \
-        || log "WARNING: the restore guard could not be re-labelled; it remains in place and ordinary backups still refuse"
+    local guard_relabelled=true
+
+    write_restore_guard held || {
+        guard_relabelled=false
+        log "WARNING: the restore guard could not be re-labelled; it remains in place and ordinary backups still refuse"
+    }
 
     RESTORE_TERMINAL=true
     trap - ERR EXIT
@@ -1685,6 +1699,23 @@ decide_code_alignment() {
     printf 'required commit while PRESERVING the hold, followed by --resume.\n'
     printf '\n'
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
+
+    # Continuing starts with --inspect, which refuses an `in-progress` guard:
+    # that is what a restore still running, or killed, looks like. Saying
+    # "continue" without this would send the operator into that refusal.
+    if [[ "${guard_relabelled}" != true ]]; then
+        local marker
+        marker="$(restore_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+        printf '\n'
+        printf 'ACTION REQUIRED FIRST: the restore guard still reads in-progress.\n'
+        printf 'Re-labelling it to held failed (see the WARNING above), and continuing\n'
+        printf 'refuses an in-progress guard. Once the cause is fixed, re-label it:\n'
+        printf '  %s\n' "$(restore_guard_relabel_command "${marker}")"
+        printf 'Then continue as below.\n'
+        printf '\n'
+    fi
+
     printf 'FROM GITHUB: run the Restore workflow for this target with\n'
     printf '  mode=continue-held  operation=%s\n' "${OPERATION_ID}"
     printf 'BY HAND, once an artifact built from that exact commit is on this host:\n'
@@ -1745,6 +1776,16 @@ inspect_diagnose_unalignable_hold() {
 
     case "${guard_status}" in
         in-progress)
+            # The one in-progress guard that is not ambiguous: its own operation
+            # finished and recorded the hold, and only the guard's re-label to
+            # `held` failed. That run said so; say so again, with the fix.
+            if [[ "${guard_operation}" == "${OPERATION_ID}" ]] \
+                && restore_locate_operation_root "${TARGET_ID}" "${OPERATION_ID}" \
+                && [[ "$(restore_state_get "$(restore_state_file "${RESTORE_LOCATED_OPERATION_ROOT}")" status 2>/dev/null || printf '')" == "held" ]]
+            then
+                fail "${TARGET_ID} is held by restore operation ${OPERATION_ID}, whose own state records the data restore as finished and the target as held, but whose guard still reads 'in-progress': re-labelling it to 'held' failed at the end of that run, which reported it. Once the cause is fixed, re-label it — $(restore_guard_relabel_command "${marker}") — and continue"
+            fi
+
             fail "${TARGET_ID} is held by restore operation ${guard_operation:-<unknown>} with status 'in-progress': a restore either is still running or was killed between activating the data and finishing. It is NOT a code-alignment hold, and continuing the alignment flow against it is unsafe — no build, no deployment and no --resume. Read ${marker} and the operation's own state, and recover it by hand. Repair Target is not a way out either: it refuses a target under any restore guard, precisely because this state is a data decision and not an infrastructure one"
             ;;
         failed-held)
