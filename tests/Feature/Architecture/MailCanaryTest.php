@@ -141,6 +141,33 @@ it('deletes only its own queue entry when it reaches no final status within the 
     'never attempted' => ['none', 'unknown'],
 ]);
 
+it('never reports its own entry deleted when the queue cannot be read', function (string $toggle, bool $deleteAttempted, string $failure) {
+    $host = mailCanaryHost('deferred');
+
+    try {
+        touch($host['state'].'/'.$toggle);
+
+        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
+
+        expect($status)->toBe(1, $output);
+        $result = mailCanaryResult($output);
+        expect($result)->toMatchArray(['status' => 'fail', 'smtp_delivery' => 'deferred', 'deleted' => false]);
+        expect($output)
+            ->toContain($failure)
+            ->toContain("remove it with: postsuper -d {$result['queue_id']}")
+            ->not->toContain("deleted the canary's own queue entry");
+
+        $deletes = array_values(array_filter(mailCanaryQueueCalls($host), static fn (string $call): bool => str_starts_with($call, 'postsuper')));
+        expect($deletes)->toBe($deleteAttempted ? ["postsuper -d {$result['queue_id']}"] : []);
+        mailCanaryExpectNoRecipient($output);
+    } finally {
+        mailActivationCleanup($host);
+    }
+})->with([
+    'unreadable before the deletion' => ['postqueue-fails', false, 'FAIL could not read the Postfix queue to remove the canary queue entry'],
+    'unreadable after the deletion' => ['postqueue-fails-after-delete', true, 'FAIL could not read the Postfix queue to confirm the canary queue entry'],
+]);
+
 it('follows the mail log of its own submission only', function () {
     $code = executableSourceLines(File::get(base_path('infrastructure/scripts/send-mail-canary')));
 

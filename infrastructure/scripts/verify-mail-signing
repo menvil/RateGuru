@@ -354,14 +354,28 @@ new_token() {
 
 # --- The queue: one entry, by its exact ID --------------------------------------------
 
+# wait_queue_state ID QUEUE — 0 once ID is in QUEUE; 1 when it never got
+# there; 2 when the queue could not be read.
 wait_queue_state() {
-    local id="$1" want="$2" waited=0
+    local id="$1" want="$2" waited=0 state
     while (( waited < POLL_TIMEOUT )); do
-        [[ "$(queue_state "${id}")" == "${want}" ]] && return 0
+        state="$(queue_state "${id}")" || return 2
+        [[ "${state}" == "${want}" ]] && return 0
         sleep 1
         waited=$((waited + 1))
     done
     return 1
+}
+
+# where_is ID — sets QUEUE_NOW to the queue ID is in (empty once it is gone);
+# fails, saying so, when the queue cannot be read.
+QUEUE_NOW=""
+
+where_is() {
+    if ! QUEUE_NOW="$(queue_state "$1")"; then
+        bad "could not read the Postfix queue (postqueue -j failed), so where $1 is cannot be told"
+        return 1
+    fi
 }
 
 # --- The signature ---------------------------------------------------------------
@@ -441,25 +455,49 @@ check_signature() {
 
 # --- E2E -----------------------------------------------------------------------
 
+# cleanup — the EXIT trap: this run's own entries removed, and nothing else.
+# It keeps the run's exit status and never turns a failure into a success; a
+# run whose checks passed still fails when it cannot prove its own probes gone.
 cleanup() {
-    local status=$? id
+    local status=$? id state recipient found cleanup_failed=false
 
     # Only this run's own entries, by their exact IDs — and any entry addressed
     # to one of this run's unique recipients. Anything else is not ours.
     local -a ids=()
     [[ -z "${QUEUE_ID}" ]] || ids+=("${QUEUE_ID}")
     [[ -z "${FOREIGN_QUEUE_ID}" ]] || ids+=("${FOREIGN_QUEUE_ID}")
-    while IFS= read -r id; do
-        [[ -z "${id}" ]] || ids+=("${id}")
-    done < <(queue_ids_for "${PROBE_RECIPIENT}"; queue_ids_for "${FOREIGN_RECIPIENT}")
+    for recipient in "${PROBE_RECIPIENT}" "${FOREIGN_RECIPIENT}"; do
+        [[ -n "${recipient}" ]] || continue
+        if ! found="$(queue_ids_for "${recipient}")"; then
+            printf '  FAIL could not read the Postfix queue to find this run'"'"'s entries for %s — if any are there, remove each with: postsuper -d <its queue ID>\n' "${recipient}"
+            cleanup_failed=true
+            continue
+        fi
+        while IFS= read -r id; do
+            [[ -z "${id}" ]] || ids+=("${id}")
+        done <<<"${found}"
+    done
 
     for id in "${ids[@]+"${ids[@]}"}"; do
-        [[ -n "$(queue_state "${id}")" ]] || continue
-        "${POSTSUPER_BIN}" -d "${id}" >/dev/null 2>&1 \
-            || printf '  FAIL could not remove the probe queue entry %s — remove it with: postsuper -d %s\n' "${id}" "${id}"
+        if ! state="$(queue_state "${id}")"; then
+            printf '  FAIL could not read the Postfix queue to remove the probe queue entry %s — if it is still there, remove it with: postsuper -d %s\n' "${id}" "${id}"
+            cleanup_failed=true
+            continue
+        fi
+        [[ -n "${state}" ]] || continue
+        "${POSTSUPER_BIN}" -d "${id}" >/dev/null 2>&1 || {
+            printf '  FAIL could not remove the probe queue entry %s — remove it with: postsuper -d %s\n' "${id}" "${id}"
+            cleanup_failed=true
+        }
     done
 
     [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
+
+    if [[ "${cleanup_failed}" == true ]] && (( status == 0 )); then
+        printf '  FAIL the acceptance checks passed, but this run could not prove its own probes removed — see above; the run fails\n'
+        status=1
+    fi
+
     exit "${status}"
 }
 
@@ -501,8 +539,14 @@ run_e2e() {
     fi
     ok "Postfix queued the probe as ${QUEUE_ID}"
 
-    if ! wait_queue_state "${QUEUE_ID}" hold; then
-        bad "queue entry ${QUEUE_ID} is not in the HOLD queue (it is in: $(queue_state "${QUEUE_ID}"))"
+    local waited=0
+    wait_queue_state "${QUEUE_ID}" hold || waited=$?
+    if (( waited == 2 )); then
+        bad "could not read the Postfix queue (postqueue -j failed), so where ${QUEUE_ID} is cannot be told"
+        e2e_verdict
+    elif (( waited != 0 )); then
+        where_is "${QUEUE_ID}" || e2e_verdict
+        bad "queue entry ${QUEUE_ID} is not in the HOLD queue (it is in: ${QUEUE_NOW})"
         e2e_verdict
     fi
     PROBE_HELD=true
@@ -512,16 +556,18 @@ run_e2e() {
 
     # Still held, then deleted from HOLD only — a deletion that does not find it
     # there would leave it in the queue, and fail below.
-    if [[ "$(queue_state "${QUEUE_ID}")" != hold ]]; then
+    where_is "${QUEUE_ID}" || e2e_verdict
+    if [[ "${QUEUE_NOW}" != hold ]]; then
         PROBE_HELD=false
-        bad "queue entry ${QUEUE_ID} left the HOLD queue before it was deleted (it is in: $(queue_state "${QUEUE_ID}"))"
+        bad "queue entry ${QUEUE_ID} left the HOLD queue before it was deleted (it is in: ${QUEUE_NOW})"
         e2e_verdict
     fi
 
     "${POSTSUPER_BIN}" -d "${QUEUE_ID}" hold >/dev/null 2>&1 \
         || { bad "could not delete the held probe ${QUEUE_ID}"; e2e_verdict; }
 
-    if [[ -n "$(queue_state "${QUEUE_ID}")" ]]; then
+    where_is "${QUEUE_ID}" || e2e_verdict
+    if [[ -n "${QUEUE_NOW}" ]]; then
         bad "queue entry ${QUEUE_ID} is still queued after its deletion from HOLD"
         e2e_verdict
     fi
@@ -550,7 +596,10 @@ foreign_from_refused() {
         e2e_verdict
     fi
 
-    queued="$(queue_ids_for "${FOREIGN_RECIPIENT}")"
+    if ! queued="$(queue_ids_for "${FOREIGN_RECIPIENT}")"; then
+        bad "could not read the Postfix queue (postqueue -j failed), so whether the refused message is in it cannot be told"
+        e2e_verdict
+    fi
     if [[ -n "${queued}" ]]; then
         bad "the refused message is in the queue all the same (${queued//$'\n'/, })"
         e2e_verdict

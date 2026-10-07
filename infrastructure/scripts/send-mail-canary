@@ -187,19 +187,35 @@ result_line() {
 # --- Exit: its own queue entry, and the result ------------------------------------------
 
 # delete_own_entry — the canary's own queue entry, by its exact ID, while it is
-# still queued; nothing else, ever.
+# still queued; nothing else, ever. A queue that cannot be read is never taken
+# to mean the entry is gone.
 delete_own_entry() {
+    local state
     [[ -n "${QUEUE_ID}" ]] || return 0
-    [[ -n "$(queue_state "${QUEUE_ID}")" ]] || return 0
 
-    if "${POSTSUPER_BIN}" -d "${QUEUE_ID}" >/dev/null 2>&1 && [[ -z "$(queue_state "${QUEUE_ID}")" ]]; then
-        DELETED=true
-        log "deleted the canary's own queue entry ${QUEUE_ID}, so it does not keep retrying"
-        return 0
+    if ! state="$(queue_state "${QUEUE_ID}")"; then
+        printf '  FAIL could not read the Postfix queue to remove the canary queue entry %s — if it is still there, remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+    [[ -n "${state}" ]] || return 0
+
+    if ! "${POSTSUPER_BIN}" -d "${QUEUE_ID}" >/dev/null 2>&1; then
+        printf '  FAIL could not delete the canary queue entry %s — remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
     fi
 
-    printf '  FAIL could not delete the canary queue entry %s — remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
-    return 1
+    if ! state="$(queue_state "${QUEUE_ID}")"; then
+        printf '  FAIL could not read the Postfix queue to confirm the canary queue entry %s is gone — if it is still there, remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+
+    if [[ -n "${state}" ]]; then
+        printf '  FAIL the canary queue entry %s is still queued after its deletion — remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+
+    DELETED=true
+    log "deleted the canary's own queue entry ${QUEUE_ID}, so it does not keep retrying"
 }
 
 on_exit() {

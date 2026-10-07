@@ -1440,6 +1440,37 @@ it('reports a refusal as a machine-readable failure once the target is known, an
     }
 });
 
+it('never takes an unreadable queue for an empty one: no false pass, and the cleanup says what it could not check', function (string $when, string $failure, string $absent) {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature()]);
+
+    try {
+        touch($host['scratch'].'/state/'.($when === 'from the start' ? 'postqueue-fails' : 'postqueue-fails-after-delete'));
+
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'tits-guru'], script: 'verify-mail-signing');
+
+        expect($status)->toBe(1, $output);
+        expect($output)
+            ->toContain($failure)
+            ->not->toContain($absent)
+            ->toContain('SIGNING E2E: FAIL')
+            ->toContain('could not read the Postfix queue to ');
+
+        $result = mailSigningResult($output);
+        expect($result['status'])->toBe('fail');
+        expect($result['removed'])->toBeFalse();
+
+        if ($when === 'from the start') {
+            expect($result['foreign_from_rejected'])->toBeFalse();
+            expect($result['queue_id'])->toBeNull();
+        }
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+})->with([
+    'from the start' => ['from the start', 'FAIL could not read the Postfix queue (postqueue -j failed), so whether the refused message is in it cannot be told', 'nothing of it is in the queue'],
+    'after the probe was deleted' => ['after the probe was deleted', 'so where', 'stayed held until it was deleted, and is gone'],
+]);
+
 it('fails when the probe is not held, and removes it from wherever it went', function () {
     $host = mailSigningE2eHost(['signature' => mailSigningSignature(), 'queue' => 'deferred']);
 

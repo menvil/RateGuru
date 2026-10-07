@@ -116,11 +116,18 @@ smtp_submit_message() {
 }
 
 # --- The queue: entries by their exact IDs ------------------------------------
+#
+# Every lookup FAILS — returns non-zero and prints nothing — when the queue
+# cannot be read. An unreadable queue is never an empty one: an entry is never
+# taken to be gone, or a refused message to be absent, because postqueue did
+# not answer.
 
 # queue_state ID — the queue the entry ID is in (hold, deferred, active,
 # incoming, maildrop), or nothing once it is gone.
 queue_state() {
-    "${POSTQUEUE_BIN}" -j 2>/dev/null | jq -r --arg id "$1" 'select(.queue_id == $id) | .queue_name' 2>/dev/null | head -n 1 || true
+    local listing
+    listing="$("${POSTQUEUE_BIN}" -j 2>/dev/null)" || return 1
+    jq -rs --arg id "$1" 'map(select(.queue_id == $id) | .queue_name) | first // empty' <<<"${listing}" 2>/dev/null
 }
 
 # queue_ids_for RECIPIENT — the entries addressed to RECIPIENT: a caller's own
@@ -128,8 +135,9 @@ queue_state() {
 # never named its ID.
 queue_ids_for() {
     [[ -n "$1" ]] || return 0
-    "${POSTQUEUE_BIN}" -j 2>/dev/null \
-        | jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' 2>/dev/null || true
+    local listing
+    listing="$("${POSTQUEUE_BIN}" -j 2>/dev/null)" || return 1
+    jq -r --arg rcpt "$1" 'select(any(.recipients[]?; .address == $rcpt)) | .queue_id' <<<"${listing}" 2>/dev/null
 }
 
 # queue_ids_in QUEUE — the IDs of every entry in one queue (hold, deferred, ...),

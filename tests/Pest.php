@@ -2920,7 +2920,9 @@ function mailGatewayStopFakeListener(array $listener): void
 /**
  * postqueue, postcat and postsuper stubs in BIN that see only the fake queue
  * in STUB_STATE/queue ("ID<TAB>QUEUE<TAB>RECIPIENT" per line) and log every
- * call to STUB_LOG/queue.log.
+ * call to STUB_LOG/queue.log. postqueue cannot read the queue — it fails, as
+ * when the mail system is down — while STUB_STATE/postqueue-fails exists, or
+ * STUB_STATE/postqueue-fails-after-delete once postsuper has deleted anything.
  */
 function mailGatewayFakeQueueTools(string $bin): void
 {
@@ -2929,6 +2931,10 @@ function mailGatewayFakeQueueTools(string $bin): void
             #!/bin/bash
             printf 'postqueue %s\n' "$*" >> "${STUB_LOG}/queue.log"
             [[ "$1" == -j ]] || exit 1
+            if [[ -e "${STUB_STATE}/postqueue-fails" ]] || { [[ -e "${STUB_STATE}/postqueue-fails-after-delete" ]] && [[ -e "${STUB_STATE}/deleted" ]]; }; then
+                echo 'postqueue: fatal: Queue report unavailable - mail system is down' >&2
+                exit 69
+            fi
             while IFS=$'\t' read -r id queue rcpt; do
                 [[ -n "${id}" ]] || continue
                 printf '{"queue_name": "%s", "queue_id": "%s", "sender": "", "recipients": [{"address": "%s"}]}\n' "${queue}" "${id}" "${rcpt}"
@@ -2944,6 +2950,7 @@ function mailGatewayFakeQueueTools(string $bin): void
             #!/bin/bash
             printf 'postsuper %s\n' "$*" >> "${STUB_LOG}/queue.log"
             [[ "$1" == -d && -n "${2:-}" ]] || exit 1
+            touch "${STUB_STATE}/deleted"
             awk -F'\t' -v id="$2" -v queue="${3:-}" '!($1 == id && (queue == "" || $2 == queue))' "${STUB_STATE}/queue" > "${STUB_STATE}/queue.next" \
                 && mv "${STUB_STATE}/queue.next" "${STUB_STATE}/queue"
             STUB,
