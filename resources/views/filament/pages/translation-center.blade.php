@@ -8,6 +8,12 @@
      * the target language, so choosing another one draws it afresh.
      */
     $filtered = $target !== null && ($filters['query'] !== '' || $filters['section'] !== '' || $filters['mode'] !== 'all' || $filters['unit'] !== null);
+    // A background generation the page opens with: running, or with suggestions waiting, it replaces Generate missing.
+    $generation = $target !== null ? $client['generation'] : null;
+    $generationBusy = $generation !== null && ($generation['status'] !== 'completed' || $generation['counts']['ready'] > 0);
+    // Dialog titles that count as the page does.
+    $generateTitle = new \Illuminate\Support\HtmlString('<span x-text="\'Generate \' + figure(missing) + (missing === 1 ? \' suggestion?\' : \' suggestions?\')"></span>');
+    $saveAllTitle = new \Illuminate\Support\HtmlString('<span x-text="\'Save \' + figure(saveAllUnits.length) + (saveAllUnits.length === 1 ? \' generated translation?\' : \' generated translations?\')"></span>');
 @endphp
 
 <div class="rg-admin rg-admin-screen">
@@ -79,6 +85,30 @@
                         </dd>
                     </div>
                 </dl>
+
+                {{-- Every missing translation of the language, whatever the filters show; then the suggestions, saved together. --}}
+                <div class="rg-admin-translation-center__actions">
+                    <x-admin.ui.button
+                        icon="sparkles"
+                        :disabled="$stats['missing'] === 0"
+                        :x-cloak="$generationBusy"
+                        x-show="offersGenerate"
+                        x-bind:disabled="missing === 0 || generationBusy"
+                        x-on:click="askToGenerate()"
+                    >
+                        <span x-text="'Generate missing (' + figure(missing) + ')'">Generate missing ({{ number_format($stats['missing']) }})</span>
+                    </x-admin.ui.button>
+                    <x-admin.ui.button
+                        variant="primary"
+                        icon="check-check"
+                        x-cloak
+                        x-show="readyCount > 0"
+                        x-bind:disabled="saveAllUnits.length === 0 || generationBusy"
+                        x-on:click="askToSaveAll()"
+                    >
+                        <span x-text="'Save all generated (' + figure(saveAllUnits.length) + ')'">Save all generated</span>
+                    </x-admin.ui.button>
+                </div>
             </section>
 
             <div class="rg-admin-screen__body">
@@ -110,8 +140,24 @@
                         <span class="rg-admin-toolbar__count" role="status" x-text="resultText">{{ number_format(count($rows)) }} of {{ number_format(count($rows)) }} items</span>
                     </div>
 
-                    {{-- The unsaved drafts, AI suggestions counted apart; sparkles once one of them is AI's. --}}
-                    <div data-strip="edits" x-cloak x-show="dirtyCount > 0 && aiCount === 0">
+                    {{-- Background generation: progress while it runs, then what it produced. Said aloud as it changes. --}}
+                    <div data-strip="generation" x-cloak x-show="generation !== null">
+                        <x-admin.ui.inline-notice tone="info" icon="sparkles" strip>
+                            <span class="rg-admin-translation-center__generation" role="status">
+                                <span class="rg-admin-translation-center__generation-text">
+                                    <span class="rg-admin-translation-row__spinner" aria-hidden="true" x-show="generationRunning"></span>
+                                    <span x-text="generationText"></span>
+                                </span>
+                                <span class="rg-admin-translation-center__generation-hint" x-text="generationHint"></span>
+                            </span>
+                            <x-slot:actions>
+                                <x-admin.ui.button variant="ghost" size="sm" x-show="readyCount > 0" x-bind:disabled="generationBusy" x-on:click="discardAllGenerated()">Discard generated</x-admin.ui.button>
+                            </x-slot:actions>
+                        </x-admin.ui.inline-notice>
+                    </div>
+
+                    {{-- The drafts only this page holds, AI suggestions counted apart; sparkles once one of them is AI's. --}}
+                    <div data-strip="edits" x-cloak x-show="volatileDirtyCount > 0 && aiCount === 0">
                         <x-admin.ui.inline-notice tone="info" strip>
                             <span x-text="unsavedText"></span>
                             <x-slot:actions>
@@ -173,6 +219,41 @@
             </div>
 
             @include('filament.pages.translation-center.context')
+
+            <template x-if="pendingGenerate">
+                <x-admin.ui.confirm-dialog
+                    id="rg-admin-translation-generate"
+                    icon="sparkles"
+                    :title="$generateTitle"
+                    x-on:dismiss="pendingGenerate = false"
+                >
+                    <p>AI translates every missing item into {{ $target['native'] }}, whatever the filters show, using each item’s context, limits and existing translations. It runs in the background: you can leave this page meanwhile.</p>
+                    <x-slot:details>
+                        <x-admin.ui.inline-notice tone="info">Suggestions are not saved. They become project data only when you save them, one by one or with Save all generated.</x-admin.ui.inline-notice>
+                    </x-slot:details>
+                    <x-slot:actions>
+                        <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
+                        <x-admin.ui.button variant="primary" icon="sparkles" x-on:click="hide(); startGeneration()">Generate suggestions</x-admin.ui.button>
+                    </x-slot:actions>
+                </x-admin.ui.confirm-dialog>
+            </template>
+
+            <template x-if="pendingSaveAll">
+                <x-admin.ui.confirm-dialog
+                    id="rg-admin-translation-save-all"
+                    icon="check-check"
+                    :title="$saveAllTitle"
+                    x-on:dismiss="pendingSaveAll = false"
+                >
+                    <p>This publishes these AI suggestions to visitors. Anything whose English source or stored translation changed will be skipped.</p>
+                    <x-slot:actions>
+                        <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
+                        <x-admin.ui.button variant="primary" x-on:click="hide(); saveAll()">
+                            <span x-text="'Save ' + figure(saveAllUnits.length) + (saveAllUnits.length === 1 ? ' translation' : ' translations')">Save translations</span>
+                        </x-admin.ui.button>
+                    </x-slot:actions>
+                </x-admin.ui.confirm-dialog>
+            </template>
 
             <template x-if="pendingTarget">
                 <x-admin.ui.confirm-dialog

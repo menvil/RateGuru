@@ -16,6 +16,7 @@ use App\Support\Translations\ProjectTranslationUnit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Attributes\Url;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -127,7 +128,7 @@ it('sends nothing to the server while typing or filtering: no field is bound to 
         ->and(translationCenter()->html())->not->toContain('wire:model');
 });
 
-it('offers AI translate on a missing row and an alternative on a saved one, and nothing that generates in bulk', function () {
+it('offers AI translate on a missing row and an alternative on a saved one', function () {
     [$target] = twoTranslatedLocales();
     $missing = untranslatedCategory();
     $saved = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Собаки'], 'is_active' => true]);
@@ -138,9 +139,6 @@ it('offers AI translate on a missing row and an alternative on a saved one, and 
     // Each drawn as the row opens, labelled by its state; the browser keeps the label from then on.
     expect($aiButton("categories:{$missing->id}:name", 'AI translate'))->toContain('x-show="offersAi(unit)"')->not->toContain('x-cloak')
         ->and($aiButton("categories:{$saved->id}:name", 'Suggest alternative'))->toContain('x-show="offersAi(unit)"')->not->toContain('x-cloak');
-
-    expect($page->html())->not->toContain('Generate missing')
-        ->not->toContain('Save all generated');
 });
 
 // The target language ---------------------------------------------------------------
@@ -288,7 +286,7 @@ it('draws a row as the reference does: item, English and the target field with i
         ->toContain("<label for=\"rg-admin-tr-14-field\" class=\"rg-admin-sr-only\">{$label} translation of Rabbits &amp; rodents · Name</label>")
         ->toContain('type="text"')
         ->toContain('placeholder="Missing · type a translation or use AI translate"')
-        ->toContain('aria-describedby="rg-admin-tr-14-note rg-admin-tr-14-counter"')
+        ->toContain('aria-describedby="rg-admin-tr-14-note rg-admin-tr-14-counter rg-admin-tr-14-bulk"')
         ->toContain('Visitors see the English text')
         ->toContain('0 / 80')
         ->toContain('Save &amp; next');
@@ -566,6 +564,61 @@ it('builds no AI request while the page loads: nothing is prepared for a row nob
         ->and(json_encode($page->viewData('client')))->not->toContain('Business key')->not->toContain('Кучета');
 });
 
+// Generate missing --------------------------------------------------------------------
+
+it('starts background generation from the language alone, answering without a provider call or a re-render', function () {
+    Queue::fake();
+    [$target] = twoTranslatedLocales();
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $category = untranslatedCategory();
+    $page = translationCenter($target);
+
+    $page->call('startGeneration', $target, ['categories:999999:name'])
+        ->assertReturned(fn (array $result): bool => $result['started'] === true
+            && in_array("categories:{$category->id}:name", array_column($result['generation']['items'], 'unit'), true)
+            && ! in_array('categories:999999:name', array_column($result['generation']['items'], 'unit'), true)
+            && $result['generation']['status'] === 'queued');
+
+    expect($provider->received)->toBe([])
+        ->and(translationRow($page, "categories:{$category->id}:name"))->toContain('value=""');
+});
+
+it('answers a status read with the counts alone while nothing has changed', function () {
+    Queue::fake();
+    [$target] = twoTranslatedLocales();
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    untranslatedCategory();
+    $page = translationCenter($target);
+    $started = $page->call('startGeneration', $target)->effects['returns'][0]['generation'];
+
+    $unchanged = $page->call('generationStatus', $target, $started['version'])->effects['returns'][0]['generation'];
+    $full = $page->call('generationStatus', $target, null)->effects['returns'][0]['generation'];
+
+    expect($unchanged)->toMatchArray(['batch' => $started['batch'], 'unchanged' => true, 'version' => $started['version']])
+        ->and($unchanged)->not->toHaveKey('items')
+        ->and($full)->toHaveKey('items');
+});
+
+it('restores nothing, and keeps working, when there is no generation or the draft store cannot be reached', function () {
+    [$target] = twoTranslatedLocales();
+
+    expect(translationCenter($target)->viewData('client')['generation'])->toBeNull();
+
+    config(['translation.bulk.cache_store' => 'unreachable', 'cache.stores.unreachable' => ['driver' => 'redis', 'connection' => 'nowhere']]);
+    $page = translationCenter($target);
+
+    expect($page->viewData('client')['generation'])->toBeNull()
+        ->and($page->call('generationStatus', $target)->effects['returns'][0])->toMatchArray(['read' => false])
+        ->and($page->call('startGeneration', $target)->effects['returns'][0])->toBe(['started' => false, 'error' => 'Background generation is unavailable right now. You can still translate items one at a time.']);
+
+    // Manual and interactive translation are untouched by it.
+    $category = untranslatedCategory();
+    useScriptedTranslationProvider(answeringTranslationProvider(['Грузинская кухня']));
+
+    $page->call('save', "categories:{$category->id}:name", $target, 'Вручную')->assertReturned(['saved' => true, 'value' => 'Вручную']);
+    $page->call('suggest', untranslatedCategoryId('Second'), $target)->assertReturned(fn (array $result): bool => $result['generated'] === true);
+});
+
 // What AI translate sends -------------------------------------------------------------
 
 it('shows in the context drawer exactly what AI translate sends, from the same request', function () {
@@ -692,3 +745,9 @@ it('reads the content with a fixed number of queries, however much there is', fu
 
     expect($queries())->toBe($few);
 });
+
+/** A second untranslated category's unit id. */
+function untranslatedCategoryId(string $name): string
+{
+    return 'categories:'.untranslatedCategory($name)->id.':name';
+}

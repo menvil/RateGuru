@@ -3339,6 +3339,37 @@
         min-width: 160px;
     }
 
+    /* Generate missing and Save all generated: in the header band, wrapping under the figures when narrow. */
+    .rg-admin-translation-center__actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        margin-left: auto;
+    }
+
+    /* Background generation's notice: what it is doing, then what that means for the page. */
+    .rg-admin-translation-center__generation {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-center__generation-text {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-translation-center__generation-hint {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
     .rg-admin-translation-center__completion-figure {
         display: flex;
         align-items: center;
@@ -3552,6 +3583,22 @@
 
     .rg-admin-translation-row__counter {
         margin-left: 0;
+    }
+
+    /* Why a background suggestion is missing or not shown: information about the row, never a field error. */
+    .rg-admin-translation-row__bulk-issue {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-row__bulk-issue .rg-admin-icon {
+        flex: none;
+        margin-top: 2px;
     }
 
     /* An AI suggestion nobody has saved: the target cell takes the info tint under its info field. */

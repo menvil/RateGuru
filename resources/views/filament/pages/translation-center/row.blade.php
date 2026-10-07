@@ -22,7 +22,7 @@
     $dom = $row['dom'];
     $state = $row['stored'] === '' ? 'missing' : 'saved';
     $length = mb_strlen($row['stored']);
-    $describedBy = "{$dom}-note {$dom}-counter";
+    $describedBy = "{$dom}-note {$dom}-counter {$dom}-bulk";
     $placeholder = 'Missing · type a translation or use AI translate';
     $fieldLabel = "{$target['label']} translation of {$row['name']}";
     $rowsTall = $row['multiline'] ? min(8, max(3, substr_count($row['stored'], "\n") + 1 + intdiv(mb_strlen($row['stored']), 70))) : 1;
@@ -81,7 +81,7 @@
         class="rg-admin-translation-row__cell rg-admin-translation-row__target"
         role="cell"
         aria-busy="false"
-        x-bind:aria-busy="units[unit].generating ? 'true' : 'false'"
+        x-bind:aria-busy="waiting(unit) ? 'true' : 'false'"
         x-bind:class="{ 'rg-admin-translation-row__target--generated': state(unit) === 'ai' }"
     >
         <span class="rg-admin-translation-row__cell-label">{{ $target['native'] }} · {{ $target['code'] }}</span>
@@ -97,7 +97,7 @@
                 aria-describedby="{{ $describedBy }}"
                 x-model="units[unit].value"
                 x-on:input="edited(unit)"
-                x-bind:readonly="units[unit].saving || units[unit].generating"
+                x-bind:readonly="units[unit].saving || waiting(unit)"
                 x-bind:class="{ 'rg-admin-textarea--changed': state(unit) === 'edited', 'rg-admin-textarea--info': state(unit) === 'ai', 'rg-admin-textarea--invalid': error(unit) !== null }"
                 x-bind:aria-invalid="error(unit) !== null ? 'true' : false"
                 x-bind:aria-describedby="error(unit) !== null ? '{{ $describedBy }} {{ $dom }}-error' : '{{ $describedBy }}'"
@@ -118,7 +118,7 @@
                     aria-describedby="{{ $describedBy }}"
                     x-model="units[unit].value"
                     x-on:input="edited(unit)"
-                    x-bind:readonly="units[unit].saving || units[unit].generating"
+                    x-bind:readonly="units[unit].saving || waiting(unit)"
                     x-bind:aria-invalid="error(unit) !== null ? 'true' : false"
                     x-bind:aria-describedby="error(unit) !== null ? '{{ $describedBy }} {{ $dom }}-error' : '{{ $describedBy }}'"
                 />
@@ -128,6 +128,12 @@
         <p id="{{ $dom }}-error" class="rg-admin-error rg-admin-translation-row__error" x-cloak x-show="error(unit) !== null">
             <x-admin.ui.icon name="circle-alert" :size="12" />
             <span x-text="error(unit)"></span>
+        </p>
+
+        {{-- Why background generation has no suggestion here, or one too old to show: information, never a field error. --}}
+        <p id="{{ $dom }}-bulk" class="rg-admin-translation-row__bulk-issue" x-cloak x-show="units[unit].bulkIssue !== null">
+            <x-admin.ui.icon name="info" :size="12" />
+            <span x-text="units[unit].bulkIssue"></span>
         </p>
 
         {{-- Under the field, as the length is under the English text: the count, the state and its note, the actions. --}}
@@ -142,15 +148,15 @@
                 <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'missing'" x-show="state(unit) === 'missing'">Missing</x-admin.ui.badge>
                 <x-admin.ui.badge tone="info" dot x-cloak x-show="state(unit) === 'ai'">AI suggestion · not saved</x-admin.ui.badge>
                 <x-admin.ui.badge tone="outline" x-cloak x-show="state(unit) === 'edited'">Edited · not saved</x-admin.ui.badge>
-                <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-show="! units[unit].generating" x-text="note(unit)">{{ $state === 'saved' ? 'Stored translation' : 'Visitors see the English text' }}</span>
-                {{-- Said aloud by the page's own status region; drawn here for whoever is looking at the row. --}}
-                <span class="rg-admin-translation-row__generating" x-cloak x-show="units[unit].generating">
+                <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-show="! waiting(unit)" x-text="note(unit)">{{ $state === 'saved' ? 'Stored translation' : 'Visitors see the English text' }}</span>
+                {{-- Said aloud by the page's own status regions; drawn here for whoever is looking at the row. --}}
+                <span class="rg-admin-translation-row__generating" x-cloak x-show="waiting(unit)">
                     <span class="rg-admin-translation-row__spinner" aria-hidden="true"></span>
-                    Generating a suggestion from context…
+                    <span x-text="units[unit].generating ? 'Generating a suggestion from context…' : 'Generating in background…'">Generating a suggestion from context…</span>
                 </span>
             </span>
             <div class="rg-admin-translation-row__actions">
-                <x-admin.ui.button variant="ghost" size="sm" x-cloak x-show="isDirty(unit)" x-bind:disabled="units[unit].generating" x-on:click="discard(unit)">
+                <x-admin.ui.button variant="ghost" size="sm" x-cloak x-show="isDirty(unit)" x-bind:disabled="waiting(unit) || units[unit].saving" x-on:click="discard(unit)">
                     Discard<span class="rg-admin-sr-only"> the {{ $target['label'] }} draft of {{ $row['name'] }}</span>
                 </x-admin.ui.button>
                 {{--
@@ -161,7 +167,7 @@
                     size="sm"
                     icon="sparkles"
                     x-show="offersAi(unit)"
-                    x-bind:aria-disabled="units[unit].generating || units[unit].saving ? 'true' : 'false'"
+                    x-bind:aria-disabled="waiting(unit) || units[unit].saving ? 'true' : 'false'"
                     x-on:click="suggest(unit)"
                 >
                     <span x-text="aiLabel(unit)">{{ $state === 'saved' ? 'Suggest alternative' : 'AI translate' }}</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>
