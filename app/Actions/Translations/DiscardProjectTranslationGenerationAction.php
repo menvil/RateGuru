@@ -15,8 +15,15 @@ use Carbon\CarbonImmutable;
  * store, so a reload does not bring them back. Project translations are never
  * touched: a suggestion is not one, and one already saved stays saved.
  *
+ * Only null asks for every ready one. Anything else must name one ready
+ * suggestion of the batch: a unit that is not one — not text, unknown, or
+ * saved, failed, skipped or discarded already — is refused and nothing
+ * changes, so a malformed request can never discard the whole batch.
+ *
  * Discarding every ready one of a finished batch also lets it go: the
  * language then offers Generate missing again.
+ *
+ * @phpstan-import-type Batch from ProjectTranslationGenerationStore
  */
 final class DiscardProjectTranslationGenerationAction
 {
@@ -36,6 +43,10 @@ final class DiscardProjectTranslationGenerationAction
         $locale = $this->targetLocale($locale);
         $batch = $this->ownedBatch($this->store, $actor, $locale, $batchId);
 
+        if ($unitId !== null && (! is_string($unitId) || self::statusOf($batch, $unitId) !== ProjectTranslationGenerationItemStatus::Ready->value)) {
+            throw CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
+        }
+
         $outcomes = [];
 
         foreach (ProjectTranslationGenerationStore::items($batch) as $item) {
@@ -50,6 +61,11 @@ final class DiscardProjectTranslationGenerationAction
             return null;
         }
 
+        // Saved or discarded by another request in between: not this one's to discard.
+        if ($unitId !== null && self::statusOf($batch, $unitId) !== ProjectTranslationGenerationItemStatus::Discarded->value) {
+            throw CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
+        }
+
         if ($unitId === null && $batch['meta']['status'] === ProjectTranslationGenerationStatus::Completed->value) {
             $this->store->forgetActive((int) $actor->getKey(), $locale, $batch['meta']['id']);
 
@@ -57,6 +73,22 @@ final class DiscardProjectTranslationGenerationAction
         }
 
         return ProjectTranslationGenerationStore::summary($batch);
+    }
+
+    /**
+     * What became of one item of the batch, or null for a unit it does not have.
+     *
+     * @param  Batch  $batch
+     */
+    private static function statusOf(array $batch, string $unitId): ?string
+    {
+        foreach (ProjectTranslationGenerationStore::items($batch) as $item) {
+            if ($item['id'] === $unitId) {
+                return $item['status'];
+            }
+        }
+
+        return null;
     }
 
     /**

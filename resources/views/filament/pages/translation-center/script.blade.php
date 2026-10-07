@@ -818,6 +818,14 @@
                     result = null
                 }
 
+                // One suggestion the server no longer holds as ready — saved, discarded or expired
+                // meanwhile — cannot come back with a reload either: the row lets it go all the same.
+                if (! result?.discarded && unit !== null && ['not_ready', 'unavailable'].includes(result?.reason)) {
+                    this.units[unit] && this.reset(unit)
+
+                    return true
+                }
+
                 if (! result?.discarded) {
                     this.toast(result?.error ?? 'Not discarded: the server did not answer. Try again.', 'error')
 

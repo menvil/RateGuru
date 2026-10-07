@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Translations\DiscardProjectTranslationGenerationAction;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\Tag;
@@ -1507,6 +1508,27 @@ it('discards one suggestion on the server, and saves one from the server\'s copy
 
     expect(translationAiState($again, $dogs))->toMatchArray(['state' => ['Missing'], 'value' => ''])
         ->and(translationAiState($again, $cats))->toMatchArray(['state' => ['Saved'], 'value' => "[{$this->target}] Cats"]);
+});
+
+it('lets a row go when its suggestion was already let go elsewhere, and discards nothing else', function () {
+    Queue::fake();
+    [$dogs, $cats] = [($this->unit)($this->dogs), ($this->unit)($this->cats)];
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+    generateMissingInPage($page);
+    runTranslationGenerationJobs();
+    eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
+    $generation = translationGenerationOf(auth()->user(), $this->target);
+
+    // Another tab discarded it: this one still shows it.
+    app(DiscardProjectTranslationGenerationAction::class)->handle(auth()->user(), $this->target, $generation['batch'], $dogs);
+
+    clickRowButton($page, $dogs, 'Discard');
+    eventually(fn () => expect(translationAiState($page, $dogs))->toMatchArray(['state' => ['Missing'], 'value' => '']));
+
+    expect(translationScreen($page)['toasts'])->toBe([])
+        ->and(translationAiState($page, $cats)['state'])->toBe(['AI suggestion · not saved'])
+        ->and(translationGenerationItem(translationGenerationOf(auth()->user(), $this->target), $cats)['status'])->toBe('ready');
 });
 
 it('asks before saving all generated, saves nothing on Cancel and everything on confirm', function () {

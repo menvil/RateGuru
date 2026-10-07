@@ -155,7 +155,10 @@ Translation engine  ≠  translation storage  ≠  draft storage
   row it has just locked holds it, to the caller's guard before anything is written, and the guard checks the
   source fingerprint and that the language is still missing. An early read of every unit only spares writes bound to
   be refused. The ordinary `handle()` has no guard and still replaces a stored translation, as a manual save must.
-  `DiscardProjectTranslationGenerationAction` lets suggestions go on the server.
+- **Discard names one ready suggestion, or all.** `DiscardProjectTranslationGenerationAction` lets suggestions go
+  on the server: a unit of `null`, and nothing else, means every ready one. Any other unit must name one ready
+  suggestion of the batch; one that is not text, unknown, or saved, failed, skipped or discarded already is refused
+  and nothing changes.
 - **Nothing sensitive in logs.** A failed chunk logs `translation.generation_chunk_failed` with the batch and chunk
   ids and an error code — never a source text, a translation, a prompt or a provider request.
 

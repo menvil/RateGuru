@@ -153,7 +153,7 @@ final class TranslationCenterPage extends Page
      * sends — never which units; the action reads them from the catalog,
      * plans, stores and queues, and returns without waiting for a provider.
      *
-     * @return array{started: true, generation: array<string, mixed>}|array{started: false, error: string}
+     * @return array{started: true, generation: array<string, mixed>}|array{started: false, error: string, reason: string}
      */
     #[Renderless]
     public function startGeneration(mixed $locale = null): array
@@ -169,7 +169,7 @@ final class TranslationCenterPage extends Page
      * suggestions and follow its progress — or null. An unchanged version
      * answers with the counts alone, so polling a long batch stays light.
      *
-     * @return array{read: true, generation: array<string, mixed>|null}|array{read: false, error: string}
+     * @return array{read: true, generation: array<string, mixed>|null}|array{read: false, error: string, reason: string}
      */
     #[Renderless]
     public function generationStatus(mixed $locale = null, mixed $version = null): array
@@ -196,7 +196,9 @@ final class TranslationCenterPage extends Page
     public function saveGenerated(mixed $locale = null, mixed $batch = null, mixed $unit = null): array
     {
         if (! is_string($unit)) {
-            return ['saved' => false, 'error' => CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady()->getMessage()];
+            $refusal = CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
+
+            return ['saved' => false, 'error' => $refusal->getMessage(), 'reason' => $refusal->reason];
         }
 
         return $this->generation(fn (User $user): array => [
@@ -221,24 +223,26 @@ final class TranslationCenterPage extends Page
     }
 
     /**
-     * Discards one background suggestion, or with no unit every ready one, on
-     * the server, so a reload does not bring it back.
+     * Discards one background suggestion on the server, so a reload does not
+     * bring it back — or, for a unit of null and nothing else, every ready
+     * one. A unit that names no ready suggestion is refused as it is, never
+     * read as every one.
      *
-     * @return array{discarded: true, generation: array<string, mixed>|null}|array{discarded: false, error: string}
+     * @return array{discarded: true, generation: array<string, mixed>|null}|array{discarded: false, error: string, reason: string}
      */
     #[Renderless]
     public function discardGenerated(mixed $locale = null, mixed $batch = null, mixed $unit = null): array
     {
         return $this->generation(fn (User $user): array => [
             'discarded' => true,
-            'generation' => app(DiscardProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, is_string($unit) ? $unit : null),
+            'generation' => app(DiscardProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, $unit),
         ], 'discarded');
     }
 
     /**
      * Runs a background generation operation as the signed-in administrator,
      * answering a refusal — or a store that cannot be reached — with a safe
-     * message under $flag => false, never an error page.
+     * message and its reason under $flag => false, never an error page.
      *
      * @param  Closure(User): array<string, mixed>  $operation
      * @return array<string, mixed>
@@ -254,7 +258,7 @@ final class TranslationCenterPage extends Page
 
             return $operation($user);
         } catch (CannotGenerateTranslationsException $exception) {
-            return [$flag => false, 'error' => $exception->getMessage()];
+            return [$flag => false, 'error' => $exception->getMessage(), 'reason' => $exception->reason];
         }
     }
 

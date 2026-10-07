@@ -609,7 +609,7 @@ it('restores nothing, and keeps working, when there is no generation or the draf
 
     expect($page->viewData('client')['generation'])->toBeNull()
         ->and($page->call('generationStatus', $target)->effects['returns'][0])->toMatchArray(['read' => false])
-        ->and($page->call('startGeneration', $target)->effects['returns'][0])->toBe(['started' => false, 'error' => 'Background generation is unavailable right now. You can still translate items one at a time.']);
+        ->and($page->call('startGeneration', $target)->effects['returns'][0])->toBe(['started' => false, 'error' => 'Background generation is unavailable right now. You can still translate items one at a time.', 'reason' => 'store_unavailable']);
 
     // Manual and interactive translation are untouched by it.
     $category = untranslatedCategory();
