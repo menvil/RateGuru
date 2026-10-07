@@ -83,6 +83,7 @@ it('records Generate missing as a second consumer that keeps its drafts and queu
         ->toContain('reading never extends it')
         ->toContain('`worker_interrupted`')
         ->toContain('never from the browser')
+        ->toContain('That is decided on the unit\'s locked row: `UpdateProjectTranslationAction::handleGuarded()`')
         ->toContain('never a source text, a translation, a prompt or a provider request')
         ->toContain('so no test needs a Redis server either');
 });

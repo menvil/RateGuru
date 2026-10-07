@@ -10,6 +10,7 @@ use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -34,6 +35,11 @@ use Illuminate\Support\Facades\Gate;
  * since been cleared, so a stale translation can always be taken away. A text that breaks the field's limits —
  * its maximum length, a single line, every placeholder of the English text —
  * is refused and nothing is written.
+ *
+ * A save replaces whatever the language stored. A caller that chose its text
+ * from an earlier read — a background AI suggestion, made for a translation
+ * that was missing, from English as it was then — saves with handleGuarded()
+ * instead, which checks that read again on the locked row.
  */
 final class UpdateProjectTranslationAction
 {
@@ -49,6 +55,36 @@ final class UpdateProjectTranslationAction
      * @throws CannotSaveTranslationException
      */
     public function handle(User $actor, mixed $unitId, mixed $locale, mixed $text): ProjectTranslationUnit
+    {
+        return $this->save($actor, $unitId, $locale, $text, null);
+    }
+
+    /**
+     * The same save, made only while the unit is still what the caller
+     * decided on. $guard sees the unit as the locked row holds it — after the
+     * lock is taken, before anything is written — and throws to refuse; its
+     * exception reaches the caller unchanged and nothing is written. Whatever
+     * the caller checked on an earlier read is checked again here, where
+     * nothing can change in between. The field's limits are checked after
+     * it, as for any save.
+     *
+     * @param  Closure(ProjectTranslationUnit): void  $guard
+     *
+     * @param-immediately-invoked-callable $guard
+     *
+     * @return ProjectTranslationUnit the unit as stored now
+     *
+     * @throws CannotSaveTranslationException
+     */
+    public function handleGuarded(User $actor, mixed $unitId, mixed $locale, mixed $text, Closure $guard): ProjectTranslationUnit
+    {
+        return $this->save($actor, $unitId, $locale, $text, $guard);
+    }
+
+    /**
+     * @param  (Closure(ProjectTranslationUnit): void)|null  $guard
+     */
+    private function save(User $actor, mixed $unitId, mixed $locale, mixed $text, ?Closure $guard): ProjectTranslationUnit
     {
         if (! Gate::forUser($actor)->allows('manage-project-settings')) {
             throw CannotSaveTranslationException::becauseUserIsNotAllowed();
@@ -72,7 +108,13 @@ final class UpdateProjectTranslationAction
             $unitId,
             $locale,
             $text,
-            fn (ProjectTranslationUnit $unit) => $this->check($unit, $text),
+            function (ProjectTranslationUnit $unit) use ($guard, $text): void {
+                if ($guard !== null) {
+                    $guard($unit);
+                }
+
+                $this->check($unit, $text);
+            },
         ));
 
         if ($unit === null) {

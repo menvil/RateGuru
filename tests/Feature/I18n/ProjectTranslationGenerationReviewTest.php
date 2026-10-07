@@ -13,7 +13,10 @@ use App\Support\TranslationEngine\Data\TranslationProviderCall;
 use App\Support\TranslationEngine\Data\TranslationProviderLimits;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
+use App\Support\Translations\Generation\ProjectTranslationGenerationIssue;
 use App\Support\Translations\ProjectTranslationCatalog;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
@@ -31,6 +34,31 @@ function saveGeneration(User $admin, string $locale, string $batch, ?string $uni
 function discardGeneration(User $admin, string $locale, string $batch, ?string $unit = null): ?array
 {
     return app(DiscardProjectTranslationGenerationAction::class)->handle($admin, $locale, $batch, $unit);
+}
+
+/**
+ * Runs $meanwhile once, the moment the save's early read of the categories has fetched its rows — after
+ * that read, before the writer locks a row: a change landing in exactly the gap only the locked check
+ * can close. Returns whether it ran.
+ *
+ * @return Closure(): bool
+ */
+function inTheGapAfterTheEarlyRead(Closure $meanwhile): Closure
+{
+    $ran = false;
+
+    DB::listen(function (QueryExecuted $query) use (&$ran, $meanwhile): void {
+        $sql = strtolower($query->sql);
+
+        if (! $ran && preg_match('/from [`"]?categories[`"]? .* in \(/', $sql) === 1 && ! str_contains($sql, 'for update')) {
+            $ran = true;
+            $meanwhile();
+        }
+    });
+
+    return function () use (&$ran): bool {
+        return $ran;
+    };
 }
 
 function reviewRefusal(Closure $operation): ?string
@@ -155,6 +183,42 @@ it('never saves a suggestion made from English that changed afterwards', functio
     expect($result['results'][0]['outcome'])->toBe('source_changed')
         ->and($this->categories['A']->fresh()->name_translations)->toBeNull();
 });
+
+// The early read guarantees nothing: the locked row decides ---------------------------
+
+it('never writes over a translation saved between its early read and the write', function (string $which) {
+    $unit = ($this->unit)('A');
+    $other = User::factory()->admin()->create();
+    $ran = inTheGapAfterTheEarlyRead(fn () => app(UpdateProjectTranslationAction::class)->handle($other, $unit, $this->target, 'Von jemand anderem'));
+
+    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null);
+
+    expect($ran())->toBeTrue()
+        ->and(collect($result['results'])->firstWhere('unit', $unit))->toBe([
+            'unit' => $unit, 'outcome' => 'already_translated', 'value' => 'Von jemand anderem', 'message' => ProjectTranslationGenerationIssue::AlreadyTranslated->message(),
+        ])
+        ->and($this->categories['A']->fresh()->name_translations)->toBe([$this->target => 'Von jemand anderem'])
+        ->and(translationGenerationItem($result['generation'], $unit))->toMatchArray(['status' => 'skipped', 'issue' => 'already_translated'])
+        // Save all goes on with the rest, each on its own.
+        ->and($result['saved'])->toBe($which === 'one' ? 0 : 3)
+        ->and($this->categories['B']->fresh()->name_translations)->toBe($which === 'one' ? null : [$this->target => 'KI Bananas']);
+})->with(['Save' => 'one', 'Save all generated' => 'all']);
+
+it('never saves a suggestion whose English changed between its early read and the write', function (string $which) {
+    $unit = ($this->unit)('A');
+    $ran = inTheGapAfterTheEarlyRead(fn () => Category::query()->whereKey($this->categories['A']->id)->update(['name' => 'Apple lovers']));
+
+    $result = saveGeneration($this->admin, $this->target, $this->batch, $which === 'one' ? $unit : null);
+
+    // New English that is not blank must not let a suggestion for the old one through.
+    expect($ran())->toBeTrue()
+        ->and(collect($result['results'])->firstWhere('unit', $unit))->toBe([
+            'unit' => $unit, 'outcome' => 'source_changed', 'value' => '', 'message' => ProjectTranslationGenerationIssue::SourceChanged->message(),
+        ])
+        ->and($this->categories['A']->fresh()->only(['name', 'name_translations']))->toBe(['name' => 'Apple lovers', 'name_translations' => null])
+        ->and(translationGenerationItem($result['generation'], $unit))->toMatchArray(['status' => 'skipped', 'issue' => 'source_changed'])
+        ->and($result['saved'])->toBe($which === 'one' ? 0 : 3);
+})->with(['Save' => 'one', 'Save all generated' => 'all']);
 
 it('writes nothing for a suggestion whose unit is gone, and refuses one that is not ready', function () {
     $this->categories['A']->delete();

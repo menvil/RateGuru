@@ -5,12 +5,14 @@ namespace App\Actions\Translations;
 use App\Actions\Translations\Concerns\ResolvesProjectTranslationGeneration;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Exceptions\Translations\CannotSaveTranslationException;
+use App\Exceptions\Translations\GeneratedSuggestionOutdatedException;
 use App\Models\User;
 use App\Support\Translations\Generation\ProjectTranslationGenerationIssue;
 use App\Support\Translations\Generation\ProjectTranslationGenerationItemStatus;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
 use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectTranslationCatalog;
+use App\Support\Translations\ProjectTranslationUnit;
 use Carbon\CarbonImmutable;
 
 /**
@@ -18,12 +20,16 @@ use Carbon\CarbonImmutable;
  * untouched generated draft and Save all generated do.
  *
  * The text saved is the suggestion as the store holds it, never anything the
- * browser sends. Each one is checked against the catalog as it is now first:
- * still listed, still the English it was generated from, still missing — a
- * suggestion for English that changed is skipped, and so is one for a
- * translation someone else saved meanwhile, which is never overwritten.
- * Then it is written by UpdateProjectTranslationAction, the one writer of
- * project translations, with its locks and limits.
+ * browser sends. A suggestion is saved only while its unit is still listed,
+ * still has the English it was generated from (by source fingerprint) and is
+ * still missing: one for English that changed is skipped, and so is one for
+ * a translation someone else saved meanwhile, which is never overwritten.
+ *
+ * That is decided on the unit's locked row, by the guard of
+ * UpdateProjectTranslationAction::handleGuarded() — the one writer of project
+ * translations, with its locks and limits — so nothing saved or changed in
+ * between can slip past it. The same check on one early read of every unit
+ * only spares writes that are bound to be refused; it guarantees nothing.
  *
  * Each suggestion stands alone: there is no transaction around them, so the
  * ones saved stay saved whatever happens to the others.
@@ -62,32 +68,45 @@ final class SaveProjectTranslationGenerationAction
             throw CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
         }
 
+        // The early read: what is bound to be refused is not even tried.
         $units = $this->catalog->findMany(array_map(fn (array $item): string => $item['id'], $ready));
         $outcomes = [];
         $results = [];
 
+        $skip = function (string $unit, ProjectTranslationGenerationIssue $issue, ?string $stored, ?string $message = null) use (&$outcomes, &$results): void {
+            $message ??= $issue->message();
+            $outcomes[$unit] = ['status' => ProjectTranslationGenerationItemStatus::Skipped, 'issue' => $issue->value, 'message' => $message];
+            $results[] = ['unit' => $unit, 'outcome' => $issue->value, 'value' => $stored ?? '', 'message' => $message];
+        };
+
         foreach ($ready as $item) {
             $unit = $units[$item['id']] ?? null;
-            $issue = match (true) {
-                $unit === null => ProjectTranslationGenerationIssue::UnitUnavailable,
-                ! $unit->requiresTranslation() => ProjectTranslationGenerationIssue::NothingToTranslate,
-                ProjectTranslationSourceFingerprint::of($unit) !== $item['fingerprint'] => ProjectTranslationGenerationIssue::SourceChanged,
-                $unit->translation($locale) !== null => ProjectTranslationGenerationIssue::AlreadyTranslated,
-                default => null,
-            };
+            $issue = self::issueOf($unit, $item['fingerprint'], $locale);
 
             if ($issue !== null) {
-                $outcomes[$item['id']] = ['status' => ProjectTranslationGenerationItemStatus::Skipped, 'issue' => $issue->value, 'message' => $issue->message()];
-                $results[] = ['unit' => $item['id'], 'outcome' => $issue->value, 'value' => $unit?->translation($locale) ?? '', 'message' => $issue->message()];
+                $skip($item['id'], $issue, $unit?->translation($locale));
 
                 continue;
             }
 
             try {
-                $saved = $this->translations->handle($actor, $item['id'], $locale, (string) $item['text']);
+                $saved = $this->translations->handleGuarded($actor, $item['id'], $locale, (string) $item['text'], function (ProjectTranslationUnit $locked) use ($item, $locale): void {
+                    $issue = self::issueOf($locked, $item['fingerprint'], $locale);
+
+                    if ($issue !== null) {
+                        throw new GeneratedSuggestionOutdatedException($issue, $locked->translation($locale));
+                    }
+                });
+            } catch (GeneratedSuggestionOutdatedException $exception) {
+                $skip($item['id'], $exception->issue, $exception->stored);
+
+                continue;
             } catch (CannotSaveTranslationException $exception) {
-                $outcomes[$item['id']] = ['status' => ProjectTranslationGenerationItemStatus::Skipped, 'issue' => ProjectTranslationGenerationIssue::SaveRefused->value, 'message' => $exception->getMessage()];
-                $results[] = ['unit' => $item['id'], 'outcome' => ProjectTranslationGenerationIssue::SaveRefused->value, 'value' => '', 'message' => $exception->getMessage()];
+                if ($exception->reason === CannotSaveTranslationException::REASON_UNKNOWN_UNIT) {
+                    $skip($item['id'], ProjectTranslationGenerationIssue::UnitUnavailable, null);
+                } else {
+                    $skip($item['id'], ProjectTranslationGenerationIssue::SaveRefused, null, $exception->getMessage());
+                }
 
                 continue;
             }
@@ -105,5 +124,21 @@ final class SaveProjectTranslationGenerationAction
             'skipped' => count($results) - $saved,
             'generation' => $batch !== null ? ProjectTranslationGenerationStore::summary($batch) : null,
         ];
+    }
+
+    /**
+     * Why a suggestion made from the English with this fingerprint may not be
+     * saved into the unit as it is, or null when it may: the unit is gone,
+     * has no English, has other English now, or has a translation already.
+     */
+    private static function issueOf(?ProjectTranslationUnit $unit, string $fingerprint, string $locale): ?ProjectTranslationGenerationIssue
+    {
+        return match (true) {
+            $unit === null => ProjectTranslationGenerationIssue::UnitUnavailable,
+            ! $unit->requiresTranslation() => ProjectTranslationGenerationIssue::NothingToTranslate,
+            ProjectTranslationSourceFingerprint::of($unit) !== $fingerprint => ProjectTranslationGenerationIssue::SourceChanged,
+            $unit->translation($locale) !== null => ProjectTranslationGenerationIssue::AlreadyTranslated,
+            default => null,
+        };
     }
 }

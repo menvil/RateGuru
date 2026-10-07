@@ -151,6 +151,10 @@ Translation engine  ≠  translation storage  ≠  draft storage
   (Save all generated), with the text read from the store — never from the browser — each through
   `UpdateProjectTranslationAction` on its own, with no transaction around them. A suggestion whose English changed
   since it was generated, or for a translation someone saved meanwhile, is skipped and never overwrites anything.
+  That is decided on the unit's locked row: `UpdateProjectTranslationAction::handleGuarded()` hands the unit, as the
+  row it has just locked holds it, to the caller's guard before anything is written, and the guard checks the
+  source fingerprint and that the language is still missing. An early read of every unit only spares writes bound to
+  be refused. The ordinary `handle()` has no guard and still replaces a stored translation, as a manual save must.
   `DiscardProjectTranslationGenerationAction` lets suggestions go on the server.
 - **Nothing sensitive in logs.** A failed chunk logs `translation.generation_chunk_failed` with the batch and chunk
   ids and an error code — never a source text, a translation, a prompt or a provider request.
