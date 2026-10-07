@@ -151,7 +151,7 @@
                                 <span class="rg-admin-translation-center__generation-hint" x-text="generationHint"></span>
                             </span>
                             <x-slot:actions>
-                                <x-admin.ui.button variant="ghost" size="sm" x-show="readyCount > 0" x-bind:disabled="generationBusy" x-on:click="discardAllGenerated()">Discard generated</x-admin.ui.button>
+                                <x-admin.ui.button variant="secondary" size="sm" x-show="readyCount > 0" x-bind:disabled="generationBusy" x-on:click="discardAllGenerated()">Discard generated</x-admin.ui.button>
                             </x-slot:actions>
                         </x-admin.ui.inline-notice>
                     </div>

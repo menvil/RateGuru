@@ -271,6 +271,37 @@ it('lines the target field up with the English text, with its count, state and a
     JS, $birds)))->toBe(['level' => true, 'under' => true, 'countFirst' => true, 'actionsAfter' => true, 'state' => 'Saved Stored translation']);
 });
 
+it('keeps a short note beside its badge, and wraps a long one under the badge, never under the count or the actions', function (int $width, bool $oneLine) {
+    [$dogs, $birds] = [($this->unit)($this->dogs), ($this->unit)($this->birds)];
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $page = visitTranslationCenter('/admin/translation-center', $width, 900);
+    suggestTranslationIn($page, $dogs, "[{$this->target}] Dogs");
+    $layout = <<<'JS'
+        (() => {
+            const row = document.querySelector('[data-unit="%s"]')
+            const counter = row.querySelector('.rg-admin-translation-row__counter').getBoundingClientRect()
+            const badge = [...row.querySelectorAll('.rg-admin-translation-row__state .rg-admin-badge')].find((badge) => getComputedStyle(badge).display !== 'none').getBoundingClientRect()
+            const note = row.querySelector('.rg-admin-translation-row__note').getBoundingClientRect()
+            const actions = [...row.querySelectorAll('.rg-admin-translation-row__actions button')].filter((button) => getComputedStyle(button).display !== 'none').map((button) => button.getBoundingClientRect())
+
+            return {
+                beside: note.left > badge.right && note.top < badge.bottom,
+                underBadge: note.top >= badge.bottom && Math.abs(note.left - badge.left) < 1 && note.left > counter.right,
+                actionsOnBadgeLine: actions.every((button) => button.top < badge.bottom && button.bottom > badge.top),
+            }
+        })()
+    JS;
+
+    // “Stored translation” fits beside Saved; “Generated 09:41 · AI suggestions are drafts until saved.” does not,
+    // and on a wide screen it goes under the badge while the actions keep their place on the badge's line.
+    expect($page->script(sprintf($layout, $birds)))->toMatchArray(['beside' => true, 'underBadge' => false])
+        ->and($page->script(sprintf($layout, $dogs)))->toMatchArray(['beside' => false, 'underBadge' => true, 'actionsOnBadgeLine' => $oneLine]);
+})->with([
+    'wide' => [2560, true],
+    'laptop' => [1440, false],
+    'rail' => [1024, false],
+]);
+
 it('keeps the header figures, completion included, on one line on a phone', function () {
     $page = visitTranslationCenter('/admin/translation-center', 390, 844);
 

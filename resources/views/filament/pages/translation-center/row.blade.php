@@ -136,7 +136,11 @@
             <span x-text="units[unit].bulkIssue"></span>
         </p>
 
-        {{-- Under the field, as the length is under the English text: the count, the state and its note, the actions. --}}
+        {{--
+            Under the field, as the length is under the English text: the count, the state and its note,
+            and the actions on the same line. A note too long to follow its badge moves whole onto the
+            next line, starting under the badge, so it never pushes the actions aside.
+        --}}
         <div class="rg-admin-translation-row__foot">
             <span
                 id="{{ $dom }}-counter"

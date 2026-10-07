@@ -201,6 +201,7 @@ it('records Generate missing: background generation, persisted drafts and an exp
         ->toContain('“Save n generated translations?”')
         ->toContain('“This publishes these AI suggestions to visitors. Anything whose English source or stored translation changed will be skipped.”')
         ->toContain('| Translation Center Generate missing |')
+        ->toContain('starting under the badge — never under the counter —')
         ->toContain('with Generate missing and Save all generated in the header band after the figures')
         ->not->toContain('Not yet: Generate missing');
 

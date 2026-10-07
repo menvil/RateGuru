@@ -3558,20 +3558,25 @@
         margin-left: auto;
     }
 
-    /* Under the target field, as the length is under the English text: count, state and note, actions. */
+    /*
+     * Under the target field, as the length is under the English text: count, state and note, actions — on one
+     * line. The state claims only its badge's width when the line is shared out, so a note never pushes the
+     * actions aside: one too long to follow its badge wraps, whole, under the badge. The actions wrap onto a line
+     * of their own only when the count, the badge and they do not fit.
+     */
     .rg-admin-translation-row__foot {
         display: flex;
         flex-wrap: wrap;
-        align-items: center;
+        align-items: baseline;
         gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
     }
 
     .rg-admin-translation-row__state {
-        display: inline-flex;
+        display: flex;
+        flex: 1 1 0;
         flex-wrap: wrap;
         align-items: center;
-        gap: var(--rg-admin-space-2);
-        min-width: 0;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-2);
         min-height: 24px;
     }
 
@@ -3582,6 +3587,7 @@
     }
 
     .rg-admin-translation-row__counter {
+        flex: none;
         margin-left: 0;
     }
 
