@@ -28,6 +28,8 @@ use App\Support\TranslationEngine\Data\TranslationProviderCall;
 use App\Support\TranslationEngine\Data\TranslationProviderLimits;
 use App\Support\TranslationEngine\Data\TranslationProviderResponse;
 use App\Support\TranslationEngine\Enums\TranslationDataClassification;
+use App\Support\TranslationEngine\Enums\TranslationErrorCode;
+use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1994,6 +1996,10 @@ function mailIdentityScratch(): string
  * `@server` it was given and asks the host's own resolver, the way code that
  * never named one would.
  *
+ * The same environment stands in for the signing verifier readiness asks
+ * (verify-mail-signing --read-only): on this simulated host no signer is
+ * installed, so it refuses, until mailIdentitySigningVerdict() says otherwise.
+ *
  * @param  array<string, list<string>|array<string, mixed>>  $answers
  * @return array<string, string>
  */
@@ -2071,15 +2077,51 @@ function mailIdentityDnsHost(string $scratch, array $answers, ?string $ipv4 = '2
         : "#!/bin/bash\nprintf '1.1.1.1 via 203.0.113.1 dev eth0 src %s uid 0\\n    cache\\n' '{$ipv4}'\n";
     file_put_contents($scratch.'/bin/ip', $route);
 
+    file_put_contents($scratch.'/bin/verify-mail-signing', <<<'STUB'
+        #!/bin/bash
+        printf '%s\n' "$*" >> "${STUB_SIGNING}/calls.log"
+        if [[ "$(cat "${STUB_SIGNING}/verdict" 2>/dev/null)" == pass ]]; then
+            echo "  PASS the signer and the gateway's wiring of this target (simulated)"
+            exit 0
+        fi
+        echo "  FAIL the signer: install-mail-signing --verify --target ${3:-} (exit 1) — no signer on this simulated host"
+        exit 1
+        STUB."\n");
+
+    @mkdir($scratch.'/signing', 0o755, true);
+
     chmod($scratch.'/bin/dig', 0o755);
     chmod($scratch.'/bin/ip', 0o755);
+    chmod($scratch.'/bin/verify-mail-signing', 0o755);
 
     return [
         'RATEGURU_MAILIDENTITY_DIG_BIN' => $scratch.'/bin/dig',
         'RATEGURU_MAILIDENTITY_IP_BIN' => $scratch.'/bin/ip',
         'RATEGURU_MAILIDENTITY_FS_ROOT' => $scratch.'/fs',
+        'RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => $scratch.'/bin/verify-mail-signing',
         'STUB_DNS' => $scratch.'/dns',
+        'STUB_SIGNING' => $scratch.'/signing',
     ];
+}
+
+/**
+ * What the simulated signing verifier of mailIdentityDnsHost() answers: pass
+ * when a signer and its wiring would verify, refuse otherwise.
+ */
+function mailIdentitySigningVerdict(string $scratch, bool $passes): void
+{
+    @mkdir($scratch.'/signing', 0o755, true);
+    file_put_contents($scratch.'/signing/verdict', $passes ? "pass\n" : "fail\n");
+}
+
+/**
+ * Every call the simulated signing verifier received, as its argument list.
+ *
+ * @return list<string>
+ */
+function mailIdentitySigningCalls(string $scratch): array
+{
+    return array_values(array_filter(explode("\n", (string) @file_get_contents($scratch.'/signing/calls.log'))));
 }
 
 /**
@@ -5123,6 +5165,7 @@ function trustedToolingRefs(): array
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
         'verify-production-infrastructure.yml' => 'main',
+        'verify-production-mail-signing.yml' => 'main',
         // Integration and staging.
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
@@ -5814,7 +5857,7 @@ function provisionWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
         'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
-        'nightwatch-installer', 'mail-gateway-installer',
+        'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -6128,7 +6171,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
         // Present so that a target-scoped run touching the host-global mail
-        // gateway would be recorded, not silently run the real installer.
+        // signer or gateway would be recorded, not silently run the real
+        // installer.
+        'RATEGURU_BOOTSTRAPSVC_MAIL_SIGNING_INSTALLER_BIN' => $scratch.'/bin/mail-signing-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
@@ -7379,7 +7424,8 @@ function bsvcWriteStubs(string $scratch): void
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
         'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
-        'verify-mail-capture', 'nightwatch-installer', 'mail-gateway-installer',
+        'verify-mail-capture', 'nightwatch-installer', 'mail-signing-installer',
+        'mail-gateway-installer',
     ] as $child) {
         bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
             #!/bin/bash
@@ -7393,8 +7439,9 @@ function bsvcWriteStubs(string $scratch): void
                     [[ "$*" == *"--target staging-main"* ]] && exit 0
                     exit 1
                     ;;
-                # The mail gateway's plan question, which no other child is
-                # asked: it passes unless the toggle says the plan is refused.
+                # The mail signer's and the mail gateway's plan question, which
+                # no other child is asked: it passes unless the toggle says the
+                # plan is refused.
                 *--check*)
                     [[ -e "${STUB_TOGGLES}/${me}-check-fail" ]] && exit 1
                     exit 0
@@ -7599,7 +7646,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
             'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
-            'nightwatch-installer', 'mail-gateway-installer',
+            'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
         }
@@ -7632,6 +7679,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
         'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_SIGNING_INSTALLER_BIN' => $scratch.'/bin/mail-signing-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_GATEWAY_INSTALLER_BIN' => $scratch.'/bin/mail-gateway-installer',
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
@@ -7927,6 +7975,48 @@ function useScriptedTranslationProvider(ScriptedTranslationProvider $provider, s
     app()->bind(ScriptedTranslationProvider::class, static fn (): ScriptedTranslationProvider => $provider);
 
     return $provider;
+}
+
+/**
+ * A provider whose every request fails with this code, as a provider call
+ * that came to nothing does — recorded, and failing its items.
+ */
+function failingTranslationProvider(TranslationErrorCode $code): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static fn (TranslationBatchRequest $request): TranslationProviderResponse => throw new TranslationProviderException(
+            $code,
+            TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $code),
+        ),
+    );
+}
+
+/**
+ * A provider that answers its requests in turn: the nth request gets the nth
+ * answer — a text for every item it carries, or a code it fails with. The
+ * last answer repeats once the list runs out.
+ *
+ * @param  list<string|TranslationErrorCode>  $answers
+ */
+function answeringTranslationProvider(array $answers): ScriptedTranslationProvider
+{
+    return new ScriptedTranslationProvider(
+        static function (TranslationBatchRequest $request, int $call) use ($answers): TranslationProviderResponse {
+            $answer = $answers[min($call, count($answers)) - 1];
+
+            if ($answer instanceof TranslationErrorCode) {
+                throw new TranslationProviderException(
+                    $answer,
+                    TranslationProviderCall::failed('scripted', 'scripted-model', $request->itemIds(), 3, $answer),
+                );
+            }
+
+            return scriptedTranslationResponse($request, array_map(
+                static fn (TranslationItem $item): array => ['id' => $item->id, 'text' => $answer],
+                $request->items,
+            ));
+        },
+    );
 }
 
 /**

@@ -59,3 +59,13 @@ it('keeps the API key on the target host only, and CI off the network', function
         ->toContain('No test reaches OpenAI')
         ->toContain('`Http::fake()`');
 });
+
+it('records Translation Center as the first consumer, through the project adapter and a batch of one', function () {
+    expect(translationEngineDoc())
+        ->toContain('## First consumer: Translation Center')
+        ->toContain('→ ProjectTranslationRequestFactory')
+        ->toContain('→ TranslationBatchRequest(items: [unit])')
+        ->toContain('The translation engine does not know `ProjectTranslationUnit`.')
+        ->toContain('stores nothing; neither does the engine')
+        ->toContain('**Bulk generation reuses it.**');
+});

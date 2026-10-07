@@ -24,7 +24,7 @@ Translation engine  ≠  translation storage
 
 It is deliberately a bounded area of its own, separate from `App\Support\Translations`, which describes the
 project's DB-owned translations (`ProjectTranslationCatalog`, `ProjectTranslationUnit`,
-`UpdateProjectTranslationAction`). Those are a future *consumer* of the engine; the engine never depends on them,
+`UpdateProjectTranslationAction`). They are a *consumer* of the engine (see below); the engine never depends on them,
 on Filament, on Livewire or on any model — `tests/Feature/TranslationEngine/TranslationEngineArchitectureGuardTest.php`
 holds that.
 
@@ -61,6 +61,43 @@ foreach ($result->items as $item) {
 
 It never resolves a provider, composes a prompt, or knows how its batch was cut into provider requests. The engine
 is registered by `App\Providers\TranslationEngineServiceProvider`.
+
+## First consumer: Translation Center
+
+Translation Center's AI translate, Suggest alternative and Regenerate are the engine's first real consumer:
+
+```text
+Translation Center (AI translate / Regenerate on one row)
+→ GenerateProjectTranslationSuggestionAction      unit id, target language, stored text shown (compared only)
+→ ProjectTranslationCatalog::find()               the unit as it is now
+→ ProjectTranslationRequestFactory                project content → engine contract
+→ TranslationBatchRequest(items: [unit])          a batch of one, public_content
+→ TranslationService
+```
+
+The translation engine does not know `ProjectTranslationUnit`. The dependency runs from the project translation
+domain to the engine, never back: `ProjectTranslationRequestFactory` (in `App\Support\Translations`) is the one
+place project content is described to it.
+
+- **What it sends.** For each unit: its id, English as the source language, the English text, a content type of
+  `{section}.{field}` (`categories.name`, `static_pages.content` — never a record id or slug), a few labelled
+  lines of context (section, entity, field, business key and the catalog's own usage text), the unit's maximum
+  length, line mode and placeholders exactly as the catalog has them, and what the other installed languages
+  store — enabled or not, never English or the target, never a value that is not text — as context only, within
+  20,000 characters in installed order. The glossary is empty for now and is the caller's to pass.
+- **What comes back stays a suggestion.** The action returns a `ProjectTranslationSuggestion` to the browser and
+  stores nothing; neither does the engine. A suggestion becomes project content only when an administrator saves
+  it, through `UpdateProjectTranslationAction` like any other draft. Reloading the page drops it.
+- **It works from what the administrator sees.** A missing translation gets a suggestion that fills it; a saved one
+  can get an alternative, which replaces nothing until it is saved. The browser names the stored text it shows,
+  and the action compares it with what is stored now — it is never sent for translation, and the target's own
+  translation is never context. Before the engine is asked, the action refuses a target that is English or not
+  installed, a unit the catalog no longer lists or whose English text is blank, and a stored translation that was
+  saved, changed or removed since the page showed it.
+- **The context drawer shows the same request.** Translation Center's “What AI translate sends” is read from the
+  request the factory builds, so the preview and what is sent cannot drift.
+- **Bulk generation reuses it.** The factory takes a list: translating every missing unit of a language is the
+  same call with many units, cut into provider requests by the engine as described below.
 
 ## Always a batch
 

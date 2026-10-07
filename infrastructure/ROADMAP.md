@@ -1872,6 +1872,11 @@ Slices, in order:
    infrastructure while DNS propagates. See
    [`runbooks/infrastructure-verification.md`](runbooks/infrastructure-verification.md)
    and [`runbooks/mail-identity.md`](runbooks/mail-identity.md).
+   *Accepted on the production host since:* the `tits-guru` DKIM key is
+   installed at `/etc/opendkim/keys/tits-guru/rg1.private` and validated, and
+   Verify production infrastructure reports A, PTR, SPF, DKIM and DMARC PASS
+   (run 37539112288), with `routing` and `direct` failing on purpose and
+   outbound readiness DEFERRED.
 
    **8.4B.4.1c Comprehensive infrastructure verification — IMPLEMENTED.**
    The two Verify workflows become the permanent diagnosis of everything
@@ -1909,19 +1914,73 @@ Slices, in order:
    proof and untouched. *Unchanged on purpose:* every DNS policy rule, and
    everything 8.4B.4.1 left inert — `tits-guru` held and planned, direct
    delivery disabled, no OpenDKIM, no production `MAIL_*` value, no mail sent.
+   *Production-accepted:* on the production host, whose own resolver still
+   answers the stale local PTR, PTR and every other record verify PASS.
 
-   **8.4B.4.2 DKIM signing, DNS-ready activation and the first real delivery —
-   planned.** `mail-identity verify-dns` and then full `mail-identity
-   readiness` are hard prerequisites before any activation mutation, and after
-   activation every ordinary run of Verify production infrastructure requires
-   them. Only once `verify-dns` passes on the host: install and converge
-   OpenDKIM with read access to exactly its key, wire signing into the
-   gateway, enable direct delivery under `mta1.tits.guru`, move `tits-guru`
-   from `held` to `outbound` behind `mail-identity readiness`, set the
-   production `.env` mail values (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`,
-   `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`), and send one
-   controlled real canary with its headers verified at the large mailbox
-   providers. Sender reputation warm-up starts here.
+   **8.4B.4.2a DKIM signing foundation — IMPLEMENTED — production acceptance
+   pending.** OpenDKIM, the Postfix milter and a safe held-message acceptance;
+   nothing is activated. `mail-identity render-signing-plan` is the one source
+   of what is signed: every production target with a reviewed identity, held
+   ones included, with its mail domain (from the routing plan), selector,
+   algorithm, minimum key size and canonical key path. The new host-global
+   owner `scripts/install-mail-signing` (`--check`, `--apply`, `--verify
+   [--target]`, `--milter-endpoint`) installs Ubuntu's `opendkim` package with
+   service starts suppressed and an ownership marker (an OpenDKIM RateGuru did
+   not install is a CONFLICT), renders `/etc/opendkim.conf`, KeyTable,
+   SigningTable and TrustedHosts from the plan — signing only, exact domains,
+   loopback-only clients, `rsa-sha256`, `RequireSafeKeys` — validates them with
+   `opendkim -n` before and after installing them, runs one daemon as
+   `opendkim` listening on exactly `127.0.0.1:8891`, and grants it read access
+   to each reviewed key by metadata alone: a valid pre-signer key
+   (`root:root 0600` in `0700` directories) becomes `root:opendkim 0640` in
+   `root:opendkim 0750` directories, its bytes untouched; any other layout is
+   refused. `install-target-prerequisites` accepts exactly those two layouts,
+   installs new keys signing-ready, and only once the signer's group exists.
+   Host bootstrap converges it after mail capture and before the gateway, at
+   host scope only, and a host with no reviewed signing identity skips it.
+   `install-mail-gateway` reads the signing plan and the signer's endpoint and
+   wires only the signed listeners — `tits-guru`'s held `127.0.0.1:2526`, never
+   the staging capture listener — with milter protocol 6 and `tempfail`, so a
+   signed target's mail is deferred rather than accepted unsigned; held mail is
+   signed and still held. Because the signer signs by the `From` header and the
+   listener authorizes only the envelope sender, each signed listener also gets
+   its own cleanup service whose `header_checks` are the target's From policy
+   (`/etc/postfix/rateguru-from-<target>.regexp`, rendered from the plan's
+   allowed domain, installed, verified with `postmap` and retired in the
+   gateway's transaction): exactly one `From` address in the reviewed domain, or
+   `550 5.7.1` before queueing; a missing `From` is added from the envelope
+   sender, which on a signed listener may not be empty; and OpenDKIM refuses two
+   `From` fields, malformed mail and signing errors (`RequiredHeaders`,
+   `IgnoreMalformedMail no`, `On-SignatureError reject`). `scripts/verify-mail-signing` proves it:
+   `--read-only` composes the plan, the signer's and the gateway's verifies,
+   and is what `mail-identity readiness` now asks for its signing condition
+   (the hard-coded signing FAIL is gone); `--e2e` refuses unless the target is
+   held with no route, first requires a message with a foreign `From` to be
+   refused and never queued (`foreign_from_rejected`), then submits exactly one
+   synthetic message, requires its exact queue entry in HOLD with exactly one
+   `DKIM-Signature` of the target's `d=`, `s=` and `a=`, and deletes that entry,
+   flushing and releasing nothing.
+   The new workflow **Verify production mail signing** (`main` only,
+   `production-tits-guru`, the shared host's concurrency domain, no inputs)
+   runs it on the host. Rehearsed end to end on a real Ubuntu 22.04 host with
+   the real packages. *Unchanged on purpose:* `tits-guru` is still `planned`
+   and `held`, direct delivery is still disabled, no production `MAIL_*` value,
+   no external mail, no DNS change. *Next, operator:* Prepare staging host;
+   Verify staging infrastructure; promote to `main`; Verify production
+   infrastructure (readiness: `signing` PASS, `OUTBOUND READY: NO` for
+   `routing` and `direct` only); Verify production mail signing. See
+   [`runbooks/mail-signing.md`](runbooks/mail-signing.md).
+
+   **8.4B.4.2b DNS-ready activation and the first real delivery — planned.**
+   `mail-identity verify-dns` and then full `mail-identity readiness` are hard
+   prerequisites before any activation mutation, and after activation every
+   ordinary run of Verify production infrastructure requires them: enable
+   direct delivery under `mta1.tits.guru`, move `tits-guru` from `held` to
+   `outbound` behind `mail-identity readiness`, set the production `.env` mail
+   values (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
+   `MAIL_FROM_ADDRESS=noreply@tits.guru`), and send one controlled real canary
+   with its headers verified at the large mailbox providers. Sender reputation
+   warm-up starts here.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
    planned.** The production Return-Path and bounce identity, bounce reception

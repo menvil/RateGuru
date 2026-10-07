@@ -269,7 +269,12 @@ it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, ch
             'nightwatch-installer --apply-deployment-marker --target staging-main',
             'verify-mail-capture',
             'mail-capture-installer --apply',
-            // After capture, never before: capture is where it delivers.
+            // The signer after capture and before the gateway: the gateway
+            // wires its signed listeners to it.
+            'mail-signing-installer --verify',
+            'mail-signing-installer --apply',
+            // After capture and the signer, never before: capture is where it
+            // delivers, and the signer is what its signed listeners name.
             'mail-gateway-installer --verify',
             'mail-gateway-installer --apply',
         ];
@@ -1415,8 +1420,14 @@ it('leaves host mode exactly as it was: no --target, no target vocabulary anywhe
         expect($output)->toContain('SSH deploy restriction');
         expect($output)->toContain('config-test:sshd');
         expect($output)->toContain('mail-capture:verify-mail-capture');
+        expect($output)->toContain('mail-signing:plan');
+        expect($output)->toContain('mail-signing:install-mail-signing');
         expect($output)->toContain('mail-gateway:plan');
         expect($output)->toContain('mail-gateway:install-mail-gateway');
+
+        // In that order: capture, the signer, then the gateway.
+        expect(strpos($output, 'mail-capture:verify-mail-capture'))->toBeLessThan(strpos($output, 'mail-signing:plan'));
+        expect(strpos($output, 'mail-signing:install-mail-signing'))->toBeLessThan(strpos($output, 'mail-gateway:plan'));
 
         // The two things that only exist in target mode must not leak into it.
         expect($output)->not->toContain('HOST-REQ');
@@ -1443,6 +1454,7 @@ it('narrows to one target and leaves every host-wide family out of scope', funct
         expect($output)->not->toContain('SSH deploy restriction');
         expect($output)->not->toContain('config-test:sshd');
         expect($output)->not->toContain('mail-capture:verify-mail-capture');
+        expect($output)->not->toContain('mail-signing');
         expect($output)->not->toContain('mail-gateway');
 
         // The operations and perimeter families are not reported at all —
@@ -1488,7 +1500,9 @@ it('gates a target apply on that target layout only, not on the whole host layou
             expect($children)->not->toContain($child.' --apply');
         }
 
-        // The host-global mail gateway is not even asked: no target owns it.
+        // The host-global mail signer and gateway are not even asked: no
+        // target owns either.
+        expect($children)->not->toContain('mail-signing-installer');
         expect($children)->not->toContain('mail-gateway-installer');
 
         // The per-target ACL owner is still delegated to, at target scope.
@@ -1520,6 +1534,83 @@ it('refuses a host apply before its first mutation when the mail gateway could n
         $children = bsvcLog($scratch, 'children.log');
         expect($children)->toContain('mail-gateway-installer --check');
         expect($children)->not->toContain('--apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses a host apply before its first mutation when the mail signer could never be converged', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        touch($scratch.'/toggles/mail-signing-installer-check-fail');
+
+        // --check names it as a conflict no apply resolves.
+        [, $check] = bsvcRun(['--check'], $env);
+        expect($check)->toContain('CONFLICT mail-signing:plan');
+
+        file_put_contents($scratch.'/log/children.log', '');
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('install-mail-signing --check refuses');
+
+        // Asked before anything else was converged: no child applied anything,
+        // and the gateway was never reached.
+        $children = bsvcLog($scratch, 'children.log');
+        expect($children)->toContain('mail-signing-installer --check');
+        expect($children)->not->toContain('--apply');
+        expect($children)->not->toContain('mail-gateway-installer --check');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('never converges the gateway when the signer\'s apply fails', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'clean']);
+        touch($scratch.'/toggles/mail-signing-installer-apply-fail');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('install-mail-signing --apply failed — aborting before any later component');
+
+        $children = bsvcLog($scratch, 'children.log');
+        expect($children)->toContain('mail-signing-installer --apply');
+        expect($children)->not->toContain('mail-gateway-installer --apply');
+        expect($children)->not->toContain('mail-gateway-installer --verify');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('skips the signer when its own verify already passes, and never runs its mutating acceptance', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        foreach (['--check', '--verify', '--apply'] as $mode) {
+            bsvcRun([$mode], $env);
+        }
+
+        $output = bsvcRun(['--apply'], $env)[1];
+        expect($output)->toContain('child:mail-signing already compliant (install-mail-signing --verify passes) — skipped, no service restarted');
+
+        $calls = array_filter(
+            preg_split('/\R/', bsvcLog($scratch, 'children.log')),
+            static fn (string $line): bool => str_starts_with($line, 'mail-signing-installer'),
+        );
+
+        expect($calls)->not->toBe([], 'the signing child was never reached — the assertion would be vacuous');
+
+        foreach ($calls as $call) {
+            expect($call)->toMatch('/^mail-signing-installer --(check|verify)$/');
+        }
     } finally {
         bsvcCleanup($scratch);
     }

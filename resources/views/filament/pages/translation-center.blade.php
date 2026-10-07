@@ -3,9 +3,9 @@
      * Translation Center: one target language, every unit that needs a
      * translation, English beside the target field. The rows come from the
      * server once per target language; the browser filters them, keeps the
-     * drafts and saves one row at a time (filament.pages.translation-center.
-     * script). The whole screen is keyed by the target language, so choosing
-     * another one draws it afresh.
+     * drafts — AI suggestions among them — and saves one row at a time
+     * (filament.pages.translation-center.script). The whole screen is keyed by
+     * the target language, so choosing another one draws it afresh.
      */
     $filtered = $target !== null && ($filters['query'] !== '' || $filters['section'] !== '' || $filters['mode'] !== 'all' || $filters['unit'] !== null);
 @endphp
@@ -110,7 +110,8 @@
                         <span class="rg-admin-toolbar__count" role="status" x-text="resultText">{{ number_format(count($rows)) }} of {{ number_format(count($rows)) }} items</span>
                     </div>
 
-                    <div x-cloak x-show="dirtyCount > 0">
+                    {{-- The unsaved drafts, AI suggestions counted apart; sparkles once one of them is AI's. --}}
+                    <div data-strip="edits" x-cloak x-show="dirtyCount > 0 && aiCount === 0">
                         <x-admin.ui.inline-notice tone="info" strip>
                             <span x-text="unsavedText"></span>
                             <x-slot:actions>
@@ -118,6 +119,17 @@
                             </x-slot:actions>
                         </x-admin.ui.inline-notice>
                     </div>
+                    <div data-strip="ai" x-cloak x-show="aiCount > 0">
+                        <x-admin.ui.inline-notice tone="info" icon="sparkles" strip>
+                            <span x-text="unsavedText"></span>
+                            <x-slot:actions>
+                                <x-admin.ui.button variant="ghost" size="sm" x-on:click="discardAll()">Discard all</x-admin.ui.button>
+                            </x-slot:actions>
+                        </x-admin.ui.inline-notice>
+                    </div>
+
+                    {{-- AI translate and Regenerate, said aloud: started, and ready. A failure is a toast, which speaks for itself. --}}
+                    <span class="rg-admin-sr-only" role="status" x-text="announcement"></span>
 
                     @if ($rows === [])
                         <x-admin.ui.empty-state icon="circle-check" tone="success" title="Nothing to translate">

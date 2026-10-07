@@ -5,7 +5,12 @@
     Filtering never asks the server: the search, the section and Missing only /
     All run over the units already on the page and are kept in the URL with
     replaceState. A draft lives here only — typing sends nothing, and visitors
-    keep the stored translation until Save sends that one unit. Choosing
+    keep the stored translation until Save sends that one unit. An AI
+    suggestion is a draft too: AI translate asks the server for one missing
+    unit, Suggest alternative for another version of a saved one, and what
+    comes back sits in the field, marked as AI and unsaved, until it is saved,
+    edited into an ordinary draft, or discarded — the saved version stays
+    stored meanwhile. Choosing
     another target language is the one thing that re-renders the page, after
     asking whenever it would drop drafts; leaving the page with drafts asks the
     browser's own question.
@@ -26,10 +31,13 @@
             context: null,
             pendingTarget: null,
             switching: false,
+            announcement: '',
 
             init() {
                 for (const unit of config.units) {
-                    this.units[unit.id] = { ...unit, value: unit.stored, error: null, saving: false }
+                    // ai and generatedAt describe the draft only while it is the suggestion as it came;
+                    // attempt tells a suggestion that arrives after its row was discarded from one that is awaited.
+                    this.units[unit.id] = { ...unit, value: unit.stored, error: null, saving: false, ai: false, generating: false, generatedAt: null, attempt: 0 }
                     this.order.push(unit.id)
                 }
 
@@ -81,9 +89,11 @@
             isDirty(id) {
                 return this.units[id].value !== this.units[id].stored
             },
+            // One answer per row, in this order: a draft is an AI suggestion or an edit, and
+            // without one the row is what is stored. An AI suggestion is therefore always unsaved.
             state(id) {
                 if (this.isDirty(id)) {
-                    return 'edited'
+                    return this.units[id].ai ? 'ai' : 'edited'
                 }
 
                 return this.units[id].stored === '' ? 'missing' : 'saved'
@@ -92,8 +102,23 @@
                 return {
                     saved: 'Stored translation',
                     missing: 'Visitors see the English text',
+                    ai: this.units[id].stored === ''
+                        ? `Generated ${this.generatedTime(id)} · AI suggestions are drafts until saved.`
+                        : `Generated ${this.generatedTime(id)} · Saved version is kept until you save.`,
                     edited: this.units[id].stored === '' ? 'Visitors see the English text until you save' : 'Saved version is kept until you save',
                 }[this.state(id)]
+            },
+            generatedTime(id) {
+                const at = new Date(this.units[id].generatedAt)
+
+                return Number.isNaN(at.getTime()) ? 'just now' : at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+            },
+            // Typing turns an AI suggestion into an ordinary edit: the text is the administrator's now,
+            // and Regenerate, which would overwrite it, goes away with the AI mark.
+            edited(id) {
+                this.units[id].error = null
+                this.units[id].ai = false
+                this.units[id].generatedAt = null
             },
             length(id) {
                 // Code points, as the server counts them.
@@ -127,7 +152,21 @@
             canSave(id) {
                 const unit = this.units[id]
 
-                return this.isDirty(id) && ! unit.saving && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
+                return this.isDirty(id) && ! unit.saving && ! unit.generating && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
+            },
+            // AI translate fills a missing translation, Suggest alternative offers another version of a
+            // saved one, Regenerate replaces an AI suggestion. None is offered for a draft someone typed,
+            // which a suggestion would overwrite.
+            offersAi(id) {
+                return ['missing', 'saved', 'ai'].includes(this.state(id))
+            },
+            aiLabel(id) {
+                return { missing: 'AI translate', saved: 'Suggest alternative', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
+            },
+            canSuggest(id) {
+                const unit = this.units[id]
+
+                return this.offersAi(id) && ! unit.generating && ! unit.saving
             },
 
             // Filters -------------------------------------------------------------
@@ -222,20 +261,47 @@
             get dirtyCount() {
                 return this.order.filter((id) => this.isDirty(id)).length
             },
-            get unsavedText() {
-                const count = this.dirtyCount
+            get aiCount() {
+                return this.order.filter((id) => this.state(id) === 'ai').length
+            },
+            // “2 AI suggestions and 1 edit”, “1 edit”: the drafts by kind, AI suggestions first.
+            drafts(label = '') {
+                const ai = this.aiCount
+                const edits = this.dirtyCount - ai
+                const kind = label === '' ? '' : `${label} `
+                const parts = []
 
-                return `${this.figure(count)} ${count === 1 ? 'edit' : 'edits'} not saved yet. Nothing changes for visitors until you save.`
+                if (ai > 0) {
+                    parts.push(`${this.figure(ai)} ${kind}${ai === 1 ? 'AI suggestion' : 'AI suggestions'}`)
+                }
+
+                if (edits > 0) {
+                    parts.push(`${this.figure(edits)} ${ai > 0 ? '' : kind}${edits === 1 ? 'edit' : 'edits'}`)
+                }
+
+                return parts.join(' and ')
+            },
+            get unsavedText() {
+                return `${this.drafts()} not saved yet. Nothing changes for visitors until you save.`
+            },
+            // Back to what is stored. A suggestion still on its way for this row is no longer wanted.
+            reset(id) {
+                const unit = this.units[id]
+
+                unit.value = unit.stored
+                unit.error = null
+                unit.ai = false
+                unit.generatedAt = null
+                unit.generating = false
+                unit.attempt++
             },
             discard(id) {
-                this.units[id].value = this.units[id].stored
-                this.units[id].error = null
+                this.reset(id)
                 this.$nextTick(() => this.focusField(id))
             },
             discardAll(focus = true) {
                 for (const id of this.order) {
-                    this.units[id].value = this.units[id].stored
-                    this.units[id].error = null
+                    this.reset(id)
                 }
 
                 if (focus) {
@@ -287,6 +353,8 @@
                 unit.stored = result.value
                 unit.value = result.value
                 unit.error = null
+                unit.ai = false
+                unit.generatedAt = null
                 this.toast(`${this.label} translation ${result.value === '' ? 'removed' : 'saved'}`)
 
                 this.$nextTick(() => {
@@ -299,6 +367,67 @@
             },
             toast(message, tone = 'success') {
                 this.$dispatch('rg-admin-toast', { message, tone })
+            },
+
+            // AI suggestion -------------------------------------------------------
+
+            // One row at a time, and only that row waits: its field is read-only and its actions
+            // paused until the answer, so nothing typed meanwhile could be overwritten by it. The
+            // stored text the row shows goes along to be compared, so a suggestion is never made
+            // against a translation someone else has saved or changed since the page was drawn.
+            // A suggestion replaces the field only once it has arrived — a failed Regenerate
+            // leaves the suggestion before it in place — and is stored nowhere: the figures,
+            // which count stored translations, stay as they are until it is saved.
+            async suggest(id) {
+                if (! this.canSuggest(id)) {
+                    return
+                }
+
+                const unit = this.units[id]
+                const attempt = ++unit.attempt
+                const name = unit.name
+                let result = null
+
+                unit.generating = true
+                this.announce(`Generating a ${this.label} suggestion for ${name}…`)
+
+                try {
+                    result = await this.$wire.suggest(id, this.locale, unit.stored)
+                } catch (failure) {
+                    result = null
+                }
+
+                // Discarded, or the language switched, while it was on its way.
+                if (attempt !== unit.attempt || ! unit.generating) {
+                    return
+                }
+
+                unit.generating = false
+
+                if (! result?.generated || result.unit !== id || result.locale !== this.locale) {
+                    this.announce('')
+                    this.toast(result?.error ?? 'No suggestion: the server did not answer. Try again.', 'error')
+
+                    return
+                }
+
+                // Word for word what is saved already: nothing to review, so the row stays as it is.
+                if (result.text === unit.stored) {
+                    this.announce('')
+                    this.toast('AI suggested the same text as the saved translation.', 'info')
+
+                    return
+                }
+
+                unit.value = result.text
+                unit.ai = true
+                unit.generatedAt = result.generatedAt
+                unit.error = null
+                this.announce(`${this.label} AI suggestion ready for ${name}. Not saved.`)
+                this.$nextTick(() => this.focusField(id))
+            },
+            announce(message) {
+                this.announcement = message
             },
 
             // Context -------------------------------------------------------------
@@ -338,7 +467,7 @@
                 const count = this.dirtyCount
                 const to = config.targets[this.pendingTarget] ?? this.pendingTarget
 
-                return `${this.figure(count)} ${this.label} ${count === 1 ? 'edit is' : 'edits are'} not saved. Switching to ${to} drops ${count === 1 ? 'it' : 'them'}; the stored translations stay as they are.`
+                return `${this.drafts(this.label)} ${count === 1 ? 'is' : 'are'} not saved. Switching to ${to} drops ${count === 1 ? 'it' : 'them'}; the stored translations stay as they are.`
             },
             confirmSwitch() {
                 const code = this.pendingTarget

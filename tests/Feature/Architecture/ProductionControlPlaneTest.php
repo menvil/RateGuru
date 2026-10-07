@@ -228,6 +228,7 @@ it('pins the classification of every operational workflow literally', function (
         'recover-production.yml' => 'main',
         'rollback-production.yml' => 'main',
         'verify-production-infrastructure.yml' => 'main',
+        'verify-production-mail-signing.yml' => 'main',
         'deploy-staging.yml' => 'develop',
         'prepare-staging-host.yml' => 'develop',
         'repair-staging.yml' => 'develop',
@@ -479,6 +480,7 @@ function mainOnlyProductionWorkflows(): array
         'recover-production.yml',
         'rollback-production.yml',
         'verify-production-infrastructure.yml',
+        'verify-production-mail-signing.yml',
     ];
 }
 
