@@ -114,6 +114,7 @@ it('writes a rating group and a rating option field by field', function () {
 
 it('writes one field of one language of one static page, leaving the rest of the pages as they were', function () {
     [$target, $other] = twoTranslatedLocales();
+    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$target, $other]))]);
     $before = ProjectSettings::findOrFail(1)->static_pages;
 
     saveTranslation('static_pages:about:title', $target, 'Новый заголовок');
@@ -129,7 +130,8 @@ it('writes one field of one language of one static page, leaving the rest of the
 });
 
 it('removes a page language left without a field, and nothing else', function () {
-    [$target] = twoTranslatedLocales();
+    [$target, $other] = twoTranslatedLocales();
+    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$target, $other]))]);
     $before = ProjectSettings::findOrFail(1)->static_pages;
 
     saveTranslation('static_pages:about:title', $target, '');
@@ -321,7 +323,7 @@ it('removes a translation left behind once the English text is cleared, and refu
     $group = RatingGroup::factory()->create(['description' => 'What is it like?', 'description_translations' => [$target => 'Какой он?', $other => 'Какъв е?'], 'is_active' => true]);
     $unit = "rating_groups:{$group->id}:description";
     $group->update(['description' => null]);
-    $pages = ProjectSettings::findOrFail(1)->static_pages;
+    $pages = staticPagesTranslatedInto([$target, $other]);
     $pages['about']['en']['content'] = '';
     ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
 

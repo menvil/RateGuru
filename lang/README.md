@@ -19,9 +19,10 @@ touched by the translation backfill — so a release that changes
 
 A project's own text — its settings, categories, tags, rating groups and
 options, static pages — lives in the **database**, which visitors are served
-from. `config/project_presets.php` and `config/static-pages.php` only seed a
-new project and lend the backfill missing translations; they are never a
-runtime fallback. See `docs/i18n/project-translation-lifecycle.md`.
+from, and is translated there, in Translation Center.
+`config/project_presets.php` and `config/static-pages.php` only seed a new
+project, in English alone; they are never a runtime fallback. See
+`docs/i18n/project-translation-lifecycle.md`.
 
 ## The words for languages
 
@@ -94,23 +95,24 @@ the next language silently skips.
    name, flag and `enabled_by_default => false`.
 2. Create `lang/{locale}/` and translate every file in `lang/en/` except the
    English-only catalogs listed below.
-3. Add its text to every translatable value of every preset in
-   `config/project_presets.php` and to every page of
-   `config/static-pages.php`.
-4. Map it to its Open Graph locale in `app/Support/Seo/PostOpenGraph.php`.
-5. Run the suite. `TranslationParityTest` lists, by file and key, what the
-   catalogs still miss; `RepositoryTranslationParityTest` lists the preset and
-   static page values; `PostShowMetaTagsTest` names a language still announced
+3. Map it to its Open Graph locale in `app/Support/Seo/PostOpenGraph.php`.
+4. Run the suite. `TranslationParityTest` lists, by file and key, what the
+   catalogs still miss; `PostShowMetaTagsTest` names a language still announced
    to link previews as English. Tests that put every language through the
    public site offer every installed one first
    (`offerEveryInstalledLocale()`), so a language that ships disabled is held
    to them from the start.
 
-Step 1 on its own turns CI red. That is deliberate: a language is either
-finished or not installed. Installing is not offering: after the deploy the
-language is installed and disabled everywhere, the deploy's safe backfill has
-filled in what the repository knows, and an administrator enables it on the
-Languages page once the project's own content is translated.
+The presets and static page defaults are not translated: they ship in English
+alone, and the project's own content in the new language is translated in
+Translation Center after the deploy (Generate missing, then Save all
+generated).
+
+Step 1 on its own turns CI red. That is deliberate: a language's application
+text is either finished or not installed. Installing is not offering: after the
+deploy the language is installed and disabled everywhere, and an administrator
+enables it on the Languages page once the project's own content is
+translated.
 
 ## Keys, never sentences
 

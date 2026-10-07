@@ -64,26 +64,22 @@ final class RepositoryTranslations
     }
 
     /**
-     * Every value the repository ships with a reference text but without a
-     * text for one of these languages — what a release must not merge with.
+     * Every value the repository ships with a text in a language besides
+     * English. It ships project content in English alone — a project
+     * translates its own, in Translation Center — so a release must not merge
+     * with any.
      *
-     * @param  list<string>  $locales
      * @return list<string>
      */
-    public function missing(array $locales): array
+    public function translated(): array
     {
         $problems = [];
         $entries = [...array_merge(...array_values($this->presets())), ...$this->staticPages()];
 
         foreach ($entries as $entry) {
-            // Nothing to translate: a blank reference may stay blank everywhere.
-            if ($entry->reference() === null) {
-                continue;
-            }
-
-            foreach ($locales as $locale) {
-                if ($entry->value($locale) === null) {
-                    $problems[] = "{$entry->source} has no [{$locale}] text";
+            foreach (array_keys($entry->values) as $locale) {
+                if ($locale !== TranslatableField::REFERENCE_LOCALE && $entry->value((string) $locale) !== null) {
+                    $problems[] = "{$entry->source} has [{$locale}] text";
                 }
             }
         }

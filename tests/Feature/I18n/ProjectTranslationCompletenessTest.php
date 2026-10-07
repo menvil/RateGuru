@@ -30,10 +30,10 @@ function missingIn(ProjectTranslationReport $report, ProjectContentSection $sect
     ));
 }
 
-/** Project settings with every translatable field translated into these languages. */
+/** Project settings with every translatable field and every static page translated into these languages. */
 function translatedProjectSettings(array $locales, array $overrides = []): ProjectSettings
 {
-    return ProjectSettings::factory()->create([...projectSettingsTranslationsIn($locales), 'site_description' => 'About this site', ...$overrides]);
+    return ProjectSettings::factory()->create([...projectSettingsTranslationsIn($locales), 'site_description' => 'About this site', 'static_pages' => staticPagesTranslatedInto($locales), ...$overrides]);
 }
 
 // Project settings ------------------------------------------------------------
@@ -69,7 +69,7 @@ it('takes the reference language from the base columns alone', function () {
 
 it('counts a static page language as translated when the project stores text for it', function () {
     [$target] = twoTranslatedLocales();
-    ProjectSettings::factory()->create(['static_pages' => config('static-pages.defaults')]);
+    ProjectSettings::factory()->create(['static_pages' => staticPagesTranslatedInto([$target])]);
 
     expect(missingIn(projectCompleteness($target), ProjectContentSection::StaticPages))->toBe([]);
 });
@@ -78,6 +78,7 @@ it('counts a static page language the project stores no text for as missing, wha
     // config/static-pages.php has this language; the project does not, and
     // the project's text is all a visitor is shown.
     [$target] = twoTranslatedLocales();
+    shipRepositoryContentTranslatedInto([$target]);
     $pages = config('static-pages.defaults');
     unset($pages['about'][$target]);
     $pages['privacy'][$target]['title'] = '   ';
@@ -91,7 +92,7 @@ it('counts a static page language the project stores no text for as missing, wha
 it('takes a stored translation as it is, whatever the English beside it says', function () {
     // The project owns both texts; nothing compares them with the repository.
     [$target] = twoTranslatedLocales();
-    $pages = config('static-pages.defaults');
+    $pages = staticPagesTranslatedInto([$target]);
     $pages['about']['en']['title'] = 'About us, rewritten';
     ProjectSettings::factory()->create(['static_pages' => $pages]);
 
@@ -100,7 +101,7 @@ it('takes a stored translation as it is, whatever the English beside it says', f
 
 it('asks no translation of a static page field whose English the project leaves blank', function () {
     [$target] = twoTranslatedLocales();
-    $pages = config('static-pages.defaults');
+    $pages = staticPagesTranslatedInto([$target]);
     $pages['about']['en']['content'] = '';
     unset($pages['about'][$target]);
     ProjectSettings::factory()->create(['static_pages' => $pages]);
@@ -113,7 +114,7 @@ it('reads every built-in page, from the project only', function () {
     // it there; until then the project has no text for it.
     [$target] = twoTranslatedLocales();
     config(['static-pages.defaults.imprint' => ['en' => ['title' => 'Imprint', 'content' => 'Who runs this site.'], $target => ['title' => 'x', 'content' => 'y']]]);
-    ProjectSettings::factory()->create(['static_pages' => config('static-pages.defaults')]);
+    ProjectSettings::factory()->create(['static_pages' => staticPagesTranslatedInto([$target])]);
     $pages = ProjectSettings::findOrFail(1)->static_pages;
     $pages['imprint'][$target] = [];
     ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
@@ -180,7 +181,7 @@ it('counts every tag', function () {
 
 it('counts the fields that need a translation and the share that has one', function () {
     [$target] = twoTranslatedLocales();
-    translatedProjectSettings([$target], ['static_pages' => config('static-pages.defaults')]);
+    translatedProjectSettings([$target]);
     Category::factory()->create(['slug' => 'a', 'name' => 'A', 'name_translations' => [$target => 'A'], 'is_active' => true]);
     Category::factory()->create(['slug' => 'b', 'name' => 'B', 'name_translations' => null, 'is_active' => true]);
     Tag::factory()->create(['slug' => 'c', 'name' => 'C', 'name_translations' => null]);
@@ -233,7 +234,7 @@ it('describes a missing item well enough to find and fix it', function () {
  */
 function everyRuleProject(string $target, string $other): void
 {
-    $pages = config('static-pages.defaults');
+    $pages = staticPagesTranslatedInto([$target, $other]);
     unset($pages['about'][$target]);
     $pages['privacy'][$target]['content'] = '  ';
     $pages['terms']['en']['content'] = '';

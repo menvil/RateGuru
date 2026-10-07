@@ -4780,6 +4780,63 @@ function translatedLocales(): array
 }
 
 /**
+ * The built-in static pages as a project that has translated them stores
+ * them: the English the repository ships, and a made-up translation of every
+ * field in each of these languages — "[ru] About RateGuru". The repository
+ * ships its pages in English alone; their translations are each project's.
+ *
+ * @param  list<string>  $locales
+ * @return array<string, array<string, array<string, string>>>
+ */
+function staticPagesTranslatedInto(array $locales): array
+{
+    $pages = [];
+
+    foreach (config('static-pages.defaults') as $page => $byLocale) {
+        $pages[$page] = ['en' => $byLocale['en']];
+
+        foreach ($locales as $locale) {
+            $pages[$page][$locale] = array_map(fn (string $text): string => "[{$locale}] {$text}", $byLocale['en']);
+        }
+    }
+
+    return $pages;
+}
+
+/**
+ * Makes the repository ship a made-up translation — "[ru] General" — of every
+ * preset value and static page field in these languages. The repository ships
+ * its project content in English alone; this is for what reads repository
+ * translations whatever it finds, such as the backfill.
+ *
+ * @param  list<string>  $locales
+ */
+function shipRepositoryContentTranslatedInto(array $locales): void
+{
+    $translate = function (mixed $value) use (&$translate, $locales): mixed {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        // A value per language: the English the repository ships, then the made-up translations.
+        if (array_keys($value) === ['en'] && (is_string($value['en']) || $value['en'] === null)) {
+            foreach ($locales as $locale) {
+                $value[$locale] = $value['en'] === null ? null : "[{$locale}] {$value['en']}";
+            }
+
+            return $value;
+        }
+
+        return array_map($translate, $value);
+    };
+
+    config([
+        'project_presets' => $translate(config('project_presets')),
+        'static-pages.defaults' => staticPagesTranslatedInto($locales),
+    ]);
+}
+
+/**
  * A well-formed language code the product will never offer, for tests about
  * what happens to an unsupported locale. Deliberately not a real language: a
  * real one ("de") is exactly what may be added to config/locales.php next, and
@@ -4947,7 +5004,10 @@ function offeredLocales(): array
     return app(LocaleManager::class)->enabledCodes();
 }
 
-/** Project settings with every translatable field translated into these languages. */
+/**
+ * The project's settings row with every translatable field — its static pages
+ * included — translated into these languages.
+ */
 function settingsTranslatedInto(array $locales): void
 {
     $attributes = projectSettingsTranslationsIn($locales);
@@ -4955,6 +5015,8 @@ function settingsTranslatedInto(array $locales): void
     foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
         $attributes[$field] = "{$field} text";
     }
+
+    $attributes['static_pages'] = staticPagesTranslatedInto(array_values(array_diff($locales, ['en'])));
 
     ProjectSettings::query()->update(collect($attributes)->map(fn (mixed $value): mixed => is_array($value) ? json_encode($value) : $value)->all());
     app(ProjectSettingsManager::class)->flush();

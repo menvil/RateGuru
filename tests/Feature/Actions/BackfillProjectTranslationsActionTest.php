@@ -19,7 +19,9 @@ use Illuminate\Support\Str;
  *
  * Each case starts from a project set up with a preset, with one installed
  * language taken back out of the database — the state of a project the day a
- * release adds a language it was set up before.
+ * release adds a language it was set up before. The repository ships its
+ * project content in English alone, so each case makes it ship translations
+ * first: the backfill lends whatever the repository has.
  */
 function backfill(): TranslationBackfillReport
 {
@@ -70,6 +72,7 @@ function presetValue(string $path, string $locale): string
 
 beforeEach(function () {
     [$this->target] = twoTranslatedLocales();
+    shipRepositoryContentTranslatedInto(translatedLocales());
 
     app(ApplyProjectPresetAction::class)->handle('nature');
     ProjectSettings::query()->update(['static_pages' => json_encode(config('static-pages.defaults'))]);

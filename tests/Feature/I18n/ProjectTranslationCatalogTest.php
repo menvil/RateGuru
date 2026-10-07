@@ -82,7 +82,7 @@ it('lists every translatable project setting, with the limits of its editor', fu
 
 it('lists the title and content of every built-in static page, as the project stores them', function () {
     [$target] = twoTranslatedLocales();
-    ProjectSettings::factory()->create();
+    ProjectSettings::factory()->create(['static_pages' => staticPagesTranslatedInto([$target])]);
 
     $units = catalogUnitsOf(ProjectContentSection::StaticPages);
     $expected = collect(array_keys(config('static-pages.defaults')))
@@ -93,13 +93,14 @@ it('lists the title and content of every built-in static page, as the project st
         ->and(unitLimits($units['static_pages:about:title']))->toBe([160, false])
         ->and(unitLimits($units['static_pages:about:content']))->toBe([20000, true])
         ->and($units['static_pages:about:title']->reference)->toBe(config('static-pages.defaults.about.en.title'))
-        ->and($units['static_pages:about:title']->translation($target))->toBe(config("static-pages.defaults.about.{$target}.title"))
+        ->and($units['static_pages:about:title']->translation($target))->toBe("[{$target}] ".config('static-pages.defaults.about.en.title'))
         ->and([$units['static_pages:about:content']->key, $units['static_pages:about:content']->label, $units['static_pages:about:content']->fieldLabel()])
         ->toBe(['about', 'About', 'Content']);
 });
 
 it('takes static page text from the project only, never from the repository', function () {
     [$target] = twoTranslatedLocales();
+    shipRepositoryContentTranslatedInto([$target]);
     $pages = config('static-pages.defaults');
     unset($pages['about'][$target]);
     $pages['about']['en']['title'] = 'About us, rewritten';

@@ -8,6 +8,7 @@ The supported locales — every language the application is installed with — a
 - `ru` — Russian / Русский
 - `bg` — Bulgarian / Български
 - `de` — German / Deutsch (ships disabled)
+- `es` — Spanish / Español (ships disabled)
 
 The flag is chosen per language rather than derived from the code: a language is not a country.
 
