@@ -8,6 +8,7 @@
         "Tests\\Feature\\Architecture\\BackupTest": 18.0393,
         "Tests\\Feature\\Architecture\\BootstrapHostOrchestratorTest": 3.1396,
         "Tests\\Feature\\Architecture\\BootstrapHostPreflightTest": 59.0506,
+        "Tests\\Feature\\Architecture\\BrowserTestWaitingTest": 0.74,
         "Tests\\Feature\\Architecture\\BuildRateGuruActionTest": 3.7743,
         "Tests\\Feature\\Architecture\\CiRunComparisonTest": 1.1185,
         "Tests\\Feature\\Architecture\\CleanHostRecoveryRunbookTest": 1.5237,
@@ -109,6 +110,7 @@
         "Tests\\Feature\\Architecture\\TargetAwareOperationsTest": 2.89,
         "Tests\\Feature\\Architecture\\TargetEnvironmentBindingTest": 0.2371,
         "Tests\\Feature\\Architecture\\TargetPerimeterTest": 2.1734,
+        "Tests\\Feature\\Architecture\\TestProcessRootCheckTest": 0.94,
         "Tests\\Feature\\Architecture\\TranslationParityTest": 0.4404,
         "Tests\\Feature\\Architecture\\UserLifecycleWriteBoundaryTest": 0.0357,
         "Tests\\Feature\\Architecture\\VerifyBackupTest": 15.1217,
@@ -116,6 +118,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.0799,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0706
     },
-    "checksum": "b3a965e704e80d51074068ae33919577",
+    "checksum": "0b4dcb0c9beab819c9409a8e3a40df05",
     "updated_at": "2026-10-06T19:27:50+00:00"
 }
