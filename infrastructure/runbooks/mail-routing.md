@@ -12,8 +12,9 @@ leaves the application, and the repository tooling that proves the contract.
 | Local mail gateway | **Implemented** as committed host infrastructure — `install-mail-gateway`, converged by Prepare Host; see [`mail-gateway.md`](mail-gateway.md) |
 | Gateway on the real staging host | **Installed and accepted** |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
-| `outbound` mode, `kind: direct` | **Implemented, not used**: no target's policy uses it, and the host's `config/mail-outbound.json` keeps direct delivery disabled |
-| Production mail (`tits-guru`) | **Held**: identity reviewed, its listener holds everything, no route exists, nothing is delivered |
+| `outbound` mode, `kind: direct` | **Implemented, requested for `tits-guru`**: the committed policy routes it outbound and `config/mail-outbound.json` enables direct delivery; a host renders it only through `activate-mail-outbound` |
+| Production mail (`tits-guru`) — committed policy | **Outbound** by direct delivery, identity reviewed, still `lifecycle=planned` |
+| Production mail (`tits-guru`) — real host | **Held** until Activate: its listener holds everything, no route exists there, nothing is delivered — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
 The policy is the contract; `install-mail-gateway` turns its rendered plan into
 Postfix configuration and never re-derives a rule of its own. It was written
@@ -49,7 +50,8 @@ For the two targets in the registry today:
 
 ```
 staging-main  127.0.0.1:2525 ──capture──▶ Mailpit 127.0.0.1:1025 ──mirror──▶ Mailtrap Local
-tits-guru     127.0.0.1:2526 ──HELD────▶ (nothing: no route exists)
+tits-guru     127.0.0.1:2526 ──outbound─▶ direct SMTP to each recipient domain's MX
+                                          (requested; the host holds it until Activate)
 ```
 
 The application side is identical for every target: `MAIL_MAILER=smtp`,
@@ -131,7 +133,7 @@ a value somebody can configure.
   future kind, added only by the change that implements it. The physical
   identity direct delivery greets receiving servers with is the **host's**, not
   the target's, and lives in `config/mail-outbound.json` — see
-  [`mail-gateway.md`](mail-gateway.md#direct-outbound-implemented-switched-off).
+  [`mail-gateway.md`](mail-gateway.md#direct-outbound-on-a-host-only-through-the-activation).
   The gateway refuses to render a direct route while that host contract keeps
   direct delivery disabled, so switching a policy to `outbound` cannot by
   itself send mail.
@@ -153,9 +155,9 @@ same mail, bounce or reply domain.
 A held policy has no destination property, so there is nothing to deliver to;
 its rendered plan has `"route": null`. And a held target may not be
 `lifecycle=active`: an active target whose mail can never leave is a live site
-silently losing its mail. `tits-guru` is held and planned, and the validator
-refuses to accept it as active until its policy is `outbound`. An outbound
-target may be active.
+silently losing its mail. While `tits-guru` was held the validator refused to
+accept it as active; its policy is now `outbound`, and it is still planned. An
+outbound target may be active.
 
 ## Validation and the rendered plan
 
@@ -371,11 +373,12 @@ The roadmap orders this work.
    disabled), the `tits-guru` DKIM and DMARC identity, its key installed and
    validated on the host, and A, PTR, SPF, DKIM and DMARC verified through two
    independent public resolvers — see [`mail-identity.md`](mail-identity.md).
-4. **The DKIM signing foundation** (ROADMAP 8.4B.4.2a) — implemented,
-   production acceptance pending: OpenDKIM and the gateway's per-listener
-   milter; `tits-guru`'s held mail is signed and still held — see
-   [`mail-signing.md`](mail-signing.md).
-5. **Activation** (ROADMAP 8.4B.4.2b): `tits-guru` from `held` to `outbound`
-   behind full readiness, and a controlled real canary.
+4. **The DKIM signing foundation** (ROADMAP 8.4B.4.2a) — production-accepted:
+   OpenDKIM and the gateway's per-listener milter; `tits-guru`'s held mail is
+   signed and still held — see [`mail-signing.md`](mail-signing.md).
+5. **Activation** (ROADMAP 8.4B.4.2b, 8.4B.4.2c): the guarded tooling, accepted
+   on the shared host; the committed policy now requests `tits-guru` outbound;
+   the host crosses only through Activate, behind full readiness, and is
+   accepted after a controlled real canary.
 6. **Bounces, replies and the support mailbox** (8.4B.5), **suppression and
    delivery state** (8.4B.6), and **mail operations and recovery** (8.4B.7).
