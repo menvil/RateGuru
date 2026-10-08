@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Laukas „:attribute“ turi būti priimtas.',
+    'required' => 'Laukas „:attribute“ yra privalomas.',
+    'string' => 'Laukas „:attribute“ turi būti tekstas.',
+    'max' => [
+        'array' => 'Lauke „:attribute“ negali būti daugiau nei :max elementų.',
+        'file' => 'Lauko „:attribute“ failas negali būti didesnis nei :max KB.',
+        'string' => 'Laukas „:attribute“ negali būti ilgesnis nei :max simbolių.',
+    ],
+    'min' => [
+        'string' => 'Laukas „:attribute“ turi būti sudarytas bent iš :min simbolių.',
+    ],
+    'in' => 'Pasirinkta lauko „:attribute“ reikšmė netinkama.',
+    'unique' => 'Lauko „:attribute“ reikšmė jau užimta.',
+    'email' => 'Laukas „:attribute“ turi būti galiojantis el. pašto adresas.',
+    'confirmed' => 'Lauko „:attribute“ patvirtinimas nesutampa.',
+    'array' => 'Laukas „:attribute“ turi būti masyvas.',
+    'boolean' => 'Lauko „:attribute“ reikšmė turi būti „taip“ arba „ne“.',
+    'current_password' => 'Slaptažodis neteisingas.',
+    'dimensions' => 'Lauko „:attribute“ paveikslėlio matmenys netinkami.',
+    'enum' => 'Pasirinkta lauko „:attribute“ reikšmė netinkama.',
+    'exists' => 'Pasirinkta lauko „:attribute“ reikšmė netinkama.',
+    'image' => 'Laukas „:attribute“ turi būti paveikslėlis.',
+    'integer' => 'Laukas „:attribute“ turi būti sveikasis skaičius.',
+    'lowercase' => 'Laukas „:attribute“ turi būti parašytas mažosiomis raidėmis.',
+    'mimes' => 'Laukas „:attribute“ turi būti šio tipo failas: :values.',
+    'not_regex' => 'Lauko „:attribute“ formatas netinkamas.',
+    'regex' => 'Lauko „:attribute“ formatas netinkamas.',
+    'uploaded' => 'Lauko „:attribute“ įkelti nepavyko.',
+    'url' => 'Laukas „:attribute“ turi būti galiojantis URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'apie mane',
+        'categoryId' => 'kategorija',
+        'current_password' => 'dabartinis slaptažodis',
+        'description' => 'aprašymas',
+        'display_name' => 'rodomas vardas',
+        'email' => 'el. paštas',
+        'image' => 'paveikslėlis',
+        'locale' => 'kalba',
+        'message' => 'žinutė',
+        'name' => 'vardas',
+        'password' => 'slaptažodis',
+        'profile_website_url' => 'svetainė',
+        'reason' => 'priežastis',
+        'sourceUrl' => 'šaltinio URL',
+        'subject' => 'tema',
+        'tagIds' => 'žymos',
+        'title' => 'pavadinimas',
+        'url' => 'URL',
+        'username' => 'naudotojo vardas',
+    ],
+];

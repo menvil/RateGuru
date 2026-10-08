@@ -2,6 +2,7 @@
 
 namespace App\Support\Translations;
 
+use App\Support\Locale\LanguageRules;
 use App\Support\Locale\LocaleManager;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -53,7 +54,8 @@ final class ProjectTranslationRequestFactory
     public function make(array $units, string $targetLocale, array $glossary = []): TranslationBatchRequest
     {
         return new TranslationBatchRequest(
-            $targetLocale,
+            // Named so a translator cannot mistake the script or variant: Serbian is sr-Cyrl, not Latin.
+            LanguageRules::translationLocale($targetLocale),
             TranslationDataClassification::PublicContent,
             array_map(fn (ProjectTranslationUnit $unit): TranslationItem => $this->item($unit, $targetLocale), $units),
             $glossary,

@@ -305,10 +305,11 @@ function mailGatewayAcceptanceStubs(): array
 }
 
 /**
- * A simulated host: the fake gateway listening for the committed staging-main
- * (capture) and tits-guru (held) targets plus the synthetic demo-shop
- * (outbound), a running Mailpit, and someone else's message in the queue and
- * in Mailpit that the acceptance must leave alone.
+ * A simulated host: the fake gateway listening for staging-main (capture) and
+ * tits-guru as it was held before its activation (mailPreActivationPolicy())
+ * plus the synthetic demo-shop (outbound), a running Mailpit, and someone
+ * else's message in the queue and in Mailpit that the acceptance must leave
+ * alone.
  *
  * @param  list<string>  $toggles
  * @param  (callable(array<string, mixed>): array<string, mixed>)|null  $policy  edits the policy after the ports are in
@@ -360,7 +361,7 @@ function mailGatewayAcceptanceHost(array $toggles = [], ?callable $policy = null
     expect($ports)->toHaveCount(3, 'the fake gateway did not report its ports: '.@file_get_contents($scratch.'/fake-gateway.err'));
     $ports = array_combine(['staging-main', 'tits-guru', 'demo-shop'], $ports);
 
-    $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+    $routing = mailPreActivationPolicy()['routing'];
     $routing['targets']['demo-shop'] = mailRoutingDemoShopOutboundPolicy();
     foreach ($ports as $target => $port) {
         $routing['targets'][$target]['submission']['port'] = $port;
@@ -772,6 +773,42 @@ it('fails each check with its own reason, and still removes what it created', fu
         },
     ],
 ]);
+
+it('only probes the committed tits-guru, now outbound: no message is ever submitted to it', function () {
+    // The committed policy routes tits-guru outbound by direct delivery; the
+    // acceptance submits whole messages to capture and held listeners only.
+    $host = mailGatewayAcceptanceHost([], static function (array $routing): array {
+        $committed = mailCommittedPolicy()['routing']['targets']['tits-guru'];
+        $committed['submission'] = $routing['targets']['tits-guru']['submission'];
+        $routing['targets']['tits-guru'] = $committed;
+
+        return $routing;
+    });
+
+    try {
+        $run = mailGatewayAcceptanceRun($host);
+        $state = mailGatewayAcceptanceState($host);
+        $titsGuru = $host['ports']['tits-guru'];
+        $probe = static fn (string $domain): array => ['EHLO mail-gateway-verify', "MAIL FROM:<intruder@{$domain}>", 'RSET', 'QUIT'];
+
+        expect($run['status'])->toBe(0, $run['output']);
+
+        // A and D into the capture listener, and nothing else.
+        expect($state['queued'])->toHaveCount(2);
+        expect($state['transcripts'][$titsGuru])->toBe([
+            ...$probe('foreign-tits.guru'),
+            ...$probe('demo-shop.example'),
+            ...$probe('staging.invalid'),
+        ]);
+        expect($state['internet'])->toBe([]);
+
+        expect($run['output'])
+            ->toContain("PASS E tits-guru: outbound (direct) on 127.0.0.1:{$titsGuru} — no message submitted")
+            ->not->toContain('C tits-guru');
+    } finally {
+        mailGatewayAcceptanceCleanup($host);
+    }
+});
 
 it('fails a passing run whose cleanup cannot prove its own entries gone', function (array $toggles, Closure $expectCleanupFailure) {
     // Every check passes; only the EXIT cleanup runs into trouble. A passing

@@ -79,7 +79,10 @@ The translation engine does not know `ProjectTranslationUnit`. The dependency ru
 domain to the engine, never back: `ProjectTranslationRequestFactory` (in `App\Support\Translations`) is the one
 place project content is described to it.
 
-- **What it sends.** For each unit: its id, English as the source language, the English text, a content type of
+- **What it sends.** The target language by the tag a translator cannot misread: the installed code, or where the
+  code alone leaves the script or variant open, a precise tag (`App\Support\Locale\LanguageRules`): Serbian as
+  `sr-Cyrl`, Montenegrin as `cnr-Latn`, Portuguese as `pt-BR`, Chinese as `zh-Hans`. The catalog is still read by the
+  installed code. For each unit: its id, English as the source language, the English text, a content type of
   `{section}.{field}` (`categories.name`, `static_pages.content` — never a record id or slug), a few labelled
   lines of context (section, entity, field, business key and the catalog's own usage text), the unit's maximum
   length, line mode and placeholders exactly as the catalog has them, and what the other installed languages

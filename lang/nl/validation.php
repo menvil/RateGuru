@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Het veld :attribute moet worden geaccepteerd.',
+    'required' => 'Het veld :attribute is verplicht.',
+    'string' => 'Het veld :attribute moet een tekst zijn.',
+    'max' => [
+        'array' => 'Het veld :attribute mag niet meer dan :max items bevatten.',
+        'file' => 'Het veld :attribute mag niet groter zijn dan :max kilobytes.',
+        'string' => 'Het veld :attribute mag niet meer dan :max tekens bevatten.',
+    ],
+    'min' => [
+        'string' => 'Het veld :attribute moet minimaal :min tekens bevatten.',
+    ],
+    'in' => 'De geselecteerde waarde voor :attribute is ongeldig.',
+    'unique' => 'Deze waarde voor :attribute is al in gebruik.',
+    'email' => 'Het veld :attribute moet een geldig e-mailadres zijn.',
+    'confirmed' => 'De bevestiging van het veld :attribute komt niet overeen.',
+    'array' => 'Het veld :attribute moet een lijst zijn.',
+    'boolean' => 'Het veld :attribute moet waar of onwaar zijn.',
+    'current_password' => 'Het wachtwoord is onjuist.',
+    'dimensions' => 'Het veld :attribute heeft ongeldige afbeeldingsafmetingen.',
+    'enum' => 'De geselecteerde waarde voor :attribute is ongeldig.',
+    'exists' => 'De geselecteerde waarde voor :attribute is ongeldig.',
+    'image' => 'Het veld :attribute moet een afbeelding zijn.',
+    'integer' => 'Het veld :attribute moet een geheel getal zijn.',
+    'lowercase' => 'Het veld :attribute mag alleen kleine letters bevatten.',
+    'mimes' => 'Het veld :attribute moet een bestand zijn van het type: :values.',
+    'not_regex' => 'Het formaat van het veld :attribute is ongeldig.',
+    'regex' => 'Het formaat van het veld :attribute is ongeldig.',
+    'uploaded' => 'Het uploaden van :attribute is mislukt.',
+    'url' => 'Het veld :attribute moet een geldige URL zijn.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'over mij',
+        'categoryId' => 'categorie',
+        'current_password' => 'huidig wachtwoord',
+        'description' => 'beschrijving',
+        'display_name' => 'weergavenaam',
+        'email' => 'e-mailadres',
+        'image' => 'afbeelding',
+        'locale' => 'taal',
+        'message' => 'bericht',
+        'name' => 'naam',
+        'password' => 'wachtwoord',
+        'profile_website_url' => 'website',
+        'reason' => 'reden',
+        'sourceUrl' => 'bron-URL',
+        'subject' => 'onderwerp',
+        'tagIds' => 'tags',
+        'title' => 'titel',
+        'url' => 'URL',
+        'username' => 'gebruikersnaam',
+    ],
+];

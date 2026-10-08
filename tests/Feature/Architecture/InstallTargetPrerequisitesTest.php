@@ -1581,8 +1581,9 @@ function itpTitsGuruArgs(string $mode): array
 
 /**
  * A scratch checkout whose configuration adds the synthetic demo-shop target —
- * held, or outbound on a host that enabled direct delivery — with its own
- * identity, and demo-shop's own environment file and deploy key in place.
+ * held beside the pre-activation tits-guru on a host without direct delivery,
+ * or outbound on a host that enabled it — with its own identity, and
+ * demo-shop's own environment file and deploy key in place.
  *
  * @return array<string, string>
  */
@@ -1592,6 +1593,7 @@ function itpDemoShopCheckout(string $scratch, string $mode): array
 
     mailIdentityFixtureConfig($repo.'/infrastructure/config', [
         'mode' => $mode,
+        'policy' => $mode === 'outbound' ? mailCommittedPolicy() : mailPreActivationPolicy(),
         'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => $mode === 'outbound', 'mta_hostname' => 'mta1.example.net']],
     ]);
 
@@ -1616,7 +1618,10 @@ it('defers a held target\'s absent DKIM key without making the target unready', 
     try {
         itpTitsGuruReady($scratch);
 
-        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        // The pre-activation repository, where tits-guru's mail is still held.
+        $held = ['RATEGURU_TARGETPREREQ_REPO_ROOT' => mailPreActivationCheckout($scratch.'/checkout')];
+
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), $held);
         expect($check)->toBe(0, $report);
         expect($report)
             ->toMatch('/^DEFERRED +target +mail-dkim-private-key +absent, and not needed yet: tits-guru\'s mail is held/m')
@@ -1624,14 +1629,30 @@ it('defers a held target\'s absent DKIM key without making the target unready', 
             ->toContain('deferred 1')
             ->toContain('TARGET PREREQUISITES READY: YES');
 
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], $held);
         expect($apply)->toBe(0, $log);
         expect($log)->toContain('DEFER mail-dkim-private-key');
         expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse('a deferred key created its directories');
 
-        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'), $held);
         expect($verify)->toBe(0, $verified);
         expect($verified)->toContain('DEFERRED mail-dkim-private-key: absent and not needed while tits-guru\'s mail is held');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('requires tits-guru\'s DKIM key now that its committed mail policy requests outbound delivery', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpTitsGuruReady($scratch);
+
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        expect($check)->not->toBe(0, $report);
+        expect($report)
+            ->toMatch('/^MISSING +target +mail-dkim-private-key +absent and no material supplied: \/etc\/opendkim\/keys\/tits-guru\/rg1.private/m')
+            ->toContain('TARGET PREREQUISITES READY: NO');
     } finally {
         removeScratchDir($scratch);
     }

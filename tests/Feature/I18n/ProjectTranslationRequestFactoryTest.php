@@ -205,6 +205,24 @@ it('turns several units into one logical batch, in the order given', function ()
         ->and($request->dataClassification)->toBe(TranslationDataClassification::PublicContent);
 });
 
+it('names the target so a translator cannot mistake its script or variant', function (string $installed, string $tag) {
+    $tagline = ProjectSettings::findOrFail(1);
+    $tagline->update(['site_tagline_translations' => [$installed => 'Stored in the target', 'de' => 'Bewerte alles']]);
+
+    $request = translationRequestFactory()->make([catalogUnit('project_settings:site_tagline')], $installed);
+
+    // Its own stored text is still told apart by the installed code: never context.
+    expect($request->targetLocale)->toBe($tag)
+        ->and($request->items[0]->existingTranslations)->not->toHaveKey($installed)
+        ->and($request->items[0]->existingTranslations)->not->toHaveKey($tag);
+})->with([
+    'Serbian, in Cyrillic' => ['sr', 'sr-Cyrl'],
+    'Montenegrin, in Latin' => ['cnr', 'cnr-Latn'],
+    'Brazilian Portuguese' => ['pt', 'pt-BR'],
+    'Simplified Chinese' => ['zh', 'zh-Hans'],
+    'a language its code pins down' => ['de', 'de'],
+]);
+
 it('takes a glossary from its caller and passes it on unchanged', function () {
     [$target] = twoTranslatedLocales();
 

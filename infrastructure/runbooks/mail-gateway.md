@@ -4,7 +4,7 @@ The host-global Postfix gateway every target submits its mail to, rendered from
 the reviewed mail routing policy. The policy, and why the submission port is a
 target's identity, are in [`mail-routing.md`](mail-routing.md); this runbook is
 how the gateway is installed, verified and accepted, and how its direct outbound
-transport works and stays switched off.
+transport works and reaches a host only through the guarded activation.
 
 ## Status
 
@@ -14,10 +14,11 @@ transport works and stays switched off.
 | Gateway on the staging host | **Installed and accepted** — Postfix 3.6.4, configuration exactly the reviewed render, verified on the real host |
 | Real-host acceptance (`verify-mail-gateway --e2e`) | **Passed** on the real staging host — see [Real-host acceptance](#real-host-acceptance) |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
-| `tits-guru` | `lifecycle=planned`, `delivery_mode=held`; its listener exists and **holds** everything; nothing is delivered |
-| DKIM signing of `tits-guru`'s listener | **Implemented — production acceptance pending**: its listener hands each message to the host's DKIM signer before it is held — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
-| Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, not activated**: no target uses it, and `config/mail-outbound.json` keeps direct delivery **disabled** on the host, so no outbound route can be rendered or installed |
-| Production outbound delivery | **None**: no route to the Internet exists on any host. A production target is activated only through the guarded `activate-mail-outbound` — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| `tits-guru` — committed policy | `lifecycle=planned`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |
+| `tits-guru` — real host | **Held** until Activate: its listener exists and **holds** everything, the recorded applied policy is held, and nothing is delivered |
+| DKIM signing of `tits-guru`'s listener | **Accepted on the shared host**: its listener hands each message to the host's DKIM signer before it is held — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
+| Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, requested, not yet active on the host**: the committed `config/mail-outbound.json` enables direct delivery for `tits-guru`, and the host renders the route only once `activate-mail-outbound` has crossed the activation boundary |
+| Production outbound delivery | **None yet**: no route to the Internet exists on any host. A production target is activated only through the guarded `activate-mail-outbound`, and accepted only after a real canary — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
 ## What is installed
 
@@ -32,10 +33,12 @@ tits-guru (not deployed) ─▶ 127.0.0.1:2526 ┤    listener = routing identit
               anything else  → error(8)      → never delivered
 ```
 
-That is the whole gateway on the real host today. The direct outbound route
-described [below](#direct-outbound-implemented-switched-off) is implemented but
-appears in no target's policy and is disabled for the host, so nothing in it is
-rendered.
+That is the whole gateway on the real host today. The committed policy now
+requests `tits-guru`'s direct outbound route, described
+[below](#direct-outbound-on-a-host-only-through-the-activation), but the host
+renders none of it until `activate-mail-outbound` crosses the activation
+boundary; then `2526` hands its mail to `rateguru-outbound-tits-guru`, straight
+to each recipient domain's MX.
 
 One Postfix instance for the host, owned end to end by
 `infrastructure/scripts/install-mail-gateway`:
@@ -149,12 +152,13 @@ each key — is installed, verified and accepted as
 [`mail-signing.md`](mail-signing.md) describes, before the gateway in host
 bootstrap.
 
-## Direct outbound (implemented, switched off)
+## Direct outbound: on a host only through the activation
 
 A production target's mail is eventually delivered by the gateway itself,
 straight to each recipient's mail servers — self-hosted direct SMTP, with no
-provider, relay host, smart host or credential. The capability exists; it is
-not active anywhere.
+provider, relay host, smart host or credential. The capability exists, and the
+committed policy requests it for `tits-guru`; it is not active on any host
+until `activate-mail-outbound` has run there.
 
 ```
 Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outbound-<target> (smtp)
@@ -177,7 +181,7 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
    {
      "schema_version": 1,
      "direct": {
-       "enabled": false,
+       "enabled": true,
        "mta_hostname": "mta1.tits.guru"
      }
    }
@@ -187,14 +191,13 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
    exactly one PTR name. So the name direct delivery greets receiving servers
    with (`HELO`/`EHLO`) is the **host's** physical MTA identity, kept here once,
    and never a target's `From` domain or anything in a target's policy.
-   `enabled: false` means direct delivery does not exist on this host;
-   `mta_hostname` may then be empty, or — as now — name the reviewed identity
-   ahead of its enablement, which renders nothing. `enabled: true` requires a lowercase,
-   fully qualified public hostname — never under `.invalid`, `.test`,
-   `.localhost`, `.example`, `.local`, `.localdomain`, `.internal`, `.alt`,
-   `.onion` or `.arpa`, because a receiving server compares it with the PTR of
-   the sending address. The file holds no credential; there is nowhere in it to
-   put one.
+   `enabled: false` means direct delivery does not exist on this host, and
+   `mta_hostname` may then be empty. `enabled: true` — the committed contract —
+   requires a lowercase, fully qualified public hostname, never under
+   `.invalid`, `.test`, `.localhost`, `.example`, `.local`, `.localdomain`,
+   `.internal`, `.alt`, `.onion` or `.arpa`, because a receiving server compares
+   it with the PTR of the sending address. The file holds no credential; there
+   is nowhere in it to put one.
 
 **Fail closed before anything changes.** `install-mail-gateway` judges the host
 contract in every mode, before it renders. A plan with a direct route on a host
@@ -238,8 +241,10 @@ target is switched to `outbound`: DKIM signing, published and verified DNS
 [`mail-identity.md`](mail-identity.md)), the production Return-Path and bounce
 reception, reply routing, a support mailbox, the production `MAIL_*` values, a
 controlled real canary delivery, header verification at the large mailbox
-providers, and sender reputation warm-up. Until then the real
-`mail-outbound.json` stays `enabled: false` and `tits-guru` stays `held`.
+providers, and sender reputation warm-up. The committed `mail-outbound.json`
+now says `enabled: true` and `tits-guru`'s policy says `outbound`; the shared
+host stays held until Activate, and production is accepted only after the real
+canary and its headers.
 
 The contract is judged by `infrastructure/scripts/mail-identity`
 (`check-outbound`), the one judge of the host's and the targets' mail
@@ -287,11 +292,12 @@ and removed — before the transition starts, so it is never honoured twice.
 There is no flag, variable or mode that does the same.
 
 So **Prepare can converge a state but cannot cross the activation boundary**,
-and a Prepare from a stale branch fails closed instead of activating or
-deactivating mail: after the activation change reaches `main` but before
-Activate, Prepare refuses held → outbound and the host stays held; after
-Activate but before `main` reaches `develop`, Prepare staging refuses outbound →
-held and production keeps delivering.
+and a Prepare that meets it fails closed instead of activating or deactivating
+mail: once the activation change is merged into `develop` (and after its
+promotion to `main`) but before Activate, any Prepare refuses held → outbound
+and the host stays held, while Verify reports the difference; after Activate, a
+Prepare from a bundle that still holds `tits-guru` refuses outbound → held and
+production keeps delivering.
 
 **Its name.** Postfix calls itself by the host's reviewed MTA hostname from
 `mail-outbound.json` (`myhostname = mta1.tits.guru` here) — its banner, its
@@ -464,9 +470,8 @@ The gateway was accepted on the real staging host:
   arrived in Mailpit and in Mailtrap Local.
 
 That acceptance covered capture and hold only. The direct outbound transport
-has had no real-host acceptance, and cannot have one while it is disabled: its
-first real delivery is a controlled production canary, after the production
-mail identity exists.
+has had no real-host acceptance yet, and cannot have one before Activate: its
+first real delivery is the controlled production canary.
 
 ## Troubleshooting
 

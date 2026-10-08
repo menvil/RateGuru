@@ -2041,6 +2041,12 @@ Slices, in order:
    `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then
    Verify staging infrastructure. Not accepted until a real canary has been
    received and its headers inspected.
+   *Tooling accepted on the shared host on 2026-10-08,* with `tits-guru` still
+   held and direct delivery disabled: Prepare staging host run `37779425683`
+   and Verify staging infrastructure run `37780411751` (`develop` `92252559`),
+   Verify production infrastructure run `37780729123` and Verify production
+   mail signing run `37781550331` (`main` `771268e2`), all PASS; the gateway
+   recorded its applied policy on the host.
    *Moved out on purpose:* the production application's mail transport
    (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
    `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before
@@ -2048,6 +2054,39 @@ Slices, in order:
    planned and undeployed, so changing it now would widen this transaction
    for nothing. Sender reputation warm-up follows the first delivery. See
    [`runbooks/mail-outbound-activation.md`](runbooks/mail-outbound-activation.md).
+
+   **8.4B.4.2c Production outbound activation policy — IMPLEMENTED in the
+   repository — host activation pending.** The committed policy now requests
+   `tits-guru`'s direct outbound delivery: in `mail-routing.json` its
+   `delivery_mode` is `outbound` with `{"kind": "direct"}` and every other
+   field of it unchanged (`127.0.0.1:2526`, `tits.guru`, `noreply@tits.guru`,
+   `bounce.tx.tits.guru`, `reply.tits.guru`); `mail-outbound.json` enables
+   direct delivery as `mta1.tits.guru`. `lifecycle` stays `planned`, staging
+   still captures on `2525`, and no production `MAIL_*`, `.env`,
+   `LARAVEL_ENV` or template changes. Three states are kept apart. *Code and
+   policy:* once promoted to `main`, the repository requests outbound
+   delivery. *The real server:* held until **Activate tits.guru outbound
+   mail** runs, whatever the repository requests — every ordinary gateway
+   apply (Prepare, bootstrap, repair) refuses held → outbound without the
+   activation's one-use authorization, and Verify reports the difference; a
+   committed outbound policy is never `OUTBOUND READY: YES` on a held host,
+   because readiness asks the signing verifier, whose own gateway verify sees
+   that difference. *Production accepted:* only after Activate, Verify
+   production infrastructure (`OUTBOUND READY: YES`), and a real canary
+   received with its raw headers inspected. The tests keep the committed
+   request and an explicit pre-activation fixture — the request with exactly
+   its three changes undone, never a second copy of the documents — apart,
+   so held behaviour is still proved on held data. The order after the merge
+   into `develop`: no Prepare or Verify staging until the activation is done;
+   the ordinary promotion to `main`; Activate by hand from `main`; Verify
+   production infrastructure; `MAIL_CANARY_RECIPIENT`; the canary; the
+   received message and its headers; Verify staging infrastructure; then the
+   acceptance, recorded from those results. Before go-live, the rollback is
+   **Rollback tits.guru outbound mail activation** (the runtime held again),
+   then the policy returned to held by its own pull request through
+   `develop` → `main`; ordinary Verify and Prepare resume once the committed
+   and the applied policy match. Nothing was activated or sent by this
+   change.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
    planned.** The production Return-Path and bounce identity, bounce reception

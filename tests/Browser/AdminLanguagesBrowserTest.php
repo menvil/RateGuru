@@ -721,18 +721,19 @@ it('keeps the search across tabs, in their links, the URL and Back', function ()
         ->and($page->script('new URLSearchParams(location.search).get("status")'))->toBeNull());
 });
 
-it('searches thirty-five languages in the page', function () {
-    $codes = installLanguagesUpTo(35);
-    $made = $codes[20];
+it('searches sixty languages in the page', function () {
+    $codes = installLanguagesUpTo(60);
+    // A made-up language: its code is in no other row.
+    $made = collect($codes)->first(fn (string $code): bool => str_starts_with($code, 'x'));
 
     $page = visitLanguages('/admin/languages');
     watchLivewireUpdates($page);
 
-    expect(languagesScreen($page))->toMatchArray(['rows' => $codes, 'count' => '35 of 35 installed']);
+    expect(languagesScreen($page))->toMatchArray(['rows' => $codes, 'count' => '60 of 60 installed']);
 
     $page->typeSlowly('#rg-admin-languages-search', $made, 40);
     languagesSearched($page, $made);
-    expect(languagesScreen($page))->toMatchArray(['rows' => [$made], 'count' => '1 of 35 installed']);
+    expect(languagesScreen($page))->toMatchArray(['rows' => [$made], 'count' => '1 of 60 installed']);
 
     // "Language X…" is in every made-up name: a search can match many at once.
     $page->clear('#rg-admin-languages-search');

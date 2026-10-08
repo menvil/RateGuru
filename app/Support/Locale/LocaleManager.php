@@ -133,10 +133,13 @@ class LocaleManager
      * them.
      *
      * Languages are tried in the header's quality order, and each one first as
-     * written and then by its primary language, so `ru-RU` reaches `ru`. A
-     * language refused with `q=0` and the `*` wildcard never match. Null is a
-     * real answer: the caller falls through to the default, never to whichever
-     * offered language happens to come first.
+     * written and then by its primary language, so `ru-RU` reaches `ru` — unless
+     * it names a script or variant other than the one installed
+     * (LanguageRules::browserCandidates()): `zh-TW` does not reach the
+     * installed Simplified Chinese, and the browser's next language is tried.
+     * A language refused with `q=0` and the `*` wildcard never match. Null is
+     * a real answer: the caller falls through to the default, never to
+     * whichever offered language happens to come first.
      */
     public function fromAcceptLanguage(?string $header): ?string
     {
@@ -145,10 +148,8 @@ class LocaleManager
                 continue;
             }
 
-            $tag = strtolower(str_replace('_', '-', trim($item->getValue())));
-
-            foreach (array_unique([$tag, explode('-', $tag)[0]]) as $candidate) {
-                if ($candidate !== '*' && $this->isEnabled($candidate)) {
+            foreach (LanguageRules::browserCandidates($item->getValue()) as $candidate) {
+                if ($this->isEnabled($candidate)) {
                     return $candidate;
                 }
             }

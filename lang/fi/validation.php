@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Kenttä ”:attribute” on hyväksyttävä.',
+    'required' => 'Kenttä ”:attribute” on pakollinen.',
+    'string' => 'Kentän ”:attribute” arvon on oltava tekstiä.',
+    'max' => [
+        'array' => 'Kentässä ”:attribute” saa olla enintään :max kohdetta.',
+        'file' => 'Kentän ”:attribute” tiedosto saa olla enintään :max kilotavua.',
+        'string' => 'Kentässä ”:attribute” saa olla enintään :max merkkiä.',
+    ],
+    'min' => [
+        'string' => 'Kentässä ”:attribute” on oltava vähintään :min merkkiä.',
+    ],
+    'in' => 'Kentän ”:attribute” valinta on virheellinen.',
+    'unique' => 'Kentän ”:attribute” arvo on jo käytössä.',
+    'email' => 'Kentän ”:attribute” arvon on oltava kelvollinen sähköpostiosoite.',
+    'confirmed' => 'Kentän ”:attribute” vahvistus ei täsmää.',
+    'array' => 'Kentän ”:attribute” arvon on oltava luettelo.',
+    'boolean' => 'Kentän ”:attribute” arvon on oltava tosi tai epätosi.',
+    'current_password' => 'Salasana on virheellinen.',
+    'dimensions' => 'Kentän ”:attribute” kuvan mitat ovat virheelliset.',
+    'enum' => 'Kentän ”:attribute” valinta on virheellinen.',
+    'exists' => 'Kentän ”:attribute” valinta on virheellinen.',
+    'image' => 'Kentän ”:attribute” tiedoston on oltava kuva.',
+    'integer' => 'Kentän ”:attribute” arvon on oltava kokonaisluku.',
+    'lowercase' => 'Kentän ”:attribute” arvossa saa olla vain pieniä kirjaimia.',
+    'mimes' => 'Kentän ”:attribute” tiedoston on oltava jotakin seuraavista tyypeistä: :values.',
+    'not_regex' => 'Kentän ”:attribute” muoto on virheellinen.',
+    'regex' => 'Kentän ”:attribute” muoto on virheellinen.',
+    'uploaded' => 'Kentän ”:attribute” tiedoston lataaminen epäonnistui.',
+    'url' => 'Kentän ”:attribute” arvon on oltava kelvollinen URL-osoite.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'esittely',
+        'categoryId' => 'kategoria',
+        'current_password' => 'nykyinen salasana',
+        'description' => 'kuvaus',
+        'display_name' => 'näyttönimi',
+        'email' => 'sähköposti',
+        'image' => 'kuva',
+        'locale' => 'kieli',
+        'message' => 'viesti',
+        'name' => 'nimi',
+        'password' => 'salasana',
+        'profile_website_url' => 'verkkosivusto',
+        'reason' => 'syy',
+        'sourceUrl' => 'lähteen URL-osoite',
+        'subject' => 'aihe',
+        'tagIds' => 'tunnisteet',
+        'title' => 'otsikko',
+        'url' => 'URL-osoite',
+        'username' => 'käyttäjänimi',
+    ],
+];

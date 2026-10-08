@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => '您必须接受 :attribute。',
+    'required' => ':attribute 不能为空。',
+    'string' => ':attribute 必须是字符串。',
+    'max' => [
+        'array' => ':attribute 最多只能有 :max 项。',
+        'file' => ':attribute 不能大于 :max KB。',
+        'string' => ':attribute 不能超过 :max 个字符。',
+    ],
+    'min' => [
+        'string' => ':attribute 至少为 :min 个字符。',
+    ],
+    'in' => '所选的 :attribute 无效。',
+    'unique' => ':attribute 已被占用。',
+    'email' => ':attribute 必须是有效的电子邮箱地址。',
+    'confirmed' => ':attribute 两次输入不一致。',
+    'array' => ':attribute 必须是数组。',
+    'boolean' => ':attribute 必须为 true 或 false。',
+    'current_password' => '密码错误。',
+    'dimensions' => ':attribute 的图片尺寸无效。',
+    'enum' => '所选的 :attribute 无效。',
+    'exists' => '所选的 :attribute 无效。',
+    'image' => ':attribute 必须是图片。',
+    'integer' => ':attribute 必须是整数。',
+    'lowercase' => ':attribute 必须为小写。',
+    'mimes' => ':attribute 必须是以下类型的文件：:values。',
+    'not_regex' => ':attribute 格式无效。',
+    'regex' => ':attribute 格式无效。',
+    'uploaded' => ':attribute 上传失败。',
+    'url' => ':attribute 必须是有效的网址。',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => '个人简介',
+        'categoryId' => '分类',
+        'current_password' => '当前密码',
+        'description' => '描述',
+        'display_name' => '显示名称',
+        'email' => '电子邮箱',
+        'image' => '图片',
+        'locale' => '语言',
+        'message' => '消息',
+        'name' => '姓名',
+        'password' => '密码',
+        'profile_website_url' => '网站',
+        'reason' => '原因',
+        'sourceUrl' => '来源网址',
+        'subject' => '主题',
+        'tagIds' => '标签',
+        'title' => '标题',
+        'url' => '网址',
+        'username' => '用户名',
+    ],
+];

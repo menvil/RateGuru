@@ -34,10 +34,10 @@ it('validates the real host and target identity contracts', function () {
     expect($run['status'])->toBe(0, $run['stderr']);
     expect($run['stdout'])->toContain('mail identity is valid');
 
-    // mta1.tits.guru is the reviewed host identity, and direct delivery stays
-    // disabled on the host.
+    // mta1.tits.guru is the reviewed host identity, and the committed host
+    // contract enables direct delivery under it.
     expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true))
-        ->toBe(['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.tits.guru']]);
+        ->toBe(['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.tits.guru']]);
 
     // rg1, RSA-SHA256, 2048 bits; DMARC p=none with strict alignment, and no
     // report address anywhere.
@@ -58,13 +58,14 @@ it('validates the real host and target identity contracts', function () {
         ->not->toContain('tits.guru');
 });
 
-it('keeps the real target held and planned, and the host without an outbound route', function () {
+it('keeps the real target planned while its committed mail policy requests direct outbound delivery', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
 
     expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
-    expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('held');
-    expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true)['direct']['enabled'])->toBeFalse();
+    expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
+    expect($routing['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
+    expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true)['direct']['enabled'])->toBeTrue();
 
     // The production environment is not touched by an identity.
     foreach (['production.env.example', 'tits-guru.env.example'] as $template) {
@@ -76,11 +77,21 @@ it('keeps the real target held and planned, and the host without an outbound rou
     }
 });
 
-it('derives tits-guru\'s key destination from its ID and reviewed selector, deferred while its mail is held', function () {
+it('derives tits-guru\'s key destination from its ID and reviewed selector: required now, deferred while its mail was held', function () {
     $run = mailIdentityRun(['dkim-key', '--target', 'tits-guru']);
 
     expect($run['status'])->toBe(0, $run['stderr']);
-    expect($run['stdout'])->toBe("deferred\t/etc/opendkim/keys/tits-guru/rg1.private\t2048\n");
+    expect($run['stdout'])->toBe("required\t/etc/opendkim/keys/tits-guru/rg1.private\t2048\n");
+
+    // The same destination before the activation was requested, deferred.
+    $scratch = mailIdentityScratch();
+
+    try {
+        $held = mailIdentityRun(['dkim-key', '--target', 'tits-guru', ...mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()])]);
+        expect($held['stdout'])->toBe("deferred\t/etc/opendkim/keys/tits-guru/rg1.private\t2048\n");
+    } finally {
+        removeScratchDir($scratch);
+    }
 
     // A target with no production identity has no key at all.
     expect(mailIdentityRun(['dkim-key', '--target', 'staging-main'])['stdout'])->toBe("none\n");
@@ -316,12 +327,12 @@ it('accepts a reviewed MTA hostname while direct delivery stays disabled, and ju
     $scratch = mailIdentityScratch();
 
     try {
-        // The real shape: named and disabled.
-        $files = mailIdentityFixtureConfig($scratch.'/config', ['outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.example.net']]]);
+        // The pre-activation shape: named and disabled, every target held.
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['policy' => mailPreActivationPolicy(), 'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.example.net']]]);
         expect(mailIdentityRun(['validate', ...$files])['status'])->toBe(0);
 
         // A disabled hostname is still a reviewed value, so it is still judged.
-        $files = mailIdentityFixtureConfig($scratch.'/config', ['outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.rateguru.invalid']]]);
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['policy' => mailPreActivationPolicy(), 'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.rateguru.invalid']]]);
         expectMailIdentityRefusal(mailIdentityRun(['validate', ...$files]), 'direct.mta_hostname "mta1.rateguru.invalid" is under the reserved .invalid domain');
     } finally {
         removeScratchDir($scratch);
@@ -400,7 +411,7 @@ it('prints exactly the records to publish, deriving the DKIM public key from the
         $public = mailIdentityPublicKey($key);
 
         expect($text)
-            ->toContain('hostname mta1.tits.guru (direct delivery disabled on this host)')
+            ->toContain('hostname mta1.tits.guru (direct delivery enabled on this host)')
             ->toContain('A mta1.tits.guru -> 203.0.113.10')
             ->toContain('PTR 203.0.113.10 -> mta1.tits.guru')
             ->toContain('TXT rg1._domainkey.tits.guru v=DKIM1; k=rsa; p='.$public)
@@ -426,7 +437,7 @@ it('prints the same records as JSON, with nothing but public values', function (
         expect($run['status'])->toBe(0, $run['stderr']);
         $plan = json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
 
-        expect($plan['mta'])->toBe(['direct_delivery_enabled' => false, 'hostname' => 'mta1.tits.guru', 'ipv4' => '203.0.113.10']);
+        expect($plan['mta'])->toBe(['direct_delivery_enabled' => true, 'hostname' => 'mta1.tits.guru', 'ipv4' => '203.0.113.10']);
         expect($plan['dkim']['key_status'])->toBe('usable');
         expect($plan['records'])->toBe([
             ['name' => 'mta1.tits.guru', 'purpose' => 'A', 'type' => 'A', 'value' => '203.0.113.10'],
@@ -650,7 +661,7 @@ it('verifies a target it has never heard of against its own domain, selector and
     $scratch = mailIdentityScratch();
 
     try {
-        $files = mailIdentityFixtureConfig($scratch.'/config', ['outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.example.net']]]);
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['policy' => mailPreActivationPolicy(), 'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.example.net']]]);
         $key = mailIdentityInstallKey($scratch, 'demo-shop', 'shop2026', 'rsa3072');
 
         $run = mailIdentityRun(
@@ -989,25 +1000,34 @@ it('fixes its public resolvers in the implementation, with no way to choose anot
 // THE SIGNING PLAN: WHAT THE HOST'S SIGNER SIGNS
 // =============================================================================
 
-it('renders the real signing plan: tits-guru, held, signed as tits.guru with rg1', function () {
+it('renders the real signing plan: tits-guru, outbound, signed as tits.guru with rg1 and its key required', function () {
     $run = mailIdentityRun(['render-signing-plan']);
+    $titsGuru = [
+        'algorithm' => 'rsa-sha256',
+        'domain' => 'tits.guru',
+        'key_path' => '/etc/opendkim/keys/tits-guru/rg1.private',
+        'key_requirement' => 'required',
+        'minimum_key_bits' => 2048,
+        'selector' => 'rg1',
+        'target' => 'tits-guru',
+    ];
 
     expect($run['status'])->toBe(0, $run['stderr']);
-    expect(json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR))->toBe([
-        'schema_version' => 1,
-        'targets' => [[
-            'algorithm' => 'rsa-sha256',
-            'domain' => 'tits.guru',
-            'key_path' => '/etc/opendkim/keys/tits-guru/rg1.private',
-            'key_requirement' => 'deferred',
-            'minimum_key_bits' => 2048,
-            'selector' => 'rg1',
-            'target' => 'tits-guru',
-        ]],
-    ]);
+    expect(json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR))->toBe(['schema_version' => 1, 'targets' => [$titsGuru]]);
 
     // Canonical: the same plan, byte for byte, every time.
     expect(mailIdentityRun(['render-signing-plan'])['stdout'])->toBe($run['stdout']);
+
+    // Held, before the activation was requested, the same signing with the
+    // key not yet required.
+    $scratch = mailIdentityScratch();
+
+    try {
+        $held = mailIdentityRun(['render-signing-plan', ...mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()])]);
+        expect(json_decode($held['stdout'], true, 512, JSON_THROW_ON_ERROR))->toBe(['schema_version' => 1, 'targets' => [array_replace($titsGuru, ['key_requirement' => 'deferred'])]]);
+    } finally {
+        removeScratchDir($scratch);
+    }
 });
 
 it('plans every production identity, held ones included, and never a staging target', function () {
@@ -1106,7 +1126,8 @@ it('prints an empty signing plan when no production target has a reviewed identi
     $scratch = mailIdentityScratch();
 
     try {
-        $files = mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false]);
+        // Held, so a target without an identity is valid at all.
+        $files = mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()]);
         file_put_contents($scratch.'/config/mail-identity.json', '{"schema_version": 1, "targets": {}}');
 
         $run = mailIdentityRun(['render-signing-plan', ...$files]);
@@ -1121,17 +1142,20 @@ it('prints an empty signing plan when no production target has a reviewed identi
 // READINESS: WHAT OUTBOUND DELIVERY WILL REQUIRE
 // =============================================================================
 
-it('reports every outbound condition for the real target, and none of them is met while it is held', function () {
+it('reports every outbound condition for the real target: its committed request alone is not ready, and the held state meets none', function () {
     $scratch = mailIdentityScratch();
 
     try {
+        // The committed request: routed outbound with direct delivery
+        // enabled — and still not ready, because readiness also asks for the
+        // key, the public DNS and the signing verifier's verdict on the host.
         $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], mailIdentityDnsHost($scratch, []));
 
         expect($run['status'])->not->toBe(0);
         expect($run['stdout'])
             ->toContain('PASS   target     environment_class production')
-            ->toContain('FAIL   routing    delivery_mode held in mail-routing.json — not outbound')
-            ->toContain('FAIL   direct     direct delivery is disabled on this host')
+            ->toContain('PASS   routing    delivery_mode outbound in mail-routing.json')
+            ->toContain('PASS   direct     direct delivery is enabled on this host as mta1.tits.guru')
             ->toContain('PASS   mta        the reviewed public MTA hostname is mta1.tits.guru')
             ->toContain('FAIL   key        /etc/opendkim/keys/tits-guru/rg1.private is not usable: it does not exist')
             ->toContain('FAIL   signing    verify-mail-signing --read-only --target tits-guru did not pass (exit 1)')
@@ -1142,6 +1166,17 @@ it('reports every outbound condition for the real target, and none of them is me
 
         // The signing condition is the verifier's verdict, asked read-only.
         expect(mailIdentitySigningCalls($scratch))->toBe(['--read-only --target tits-guru']);
+
+        // The pre-activation state: held, direct delivery disabled.
+        $held = mailIdentityRun(['readiness', '--target', 'tits-guru', ...mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()])], mailIdentityDnsHost($scratch, []));
+
+        expect($held['status'])->not->toBe(0);
+        expect($held['stdout'])
+            ->toContain('FAIL   routing    delivery_mode held in mail-routing.json — not outbound')
+            ->toContain('FAIL   direct     direct delivery is disabled on this host')
+            ->toContain('FAIL   key        /etc/opendkim/keys/tits-guru/rg1.private is not usable: it does not exist')
+            ->toContain('FAIL   signing    verify-mail-signing --read-only --target tits-guru did not pass (exit 1)')
+            ->toContain('OUTBOUND READY: NO');
     } finally {
         removeScratchDir($scratch);
     }
@@ -1159,12 +1194,13 @@ it('takes the signing condition from the signing verifier: PASS only when it pas
             return $matches[1];
         };
 
-        // The accepted production state once the signer is installed: every
-        // identity, key, DNS and signing condition holds, and the two gates
-        // that keep the target held and the host without a direct route still
-        // fail, each on its own.
+        // The accepted held production state, before the activation was
+        // requested: every identity, key, DNS and signing condition holds, and
+        // the two gates that keep the target held and the host without a
+        // direct route still fail, each on its own.
+        $held = mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()]);
         mailIdentitySigningVerdict($scratch, true);
-        $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], $env);
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru', ...$held], $env);
 
         expect($run['status'])->not->toBe(0);
         expect($failures($run['stdout']))->toBe(['routing', 'direct']);
@@ -1174,14 +1210,28 @@ it('takes the signing condition from the signing verifier: PASS only when it pas
             ->toContain('PASS   ptr        203.0.113.10 PTR is mta1.tits.guru')
             ->toContain('OUTBOUND READY: NO');
 
-        // The verifier refusing is a FAIL — and only that changes.
+        // The committed request, on a host whose gateway verifies it — one
+        // already activated: every condition holds.
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], $env);
+
+        expect($run['status'])->toBe(0, $run['stdout']);
+        expect($failures($run['stdout']))->toBe([]);
+        expect($run['stdout'])->toContain('OUTBOUND READY: YES');
+
+        // The verifier refusing is a FAIL — and only that changes. That is the
+        // committed request on a host still held: the verifier's own gateway
+        // verify reports the difference, so the host is not ready.
         mailIdentitySigningVerdict($scratch, false);
         $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], $env);
 
-        expect($failures($run['stdout']))->toBe(['routing', 'direct', 'signing']);
+        expect($failures($run['stdout']))->toBe(['signing']);
         expect($run['stdout'])
             ->toContain('FAIL   signing    verify-mail-signing --read-only --target tits-guru did not pass (exit 1)')
-            ->toContain('             |   FAIL the signer: install-mail-signing --verify --target tits-guru (exit 1)');
+            ->toContain('             |   FAIL the signer: install-mail-signing --verify --target tits-guru (exit 1)')
+            ->toContain('OUTBOUND READY: NO');
+
+        $run = mailIdentityRun(['readiness', '--target', 'tits-guru', ...$held], $env);
+        expect($failures($run['stdout']))->toBe(['routing', 'direct', 'signing']);
 
         // A verifier that cannot run at all is a FAIL too, never a pass.
         $run = mailIdentityRun(['readiness', '--target', 'tits-guru'], [...$env, 'RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN' => $scratch.'/bin/absent']);

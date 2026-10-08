@@ -7,10 +7,19 @@ first real message is sent and accepted. The gateway itself is
 [`mail-signing.md`](mail-signing.md); the identity and DNS it depends on are
 [`mail-identity.md`](mail-identity.md).
 
-Merging this tooling activates nothing. The committed configuration keeps
-`tits-guru` held with direct delivery disabled, so every workflow below refuses
-before it changes anything until a separate, reviewed activation change has
-reached `main` through `develop`.
+The committed configuration now **requests** `tits-guru`'s direct outbound
+delivery. Requesting it changes no host: merging the request and promoting it
+to `main` leaves the shared host **held** until **Activate tits.guru outbound
+mail** crosses it, and nothing else can. Three states are kept apart below and
+must never be confused:
+
+1. **Code and policy** — what the repository requests. Once the activation
+   change has reached `main`, the committed policy requests outbound delivery.
+2. **The real server** — what the host applies and records. It stays held
+   until Activate runs, whatever the repository requests.
+3. **Production accepted** — recorded only after Activate, **Verify production
+   infrastructure** reporting `OUTBOUND READY: YES`, and a real canary received
+   and its raw headers inspected.
 
 ## Status
 
@@ -20,8 +29,10 @@ reached `main` through `develop`.
 | `send-mail-canary` (`--check`, `--send`) | **Implemented** — repository tooling run from a trusted bundle |
 | `smtp-submission` | **Implemented** — the one SMTP conversation the signing acceptance and the canary share |
 | Workflows **Activate tits.guru outbound mail**, **Rollback tits.guru outbound mail activation**, **Send tits.guru production mail canary** | **Implemented**, `main` only |
-| `tits-guru` mail | **Held**, direct delivery **disabled**, `lifecycle=planned` — production activation **pending** |
-| First real delivery | **Pending** — accepted only once a real canary was received and its raw headers inspected |
+| Tooling accepted on the shared host | **Yes**, 2026-10-08 — see [Tooling rollout](#tooling-rollout-done) |
+| `tits-guru` mail — **committed policy** | **Outbound requested**: `delivery_mode` `outbound` with `{"kind": "direct"}`, `direct.enabled: true` as `mta1.tits.guru`; `lifecycle=planned` |
+| `tits-guru` mail — **real host** | **Held**, direct delivery disabled, until Activate runs from `main` — production activation **pending** |
+| Production acceptance | **Pending** — only after Activate, Verify production (`OUTBOUND READY: YES`), a real canary received and its raw headers inspected |
 | Production application `MAIL_*` | **Deliberately not set here** — see [Application mail transport](#application-mail-transport-is-not-part-of-this) |
 
 ## The activation
@@ -131,7 +142,9 @@ signing acceptance — and changes no repository file. Afterwards:
   be reverted — a pull request into `develop`, promoted to `main` — before the
   next Prepare or Verify**; until it is, Verify reports the difference and
   Prepare refuses to cross back to outbound; only another guarded activation
-  does.
+  does;
+- ordinary Prepare and Verify run again only once the committed policy and the
+  host's applied policy match — held on both sides.
 
 The permanent mail hold of a live production target, and its recovery-time
 fence, are later work (8.4B.7), not this.
@@ -193,58 +206,84 @@ reported as it.
 
 ## Rollout
 
-1. Merge the tooling pull request into `develop`.
-2. Run **Prepare staging host**.
-3. Run **Verify staging infrastructure**.
-4. Promote `develop` → `main`.
-5. Run **Verify production infrastructure**.
-6. Run **Verify production mail signing**.
+### Tooling rollout (done)
 
-   Production is still held, direct delivery disabled, `tits-guru` planned.
+The tooling itself activated nothing; it was rolled out and accepted on the
+shared host on 2026-10-08, with `tits-guru` still held and direct delivery
+disabled:
 
-7. Open a separate, tiny **activation pull request into `develop`**. It changes
-   exactly two files and nothing else:
+| Step | Run | Result |
+|------|-----|--------|
+| Merge the tooling pull request into `develop`. | — | merged |
+| Run **Prepare staging host** (`develop` `92252559`). | `37779425683` | PASS |
+| Run **Verify staging infrastructure** (`develop` `92252559`). | `37780411751` | PASS |
+| Promote `develop` → `main`. | — | promoted |
+| Run **Verify production infrastructure** (`main` `771268e2`). | `37780729123` | PASS |
+| Run **Verify production mail signing** (`main` `771268e2`). | `37781550331` | PASS |
 
-   - `infrastructure/config/mail-routing.json` — for `tits-guru`,
-     `"delivery_mode": "held"` → `"delivery_mode": "outbound"`, and
-     `"outbound": {"kind": "direct"}` added;
-   - `infrastructure/config/mail-outbound.json` — `"enabled": false` →
-     `"enabled": true`.
+The gateway recorded its applied policy on the host (held, direct delivery
+disabled), and the signing acceptance found a real `d=tits.guru`, `s=rg1`,
+`a=rsa-sha256` signature on a synthetic message in HOLD.
 
-   It is reviewed on its own and passes CI before it is merged. It takes the
-   ordinary path — into `develop`, then to `main` by the ordinary promotion. A
-   pull request directly into `main`, and a synchronization back from `main`
-   into `develop`, are not part of this rollout.
+### The activation change
 
-8. Merge it into `develop`. **From here until step 16, run neither Prepare
-   staging host nor Verify staging infrastructure.** Staging and production
-   share one machine today, and it is still held while `develop` already
-   requests outbound delivery: Verify would report that expected difference,
-   and Prepare would be refused. The interlock still guarantees that an
-   ordinary Prepare never turns outbound on — the gateway refuses held →
-   outbound without the activation's authorization, fails closed and leaves
-   the host held.
-9. Promote `develop` → `main`.
-10. Run **Activate tits.guru outbound mail**. A **Prepare production host** in
-    between cannot activate anything: the gateway refuses held → outbound
-    without the activation's authorization, and the host stays held.
-11. Run **Verify production infrastructure**. It must report full outbound
-    readiness — `OUTBOUND READY: YES` — while the target's lifecycle and
-    application stay deferred, because `tits-guru` is still planned.
-12. Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub
-    Environment.
-13. Run **Send tits.guru production mail canary**.
-14. Confirm its result: the remote MX accepted the exact canary
-    (`status=sent` for its own queue ID).
-15. Inspect the received message's raw headers against the table above.
-16. Run **Verify staging infrastructure**. `develop` and `main` now request the
+The activation change is an ordinary pull request **into `develop`**. It
+changes the policy in exactly two files —
+
+- `infrastructure/config/mail-routing.json` — for `tits-guru`,
+  `"delivery_mode": "held"` → `"delivery_mode": "outbound"`, and
+  `"outbound": {"kind": "direct"}` added;
+- `infrastructure/config/mail-outbound.json` — `"enabled": false` →
+  `"enabled": true`;
+
+— together with the tests and documents that depended on the committed policy
+being held. It is reviewed on its own, passes the complete CI, and reaches
+`main` by the ordinary promotion. A pull request directly into `main`, and a
+synchronization back from `main` into `develop`, are not part of this rollout.
+
+### After the activation change is merged
+
+1. The activation pull request into `develop`: the new policy, the tests and
+   the documents.
+2. The complete CI passes.
+3. Merge it into `develop`.
+4. **From here until step 11, run neither Prepare staging host nor Verify
+   staging infrastructure.** Staging and production share one machine today,
+   and it is still held while `develop` already requests outbound delivery:
+   Verify would report that expected difference, and Prepare would be refused.
+5. Promote `develop` → `main` the ordinary way.
+6. Run **Activate tits.guru outbound mail** by hand, from `main`.
+7. Run **Verify production infrastructure**. It must report full outbound
+   readiness — `OUTBOUND READY: YES` — while the target's lifecycle and
+   application stay deferred, because `tits-guru` is still planned.
+8. Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub
+   Environment.
+9. Run **Send tits.guru production mail canary**, and confirm its result: the
+   remote MX accepted the exact canary (`status=sent` for its own queue ID).
+10. Inspect the real received message and its raw headers against the table
+    above.
+11. Run **Verify staging infrastructure**. `develop` and `main` now request the
     activated routing and outbound policy the host applies.
-17. Then the activation and first delivery may be recorded as
-    production-accepted.
+12. Only then record the activation and the first delivery as
+    production-accepted, from those actual results.
 
-If anything is wrong before go-live: **Rollback tits.guru outbound mail
-activation**, then revert the activation change — a pull request into
-`develop`, through CI, promoted to `main` — before the next Prepare or Verify.
+**Why no ordinary Prepare runs between the merge and Activate.** From step 3
+the repository requests outbound delivery while the host is still held, so any
+ordinary gateway apply — Prepare staging host, Prepare production host,
+bootstrap or repair — meets the activation boundary. It must refuse held →
+outbound without the activation's one-use authorization, and it does: the
+gateway fails closed and the host stays held. That refusal is the interlock
+working, not something to retry; only Activate crosses, after its own proof.
+Verify, read-only, reports the same difference until Activate has run.
+
+### If anything is wrong before go-live
+
+1. Run **Rollback tits.guru outbound mail activation**. The runtime returns to
+   held, and the gateway's recorded policy with it.
+2. Return the policy to held with a separate pull request into `develop` —
+   reverting the activation change — through CI, promoted to `main`.
+3. Only once the committed policy and the host's applied policy match again
+   run ordinary Verify and Prepare.
 
 ## The applied policy and the boundary
 

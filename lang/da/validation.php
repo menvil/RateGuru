@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Feltet :attribute skal accepteres.',
+    'required' => 'Feltet :attribute skal udfyldes.',
+    'string' => 'Feltet :attribute skal være en tekst.',
+    'max' => [
+        'array' => 'Feltet :attribute må ikke have mere end :max elementer.',
+        'file' => 'Feltet :attribute må ikke være større end :max kilobytes.',
+        'string' => 'Feltet :attribute må ikke være længere end :max tegn.',
+    ],
+    'min' => [
+        'string' => 'Feltet :attribute skal være mindst :min tegn.',
+    ],
+    'in' => 'Det valgte :attribute er ugyldigt.',
+    'unique' => 'Feltet :attribute er allerede taget.',
+    'email' => 'Feltet :attribute skal være en gyldig e-mailadresse.',
+    'confirmed' => 'Bekræftelsen af feltet :attribute matcher ikke.',
+    'array' => 'Feltet :attribute skal være et array.',
+    'boolean' => 'Feltet :attribute skal være sand eller falsk.',
+    'current_password' => 'Adgangskoden er forkert.',
+    'dimensions' => 'Feltet :attribute har ugyldige billeddimensioner.',
+    'enum' => 'Det valgte :attribute er ugyldigt.',
+    'exists' => 'Det valgte :attribute er ugyldigt.',
+    'image' => 'Feltet :attribute skal være et billede.',
+    'integer' => 'Feltet :attribute skal være et heltal.',
+    'lowercase' => 'Feltet :attribute skal være med små bogstaver.',
+    'mimes' => 'Feltet :attribute skal være en fil af typen: :values.',
+    'not_regex' => 'Formatet af feltet :attribute er ugyldigt.',
+    'regex' => 'Formatet af feltet :attribute er ugyldigt.',
+    'uploaded' => 'Feltet :attribute kunne ikke uploades.',
+    'url' => 'Feltet :attribute skal være en gyldig URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bio',
+        'categoryId' => 'kategori',
+        'current_password' => 'nuværende adgangskode',
+        'description' => 'beskrivelse',
+        'display_name' => 'visningsnavn',
+        'email' => 'e-mail',
+        'image' => 'billede',
+        'locale' => 'sprog',
+        'message' => 'besked',
+        'name' => 'navn',
+        'password' => 'adgangskode',
+        'profile_website_url' => 'hjemmeside',
+        'reason' => 'årsag',
+        'sourceUrl' => 'kilde-URL',
+        'subject' => 'emne',
+        'tagIds' => 'tags',
+        'title' => 'titel',
+        'url' => 'URL',
+        'username' => 'brugernavn',
+    ],
+];

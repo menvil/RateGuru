@@ -42,6 +42,9 @@ function mailSigningScript(string $name = 'install-mail-signing'): string
  *   keyState     'presigner' (default: root:root 0600 in root:root 0700) | 'ready'
  *   sockets      extra listening sockets, as `ss -ltunpH` prints them
  *   identity     a mail identity contract instead of the committed one
+ *   policy       {routing, outbound} instead of the committed mail routing policy
+ *                and host contract — mailPreActivationPolicy() for a host whose
+ *                tits-guru is still held
  *
  * @return array{scratch: string, fs: string, state: string, env: array<string, string>}
  */
@@ -266,6 +269,13 @@ function mailSigningHost(array $options = []): array
     if (isset($options['identity'])) {
         file_put_contents($scratch.'/config/mail-identity.json', mailRoutingJson($options['identity']));
         $env['RATEGURU_MAILSIGN_IDENTITY_FILE'] = $scratch.'/config/mail-identity.json';
+    }
+
+    if (isset($options['policy'])) {
+        file_put_contents($scratch.'/config/mail-routing.json', mailRoutingJson($options['policy']['routing']));
+        file_put_contents($scratch.'/config/mail-outbound.json', mailRoutingJson($options['policy']['outbound']));
+        $env['RATEGURU_MAILSIGN_ROUTING_FILE'] = $scratch.'/config/mail-routing.json';
+        $env['RATEGURU_MAILSIGN_OUTBOUND_FILE'] = $scratch.'/config/mail-outbound.json';
     }
 
     return ['scratch' => $scratch, 'fs' => $fs, 'state' => $state, 'env' => $env];
@@ -543,7 +553,8 @@ it('never reads, copies, rewrites or prints a key — it changes a key\'s owner,
 // =============================================================================
 
 it('is a valid no-op on a host with no reviewed production signing identity', function () {
-    $host = mailSigningHost(['identity' => ['schema_version' => 1, 'targets' => (object) []]]);
+    // Held: only a target that delivers outbound must have an identity.
+    $host = mailSigningHost(['identity' => ['schema_version' => 1, 'targets' => (object) []], 'policy' => mailPreActivationPolicy()]);
 
     try {
         $before = mailSigningTree($host);
@@ -563,7 +574,7 @@ it('is a valid no-op on a host with no reviewed production signing identity', fu
     }
 });
 
-it('plans OpenDKIM for the one held reviewed identity, and says what --apply would do', function () {
+it('plans OpenDKIM for the one reviewed identity, and says what --apply would do', function () {
     $host = mailSigningHost(['key' => 'rsa2048']);
 
     try {
@@ -789,7 +800,7 @@ it('refuses, before changing anything, a key that is not a usable one or sits in
 ]);
 
 it('reports a held target\'s absent key as deferred, and never as a pass', function () {
-    $host = mailSigningHost();
+    $host = mailSigningHost(['policy' => mailPreActivationPolicy()]);
 
     try {
         [$status, $output] = mailSigningRun($host, ['--apply']);
@@ -808,6 +819,21 @@ it('reports a held target\'s absent key as deferred, and never as a pass', funct
         [$target, $report] = mailSigningRun($host, ['--verify', '--target', 'tits-guru']);
         expect($target)->not->toBe(0);
         expect($report)->toContain('MISSING  key:tits-guru — /etc/opendkim/keys/tits-guru/rg1.private is not installed — tits-guru\'s mail cannot be signed until it is');
+    } finally {
+        mailSigningCleanup($host);
+    }
+});
+
+it('requires tits-guru\'s absent key now that its committed mail policy requests outbound delivery', function () {
+    $host = mailSigningHost();
+
+    try {
+        [$verify, $report] = mailSigningRun($host, ['--verify']);
+
+        expect($verify)->not->toBe(0, $report);
+        expect($report)
+            ->toContain('MISSING  key:tits-guru — /etc/opendkim/keys/tits-guru/rg1.private is not installed, and tits-guru delivers outbound — its key is required')
+            ->not->toContain('DEFERRED key:tits-guru');
     } finally {
         mailSigningCleanup($host);
     }
@@ -1229,10 +1255,11 @@ it('keeps --read-only free of SMTP, queue and service commands', function () {
 
 /**
  * verify-mail-signing --e2e against the fake gateway listener of tests/Pest.php
- * (mailGatewayStartFakeListener, whose toggles are listed there): the committed
- * policy, with tits-guru's submission port pointed at it, its owners' verifies
- * stubbed to pass, and queue tools that see only the fake queue — which
- * already holds someone else's message.
+ * (mailGatewayStartFakeListener, whose toggles are listed there): the
+ * pre-activation policy, in which tits-guru is held — or, with POLICY
+ * 'committed', the committed one — with tits-guru's submission port pointed at
+ * it, its owners' verifies stubbed to pass, and queue tools that see only the
+ * fake queue — which already holds someone else's message.
  *
  * @return array{scratch: string, env: array<string, string>, server: resource, pipes: array<int, resource>, port: int}
  */
@@ -1249,7 +1276,9 @@ function mailSigningE2eHost(array $toggles = [], ?string $policy = null): array
 
     ['server' => $server, 'pipes' => $pipes, 'port' => $port] = mailGatewayStartFakeListener($host['scratch'], $state);
 
-    $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
+    // The acceptance's subject is a held listener: tits-guru as it was before
+    // its activation, unless the committed (outbound) policy is asked for.
+    $routing = ($policy === 'committed' ? mailCommittedPolicy() : mailPreActivationPolicy())['routing'];
     $routing['targets']['tits-guru']['submission']['port'] = $port;
     if ($policy === 'demo-shop outbound') {
         $routing['targets']['demo-shop'] = mailRoutingDemoShopOutboundPolicy();
@@ -1500,6 +1529,27 @@ it('finds and removes its probe by its unique recipient when Postfix named no qu
         expect($output)->toContain('FAIL Postfix accepted the probe but named no queue ID');
         expect(mailSigningE2eQueue($host))->toBe(["FOREIGN0001\tdeferred\tsomeone@example.net"]);
         expect(implode("\n", mailSigningVerifierLog($host, 'queue.log')))->toMatch('/postsuper -d [0-9A-F]{10}$/m');
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+});
+
+it('refuses the committed tits-guru, now outbound, before any SMTP connection', function () {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature()], 'committed');
+
+    try {
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'tits-guru'], [], 'verify-mail-signing');
+
+        expect($status)->not->toBe(0, $output);
+        expect($output)
+            ->toContain("tits-guru's mail is outbound with route {\"kind\":\"direct\"}: the signing acceptance only ever submits to a HELD listener with no route")
+            ->toContain('nothing was submitted');
+        expect(mailSigningResult($output)['status'])->toBe('fail');
+
+        // No connection, no owner asked, no queue touched.
+        expect(file_exists($host['scratch'].'/state/smtp.log'))->toBeFalse();
+        expect(mailSigningVerifierLog($host, 'owners.log'))->toBe([]);
+        expect(mailSigningVerifierLog($host, 'queue.log'))->toBe([]);
     } finally {
         mailSigningE2eCleanup($host);
     }

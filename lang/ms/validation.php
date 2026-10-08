@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Medan :attribute mesti diterima.',
+    'required' => 'Medan :attribute diperlukan.',
+    'string' => 'Medan :attribute mestilah rentetan.',
+    'max' => [
+        'array' => 'Medan :attribute tidak boleh mempunyai lebih daripada :max item.',
+        'file' => 'Medan :attribute tidak boleh melebihi :max kilobait.',
+        'string' => 'Medan :attribute tidak boleh melebihi :max aksara.',
+    ],
+    'min' => [
+        'string' => 'Medan :attribute mestilah sekurang-kurangnya :min aksara.',
+    ],
+    'in' => 'Pilihan :attribute tidak sah.',
+    'unique' => 'Nilai :attribute ini telah pun digunakan.',
+    'email' => 'Medan :attribute mestilah alamat e-mel yang sah.',
+    'confirmed' => 'Pengesahan medan :attribute tidak sepadan.',
+    'array' => 'Medan :attribute mestilah tatasusunan.',
+    'boolean' => 'Medan :attribute mestilah benar atau palsu.',
+    'current_password' => 'Kata laluan tidak betul.',
+    'dimensions' => 'Medan :attribute mempunyai dimensi imej yang tidak sah.',
+    'enum' => 'Pilihan :attribute tidak sah.',
+    'exists' => 'Pilihan :attribute tidak sah.',
+    'image' => 'Medan :attribute mestilah imej.',
+    'integer' => 'Medan :attribute mestilah integer.',
+    'lowercase' => 'Medan :attribute mestilah huruf kecil.',
+    'mimes' => 'Medan :attribute mestilah fail jenis: :values.',
+    'not_regex' => 'Format medan :attribute tidak sah.',
+    'regex' => 'Format medan :attribute tidak sah.',
+    'uploaded' => 'Fail :attribute gagal dimuat naik.',
+    'url' => 'Medan :attribute mestilah URL yang sah.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bio',
+        'categoryId' => 'kategori',
+        'current_password' => 'kata laluan semasa',
+        'description' => 'penerangan',
+        'display_name' => 'nama paparan',
+        'email' => 'e-mel',
+        'image' => 'imej',
+        'locale' => 'bahasa',
+        'message' => 'mesej',
+        'name' => 'nama',
+        'password' => 'kata laluan',
+        'profile_website_url' => 'laman web',
+        'reason' => 'sebab',
+        'sourceUrl' => 'URL sumber',
+        'subject' => 'subjek',
+        'tagIds' => 'tag',
+        'title' => 'tajuk',
+        'url' => 'URL',
+        'username' => 'nama pengguna',
+    ],
+];

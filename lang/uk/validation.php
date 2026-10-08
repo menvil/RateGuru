@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Ви повинні прийняти :attribute.',
+    'required' => 'Поле :attribute обов’язкове для заповнення.',
+    'string' => 'Поле :attribute має бути рядком.',
+    'max' => [
+        'array' => 'Поле :attribute має містити не більше :max елементів.',
+        'file' => 'Розмір файлу в полі :attribute не може перевищувати :max КБ.',
+        'string' => 'Текст у полі :attribute не може перевищувати :max символів.',
+    ],
+    'min' => [
+        'string' => 'Текст у полі :attribute має містити щонайменше :min символів.',
+    ],
+    'in' => 'Вибране значення поля :attribute недійсне.',
+    'unique' => 'Таке значення поля :attribute вже існує.',
+    'email' => 'Поле :attribute має містити дійсну адресу електронної пошти.',
+    'confirmed' => 'Підтвердження поля :attribute не збігається.',
+    'array' => 'Поле :attribute має бути масивом.',
+    'boolean' => 'Поле :attribute повинне мати значення «так» або «ні».',
+    'current_password' => 'Неправильний пароль.',
+    'dimensions' => 'Зображення в полі :attribute має неприпустимі розміри.',
+    'enum' => 'Вибране значення поля :attribute недійсне.',
+    'exists' => 'Вибране значення поля :attribute недійсне.',
+    'image' => 'Файл у полі :attribute має бути зображенням.',
+    'integer' => 'Поле :attribute має бути цілим числом.',
+    'lowercase' => 'Поле :attribute має бути в нижньому регістрі.',
+    'mimes' => 'Файл у полі :attribute має бути одного з типів: :values.',
+    'not_regex' => 'Поле :attribute має неправильний формат.',
+    'regex' => 'Поле :attribute має неправильний формат.',
+    'uploaded' => 'Не вдалося завантажити файл у полі :attribute.',
+    'url' => 'Поле :attribute має містити дійсну URL-адресу.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'про себе',
+        'categoryId' => 'категорія',
+        'current_password' => 'поточний пароль',
+        'description' => 'опис',
+        'display_name' => 'відображуване ім’я',
+        'email' => 'електронна пошта',
+        'image' => 'зображення',
+        'locale' => 'мова',
+        'message' => 'повідомлення',
+        'name' => 'ім’я',
+        'password' => 'пароль',
+        'profile_website_url' => 'вебсайт',
+        'reason' => 'причина',
+        'sourceUrl' => 'URL джерела',
+        'subject' => 'тема',
+        'tagIds' => 'теги',
+        'title' => 'заголовок',
+        'url' => 'URL',
+        'username' => 'ім’я користувача',
+    ],
+];
