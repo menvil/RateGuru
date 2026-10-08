@@ -757,9 +757,7 @@ it('opens Translation Center from a missing item on that item, and from Translat
     languagesOverlayOpen($page, 'drawer');
 
     $translate = $page->script("[...document.querySelectorAll('.rg-admin-languages__item')].find((item) => item.innerText.includes('Georgian food')).querySelector('a:not(.rg-admin-languages__edit-source)').getAttribute('href')");
-    // Followed by the page itself: the plugin's navigate() retries a load that
-    // takes longer than a second, and the retry interrupts the load it retries.
-    $page->script('() => { location.href = '.json_encode($translate).'; return true; }');
+    navigatePageTo($page, $translate);
 
     // Translation Center scrolls to the item and focuses it once its filters have drawn the row.
     eventually(fn () => expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&section=categories&mode=missing")

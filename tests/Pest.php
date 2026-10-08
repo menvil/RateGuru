@@ -5760,6 +5760,25 @@ function proveNothingHappensFor(mixed $page, float $seconds, string $what): mixe
 }
 
 /**
+ * Sends the page to $url, as following a link would, and returns once the call
+ * that did it has returned.
+ *
+ * The plugin retries every page call that fails, for up to five seconds. A
+ * call whose page navigates away before it returns fails with "Execution
+ * context was destroyed", so a navigation started inside that call is started
+ * again on every retry: a probe counted 454 requests for the page in those
+ * five seconds, and the page never finished loading. navigate() is a call
+ * retried the same way. This schedules the navigation for after the call has
+ * returned, so it happens exactly once. Wait for the page it lands on.
+ */
+function navigatePageTo(mixed $page, string $url): mixed
+{
+    $page->script('() => { setTimeout(() => { location.href = '.json_encode($url).'; }, 0); return true; }');
+
+    return $page;
+}
+
+/**
  * Lets $seconds go by without stopping the application under test.
  *
  * The browser plugin serves the application from this same PHP process, on its
