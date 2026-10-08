@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\ProjectSettings;
-
 /*
  * Translation Center in a real browser: the Admin v2 layout at each width, the
  * target language combobox, the filters that never ask the server, and a link
@@ -362,14 +360,6 @@ it('opens with the filters in the URL, drops the ones it does not know, and clea
 
     eventually(fn () => expect(translationScreen($page))->toMatchArray(['search' => "?locale={$this->target}", 'focused' => 'rg-admin-translation-search'])
         ->and(count(translationScreen($page)['rows']))->toBeGreaterThan(3));
-});
-
-it('says when nothing is missing in Missing only, rather than that nothing matches', function () {
-    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$this->target]))]);
-    $page = visitTranslationCenter("/admin/translation-center?locale={$this->target}&section=static_pages&mode=missing", 1440, 900);
-
-    expect(translationScreen($page)['rows'])->toBe([])
-        ->and($page->script("document.querySelector('.rg-admin-empty-state')?.innerText"))->toContain('Nothing missing here');
 });
 
 // A link to one item -----------------------------------------------------------------

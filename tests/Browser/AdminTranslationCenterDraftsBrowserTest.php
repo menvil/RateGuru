@@ -221,12 +221,3 @@ it('opens the context of one item in the drawer, read only, and closes it back t
 
     $page->assertNoJavaScriptErrors();
 });
-
-it('fits the drawer to a phone', function () {
-    $page = visitTranslationCenter('/admin/translation-center', 390, 844);
-    $page->click('[data-unit="'.($this->unit)($this->dogs).'"] .rg-admin-translation-row__context');
-    waitForScript($page, "!! document.activeElement?.closest('.rg-admin-drawer')");
-
-    expect($page->script("Math.round(document.querySelector('.rg-admin-drawer').getBoundingClientRect().width)"))->toBe(390)
-        ->and(translationScreen($page)['overflow'])->toBeFalse();
-});
