@@ -44,7 +44,7 @@ it('renders the verification email with no untranslated keys', function (string 
         ->and($mail['body'])->not->toContain('mail.salutation')
         // The framework's own English must be gone, not merely joined.
         ->and($mail['subject'])->not->toBe('Verify Email Address');
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('takes its wording from the catalog of the running release, with nothing stored', function () {
     // Mail wording is the application's, not the project's: a release that
@@ -68,26 +68,30 @@ it('renders the password reset email with no untranslated keys', function (strin
     expect($mail['subject'])->not->toContain('mail.')
         ->and($mail['body'])->not->toContain('mail.reset')
         ->and($mail['subject'])->not->toBe('Reset Password');
-})->with(supportedLocales());
+})->with(representativeLocales());
 
-it('writes the lines around the message in the recipient language too', function (string $locale) {
+it('writes the lines around the message in the recipient language too, in every language', function () {
     // The button fallback under the action and the footer come from the
     // notification layout, not the message — before it was ours they were the
-    // framework's English sentences in every language.
-    app()->setLocale($locale);
-    $user = User::factory()->create(['locale' => $locale, 'name' => 'Reader']);
+    // framework's English sentences in every language. Every language goes
+    // through the real layout, in one test: what one language can get wrong
+    // here is its own text, which the layout renders as Markdown.
+    foreach (supportedLocales() as $locale) {
+        app()->setLocale($locale);
+        $user = User::factory()->create(['locale' => $locale, 'name' => 'Reader']);
 
-    $body = renderedMail(new ResetPassword('a-token'), $user)['body'];
-    $fallback = __('mail.action_fallback', ['action' => __('mail.reset.action')]);
+        $body = renderedMail(new ResetPassword('a-token'), $user)['body'];
+        $fallback = __('mail.action_fallback', ['action' => __('mail.reset.action')]);
 
-    expect($body)->toContain(e(__('mail.rights_reserved')))
-        ->and(html_entity_decode($body, ENT_QUOTES | ENT_HTML5))->toContain(html_entity_decode($fallback, ENT_QUOTES | ENT_HTML5));
+        expect(str_contains($body, e(__('mail.rights_reserved'))))->toBeTrue("the footer in {$locale}")
+            ->and(str_contains(html_entity_decode($body, ENT_QUOTES | ENT_HTML5), html_entity_decode($fallback, ENT_QUOTES | ENT_HTML5)))->toBeTrue("the button fallback in {$locale}");
 
-    if ($locale !== 'en') {
-        expect($body)->not->toContain('All rights reserved')
-            ->and($body)->not->toContain('having trouble clicking');
+        if ($locale !== 'en') {
+            expect(str_contains($body, 'All rights reserved'))->toBeFalse("the footer in {$locale} is still English")
+                ->and(str_contains($body, 'having trouble clicking'))->toBeFalse("the button fallback in {$locale} is still English");
+        }
     }
-})->with(supportedLocales());
+});
 
 it('keeps the password reset link identical to the framework default', function () {
     // Replacing the template must change the wording and nothing about where

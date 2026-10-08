@@ -23,6 +23,7 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
+use App\Support\Locale\LanguageRules;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
@@ -6277,9 +6278,9 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
 
 /**
  * The languages the product offers, read from config/locales.php — the one
- * place a language is declared. Every localization test iterates this rather
- * than spelling out a list, so declaring a language puts it through all of
- * them without editing a single test.
+ * place a language is declared. A test reads its languages from here, or from
+ * representativeLocales(), rather than spelling out a list, so declaring a
+ * language puts it through every test it concerns without editing one.
  *
  * It reads the file rather than going through config() because Pest collects
  * datasets before the application boots, and `->with(supportedLocales())` is
@@ -6301,6 +6302,48 @@ function supportedLocales(): array
 function translatedLocales(): array
 {
     return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * The languages a behaviour test runs for when only data differs from one
+ * language to the next: the default, which every other language is checked
+ * against; the first translated language, an ordinary one; and every language
+ * LanguageRules gives a rule of its own — a plural rule, its dates, the tag a
+ * translator is asked for, what a browser may send for it — the only
+ * languages whose code path differs.
+ *
+ * Every other installed language runs exactly the code the first translated
+ * one does, with its own text and label in it. That text is checked for every
+ * language without a request: by TranslationParityTest (every key, nothing
+ * blank, the same placeholders), by LanguageRulesTest, and by the contracts
+ * beside the behaviour tests that need one. A language joins this set the
+ * moment LanguageRules gives it a rule, when its code path starts to differ, so
+ * declaring one still edits no test.
+ *
+ * @return list<string>
+ */
+function representativeLocales(): array
+{
+    $ruled = [
+        ...array_keys(LanguageRules::PLURAL_RULES),
+        ...array_keys(LanguageRules::DATE_LOCALES),
+        ...array_keys(LanguageRules::TRANSLATION_LOCALES),
+        ...array_keys(LanguageRules::BROWSER_VARIANTS),
+        ...array_values(LanguageRules::BROWSER_ALIASES),
+    ];
+
+    return array_values(array_intersect(supportedLocales(), [(require dirname(__DIR__).'/config/locales.php')['default'], translatedLocales()[0], ...$ruled]));
+}
+
+/**
+ * representativeLocales() without English, for a test about a translated
+ * language.
+ *
+ * @return list<string>
+ */
+function representativeTranslatedLocales(): array
+{
+    return array_values(array_diff(representativeLocales(), ['en']));
 }
 
 /**

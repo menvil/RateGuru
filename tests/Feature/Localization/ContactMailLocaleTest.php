@@ -117,4 +117,4 @@ it('renders subject and body with no untranslated keys, in every language', func
         ->and($rendered)->toContain('lang="'.$locale.'"')
         // The message itself must survive translation untouched.
         ->and($rendered)->toContain('Body of the question.');
-})->with(supportedLocales());
+})->with(representativeLocales());

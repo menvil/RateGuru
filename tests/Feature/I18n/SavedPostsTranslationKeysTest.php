@@ -20,4 +20,4 @@ it('has all required saved posts translation keys in each locale', function (str
     foreach ($keys as $key) {
         expect(Lang::hasForLocale("saved_posts.{$key}", $locale))->toBeTrue("Missing saved_posts.{$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());
