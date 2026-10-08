@@ -105,7 +105,7 @@ it('brings the suggestions back after a reload and on a new visit, and warns abo
     expect(generationScreen($again)['notice'])->toContain('Generating 0 of')
         ->and(translationAiState($again, $dogs))->toMatchArray(['readonly' => true, 'generating' => true]);
 
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($again);
     eventually(fn () => expect(translationAiState($again, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
     // Untouched suggestions are safe on the server: still no warning.
@@ -123,7 +123,7 @@ it('switches language without asking over untouched suggestions, and asks once o
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
     openTranslationTargetList($page);
@@ -154,7 +154,7 @@ it('does not show a suggestion made from English that changed since, and does no
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
     $ready = (int) preg_replace('/\D/', '', (string) generationScreen($page)['saveAll']);
 
@@ -187,7 +187,7 @@ it('saves the suggestions it has when some failed, leaving the failed rows missi
     ));
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
     $missing = count(missingRowsInPage($page));
@@ -209,7 +209,7 @@ it('makes an edited suggestion an ordinary edit, saved as typed and never brough
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
     typeTranslation($page, $dogs, ' (geprüft)');
@@ -232,7 +232,7 @@ it('discards with Discard all only the drafts it counts, an edited suggestion on
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
     $ready = count(missingRowsInPage($page));
 
@@ -262,7 +262,7 @@ it('discards one suggestion on the server, and saves one from the server\'s copy
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
     clickRowButton($page, $dogs, 'Discard');
@@ -286,7 +286,7 @@ it('lets a row go when its suggestion was already let go elsewhere, and discards
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
     $generation = translationGenerationOf(auth()->user(), $this->target);
 
@@ -308,7 +308,7 @@ it('asks before saving all generated, saves nothing on Cancel and everything on 
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     $before = translationScreen($page)['stats'];
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
     $count = count(missingRowsInPage($page));
 
@@ -375,24 +375,31 @@ it('keeps every draft when the server cannot be reached, and catches up once it 
         ->and($this->dogs->fresh()->name_translations)->toBeNull();
 });
 
-it('keeps the generation controls and suggestions on the screen at every width', function (int $width) {
+it('keeps the generation controls and suggestions on the screen at every width', function () {
     Queue::fake();
     $dogs = ($this->unit)($this->dogs);
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
-    $page = visitTranslationCenter('/admin/translation-center', $width, 900);
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
     generateMissingInPage($page);
-    runTranslationGenerationJobs();
+    runTranslationGenerationJobsAndPoll($page);
     eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
 
-    expect($page->script(<<<'JS'
-        (() => {
-            const inside = (el) => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth }
-            const shown = [...document.querySelectorAll('.rg-admin-translation-center__actions button, [data-strip="generation"] button')].filter((button) => getComputedStyle(button).display !== 'none')
+    // One page, resized through the widths. visitTranslationCenter() has always
+    // measured a page resized after it loaded, and nothing on the page reads the
+    // width but CSS, so this is the same check without a page load per width.
+    foreach ([1440, 1280, 1024, 768, 390] as $width) {
+        resizeAndSettle($page, $width, 900);
 
-            return {
-                inside: shown.length >= 2 && shown.every(inside),
-                overflow: document.documentElement.scrollWidth > window.innerWidth,
-            }
-        })()
-    JS))->toBe(['inside' => true, 'overflow' => false]);
-})->with([1440, 1280, 1024, 768, 390]);
+        expect($page->script(<<<'JS'
+            (() => {
+                const inside = (el) => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth }
+                const shown = [...document.querySelectorAll('.rg-admin-translation-center__actions button, [data-strip="generation"] button')].filter((button) => getComputedStyle(button).display !== 'none')
+
+                return {
+                    inside: shown.length >= 2 && shown.every(inside),
+                    overflow: document.documentElement.scrollWidth > window.innerWidth,
+                }
+            })()
+        JS))->toBe(['inside' => true, 'overflow' => false], "at {$width} px");
+    }
+});

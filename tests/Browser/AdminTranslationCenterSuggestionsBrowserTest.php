@@ -51,10 +51,10 @@ afterEach(fn () => removeCatalogScratchDirectory($this));
 
 // The screen -------------------------------------------------------------------------
 
-it('keeps a short note beside its badge, and wraps a long one under the badge, never under the count or the actions', function (int $width, bool $oneLine) {
+it('keeps a short note beside its badge, and wraps a long one under the badge, never under the count or the actions', function () {
     [$dogs, $birds] = [($this->unit)($this->dogs), ($this->unit)($this->birds)];
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
-    $page = visitTranslationCenter('/admin/translation-center', $width, 900);
+    $page = visitTranslationCenter('/admin/translation-center', 2560, 900);
     suggestTranslationIn($page, $dogs, "[{$this->target}] Dogs");
     $layout = <<<'JS'
         (() => {
@@ -72,15 +72,18 @@ it('keeps a short note beside its badge, and wraps a long one under the badge, n
         })()
     JS;
 
-    // “Stored translation” fits beside Saved; “Generated 09:41 · AI suggestions are drafts until saved.” does not,
-    // and on a wide screen it goes under the badge while the actions keep their place on the badge's line.
-    expect($page->script(sprintf($layout, $birds)))->toMatchArray(['beside' => true, 'underBadge' => false])
-        ->and($page->script(sprintf($layout, $dogs)))->toMatchArray(['beside' => false, 'underBadge' => true, 'actionsOnBadgeLine' => $oneLine]);
-})->with([
-    'wide' => [2560, true],
-    'laptop' => [1440, false],
-    'rail' => [1024, false],
-]);
+    // One page, resized through the widths. visitTranslationCenter() has always
+    // measured a page resized after it loaded, and nothing on the page reads the
+    // width but CSS, so this is the same check without a page load per width.
+    foreach (['wide' => [2560, true], 'laptop' => [1440, false], 'rail' => [1024, false]] as $screen => [$width, $oneLine]) {
+        resizeAndSettle($page, $width, 900);
+
+        // “Stored translation” fits beside Saved; “Generated 09:41 · AI suggestions are drafts until saved.” does not,
+        // and on a wide screen it goes under the badge while the actions keep their place on the badge's line.
+        expect($page->script(sprintf($layout, $birds)))->toMatchArray(['beside' => true, 'underBadge' => false], "on the {$screen} screen")
+            ->and($page->script(sprintf($layout, $dogs)))->toMatchArray(['beside' => false, 'underBadge' => true, 'actionsOnBadgeLine' => $oneLine], "on the {$screen} screen");
+    }
+});
 
 // AI suggestions ---------------------------------------------------------------------
 
@@ -421,23 +424,30 @@ it('opens the context of one item, AI context included, with sixty languages ins
         ->and(livewireUpdatesSinceWatching($page)['fetches'])->toBe(1);
 });
 
-it('keeps an AI suggestion\'s actions on the screen at every width', function (int $width) {
+it('keeps an AI suggestion\'s actions on the screen at every width', function () {
     $dogs = ($this->unit)($this->dogs);
     useScriptedTranslationProvider(answeringTranslationProvider(['Собаки']));
-    $page = visitTranslationCenter('/admin/translation-center', $width, 900);
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
 
     suggestTranslationIn($page, $dogs, 'Собаки');
 
-    expect($page->script(sprintf(<<<'JS'
-        (() => {
-            const row = document.querySelector('[data-unit="%s"]')
-            const shown = [...row.querySelectorAll('.rg-admin-translation-row__actions button')].filter((button) => getComputedStyle(button).display !== 'none')
+    // One page, resized through the widths. visitTranslationCenter() has always
+    // measured a page resized after it loaded, and nothing on the page reads the
+    // width but CSS, so this is the same check without a page load per width.
+    foreach ([1440, 1280, 1024, 768, 390] as $width) {
+        resizeAndSettle($page, $width, 900);
 
-            return {
-                labels: shown.map((button) => button.innerText.trim().split(/\s/)[0]),
-                inside: shown.every((button) => { const box = button.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth }),
-                overflow: document.documentElement.scrollWidth > window.innerWidth,
-            }
-        })()
-    JS, $dogs)))->toBe(['labels' => ['Discard', 'Regenerate', 'Save', 'Save'], 'inside' => true, 'overflow' => false]);
-})->with([1440, 1280, 1024, 768, 390]);
+        expect($page->script(sprintf(<<<'JS'
+            (() => {
+                const row = document.querySelector('[data-unit="%s"]')
+                const shown = [...row.querySelectorAll('.rg-admin-translation-row__actions button')].filter((button) => getComputedStyle(button).display !== 'none')
+
+                return {
+                    labels: shown.map((button) => button.innerText.trim().split(/\s/)[0]),
+                    inside: shown.every((button) => { const box = button.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth }),
+                    overflow: document.documentElement.scrollWidth > window.innerWidth,
+                }
+            })()
+        JS, $dogs)))->toBe(['labels' => ['Discard', 'Regenerate', 'Save', 'Save'], 'inside' => true, 'overflow' => false], "at {$width} px");
+    }
+});

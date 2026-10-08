@@ -148,7 +148,9 @@ it('keeps an error next to the field, blocks Save and stores nothing', function 
     $dogs = ($this->unit)($this->dogs);
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
 
-    typeTranslation($page, $dogs, str_repeat('я', 84));
+    // Filled, not typed: what is checked is the text, and 84 keystrokes only cost time.
+    $page->type("[data-unit=\"{$dogs}\"] input", str_repeat('я', 84));
+    waitForTranslationDraft($page, $dogs, str_repeat('я', 84));
 
     $state = translationRowState($page, $dogs);
 

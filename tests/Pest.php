@@ -9625,6 +9625,20 @@ function runTranslationGenerationJobs(?Closure $which = null): int
     return count($jobs);
 }
 
+/**
+ * Runs the queued generation jobs, then has PAGE read what they produced at
+ * once instead of at its next poll, up to a second later. The page polls at
+ * once whenever its tab becomes visible again, so it is told that.
+ */
+function runTranslationGenerationJobsAndPoll(mixed $page): int
+{
+    $ran = runTranslationGenerationJobs();
+
+    $page->script("() => { document.dispatchEvent(new Event('visibilitychange')); return true; }");
+
+    return $ran;
+}
+
 /** One item of a generation summary, by unit id. */
 function translationGenerationItem(array $generation, string $unit): ?array
 {

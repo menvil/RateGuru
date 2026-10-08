@@ -54,32 +54,37 @@ it('draws Translation Center in Admin v2, inside the shell, in the Localization 
     $page->assertNoJavaScriptErrors();
 });
 
-it('keeps Item, English and the target in that order at every width, without the page scrolling sideways', function (int $width, int $columns) {
-    $page = visitTranslationCenter('/admin/translation-center', $width, 900);
+it('keeps Item, English and the target in that order at every width, without the page scrolling sideways', function () {
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
 
-    expect($page->script(<<<'JS'
-        (() => {
-            const row = document.querySelector('.rg-admin-translation-row:not(.rg-admin-translation-row--head)')
-            const cells = [...row.querySelectorAll(':scope > [role="cell"]')].map((cell) => cell.getBoundingClientRect())
+    // One page, resized through the widths. visitTranslationCenter() has always
+    // measured a page resized after it loaded, and nothing on the page reads the
+    // width but CSS, so this is the same check without a page load per width.
+    foreach (['wide' => [1440, 3], 'laptop' => [1280, 3], 'rail' => [1024, 3], 'phone' => [390, 1]] as $screen => [$width, $columns]) {
+        resizeAndSettle($page, $width, 900);
 
-            return {
-                columns: getComputedStyle(row).gridTemplateColumns.split(' ').length,
-                order: cells[0].top <= cells[1].top && cells[1].top <= cells[2].top && cells[0].left <= cells[1].left + 1,
-                overflow: document.documentElement.scrollWidth > window.innerWidth,
-            }
-        })()
-    JS))->toBe(['columns' => $columns, 'order' => true, 'overflow' => false]);
+        expect($page->script(<<<'JS'
+            (() => {
+                const row = document.querySelector('.rg-admin-translation-row:not(.rg-admin-translation-row--head)')
+                const cells = [...row.querySelectorAll(':scope > [role="cell"]')].map((cell) => cell.getBoundingClientRect())
 
-    // The combobox opens inside the screen, never wider than it.
-    openTranslationTargetList($page);
+                return {
+                    columns: getComputedStyle(row).gridTemplateColumns.split(' ').length,
+                    order: cells[0].top <= cells[1].top && cells[1].top <= cells[2].top && cells[0].left <= cells[1].left + 1,
+                    overflow: document.documentElement.scrollWidth > window.innerWidth,
+                }
+            })()
+        JS))->toBe(['columns' => $columns, 'order' => true, 'overflow' => false], "on the {$screen} screen");
 
-    expect($page->script("(() => { const box = document.querySelector('.rg-admin-combobox__popover').getBoundingClientRect(); return box.right <= window.innerWidth && box.left >= 0 && document.documentElement.scrollWidth <= window.innerWidth })()"))->toBeTrue();
-})->with([
-    'wide' => [1440, 3],
-    'laptop' => [1280, 3],
-    'rail' => [1024, 3],
-    'phone' => [390, 1],
-]);
+        // The combobox opens inside the screen, never wider than it.
+        openTranslationTargetList($page);
+
+        expect($page->script("(() => { const box = document.querySelector('.rg-admin-combobox__popover').getBoundingClientRect(); return box.right <= window.innerWidth && box.left >= 0 && document.documentElement.scrollWidth <= window.innerWidth })()"))->toBeTrue("on the {$screen} screen");
+
+        $page->keys('#rg-admin-translation-target-search', 'Escape');
+        waitForTranslationTargetList($page, open: false);
+    }
+});
 
 it('lines the target field up with the English text, with its count, state and actions under it in that order', function () {
     $birds = ($this->unit)($this->birds);
