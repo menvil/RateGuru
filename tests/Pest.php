@@ -2449,9 +2449,10 @@ function mailRoutingPlanJson(array|string|null $policy = null, ?array $registry 
 |--------------------------------------------------------------------------
 |
 | install-mail-gateway runs for real against FS_ROOT and stubs for its
-| package manager, systemd, ss and Postfix's own tools. MailGatewayTest
-| proves the installer on it; MailOutboundActivationTest and MailCanaryTest
-| run the activation and the canary against the same real installer on it.
+| package manager, systemd, ss and Postfix's own tools. The MailGateway*Test
+| files prove the installer on it; the MailOutboundActivation*Test and
+| MailCanary*Test files run the activation and the canary against the same
+| real installer on it.
 | The postconf stub reads back what the rendered files say; it is a test
 | double, not Postfix.
 */
@@ -2830,13 +2831,279 @@ function mailGatewayAuthorize(array $host, string $direction, string $target, ar
     return $document;
 }
 
+/**
+ * The host outbound contract as mail-outbound.json spells it.
+ *
+ * @return array<string, mixed>
+ */
+function mailGatewayOutboundContract(mixed $enabled = true, mixed $hostname = 'mta1.example.net'): array
+{
+    return ['schema_version' => 1, 'direct' => ['enabled' => $enabled, 'mta_hostname' => $hostname]];
+}
+
+/**
+ * The pre-activation host contract — direct delivery disabled — as a file,
+ * written once per test process.
+ */
+function mailGatewayPreActivationOutboundFile(): string
+{
+    static $path = null;
+
+    if ($path === null) {
+        $dir = makeScratchDir('mail-gateway-outbound', ['']);
+        register_shutdown_function(static fn () => removeScratchDir($dir));
+
+        $path = $dir.'/mail-outbound.json';
+        file_put_contents($path, mailRoutingJson(mailPreActivationPolicy()['outbound']));
+    }
+
+    return $path;
+}
+
+/**
+ * The signing plan the real mail-identity CLI renders from the pre-activation
+ * contracts: tits-guru, held, and nothing else. Rendered once per test process.
+ */
+function mailGatewayPreActivationSigningPlan(): string
+{
+    static $path = null;
+
+    if ($path === null) {
+        $dir = makeScratchDir('mail-gateway-signing', ['']);
+        register_shutdown_function(static fn () => removeScratchDir($dir));
+
+        $run = mailIdentityRun(['render-signing-plan', ...mailIdentityFixtureConfig($dir.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()])]);
+        expect($run['status'])->toBe(0, $run['stderr']);
+
+        $path = $dir.'/signing-plan.json';
+        file_put_contents($path, $run['stdout']);
+    }
+
+    return $path;
+}
+
+/**
+ * The shipped renderer, sourced: plan file, outbound contract (the
+ * pre-activation one when none is given), signing plan (the pre-activation one
+ * when none is given) and the signer's milter endpoint (the one
+ * install-mail-signing prints) in, main.cf and master.cf out.
+ *
+ * @return array{status: int, output: string, main: string, master: string, policies: array<string, string>}
+ */
+function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbound = null, ?string $signing = null, ?string $milter = null): array
+{
+    $out = $scratch.'/render-'.bin2hex(random_bytes(3));
+    @mkdir($out, 0o700, true);
+
+    $output = [];
+    $status = 0;
+    exec('bash -c '.escapeshellarg('source '.escapeshellarg(mailGatewayScript()).' && render_gateway_config '
+        .escapeshellarg($plan).' '.escapeshellarg($outbound ?? mailGatewayPreActivationOutboundFile()).' '
+        .escapeshellarg($signing ?? mailGatewayPreActivationSigningPlan()).' '
+        .escapeshellarg($milter ?? trim((string) shell_exec('bash '.escapeshellarg(mailGatewayScript('install-mail-signing')).' --milter-endpoint'))).' '
+        .escapeshellarg($out)).' 2>&1', $output, $status);
+
+    $policies = [];
+    foreach (glob($out.'/rateguru-from-*.regexp') ?: [] as $policy) {
+        $policies[basename($policy)] = (string) file_get_contents($policy);
+    }
+
+    return [
+        'status' => $status,
+        'output' => implode("\n", $output),
+        'main' => is_file($out.'/main.cf') ? (string) file_get_contents($out.'/main.cf') : '',
+        'master' => is_file($out.'/master.cf') ? (string) file_get_contents($out.'/master.cf') : '',
+        'policies' => $policies,
+    ];
+}
+
+/**
+ * Render the gateway for a policy, registry, host outbound contract and signing
+ * plan — the pre-activation ones when null: the gateway a host accepted before
+ * tits-guru's activation, and still runs until activate-mail-outbound crosses
+ * it to the committed request.
+ *
+ * @param  array<string, mixed>|null  $signing
+ * @return array{main: string, master: string, policies: array<string, string>, plan: array<string, mixed>}
+ */
+function mailGatewayRender(?array $policy = null, ?array $registry = null, ?array $outbound = null, ?array $signing = null, ?string $milter = null): array
+{
+    $scratch = mailGatewayScratch();
+
+    try {
+        // Exactly what the CLI printed on stdout, which mailRoutingPlanJson()
+        // has already proved came with an empty stderr.
+        $plan = $scratch.'/plan.json';
+        file_put_contents($plan, mailRoutingPlanJson($policy ?? mailPreActivationPolicy()['routing'], $registry));
+
+        $contract = null;
+        if ($outbound !== null) {
+            $contract = $scratch.'/mail-outbound.json';
+            file_put_contents($contract, mailRoutingJson($outbound));
+        }
+
+        $signingPlan = null;
+        if ($signing !== null) {
+            $signingPlan = $scratch.'/signing-plan.json';
+            file_put_contents($signingPlan, mailRoutingJson($signing));
+        }
+
+        $render = mailGatewayRenderPlanFile($scratch, $plan, $contract, $signingPlan, $milter);
+
+        expect($render['status'])->toBe(0, "render_gateway_config failed:\n".$render['output']);
+
+        return [
+            'main' => $render['main'],
+            'master' => $render['master'],
+            'policies' => $render['policies'],
+            'plan' => json_decode((string) file_get_contents($plan), true, 512, JSON_THROW_ON_ERROR),
+        ];
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+}
+
+/**
+ * main.cf as name => value, the way Postfix reads `name = value` lines.
+ *
+ * @return array<string, string>
+ */
+function mailGatewayMainParameters(string $main): array
+{
+    $parameters = [];
+
+    foreach (preg_split('/\R/', $main) as $line) {
+        if (preg_match('/^([a-z0-9_]+) =(?: (.*))?$/', $line, $matches)) {
+            $parameters[$matches[1]] = $matches[2] ?? '';
+        }
+    }
+
+    return $parameters;
+}
+
+/**
+ * master.cf as a list of services, each with its eight fields and its -o
+ * overrides.
+ *
+ * @return list<array{name: string, type: string, command: string, options: array<string, string>}>
+ */
+function mailGatewayMasterServices(string $master): array
+{
+    $services = [];
+
+    foreach (preg_split('/\R/', $master) as $line) {
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+
+        if (preg_match('/^\s+-o\s+([a-z0-9_]+)=(.*)$/', $line, $matches)) {
+            $services[count($services) - 1]['options'][$matches[1]] = $matches[2];
+
+            continue;
+        }
+
+        $fields = preg_split('/\s+/', trim($line));
+        expect(count($fields))->toBe(8, "master.cf service line does not have eight fields: {$line}");
+
+        $services[] = ['name' => $fields[0], 'type' => $fields[1], 'command' => $fields[7], 'options' => []];
+    }
+
+    return $services;
+}
+
+/**
+ * The pre-activation policy — tits-guru held — with the synthetic demo-shop
+ * target's policy added.
+ *
+ * @return array<string, mixed>
+ */
+function mailGatewayDemoShopPolicy(): array
+{
+    $policy = mailPreActivationPolicy()['routing'];
+    $policy['targets']['demo-shop'] = mailRoutingDemoShopPolicy();
+
+    return $policy;
+}
+
+/**
+ * The committed mail identity contract, with the synthetic demo-shop target's
+ * identity beside tits-guru's.
+ *
+ * @return array<string, mixed>
+ */
+function mailGatewayIdentityWithDemoShop(): array
+{
+    $identity = json_decode(File::get(base_path('infrastructure/config/mail-identity.json')), true, 512, JSON_THROW_ON_ERROR);
+    $identity['targets']['demo-shop'] = mailIdentityDemoShopIdentity();
+
+    return $identity;
+}
+
+/**
+ * The signing plan the real mail-identity CLI renders for these contracts.
+ *
+ * @param  array<string, mixed>  $policy
+ * @param  array<string, mixed>  $registry
+ * @param  array<string, mixed>  $outbound
+ * @param  array<string, mixed>  $identity
+ * @return array<string, mixed>
+ */
+function mailGatewaySigningPlanFor(array $policy, array $registry, array $outbound, array $identity): array
+{
+    $dir = makeScratchDir('mail-gateway-signing', ['']);
+
+    try {
+        foreach (['mail-routing' => $policy, 'deployment-targets' => $registry, 'mail-outbound' => $outbound, 'mail-identity' => $identity] as $name => $data) {
+            file_put_contents("{$dir}/{$name}.json", mailRoutingJson($data));
+        }
+
+        $run = mailIdentityRun(['render-signing-plan',
+            '--identity', "{$dir}/mail-identity.json", '--routing', "{$dir}/mail-routing.json",
+            '--registry', "{$dir}/deployment-targets.json", '--outbound', "{$dir}/mail-outbound.json"]);
+        expect($run['status'])->toBe(0, $run['stderr']);
+
+        return json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
+    } finally {
+        removeScratchDir($dir);
+    }
+}
+
+/** Point the simulated host's bundle at another routing policy and host contract. */
+function mailGatewayRequest(array $host, array $request): void
+{
+    file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($request['routing']));
+    file_put_contents($host['scratch'].'/outbound.json', mailRoutingJson($request['outbound']));
+}
+
+/**
+ * A host whose gateway was applied from the pre-activation policy — tits-guru
+ * held, direct delivery disabled — with its bundle's two documents in files a
+ * test can change. It is what the shared host recorded before tits-guru's
+ * activation, whatever the repository requests now.
+ */
+function mailGatewayEstablishedHost(array $options = []): array
+{
+    $held = mailPreActivationPolicy();
+    $host = mailGatewayHost(['policy' => $held['routing'], 'outbound' => $held['outbound'], ...$options]);
+
+    [$status, $log] = mailGatewayRun($host, '--apply');
+    expect($status)->toBe(0, $log);
+
+    return $host;
+}
+
+function mailGatewayApplied(array $host, string $name = 'applied-plan.json'): string
+{
+    return $host['fs'].'/var/lib/rateguru-mail-gateway/'.$name;
+}
+
 /*
 |--------------------------------------------------------------------------
 | The fake mail gateway: one loopback SMTP listener and its queue
 |--------------------------------------------------------------------------
 |
-| MailSigningTest submits the signing acceptance's probes to it, and
-| MailOutboundActivationTest the canary. It behaves like the gateway's signed
+| MailSigningTest submits the signing acceptance's probes to it, and the
+| MailCanary*Test files the canary. It behaves like the gateway's signed
 | listener: a From outside tits.guru is refused at the end of the data, and an
 | accepted message gets a queue ID, its headers (with the `signature` toggle
 | prepended) and a queue entry the stubbed postqueue, postcat and postsuper
@@ -2863,8 +3130,11 @@ function mailGatewayFakeListenerSource(): string
         while (true) {
             $read = [$server, STDIN]; $write = null; $except = null;
             if (@stream_select($read, $write, $except, 1) === false) { break; }
-            if (in_array(STDIN, $read, true) && feof(STDIN)) { break; }
-            if (! in_array($server, $read, true)) { if (feof(STDIN)) { break; } continue; }
+            // Its test stops it by closing this pipe, and a test process that died
+            // closes it too. A non-blocking pipe only reports its end once it is
+            // read: without the read, select() would return at once, forever.
+            if (in_array(STDIN, $read, true)) { fread(STDIN, 8192); if (feof(STDIN)) { break; } }
+            if (! in_array($server, $read, true)) { continue; }
 
             $client = @stream_socket_accept($server, 5);
             if ($client === false) { continue; }
@@ -4394,6 +4664,32 @@ function setRestoreOperationPhase(string $workspace, string $phase): void
 
     file_put_contents($workspace.'/state.json', json_encode($state, JSON_PRETTY_PRINT));
 }
+
+/** An activated host, with tits-guru's listener running and DELIVERY its outcome. */
+function mailCanaryHost(?string $delivery = 'sent', array $options = []): array
+{
+    $host = mailActivationHost(['installed' => 'outbound', 'listener' => true, ...$options]);
+
+    if ($delivery !== null) {
+        file_put_contents($host['state'].'/toggles/delivery', $delivery);
+    }
+
+    return $host;
+}
+
+/** @return array{0: int, 1: string} */
+function mailCanarySend(array $host, string $file, string $mode = 'send', array $env = []): array
+{
+    return mailActivationRun($host, ["--{$mode}", '--target', 'tits-guru', '--recipient-file', $file], $env, 'send-mail-canary');
+}
+
+/** The local part never reaches anything the tooling prints. */
+function mailCanaryExpectNoRecipient(string $output): void
+{
+    expect(str_contains(strtolower($output), 'alice.smith'))->toBeFalse('the recipient\'s local part reached the output');
+}
+
+const MAIL_CANARY_RECIPIENT = 'alice.smith@mailbox.example-receiver.net';
 
 /*
 |--------------------------------------------------------------------------

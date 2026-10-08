@@ -16,8 +16,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
 
     expect($workflows)->toBe([
         // tits-guru's outbound mail activation, its initial-launch rollback
-        // and the first real delivery, guarded by MailOutboundActivationTest
-        // and MailCanaryTest.
+        // and the first real delivery, guarded by the MailOutboundActivation*Test
+        // and MailCanary*Test files.
         'activate-tits-guru-mail.yml',
         'ci.yml',
         'configure-tits-guru.yml',
