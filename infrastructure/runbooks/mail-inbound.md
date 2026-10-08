@@ -222,9 +222,18 @@ reply.tits.guru       MX 10 mx1.tits.guru
 mx1.tits.guru         A     <the receiver's IPv4 address>
 ```
 
-- **The address is never committed.** It is given with `--ipv4`, judged a
-  public IPv4 address by the same definition `mail-identity` applies to the
-  sending address; without it the plan marks it `not-provided`.
+- **The address is never committed.** It is given with `--ipv4` and must be
+  globally reachable: refused, with the range named, in every IANA
+  special-purpose range that is not — `0.0.0.0/8`, `10.0.0.0/8`,
+  `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`,
+  `192.0.0.0/24`, the documentation ranges `192.0.2.0/24`, `198.51.100.0/24`
+  and `203.0.113.0/24` (RFC 5737), `192.168.0.0/16`, the benchmarking range
+  `198.18.0.0/15` — and in the deprecated 6to4 relay anycast `192.88.99.0/24`,
+  multicast `224.0.0.0/4` and reserved `240.0.0.0/4`. Special-purpose ranges
+  IANA marks globally reachable (AS112, AMT) are accepted. This is stricter
+  than the check `mail-identity` applies to the address a host sends from,
+  which is unchanged: a published MX address is a claim every sender acts on.
+  Without `--ipv4` the plan marks the address `not-provided`.
 - **No MX record is published before the receiver is installed, verified and
   activated.** A published MX is a public promise that a server accepts mail
   there: a sender that finds one queues and retries for days when nothing

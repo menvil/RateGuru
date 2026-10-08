@@ -23,6 +23,12 @@ use Illuminate\Support\Facades\File;
 /** A well-formed base32-128 identifier: 26 lowercase characters, no i, l, o or u, first 0-7. */
 const MAIL_INBOUND_IDENTIFIER = '01hzx3k9q2w8e7r6t5y4v3p2m1';
 
+/**
+ * A globally reachable IPv4 address (APNIC's 1.0.0.0/8), used only as a value
+ * in a rendered plan: nothing is published, resolved or contacted.
+ */
+const MAIL_INBOUND_TEST_IPV4 = '1.2.3.4';
+
 function mailInboundScript(): string
 {
     return base_path('infrastructure/scripts/mail-inbound');
@@ -472,7 +478,7 @@ it('refuses an MX host name that is not a host name', function (mixed $mx) {
     'uppercase' => ['MX1.tits.guru'],
     'a trailing dot' => ['mx1.tits.guru.'],
     'a wildcard' => ['*.tits.guru'],
-    'an address' => ['203.0.113.25'],
+    'an address' => [MAIL_INBOUND_TEST_IPV4],
     'a mail address' => ['mx1@tits.guru'],
     'empty' => [''],
     'not a string' => [['mx1.tits.guru']],
@@ -819,7 +825,7 @@ it('refuses a malformed recipient before it asks which destination it is for', f
     'an empty local part' => ['@tits.guru', 'a local part is 1 to 64 characters'],
     'a long local part' => [str_repeat('a', 65).'@tits.guru', 'a local part is 1 to 64 characters'],
     'a trailing dot' => ['support@tits.guru.', '"tits.guru." is not a domain name: address literals and trailing dots are not accepted'],
-    'an address literal' => ['support@[203.0.113.25]', '"[203.0.113.25]" is not a domain name'],
+    'an address literal' => ['support@[1.2.3.4]', '"[1.2.3.4]" is not a domain name'],
     'a space' => ['support @tits.guru', 'an address is printable ASCII with no space or control character'],
     'a newline' => ["support@tits.guru\n", 'an address is printable ASCII with no space or control character'],
     'a non-ASCII letter' => ['suppоrt@tits.guru', 'an address is printable ASCII with no space or control character'],
@@ -887,16 +893,16 @@ it('plans an MX for the mail domain and both subdomains, and the A record of the
     ]);
 
     // The address is the one given, judged public — never one committed.
-    $given = mailInboundJson(['render-dns', '--target', 'tits-guru', '--ipv4', '203.0.113.25']);
+    $given = mailInboundJson(['render-dns', '--target', 'tits-guru', '--ipv4', MAIL_INBOUND_TEST_IPV4]);
 
-    expect($given['receiver_ipv4'])->toBe(['address' => '203.0.113.25', 'status' => 'provided']);
-    expect($given['records'][3])->toMatchArray(['name' => 'mx1.tits.guru', 'type' => 'A', 'value' => '203.0.113.25']);
+    expect($given['receiver_ipv4'])->toBe(['address' => MAIL_INBOUND_TEST_IPV4, 'status' => 'provided']);
+    expect($given['records'][3])->toMatchArray(['name' => 'mx1.tits.guru', 'type' => 'A', 'value' => MAIL_INBOUND_TEST_IPV4]);
     expect(array_slice($given['records'], 0, 3))->toBe(array_slice($dns['records'], 0, 3));
 });
 
 it('never touches the outbound identity: no record for the MTA hostname, and no PTR, SPF, DKIM or DMARC', function () {
     $mta = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR)['direct']['mta_hostname'];
-    $dns = mailInboundJson(['render-dns', '--target', 'tits-guru', '--ipv4', '203.0.113.25']);
+    $dns = mailInboundJson(['render-dns', '--target', 'tits-guru', '--ipv4', MAIL_INBOUND_TEST_IPV4]);
 
     expect($mta)->toBe('mta1.tits.guru');
     expect(array_values(array_unique(array_column($dns['records'], 'type'))))->toBe(['MX', 'A']);
@@ -916,36 +922,73 @@ it('never touches the outbound identity: no record for the MTA hostname, and no 
     );
 });
 
-it('takes the receiver address only as one public IPv4 address', function (string $address) {
+it('refuses a receiver address in any range that is not globally reachable, and names the range', function (string $address, string $range) {
     expectMailInboundRefusal(
         mailInboundRun(['render-dns', '--target', 'tits-guru', '--ipv4', $address]),
-        "--ipv4 must be a public IPv4 address, got: {$address}",
+        "--ipv4 {$address} is in {$range}: not globally reachable, so never the address a published MX record sends Internet mail to",
     );
 })->with([
-    'private' => ['10.0.0.7'],
-    'private 172.16/12' => ['172.20.0.1'],
-    'private 192.168/16' => ['192.168.1.10'],
-    'loopback' => ['127.0.0.1'],
-    'shared address space' => ['100.64.0.1'],
-    'link-local' => ['169.254.10.10'],
-    'unspecified' => ['0.0.0.0'],
-    'multicast' => ['224.0.0.1'],
-    'an octet out of range' => ['256.1.1.1'],
-    'a leading zero' => ['203.0.113.025'],
-    'three octets' => ['203.0.113'],
-    'a host name' => ['mx1.tits.guru'],
-    'IPv6' => ['2001:db8::25'],
+    'this network' => ['0.0.0.0', '0.0.0.0/8, this network (RFC 791)'],
+    'private 10/8' => ['10.0.0.7', '10.0.0.0/8, private use (RFC 1918)'],
+    'shared address space, first' => ['100.64.0.0', '100.64.0.0/10, shared address space (RFC 6598)'],
+    'shared address space, last' => ['100.127.255.255', '100.64.0.0/10, shared address space (RFC 6598)'],
+    'loopback' => ['127.0.0.1', '127.0.0.0/8, loopback (RFC 1122)'],
+    'link-local' => ['169.254.10.10', '169.254.0.0/16, link-local (RFC 3927)'],
+    'private 172.16/12, last' => ['172.31.255.255', '172.16.0.0/12, private use (RFC 1918)'],
+    'IETF protocol assignments' => ['192.0.0.8', '192.0.0.0/24, IETF protocol assignments (RFC 6890)'],
+    'documentation TEST-NET-1' => ['192.0.2.10', '192.0.2.0/24, documentation, TEST-NET-1 (RFC 5737)'],
+    '6to4 relay anycast' => ['192.88.99.1', '192.88.99.0/24, deprecated 6to4 relay anycast (RFC 7526)'],
+    'private 192.168/16' => ['192.168.1.10', '192.168.0.0/16, private use (RFC 1918)'],
+    'benchmarking, first' => ['198.18.0.0', '198.18.0.0/15, benchmarking (RFC 2544)'],
+    'benchmarking, last' => ['198.19.255.255', '198.18.0.0/15, benchmarking (RFC 2544)'],
+    'documentation TEST-NET-2' => ['198.51.100.7', '198.51.100.0/24, documentation, TEST-NET-2 (RFC 5737)'],
+    'documentation TEST-NET-3' => ['203.0.113.25', '203.0.113.0/24, documentation, TEST-NET-3 (RFC 5737)'],
+    'multicast' => ['224.0.0.1', '224.0.0.0/4, multicast (RFC 5771)'],
+    'reserved' => ['240.0.0.1', '240.0.0.0/4, reserved, with the limited broadcast address (RFC 1112, RFC 919)'],
+    'limited broadcast' => ['255.255.255.255', '240.0.0.0/4, reserved, with the limited broadcast address (RFC 1112, RFC 919)'],
 ]);
 
-it('judges a public IPv4 address exactly as mail-identity judges the address a host sends from', function () {
-    $inbound = File::get(mailInboundScript());
+it('refuses a receiver address that is not one dotted-quad IPv4 address', function (string $address) {
+    expectMailInboundRefusal(
+        mailInboundRun(['render-dns', '--target', 'tits-guru', '--ipv4', $address]),
+        "--ipv4 must be one IPv4 address in dotted-quad form, got: {$address}",
+    );
+})->with([
+    'an octet out of range' => ['256.1.1.1'],
+    'a leading zero' => ['1.2.3.04'],
+    'three octets' => ['1.2.3'],
+    'a host name' => ['mx1.tits.guru'],
+    'IPv6' => ['2001:db8::25'],
+    'a prefix' => ['1.2.3.0/24'],
+]);
+
+it('accepts every globally reachable receiver address, right up to the edge of each reserved range', function (string $address) {
+    expect(mailInboundJson(['render-dns', '--target', 'tits-guru', '--ipv4', $address])['receiver_ipv4'])
+        ->toBe(['address' => $address, 'status' => 'provided']);
+})->with([
+    'the test value' => [MAIL_INBOUND_TEST_IPV4],
+    'below shared address space' => ['100.63.255.255'],
+    'above shared address space' => ['100.128.0.0'],
+    'below 172.16/12' => ['172.15.255.255'],
+    'above 172.16/12' => ['172.32.0.0'],
+    'beside IETF protocol assignments' => ['192.0.3.1'],
+    'AS112, globally reachable' => ['192.31.196.1'],
+    'below benchmarking' => ['198.17.255.255'],
+    'above benchmarking' => ['198.20.0.0'],
+    'below TEST-NET-3' => ['203.0.112.255'],
+    'above TEST-NET-3' => ['203.0.114.0'],
+    'the last unicast /8' => ['223.255.255.255'],
+]);
+
+it('leaves the sending-address check of mail-identity, which outbound readiness uses, as it is', function () {
+    // The inbound check is its own, and stricter: a published MX address must
+    // be globally reachable. The outbound one is not changed by it.
     $identity = File::get(mailIdentityScript());
 
-    foreach (['is_ipv4', 'is_public_ipv4'] as $function) {
-        expect(shellFunctionBody($inbound, $function))
-            ->not->toBe('')
-            ->toBe(shellFunctionBody($identity, $function), "{$function} differs between mail-inbound and mail-identity");
-    }
+    expect(shellFunctionBody($identity, 'is_public_ipv4'))->not->toBe('');
+    expect(executableSourceLines(File::get(mailInboundScript())))
+        ->not->toContain('is_public_ipv4')
+        ->toContain('non_global_ipv4_range "${IPV4_ARG}"');
 });
 
 it('renders inbound DNS only for a production target with an inbound policy', function () {
@@ -964,7 +1007,7 @@ it('renders inbound DNS only for a production target with an inbound policy', fu
 it('renders the same plan, DNS and verdicts byte for byte, however the documents are ordered', function () {
     $commands = [
         ['render-plan'],
-        ['render-dns', '--target', 'tits-guru', '--ipv4', '203.0.113.25'],
+        ['render-dns', '--target', 'tits-guru', '--ipv4', MAIL_INBOUND_TEST_IPV4],
         ['route', '--recipient', 'r-'.MAIL_INBOUND_IDENTIFIER.'@reply.tits.guru'],
         ['route', '--recipient', 'someone@gmail.com'],
     ];
@@ -1136,7 +1179,7 @@ it('handles its arguments strictly', function (array $arguments, int $status, st
     'an unknown command' => [['activate'], 1, 'ERROR: unknown command: activate'],
     'an unknown argument' => [['validate', '--listen', '0.0.0.0:25'], 1, 'ERROR: unknown argument: --listen'],
     'a target where none is read' => [['validate', '--target', 'tits-guru'], 1, 'ERROR: --target is not an option of validate'],
-    'an address where none is read' => [['render-plan', '--ipv4', '203.0.113.25'], 1, 'ERROR: --ipv4 is not an option of render-plan'],
+    'an address where none is read' => [['render-plan', '--ipv4', MAIL_INBOUND_TEST_IPV4], 1, 'ERROR: --ipv4 is not an option of render-plan'],
     'a recipient where none is read' => [['render-dns', '--target', 'tits-guru', '--recipient', 'support@tits.guru'], 1, 'ERROR: --recipient is not an option of render-dns'],
     'render-dns without a target' => [['render-dns'], 1, 'ERROR: render-dns requires --target'],
     'an invalid target ID' => [['render-dns', '--target', '../tits-guru'], 1, 'ERROR: invalid target ID: ../tits-guru'],
@@ -1175,7 +1218,7 @@ it('changes nothing on disk when it validates, renders or routes', function () {
 
         expect(mailInboundRun(['validate'], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['render-plan'], [], $script)['status'])->toBe(0);
-        expect(mailInboundRun(['render-dns', '--target', 'tits-guru', '--ipv4', '203.0.113.25'], [], $script)['status'])->toBe(0);
+        expect(mailInboundRun(['render-dns', '--target', 'tits-guru', '--ipv4', MAIL_INBOUND_TEST_IPV4], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['route', '--recipient', 'support@tits.guru'], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['route', '--recipient', 'someone@gmail.com'], [], $script)['status'])->toBe(2);
         expect(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => 'enabled'])], $script)['status'])->toBe(1);

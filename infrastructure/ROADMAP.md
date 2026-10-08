@@ -2146,8 +2146,10 @@ Slices, in order:
    receiver's twenty requirements and each destination's future handler),
    the DNS plan (`render-dns`: MX 10 for `tits.guru`, `bounce.tx.tits.guru`
    and `reply.tits.guru` naming `mx1.tits.guru`, and its A record with an
-   explicitly given public IPv4 address or marked not provided; nothing of
-   the outbound identity) and the verdict for one recipient (`route`).
+   explicitly given, globally reachable IPv4 address — never in an IANA
+   special-purpose range such as the RFC 5737 documentation ranges or
+   `198.18.0.0/15` — or marked not provided; nothing of the outbound
+   identity) and the verdict for one recipient (`route`).
    Genericity is proved against a synthetic second brand. MX records are
    published only after the receiver is installed, verified and activated.
    *Unchanged on purpose:* the gateway and its public-port checks, OpenDKIM,
