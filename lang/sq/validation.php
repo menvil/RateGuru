@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Fusha :attribute duhet të pranohet.',
+    'required' => 'Fusha :attribute është e detyrueshme.',
+    'string' => 'Fusha :attribute duhet të jetë tekst.',
+    'max' => [
+        'array' => 'Fusha :attribute nuk duhet të ketë më shumë se :max elemente.',
+        'file' => 'Fusha :attribute nuk duhet të jetë më e madhe se :max kilobajt.',
+        'string' => 'Fusha :attribute nuk duhet të ketë më shumë se :max karaktere.',
+    ],
+    'min' => [
+        'string' => 'Fusha :attribute duhet të ketë të paktën :min karaktere.',
+    ],
+    'in' => 'Vlera e zgjedhur për :attribute është e pavlefshme.',
+    'unique' => 'Vlera e fushës :attribute është marrë tashmë.',
+    'email' => 'Fusha :attribute duhet të jetë një adresë email-i e vlefshme.',
+    'confirmed' => 'Konfirmimi i fushës :attribute nuk përputhet.',
+    'array' => 'Fusha :attribute duhet të jetë një listë.',
+    'boolean' => 'Fusha :attribute duhet të jetë e vërtetë ose e gabuar.',
+    'current_password' => 'Fjalëkalimi është i pasaktë.',
+    'dimensions' => 'Imazhi në fushën :attribute ka përmasa të pavlefshme.',
+    'enum' => 'Vlera e zgjedhur për :attribute është e pavlefshme.',
+    'exists' => 'Vlera e zgjedhur për :attribute është e pavlefshme.',
+    'image' => 'Fusha :attribute duhet të jetë një imazh.',
+    'integer' => 'Fusha :attribute duhet të jetë një numër i plotë.',
+    'lowercase' => 'Fusha :attribute duhet të jetë me shkronja të vogla.',
+    'mimes' => 'Fusha :attribute duhet të jetë një skedar i llojit: :values.',
+    'not_regex' => 'Formati i fushës :attribute është i pavlefshëm.',
+    'regex' => 'Formati i fushës :attribute është i pavlefshëm.',
+    'uploaded' => 'Ngarkimi i fushës :attribute dështoi.',
+    'url' => 'Fusha :attribute duhet të jetë një URL e vlefshme.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'rreth meje',
+        'categoryId' => 'kategoria',
+        'current_password' => 'fjalëkalimi aktual',
+        'description' => 'përshkrimi',
+        'display_name' => 'emri i shfaqur',
+        'email' => 'email-i',
+        'image' => 'imazhi',
+        'locale' => 'gjuha',
+        'message' => 'mesazhi',
+        'name' => 'emri',
+        'password' => 'fjalëkalimi',
+        'profile_website_url' => 'faqja e internetit',
+        'reason' => 'arsyeja',
+        'sourceUrl' => 'URL-ja e burimit',
+        'subject' => 'subjekti',
+        'tagIds' => 'etiketat',
+        'title' => 'titulli',
+        'url' => 'URL-ja',
+        'username' => 'emri i përdoruesit',
+    ],
+];

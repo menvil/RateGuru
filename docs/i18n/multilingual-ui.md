@@ -10,6 +10,13 @@ The supported locales — every language the application is installed with — a
 - `de` — German / Deutsch (ships disabled)
 - `es` — Spanish / Español (ships disabled)
 
+and, all shipping disabled: French (`fr`), Italian (`it`), Portuguese — Brazil (`pt`), Turkish (`tr`), Japanese (`ja`),
+Polish (`pl`), Romanian (`ro`), Greek (`el`), Dutch (`nl`), Hungarian (`hu`), Czech (`cs`), Slovak (`sk`),
+Serbian — Cyrillic (`sr`), Croatian (`hr`), Slovenian (`sl`), Finnish (`fi`), Swedish (`sv`), Norwegian Bokmål (`nb`),
+Danish (`da`), Estonian (`et`), Lithuanian (`lt`), Latvian (`lv`), Ukrainian (`uk`), Chinese — Simplified (`zh`),
+Georgian (`ka`), Icelandic (`is`), Thai (`th`), Vietnamese (`vi`), Filipino (`fil`), Malay (`ms`), Montenegrin (`cnr`),
+Bosnian (`bs`), Macedonian (`mk`) and Albanian (`sq`). `config/locales.php` is the list; this is a summary of it.
+
 The flag is chosen per language rather than derived from the code: a language is not a country.
 
 ## Installed, complete, enabled — and the default
@@ -37,7 +44,7 @@ For public requests the first **enabled** locale among:
 1. Authenticated user locale preference (`users.locale`)
 2. Session locale (`locale` key)
 3. Cookie locale (`locale` cookie)
-4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`)
+4. Browser `Accept-Language`, in quality order; a regional tag (`ru-RU`) matches the installed language (`ru`), and `no` matches `nb` — unless it names another script or variant of an installed language (`zh-TW`, `zh-Hant`, `sr-Latn`, `cnr-Cyrl`, `pt-PT`), which reaches nothing and leaves the browser's next language to be tried; `LanguageRules` holds these rules
 5. English, the default — only when nothing above matches
 
 A stored preference for a disabled locale is skipped, not deleted — the search goes on to the next source — and applies again once the locale is re-enabled. The browser's language is used for the current request only; nothing is written from it.

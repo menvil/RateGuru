@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Laukam „:attribute” jābūt pieņemtam.',
+    'required' => 'Lauks „:attribute” ir obligāts.',
+    'string' => 'Laukam „:attribute” jābūt teksta virknei.',
+    'max' => [
+        'array' => 'Laukā „:attribute” nedrīkst būt vairāk par :max elementiem.',
+        'file' => 'Lauka „:attribute” fails nedrīkst būt lielāks par :max kilobaitiem.',
+        'string' => 'Lauks „:attribute” nedrīkst būt garāks par :max rakstzīmēm.',
+    ],
+    'min' => [
+        'string' => 'Laukā „:attribute” jābūt vismaz :min rakstzīmēm.',
+    ],
+    'in' => 'Izvēlētā lauka „:attribute” vērtība nav derīga.',
+    'unique' => 'Lauka „:attribute” vērtība jau ir aizņemta.',
+    'email' => 'Laukā „:attribute” jābūt derīgai e-pasta adresei.',
+    'confirmed' => 'Lauka „:attribute” apstiprinājums nesakrīt.',
+    'array' => 'Laukam „:attribute” jābūt masīvam.',
+    'boolean' => 'Lauka „:attribute” vērtībai jābūt „jā” vai „nē”.',
+    'current_password' => 'Parole nav pareiza.',
+    'dimensions' => 'Lauka „:attribute” attēlam ir nederīgi izmēri.',
+    'enum' => 'Izvēlētā lauka „:attribute” vērtība nav derīga.',
+    'exists' => 'Izvēlētā lauka „:attribute” vērtība nav derīga.',
+    'image' => 'Laukā „:attribute” jābūt attēlam.',
+    'integer' => 'Laukam „:attribute” jābūt veselam skaitlim.',
+    'lowercase' => 'Laukā „:attribute” jābūt tikai mazajiem burtiem.',
+    'mimes' => 'Laukā „:attribute” jābūt šāda tipa failam: :values.',
+    'not_regex' => 'Lauka „:attribute” formāts nav derīgs.',
+    'regex' => 'Lauka „:attribute” formāts nav derīgs.',
+    'uploaded' => 'Lauka „:attribute” augšupielāde neizdevās.',
+    'url' => 'Laukā „:attribute” jābūt derīgam URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'par mani',
+        'categoryId' => 'kategorija',
+        'current_password' => 'pašreizējā parole',
+        'description' => 'apraksts',
+        'display_name' => 'attēlojamais vārds',
+        'email' => 'e-pasts',
+        'image' => 'attēls',
+        'locale' => 'valoda',
+        'message' => 'ziņa',
+        'name' => 'vārds',
+        'password' => 'parole',
+        'profile_website_url' => 'tīmekļa vietne',
+        'reason' => 'iemesls',
+        'sourceUrl' => 'avota URL',
+        'subject' => 'temats',
+        'tagIds' => 'birkas',
+        'title' => 'virsraksts',
+        'url' => 'URL',
+        'username' => 'lietotājvārds',
+    ],
+];

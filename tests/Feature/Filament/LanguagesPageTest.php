@@ -1026,19 +1026,19 @@ it('reads the project content once per render, however many parts of the screen 
 
 // Scale ----------------------------------------------------------------------------
 
-it('holds thirty-five languages in one table, in config order', function () {
-    $codes = installLanguagesUpTo(35);
+it('holds sixty languages in one table, in config order', function () {
+    $codes = installLanguagesUpTo(60);
     offerLocales(array_slice($codes, 0, 10));
 
     $page = languagesPage();
     $html = $page->html();
 
-    expect($codes)->toHaveCount(35)
+    expect($codes)->toHaveCount(60)
         ->and(languagesListed($page))->toBe($codes)
         ->and(substr_count($html, 'role="table"'))->toBe(1)
-        ->and(livewireDom($page)->query("//*[@role='table']//*[@role='row']")->length)->toBe(36)
-        ->and(languagesStats($page)['Installed'])->toBe('35')
-        ->and(languagesTabs($page))->toMatchArray(['All' => 35, 'Enabled' => 10, 'Disabled' => 25]);
+        ->and(livewireDom($page)->query("//*[@role='table']//*[@role='row']")->length)->toBe(61)
+        ->and(languagesStats($page)['Installed'])->toBe('60')
+        ->and(languagesTabs($page))->toMatchArray(['All' => 60, 'Enabled' => 10, 'Disabled' => 50]);
 
     // Every language is a row of the one table, never a card of its own.
     foreach ($codes as $code) {

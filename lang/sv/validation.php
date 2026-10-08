@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Fältet :attribute måste godkännas.',
+    'required' => 'Fältet :attribute är obligatoriskt.',
+    'string' => 'Fältet :attribute måste vara en text.',
+    'max' => [
+        'array' => 'Fältet :attribute får inte innehålla fler än :max objekt.',
+        'file' => 'Fältet :attribute får inte vara större än :max kilobyte.',
+        'string' => 'Fältet :attribute får inte vara längre än :max tecken.',
+    ],
+    'min' => [
+        'string' => 'Fältet :attribute måste vara minst :min tecken.',
+    ],
+    'in' => 'Det valda värdet för :attribute är ogiltigt.',
+    'unique' => 'Värdet för :attribute används redan.',
+    'email' => 'Fältet :attribute måste vara en giltig e-postadress.',
+    'confirmed' => 'Bekräftelsen av :attribute stämmer inte överens.',
+    'array' => 'Fältet :attribute måste vara en lista.',
+    'boolean' => 'Fältet :attribute måste vara sant eller falskt.',
+    'current_password' => 'Lösenordet är felaktigt.',
+    'dimensions' => 'Fältet :attribute har ogiltiga bildmått.',
+    'enum' => 'Det valda värdet för :attribute är ogiltigt.',
+    'exists' => 'Det valda värdet för :attribute är ogiltigt.',
+    'image' => 'Fältet :attribute måste vara en bild.',
+    'integer' => 'Fältet :attribute måste vara ett heltal.',
+    'lowercase' => 'Fältet :attribute får bara innehålla gemener.',
+    'mimes' => 'Fältet :attribute måste vara en fil av typen :values.',
+    'not_regex' => 'Formatet för :attribute är ogiltigt.',
+    'regex' => 'Formatet för :attribute är ogiltigt.',
+    'uploaded' => 'Det gick inte att ladda upp :attribute.',
+    'url' => 'Fältet :attribute måste vara en giltig webbadress.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'om mig',
+        'categoryId' => 'kategori',
+        'current_password' => 'nuvarande lösenord',
+        'description' => 'beskrivning',
+        'display_name' => 'visningsnamn',
+        'email' => 'e-postadress',
+        'image' => 'bild',
+        'locale' => 'språk',
+        'message' => 'meddelande',
+        'name' => 'namn',
+        'password' => 'lösenord',
+        'profile_website_url' => 'webbplats',
+        'reason' => 'anledning',
+        'sourceUrl' => 'källadress',
+        'subject' => 'ämne',
+        'tagIds' => 'taggar',
+        'title' => 'titel',
+        'url' => 'webbadress',
+        'username' => 'användarnamn',
+    ],
+];

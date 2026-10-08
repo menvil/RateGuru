@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Polje :attribute mora biti sprejeto.',
+    'required' => 'Polje :attribute je obvezno.',
+    'string' => 'Polje :attribute mora biti besedilo.',
+    'max' => [
+        'array' => 'Število elementov v polju :attribute ne sme presegati :max.',
+        'file' => 'Datoteka v polju :attribute ne sme biti večja od :max KB.',
+        'string' => 'Število znakov v polju :attribute ne sme presegati :max.',
+    ],
+    'min' => [
+        'string' => 'Število znakov v polju :attribute mora biti najmanj :min.',
+    ],
+    'in' => 'Izbrana vrednost polja :attribute je neveljavna.',
+    'unique' => 'Polje :attribute je že zasedeno.',
+    'email' => 'Polje :attribute mora biti veljaven e-poštni naslov.',
+    'confirmed' => 'Potrditev polja :attribute se ne ujema.',
+    'array' => 'Polje :attribute mora biti seznam.',
+    'boolean' => 'Vrednost polja :attribute mora biti „da“ ali „ne“.',
+    'current_password' => 'Geslo je napačno.',
+    'dimensions' => 'Slika v polju :attribute ima neveljavne mere.',
+    'enum' => 'Izbrana vrednost polja :attribute je neveljavna.',
+    'exists' => 'Izbrana vrednost polja :attribute je neveljavna.',
+    'image' => 'Polje :attribute mora biti slika.',
+    'integer' => 'Polje :attribute mora biti celo število.',
+    'lowercase' => 'Polje :attribute mora biti zapisano z malimi črkami.',
+    'mimes' => 'Polje :attribute mora biti datoteka vrste: :values.',
+    'not_regex' => 'Oblika polja :attribute je neveljavna.',
+    'regex' => 'Oblika polja :attribute je neveljavna.',
+    'uploaded' => 'Datoteke v polju :attribute ni bilo mogoče naložiti.',
+    'url' => 'Polje :attribute mora biti veljaven URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'o meni',
+        'categoryId' => 'kategorija',
+        'current_password' => 'trenutno geslo',
+        'description' => 'opis',
+        'display_name' => 'prikazno ime',
+        'email' => 'e-pošta',
+        'image' => 'slika',
+        'locale' => 'jezik',
+        'message' => 'sporočilo',
+        'name' => 'ime',
+        'password' => 'geslo',
+        'profile_website_url' => 'spletna stran',
+        'reason' => 'razlog',
+        'sourceUrl' => 'URL vira',
+        'subject' => 'zadeva',
+        'tagIds' => 'oznake',
+        'title' => 'naslov',
+        'url' => 'URL',
+        'username' => 'uporabniško ime',
+    ],
+];

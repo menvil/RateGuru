@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute alanı kabul edilmelidir.',
+    'required' => ':attribute alanı zorunludur.',
+    'string' => ':attribute alanı metin olmalıdır.',
+    'max' => [
+        'array' => ':attribute alanı en fazla :max öğe içerebilir.',
+        'file' => ':attribute alanı :max kilobayttan büyük olmamalıdır.',
+        'string' => ':attribute alanı :max karakterden uzun olmamalıdır.',
+    ],
+    'min' => [
+        'string' => ':attribute alanı en az :min karakter olmalıdır.',
+    ],
+    'in' => ':attribute alanı için seçilen değer geçersiz.',
+    'unique' => ':attribute alanı için bu değer zaten kullanılıyor.',
+    'email' => ':attribute alanı geçerli bir e-posta adresi olmalıdır.',
+    'confirmed' => ':attribute alanının onayı eşleşmiyor.',
+    'array' => ':attribute alanı bir liste olmalıdır.',
+    'boolean' => ':attribute alanı doğru veya yanlış olmalıdır.',
+    'current_password' => 'Şifre yanlış.',
+    'dimensions' => ':attribute alanındaki görselin boyutları geçersiz.',
+    'enum' => ':attribute alanı için seçilen değer geçersiz.',
+    'exists' => ':attribute alanı için seçilen değer geçersiz.',
+    'image' => ':attribute alanı bir görsel olmalıdır.',
+    'integer' => ':attribute alanı bir tam sayı olmalıdır.',
+    'lowercase' => ':attribute alanı yalnızca küçük harflerden oluşmalıdır.',
+    'mimes' => ':attribute alanı şu türde bir dosya olmalıdır: :values.',
+    'not_regex' => ':attribute alanının biçimi geçersiz.',
+    'regex' => ':attribute alanının biçimi geçersiz.',
+    'uploaded' => ':attribute alanındaki dosya yüklenemedi.',
+    'url' => ':attribute alanı geçerli bir URL olmalıdır.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'Hakkımda',
+        'categoryId' => 'Kategori',
+        'current_password' => 'Mevcut şifre',
+        'description' => 'Açıklama',
+        'display_name' => 'Görünen ad',
+        'email' => 'E-posta',
+        'image' => 'Görsel',
+        'locale' => 'Dil',
+        'message' => 'Mesaj',
+        'name' => 'Ad',
+        'password' => 'Şifre',
+        'profile_website_url' => 'Web sitesi',
+        'reason' => 'Neden',
+        'sourceUrl' => 'Kaynak URL',
+        'subject' => 'Konu',
+        'tagIds' => 'Etiketler',
+        'title' => 'Başlık',
+        'url' => 'URL',
+        'username' => 'Kullanıcı adı',
+    ],
+];

@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Dapat tanggapin ang field na :attribute.',
+    'required' => 'Kailangan ang field na :attribute.',
+    'string' => 'Dapat ay teksto ang field na :attribute.',
+    'max' => [
+        'array' => 'Hindi dapat lumampas sa :max item ang field na :attribute.',
+        'file' => 'Hindi dapat lumampas sa :max kilobyte ang field na :attribute.',
+        'string' => 'Hindi dapat lumampas sa :max character ang field na :attribute.',
+    ],
+    'min' => [
+        'string' => 'Dapat ay hindi bababa sa :min character ang field na :attribute.',
+    ],
+    'in' => 'Hindi wasto ang napiling :attribute.',
+    'unique' => 'May gumagamit na ng :attribute na ito.',
+    'email' => 'Dapat ay wastong email address ang field na :attribute.',
+    'confirmed' => 'Hindi tumutugma ang kumpirmasyon ng field na :attribute.',
+    'array' => 'Dapat ay array ang field na :attribute.',
+    'boolean' => 'Dapat ay true o false ang field na :attribute.',
+    'current_password' => 'Mali ang password.',
+    'dimensions' => 'Hindi wasto ang sukat ng larawan sa field na :attribute.',
+    'enum' => 'Hindi wasto ang napiling :attribute.',
+    'exists' => 'Hindi wasto ang napiling :attribute.',
+    'image' => 'Dapat ay larawan ang field na :attribute.',
+    'integer' => 'Dapat ay buong numero ang field na :attribute.',
+    'lowercase' => 'Dapat ay nasa maliliit na titik ang field na :attribute.',
+    'mimes' => 'Dapat ay file na may uri na :values ang field na :attribute.',
+    'not_regex' => 'Hindi wasto ang format ng field na :attribute.',
+    'regex' => 'Hindi wasto ang format ng field na :attribute.',
+    'uploaded' => 'Nabigong i-upload ang :attribute.',
+    'url' => 'Dapat ay wastong URL ang field na :attribute.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bio',
+        'categoryId' => 'kategorya',
+        'current_password' => 'kasalukuyang password',
+        'description' => 'paglalarawan',
+        'display_name' => 'pangalang ipinapakita',
+        'email' => 'email',
+        'image' => 'larawan',
+        'locale' => 'wika',
+        'message' => 'mensahe',
+        'name' => 'pangalan',
+        'password' => 'password',
+        'profile_website_url' => 'website',
+        'reason' => 'dahilan',
+        'sourceUrl' => 'URL ng pinagmulan',
+        'subject' => 'paksa',
+        'tagIds' => 'mga tag',
+        'title' => 'pamagat',
+        'url' => 'URL',
+        'username' => 'username',
+    ],
+];

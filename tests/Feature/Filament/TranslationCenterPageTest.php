@@ -222,13 +222,13 @@ it('draws an empty screen when no language besides English is installed', functi
         ->and($page->html())->toContain('No language to translate into')->not->toContain('role="table"');
 });
 
-it('holds thirty-five languages in its one combobox', function () {
-    $codes = installLanguagesUpTo(35);
+it('holds sixty languages in its one combobox', function () {
+    $codes = installLanguagesUpTo(60);
 
     $page = translationCenter();
 
     expect(translationTargets($page))->toBe(array_values(array_diff($codes, ['en'])))
-        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-target-search']"))->toContain('placeholder="Search 34 target languages"');
+        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-target-search']"))->toContain('placeholder="Search 59 target languages"');
 });
 
 // Header -----------------------------------------------------------------------------
@@ -674,8 +674,8 @@ it('shows content in the drawer, never a provider, a model or a credential', fun
             && ! str_contains(json_encode($context), 'api.openai.com'));
 });
 
-it('reads the context of one unit on its own with thirty-five languages installed', function () {
-    $codes = installLanguagesUpTo(35);
+it('reads the context of one unit on its own with sixty languages installed', function () {
+    $codes = installLanguagesUpTo(60);
     $target = $codes[1];
     $translations = [];
 
@@ -694,8 +694,8 @@ it('reads the context of one unit on its own with thirty-five languages installe
 
     $context = $page->effects['returns'][0];
 
-    expect($context['ai']['others'])->toHaveCount(33)
-        ->and($context['others'])->toHaveCount(33)
+    expect($context['ai']['others'])->toHaveCount(58)
+        ->and($context['others'])->toHaveCount(58)
         ->and(array_column($context['ai']['others'], 'code'))->not->toContain($target)
         ->and($queries)->toBeLessThan(10);
 });

@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Pole :attribute musi zostać zaakceptowane.',
+    'required' => 'Pole :attribute jest wymagane.',
+    'string' => 'Pole :attribute musi być tekstem.',
+    'max' => [
+        'array' => 'Liczba elementów w polu :attribute nie może przekraczać :max.',
+        'file' => 'Plik w polu :attribute nie może być większy niż :max KB.',
+        'string' => 'Liczba znaków w polu :attribute nie może przekraczać :max.',
+    ],
+    'min' => [
+        'string' => 'Liczba znaków w polu :attribute musi wynosić co najmniej :min.',
+    ],
+    'in' => 'Wybrana wartość pola :attribute jest nieprawidłowa.',
+    'unique' => 'Taka wartość pola :attribute jest już zajęta.',
+    'email' => 'Pole :attribute musi być prawidłowym adresem e-mail.',
+    'confirmed' => 'Potwierdzenie pola :attribute nie zgadza się.',
+    'array' => 'Pole :attribute musi być listą.',
+    'boolean' => 'Pole :attribute musi mieć wartość „tak” lub „nie”.',
+    'current_password' => 'Hasło jest nieprawidłowe.',
+    'dimensions' => 'Obraz w polu :attribute ma nieprawidłowe wymiary.',
+    'enum' => 'Wybrana wartość pola :attribute jest nieprawidłowa.',
+    'exists' => 'Wybrana wartość pola :attribute jest nieprawidłowa.',
+    'image' => 'Pole :attribute musi być obrazem.',
+    'integer' => 'Pole :attribute musi być liczbą całkowitą.',
+    'lowercase' => 'Pole :attribute musi być zapisane małymi literami.',
+    'mimes' => 'Pole :attribute musi być plikiem typu: :values.',
+    'not_regex' => 'Format pola :attribute jest nieprawidłowy.',
+    'regex' => 'Format pola :attribute jest nieprawidłowy.',
+    'uploaded' => 'Nie udało się przesłać pliku w polu :attribute.',
+    'url' => 'Pole :attribute musi być prawidłowym adresem URL.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'o mnie',
+        'categoryId' => 'kategoria',
+        'current_password' => 'obecne hasło',
+        'description' => 'opis',
+        'display_name' => 'wyświetlana nazwa',
+        'email' => 'e-mail',
+        'image' => 'obraz',
+        'locale' => 'język',
+        'message' => 'wiadomość',
+        'name' => 'imię',
+        'password' => 'hasło',
+        'profile_website_url' => 'strona internetowa',
+        'reason' => 'powód',
+        'sourceUrl' => 'adres URL źródła',
+        'subject' => 'temat',
+        'tagIds' => 'tagi',
+        'title' => 'tytuł',
+        'url' => 'adres URL',
+        'username' => 'nazwa użytkownika',
+    ],
+];

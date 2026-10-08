@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ProjectSettings;
+use App\Support\Locale\LanguageRules;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
 
@@ -179,7 +180,66 @@ it('matches a regional browser language to the installed language', function (st
 
     expect(locales()->fromAcceptLanguage("{$locale}-".strtoupper($locale).",{$locale};q=0.9,en;q=0.8"))->toBe($locale)
         ->and(locales()->fromAcceptLanguage(strtoupper($locale).'_'.strtoupper($locale)))->toBe($locale);
-})->with(translatedLocales());
+})->with(
+    // A language installed as one script or variant of several reaches only its own tags: the cases below.
+    array_values(array_diff(translatedLocales(), array_keys(LanguageRules::BROWSER_VARIANTS))),
+);
+
+it('reaches a language installed as one variant of several only by its own script or region', function (string $header, ?string $expected) {
+    offerEveryInstalledLocaleExcept('en');
+
+    expect(locales()->fromAcceptLanguage($header))->toBe($expected);
+})->with([
+    'zh' => ['zh', 'zh'],
+    'zh-CN' => ['zh-CN', 'zh'],
+    'zh-SG' => ['zh-SG', 'zh'],
+    'zh-Hans' => ['zh-Hans', 'zh'],
+    'zh-Hans-CN' => ['zh-Hans-CN', 'zh'],
+    'zh-TW: Traditional, not the installed Simplified' => ['zh-TW', null],
+    'zh-HK' => ['zh-HK', null],
+    'zh-MO' => ['zh-MO', null],
+    'zh-Hant' => ['zh-Hant', null],
+    'zh-Hant-TW' => ['zh-Hant-TW', null],
+    'sr' => ['sr', 'sr'],
+    'sr-RS' => ['sr-RS', 'sr'],
+    'sr-Cyrl' => ['sr-Cyrl', 'sr'],
+    'sr-Cyrl-RS' => ['sr-Cyrl-RS', 'sr'],
+    'sr-Latn: Latin, not the installed Cyrillic' => ['sr-Latn', null],
+    'sr-Latn-RS' => ['sr-Latn-RS', null],
+    'cnr' => ['cnr', 'cnr'],
+    'cnr-ME' => ['cnr-ME', 'cnr'],
+    'cnr-Latn' => ['cnr-Latn', 'cnr'],
+    'cnr-Latn-ME' => ['cnr-Latn-ME', 'cnr'],
+    'cnr-Cyrl-ME: Cyrillic, not the installed Latin' => ['cnr-Cyrl-ME', null],
+    'pt' => ['pt', 'pt'],
+    'pt-BR' => ['pt-BR', 'pt'],
+    'pt-PT: European, not the installed Brazilian' => ['pt-PT', null],
+    'nb' => ['nb', 'nb'],
+    'nb-NO' => ['nb-NO', 'nb'],
+    'no: Norwegian is the installed Bokmål' => ['no', 'nb'],
+    'no-NO' => ['no-NO', 'nb'],
+    'nn-NO: Nynorsk is not installed' => ['nn-NO', null],
+    'nn' => ['nn', null],
+]);
+
+it('goes on to the next language when the preferred one is another variant of an installed language', function (string $header, string $expected) {
+    offerEveryInstalledLocale();
+
+    expect(locales()->fromAcceptLanguage($header))->toBe($expected);
+})->with([
+    'Traditional Chinese, then English' => ['zh-TW;q=1.0,en;q=0.8', 'en'],
+    'Traditional Chinese by script, then German' => ['zh-Hant-TW,de;q=0.9', 'de'],
+    'Latin Serbian, then German' => ['sr-Latn-RS;q=1.0,de;q=0.8', 'de'],
+    'Cyrillic Montenegrin, then Serbian Cyrillic' => ['cnr-Cyrl-ME,sr-Cyrl;q=0.7', 'sr'],
+    'European Portuguese, then Spanish' => ['pt-PT,es;q=0.5', 'es'],
+    'Nynorsk, then Norwegian' => ['nn-NO,no;q=0.6', 'nb'],
+]);
+
+it('names only installed languages in its browser rules', function () {
+    expect(array_keys(config('locales.supported')))
+        ->toContain(...array_keys(LanguageRules::BROWSER_VARIANTS))
+        ->toContain(...array_values(LanguageRules::BROWSER_ALIASES));
+});
 
 it('follows the browser quality order, not the order of the header', function () {
     [$preferred] = twoTranslatedLocales();
