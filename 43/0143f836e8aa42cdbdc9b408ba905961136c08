@@ -1,0 +1,28 @@
+.github/workflows/rollback-tits-guru-mail-activation.yml
+  s_1bfa4d0742417e::t_6be11459a46d47 16-17
+tests/Feature/Architecture/MailOutboundActivationTest.php
+  s_1bfa4d0742417e::t_94900da40d846d 936-941
+  s_1bfa4d0742417e::t_6be11459a46d47 901,957-960,962-964,967,983-987,991
+infrastructure/runbooks/mail-outbound-activation.md
+  s_1bfa4d0742417e::t_6be11459a46d47 12-13,131-134,205,214-234,236-237,239-242,246-247
+.github/actions/activate-rateguru-mail-outbound/action.yml
+  s_1bfa4d0742417e::t_6be11459a46d47 385
+infrastructure/ROADMAP.md
+  s_1bfa4d0742417e::t_6be11459a46d47 2030,2032-2043
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "430143f836e8aa42cdbdc9b408ba905961136c08",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
