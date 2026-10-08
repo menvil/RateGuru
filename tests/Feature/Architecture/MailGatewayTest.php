@@ -52,7 +52,7 @@ function mailGatewayJqPrograms(string $script): array
             $programs["{$script} \${$name}"] = $program;
         }
 
-        if (in_array($script, ['mail-routing', 'install-mail-gateway', 'mail-identity'], true)) {
+        if (in_array($script, ['mail-routing', 'install-mail-gateway', 'mail-identity', 'mail-inbound'], true)) {
             expect($programs)->not->toBe([], "no jq program variables were read from {$script}");
         }
     }
@@ -1151,7 +1151,7 @@ it('keeps every jq program the mail scripts run within what jq 1.6 on the host a
 
     $checked = 0;
 
-    foreach (['mail-routing', 'mail-identity', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway', 'verify-infrastructure'] as $script) {
+    foreach (['mail-routing', 'mail-identity', 'mail-inbound', 'install-mail-gateway', 'verify-mail-gateway', 'status-mail-gateway', 'verify-infrastructure'] as $script) {
         foreach (mailGatewayJqPrograms($script) as $label => $program) {
             expect(mailGatewayJq16Problems($program))->toBe([], "{$label} would not run on jq 1.6");
             $checked++;
@@ -1546,6 +1546,8 @@ it('records the gateway as accepted on the real host, and the direct outbound ro
         ->toContain('| `tits-guru` — real host | **Outbound**, activated on 2026-10-08 through `activate-mail-outbound`')
         ->toContain('**Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08')
         ->toContain('| Production outbound delivery | **Production-accepted** on 2026-10-08')
+        // Inbound mail is a separate receiver, never a listener of this gateway.
+        ->toContain('| Inbound mail (bounces, replies, support) | **Not received**: the gateway has no public listener and never will')
         ->not->toContain('**None yet**: no route to the Internet exists on any host')
         ->not->toContain('before `main` reaches `develop`');
 });

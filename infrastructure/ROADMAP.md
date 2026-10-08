@@ -2117,9 +2117,63 @@ Slices, in order:
    `noreply@tits.guru`; the bounce domain is not an envelope sender yet.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
-   planned.** The production Return-Path and bounce identity, bounce reception
-   on the bounce domain, reply routing on the reply domain, and the support
-   mailbox integration.
+   current.** Started 2026-10-08. Receiving mail from the Internet for a
+   production target — support mail, delivery status notifications on the
+   bounce domain and replies on the reply domain — through a public receiver
+   that is a separate Postfix instance, never the loopback-only outbound
+   gateway, whose no-public-port checks stay exactly as strict. Inbound mail
+   is not working until a message from outside has actually been received.
+   See [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md).
+
+   **8.4B.5.1 Inbound contract and DNS plan — IMPLEMENTED, nothing
+   installed.** The new `config/mail-inbound.json` (schema 1) holds only what
+   is new: `receiver.public_smtp` — `disabled`, the one state there is while
+   no receiver exists — and per production target its MX host inside its own
+   mail domain (`tits-guru`: `mx1.tits.guru`), its exact support local parts
+   (`support` → `support@tits.guru`), and its bounce and reply address forms
+   (`b-<identifier>@bounce.tx.tits.guru`, `r-<identifier>@reply.tits.guru`,
+   the identifier 128 random bits as 26 lowercase Crockford base32
+   characters). The mail, bounce and reply domains are read from
+   `mail-routing render-plan`, never restated, and the outbound MTA hostname
+   from `mail-outbound.json` through `mail-identity validate`. The
+   repository-only `scripts/mail-inbound` validates it — staging is never a
+   public destination, no wildcard or catch-all, no forwarding, relay or AUTH
+   setting exists, `noreply@` is never a mailbox, bounce and reply never
+   share a prefix, every name has one owner and an MX host is never the MTA
+   hostname — and renders the inbound plan (`render-plan`, with the
+   receiver's nineteen requirements and each destination's future handler),
+   the DNS plan (`render-dns`: MX 10 for `tits.guru`, `bounce.tx.tits.guru`
+   and `reply.tits.guru` naming `mx1.tits.guru`, and its A record with an
+   explicitly given public IPv4 address or marked not provided; nothing of
+   the outbound identity) and the verdict for one recipient (`route`).
+   Genericity is proved against a synthetic second brand. MX records are
+   published only after the receiver is installed, verified and activated.
+   *Unchanged on purpose:* the gateway and its public-port checks, OpenDKIM,
+   the routing policy, `mail-outbound.json`, every lifecycle, environment
+   file and secret, DNS and the firewall; nothing listens on port 25.
+
+   **8.4B.5.2 Isolated inbound SMTP receiver and guarded activation —
+   planned.** The separate Postfix instance with its own configuration, queue
+   and service, rendered from the inbound plan and proved on the host with
+   public SMTP still disabled; then its guarded activation: the `enabled`
+   state, one verifiable owner of public port 25 that the gateway's checks
+   recognize exactly, the firewall, and a rollback that closes the port
+   again.
+
+   **8.4B.5.3 Bounce reception and correlation — planned.** The Return-Path
+   on the bounce domain; delivery status notifications received with an
+   empty sender, never answered, and matched to the message they report on;
+   the bounce domain's own SPF record, with DMARC resting on DKIM once SPF no
+   longer aligns.
+
+   **8.4B.5.4 Reply routing and the support mailbox — planned.** `Reply-To`
+   addresses on the reply domain, replies matched to their conversation, and
+   the support mailbox and its storage.
+
+   **8.4B.5.5 Real-host acceptance and recovery proof — planned.** MX records
+   published, external messages received at each destination, relay, AUTH
+   and limit probes from outside, and recovery on a replacement host behind
+   an inbound fence.
 
    **8.4B.6 Suppression, delivery state and per-target metrics — planned.**
    Recording what was delivered, deferred and bounced per target, suppressing

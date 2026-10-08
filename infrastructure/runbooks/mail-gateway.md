@@ -19,6 +19,7 @@ transport works and reaches a host only through the guarded activation.
 | DKIM signing of `tits-guru`'s listener | **Accepted on the shared host**: its listener hands each message to the host's DKIM signer before it is queued — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
 | Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08: the committed `config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`, and the host rendered the route when `activate-mail-outbound` crossed the activation boundary |
 | Production outbound delivery | **Production-accepted** on 2026-10-08: `tits-guru`'s mail is delivered directly, signed, and the real canary was received with SPF, DKIM and DMARC passing. A production target is activated only through the guarded `activate-mail-outbound` — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| Inbound mail (bounces, replies, support) | **Not received**: the gateway has no public listener and never will; inbound mail is a separate receiver — see [`mail-inbound.md`](mail-inbound.md) |
 
 ## What is installed
 
@@ -241,10 +242,10 @@ DMARC — see [`mail-identity.md`](mail-identity.md)), both done before
 `tits-guru` was activated on 2026-10-08; a controlled real canary delivery with
 its headers verified at a large mailbox provider, done right after; the
 production Return-Path and bounce reception, reply routing and a support
-mailbox, which are inbound mail and not built yet; and the production
-`MAIL_*` values and sender reputation warm-up. The committed
-`mail-outbound.json` says `enabled: true` and `tits-guru`'s policy says
-`outbound`, and the shared host applies both.
+mailbox, which are inbound mail (see [`mail-inbound.md`](mail-inbound.md)); and
+the production `MAIL_*` values and sender reputation warm-up. The committed `mail-outbound.json` says
+`enabled: true` and `tits-guru`'s policy says `outbound`, and the shared host
+applies both.
 
 The contract is judged by `infrastructure/scripts/mail-identity`
 (`check-outbound`), the one judge of the host's and the targets' mail

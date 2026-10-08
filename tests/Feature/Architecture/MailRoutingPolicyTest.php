@@ -23,36 +23,6 @@ use Symfony\Component\Yaml\Yaml;
  * listener, an untouched capture slice, and environment templates that describe
  * the endpoint a host actually has.
  */
-/** @return array<string, mixed> */
-function mailRoutingPolicy(): array
-{
-    return json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
-}
-
-/**
- * The committed policy — or BASE — with dot-path changes applied: `set`
- * replaces or adds a value, `forget` removes one.
- *
- * @param  array<string, mixed>  $set
- * @param  list<string>  $forget
- * @param  array<string, mixed>|null  $base
- * @return array<string, mixed>
- */
-function mailRoutingPolicyWith(array $set = [], array $forget = [], ?array $base = null): array
-{
-    $policy = $base ?? mailRoutingPolicy();
-
-    foreach ($set as $path => $value) {
-        data_set($policy, $path, $value);
-    }
-
-    foreach ($forget as $path) {
-        Arr::forget($policy, $path);
-    }
-
-    return $policy;
-}
-
 /**
  * The pre-activation policy — tits-guru held, with no outbound route — with
  * dot-path changes applied: what a held production target is judged on.
@@ -64,19 +34,6 @@ function mailRoutingPolicyWith(array $set = [], array $forget = [], ?array $base
 function mailRoutingHeldPolicyWith(array $set = [], array $forget = []): array
 {
     return mailRoutingPolicyWith($set, $forget, mailPreActivationPolicy()['routing']);
-}
-
-/** @return array<string, mixed> */
-function mailRoutingListener(array $plan, string $identity): array
-{
-    $matches = array_values(array_filter(
-        $plan['listeners'],
-        static fn (array $listener): bool => $listener['identity'] === $identity,
-    ));
-
-    expect(count($matches))->toBe(1, "expected exactly one listener for {$identity}");
-
-    return $matches[0];
 }
 
 /**
@@ -1215,8 +1172,9 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     // a target's delivery mode from the plan, and the signing acceptance,
     // which reads the one held listener it may submit to, the outbound
     // activation, which reads the plan of the bundle it was asked to activate
-    // and of the pre-activation copy it derives, and the canary, which reads
-    // the reviewed sender and endpoint — each running the copy next to itself.
+    // and of the pre-activation copy it derives, the canary, which reads the
+    // reviewed sender and endpoint, and the inbound contract, which reads each
+    // target's domains — each running the copy next to itself.
     // No workflow, action, orchestrator or other installer invokes it. The
     // one other file
     // that may name the POLICY is the prerequisite installer, which hands its
@@ -1229,6 +1187,7 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/verify-mail-signing',
         'infrastructure/scripts/activate-mail-outbound',
         'infrastructure/scripts/send-mail-canary',
+        'infrastructure/scripts/mail-inbound',
     ];
 
     foreach (operationalFiles() as $path) {

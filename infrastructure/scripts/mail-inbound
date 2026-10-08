@@ -1,0 +1,869 @@
+#!/usr/bin/env bash
+#
+# mail-inbound — the reviewed inbound mail contract: which production targets
+# receive mail from the Internet, at exactly which addresses, for which
+# destination, and the DNS that would bring that mail to them.
+#
+#   mail-inbound validate    [FILES]
+#   mail-inbound render-plan [FILES]
+#   mail-inbound render-dns  --target TARGET [--ipv4 ADDRESS] [FILES]
+#   mail-inbound route       --recipient ADDRESS [FILES]
+#
+#   FILES: [--inbound PATH] [--routing PATH] [--registry PATH] [--outbound PATH] [--identity PATH]
+#
+# THREE DESTINATIONS, NEVER MIXED. Mail for a production target arrives at one
+# of three places, and the recipient's domain alone says which:
+#
+#   support  the target's mail domain, at exactly the local parts the contract
+#            lists. Nothing else at the mail domain is accepted: no catch-all,
+#            no wildcard, no subaddress, and the reviewed no-reply sender is
+#            never a mailbox.
+#   bounce   the target's bounce domain: delivery status notifications,
+#            addressed <prefix>-<identifier>@<bounce domain>, the identifier
+#            naming the outbound message they report on.
+#   reply    the target's reply domain: people answering its mail, addressed
+#            <prefix>-<identifier>@<reply domain>, the identifier naming the
+#            conversation they answer.
+#
+# A target's bounce prefix is never its reply prefix, so a bounce address never
+# reads as a reply address, whichever domain it arrives at.
+#
+# THE IDENTIFIER, `base32-128`: 128 bits as exactly 26 characters of Crockford's
+# base32 alphabet in lowercase — the digits and the letters without i, l, o and
+# u — the first character 0 to 7. Those four letters are refused, never mapped
+# to digits: each reads as another character, and one address must never name
+# two identifiers. Addresses are compared case-insensitively, as a receiver
+# compares them. An identifier is a capability — whoever knows it can report on or answer that
+# message — so it is drawn at random for every message and never derived from a
+# sequential or time-ordered identifier: a monotonic ULID increments within a
+# millisecond, and its neighbours are guessable.
+#
+# WHAT LIVES WHERE. A target's mail domain, its reviewed sender and its bounce
+# and reply domains belong to mail-routing.json. This script reads them from
+# `mail-routing render-plan` — the one judge of that policy — never from the
+# file, and the inbound contract never restates them. Lifecycle and
+# environment class come from the deployment registry through the same plan.
+# The host's outbound MTA hostname belongs to mail-outbound.json, judged by
+# `mail-identity validate`. The inbound contract,
+# infrastructure/config/mail-inbound.json, holds only what none of them can:
+# whether the host receives public SMTP at all, and per production target its
+# receiver's MX host name, its support local parts, and its bounce and reply
+# address forms.
+#
+# PUBLIC SMTP. A closed vocabulary of one state, `disabled`: no public receiver
+# exists. A state is added by the change that implements it, never ahead of it —
+# a value the validator accepts is a value somebody can configure — so public
+# SMTP is enabled by the change that installs, verifies and activates its own
+# isolated receiver, never by editing this file. Until then a plan describes
+# what that receiver will accept, and DNS that would send mail to it is not
+# published.
+#
+# DNS. `render-dns` prints, for one target, an MX record (priority 10, naming
+# the target's own mx_hostname) for each of its three domains, and the A record
+# of that host name. The receiver's address is never committed: it is given
+# with --ipv4 and judged public, or the plan marks it not provided. Nothing of
+# the host's outbound identity is ever in it — no A or PTR for the MTA hostname,
+# no SPF, DKIM or DMARC — and the MX host may never be that name.
+#
+# WHAT IT IS NOT. Read-only, everything: it writes no file, installs, starts or
+# reloads nothing, opens no port, sends or receives no mail, publishes no
+# record and asks no DNS. `route` judges one recipient address against the plan
+# — the verdict a receiver gives at RCPT TO — and never reads a message.
+#
+# Repository tooling, like mail-routing and mail-identity: run from a checkout
+# by a developer, by CI or by an operator, and never installed into the
+# operational bundle.
+#
+# The contract is data, never code. It is read with jq only — never sourced,
+# never eval'd — and every rule runs inside jq against the exact JSON values.
+# Target IDs and addresses reach jq as data, never by concatenation into a
+# program or a command.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+INBOUND_FILE="${REPO_ROOT}/infrastructure/config/mail-inbound.json"
+ROUTING_FILE="${REPO_ROOT}/infrastructure/config/mail-routing.json"
+REGISTRY_FILE="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+OUTBOUND_FILE="${REPO_ROOT}/infrastructure/config/mail-outbound.json"
+IDENTITY_FILE="${REPO_ROOT}/infrastructure/config/mail-identity.json"
+
+MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
+MAIL_IDENTITY_CLI="${SCRIPT_DIR}/mail-identity"
+
+SCHEMA_VERSION=1
+
+# Property names that would mean a credential reached committed, world-readable
+# data. The contract's shape is closed, so such a key is refused regardless;
+# this names the actual reason instead of calling it merely unexpected.
+SECRET_NAME_PATTERN='password|passwd|secret|token|private_?key|credential|dsn|api_?key|access_?key|auth|username|login|sasl'
+
+# --- The rules -------------------------------------------------------------------
+#
+# Shared by every program below. Every pattern is anchored with \A and \z, not ^
+# and $: in jq's regex dialect `$` also matches before a trailing newline.
+#
+# The programs are single-quoted on purpose: every `$name` in them is a jq
+# variable, and none may ever be expanded by the shell.
+# shellcheck disable=SC2016
+INBOUND_DEFINITIONS='
+def anchored($re): test("\\A(?:" + $re + ")\\z");
+
+def label_re: "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def domain_re: "(?:" + label_re + "\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
+def local_part_re: "[a-z0-9]+(?:[._-][a-z0-9]+)*";
+
+# The same closed format the registry holds a target ID to.
+def is_target_id: type == "string" and anchored("[a-z0-9][a-z0-9-]{1,31}");
+
+# Lowercase, at least two labels, no trailing dot, no wildcard, and a final
+# label that is not all digits, so an address literal is never a domain.
+def is_domain: type == "string" and length <= 253 and anchored(domain_re);
+
+def is_local_part: type == "string" and length <= 64 and anchored(local_part_re);
+
+def one_of($values): . as $value | any($values[]; . == $value);
+
+# A routing listener that carries a production identity: a mail domain, a
+# sender and bounce and reply domains.
+def has_production_identity: .delivery_mode == "held" or .delivery_mode == "outbound";
+
+# The states public inbound SMTP may be in. Only one exists, because no public
+# receiver does.
+def public_smtp_states: ["disabled"];
+
+# The identifier formats an address space may use, each implemented by the
+# router below.
+def identifier_formats: ["base32-128"];
+def identifier_length: 26;
+
+# A bounce or reply prefix: short, lowercase and free of the separator, so the
+# identifier always starts right after the first hyphen.
+def prefix_re: "[a-z][a-z0-9]{0,7}";
+def identifier_separator: "-";
+
+def mx_priority: 10;
+
+# The destinations, in the order a plan lists them, what each identifier names
+# and the handler each will be given to. No handler exists yet; every one is
+# planned.
+def destination_order: ["support", "bounce", "reply"];
+def identifier_destinations: ["bounce", "reply"];
+def handlers: {support: "support-mailbox", bounce: "bounce-correlation", reply: "reply-routing"};
+def identifies: {bounce: "outbound-message", reply: "conversation"};
+
+# What the public receiver must do before it may exist. The plan carries the
+# list so the receiver that implements it is held to every entry; the runbook
+# states each one.
+def requirements: [
+    "recipient-allowlist",
+    "relay-refused-at-rcpt",
+    "no-smtp-auth",
+    "no-relay-no-forwarding",
+    "message-size-limit",
+    "recipient-limit",
+    "connection-limits",
+    "queue-limits",
+    "isolated-queue",
+    "no-outbound-submission",
+    "no-message-content-in-logs",
+    "content-never-executed",
+    "untrusted-sender-fields",
+    "no-automatic-replies",
+    "null-sender-accepted",
+    "malformed-and-duplicate-safe",
+    "disk-exhaustion-guard",
+    "single-public-port-owner",
+    "no-shared-mail-state"
+];
+'
+
+# Emits one JSON array of problems; empty when the contract is valid. Run only
+# on a single-document, control-character-free, duplicate-free object of the
+# current schema, against a routing plan mail-routing rendered and an MTA
+# hostname mail-identity accepted.
+# shellcheck disable=SC2016
+INBOUND_RULES="${INBOUND_DEFINITIONS}"'
+# Property names this contract must never hold, each refused with its own
+# reason rather than as merely unexpected.
+def domain_properties: ["bounce_domain", "domain", "domains", "mail_domain", "reply_domain"];
+def forwarding_properties: ["alias", "aliases", "deliver_to", "destination", "forward", "forward_to", "forwarding", "nexthop", "redirect", "relayhost", "route", "smarthost", "transport"];
+def catch_all_properties: ["catch_all", "catchall", "default", "luser_relay", "wildcard"];
+def relay_properties: ["mynetworks", "open_relay", "permit_relay", "relay", "relay_domains", "relay_networks", "smtp_auth", "submission"];
+
+def refusal($key):
+    if $key | one_of(domain_properties) then
+        "domains are read from mail-routing.json, their one authority, and are never restated or replaced here"
+    elif $key | one_of(forwarding_properties) then
+        "received mail is never forwarded or relayed off the host; it reaches only its own destination"
+    elif $key | one_of(catch_all_properties) then
+        "there is no catch-all; an address this contract does not name is refused"
+    elif $key | one_of(relay_properties) then
+        "the public receiver never relays and never authenticates a client, so nothing can make it an open relay"
+    else
+        null
+    end;
+
+# Every rule is a generator of problem strings. Each one is parenthesized where
+# it is combined: in jq `a, b | c` means `(a, b) | c`, so an unbracketed rule
+# would swallow every rule before it.
+
+def shape_problems($where; $expected):
+    keys as $present
+    | (($expected - $present)[] | "\($where) must declare \(.)"),
+      (($present - $expected)[] as $key
+        | refusal($key) as $reason
+        | if $reason == null then
+              "\($where) has an unexpected property \($key | tojson)"
+          else
+              "\($where) may not declare \($key | tojson): \($reason)"
+          end);
+
+def receiver_problems:
+    if type != "object" then
+        "receiver must be an object {public_smtp}, got \(tojson)"
+    else
+        shape_problems("receiver"; ["public_smtp"]),
+        (if has("public_smtp") and (.public_smtp | one_of(public_smtp_states) | not) then
+             "receiver.public_smtp must be \(public_smtp_states | join(" or ")), got \(.public_smtp | tojson): no public receiver exists, and public SMTP is enabled only by the change that installs, verifies and activates its own isolated receiver"
+         else empty end)
+    end;
+
+def mx_problems($id; $sender):
+    if is_domain | not then
+        "\($id): mx_hostname must be a lowercase fully qualified host name, got \(tojson)"
+    elif endswith("." + $sender.allowed_domain) | not then
+        "\($id): mx_hostname \(tojson) is not inside its own mail domain \($sender.allowed_domain | tojson): the receiver name and its A record stay in the zone of the target they serve, and any other domain belongs to another owner"
+    else empty end;
+
+def support_problems($id; $sender):
+    ($sender.default_from | split("@") | .[0]) as $sender_local
+    | if type != "object" then
+          "\($id): support must be an object {local_parts}, got \(tojson)"
+      else
+          shape_problems("\($id) support"; ["local_parts"]),
+          (if has("local_parts") | not then
+               empty
+           elif (.local_parts | type) != "array" or (.local_parts | length) == 0 then
+               "\($id): support.local_parts must be a non-empty list of local parts, got \(.local_parts | tojson)"
+           else
+               (.local_parts[]
+                 | if type != "string" then
+                       "\($id): a support local part must be a string, got \(tojson)"
+                   elif test("@") then
+                       "\($id): support local part \(tojson) is an address: support lists local parts at \($sender.allowed_domain) and never names a mailbox anywhere else"
+                   elif . == "" or test("[*?%]") then
+                       "\($id): support local part \(tojson) is a wildcard: support is exact addresses only, never a catch-all"
+                   elif is_local_part | not then
+                       "\($id): support local part \(tojson) is not a lowercase local part: runs of a-z and 0-9 joined by single dots, hyphens or underscores, at most 64 characters"
+                   elif . == $sender_local then
+                       "\($id): \(.)@\($sender.allowed_domain) is the reviewed sender (default_from), a no-reply identity that is never a mailbox; answers reach the reply domain"
+                   else empty end),
+               (.local_parts
+                 | map(select(type == "string"))
+                 | group_by(.)[]
+                 | select(length > 1)
+                 | "\($id): support local part \(.[0] | tojson) is listed more than once")
+           end)
+      end;
+
+def address_space_problems($id; $name):
+    if type != "object" then
+        "\($id): \($name) must be an object {prefix, identifier}, got \(tojson)"
+    else
+        shape_problems("\($id) \($name)"; ["identifier", "prefix"]),
+        (if has("prefix") and ((.prefix | type) != "string" or (.prefix | anchored(prefix_re) | not)) then
+             "\($id): \($name).prefix must be a lowercase letter followed by at most seven lowercase letters or digits, got \(.prefix | tojson)"
+         else empty end),
+        (if has("identifier") and (.identifier | one_of(identifier_formats) | not) then
+             "\($id): \($name).identifier must be one of \(identifier_formats | join(", ")), got \(.identifier | tojson)"
+         else empty end)
+    end;
+
+def target_problems($id; $p; $listener):
+    if $listener == null then
+        "\($id): not a target in the deployment registry: an inbound policy for a target that does not exist receives nothing, and a misspelt one leaves the real target without one"
+    elif $listener.environment_class != "production" then
+        "\($id): environment_class \($listener.environment_class) never receives public mail: a staging target captures its mail on the host, and staging is never a public mail destination"
+    elif $listener | has_production_identity | not then
+        "\($id): delivery_mode \($listener.delivery_mode) carries no production mail identity in mail-routing.json, so it has no domains to receive at"
+    elif ($p | type) != "object" then
+        "\($id): an inbound policy must be an object {mx_hostname, support, bounce, reply}, got \($p | tojson)"
+    else
+        ($p | shape_problems($id; ["bounce", "mx_hostname", "reply", "support"])),
+        (if $p | has("mx_hostname") then $p.mx_hostname | mx_problems($id; $listener.sender) else empty end),
+        (if $p | has("support") then $p.support | support_problems($id; $listener.sender) else empty end),
+        (identifier_destinations[] as $name
+          | select($p | has($name))
+          | $p[$name]
+          | address_space_problems($id; $name)),
+        (if ($p.bounce | type) == "object" and ($p.reply | type) == "object"
+            and ($p.bounce.prefix | type) == "string" and $p.bounce.prefix == $p.reply.prefix then
+             "\($id): bounce and reply share the prefix \($p.bounce.prefix | tojson): a bounce address must never also read as a reply address, whichever domain it arrives at"
+         else empty end)
+    end;
+
+. as $doc
+| ($plan.listeners | map({key: .identity, value: .}) | from_entries) as $listeners
+
+# A production target whose own rules hold, by ID: the only ones the
+# cross-target rule reasons about, so a problem already reported on its own is
+# not repeated under another name.
+| ($listeners
+    | with_entries(select(.value.environment_class == "production" and (.value | has_production_identity)))) as $production
+
+| [
+    # A credential, wherever it is nested.
+    ([paths | .[] | strings]
+      | unique[]
+      | select(test($secret_pattern; "i"))
+      | "the inbound contract holds a secret-like property name \(tojson): a credential never belongs in committed mail policy"),
+
+    shape_problems("the inbound contract"; ["receiver", "schema_version", "targets"]),
+
+    (if has("receiver") then .receiver | receiver_problems else empty end),
+
+    (if has("targets") | not then
+         empty
+     elif (.targets | type) != "object" then
+         "targets must be an object of inbound policies by target ID, got \(.targets | tojson)"
+     else
+         .targets
+         | keys[] as $id
+         | if $id | is_target_id | not then
+               "invalid target ID \($id | tojson): it must match [a-z0-9][a-z0-9-]{1,31}"
+           else
+               target_problems($id; $doc.targets[$id]; $listeners[$id])
+           end
+     end),
+
+    # Every name the inbound plan publishes or receives at has exactly one
+    # owner: each production target mail, bounce and reply domain, each
+    # receiver MX host name, and the host outbound MTA hostname, whose A
+    # record its PTR and SPF depend on.
+    ([($production[]
+        | .identity as $id
+        | {name: .sender.allowed_domain, owner: "\($id) mail domain"},
+          {name: .sender.bounce_domain, owner: "\($id) bounce domain"},
+          {name: .sender.reply_domain, owner: "\($id) reply domain"}),
+      (if ($doc.targets | type) == "object" then
+           $doc.targets
+           | to_entries[]
+           | .key as $id
+           | select($production | has($id))
+           | select(.value | type == "object")
+           | .value.mx_hostname as $mx
+           | select($mx | is_domain)
+           | select($mx | endswith("." + $production[$id].sender.allowed_domain))
+           | {name: $mx, owner: "\($id) mx_hostname"}
+       else empty end),
+      (if $mta_hostname == "" then empty
+       else {name: $mta_hostname, owner: "the outbound MTA hostname in mail-outbound.json"} end)]
+      | group_by(.name)[]
+      | select(length > 1)
+      | "\(.[0].name) is claimed by \(map(.owner) | sort | join(" and ")): every name a receiver answers to has exactly one owner, so an MX host is never a mail destination, a name of another target or the outbound MTA hostname")
+  ]
+'
+
+# The inbound plan: the receiver, then one entry per target in target order, its
+# destinations in a fixed order, keys sorted by jq -S. Holds only names,
+# addresses and closed vocabulary — never a command, a path or a secret.
+# shellcheck disable=SC2016
+RENDER_PROGRAM="${INBOUND_DEFINITIONS}"'
+def destination_domain($sender; $name):
+    if $name == "support" then $sender.allowed_domain
+    elif $name == "bounce" then $sender.bounce_domain
+    else $sender.reply_domain
+    end;
+
+. as $doc
+| ($plan.listeners | map({key: .identity, value: .}) | from_entries) as $listeners
+| {
+    schema_version: .schema_version,
+    receiver: {
+        public_smtp: .receiver.public_smtp,
+        requirements: requirements
+    },
+    targets: [
+        .targets
+        | keys[] as $id
+        | $doc.targets[$id] as $p
+        | $listeners[$id] as $l
+        | {
+              target: $id,
+              environment_class: $l.environment_class,
+              lifecycle: $l.lifecycle,
+              mx_hostname: $p.mx_hostname,
+              domains: ([destination_order[] as $name | destination_domain($l.sender; $name)] | sort),
+              destinations: [
+                  destination_order[] as $name
+                  | {
+                        destination: $name,
+                        domain: destination_domain($l.sender; $name),
+                        handler: {kind: handlers[$name], status: "planned"}
+                    }
+                    + (if $name == "support" then
+                           {
+                               accepts: "exact-addresses",
+                               addresses: [$p.support.local_parts | sort[] | "\(.)@\($l.sender.allowed_domain)"]
+                           }
+                       else
+                           {
+                               accepts: "identifier-addresses",
+                               address_space: {local_part_prefix: ($p[$name].prefix + identifier_separator), identifier: $p[$name].identifier},
+                               identifies: identifies[$name]
+                           }
+                       end)
+              ]
+          }
+    ]
+  }
+'
+
+# The verdict a receiver gives one recipient at RCPT TO, judged against the
+# rendered plan: the address itself first, then the domain, then the
+# destination at that domain. Every verdict has the same keys.
+# shellcheck disable=SC2016
+ROUTE_PROGRAM="${INBOUND_DEFINITIONS}"'
+def verdict($fields):
+    {
+        recipient: $recipient,
+        address: null,
+        verdict: null,
+        rejection: null,
+        reason: null,
+        target: null,
+        destination: null,
+        identifier: null,
+        handler: null,
+        public_smtp: $inbound.receiver.public_smtp
+    } + $fields;
+
+def reject($kind; $reason; $fields): verdict({verdict: "reject", rejection: $kind, reason: $reason} + $fields);
+
+def malformed($reason): reject("malformed-address"; $reason; {});
+
+# Why a base32-128 identifier is not one, or null.
+def identifier_problem:
+    if test("[^0-9a-z]") then
+        "holds characters outside the lowercase base32 alphabet"
+    elif test("[ilou]") then
+        "holds i, l, o or u, which base32-128 refuses because each reads as another character: one address must never name two identifiers"
+    elif length != identifier_length then
+        "is \(length) characters long, not exactly \(identifier_length)"
+    elif test("\\A[0-7]") | not then
+        "starts above 7, beyond 128 bits"
+    else
+        null
+    end;
+
+($recipient | ascii_downcase) as $address
+| if ($recipient | length) > 254 then
+      malformed("an address is at most 254 characters")
+  elif $recipient | anchored("[!-~]+") | not then
+      malformed("an address is printable ASCII with no space or control character")
+  elif ($address | split("@") | length) != 2 then
+      malformed("an address holds exactly one @")
+  else
+      ($address | split("@")) as [$local, $domain]
+      | if $local == "" or ($local | length) > 64 then
+            malformed("a local part is 1 to 64 characters")
+        elif $domain | is_domain | not then
+            malformed("\($domain | tojson) is not a domain name: address literals and trailing dots are not accepted")
+        else
+            [$inbound.targets[] as $t | $t.destinations[] | select(.domain == $domain) | {target: $t, destination: .}] as $matches
+            | if $matches == [] then
+                  reject("relay-denied"; "no target receives mail at \($domain): the receiver never relays"; {address: $address})
+              else
+                  $matches[0].target as $t
+                  | $matches[0].destination as $d
+                  | {address: $address, target: $t.target, destination: $d.destination} as $at
+                  | if $d.accepts == "exact-addresses" then
+                        if any($d.addresses[]; . == $address) then
+                            verdict($at + {verdict: "accept", handler: $d.handler})
+                        else
+                            reject("unknown-recipient"; "\($address) is not a support address of \($t.target), which receives at \($d.domain) only \($d.addresses | join(", "))"; $at)
+                        end
+                    elif $local | startswith($d.address_space.local_part_prefix) then
+                        ($local | ltrimstr($d.address_space.local_part_prefix)) as $identifier
+                        | ($identifier | identifier_problem) as $problem
+                        | if $problem == null then
+                              verdict($at + {verdict: "accept", identifier: $identifier, handler: $d.handler})
+                          else
+                              reject("invalid-identifier"; "the \($d.destination) identifier of \($address) \($problem)"; $at)
+                          end
+                    else
+                        ([$t.destinations[]
+                           | select(.accepts == "identifier-addresses" and .destination != $d.destination)
+                           | .address_space.local_part_prefix as $prefix
+                           | select($local | startswith($prefix))
+                           | .destination] | .[0]) as $other
+                        | if $other == null then
+                              reject("unknown-recipient"; "\($address) is not a \($d.destination) address of \($t.target): \($d.domain) receives only \($d.address_space.local_part_prefix)<identifier>"; $at)
+                          else
+                              reject("unknown-recipient"; "\($address) is a \($other) address at the \($d.destination) domain of \($t.target): \($d.destination) and \($other) never accept each other addresses"; $at)
+                          end
+                    end
+              end
+        end
+  end
+'
+
+# The DNS one target publishes once its receiver is active: an MX for each of
+# its domains naming its own MX host, and that host's A record. Nothing of the
+# outbound identity.
+# shellcheck disable=SC2016
+DNS_PROGRAM="${INBOUND_DEFINITIONS}"'
+($inbound.targets[] | select(.target == $target)) as $t
+| {
+    schema_version: $inbound.schema_version,
+    target: $t.target,
+    public_smtp: $inbound.receiver.public_smtp,
+    mx_hostname: $t.mx_hostname,
+    receiver_ipv4: (if $ipv4 == "" then {address: null, status: "not-provided"} else {address: $ipv4, status: "provided"} end),
+    records: [
+        ($t.destinations[]
+          | {name: .domain, type: "MX", priority: mx_priority, value: $t.mx_hostname, serves: .destination, publish: "after-receiver-activation"}),
+        {name: $t.mx_hostname, type: "A", priority: null, value: (if $ipv4 == "" then null else $ipv4 end), serves: "receiver", publish: "before-mx"}
+    ],
+    outbound_identity: {
+        mta_hostname: (if $mta_hostname == "" then null else $mta_hostname end),
+        records: "unchanged"
+    }
+  }
+'
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  mail-inbound validate    [FILES]
+  mail-inbound render-plan [FILES]
+  mail-inbound render-dns  --target TARGET [--ipv4 ADDRESS] [FILES]
+  mail-inbound route       --recipient ADDRESS [FILES]
+
+  validate     Judge the inbound mail contract against the mail routing plan,
+               the deployment registry and the host's outbound identity.
+               Read-only; exit 0 only when it is valid.
+  render-plan  Validate, then print the inbound plan as JSON: the public SMTP
+               state, the receiver's requirements, and per target its MX host,
+               domains and destinations — the exact support addresses, the
+               bounce and reply address spaces, and each one's future handler.
+  render-dns   Validate, then print TARGET's inbound DNS plan as JSON: an MX
+               (priority 10) for its mail, bounce and reply domains and the A
+               record of its MX host — with --ipv4's public address, or marked
+               not provided. Publishes nothing; MX records wait until the
+               receiver is active.
+  route        Validate, then print as JSON the verdict a receiver gives
+               ADDRESS at RCPT TO: accepted for one destination, or refused
+               with its reason. Exit 0 when accepted, 2 when refused.
+
+  FILES default to infrastructure/config/{mail-inbound,mail-routing,
+  deployment-targets,mail-outbound,mail-identity}.json beside this script:
+    --inbound PATH  --routing PATH  --registry PATH  --outbound PATH  --identity PATH
+
+Everything is read-only. Any other failure exits 1.
+USAGE
+}
+
+# --- Arguments ---------------------------------------------------------------------
+
+COMMAND=""
+TARGET_ID=""
+RECIPIENT=""
+IPV4_ARG=""
+declare -A SEEN=()
+
+option_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ -z "${SEEN[${flag}]:-}" ]] || fail "${flag} given more than once"
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    SEEN[${flag}]=1
+}
+
+parse_args() {
+    if [[ $# -eq 0 ]]; then
+        usage >&2
+        exit 1
+    fi
+
+    case "$1" in
+        validate|render-plan|render-dns|route)
+            COMMAND="$1"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'ERROR: unknown command: %s\n' "$1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)    option_value "$1" "$#" "${2-}"; TARGET_ID="$2"; shift 2 ;;
+            --ipv4)      option_value "$1" "$#" "${2-}"; IPV4_ARG="$2"; shift 2 ;;
+            --recipient) option_value "$1" "$#" "${2-}"; RECIPIENT="$2"; shift 2 ;;
+            --inbound)   option_value "$1" "$#" "${2-}"; INBOUND_FILE="$2"; shift 2 ;;
+            --routing)   option_value "$1" "$#" "${2-}"; ROUTING_FILE="$2"; shift 2 ;;
+            --registry)  option_value "$1" "$#" "${2-}"; REGISTRY_FILE="$2"; shift 2 ;;
+            --outbound)  option_value "$1" "$#" "${2-}"; OUTBOUND_FILE="$2"; shift 2 ;;
+            --identity)  option_value "$1" "$#" "${2-}"; IDENTITY_FILE="$2"; shift 2 ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    # Each command takes exactly the options it reads, and every one it needs.
+    local files="--inbound --routing --registry --outbound --identity" allowed flag
+    case "${COMMAND}" in
+        validate|render-plan) allowed="${files}" ;;
+        render-dns)           allowed="--target --ipv4 ${files}" ;;
+        route)                allowed="--recipient ${files}" ;;
+    esac
+
+    for flag in "${!SEEN[@]}"; do
+        [[ " ${allowed} " == *" ${flag} "* ]] || fail "${flag} is not an option of ${COMMAND}"
+    done
+
+    case "${COMMAND}" in
+        render-dns)
+            [[ -n "${TARGET_ID}" ]] || fail "render-dns requires --target"
+            [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${TARGET_ID}"
+            if [[ -n "${IPV4_ARG}" ]]; then
+                is_public_ipv4 "${IPV4_ARG}" || fail "--ipv4 must be a public IPv4 address, got: ${IPV4_ARG}"
+            fi
+            ;;
+        route)
+            [[ -n "${RECIPIENT}" ]] || fail "route requires --recipient"
+            ;;
+    esac
+}
+
+# --- The receiver's address ---------------------------------------------------------
+#
+# The same definitions mail-identity holds for the address a host sends from,
+# and kept identical to them: a public address is one a receiving server can
+# reach, whichever direction the mail goes.
+
+is_ipv4() {
+    local address="$1" octet
+    [[ "${address}" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+
+    for octet in "${BASH_REMATCH[@]:1}"; do
+        [[ "${octet}" == 0 || "${octet}" != 0* ]] || return 1
+        (( 10#${octet} <= 255 )) || return 1
+    done
+}
+
+# A public sender address: not loopback, private, shared, link-local or
+# unspecified. Mail from behind NAT carries an address this check cannot see.
+is_public_ipv4() {
+    local a b
+    is_ipv4 "$1" || return 1
+    IFS=. read -r a b _ _ <<<"$1"
+
+    (( a != 0 && a != 10 && a != 127 )) || return 1
+    (( a != 100 || b < 64 || b > 127 )) || return 1
+    (( a != 169 || b != 254 )) || return 1
+    (( a != 172 || b < 16 || b > 31 )) || return 1
+    (( a != 192 || b != 168 )) || return 1
+    (( a < 224 )) || return 1
+}
+
+# --- Reviewed JSON documents ------------------------------------------------------------
+
+# assert_json_document PATH LABEL — one regular, readable file holding exactly
+# one JSON object with no control character anywhere and no key declared twice.
+# A symlink is refused: it lets the reviewed path and the read path diverge.
+assert_json_document() {
+    local path="$1" label="$2"
+
+    [[ ! -L "${path}" ]] || fail "${label} must not be a symlink: ${path}"
+    [[ -e "${path}" ]] || fail "${label} is unavailable: ${path} — run from a full repository checkout"
+    [[ -f "${path}" && -r "${path}" ]] || fail "${label} must be a readable regular file: ${path}"
+
+    local documents
+    documents="$(jq -n '[inputs] | length' "${path}" 2>/dev/null)" \
+        || fail "${label} is not valid JSON: ${path}"
+    [[ "${documents}" == "1" ]] \
+        || fail "${label} must hold exactly one JSON document, found ${documents}: ${path}"
+
+    jq -e 'type == "object"' "${path}" >/dev/null \
+        || fail "${label} must be a JSON object: ${path}"
+
+    # Names and local parts from this file become DNS names and addresses, so
+    # not even a control character inside a key reaches a rule.
+    jq -e '[paths | .[] | strings] + [.. | strings] | all(.[]; explode | all(.[]; . >= 32 and . != 127))' "${path}" >/dev/null \
+        || fail "${label} must not contain control characters in any key or value: ${path}"
+
+    # A key declared twice is kept once, silently, by every JSON parser — so
+    # the document a reviewer read is not the document that runs.
+    local streamed parsed
+    streamed="$(jq -c --stream '.' "${path}" | wc -l)" || fail "could not read ${label}: ${path}"
+    parsed="$(jq -c 'tostream' "${path}" | wc -l)" || fail "could not read ${label}: ${path}"
+    (( streamed == parsed )) \
+        || fail "${label} declares the same key twice in one object — only one of them would ever be read: ${path}"
+}
+
+# --- What the contract is judged against ----------------------------------------------
+
+ROUTING_PLAN=""
+MTA_HOSTNAME=""
+INBOUND_PLAN=""
+
+# The routing plan: mail-routing is the only judge of routing policy, and the
+# registry reaches this script through it.
+load_routing_plan() {
+    [[ -x "${MAIL_ROUTING_CLI}" ]] \
+        || fail "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full repository checkout"
+
+    ROUTING_PLAN="$("${MAIL_ROUTING_CLI}" render-plan --file "${ROUTING_FILE}" --registry "${REGISTRY_FILE}")" \
+        || fail "mail-routing render-plan refused the routing policy (diagnostics above): inbound mail is judged only against a valid one"
+}
+
+# The host's outbound MTA hostname, read only after mail-identity — the one
+# judge of mail-outbound.json — accepted it.
+load_outbound_identity() {
+    [[ -x "${MAIL_IDENTITY_CLI}" ]] \
+        || fail "the mail identity CLI is not executable: ${MAIL_IDENTITY_CLI} — run from a full repository checkout"
+
+    "${MAIL_IDENTITY_CLI}" validate \
+        --identity "${IDENTITY_FILE}" --routing "${ROUTING_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" >/dev/null \
+        || fail "mail-identity validate refused the host mail identity (diagnostics above): the outbound MTA hostname the inbound plan keeps apart cannot be read from it"
+
+    MTA_HOSTNAME="$(jq -r '.direct.mta_hostname' "${OUTBOUND_FILE}")"
+}
+
+# The single validation path. Every command runs it before producing anything,
+# so no plan, DNS or verdict is ever printed for a contract validate rejects.
+# Diagnostics go to stderr, so a failing run prints nothing on stdout.
+assert_inbound_valid() {
+    command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+    load_routing_plan
+    load_outbound_identity
+    assert_json_document "${INBOUND_FILE}" "the inbound mail contract"
+
+    # An older or newer schema is refused, never reinterpreted.
+    if ! jq -e --argjson expected "${SCHEMA_VERSION}" \
+        '(.schema_version | type) == "number" and .schema_version == $expected' "${INBOUND_FILE}" >/dev/null
+    then
+        fail "unsupported inbound mail schema_version: $(jq -c '.schema_version' "${INBOUND_FILE}") (expected ${SCHEMA_VERSION}): ${INBOUND_FILE}"
+    fi
+
+    local problems count
+    problems="$(jq -c \
+        --argjson plan "${ROUTING_PLAN}" \
+        --arg mta_hostname "${MTA_HOSTNAME}" \
+        --arg secret_pattern "${SECRET_NAME_PATTERN}" \
+        "${INBOUND_RULES}" "${INBOUND_FILE}")" \
+        || fail "could not evaluate the inbound mail contract: ${INBOUND_FILE}"
+
+    count="$(jq 'length' <<<"${problems}")"
+
+    if (( count > 0 )); then
+        jq -r '.[] | "INVALID: " + .' <<<"${problems}" >&2
+        fail "the inbound mail contract is invalid (${count} problem(s)): ${INBOUND_FILE}"
+    fi
+}
+
+render_inbound_plan() {
+    INBOUND_PLAN="$(jq -c -S --argjson plan "${ROUTING_PLAN}" "${RENDER_PROGRAM}" "${INBOUND_FILE}")" \
+        || fail "could not render the inbound plan: ${INBOUND_FILE}"
+}
+
+# --- Commands ---------------------------------------------------------------------
+
+command_validate() {
+    assert_inbound_valid
+
+    printf 'inbound mail contract is valid: %s\n' "${INBOUND_FILE}"
+}
+
+command_render_plan() {
+    assert_inbound_valid
+    render_inbound_plan
+
+    # Rendered whole before a byte is printed, so a failure never leaves half a
+    # plan on stdout.
+    local plan
+    plan="$(jq -S . <<<"${INBOUND_PLAN}")"
+
+    printf '%s\n' "${plan}"
+}
+
+command_render_dns() {
+    assert_inbound_valid
+    render_inbound_plan
+
+    if ! jq -e --arg target "${TARGET_ID}" 'any(.targets[]; .target == $target)' <<<"${INBOUND_PLAN}" >/dev/null; then
+        local class
+        class="$(jq -r --arg target "${TARGET_ID}" '.listeners[] | select(.identity == $target) | .environment_class' <<<"${ROUTING_PLAN}")"
+
+        case "${class}" in
+            "")         fail "unknown target: ${TARGET_ID} — not in the deployment registry" ;;
+            production) fail "${TARGET_ID} receives no inbound mail: it has no policy in ${INBOUND_FILE}, so it has no inbound DNS" ;;
+            *)          fail "${TARGET_ID} is a ${class} target: it never receives public mail, so it has no inbound DNS" ;;
+        esac
+    fi
+
+    local dns
+    dns="$(jq -n -S \
+        --argjson inbound "${INBOUND_PLAN}" \
+        --arg target "${TARGET_ID}" \
+        --arg ipv4 "${IPV4_ARG}" \
+        --arg mta_hostname "${MTA_HOSTNAME}" \
+        "${DNS_PROGRAM}")" \
+        || fail "could not render the inbound DNS plan for ${TARGET_ID}"
+
+    printf '%s\n' "${dns}"
+}
+
+command_route() {
+    assert_inbound_valid
+    render_inbound_plan
+
+    local verdict
+    verdict="$(jq -n -S \
+        --argjson inbound "${INBOUND_PLAN}" \
+        --arg recipient "${RECIPIENT}" \
+        "${ROUTE_PROGRAM}")" \
+        || fail "could not judge the recipient against the inbound plan"
+
+    printf '%s\n' "${verdict}"
+
+    [[ "$(jq -r '.verdict' <<<"${verdict}")" == accept ]] || exit 2
+}
+
+main() {
+    parse_args "$@"
+
+    case "${COMMAND}" in
+        validate)    command_validate ;;
+        render-plan) command_render_plan ;;
+        render-dns)  command_render_dns ;;
+        route)       command_route ;;
+    esac
+}
+
+# Sourcing defines the rules and the programs without running anything, so the
+# tests read exactly the jq text this script runs.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

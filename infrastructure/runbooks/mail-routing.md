@@ -14,7 +14,7 @@ leaves the application, and the repository tooling that proves the contract.
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
 | `outbound` mode, `kind: direct` | **Implemented, active for `tits-guru`**: the committed policy routes it outbound, `config/mail-outbound.json` enables direct delivery, and the shared host rendered it through `activate-mail-outbound` on 2026-10-08 |
 | Production mail (`tits-guru`) — committed policy | **Outbound** by direct delivery, identity reviewed, still `lifecycle=planned` |
-| Production mail (`tits-guru`) — real host | **Outbound**, production-accepted on 2026-10-08: delivered directly, signed — see [`mail-outbound-activation.md`](mail-outbound-activation.md). Its bounce and reply domains receive nothing yet |
+| Production mail (`tits-guru`) — real host | **Outbound**, production-accepted on 2026-10-08: delivered directly, signed — see [`mail-outbound-activation.md`](mail-outbound-activation.md). Its bounce and reply domains receive nothing yet — see [`mail-inbound.md`](mail-inbound.md) |
 
 The policy is the contract; `install-mail-gateway` turns its rendered plan into
 Postfix configuration and never re-derives a rule of its own. It was written

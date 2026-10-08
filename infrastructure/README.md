@@ -159,6 +159,13 @@ infrastructure, and moves out once a second project exists.
   `infrastructure/scripts/mail-identity` that judges them, prints the DNS
   records to publish and verifies public DNS read-only — see
   [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
+- the inbound mail contract: which production targets will receive mail from
+  the Internet — exact support addresses, bounce and reply address spaces — at
+  which MX host, in `config/mail-inbound.json`, judged against the routing
+  policy by the repository-only `infrastructure/scripts/mail-inbound`, which
+  also renders the inbound plan, its DNS and the verdict for one recipient.
+  Public inbound SMTP is disabled: no receiver is installed yet — see
+  [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md);
 - infrastructure verification: the repository-only, read-only
   `infrastructure/scripts/verify-infrastructure --target T`, which composes the
   contract owners a target's current lifecycle requires — preparation and

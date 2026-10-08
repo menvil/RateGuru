@@ -321,7 +321,7 @@ its real results:
 | Make the result check follow the canary ID's form, and show the sender as `TitsGuru`. | — | merged and promoted |
 | Run **Send tits.guru production mail canary** to Gmail again. | `37821815403` | SUCCESS |
 | Inspect the received message's raw headers. | — | `From: TitsGuru <noreply@tits.guru>`; SPF PASS, DKIM PASS (`d=tits.guru`, `s=rg1`), DMARC PASS; TLS 1.3; from `213.199.41.241` as `mta1.tits.guru` |
-| Check with Mail-Tester. | `37822226157` | SUCCESS — SpamAssassin and blocklists pass; 7/10 for the missing MX of `tits.guru`, which is inbound mail |
+| Check with Mail-Tester. | `37822226157` | SUCCESS — SpamAssassin and blocklists pass; 7/10 for the missing MX of `tits.guru`, which is inbound mail ([`mail-inbound.md`](mail-inbound.md)) |
 | Run **Verify staging infrastructure**. | `37823079457` | SUCCESS — 6 PASS, 0 FAIL, 0 DEFERRED, 1 N/A; Mailpit, Mailtrap Local and staging's isolation confirmed |
 
 The production application is still `lifecycle=planned` and undeployed: outbound
