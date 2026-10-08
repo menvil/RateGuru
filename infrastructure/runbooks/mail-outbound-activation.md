@@ -165,12 +165,19 @@ fence, are later work (8.4B.7), not this.
   `.localhost`, `.local`, `.example` or the `example.*` domains. Output names
   the recipient's **domain** only.
 - **The sender** is the reviewed one, from the routing plan: `noreply@tits.guru`
-  as both envelope sender and `From`, through `127.0.0.1:2526`.
+  as the envelope sender (`MAIL FROM`) and as the address in the `From`
+  header, through `127.0.0.1:2526`. The header shows it as
+  `From: TitsGuru <noreply@tits.guru>`; the display name is presentation only,
+  and everything the gateway's From policy and the signer judge is the
+  address. The application's own `MAIL_FROM_NAME` belongs to its first deploy,
+  not to the canary.
 - **Before any connection**: `tits-guru` must be production, planned, outbound
   by direct delivery, and `activate-mail-outbound --verify` must pass with
   `OUTBOUND READY: YES`.
-- **One message**: plain text, with a unique non-secret canary ID in its
-  subject, body and `Message-ID` (`<rgcanary-…@tits.guru>`).
+- **One message**: plain text, with a unique non-secret canary ID —
+  `rgcanary-YYYYMMDDTHHMMSSZ-` and 12 hex digits, the UTC time it was made —
+  in its subject, body, `X-RateGuru-Mail-Canary` header and `Message-ID`
+  (`<rgcanary-YYYYMMDDTHHMMSSZ-…@tits.guru>`).
 - **Its own queue ID only**: the canary follows the queue ID Postfix returned
   through the mail log until its delivery status. `status=sent` passes;
   `bounced` or `expired` fails; still deferred after 15 minutes fails and
@@ -181,6 +188,27 @@ fence, are later work (8.4B.7), not this.
 `RATEGURU_MAIL_CANARY_RESULT={"target", "mode", "status", "canary_id",
 "message_id", "queue_id", "recipient_domain", "smtp_delivery", "dsn",
 "deleted"}` — never the recipient's local part.
+
+The workflow accepts that line only when it holds exactly those fields, for
+`tits-guru`, in mode `send`, with a closed status and delivery status, a
+recipient domain and never an address, a canary ID of the form above and a
+`Message-ID` made from that same ID; a pass needs `smtp_delivery=sent`, its
+queue ID and both IDs. The run then reports one of three things, never one as
+another:
+
+- **a failed delivery** — a checked result that is not a pass, shown with its
+  delivery status;
+- **a failed result check** — a result line that does not pass the check:
+  nothing in it is shown, and the canary's own report in the job log says
+  whether the message was accepted. Read it before sending another canary: a
+  delivered message would be delivered again;
+- **no result** — the canary printed none, so it did not complete.
+
+The first real canary (run `37814715904`, 2026-10-08) was delivered —
+`status=sent`, `dsn 2.0.0`, queue ID `346E9FC41DF`, received with SPF, DKIM and
+DMARC passing — and its run still failed: the check then required a lowercase
+`Message-ID`, while the canary ID carries the `T` and `Z` of its UTC time. The
+check now follows the canary ID's own form.
 
 ### What `status=sent` is not
 
@@ -195,7 +223,7 @@ accepted only when all of these hold:
 | SPF | `pass` |
 | DKIM | `pass` |
 | DMARC | `pass` |
-| `From` | `noreply@tits.guru` |
+| `From` | `TitsGuru <noreply@tits.guru>` (envelope sender `noreply@tits.guru`) |
 | DKIM signature | `d=tits.guru`, `s=rg1`, `a=rsa-sha256` |
 | Sending source IP | `213.199.41.241` |
 | Sending MTA / HELO | `mta1.tits.guru` |

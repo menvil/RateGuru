@@ -9,7 +9,8 @@ name: Send tits.guru production mail canary
 # touches the host. It travels as a root-only file — never an argument, never
 # echoed — and is removed from the runner and the host on every path; the
 # summary shows its domain only. The sender is the reviewed one
-# (noreply@tits.guru through tits-guru's own listener), never chosen here.
+# (noreply@tits.guru through tits-guru's own listener, shown as "TitsGuru"),
+# never chosen here.
 #
 # Before it connects anywhere the script requires tits-guru to be production,
 # planned, outbound by direct delivery and fully activated
@@ -137,13 +138,16 @@ jobs:
             echo "Open the canary in the recipient's mailbox and read its raw headers. Accepted only when all of these hold:"
             echo
             echo "- SPF = PASS, DKIM = PASS, DMARC = PASS"
-            echo "- From: noreply@tits.guru"
+            echo "- From: TitsGuru <noreply@tits.guru>, with envelope sender noreply@tits.guru"
             echo "- DKIM d=tits.guru, s=rg1, a=rsa-sha256"
             echo "- sent from 213.199.41.241, with HELO mta1.tits.guru, and that address's PTR is mta1.tits.guru"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # Only when there is no result at all. A delivery that failed and a
+      # result that failed its check are each reported by the action itself,
+      # as what they are.
       - name: Report an incomplete canary
-        if: ${{ always() && steps.canary.outputs.status == '' }}
+        if: ${{ always() && (steps.canary.outputs.result == '' || steps.canary.outputs.result == 'missing') }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -151,5 +155,5 @@ jobs:
           {
             echo "## tits-guru production mail canary"
             echo
-            echo "The canary did not complete, so there is no result; the reason is in the job log. Once submitted, a canary that reaches no final status is deleted by its own queue ID on every exit."
+            echo "The canary printed no result, so it did not complete; the reason is in the job log. Once submitted, a canary that reaches no final status is deleted by its own queue ID on every exit."
           } >> "${GITHUB_STEP_SUMMARY}"
