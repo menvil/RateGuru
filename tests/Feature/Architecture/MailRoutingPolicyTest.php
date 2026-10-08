@@ -1274,8 +1274,8 @@ it('configures no public SMTP listener anywhere in the repository', function () 
     // and configures nothing; MailSigningTest proves it. The outbound
     // activation reads the live routes back with postconf and configures
     // nothing itself — the gateway's installer does — and the canary deletes
-    // only its own queue entry; MailOutboundActivationTest and MailCanaryTest
-    // prove both.
+    // only its own queue entry; the MailOutboundActivation*Test and
+    // MailCanary*Test files prove both.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
