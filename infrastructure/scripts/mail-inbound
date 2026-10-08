@@ -15,9 +15,11 @@
 # of three places, and the recipient's domain alone says which:
 #
 #   support  the target's mail domain, at exactly the local parts the contract
-#            lists. Nothing else at the mail domain is accepted: no catch-all,
-#            no wildcard, no subaddress, and the reviewed no-reply sender is
-#            never a mailbox.
+#            lists — `postmaster` always among them — and `postmaster` at the
+#            bounce and reply domains too: RFC 5321 section 4.5.1 requires it at
+#            every domain a server receives mail for. Nothing else is accepted:
+#            no catch-all, no wildcard, no subaddress, and the reviewed
+#            no-reply sender is never a mailbox.
 #   bounce   the target's bounce domain: delivery status notifications,
 #            addressed <prefix>-<identifier>@<bounce domain>, the identifier
 #            naming the outbound message they report on.
@@ -146,6 +148,11 @@ def identifier_separator: "-";
 
 def mx_priority: 10;
 
+# The mailbox RFC 5321 section 4.5.1 reserves: every domain a server receives
+# mail for accepts it, case-insensitively. Every support list must name it, and
+# it reaches support at the bounce and reply domains too.
+def postmaster: "postmaster";
+
 # The destinations, in the order a plan lists them, what each identifier names
 # and the handler each will be given to. No handler exists yet; every one is
 # planned.
@@ -159,6 +166,7 @@ def identifies: {bounce: "outbound-message", reply: "conversation"};
 # states each one.
 def requirements: [
     "recipient-allowlist",
+    "postmaster-accepted",
     "relay-refused-at-rcpt",
     "no-smtp-auth",
     "no-relay-no-forwarding",
@@ -265,7 +273,9 @@ def support_problems($id; $sender):
                  | map(select(type == "string"))
                  | group_by(.)[]
                  | select(length > 1)
-                 | "\($id): support local part \(.[0] | tojson) is listed more than once")
+                 | "\($id): support local part \(.[0] | tojson) is listed more than once"),
+               (if any(.local_parts[]; . == postmaster) then empty
+                else "\($id): support.local_parts must include \(postmaster | tojson): RFC 5321 section 4.5.1 requires every domain a server receives mail for to accept \(postmaster)@\($sender.allowed_domain)" end)
            end)
       end;
 
@@ -407,7 +417,11 @@ def destination_domain($sender; $name):
                     + (if $name == "support" then
                            {
                                accepts: "exact-addresses",
-                               addresses: [$p.support.local_parts | sort[] | "\(.)@\($l.sender.allowed_domain)"]
+                               addresses: (
+                                   [($p.support.local_parts[] | "\(.)@\($l.sender.allowed_domain)"),
+                                    (identifier_destinations[] as $other | "\(postmaster)@\(destination_domain($l.sender; $other))")]
+                                   | sort
+                               )
                            }
                        else
                            {
@@ -480,12 +494,13 @@ def identifier_problem:
                   $matches[0].target as $t
                   | $matches[0].destination as $d
                   | {address: $address, target: $t.target, destination: $d.destination} as $at
-                  | if $d.accepts == "exact-addresses" then
-                        if any($d.addresses[]; . == $address) then
-                            verdict($at + {verdict: "accept", handler: $d.handler})
-                        else
-                            reject("unknown-recipient"; "\($address) is not a support address of \($t.target), which receives at \($d.domain) only \($d.addresses | join(", "))"; $at)
-                        end
+                  # An exact address is judged first, at whichever of the
+                  # target domains it is: postmaster is one at every one of them.
+                  | ([$t.destinations[] | select(.accepts == "exact-addresses" and any(.addresses[]; . == $address))] | .[0]) as $exact
+                  | if $exact != null then
+                        verdict($at + {destination: $exact.destination, verdict: "accept", handler: $exact.handler})
+                    elif $d.accepts == "exact-addresses" then
+                        reject("unknown-recipient"; "\($address) is not a support address of \($t.target), which receives at \($d.domain) only \([$d.addresses[] | select(endswith("@" + $d.domain))] | join(", "))"; $at)
                     elif $local | startswith($d.address_space.local_part_prefix) then
                         ($local | ltrimstr($d.address_space.local_part_prefix)) as $identifier
                         | ($identifier | identifier_problem) as $problem

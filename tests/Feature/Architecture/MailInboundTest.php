@@ -57,7 +57,7 @@ function mailInboundDemoShopPolicy(): array
 {
     return [
         'mx_hostname' => 'in.demo-shop.example',
-        'support' => ['local_parts' => ['help', 'press']],
+        'support' => ['local_parts' => ['help', 'postmaster', 'press']],
         'bounce' => ['prefix' => 'dsn', 'identifier' => 'base32-128'],
         'reply' => ['prefix' => 'ans', 'identifier' => 'base32-128'],
     ];
@@ -245,7 +245,7 @@ it('renders tits-guru receiving support, bounce and reply mail at the domains it
         'destinations' => [
             [
                 'accepts' => 'exact-addresses',
-                'addresses' => ['support@tits.guru'],
+                'addresses' => ['postmaster@bounce.tx.tits.guru', 'postmaster@reply.tits.guru', 'postmaster@tits.guru', 'support@tits.guru'],
                 'destination' => 'support',
                 'domain' => 'tits.guru',
                 'handler' => ['kind' => 'support-mailbox', 'status' => 'planned'],
@@ -338,7 +338,7 @@ it('receives for a second production target with its own domains, prefixes and m
         'destinations' => [
             [
                 'accepts' => 'exact-addresses',
-                'addresses' => ['help@demo-shop.example', 'press@demo-shop.example'],
+                'addresses' => ['help@demo-shop.example', 'postmaster@bounce.demo-shop.example', 'postmaster@demo-shop.example', 'postmaster@reply.demo-shop.example', 'press@demo-shop.example'],
                 'destination' => 'support',
                 'domain' => 'demo-shop.example',
                 'handler' => ['kind' => 'support-mailbox', 'status' => 'planned'],
@@ -582,9 +582,9 @@ it('refuses an inbound policy for a target the registry does not have', function
 // SUPPORT: EXACT ADDRESSES ONLY
 // =============================================================================
 
-it('accepts support mail at exactly the addresses the contract lists, compared as a receiver compares them', function (string $recipient) {
+it('accepts support mail at exactly the addresses the contract lists, compared as a receiver compares them', function (string $recipient, string $address) {
     expect(mailInboundRoute($recipient))->toBe([
-        'address' => 'support@tits.guru',
+        'address' => $address,
         'destination' => 'support',
         'handler' => ['kind' => 'support-mailbox', 'status' => 'planned'],
         'identifier' => null,
@@ -596,10 +596,30 @@ it('accepts support mail at exactly the addresses the contract lists, compared a
         'verdict' => 'accept',
     ]);
 })->with([
-    'as listed' => ['support@tits.guru'],
-    'in capitals' => ['SUPPORT@TITS.GURU'],
-    'with a capitalized domain' => ['support@Tits.Guru'],
+    'as listed' => ['support@tits.guru', 'support@tits.guru'],
+    'in capitals' => ['SUPPORT@TITS.GURU', 'support@tits.guru'],
+    'with a capitalized domain' => ['support@Tits.Guru', 'support@tits.guru'],
+    'the postmaster' => ['postmaster@tits.guru', 'postmaster@tits.guru'],
+    'the postmaster in capitals' => ['POSTMASTER@TITS.GURU', 'postmaster@tits.guru'],
+    'the postmaster in mixed case' => ['PostMaster@tits.guru', 'postmaster@tits.guru'],
+    'the postmaster of the bounce domain' => ['postmaster@bounce.tx.tits.guru', 'postmaster@bounce.tx.tits.guru'],
+    'the postmaster of the reply domain' => ['Postmaster@Reply.Tits.Guru', 'postmaster@reply.tits.guru'],
 ]);
+
+it('requires postmaster in every support list, as RFC 5321 requires it at every domain a server receives for', function () {
+    expect(mailInboundContract()['targets']['tits-guru']['support']['local_parts'])->toContain('postmaster');
+
+    expectMailInboundRefusal(
+        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['targets.tits-guru.support.local_parts' => ['support']])]),
+        'tits-guru: support.local_parts must include "postmaster": RFC 5321 section 4.5.1 requires every domain a server receives mail for to accept postmaster@tits.guru',
+    );
+
+    // A second brand is held to the same rule.
+    expectMailInboundRefusal(
+        mailInboundRun(['validate'], mailInboundDemoShop(inbound: [...mailInboundDemoShopPolicy(), 'support' => ['local_parts' => ['help']]])),
+        'demo-shop: support.local_parts must include "postmaster"',
+    );
+});
 
 it('never turns an unknown address at the mail domain into support', function (string $recipient) {
     expect(mailInboundRoute($recipient))->toMatchArray([
@@ -608,7 +628,7 @@ it('never turns an unknown address at the mail domain into support', function (s
         'target' => 'tits-guru',
         'destination' => 'support',
         'handler' => null,
-        'reason' => mb_strtolower($recipient).' is not a support address of tits-guru, which receives at tits.guru only support@tits.guru',
+        'reason' => mb_strtolower($recipient).' is not a support address of tits-guru, which receives at tits.guru only postmaster@tits.guru, support@tits.guru',
     ]);
 })->with([
     'the no-reply sender' => ['noreply@tits.guru'],
@@ -617,7 +637,10 @@ it('never turns an unknown address at the mail domain into support', function (s
     'a dotted variant' => ['support.team@tits.guru'],
     'a look-alike' => ['supp0rt@tits.guru'],
     'a quoted support' => ['"support"@tits.guru'],
-    'the postmaster, not listed' => ['postmaster@tits.guru'],
+    'a subaddress of the postmaster' => ['postmaster+abuse@tits.guru'],
+    'a look-alike of the postmaster' => ['post.master@tits.guru'],
+    'the hostmaster, not listed' => ['hostmaster@tits.guru'],
+    'abuse, not listed' => ['abuse@tits.guru'],
     'a bounce address at the mail domain' => ['b-'.MAIL_INBOUND_IDENTIFIER.'@tits.guru'],
 ]);
 
@@ -634,7 +657,7 @@ it('never lets support be reached at a bounce or reply domain', function (string
 
 it('refuses a wildcard, an address or anything but an exact lowercase local part as a support mailbox', function (mixed $localPart, string $reason) {
     expectMailInboundRefusal(
-        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['targets.tits-guru.support.local_parts' => ['support', $localPart]])]),
+        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['targets.tits-guru.support.local_parts' => ['postmaster', 'support', $localPart]])]),
         $reason,
     );
 })->with([
@@ -655,7 +678,7 @@ it('refuses a wildcard, an address or anything but an exact lowercase local part
 
 it('never makes the reviewed no-reply sender a mailbox', function () {
     expectMailInboundRefusal(
-        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['targets.tits-guru.support.local_parts' => ['support', 'noreply']])]),
+        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['targets.tits-guru.support.local_parts' => ['postmaster', 'support', 'noreply']])]),
         'tits-guru: noreply@tits.guru is the reviewed sender (default_from), a no-reply identity that is never a mailbox; answers reach the reply domain',
     );
 });
@@ -1197,6 +1220,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
 
     expect($requirements)->toBe([
         'recipient-allowlist',
+        'postmaster-accepted',
         'relay-refused-at-rcpt',
         'no-smtp-auth',
         'no-relay-no-forwarding',

@@ -45,7 +45,7 @@ instance**:
 ```
 Internet ──SMTP :25──▶ inbound receiver          (own instance, own queue, own lifecycle)
                           │ RCPT TO judged by the inbound plan, before any data
-                          ├─ support@tits.guru                      → support mailbox      (planned)
+                          ├─ support@ / postmaster@tits.guru        → support mailbox      (planned)
                           ├─ b-<identifier>@bounce.tx.tits.guru     → bounce correlation   (planned)
                           ├─ r-<identifier>@reply.tits.guru         → reply routing        (planned)
                           └─ anything else                          → refused at RCPT TO
@@ -78,7 +78,7 @@ applications ──▶ 127.0.0.1:2525 / :2526 ──▶ mail gateway (loopback o
   "targets": {
     "tits-guru": {
       "mx_hostname": "mx1.tits.guru",
-      "support": { "local_parts": ["support"] },
+      "support": { "local_parts": ["postmaster", "support"] },
       "bounce":  { "prefix": "b", "identifier": "base32-128" },
       "reply":   { "prefix": "r", "identifier": "base32-128" }
     }
@@ -117,7 +117,8 @@ follows. One file holds every brand's inbound policy; there is no file per brand
   zone or a provider's;
 - one name with two owners: an MX host that is a mail, bounce or reply domain,
   another target's name, or the outbound MTA hostname;
-- a support local part that is a wildcard (`*`, `%`, `?`, empty), an address
+- a support list without `postmaster` (RFC 5321 §4.5.1, see below), or a
+  support local part that is a wildcard (`*`, `%`, `?`, empty), an address
   (`@`), not a lowercase local part, listed twice, or the reviewed no-reply
   sender's (`noreply`);
 - a bounce or reply prefix that is not a short lowercase name, an identifier
@@ -133,15 +134,27 @@ The recipient's domain alone says which destination a message is for:
 
 | Destination | Domain | Accepts | The identifier names | Future handler |
 |-------------|--------|---------|----------------------|----------------|
-| support | `tits.guru` | exactly `support@tits.guru` | — | `support-mailbox` |
+| support | `tits.guru` | exactly `support@tits.guru` and `postmaster@tits.guru` — and `postmaster@` the bounce and reply domains | — | `support-mailbox` |
 | bounce | `bounce.tx.tits.guru` | `b-<identifier>@bounce.tx.tits.guru` | the outbound message | `bounce-correlation` |
 | reply | `reply.tits.guru` | `r-<identifier>@reply.tits.guru` | the conversation | `reply-routing` |
 
 - **Support is exact.** No catch-all, no wildcard, no subaddress
   (`support+x@` is not support), and `noreply@tits.guru` is never a mailbox.
-  `postmaster@tits.guru` is not accepted today either: RFC 5321 asks a domain
-  that receives mail to accept it, and adding it is one more entry in
-  `support.local_parts` — a decision for the receiver's stage.
+- **Postmaster is required.** RFC 5321 §4.5.1: a server that delivers mail
+  MUST accept the reserved mailbox `postmaster`, case-insensitively, at every
+  domain it provides mail service for, and the bare `RCPT TO:<Postmaster>`
+  with no domain as well. So `postmaster` is an entry of `support.local_parts`
+  that `validate` requires, and the plan accepts `postmaster@` each of the
+  target's three domains — `tits.guru`, `bounce.tx.tits.guru`,
+  `reply.tits.guru` — into the same `support-mailbox` handler; the bounce and
+  reply address spaces can never collide with it, since their addresses always
+  carry a prefix and an identifier. `postmaster+x@`, `post.master@`,
+  `hostmaster@` and `abuse@` are not it. `route` judges qualified addresses
+  only: how the receiver qualifies and accepts the bare `<Postmaster>`, which
+  RFC 5321 equally requires, is its own requirement (`postmaster-accepted`),
+  proved in its stage. RFC 5321 also expects mail to postmaster from anywhere
+  to be accepted with every reasonable effort, so no limit may refuse it more
+  broadly than an attack in progress requires.
 - **Bounce and reply never mix.** Each has its own domain and its own prefix,
   and the two prefixes must differ, so a bounce address never reads as a reply
   address, whichever domain it arrives at.
@@ -238,6 +251,7 @@ to each entry.
 | Requirement | What it means |
 |-------------|---------------|
 | `recipient-allowlist` | Mail is accepted only for the plan's exact support addresses and well-formed bounce and reply addresses at its domains; everything else is refused at `RCPT TO`, before any data. |
+| `postmaster-accepted` | `postmaster` is accepted case-insensitively at every domain the receiver serves, and the bare `<Postmaster>` too (RFC 5321 §4.5.1), all reaching the target's support mailbox; no limit refuses it more broadly than an attack in progress requires. |
 | `relay-refused-at-rcpt` | A recipient at any other domain is refused at `RCPT TO`, for every client, loopback included: no trusted network makes it a relay. |
 | `no-smtp-auth` | No SMTP AUTH is offered on the public listener. |
 | `no-relay-no-forwarding` | Accepted mail is never relayed or forwarded off the host; it reaches only its own destination's handler. |
@@ -336,8 +350,9 @@ received.
   rollback can do it.
 - **The limits**: maximum message size, recipients per message, connections per
   client, queue lifetime and the disk floor.
-- **Which mailboxes support is**: `support` today; whether `postmaster` (RFC
-  5321) and `abuse` (RFC 2142) join it.
+- **Which mailboxes support is**: `postmaster` and `support` today; whether
+  `abuse` (RFC 2142) joins them, and how the receiver qualifies the bare
+  `<Postmaster>`.
 - **Where support mail goes and who reads it**, and how long received mail is
   kept.
 - **TLS for `mx1.tits.guru`**: how its certificate is issued and renewed.

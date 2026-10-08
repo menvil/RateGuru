@@ -2130,7 +2130,9 @@ Slices, in order:
    is new: `receiver.public_smtp` — `disabled`, the one state there is while
    no receiver exists — and per production target its MX host inside its own
    mail domain (`tits-guru`: `mx1.tits.guru`), its exact support local parts
-   (`support` → `support@tits.guru`), and its bounce and reply address forms
+   (`postmaster` and `support`; `postmaster` is required, and accepted at the
+   bounce and reply domains too, by RFC 5321 §4.5.1), and its bounce and reply
+   address forms
    (`b-<identifier>@bounce.tx.tits.guru`, `r-<identifier>@reply.tits.guru`,
    the identifier 128 random bits as 26 lowercase Crockford base32
    characters). The mail, bounce and reply domains are read from
@@ -2141,7 +2143,7 @@ Slices, in order:
    setting exists, `noreply@` is never a mailbox, bounce and reply never
    share a prefix, every name has one owner and an MX host is never the MTA
    hostname — and renders the inbound plan (`render-plan`, with the
-   receiver's nineteen requirements and each destination's future handler),
+   receiver's twenty requirements and each destination's future handler),
    the DNS plan (`render-dns`: MX 10 for `tits.guru`, `bounce.tx.tits.guru`
    and `reply.tits.guru` naming `mx1.tits.guru`, and its A record with an
    explicitly given public IPv4 address or marked not provided; nothing of
