@@ -1976,11 +1976,11 @@ Slices, in order:
    directories. See [`runbooks/mail-signing.md`](runbooks/mail-signing.md).
 
    **8.4B.4.2b Guarded outbound activation and the first real delivery —
-   IMPLEMENTED — production activation pending.** The tooling only: merging
-   it activates nothing, and `tits-guru` stays held, direct delivery
-   disabled, `lifecycle=planned`. `scripts/activate-mail-outbound`
-   (`--check`, `--apply`, `--verify`, `--rollback`, `--target` and nothing
-   else) activates exactly what its trusted bundle requests — the target
+   IMPLEMENTED and PRODUCTION-ACCEPTED 2026-10-08.** The tooling: merging it
+   activated nothing — `tits-guru` stayed held, direct delivery disabled,
+   `lifecycle=planned` — until the activation recorded in 8.4B.4.2 below.
+   `scripts/activate-mail-outbound` (`--check`, `--apply`, `--verify`,
+   `--rollback`, `--target` and nothing else) activates exactly what its trusted bundle requests — the target
    `outbound` by `direct` delivery and `direct.enabled: true` — and refuses
    anything else ("activation is not requested by this trusted bundle")
    before it changes anything. It derives the one legal pre-activation state
@@ -2026,8 +2026,9 @@ Slices, in order:
    workflows: **Activate tits.guru outbound mail**, **Rollback tits.guru
    outbound mail activation** and **Send tits.guru production mail canary**
    (recipient only from the `MAIL_CANARY_RECIPIENT` Environment secret).
-   *The actual activation is a later, explicit operator cutover:* a separate
-   two-file activation pull request into `develop` (`mail-routing.json`:
+   *The activation was a separate, explicit operator cutover,* performed on
+   2026-10-08 and recorded in 8.4B.4.2 below: a separate two-file activation
+   pull request into `develop` (`mail-routing.json`:
    `tits-guru` held → outbound with `{"kind": "direct"}`;
    `mail-outbound.json`: `direct.enabled` → `true`) that passes CI and reaches
    `main` by the ordinary promotion — never a pull request directly into
@@ -2039,8 +2040,8 @@ Slices, in order:
    (`OUTBOUND READY: YES`), the canary, the operator's inspection of the
    received message's raw headers (SPF, DKIM and DMARC PASS,
    `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then
-   Verify staging infrastructure. Not accepted until a real canary has been
-   received and its headers inspected.
+   Verify staging infrastructure. Accepted only once a real canary had been
+   received and its headers inspected — see 8.4B.4.2 below.
    *Tooling accepted on the shared host on 2026-10-08,* with `tits-guru` still
    held and direct delivery disabled: Prepare staging host run `37779425683`
    and Verify staging infrastructure run `37780411751` (`develop` `92252559`),
@@ -2055,8 +2056,9 @@ Slices, in order:
    for nothing. Sender reputation warm-up follows the first delivery. See
    [`runbooks/mail-outbound-activation.md`](runbooks/mail-outbound-activation.md).
 
-   **8.4B.4.2c Production outbound activation policy — IMPLEMENTED in the
-   repository — host activation pending.** The committed policy now requests
+   **8.4B.4.2c Production outbound activation policy — IMPLEMENTED,
+   activated on the host and PRODUCTION-ACCEPTED 2026-10-08.** The committed
+   policy requests
    `tits-guru`'s direct outbound delivery: in `mail-routing.json` its
    `delivery_mode` is `outbound` with `{"kind": "direct"}` and every other
    field of it unchanged (`127.0.0.1:2526`, `tits.guru`, `noreply@tits.guru`,
@@ -2086,7 +2088,33 @@ Slices, in order:
    then the policy returned to held by its own pull request through
    `develop` → `main`; ordinary Verify and Prepare resume once the committed
    and the applied policy match. Nothing was activated or sent by this
-   change.
+   change; the three states have agreed since 2026-10-08, when the host was
+   activated and the delivery accepted (8.4B.4.2 below).
+
+   **8.4B.4.2 Production outbound activation — PRODUCTION-ACCEPTED
+   2026-10-08.** The cutover 8.4B.4.2b and 8.4B.4.2c prepared, performed on
+   the shared host and accepted from its real results. Activate tits.guru
+   outbound mail run `37813433328` SUCCESS. Verify production infrastructure
+   run `37814215899` SUCCESS, `OUTBOUND READY: YES`. The first canary to
+   Gmail, run `37814715904`, was delivered — `status=sent`, DSN `2.0.0`, SPF,
+   DKIM and DMARC PASS — and its run still ended FAILURE: the result check
+   required a lowercase `Message-ID`, while the canary ID carries the `T` and
+   `Z` of its UTC time. PR #1245 made the check follow the canary ID's own
+   form and named the sender `TitsGuru` in the `From` header, the envelope
+   sender unchanged. The repeated canary to Gmail, run `37821815403` SUCCESS,
+   arrived as `From: TitsGuru <noreply@tits.guru>` with SPF PASS, DKIM PASS
+   (`d=tits.guru`, `s=rg1`) and DMARC PASS, over TLS 1.3, from
+   `213.199.41.241` as `mta1.tits.guru`. The Mail-Tester check, run
+   `37822226157` SUCCESS, passed SpamAssassin and the blocklist checks; its
+   score of 7/10 is the missing MX for `tits.guru` — inbound mail, which is
+   8.4B.5. The closing Verify staging infrastructure run
+   `37823079457` SUCCESS: 6 PASS, 0 FAIL, 0 DEFERRED, 1 N/A, with Mailpit,
+   Mailtrap Local and staging's isolation confirmed. *State now:* the shared
+   host delivers `tits-guru`'s mail, signed, directly to each recipient's MX;
+   the production application is still `lifecycle=planned` and undeployed —
+   outbound delivery was activated independently of it, and its own `MAIL_*`
+   values remain 8.6's. Mail sent today carries the envelope sender
+   `noreply@tits.guru`; the bounce domain is not an envelope sender yet.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
    planned.** The production Return-Path and bounce identity, bounce reception

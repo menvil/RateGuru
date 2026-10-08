@@ -146,9 +146,9 @@ infrastructure, and moves out once a second project exists.
   listening only on each target's loopback endpoint, queueing staging capture
   into Mailpit, holding production mail with no route, and delivering nothing
   else. Its direct outbound transport — each outbound target's own smtp client,
-  straight to the recipient domain's MX — is requested for `tits-guru` by the
-  committed policy and the host contract `config/mail-outbound.json`, and
-  reaches a host only through the guarded `activate-mail-outbound`. Converged by host bootstrap
+  straight to the recipient domain's MX — reaches a host only through the
+  guarded `activate-mail-outbound`, and has delivered `tits-guru`'s mail on the
+  shared host since its production-accepted activation. Converged by host bootstrap
   after mail capture and accepted on the real staging host;
   `verify-mail-gateway --e2e` is its mutating low-level acceptance primitive,
   run on the host by hand — see

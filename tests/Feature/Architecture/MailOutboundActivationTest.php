@@ -491,31 +491,36 @@ it('runs exactly activate-mail-outbound in the mode its workflow fixed, judges i
 // THE RECORD: IMPLEMENTED, NOT ACTIVATED
 // =============================================================================
 
-it('records the signing foundation as accepted, the activation requested by the policy, and the host not yet activated', function () {
+it('records the signing foundation as accepted, and the activation the policy requested as performed on the host and production-accepted', function () {
     $roadmap = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/ROADMAP.md')));
 
     expect($roadmap)
         ->toContain('**8.4B.4.2a DKIM signing foundation — PRODUCTION-ACCEPTED.**')
         ->toContain('Verify production infrastructure run `37634818870` PASS')
         ->toContain('Verify production mail signing run `37639732203` PASS')
-        ->toContain('**8.4B.4.2b Guarded outbound activation and the first real delivery — IMPLEMENTED — production activation pending.**')
-        ->toContain('*The actual activation is a later, explicit operator cutover:*')
+        ->toContain('**8.4B.4.2b Guarded outbound activation and the first real delivery — IMPLEMENTED and PRODUCTION-ACCEPTED 2026-10-08.**')
+        ->toContain('*The activation was a separate, explicit operator cutover,* performed on 2026-10-08 and recorded in 8.4B.4.2 below:')
         // The activation change takes the ordinary path: develop, CI, promotion.
         ->toContain('a separate two-file activation pull request into `develop`')
         ->toContain('reaches `main` by the ordinary promotion — never a pull request directly into `main`, and no synchronization back from `main` into `develop`')
         ->toContain('Between its merge into `develop` and the activation, Prepare and Verify staging do not run')
         ->toContain('the canary, the operator\'s inspection of the received message\'s raw headers (SPF, DKIM and DMARC PASS, `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then Verify staging infrastructure')
         ->not->toContain('directly against `main`')
-        ->toContain('Not accepted until a real canary has been received and its headers inspected')
+        ->toContain('Accepted only once a real canary had been received and its headers inspected')
+        ->not->toContain('Not accepted until a real canary has been received')
         // The tooling's acceptance on the shared host, with its runs.
         ->toContain('*Tooling accepted on the shared host on 2026-10-08,* with `tits-guru` still held and direct delivery disabled: Prepare staging host run `37779425683` and Verify staging infrastructure run `37780411751` (`develop` `92252559`), Verify production infrastructure run `37780729123` and Verify production mail signing run `37781550331` (`main` `771268e2`), all PASS')
         // The policy change: requested in the repository, not on the host.
-        ->toContain('**8.4B.4.2c Production outbound activation policy — IMPLEMENTED in the repository — host activation pending.**')
+        ->toContain('**8.4B.4.2c Production outbound activation policy — IMPLEMENTED, activated on the host and PRODUCTION-ACCEPTED 2026-10-08.**')
         ->toContain('*Code and policy:* once promoted to `main`, the repository requests outbound delivery. *The real server:* held until **Activate tits.guru outbound mail** runs, whatever the repository requests')
         ->toContain('a committed outbound policy is never `OUTBOUND READY: YES` on a held host')
         ->toContain('*Production accepted:* only after Activate, Verify production infrastructure (`OUTBOUND READY: YES`), and a real canary received with its raw headers inspected.')
-        ->toContain('Nothing was activated or sent by this change.')
-        ->not->toContain('PRODUCTION-ACCEPTED.** The committed policy')
+        ->toContain('Nothing was activated or sent by this change; the three states have agreed since 2026-10-08, when the host was activated and the delivery accepted')
+        // The acceptance itself, from the real runs.
+        ->toContain('**8.4B.4.2 Production outbound activation — PRODUCTION-ACCEPTED 2026-10-08.**')
+        ->toContain('The repeated canary to Gmail, run `37821815403` SUCCESS, arrived as `From: TitsGuru <noreply@tits.guru>` with SPF PASS, DKIM PASS (`d=tits.guru`, `s=rg1`) and DMARC PASS, over TLS 1.3, from `213.199.41.241` as `mta1.tits.guru`')
+        ->not->toContain('host activation pending')
+        ->not->toContain('production activation pending')
         // The application's mail transport moved to before the first deploy.
         ->toContain('the production application\'s mail transport (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before the first production deploy in 8.6, not here')
         ->toContain('Before the first production deploy, a separately reviewed operation sets and verifies the application\'s mail transport from the reviewed mail routing plan')
@@ -534,7 +539,10 @@ it('records the signing foundation as accepted, the activation requested by the 
         ->toContain('2. **The real server** — what the host applies and records. It stays held until Activate runs, whatever the repository requests.')
         ->toContain('3. **Production accepted** — recorded only after Activate, **Verify production infrastructure** reporting `OUTBOUND READY: YES`, and a real canary received and its raw headers inspected.')
         ->toContain('| `tits-guru` mail — **committed policy** | **Outbound requested**')
-        ->toContain('| `tits-guru` mail — **real host** | **Held**, direct delivery disabled, until Activate runs from `main` — production activation **pending** |')
+        ->toContain('| `tits-guru` mail — **real host** | **Outbound**, activated on 2026-10-08 by **Activate tits.guru outbound mail** (run `37813433328`)')
+        ->toContain('| Production acceptance | **Accepted** on 2026-10-08')
+        ->toContain('| Run **Send tits.guru production mail canary** to Gmail again. | `37821815403` | SUCCESS |')
+        ->not->toContain('production activation **pending**')
         ->toContain('*activation is not requested by this trusted bundle*')
         ->toContain('The activation change is an ordinary pull request **into `develop`**.')
         ->toContain('reaches `main` by the ordinary promotion. A pull request directly into `main`, and a synchronization back from `main` into `develop`, are not part of this rollout.')
