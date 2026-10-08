@@ -2863,8 +2863,11 @@ function mailGatewayFakeListenerSource(): string
         while (true) {
             $read = [$server, STDIN]; $write = null; $except = null;
             if (@stream_select($read, $write, $except, 1) === false) { break; }
-            if (in_array(STDIN, $read, true) && feof(STDIN)) { break; }
-            if (! in_array($server, $read, true)) { if (feof(STDIN)) { break; } continue; }
+            // Its test stops it by closing this pipe, and a test process that died
+            // closes it too. A non-blocking pipe only reports its end once it is
+            // read: without the read, select() would return at once, forever.
+            if (in_array(STDIN, $read, true)) { fread(STDIN, 8192); if (feof(STDIN)) { break; } }
+            if (! in_array($server, $read, true)) { continue; }
 
             $client = @stream_socket_accept($server, 5);
             if ($client === false) { continue; }
