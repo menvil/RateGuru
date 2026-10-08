@@ -26,7 +26,7 @@ it('collects an error, a rejection and a console error, across a navigation', fu
     // that takes longer than a second, and a retry interrupts the load it is
     // retrying; a navigation the page starts is never started twice.
     $page->script("() => { location.href = '/login'; return true; }");
-    waitForScript($page, "location.pathname === '/login' && document.readyState === 'complete'");
+    waitForScript($page, "location.pathname + ' ' + document.readyState", '/login complete');
     $page->script("() => { console.error('watched console error'); return true; }");
 
     // Each one exactly once, whatever the navigation did to a report in flight.
