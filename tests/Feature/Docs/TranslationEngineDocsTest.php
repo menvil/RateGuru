@@ -69,3 +69,26 @@ it('records Translation Center as the first consumer, through the project adapte
         ->toContain('stores nothing; neither does the engine')
         ->toContain('**Bulk generation reuses it.**');
 });
+
+it('records Generate missing as a second consumer that keeps its drafts and queue outside the engine', function () {
+    expect(translationEngineDoc())
+        ->toContain('## Second consumer: Generate missing')
+        ->toContain('→ ProjectTranslationGenerationPlanner')
+        ->toContain('→ GenerateProjectTranslationChunkJob × chunks')
+        ->toContain('Translation engine ≠ translation storage ≠ draft storage')
+        ->toContain('**One job, at most one paid call.**')
+        ->toContain('`tries = 1`, a 75-second timeout and `failOnTimeout`')
+        ->toContain('provider request 45 s < job 75 s < Redis `retry_after` 90 s < worker 120 s')
+        ->toContain('`translation-generation:batch:{uuid}:chunk:{id}`')
+        ->toContain('expires 48 hours after the batch was created')
+        ->toContain('reading never extends it')
+        ->toContain('`worker_interrupted`')
+        ->toContain('`translation.bulk.stale_queued_seconds` (3600)')
+        ->toContain('A lock not had in time is refused as `busy`')
+        ->toContain('never a suggestion that became ready after the page last looked')
+        ->toContain('never from the browser')
+        ->toContain('That is decided on the unit\'s locked row: `UpdateProjectTranslationAction::handleGuarded()`')
+        ->toContain('a unit of `null`, and nothing else, means every ready one')
+        ->toContain('never a source text, a translation, a prompt or a provider request')
+        ->toContain('so no test needs a Redis server either');
+});

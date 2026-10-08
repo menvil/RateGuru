@@ -7,10 +7,10 @@ use App\Models\ProjectSettings;
 /**
  * The project settings as the database holds them — the one source a running
  * project reads. Repository config (config/project_presets.php,
- * config/static-pages.php) only seeds a project that has no settings row yet
- * (defaults()) and lends missing translations to the backfill; it is never a
- * fallback for what the row says, so editing it in a later release never
- * changes an existing project's content.
+ * config/static-pages.php), English alone, only seeds a project that has no
+ * settings row yet (defaults()) and gives the backfill a built-in page's
+ * missing English; it is never a fallback for what the row says, so editing
+ * it in a later release never changes an existing project's content.
  */
 class ProjectSettingsManager
 {

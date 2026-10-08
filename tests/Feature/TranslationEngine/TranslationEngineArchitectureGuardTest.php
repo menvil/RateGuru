@@ -202,7 +202,14 @@ it('names no model anywhere in the engine — the model is configuration', funct
 
 it('is reached by consumers only through TranslationService', function () {
     // Nothing outside the engine builds a provider, routes, chunks or writes a
-    // prompt; the one exception is the service provider that registers it.
+    // prompt. Two exceptions: the service provider that registers it, and the
+    // planner of background generation, which reads the configured provider's
+    // name and limits to cut work into one provider request per queued job —
+    // and sends nothing (asserted below).
+    $sanctioned = [
+        'app/Providers/TranslationEngineServiceProvider.php',
+        'app/Support/Translations/Generation/ProjectTranslationGenerationPlanner.php',
+    ];
     $internals = [
         'App\\Support\\TranslationEngine\\Contracts\\TranslationProvider',
         'App\\Support\\TranslationEngine\\Providers\\',
@@ -215,7 +222,7 @@ it('is reached by consumers only through TranslationService', function () {
         ->filter(fn (SplFileInfo $file): bool => $file->getExtension() === 'php')
         ->map(fn (SplFileInfo $file): string => str_replace(base_path().'/', '', $file->getPathname()))
         ->reject(fn (string $path): bool => str_starts_with($path, TRANSLATION_ENGINE_ROOT.'/')
-            || $path === 'app/Providers/TranslationEngineServiceProvider.php')
+            || in_array($path, $sanctioned, true))
         ->flatMap(fn (string $path): array => array_map(
             fn (string $name): string => "{$path} → {$name}",
             translationEngineViolations(File::get(base_path($path)), $internals),
@@ -224,6 +231,11 @@ it('is reached by consumers only through TranslationService', function () {
         ->all();
 
     expect($offenders)->toBe([], "consumers type-hint TranslationService and nothing else:\n".implode("\n", $offenders));
+
+    // The planner reads limits; sending stays TranslationService's alone.
+    expect(phpSourceWithoutComments('app/Support/Translations/Generation/ProjectTranslationGenerationPlanner.php'))
+        ->not->toContain('translateBatch')
+        ->not->toContain('TranslationService');
 });
 
 it('registers the engine through its own service provider', function () {

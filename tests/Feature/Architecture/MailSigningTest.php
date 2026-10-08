@@ -1228,89 +1228,11 @@ it('keeps --read-only free of SMTP, queue and service commands', function () {
 // =============================================================================
 
 /**
- * A fake Postfix listener on loopback: it accepts one probe per session, puts
- * it in the queue file as Postfix would (HOLD, or another queue when told) and
- * remembers its headers — with the DKIM-Signature the signer would have added,
- * as the toggle says. The postqueue, postcat and postsuper stubs read and change
- * only that queue file.
- *
- * Like the gateway's From policy, it refuses — 550, nothing queued — a message
- * whose From is not exactly one address at tits.guru.
- *
- * Toggles (files under state/toggles): signature — the DKIM-Signature header to
- * add (none when absent); queue — the queue the probe lands in (hold when
- * absent); no-queue-id; refuse-rcpt; accept-foreign — no From policy at all;
- * tempfail-foreign — a foreign From deferred (451) rather than refused.
- */
-function mailSigningFakePostfix(): string
-{
-    return <<<'PHP'
-        <?php
-        $state = $argv[1];
-        $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
-        if ($server === false) { fwrite(STDERR, $error); exit(1); }
-        echo parse_url('tcp://'.stream_socket_get_name($server, false), PHP_URL_PORT), "\n";
-        fflush(STDOUT);
-        stream_set_blocking(STDIN, false);
-        $toggle = static fn (string $name): ?string => is_file("{$state}/toggles/{$name}") ? (string) file_get_contents("{$state}/toggles/{$name}") : null;
-
-        while (true) {
-            $read = [$server, STDIN]; $write = null; $except = null;
-            if (@stream_select($read, $write, $except, 1) === false) { break; }
-            if (in_array(STDIN, $read, true) && feof(STDIN)) { break; }
-            if (! in_array($server, $read, true)) { if (feof(STDIN)) { break; } continue; }
-
-            $client = @stream_socket_accept($server, 5);
-            if ($client === false) { continue; }
-            $say = static function (string $line) use ($client): void { fwrite($client, $line."\r\n"); };
-            $log = static fn (string $line) => file_put_contents("{$state}/smtp.log", $line."\n", FILE_APPEND);
-
-            $say('220 mail-gateway.rateguru.invalid ESMTP');
-            $rcpt = '';
-            while (($line = fgets($client)) !== false) {
-                $line = rtrim($line, "\r\n");
-                $log($line);
-                $verb = strtoupper(substr($line, 0, 4));
-                if ($verb === 'EHLO') { $say('250-mail-gateway.rateguru.invalid'); $say('250 8BITMIME'); }
-                elseif ($verb === 'MAIL') { $say('250 2.1.0 Ok'); }
-                elseif ($verb === 'RCPT') {
-                    if ($toggle('refuse-rcpt') !== null) { $say('554 5.7.1 refused'); continue; }
-                    preg_match('/<([^>]*)>/', $line, $m); $rcpt = $m[1] ?? ''; $say('250 2.1.5 Ok');
-                }
-                elseif ($verb === 'DATA') {
-                    $say('354 End data with <CR><LF>.<CR><LF>');
-                    $message = '';
-                    while (($data = fgets($client)) !== false) {
-                        if (rtrim($data, "\r\n") === '.') { break; }
-                        $message .= $data;
-                    }
-                    $headers = substr($message, 0, (int) strpos($message, "\r\n\r\n"));
-                    preg_match('/^From:(.*)$/mi', str_replace("\r", '', $headers), $from);
-                    $ours = preg_match('/^\s*(?:"[^"<>@,]*"\s*|[^"<>@,]+)?<?[A-Za-z0-9._%+-]+@tits\.guru>?\s*$/i', $from[1] ?? '') === 1;
-                    if (! $ours && $toggle('accept-foreign') === null) {
-                        $say($toggle('tempfail-foreign') !== null ? '451 4.7.1 Service unavailable - try again later' : '550 5.7.1 RateGuru mail gateway: the From header must be exactly one address in the reviewed sender domain');
-                        continue;
-                    }
-                    $id = strtoupper(bin2hex(random_bytes(5)));
-                    $signature = $toggle('signature');
-                    file_put_contents("{$state}/headers-{$id}", ($signature !== null ? $signature : '').str_replace("\r\n", "\n", $headers)."\n");
-                    $queue = trim($toggle('queue') ?? 'hold');
-                    file_put_contents("{$state}/queue", "{$id}\t{$queue}\t{$rcpt}\n", FILE_APPEND);
-                    $say($toggle('no-queue-id') !== null ? '250 2.0.0 Ok' : "250 2.0.0 Ok: queued as {$id}");
-                }
-                elseif ($verb === 'QUIT') { $say('221 2.0.0 Bye'); break; }
-                else { $say('502 5.5.2 Error'); }
-            }
-            fclose($client);
-        }
-        PHP;
-}
-
-/**
- * verify-mail-signing --e2e against the fake listener: the committed policy,
- * with tits-guru's submission port pointed at it, its owners' verifies stubbed
- * to pass, and queue tools that see only the fake queue — which already holds
- * someone else's message.
+ * verify-mail-signing --e2e against the fake gateway listener of tests/Pest.php
+ * (mailGatewayStartFakeListener, whose toggles are listed there): the committed
+ * policy, with tits-guru's submission port pointed at it, its owners' verifies
+ * stubbed to pass, and queue tools that see only the fake queue — which
+ * already holds someone else's message.
  *
  * @return array{scratch: string, env: array<string, string>, server: resource, pipes: array<int, resource>, port: int}
  */
@@ -1325,10 +1247,7 @@ function mailSigningE2eHost(array $toggles = [], ?string $policy = null): array
         file_put_contents($state.'/toggles/'.$name, $value);
     }
 
-    file_put_contents($host['scratch'].'/fake-postfix.php', mailSigningFakePostfix());
-    $server = proc_open([PHP_BINARY, $host['scratch'].'/fake-postfix.php', $state], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-    $port = (int) trim((string) fgets($pipes[1]));
-    expect($port)->toBeGreaterThan(0);
+    ['server' => $server, 'pipes' => $pipes, 'port' => $port] = mailGatewayStartFakeListener($host['scratch'], $state);
 
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
     $routing['targets']['tits-guru']['submission']['port'] = $port;
@@ -1337,35 +1256,7 @@ function mailSigningE2eHost(array $toggles = [], ?string $policy = null): array
     }
     file_put_contents($host['scratch'].'/mail-routing.json', mailRoutingJson($routing));
 
-    $queue = [
-        'postqueue' => <<<'STUB'
-            #!/bin/bash
-            printf 'postqueue %s\n' "$*" >> "${STUB_LOG}/queue.log"
-            [[ "$1" == -j ]] || exit 1
-            while IFS=$'\t' read -r id queue rcpt; do
-                [[ -n "${id}" ]] || continue
-                printf '{"queue_name": "%s", "queue_id": "%s", "sender": "", "recipients": [{"address": "%s"}]}\n' "${queue}" "${id}" "${rcpt}"
-            done < "${STUB_STATE}/queue"
-            STUB,
-        'postcat' => <<<'STUB'
-            #!/bin/bash
-            printf 'postcat %s\n' "$*" >> "${STUB_LOG}/queue.log"
-            [[ "$1" == -h && "$2" == -q && -n "${3:-}" ]] || exit 1
-            cat "${STUB_STATE}/headers-$3" 2>/dev/null || exit 1
-            STUB,
-        'postsuper' => <<<'STUB'
-            #!/bin/bash
-            printf 'postsuper %s\n' "$*" >> "${STUB_LOG}/queue.log"
-            [[ "$1" == -d && -n "${2:-}" ]] || exit 1
-            awk -F'\t' -v id="$2" -v queue="${3:-}" '!($1 == id && (queue == "" || $2 == queue))' "${STUB_STATE}/queue" > "${STUB_STATE}/queue.next" \
-                && mv "${STUB_STATE}/queue.next" "${STUB_STATE}/queue"
-            STUB,
-    ];
-
-    foreach ($queue as $name => $body) {
-        file_put_contents($host['scratch'].'/bin/'.$name, $body."\n");
-        chmod($host['scratch'].'/bin/'.$name, 0o755);
-    }
+    mailGatewayFakeQueueTools($host['scratch'].'/bin');
 
     $host['env']['RATEGURU_MAILSIGN_ROUTING_FILE'] = $host['scratch'].'/mail-routing.json';
     $host['env']['STUB_STATE'] = $state;
@@ -1375,9 +1266,7 @@ function mailSigningE2eHost(array $toggles = [], ?string $policy = null): array
 
 function mailSigningE2eCleanup(array $host): void
 {
-    fclose($host['pipes'][0]);
-    proc_terminate($host['server']);
-    proc_close($host['server']);
+    mailGatewayStopFakeListener($host);
     removeScratchDir($host['scratch']);
 }
 
@@ -1551,6 +1440,37 @@ it('reports a refusal as a machine-readable failure once the target is known, an
     }
 });
 
+it('never takes an unreadable queue for an empty one: no false pass, and the cleanup says what it could not check', function (string $when, string $failure, string $absent) {
+    $host = mailSigningE2eHost(['signature' => mailSigningSignature()]);
+
+    try {
+        touch($host['scratch'].'/state/'.($when === 'from the start' ? 'postqueue-fails' : 'postqueue-fails-after-delete'));
+
+        [$status, $output] = mailSigningRun($host, ['--e2e', '--target', 'tits-guru'], script: 'verify-mail-signing');
+
+        expect($status)->toBe(1, $output);
+        expect($output)
+            ->toContain($failure)
+            ->not->toContain($absent)
+            ->toContain('SIGNING E2E: FAIL')
+            ->toContain('could not read the Postfix queue to ');
+
+        $result = mailSigningResult($output);
+        expect($result['status'])->toBe('fail');
+        expect($result['removed'])->toBeFalse();
+
+        if ($when === 'from the start') {
+            expect($result['foreign_from_rejected'])->toBeFalse();
+            expect($result['queue_id'])->toBeNull();
+        }
+    } finally {
+        mailSigningE2eCleanup($host);
+    }
+})->with([
+    'from the start' => ['from the start', 'FAIL could not read the Postfix queue (postqueue -j failed), so whether the refused message is in it cannot be told', 'nothing of it is in the queue'],
+    'after the probe was deleted' => ['after the probe was deleted', 'so where', 'stayed held until it was deleted, and is gone'],
+]);
+
 it('fails when the probe is not held, and removes it from wherever it went', function () {
     $host = mailSigningE2eHost(['signature' => mailSigningSignature(), 'queue' => 'deferred']);
 
@@ -1654,10 +1574,22 @@ it('never flushes, empties or releases the queue, and connects only to the targe
         expect(str_contains($code, $forbidden))->toBeFalse("verify-mail-signing uses {$forbidden}");
     }
 
-    // One connection target: the held listener the plan names, on loopback.
-    expect(substr_count($code, '/dev/tcp/'))->toBe(1);
-    expect($code)->toContain('exec 4<>"/dev/tcp/${LISTEN_HOST}/${LISTEN_PORT}"');
+    // One connection target: the held listener the plan names, on loopback,
+    // through the one SMTP conversation the mail tooling shares — which opens
+    // exactly one kind of connection, and only to a loopback address.
+    expect($code)->not->toContain('/dev/tcp/');
+    expect($code)->toContain('source "${SCRIPT_DIR}/smtp-submission"');
+    expect($code)->toContain('smtp_submit_message "${LISTEN_HOST}" "${LISTEN_PORT}" mail-signing-verify "${PROBE_SENDER}" "${recipient}" "${message}"');
     expect($code)->toContain('[[ "${mode}" == held && "${route}" == null ]]');
+
+    $library = executableSourceLines(File::get(mailSigningScript('smtp-submission')));
+    expect(substr_count($library, '/dev/tcp/'))->toBe(1);
+    expect($library)->toContain('exec 4<>"/dev/tcp/${host}/${port}"');
+    expect($library)->toContain('if [[ ! "${host}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ || ! "${port}" =~ ^[1-9][0-9]{0,4}$ ]]; then');
+
+    foreach (['eval', 'postsuper', 'POSTSUPER', 'postqueue -f', '" -f', 'postcat'] as $forbidden) {
+        expect(str_contains($library, $forbidden))->toBeFalse("smtp-submission uses {$forbidden}");
+    }
 
     // Deletion is by exact ID only — from HOLD on the normal path.
     expect($code)->toContain('"${POSTSUPER_BIN}" -d "${QUEUE_ID}" hold')->toContain('"${POSTSUPER_BIN}" -d "${id}"');

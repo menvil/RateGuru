@@ -1853,7 +1853,29 @@ handle_recovery_exit() {
         printf '# failed step: %s\n' "${CURRENT_STEP}"
         printf '# compensation: %s\n' "${COMPENSATION_STATUS}"
         printf '# The target is intentionally NOT serving: its queue is stopped\n'
-        printf '# and its scheduler cron entry is held out of %s.\n' "${RESTORE_CRON_D_ROOT}"
+
+        # Observed, not assumed: a release can have moved the entry back into
+        # cron.d and then failed to restore its owner or mode, and a hold can
+        # have failed to move it out at all. Either way the ERROR above says
+        # which, and the report must not call the entry held.
+        if scheduler_file_present; then
+            local hold_path=""
+
+            [[ -n "${STATE_FILE}" ]] && [[ -f "${STATE_FILE}" ]] \
+                && hold_path="$(restore_state_get "${STATE_FILE}" scheduler_hold_path 2>/dev/null || true)"
+
+            printf '# but its scheduler cron entry is NOT held: it is in %s.\n' "${SCHEDULER_FILE}"
+
+            if [[ -n "${hold_path}" ]]; then
+                printf '# Before cron runs it, put it back where this operation keeps it:\n'
+                printf '#   mv %s %s\n' "${SCHEDULER_FILE}" "${hold_path}"
+            else
+                printf '# Before cron runs it, move it out of %s by hand.\n' "${RESTORE_CRON_D_ROOT}"
+            fi
+        else
+            printf '# and its scheduler cron entry is held out of %s.\n' "${RESTORE_CRON_D_ROOT}"
+        fi
+
         printf '# Every ordinary operation on this target refuses while the guard exists:\n'
         printf '#   %s\n' "$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
         printf '# Rollback material, as it actually is right now:\n'

@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'El campo :attribute debe ser aceptado.',
+    'required' => 'El campo :attribute es obligatorio.',
+    'string' => 'El campo :attribute debe ser una cadena de texto.',
+    'max' => [
+        'array' => 'El campo :attribute no debe tener más de :max elementos.',
+        'file' => 'El campo :attribute no debe ser mayor que :max kilobytes.',
+        'string' => 'El campo :attribute no debe tener más de :max caracteres.',
+    ],
+    'min' => [
+        'string' => 'El campo :attribute debe tener al menos :min caracteres.',
+    ],
+    'in' => 'El valor seleccionado en el campo :attribute no es válido.',
+    'unique' => 'El valor del campo :attribute ya está en uso.',
+    'email' => 'El campo :attribute debe ser una dirección de correo electrónico válida.',
+    'confirmed' => 'La confirmación del campo :attribute no coincide.',
+    'array' => 'El campo :attribute debe ser una lista.',
+    'boolean' => 'El campo :attribute debe ser verdadero o falso.',
+    'current_password' => 'La contraseña es incorrecta.',
+    'dimensions' => 'El campo :attribute tiene dimensiones de imagen no válidas.',
+    'enum' => 'El valor seleccionado en el campo :attribute no es válido.',
+    'exists' => 'El valor seleccionado en el campo :attribute no es válido.',
+    'image' => 'El campo :attribute debe ser una imagen.',
+    'integer' => 'El campo :attribute debe ser un número entero.',
+    'lowercase' => 'El campo :attribute debe estar en minúsculas.',
+    'mimes' => 'El campo :attribute debe ser un archivo de tipo: :values.',
+    'not_regex' => 'El formato del campo :attribute no es válido.',
+    'regex' => 'El formato del campo :attribute no es válido.',
+    'uploaded' => 'El campo :attribute no se pudo subir.',
+    'url' => 'El campo :attribute debe ser una URL válida.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'biografía',
+        'categoryId' => 'categoría',
+        'current_password' => 'contraseña actual',
+        'description' => 'descripción',
+        'display_name' => 'nombre visible',
+        'email' => 'correo electrónico',
+        'image' => 'imagen',
+        'locale' => 'idioma',
+        'message' => 'mensaje',
+        'name' => 'nombre',
+        'password' => 'contraseña',
+        'profile_website_url' => 'sitio web',
+        'reason' => 'motivo',
+        'sourceUrl' => 'URL de origen',
+        'subject' => 'asunto',
+        'tagIds' => 'etiquetas',
+        'title' => 'título',
+        'url' => 'URL',
+        'username' => 'nombre de usuario',
+    ],
+];

@@ -23,6 +23,11 @@ use Illuminate\Support\Facades\DB;
  * have yet — for every installed language, enabled or not, so a language a
  * release adds is filled in before anyone offers it.
  *
+ * The repository ships its project content in English alone today (a project
+ * translates its own, in Translation Center), so on a deploy this lends no
+ * translation: what it still does is give a built-in page with no English the
+ * repository's English, below. The rules stand for whatever it finds.
+ *
  * The database owns project content; the repository only lends what is
  * missing. A translation is written only when all of these hold:
  *

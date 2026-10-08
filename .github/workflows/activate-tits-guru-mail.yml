@@ -1,0 +1,141 @@
+name: Activate tits.guru outbound mail
+
+# The guarded switch of tits-guru's mail from HELD to direct OUTBOUND delivery:
+# infrastructure/scripts/activate-mail-outbound --apply --target tits-guru, run
+# from trusted main tooling.
+#
+# It activates only what main's own reviewed configuration requests. While
+# main's mail-routing.json holds tits-guru's mail, or its mail-outbound.json
+# leaves direct delivery disabled, it refuses before changing anything —
+# "activation is not requested by this trusted bundle" — and that is the
+# expected outcome until the activation change itself is merged into main.
+#
+# When main does request it, the script proves the host is exactly the
+# pre-activation state first — the held gateway, the signing acceptance (a
+# foreign From refused, a valid probe signed and held, then deleted), public
+# DNS, the signer and an empty HOLD queue — writes a rollback capsule, applies
+# the gateway through its one owner, and requires full readiness with
+# OUTBOUND READY: YES. Any failure from the gateway change on returns the host
+# to held. It sends no mail: the first real message is the canary workflow's.
+# The DKIM private key is already on the host; no secret but the bootstrap
+# credential is read, and nothing about the application, its lifecycle or its
+# environment file changes. It may be run again: an activated, ready host is a
+# no-op. This workflow chooses nothing: the target, the trusted ref, the
+# operation and the GitHub Environment are fixed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# tits-guru shares its physical host with staging today, so this must never run
+# halfway through a mutation of either target, nor while Verify production
+# infrastructure or the signing acceptance reads that machine. This is the
+# domain Configure tits.guru, Verify production infrastructure, Verify
+# production mail signing and every staging host mutation use for the same
+# reason; it is a fact about today's topology, and moves with the target when it
+# gets a host of its own. It waits rather than cancelling anything. On the host,
+# activate-mail-outbound holds the host's own infrastructure lock for the
+# whole run.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  activate:
+    name: Activate tits-guru's outbound mail
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 30
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from develop.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Activate on the production host
+        id: activate
+        uses: ./.github/actions/activate-rateguru-mail-outbound
+        with:
+          operation: apply
+          deployment-target: tits-guru
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the gateway, the signer and
+          # the queue are root's. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The action writes the result of every completed run. A run that
+      # produced no result at all says so here, rather than leaving an empty
+      # summary that could be read as nothing wrong.
+      - name: Report an incomplete activation
+        if: ${{ always() && steps.activate.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru outbound mail activation"
+            echo
+            echo "The activation did not complete, so there is no result. If it had changed the gateway, any failure returns the host to held on its own; the reason is in the job log. Run Verify production infrastructure before anything else."
+          } >> "${GITHUB_STEP_SUMMARY}"

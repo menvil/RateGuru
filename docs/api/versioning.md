@@ -33,13 +33,9 @@ Route::prefix('v1')
 
 ## Resources
 
-Phase 40 resources live under:
-
-```txt
-App\Http\Resources\Api
-```
-
-If API v1 is formally released and needs stable contracts, move or alias resources to:
+The draft resources Phase 40 added under `App\Http\Resources\Api` were
+removed: nothing consumed them, and no API is planned. When real API endpoints
+are introduced, their resources go under:
 
 ```txt
 App\Http\Resources\Api\V1

@@ -78,6 +78,11 @@ abstract class TestCase extends BaseTestCase
         $app->afterBootstrapping(LoadConfiguration::class, function (Application $app): void {
             static::keepPostgresConnectionsAcrossTests($app['config']);
 
+            // Background translation drafts live in Redis on a deployed target;
+            // tests keep them in the application's own array store, so no test
+            // needs a Redis server and every test starts with none.
+            $app['config']->set('translation.bulk.cache_store', 'array');
+
             foreach (static::$bootConfiguration as $key => $value) {
                 $app['config']->set($key, $value);
             }

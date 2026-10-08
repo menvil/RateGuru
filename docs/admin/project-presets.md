@@ -80,13 +80,13 @@ Each preset must define:
 'my_preset' => [
     'label' => 'My rating preset',
     'settings' => [
-        'site_name' => ['en' => 'MyGuru', 'ru' => '...', 'bg' => '...'],
-        'site_tagline' => ['en' => 'Rate every item', 'ru' => '...', 'bg' => '...'],
-        'site_description' => ['en' => null, 'ru' => null, 'bg' => null],
-        'object_singular_name' => ['en' => 'item', 'ru' => '...', 'bg' => '...'],
-        'object_plural_name' => ['en' => 'items', 'ru' => '...', 'bg' => '...'],
-        'upload_cta_label' => ['en' => 'Upload item', 'ru' => '...', 'bg' => '...'],
-        'feed_title' => ['en' => 'Latest items', 'ru' => '...', 'bg' => '...'],
+        'site_name' => ['en' => 'MyGuru'],
+        'site_tagline' => ['en' => 'Rate every item'],
+        'site_description' => ['en' => null],
+        'object_singular_name' => ['en' => 'item'],
+        'object_plural_name' => ['en' => 'items'],
+        'upload_cta_label' => ['en' => 'Upload item'],
+        'feed_title' => ['en' => 'Latest items'],
         'default_theme' => 'system',
         'default_sort' => 'hot',
     ],
@@ -96,30 +96,36 @@ Each preset must define:
     'categories' => [
         [
             'slug' => 'showcase',
-            'name' => ['en' => 'Showcase', 'ru' => '...', 'bg' => '...'],
+            'name' => ['en' => 'Showcase'],
             'sort_order' => 10,
         ],
     ],
     'rating_groups' => [
         [
             'key' => 'type',
-            'label' => ['en' => 'Type', 'ru' => '...', 'bg' => '...'],
-            'description' => ['en' => null, 'ru' => null, 'bg' => null],
+            'label' => ['en' => 'Type'],
+            'description' => ['en' => null],
             'sort_order' => 10,
             'options' => [
                 [
                     'key' => 'example',
-                    'label' => ['en' => 'Example', 'ru' => '...', 'bg' => '...'],
+                    'label' => ['en' => 'Example'],
                     'sort_order' => 10,
                 ],
             ],
         ],
     ],
     'tags' => [
-        ['en' => 'Example', 'ru' => '...', 'bg' => '...'],
+        ['en' => 'Example'],
     ],
 ],
 ```
+
+Every text is English alone. A project translates its own content — what a
+preset seeded and what an administrator created alike — in Translation Center,
+so adding a language never means translating presets;
+`RepositoryProjectContentLanguageTest` fails a preset or static page that
+ships another language.
 
 A preset does not decide languages: the offered languages are set on the
 Languages page, and English is always the default. A `default_locale` or
@@ -127,8 +133,7 @@ Languages page, and English is always the default. A `default_locale` or
 
 A preset is a bootstrap source, not a runtime one: applying it copies its
 values into the database, which visitors are then served from. A later change
-to a preset does not reach a project that already applied it; the deploy's
-translation backfill only fills translations the project is missing (see
+to a preset does not reach a project that already applied it (see
 `docs/i18n/project-translation-lifecycle.md`).
 
 Set `categories`, `rating_groups`, or `tags` to `null` to keep the corresponding

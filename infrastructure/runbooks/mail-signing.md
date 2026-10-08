@@ -26,9 +26,9 @@ and a signing error; and when the signer is down the listener defers.
 | `mail-identity render-signing-plan` | **Implemented**: the one source of what is signed |
 | Gateway milter on `tits-guru`'s held listener (`127.0.0.1:2526`) | **Implemented**; the staging capture listener is never signed |
 | `mail-identity readiness` signing condition | **Implemented**: the verdict of `verify-mail-signing --read-only` |
-| Signer on the shared production/staging host | **Not installed yet** — the next **Prepare staging host** after merge installs it |
-| Live acceptance (**Verify production mail signing**) | **Pending** — run after promotion to `main` |
-| `tits-guru` mail | **Held**; `lifecycle=planned`; direct delivery disabled; no production `MAIL_*` value |
+| Signer on the shared production/staging host | **Installed and accepted**: OpenDKIM `2.11.0~beta2-6` on `inet:127.0.0.1:8891`; the key `/etc/opendkim/keys/tits-guru/rg1.private` is `root:opendkim 0640` in `root:opendkim 0750` directories |
+| Production acceptance | **Accepted**: **Verify production infrastructure** run `37634818870` PASS (public A, PTR, SPF, DKIM and DMARC, signing read-only); **Verify production mail signing** run `37639732203` PASS (foreign `From` refused with `550 5.7.1` and never queued; the valid probe signed `d=tits.guru s=rg1 a=rsa-sha256`, held, and its exact queue entry deleted) |
+| `tits-guru` mail | **Held**; `lifecycle=planned`; direct delivery disabled; no production `MAIL_*` value. Its guarded activation is [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
 ## What is installed
 
@@ -265,22 +265,15 @@ with the real `opendkim` 2.11.0~beta2-6 and Postfix 3.6.4 packages:
 | `verify-mail-signing --e2e --target tits-guru` | PASS, `foreign_from_rejected: true`, queue empty afterwards |
 | staging listener 2525 with a foreign `From` | accepted unsigned and routed to capture, as before |
 
-## Rollout after merge
+## Production acceptance
 
-1. **Prepare staging host** (from `develop`). The shared host's services
-   change, so it must converge: it installs the RateGuru-owned OpenDKIM,
-   converges its configuration, grants the signer read access to the
-   already-installed `tits-guru` key without changing its bytes, and re-renders
-   the gateway with the milter on `tits-guru`'s held listener. `tits-guru` stays
-   held, direct delivery stays disabled.
-2. **Verify staging infrastructure**: every group PASS, Mail identity `N/A`.
-3. Promote `develop` to `main` through the normal pull request.
-4. **Verify production infrastructure**: readiness as above — `signing PASS`,
-   `OUTBOUND READY: NO` for `routing` and `direct` only — and the overall run
-   PASS.
-5. **Verify production mail signing**: `SIGNING E2E: PASS`.
-
-Only then is the signing foundation production-accepted.
+The rollout ran as planned — Prepare staging host, Verify staging
+infrastructure, promotion to `main`, Verify production infrastructure (run
+`37634818870`: every group PASS, readiness `signing` PASS and `OUTBOUND READY:
+NO` for `routing` and `direct` only) and Verify production mail signing (run
+`37639732203`: `SIGNING E2E: PASS`). The signing foundation is
+production-accepted. Activating delivery is a separate, guarded step:
+[`mail-outbound-activation.md`](mail-outbound-activation.md).
 
 ## What this does not do
 

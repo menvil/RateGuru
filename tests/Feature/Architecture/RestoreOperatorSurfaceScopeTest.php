@@ -15,6 +15,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         ->all();
 
     expect($workflows)->toBe([
+        // tits-guru's outbound mail activation, its initial-launch rollback
+        // and the first real delivery, guarded by MailOutboundActivationTest
+        // and MailCanaryTest.
+        'activate-tits-guru-mail.yml',
         'ci.yml',
         'configure-tits-guru.yml',
         'coverage.yml',
@@ -35,6 +39,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        'rollback-tits-guru-mail-activation.yml',
+        'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
         // environment, guarded by VerifyInfrastructureTest — and the live
         // proof that a held production target's mail is signed, guarded by
@@ -51,6 +57,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         ->all();
 
     expect($actions)->toBe([
+        // The outbound mail activation's transport and the canary's.
+        'activate-rateguru-mail-outbound',
         'build-rateguru',
         'configure-rateguru-target',
         'deploy-rateguru',
@@ -65,6 +73,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'repair-rateguru-target',
         'restore-rateguru',
         'rollback-rateguru',
+        'send-rateguru-mail-canary',
         'sentry-release',
         // Their one transport: runs verify-infrastructure and changes nothing.
         'verify-rateguru-infrastructure',

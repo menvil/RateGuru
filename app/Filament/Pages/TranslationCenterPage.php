@@ -2,8 +2,13 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Translations\DiscardProjectTranslationGenerationAction;
 use App\Actions\Translations\GenerateProjectTranslationSuggestionAction;
+use App\Actions\Translations\ReadProjectTranslationGenerationAction;
+use App\Actions\Translations\SaveProjectTranslationGenerationAction;
+use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Actions\Translations\UpdateProjectTranslationAction;
+use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Exceptions\Translations\CannotSaveTranslationException;
 use App\Exceptions\Translations\CannotSuggestTranslationException;
 use App\Filament\Support\AdminNavigationGroup;
@@ -11,6 +16,7 @@ use App\Filament\Support\TranslationSourceEditor;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
 use App\Support\TranslationEngine\Exceptions\InvalidTranslationRequestException;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationCompleteness;
@@ -18,6 +24,7 @@ use App\Support\Translations\ProjectTranslationReport;
 use App\Support\Translations\ProjectTranslationRequestFactory;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
+use Closure;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Gate;
@@ -42,13 +49,16 @@ use UnitEnum;
  * server state, in the URL (`?locale=`): choosing another reads that
  * language's translations afresh. Everything else is the browser's, over the
  * units already on the page — the search, the section, Missing only / All
- * (kept in the URL with replaceState), and the drafts, which exist only in the
- * browser until they are saved. Typing sends nothing; Save sends one unit id,
- * the language and the text; AI translate, Suggest alternative and Regenerate
- * send one unit id, the language and the stored text the row shows, and get a
- * suggestion back, which is a draft like any other;
- * and the context drawer asks for one unit's details when it opens. None of
- * them re-renders the page, so drafts in other rows stay as they are.
+ * (kept in the URL with replaceState), and the drafts typed or suggested here,
+ * which exist only in the browser until they are saved. Typing sends nothing;
+ * Save sends one unit id, the language and the text; AI translate, Suggest
+ * alternative and Regenerate send one unit id, the language and the stored
+ * text the row shows, and get a suggestion back, which is a draft like any
+ * other; Generate missing asks for suggestions for every missing translation
+ * of the language, made in the background and kept on the server, which the
+ * page restores and polls for; and the context drawer asks for one unit's
+ * details when it opens. None of them re-renders the page, so drafts in other
+ * rows stay as they are.
  *
  * Every method checks what the browser sends against the catalog and the
  * installed languages now; UpdateProjectTranslationAction is the final
@@ -131,7 +141,125 @@ final class TranslationCenterPage extends Page
             return ['saved' => false, 'error' => $exception->getMessage(), 'field' => $exception->isAboutTheText()];
         }
 
+        // A background suggestion for this unit is overtaken by what was saved: a reload must not offer it again.
+        app(DiscardProjectTranslationGenerationAction::class)->supersede($user, (string) $locale, $saved->id);
+
         return ['saved' => true, 'value' => $saved->translation((string) $locale) ?? ''];
+    }
+
+    /**
+     * Generate missing: suggestions for every missing translation of the
+     * language, made in the background. The language is all the browser
+     * sends — never which units; the action reads them from the catalog,
+     * plans, stores and queues, and returns without waiting for a provider.
+     *
+     * @return array{started: true, generation: array<string, mixed>}|array{started: false, error: string, reason: string}
+     */
+    #[Renderless]
+    public function startGeneration(mixed $locale = null): array
+    {
+        return $this->generation(fn (User $user): array => [
+            'started' => true,
+            'generation' => app(StartProjectTranslationGenerationAction::class)->handle($user, $locale),
+        ], 'started');
+    }
+
+    /**
+     * The actor's background generation for the language — to restore its
+     * suggestions and follow its progress — or null. An unchanged version
+     * answers with the counts alone, so polling a long batch stays light.
+     *
+     * @return array{read: true, generation: array<string, mixed>|null}|array{read: false, error: string, reason: string}
+     */
+    #[Renderless]
+    public function generationStatus(mixed $locale = null, mixed $version = null): array
+    {
+        return $this->generation(function (User $user) use ($locale, $version): array {
+            $generation = app(ReadProjectTranslationGenerationAction::class)->handle($user, $locale);
+
+            if ($generation !== null && $version === $generation['version']) {
+                unset($generation['items']);
+                $generation['unchanged'] = true;
+            }
+
+            return ['read' => true, 'generation' => $generation];
+        }, 'read');
+    }
+
+    /**
+     * Saves one untouched background suggestion, read from the server — the
+     * browser sends which, never the text.
+     *
+     * @return array<string, mixed>
+     */
+    #[Renderless]
+    public function saveGenerated(mixed $locale = null, mixed $batch = null, mixed $unit = null): array
+    {
+        if (! is_string($unit)) {
+            $refusal = CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
+
+            return ['saved' => false, 'error' => $refusal->getMessage(), 'reason' => $refusal->reason];
+        }
+
+        return $this->generation(fn (User $user): array => [
+            'saved' => true,
+            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, $unit),
+        ], 'saved');
+    }
+
+    /**
+     * Save all generated: the background suggestions the page shows untouched,
+     * named by unit — never one it has not shown — each saved on its own.
+     *
+     * @return array<string, mixed>
+     */
+    #[Renderless]
+    public function saveAllGenerated(mixed $locale = null, mixed $batch = null, mixed $units = []): array
+    {
+        return $this->generation(fn (User $user): array => [
+            'saved' => true,
+            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, null, $units),
+        ], 'saved');
+    }
+
+    /**
+     * Discards one background suggestion on the server, so a reload does not
+     * bring it back — or, for a unit of null and nothing else, every ready
+     * one. A unit that names no ready suggestion is refused as it is, never
+     * read as every one.
+     *
+     * @return array{discarded: true, generation: array<string, mixed>|null}|array{discarded: false, error: string, reason: string}
+     */
+    #[Renderless]
+    public function discardGenerated(mixed $locale = null, mixed $batch = null, mixed $unit = null): array
+    {
+        return $this->generation(fn (User $user): array => [
+            'discarded' => true,
+            'generation' => app(DiscardProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, $unit),
+        ], 'discarded');
+    }
+
+    /**
+     * Runs a background generation operation as the signed-in administrator,
+     * answering a refusal — or a store that cannot be reached — with a safe
+     * message and its reason under $flag => false, never an error page.
+     *
+     * @param  Closure(User): array<string, mixed>  $operation
+     * @return array<string, mixed>
+     */
+    private function generation(Closure $operation, string $flag): array
+    {
+        $user = auth()->user();
+
+        try {
+            if (! $user instanceof User) {
+                throw CannotGenerateTranslationsException::becauseUserIsNotAllowed();
+            }
+
+            return $operation($user);
+        } catch (CannotGenerateTranslationsException $exception) {
+            return [$flag => false, 'error' => $exception->getMessage(), 'reason' => $exception->reason];
+        }
     }
 
     /**
@@ -350,6 +478,8 @@ final class TranslationCenterPage extends Page
                 'targets' => array_map(fn (array $target): string => $target['label'], $targets),
                 'sections' => array_map(fn (ProjectContentSection $section): string => $section->value, ProjectContentSection::cases()),
                 'queryLimit' => self::QUERY_LIMIT,
+                // The administrator's background generation for this language, read once with the page.
+                'generation' => $this->initialGeneration($locale),
                 'units' => array_map(fn (array $row): array => [
                     'id' => $row['id'],
                     'dom' => $row['dom'],
@@ -359,6 +489,7 @@ final class TranslationCenterPage extends Page
                     'multiline' => $row['multiline'],
                     'placeholders' => $row['placeholders'],
                     'stored' => $row['stored'],
+                    'fingerprint' => $row['fingerprint'],
                     'search' => $row['search'],
                 ], $rows),
             ],
@@ -393,6 +524,8 @@ final class TranslationCenterPage extends Page
                 'multiline' => $unit->multiline,
                 'placeholders' => $unit->placeholders(),
                 'stored' => $unit->translation($locale) ?? '',
+                // Which English the row shows, to tell a background suggestion made from other English.
+                'fingerprint' => ProjectTranslationSourceFingerprint::of($unit),
                 'sourceUrl' => TranslationSourceEditor::url($unit),
                 // What the browser's search looks in besides the translation: the
                 // English text, the content's name, its field, its keys and its id.
@@ -401,6 +534,28 @@ final class TranslationCenterPage extends Page
         }
 
         return $rows;
+    }
+
+    /**
+     * The administrator's background generation for the language as the page
+     * opens — one read — or null when there is none or the store cannot be
+     * reached, which never keeps the page from opening.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function initialGeneration(string $locale): ?array
+    {
+        $user = auth()->user();
+
+        if (! $user instanceof User) {
+            return null;
+        }
+
+        try {
+            return app(ReadProjectTranslationGenerationAction::class)->handle($user, $locale);
+        } catch (CannotGenerateTranslationsException) {
+            return null;
+        }
     }
 
     /**

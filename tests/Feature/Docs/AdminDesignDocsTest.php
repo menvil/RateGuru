@@ -107,7 +107,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 300);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, and 5B, interactive AI suggestions, are done; 5C, background and bulk generation, is next.');
+        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is next.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -119,7 +119,9 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('**Drafts live in the browser.**')
         ->toContain('**From Languages.**')
         ->toContain('**AI suggestions.**')
-        ->toContain('**Not in this step.** AI suggestions are interactive, one row at a time')
+        ->toContain('**Generate missing.**')
+        ->toContain('**Persisted drafts.**')
+        ->toContain('**Not in this step.** No review states and no translation history')
         ->toContain('| Translation Center AI |')
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
@@ -131,7 +133,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain("A list's search is clearable");
 });
 
-it('splits AI suggestions into four steps, the engine and interactive suggestions done and nothing else', function () {
+it('splits AI suggestions into four steps, the engine, interactive and bulk suggestions done and 5D next', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
     $start = strpos($plan, '### Phase 5+');
     $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
@@ -147,19 +149,20 @@ it('splits AI suggestions into four steps, the engine and interactive suggestion
     $steps = [
         '**5A — Translation engine. Status: done.**',
         '**5B — Interactive AI suggestions. Status: done.**',
-        '**5C — Background and bulk generation. Status: next.**',
-        '**5D — Observability, limits and provider policies.**',
+        '**5C — Background and bulk generation. Status: done.**',
+        '**5D — Observability, limits and provider policies. Status: next.**',
     ];
     $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
 
     expect($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all())
-        ->and(substr_count($phase5, 'Status: done.'))->toBe(2)
+        ->and(substr_count($phase5, 'Status: done.'))->toBe(3)
+        ->and(substr_count($phase5, 'Status: next.'))->toBe(1)
         ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
         ->and($phase5)->toContain('docs/architecture/translation-engine.md');
 });
 
-it('records production Translation Center\'s interactive AI suggestions, and what still waits for bulk generation', function () {
+it('records production Translation Center\'s interactive AI suggestions', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
 
     expect($contract)
@@ -172,12 +175,40 @@ it('records production Translation Center\'s interactive AI suggestions, and wha
         ->toContain('a failed Regenerate keeps it')
         ->toContain('**What AI translate sends**')
         ->toContain('“AI context only”')
-        ->toContain('Not yet: Generate missing, Save all generated, background generation and suggestions that survive a reload')
         ->toContain('| Translation Center AI | Generate missing and Save all generated in the top bar')
         ->toContain('| Translation Center AI button |')
         ->toContain('| Translation Center while generating |')
         ->not->toContain('| Translation Center other languages |')
         ->not->toContain('production stays manual-only');
+});
+
+it('records Generate missing: background generation, persisted drafts and an explicit Save all generated', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('Generate missing (n) (sparkles) counts every translation the language is missing, whatever the filters show')
+        ->toContain('StartProjectTranslationGenerationAction')
+        ->toContain('“Generating 24 of 39 translations…”')
+        ->toContain('“You can leave this page. Generation will continue in the background.”')
+        ->toContain('never from a hidden tab')
+        ->toContain('“English changed after this suggestion was generated. Generate a new translation.”')
+        ->toContain('“36 AI suggestions ready · 2 failed · 1 skipped”')
+        ->toContain('“Generated drafts are temporary.”')
+        ->toContain('kept on the server for 48 hours from when generation started')
+        ->toContain('Try again when that generation finishes.')
+        ->toContain('SaveProjectTranslationGenerationAction')
+        ->toContain('“Save n generated translations?”')
+        ->toContain('“This publishes these AI suggestions to visitors. Anything whose English source or stored translation changed will be skipped.”')
+        ->toContain('| Translation Center Generate missing |')
+        ->toContain('starting under the badge — never under the counter —')
+        ->toContain('with Generate missing and Save all generated in the header band after the figures')
+        ->not->toContain('Not yet: Generate missing');
+
+    expect($plan)
+        ->toContain('GenerateProjectTranslationChunkJob')
+        ->toContain('48 hours from creation — never the database, so no migration')
+        ->toContain('is never retried');
 });
 
 it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {

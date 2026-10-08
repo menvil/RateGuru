@@ -45,6 +45,7 @@ final class PostOpenGraph
             'ru' => 'ru_RU',
             'bg' => 'bg_BG',
             'de' => 'de_DE',
+            'es' => 'es_ES',
             default => 'en_US',
         };
     }

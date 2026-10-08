@@ -45,12 +45,12 @@ All subsequent log writes in the same request automatically include this context
 `App\Support\Observability\LogContext` provides:
 
 ```php
-base(): array            // base request context
-forPost(Post): array     // adds post_id
-forUser(User): array     // adds user_id, username
-forImport(?url, ?provider): array  // adds source_host, provider
-merge(array ...$contexts): array   // merges multiple contexts
+base(): array            // base request context: request_id, app_env, locale,
+                         // route_name, user_id and theme_preference when known
 ```
+
+A domain event adds its own fields (post_id, provider, …) to the context it
+passes to `DomainLogger`; `base()` is merged in for it.
 
 ---
 

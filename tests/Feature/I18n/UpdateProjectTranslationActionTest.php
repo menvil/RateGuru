@@ -9,6 +9,7 @@ use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 use Illuminate\Support\Facades\DB;
@@ -113,6 +114,7 @@ it('writes a rating group and a rating option field by field', function () {
 
 it('writes one field of one language of one static page, leaving the rest of the pages as they were', function () {
     [$target, $other] = twoTranslatedLocales();
+    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$target, $other]))]);
     $before = ProjectSettings::findOrFail(1)->static_pages;
 
     saveTranslation('static_pages:about:title', $target, 'Новый заголовок');
@@ -128,7 +130,8 @@ it('writes one field of one language of one static page, leaving the rest of the
 });
 
 it('removes a page language left without a field, and nothing else', function () {
-    [$target] = twoTranslatedLocales();
+    [$target, $other] = twoTranslatedLocales();
+    ProjectSettings::query()->update(['static_pages' => json_encode(staticPagesTranslatedInto([$target, $other]))]);
     $before = ProjectSettings::findOrFail(1)->static_pages;
 
     saveTranslation('static_pages:about:title', $target, '');
@@ -198,6 +201,74 @@ it('reads and writes under a lock on the row it changes', function () {
     expect($locked)->toHaveCount(DB::getDriverName() === 'sqlite' ? 0 : 2);
 });
 
+// A guarded save -------------------------------------------------------------------
+
+it('shows a guard the unit as the locked row holds it, inside the write\'s transaction', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+    $unit = "categories:{$category->id}:name";
+    $outside = DB::transactionLevel();
+
+    // The caller's own earlier read, then a save by someone else, then the guarded save.
+    $earlier = app(ProjectTranslationCatalog::class)->find($unit);
+    saveTranslation($unit, $target, 'Von jemand anderem');
+    $seen = null;
+    $refusal = null;
+
+    try {
+        app(UpdateProjectTranslationAction::class)->handleGuarded(User::factory()->admin()->create(), $unit, $target, 'KI', function (ProjectTranslationUnit $locked) use (&$seen, $target, $outside): void {
+            $seen = [$locked->translation($target), DB::transactionLevel() > $outside];
+
+            throw new RuntimeException('Not missing any more.');
+        });
+    } catch (RuntimeException $exception) {
+        $refusal = $exception->getMessage();
+    }
+
+    expect($earlier->translation($target))->toBeNull()
+        ->and($seen)->toBe(['Von jemand anderem', true])
+        ->and($refusal)->toBe('Not missing any more.')
+        ->and($category->fresh()->name_translations)->toBe([$target => 'Von jemand anderem']);
+});
+
+it('saves as an ordinary save does once the guard accepts, the field\'s limits checked after it', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+    $unit = "categories:{$category->id}:name";
+    $guarded = fn (string $text, Closure $guard) => app(UpdateProjectTranslationAction::class)->handleGuarded(User::factory()->admin()->create(), $unit, $target, $text, $guard);
+    $calls = 0;
+    $accept = function () use (&$calls): void {
+        $calls++;
+    };
+
+    // Too long: the guard has had its say first, then the limits refuse.
+    expect(refusalOf(fn () => $guarded(str_repeat('x', 81), $accept)))->toBe('too_long: 1 over the limit')
+        ->and($calls)->toBe(1)
+        ->and($guarded('  Грузинская кухня  ', $accept)->translation($target))->toBe('Грузинская кухня')
+        ->and($category->fresh()->name_translations)->toBe([$target => 'Грузинская кухня']);
+});
+
+it('still replaces a stored translation without a guard: only a guarded save insists on what it read', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+    $unit = "categories:{$category->id}:name";
+    saveTranslation($unit, $target, 'Erste Fassung');
+
+    saveTranslation($unit, $target, 'Zweite Fassung');
+
+    expect($category->fresh()->name_translations)->toBe([$target => 'Zweite Fassung']);
+});
+
+it('knows nothing of background generation: what a guard checks is its caller\'s', function () {
+    expect(phpSourceWithoutComments('app/Actions/Translations/UpdateProjectTranslationAction.php'))
+        ->not->toContain('Generation')
+        ->not->toContain('Fingerprint')
+        ->not->toContain('Cache')
+        ->not->toContain('Redis')
+        ->not->toContain('Queue')
+        ->not->toContain('TranslationEngine');
+});
+
 // Refusing -----------------------------------------------------------------------
 
 it('refuses a text over the field\'s limit, saying by how much, and writes nothing', function () {
@@ -252,7 +323,7 @@ it('removes a translation left behind once the English text is cleared, and refu
     $group = RatingGroup::factory()->create(['description' => 'What is it like?', 'description_translations' => [$target => 'Какой он?', $other => 'Какъв е?'], 'is_active' => true]);
     $unit = "rating_groups:{$group->id}:description";
     $group->update(['description' => null]);
-    $pages = ProjectSettings::findOrFail(1)->static_pages;
+    $pages = staticPagesTranslatedInto([$target, $other]);
     $pages['about']['en']['content'] = '';
     ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
 

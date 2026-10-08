@@ -1,8 +1,12 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Translations\ReadProjectTranslationGenerationAction;
+use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Exceptions\Translations\CannotGenerateTranslationsException;
+use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -32,13 +36,17 @@ use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
@@ -80,6 +88,14 @@ pest()->extend(TestCase::class)
 pest()->beforeEach(function (): void {
     $this->withoutVite();
 })->in('Feature');
+
+// A Browser test fails on any JavaScript error any page it opened raised,
+// whether or not it asserts on that page: see watchBrowserJavaScriptErrors().
+pest()->beforeEach(function (): void {
+    $this->browserJavaScriptErrors = watchBrowserJavaScriptErrors($this->app);
+})->afterEach(function (): void {
+    assertNoBrowserJavaScriptErrors($this->browserJavaScriptErrors);
+})->in('Browser');
 
 /*
 |--------------------------------------------------------------------------
@@ -487,7 +503,7 @@ function executableSourceLines(string $source): string
  */
 function sourcedLibraryNames(): array
 {
-    return ['common', 'restore-common'];
+    return ['common', 'restore-common', 'smtp-submission'];
 }
 
 /**
@@ -511,6 +527,11 @@ function sourcedLibraryNames(): array
  * and target mail identity, the DKIM keys it names, and public DNS against both.
  * It installs nothing, and runs from a trusted bundle or checkout.
  *
+ * `activate-mail-outbound` and `send-mail-canary` run only from a trusted bundle
+ * uploaded by their own workflows: the activation copies that bundle's whole
+ * infrastructure/ tree to judge the pre-activation state with it, and both
+ * compose mail-routing and mail-identity, which a host never has installed.
+ *
  * So a script listed here must stay out of required-clis.txt and out of the
  * operational bundle, and the guards that inventory infrastructure/scripts/ know
  * to expect exactly that rather than reporting it as unclassified.
@@ -519,7 +540,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['mail-identity', 'mail-routing', 'render-environment-templates', 'verify-infrastructure'];
+    return ['activate-mail-outbound', 'mail-identity', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -2415,6 +2436,919 @@ function mailRoutingPlanJson(array|string|null $policy = null, ?array $registry 
     expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
 
     return $run['stdout'];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The simulated mail gateway host
+|--------------------------------------------------------------------------
+|
+| install-mail-gateway runs for real against FS_ROOT and stubs for its
+| package manager, systemd, ss and Postfix's own tools. MailGatewayTest
+| proves the installer on it; MailOutboundActivationTest and MailCanaryTest
+| run the activation and the canary against the same real installer on it.
+| The postconf stub reads back what the rendered files say; it is a test
+| double, not Postfix.
+*/
+
+function mailGatewayScript(string $name = 'install-mail-gateway'): string
+{
+    return base_path('infrastructure/scripts/'.$name);
+}
+
+function mailGatewayScratch(): string
+{
+    $dir = sys_get_temp_dir().'/mail-gateway-'.bin2hex(random_bytes(6));
+
+    foreach (['', '/bin', '/fs', '/log', '/state', '/toggles'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+/**
+ * A simulated host and the stubs that stand in for its package manager,
+ * systemd, ss and Postfix's own tools.
+ *
+ * Options:
+ *   package        'absent' (default) | 'installed' | 'partial'
+ *   marker         null (default) | 'installing' | 'installed'
+ *   postfixDir     true to create /etc/postfix with no package (an unmanaged leftover)
+ *   otherMta       a package name providing mail-transport-agent
+ *   ownPolicyRc    true to give the host its own /usr/sbin/policy-rc.d
+ *   listeners      extra TCP listeners on the host (default: Mailpit's 127.0.0.1:1025)
+ *   policy         a mail routing policy instead of the committed one
+ *   registry       a deployment registry instead of the committed one
+ *   outbound       a host outbound contract instead of the committed one
+ *   identity       a mail identity contract instead of the committed one
+ *   signer         false to leave the DKIM signer's endpoint unheard on the host
+ *
+ * The signer's endpoint is the one the real install-mail-signing prints, and by
+ * default something listens on it, as on a host where the signer is installed.
+ *
+ * @return array{scratch: string, fs: string, env: array<string, string>}
+ */
+function mailGatewayHost(array $options = []): array
+{
+    $scratch = mailGatewayScratch();
+    $fs = $scratch.'/fs';
+    $state = $scratch.'/state';
+
+    $package = $options['package'] ?? 'absent';
+    if ($package === 'installed') {
+        file_put_contents($state.'/pkg-status', 'install ok installed');
+        file_put_contents($state.'/pkg-version', '3.6.4-1ubuntu1.4');
+        touch($state.'/units-exist');
+        touch($state.'/postfix.service.enabled');
+        @mkdir($fs.'/etc/postfix', 0o755, true);
+        file_put_contents($fs.'/etc/postfix/main.cf', "# a Postfix main.cf\n");
+        file_put_contents($fs.'/etc/postfix/master.cf', "smtp      inet  n       -       y       -       -       smtpd\n");
+    } elseif ($package === 'partial') {
+        file_put_contents($state.'/pkg-status', 'install ok half-configured');
+    }
+
+    if (($options['marker'] ?? null) !== null) {
+        @mkdir($fs.'/var/lib/rateguru-mail-gateway', 0o755, true);
+        file_put_contents($fs.'/var/lib/rateguru-mail-gateway/ownership', "owner=rateguru\ncomponent=mail-gateway\nstate={$options['marker']}\n");
+    }
+
+    if ($options['postfixDir'] ?? false) {
+        @mkdir($fs.'/etc/postfix', 0o755, true);
+        file_put_contents($fs.'/etc/postfix/main.cf', "# somebody else's\n");
+    }
+
+    $packages = "bash\tinstall ok installed\t\n";
+    if (isset($options['otherMta'])) {
+        $packages .= "{$options['otherMta']}\tinstall ok installed\tmail-transport-agent\n";
+    }
+    file_put_contents($state.'/packages.tsv', $packages);
+
+    if ($options['ownPolicyRc'] ?? false) {
+        @mkdir($fs.'/usr/sbin', 0o755, true);
+        file_put_contents($fs.'/usr/sbin/policy-rc.d', "#!/bin/sh\n# the host's own\nexit 101\n");
+        chmod($fs.'/usr/sbin/policy-rc.d', 0o755);
+    }
+
+    $listeners = $options['listeners'] ?? ['127.0.0.1:1025'];
+    if ($options['signer'] ?? true) {
+        $listeners[] = '127.0.0.1:8891';
+    }
+    file_put_contents($state.'/listeners', implode("\n", $listeners)."\n");
+
+    $stubs = [
+        'dpkg-query' => <<<'STUB'
+            #!/bin/bash
+            if [[ "$*" == *'${Package}'* ]]; then cat "${STUB_STATE}/packages.tsv"; exit 0; fi
+            if [[ "$*" == *'${Version}'* ]]; then cat "${STUB_STATE}/pkg-version" 2>/dev/null; exit 0; fi
+            if [[ -f "${STUB_STATE}/pkg-status" ]]; then cat "${STUB_STATE}/pkg-status"; exit 0; fi
+            echo "dpkg-query: no packages found matching postfix" >&2
+            exit 1
+            STUB,
+        'apt-get' => <<<'STUB'
+            #!/bin/bash
+            printf 'apt-get %s [DEBIAN_FRONTEND=%s]\n' "$*" "${DEBIAN_FRONTEND:-}" >> "${STUB_LOG}/mutations.log"
+            [[ "$1" == install ]] || exit 0
+            policy="${STUB_FS}/usr/sbin/policy-rc.d"
+            if [[ -f "${policy}" ]] && grep -q 'rateguru-mail-gateway' "${policy}" && grep -qx 'exit 101' "${policy}"; then
+                echo "service starts suppressed during install" >> "${STUB_LOG}/apt-suppression.log"
+            else
+                echo "service starts NOT suppressed during install" >> "${STUB_LOG}/apt-suppression.log"
+            fi
+            [[ -e "${STUB_TOGGLES}/apt-fail" ]] && exit 100
+            printf 'install ok installed' > "${STUB_STATE}/pkg-status"
+            printf '3.6.4-1ubuntu1.4' > "${STUB_STATE}/pkg-version"
+            # Preseeded "No configuration": the package installs its master.cf
+            # and writes no main.cf of its own.
+            mkdir -p "${STUB_FS}/etc/postfix"
+            printf 'smtp      inet  n       -       y       -       -       smtpd\n' > "${STUB_FS}/etc/postfix/master.cf"
+            touch "${STUB_STATE}/units-exist" "${STUB_STATE}/postfix.service.enabled"
+            STUB,
+        'dpkg' => <<<'STUB'
+            #!/bin/bash
+            printf 'dpkg %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+            STUB,
+        'debconf-set-selections' => <<<'STUB'
+            #!/bin/bash
+            echo "debconf-set-selections" >> "${STUB_LOG}/mutations.log"
+            cat >> "${STUB_LOG}/debconf.log"
+            STUB,
+        'systemctl' => <<<'STUB'
+            #!/bin/bash
+            S="${STUB_STATE}"
+            case "$1" in
+                is-enabled|show) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log" ;;
+                *) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log" ;;
+            esac
+            case "$1" in
+                is-enabled)
+                    [[ -e "${S}/units-exist" ]] || { echo "Failed to get unit file state for $2" >&2; exit 1; }
+                    if [[ -e "${S}/$2.enabled" ]]; then echo enabled; exit 0; fi
+                    echo disabled; exit 1 ;;
+                show)
+                    case "$3" in
+                        --property=ActiveState) [[ -e "${S}/$2.active" ]] && echo active || echo inactive ;;
+                        --property=SubState) [[ -e "${S}/$2.active" ]] && echo running || echo dead ;;
+                        --property=NRestarts) cat "${S}/$2.nrestarts" 2>/dev/null || echo 0 ;;
+                    esac
+                    exit 0 ;;
+                enable) touch "${S}/$2.enabled" ;;
+                disable) rm -f "${S}/$2.enabled" ;;
+                mask) touch "${S}/$2.masked" ;;
+                start|restart)
+                    [[ -e "${STUB_TOGGLES}/start-fail" ]] && exit 1
+                    touch "${S}/$2.active" ;;
+                stop) rm -f "${S}/$2.active" ;;
+                reload) [[ -e "${S}/$2.active" ]] || exit 1 ;;
+            esac
+            exit 0
+            STUB,
+        'ss' => <<<'STUB'
+            #!/bin/bash
+            sed '/^$/d; s/^/LISTEN 0 100 /; s/$/ 0.0.0.0:*/' "${STUB_STATE}/listeners"
+            if [[ -e "${STUB_STATE}/postfix@-.service.active" && -f "${STUB_FS}/etc/postfix/master.cf" ]]; then
+                awk '/^[^#[:space:]]/ && $2 == "inet" { print "LISTEN 0 100 " $1 " 0.0.0.0:*" }' "${STUB_FS}/etc/postfix/master.cf"
+            fi
+            STUB,
+        // A test double that reads the files back, not Postfix.
+        'postconf' => <<<'STUB'
+            #!/bin/bash
+            printf 'postconf %s\n' "$*" >> "${STUB_LOG}/reads.log"
+            dir="${STUB_FS}/etc/postfix"
+            if [[ "$1" == -c ]]; then dir="$2"; shift 2; fi
+            case "$1" in
+                -n)
+                    [[ -e "${STUB_TOGGLES}/postconf-warn" ]] && echo "postconf: warning: simulated unused parameter" >&2
+                    exit 0 ;;
+                -M)
+                    [[ -e "${STUB_TOGGLES}/postconf-fatal" ]] && { echo "postconf: fatal: bad field count" >&2; exit 1; }
+                    awk '/^[^#[:space:]]/ { print $1, $2, $3, $4, $5, $6, $7, $8 }' "${dir}/master.cf"
+                    exit 0 ;;
+                -h)
+                    awk -v k="$2" 'index($0, k " = ") == 1 { v = substr($0, length(k) + 4) } $0 == k " =" { v = "" } END { print v }' "${dir}/main.cf"
+                    exit 0 ;;
+                -P)
+                    spec="$2"; svc="${spec%%/*}"; rest="${spec#*/}"; type="${rest%%/*}"; param="${rest#*/}"
+                    awk -v s="${svc}" -v t="${type}" -v p="${param}" -v spec="${spec}" '
+                        /^[^#[:space:]]/ { inside = ($1 == s && $2 == t); next }
+                        inside && $1 == "-o" && index($2, p "=") == 1 { print spec " = " substr($2, length(p) + 2) }
+                    ' "${dir}/master.cf"
+                    exit 0 ;;
+            esac
+            STUB,
+        'postfix' => <<<'STUB'
+            #!/bin/bash
+            printf 'postfix %s\n' "$*" >> "${STUB_LOG}/reads.log"
+            [[ -e "${STUB_TOGGLES}/postfix-check-fail" ]] && { echo "postfix: fatal: simulated" >&2; exit 1; }
+            exit 0
+            STUB,
+        // A regexp-table lookup the way postmap -q answers one: the result of
+        // the first pattern that matches, case-insensitive unless the pattern
+        // carries the i flag. A test double, not Postfix.
+        'postmap' => <<<'STUB'
+            #!/bin/bash
+            [[ "$1" == -c ]] && shift 2
+            [[ "$1" == -q && "${3:-}" == regexp:* ]] || exit 64
+            key="$2"; table="${3#regexp:}"
+            [[ -f "${table}" ]] || { echo "postmap: fatal: open ${table}: No such file or directory" >&2; exit 1; }
+            while IFS= read -r line; do
+                [[ -z "${line}" || "${line}" == \#* ]] && continue
+                delim="${line:0:1}"; rest="${line:1}"
+                pattern="${rest%%"${delim}"*}"; after="${rest#*"${delim}"}"
+                flags="${after%% *}"; result="${after#* }"
+                if [[ "${flags}" == *i* ]]; then shopt -u nocasematch; else shopt -s nocasematch; fi
+                if [[ "${key}" =~ ${pattern} ]]; then printf '%s\n' "${result}"; exit 0; fi
+            done < "${table}"
+            exit 1
+            STUB,
+    ];
+
+    foreach ($stubs as $name => $body) {
+        file_put_contents($scratch.'/bin/'.$name, $body."\n");
+        chmod($scratch.'/bin/'.$name, 0o755);
+    }
+
+    $env = [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => $scratch,
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_MAILGW_EUID' => '0',
+        'RATEGURU_MAILGW_FS_ROOT' => $fs,
+        'RATEGURU_MAILGW_FILE_OWNER' => trim((string) shell_exec('id -un')),
+        'RATEGURU_MAILGW_FILE_GROUP' => trim((string) shell_exec('id -gn')),
+        'RATEGURU_MAILGW_RUNTIME_WAIT' => '1',
+        'RATEGURU_MAILGW_STABILITY_WAIT' => '1',
+        'RATEGURU_MAILGW_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_MAILGW_APT_GET_BIN' => $scratch.'/bin/apt-get',
+        'RATEGURU_MAILGW_DPKG_BIN' => $scratch.'/bin/dpkg',
+        'RATEGURU_MAILGW_DPKG_QUERY_BIN' => $scratch.'/bin/dpkg-query',
+        'RATEGURU_MAILGW_DEBCONF_SET_SELECTIONS_BIN' => $scratch.'/bin/debconf-set-selections',
+        'RATEGURU_MAILGW_POSTCONF_BIN' => $scratch.'/bin/postconf',
+        'RATEGURU_MAILGW_POSTFIX_BIN' => $scratch.'/bin/postfix',
+        'RATEGURU_MAILGW_POSTMAP_BIN' => $scratch.'/bin/postmap',
+        'RATEGURU_MAILGW_SS_BIN' => $scratch.'/bin/ss',
+        'STUB_STATE' => $state,
+        'STUB_LOG' => $scratch.'/log',
+        'STUB_TOGGLES' => $scratch.'/toggles',
+        'STUB_FS' => $fs,
+    ];
+
+    foreach (['policy' => 'RATEGURU_MAILGW_POLICY_FILE', 'registry' => 'RATEGURU_MAILGW_REGISTRY_FILE', 'outbound' => 'RATEGURU_MAILGW_OUTBOUND_FILE', 'identity' => 'RATEGURU_MAILGW_IDENTITY_FILE'] as $option => $variable) {
+        if (isset($options[$option])) {
+            file_put_contents($scratch."/{$option}.json", mailRoutingJson($options[$option]));
+            $env[$variable] = $scratch."/{$option}.json";
+        }
+    }
+
+    return ['scratch' => $scratch, 'fs' => $fs, 'env' => $env];
+}
+
+/** @return array{0: int, 1: string} */
+function mailGatewayRun(array $host, string $mode, array $env = [], string $script = 'install-mail-gateway'): array
+{
+    $process = proc_open(
+        ['bash', mailGatewayScript($script), $mode],
+        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+        $pipes,
+        $host['scratch'],
+        [...$host['env'], ...$env],
+    );
+
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+function mailGatewayLog(array $host, string $name): string
+{
+    $path = $host['scratch'].'/log/'.$name;
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/**
+ * Every path and its content under the simulated host, so a mode that must not
+ * mutate can be proved not to have.
+ *
+ * @return array<string, string>
+ */
+function mailGatewayTree(array $host): array
+{
+    $tree = [];
+
+    foreach (File::allFiles($host['fs'], true) as $file) {
+        $tree[$file->getRelativePathname()] = hash_file('sha256', $file->getPathname());
+    }
+
+    ksort($tree);
+
+    return $tree;
+}
+
+function mailGatewayCleanup(array $host): void
+{
+    exec('rm -rf '.escapeshellarg($host['scratch']));
+}
+
+/**
+ * install-mail-gateway --policy-digest on the simulated host: the SHA-256 of
+ * the policy SCRIPT's bundle requests, of the recorded one, and where an
+ * authorization belongs.
+ *
+ * @return array{requested: array{plan: string, outbound: string}, recorded: ?array{plan: string, outbound: string}, authorization: string}
+ */
+function mailGatewayPolicyDigest(array $host, array $env = [], ?string $script = null): array
+{
+    $process = proc_open(
+        ['bash', $script ?? mailGatewayScript(), '--policy-digest'],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $host['scratch'],
+        [...$host['env'], ...$env],
+    );
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    expect(proc_close($process))->toBe(0, "install-mail-gateway --policy-digest failed:\n{$stderr}");
+
+    return json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Write the one-use transition authorization activate-mail-outbound writes:
+ * DIRECTION of TARGET, from the policy the host recorded to the one SCRIPT's
+ * bundle requests — root-only, as the installer requires. $changes replaces
+ * fields of the document, to forge a wrong one.
+ *
+ * @param  array<string, mixed>  $changes
+ * @return array<string, mixed> the document written
+ */
+function mailGatewayAuthorize(array $host, string $direction, string $target, array $changes = [], array $env = [], ?string $script = null): array
+{
+    $digest = mailGatewayPolicyDigest($host, $env, $script);
+    expect($digest['recorded'])->not->toBeNull('there is no recorded policy to authorize a transition from');
+
+    $now = time();
+    $document = array_replace_recursive([
+        'kind' => 'rateguru-mail-gateway-transition-authorization',
+        'schema_version' => 1,
+        'target' => $target,
+        'direction' => $direction,
+        'from' => $digest['recorded'],
+        'to' => $digest['requested'],
+        'nonce' => bin2hex(random_bytes(16)),
+        'created_at' => $now,
+        'expires_at' => $now + 900,
+    ], $changes);
+
+    file_put_contents($digest['authorization'], json_encode($document, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");
+    chmod($digest['authorization'], 0o600);
+
+    return $document;
+}
+
+/*
+|--------------------------------------------------------------------------
+| The fake mail gateway: one loopback SMTP listener and its queue
+|--------------------------------------------------------------------------
+|
+| MailSigningTest submits the signing acceptance's probes to it, and
+| MailOutboundActivationTest the canary. It behaves like the gateway's signed
+| listener: a From outside tits.guru is refused at the end of the data, and an
+| accepted message gets a queue ID, its headers (with the `signature` toggle
+| prepended) and a queue entry the stubbed postqueue, postcat and postsuper
+| see. Toggles are files under STATE/toggles: refuse-rcpt, accept-foreign,
+| tempfail-foreign, signature, queue (the queue an accepted message lands in),
+| no-queue-id, and delivery — sent, bounced or expired (logged for its queue
+| ID and gone from the queue), deferred (logged and left in the deferred
+| queue) or none (left in the active queue, nothing logged). The log lines go
+| to STATE/journal, recipient included, as Postfix's own do.
+*/
+
+function mailGatewayFakeListenerSource(): string
+{
+    return <<<'PHP'
+        <?php
+        $state = $argv[1];
+        $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+        if ($server === false) { fwrite(STDERR, $error); exit(1); }
+        echo parse_url('tcp://'.stream_socket_get_name($server, false), PHP_URL_PORT), "\n";
+        fflush(STDOUT);
+        stream_set_blocking(STDIN, false);
+        $toggle = static fn (string $name): ?string => is_file("{$state}/toggles/{$name}") ? (string) file_get_contents("{$state}/toggles/{$name}") : null;
+
+        while (true) {
+            $read = [$server, STDIN]; $write = null; $except = null;
+            if (@stream_select($read, $write, $except, 1) === false) { break; }
+            if (in_array(STDIN, $read, true) && feof(STDIN)) { break; }
+            if (! in_array($server, $read, true)) { if (feof(STDIN)) { break; } continue; }
+
+            $client = @stream_socket_accept($server, 5);
+            if ($client === false) { continue; }
+            $say = static function (string $line) use ($client): void { fwrite($client, $line."\r\n"); };
+            $log = static fn (string $line) => file_put_contents("{$state}/smtp.log", $line."\n", FILE_APPEND);
+
+            $say('220 mail-gateway.rateguru.invalid ESMTP');
+            $rcpt = '';
+            while (($line = fgets($client)) !== false) {
+                $line = rtrim($line, "\r\n");
+                $log($line);
+                $verb = strtoupper(substr($line, 0, 4));
+                if ($verb === 'EHLO') { $say('250-mail-gateway.rateguru.invalid'); $say('250 8BITMIME'); }
+                elseif ($verb === 'MAIL') { $say('250 2.1.0 Ok'); }
+                elseif ($verb === 'RCPT') {
+                    if ($toggle('refuse-rcpt') !== null) { $say('554 5.7.1 refused'); continue; }
+                    preg_match('/<([^>]*)>/', $line, $m); $rcpt = $m[1] ?? ''; $say('250 2.1.5 Ok');
+                }
+                elseif ($verb === 'DATA') {
+                    $say('354 End data with <CR><LF>.<CR><LF>');
+                    $message = '';
+                    while (($data = fgets($client)) !== false) {
+                        if (rtrim($data, "\r\n") === '.') { break; }
+                        $message .= $data;
+                    }
+                    $headers = substr($message, 0, (int) strpos($message, "\r\n\r\n"));
+                    preg_match('/^From:(.*)$/mi', str_replace("\r", '', $headers), $from);
+                    $ours = preg_match('/^\s*(?:"[^"<>@,]*"\s*|[^"<>@,]+)?<?[A-Za-z0-9._%+-]+@tits\.guru>?\s*$/i', $from[1] ?? '') === 1;
+                    if (! $ours && $toggle('accept-foreign') === null) {
+                        $say($toggle('tempfail-foreign') !== null ? '451 4.7.1 Service unavailable - try again later' : '550 5.7.1 RateGuru mail gateway: the From header must be exactly one address in the reviewed sender domain');
+                        continue;
+                    }
+                    $id = strtoupper(bin2hex(random_bytes(5)));
+                    $signature = $toggle('signature');
+                    file_put_contents("{$state}/headers-{$id}", ($signature !== null ? $signature : '').str_replace("\r\n", "\n", $headers)."\n");
+                    $queue = trim($toggle('queue') ?? 'hold');
+                    $delivery = $toggle('delivery') === null ? null : trim((string) $toggle('delivery'));
+                    if ($delivery !== null && $delivery !== 'none') {
+                        // What the gateway's own smtp client logs for this queue ID, the
+                        // recipient included — exactly what a canary must never repeat.
+                        $dsn = ['sent' => '2.0.0', 'bounced' => '5.1.1', 'deferred' => '4.4.1', 'expired' => '4.4.1'][$delivery] ?? '';
+                        file_put_contents("{$state}/journal", "{$id}: to=<{$rcpt}>, relay=mx.receiver.example[192.0.2.25]:25, delay=0.4, delays=0.1/0/0.2/0.1, dsn={$dsn}, status={$delivery} (simulated reply naming <{$rcpt}>)\n", FILE_APPEND);
+                        $queue = $delivery === 'deferred' ? 'deferred' : null;
+                    } elseif ($delivery === 'none') {
+                        $queue = 'active';
+                    }
+                    if ($queue !== null) {
+                        file_put_contents("{$state}/queue", "{$id}\t{$queue}\t{$rcpt}\n", FILE_APPEND);
+                    }
+                    $say($toggle('no-queue-id') !== null ? '250 2.0.0 Ok' : "250 2.0.0 Ok: queued as {$id}");
+                }
+                elseif ($verb === 'QUIT') { $say('221 2.0.0 Bye'); break; }
+                else { $say('502 5.5.2 Error'); }
+            }
+            fclose($client);
+        }
+        PHP;
+}
+
+/**
+ * Start the fake listener on a free loopback port, its state in STATE.
+ *
+ * @return array{server: resource, pipes: array<int, resource>, port: int}
+ */
+function mailGatewayStartFakeListener(string $scratch, string $state): array
+{
+    @mkdir($state.'/toggles', 0o755, true);
+    file_put_contents($scratch.'/fake-postfix.php', mailGatewayFakeListenerSource());
+
+    $server = proc_open([PHP_BINARY, $scratch.'/fake-postfix.php', $state], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $port = (int) trim((string) fgets($pipes[1]));
+    expect($port)->toBeGreaterThan(0);
+
+    return ['server' => $server, 'pipes' => $pipes, 'port' => $port];
+}
+
+/** @param  array{server: resource, pipes: array<int, resource>}  $listener */
+function mailGatewayStopFakeListener(array $listener): void
+{
+    fclose($listener['pipes'][0]);
+    proc_terminate($listener['server']);
+    proc_close($listener['server']);
+}
+
+/**
+ * postqueue, postcat and postsuper stubs in BIN that see only the fake queue
+ * in STUB_STATE/queue ("ID<TAB>QUEUE<TAB>RECIPIENT" per line) and log every
+ * call to STUB_LOG/queue.log. postqueue cannot read the queue — it fails, as
+ * when the mail system is down — while STUB_STATE/postqueue-fails exists, or
+ * STUB_STATE/postqueue-fails-after-delete once postsuper has deleted anything.
+ */
+function mailGatewayFakeQueueTools(string $bin): void
+{
+    $tools = [
+        'postqueue' => <<<'STUB'
+            #!/bin/bash
+            printf 'postqueue %s\n' "$*" >> "${STUB_LOG}/queue.log"
+            [[ "$1" == -j ]] || exit 1
+            if [[ -e "${STUB_STATE}/postqueue-fails" ]] || { [[ -e "${STUB_STATE}/postqueue-fails-after-delete" ]] && [[ -e "${STUB_STATE}/deleted" ]]; }; then
+                echo 'postqueue: fatal: Queue report unavailable - mail system is down' >&2
+                exit 69
+            fi
+            while IFS=$'\t' read -r id queue rcpt; do
+                [[ -n "${id}" ]] || continue
+                printf '{"queue_name": "%s", "queue_id": "%s", "sender": "", "recipients": [{"address": "%s"}]}\n' "${queue}" "${id}" "${rcpt}"
+            done < "${STUB_STATE}/queue"
+            STUB,
+        'postcat' => <<<'STUB'
+            #!/bin/bash
+            printf 'postcat %s\n' "$*" >> "${STUB_LOG}/queue.log"
+            [[ "$1" == -h && "$2" == -q && -n "${3:-}" ]] || exit 1
+            cat "${STUB_STATE}/headers-$3" 2>/dev/null || exit 1
+            STUB,
+        'postsuper' => <<<'STUB'
+            #!/bin/bash
+            printf 'postsuper %s\n' "$*" >> "${STUB_LOG}/queue.log"
+            [[ "$1" == -d && -n "${2:-}" ]] || exit 1
+            touch "${STUB_STATE}/deleted"
+            awk -F'\t' -v id="$2" -v queue="${3:-}" '!($1 == id && (queue == "" || $2 == queue))' "${STUB_STATE}/queue" > "${STUB_STATE}/queue.next" \
+                && mv "${STUB_STATE}/queue.next" "${STUB_STATE}/queue"
+            STUB,
+    ];
+
+    foreach ($tools as $name => $body) {
+        file_put_contents($bin.'/'.$name, $body."\n");
+        chmod($bin.'/'.$name, 0o755);
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| The trusted bundle an activation runs from, and the host it activates
+|--------------------------------------------------------------------------
+|
+| activate-mail-outbound copies the trusted infrastructure/ tree it runs from,
+| so its tests run it from a bundle of their own: scratch/bundle holds the
+| REAL activate-mail-outbound, send-mail-canary, smtp-submission,
+| mail-routing, mail-identity, targets and install-mail-gateway (as
+| install-mail-gateway.real, behind a thin wrapper that logs each call and
+| can make one fail), with the four reviewed documents, and stubs for the
+| signer's installer and the signing verifier. Every copy of the bundle the
+| activation makes carries the same tools, so each judges its own documents.
+|
+| The host is mailGatewayHost()'s simulated Postfix host, on which the real
+| gateway records its applied policy, refuses the activation boundary and
+| consumes the activation's authorizations. mail-identity's DNS, address and
+| key are mailIdentityDnsHost()'s, with tits-guru's real key and correct
+| public DNS. host/calls.log is every gateway, signer and signing-verifier
+| call, with the tits-guru delivery mode of the bundle it came from.
+|
+| Toggles (files under host/toggles): gateway-apply-fails-MODE (the installer
+| refuses, changing nothing), gateway-apply-breaks-MODE (it installs, then
+| fails), gateway-verify-fails-MODE, leak-direct-route (staging's listener is
+| given tits-guru's direct route after an outbound apply), signer-down,
+| readonly-signing-fails (verify-mail-signing --read-only refuses, so
+| readiness does), e2e-foreign-accepted, e2e-exits-nonzero (the acceptance
+| prints a passing result but exits 1).
+*/
+
+/**
+ * The wrapper around the real gateway, and the stubs of the signer's installer
+ * and the signing verifier, by name.
+ *
+ * @return array<string, string>
+ */
+function mailActivationOwnerStubs(): array
+{
+    return [
+        'install-mail-gateway' => <<<'STUB'
+            #!/bin/bash
+            here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+            mode="$(jq -r '.targets["tits-guru"].delivery_mode' "${here}/../config/mail-routing.json")"
+            printf 'install-mail-gateway %s [%s]\n' "$*" "${mode}" >> "${STUB_HOST}/calls.log"
+            toggle() { [[ -f "${STUB_HOST}/toggles/$1" ]]; }
+            case "${1:-}" in
+                --apply)
+                    if toggle "gateway-apply-fails-${mode}"; then
+                        echo "  CONFLICT the installer refused (simulated) — nothing was changed"
+                        exit 1
+                    fi
+                    bash "${here}/install-mail-gateway.real" "$@"
+                    status=$?
+                    if (( status == 0 )) && [[ "${mode}" == outbound ]] && toggle leak-direct-route; then
+                        sed -e 's#content_filter=rateguru-capture-staging-main:\[127\.0\.0\.1\]:1025#content_filter=rateguru-outbound-tits-guru:#' \
+                            "${STUB_FS}/etc/postfix/master.cf" > "${STUB_FS}/etc/postfix/master.cf.next" \
+                            && mv "${STUB_FS}/etc/postfix/master.cf.next" "${STUB_FS}/etc/postfix/master.cf"
+                    fi
+                    if (( status == 0 )) && toggle "gateway-apply-breaks-${mode}"; then
+                        echo "  ERROR the installer failed after installing (simulated)"
+                        exit 1
+                    fi
+                    exit "${status}"
+                    ;;
+                --verify)
+                    if toggle "gateway-verify-fails-${mode}"; then
+                        echo "  DRIFT the gateway does not verify (simulated)"
+                        exit 1
+                    fi
+                    ;;
+            esac
+            exec bash "${here}/install-mail-gateway.real" "$@"
+            STUB,
+        'install-mail-signing' => <<<'STUB'
+            #!/bin/bash
+            [[ "${1:-}" == --milter-endpoint ]] || printf 'install-mail-signing %s\n' "$*" >> "${STUB_HOST}/calls.log"
+            case "${1:-}" in
+                --milter-endpoint) echo 'inet:127.0.0.1:8891'; exit 0 ;;
+                --verify)
+                    if [[ -f "${STUB_HOST}/toggles/signer-down" ]]; then
+                        echo "  FAIL opendkim.service is not running (simulated)"
+                        exit 1
+                    fi
+                    echo "  PASS the signer runs on 127.0.0.1:8891 and reads the key (simulated)"
+                    exit 0
+                    ;;
+            esac
+            exit 64
+            STUB,
+        'verify-mail-signing' => <<<'STUB'
+            #!/bin/bash
+            here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+            mode="$(jq -r '.targets["tits-guru"].delivery_mode' "${here}/../config/mail-routing.json")"
+            printf 'verify-mail-signing %s [%s]\n' "$*" "${mode}" >> "${STUB_HOST}/calls.log"
+            toggle() { [[ -f "${STUB_HOST}/toggles/$1" ]]; }
+            refuse() {
+                echo "  FAIL $1"
+                printf 'RATEGURU_MAIL_SIGNING_RESULT={"target":"%s","mode":"e2e","status":"fail","foreign_from_rejected":%s,"queue_id":null,"held":false,"removed":false,"signature":null}\n' "${3:-}" "$2"
+                exit 1
+            }
+            case "${1:-}" in
+                --read-only)
+                    "${here}/install-mail-gateway" --verify >/dev/null 2>&1 || { echo "  FAIL the gateway's wiring (simulated)"; exit 1; }
+                    toggle signer-down && { echo "  FAIL the signer is not running (simulated)"; exit 1; }
+                    toggle readonly-signing-fails && { echo "  FAIL the signer cannot read the key (simulated)"; exit 1; }
+                    echo "  PASS the signer and the gateway's wiring (simulated)"
+                    exit 0
+                    ;;
+                --e2e)
+                    target="${3:-}"
+                    [[ "${mode}" == held ]] || refuse "${target}'s mail is ${mode}, not held — nothing was submitted" false "${target}"
+                    "${here}/install-mail-gateway" --verify >/dev/null 2>&1 || refuse "the read-only signing contract does not hold — nothing was submitted" false "${target}"
+                    toggle e2e-foreign-accepted && refuse "the held listener ACCEPTED a message whose From is outside tits.guru (simulated)" false "${target}"
+                    echo "  PASS a foreign From refused; the probe signed, held and removed (simulated)"
+                    printf 'RATEGURU_MAIL_SIGNING_RESULT={"target":"%s","mode":"e2e","status":"pass","foreign_from_rejected":true,"queue_id":"E2E0000001","held":true,"removed":true,"signature":{"d":"tits.guru","s":"rg1","a":"rsa-sha256"}}\n' "${target}"
+                    toggle e2e-exits-nonzero && exit 1
+                    exit 0
+                    ;;
+            esac
+            exit 64
+            STUB,
+    ];
+}
+
+/** The routing policy and host contract that request tits-guru's activation. */
+function mailActivationRequest(?int $port = null): array
+{
+    $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+    $routing['targets']['tits-guru']['delivery_mode'] = 'outbound';
+    $routing['targets']['tits-guru']['outbound'] = ['kind' => 'direct'];
+
+    if ($port !== null) {
+        $routing['targets']['tits-guru']['submission']['port'] = $port;
+    }
+
+    $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR);
+    $outbound['direct']['enabled'] = true;
+
+    return ['routing' => $routing, 'outbound' => $outbound];
+}
+
+/**
+ * Write a bundle of the real tools and the stubs into ROOT, with DOCUMENTS.
+ *
+ * @param  array<string, array<string, mixed>>  $documents
+ */
+function mailActivationBundle(string $root, array $documents): void
+{
+    @mkdir($root.'/infrastructure/scripts', 0o755, true);
+    @mkdir($root.'/infrastructure/config', 0o755, true);
+
+    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
+        $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
+        copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$copy}");
+        chmod("{$root}/infrastructure/scripts/{$copy}", $name === 'smtp-submission' ? 0o644 : 0o755);
+    }
+
+    foreach (mailActivationOwnerStubs() as $name => $body) {
+        file_put_contents("{$root}/infrastructure/scripts/{$name}", $body."\n");
+        chmod("{$root}/infrastructure/scripts/{$name}", 0o755);
+    }
+
+    foreach ($documents as $name => $data) {
+        file_put_contents("{$root}/infrastructure/config/{$name}", mailRoutingJson($data));
+    }
+}
+
+/**
+ * A trusted bundle and the simulated host it activates.
+ *
+ * Options:
+ *   requested  true (default): the bundle requests tits-guru's activation;
+ *              false: it holds the committed documents
+ *   routing    a routing policy for the bundle instead
+ *   outbound   a host contract for the bundle instead
+ *   registry   a registry for the bundle instead
+ *   installed  'held' (default): the host's gateway was applied from the
+ *              committed documents, and records them; 'outbound': then
+ *              activated to the bundle's request through an authorization; or
+ *              an array {routing, outbound} it was applied from instead
+ *   listeners  the host's other TCP listeners (default: 127.0.0.1:1025)
+ *   port       tits-guru's submission port, everywhere
+ *   toggles    list of toggle names
+ *   queue      lines already in the queue, "ID<TAB>QUEUE<TAB>RECIPIENT"
+ *   dns        DNS answers instead of the correct ones
+ *   listener   true: tits-guru's submission endpoint is a running fake gateway
+ *              listener (mailGatewayStartFakeListener) whose state is the
+ *              host's — what a canary is sent to
+ *
+ * Stop it with mailActivationCleanup().
+ *
+ * @return array{scratch: string, bundle: string, host: string, state: string, log: string, fs: string, key: string, env: array<string, string>, listener: ?array}
+ */
+function mailActivationHost(array $options = []): array
+{
+    $gateway = mailGatewayHost(['listeners' => $options['listeners'] ?? ['127.0.0.1:1025']]);
+    $scratch = $gateway['scratch'];
+    $fs = $gateway['fs'];
+    $state = $scratch.'/state';
+
+    foreach (['/host/toggles', '/run', '/capsules', '/tmp', '/dns', '/no-wait'] as $sub) {
+        @mkdir($scratch.$sub, 0o755, true);
+    }
+
+    $listener = null;
+    if ($options['listener'] ?? false) {
+        $listener = mailGatewayStartFakeListener($scratch, $state);
+        $options['port'] = $listener['port'];
+    }
+
+    $port = $options['port'] ?? null;
+    $committed = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+    $preActivation = ['routing' => $committed('mail-routing.json'), 'outbound' => $committed('mail-outbound.json')];
+
+    if ($port !== null) {
+        $preActivation['routing']['targets']['tits-guru']['submission']['port'] = $port;
+    }
+
+    $request = ($options['requested'] ?? true) ? mailActivationRequest($port) : $preActivation;
+    $documents = [
+        'deployment-targets.json' => $options['registry'] ?? $committed('deployment-targets.json'),
+        'mail-routing.json' => $options['routing'] ?? $request['routing'],
+        'mail-outbound.json' => $options['outbound'] ?? $request['outbound'],
+        'mail-identity.json' => $committed('mail-identity.json'),
+    ];
+    mailActivationBundle($scratch.'/bundle', $documents);
+
+    file_put_contents($state.'/queue', implode('', array_map(static fn (string $line): string => $line."\n", $options['queue'] ?? ["FOREIGN0001\tdeferred\tsomeone@example.net"])));
+    mailGatewayFakeQueueTools($scratch.'/bin');
+    file_put_contents($scratch.'/bin/journalctl', <<<'STUB'
+        #!/bin/bash
+        printf 'journalctl %s\n' "$*" >> "${STUB_LOG}/queue.log"
+        cat "${STUB_STATE}/journal" 2>/dev/null
+        exit 0
+        STUB."\n");
+    chmod($scratch.'/bin/journalctl', 0o755);
+    file_put_contents($scratch.'/no-wait/sleep', "#!/bin/sh\nexit 0\n");
+    chmod($scratch.'/no-wait/sleep', 0o755);
+
+    $key = mailIdentityInstallKey($scratch, 'tits-guru', 'rg1');
+    $dns = mailIdentityDnsHost($scratch, $options['dns'] ?? mailIdentityGoodDns(mailIdentityPublicKey($key)));
+    // Readiness asks the signing verifier of the bundle it runs from.
+    unset($dns['RATEGURU_MAILIDENTITY_SIGNING_VERIFIER_BIN']);
+
+    $env = [
+        ...$gateway['env'],
+        'PATH' => $scratch.'/no-wait:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'TMPDIR' => $scratch.'/tmp',
+        'RATEGURU_MAILACTIVATE_EUID' => '0',
+        'RATEGURU_MAILACTIVATE_RUN_ROOT' => $scratch.'/run',
+        'RATEGURU_MAILACTIVATE_STATE_ROOT' => $scratch.'/capsules',
+        'RATEGURU_MAILACTIVATE_POSTQUEUE_BIN' => $scratch.'/bin/postqueue',
+        'RATEGURU_MAILACTIVATE_POSTCONF_BIN' => $scratch.'/bin/postconf',
+        'RATEGURU_MAILACTIVATE_SS_BIN' => $scratch.'/bin/ss',
+        'RATEGURU_MAILCANARY_EUID' => '0',
+        'RATEGURU_MAILCANARY_FILE_OWNER_UID' => (string) posix_getuid(),
+        'RATEGURU_MAILCANARY_POSTQUEUE_BIN' => $scratch.'/bin/postqueue',
+        'RATEGURU_MAILCANARY_POSTSUPER_BIN' => $scratch.'/bin/postsuper',
+        'RATEGURU_MAILCANARY_JOURNALCTL_BIN' => $scratch.'/bin/journalctl',
+        'RATEGURU_MAILCANARY_DELIVERY_WINDOW' => '3',
+        'RATEGURU_MAILCANARY_POLL_INTERVAL' => '1',
+        'STUB_HOST' => $scratch.'/host',
+        ...$dns,
+    ];
+
+    $host = [
+        'scratch' => $scratch, 'bundle' => $scratch.'/bundle', 'host' => $scratch.'/host', 'state' => $state,
+        'log' => $scratch.'/log', 'fs' => $fs, 'key' => $key, 'env' => $env, 'listener' => $listener,
+    ];
+
+    // The gateway the host starts with, applied by the real installer from a
+    // bundle of its own — and, for an activated host, crossed to the request
+    // with the authorization activate-mail-outbound would write.
+    $installed = $options['installed'] ?? 'held';
+    $start = is_array($installed) ? $installed : $preActivation;
+    $apply = static function (array $docs) use ($host, $scratch, $documents): void {
+        $root = $scratch.'/installed';
+        File::deleteDirectory($root);
+        mailActivationBundle($root, [...$documents, 'mail-routing.json' => $docs['routing'], 'mail-outbound.json' => $docs['outbound']]);
+        [$status, $output] = mailActivationRun(['bundle' => $root] + $host, ['--apply'], [], 'install-mail-gateway');
+        expect($status)->toBe(0, "the simulated host could not be given its starting gateway:\n{$output}");
+    };
+
+    $apply($start);
+
+    if ($installed === 'outbound') {
+        mailGatewayAuthorize($host, 'activate', 'tits-guru', [], [], $scratch.'/bundle/infrastructure/scripts/install-mail-gateway.real');
+        $apply(['routing' => $documents['mail-routing.json'], 'outbound' => $documents['mail-outbound.json']]);
+    }
+
+    File::deleteDirectory($scratch.'/installed');
+    @unlink($host['host'].'/calls.log');
+    file_put_contents($host['log'].'/mutations.log', '');
+
+    // Only now: a toggle describes the host from here on, not how it was set up.
+    foreach ($options['toggles'] ?? [] as $toggle) {
+        touch("{$host['host']}/toggles/{$toggle}");
+    }
+
+    return $host;
+}
+
+function mailActivationCleanup(array $host): void
+{
+    if ($host['listener'] !== null) {
+        mailGatewayStopFakeListener($host['listener']);
+    }
+
+    removeScratchDir($host['scratch']);
+}
+
+/** A recipient file holding CONTENT, readable by its owner alone. */
+function mailCanaryRecipientFile(array $host, string $content, int $mode = 0o600): string
+{
+    $path = $host['scratch'].'/recipient';
+    file_put_contents($path, $content);
+    chmod($path, $mode);
+
+    return $path;
+}
+
+/** The machine-readable result line a canary printed, or null. */
+function mailCanaryResult(string $output): ?array
+{
+    return preg_match_all('/^RATEGURU_MAIL_CANARY_RESULT=(\{.*\})$/m', $output, $m) === 1 ? json_decode($m[1][0], true) : null;
+}
+
+/**
+ * Run one of the bundle's scripts against the simulated host.
+ *
+ * @return array{0: int, 1: string}
+ */
+function mailActivationRun(array $host, array $arguments, array $env = [], string $script = 'activate-mail-outbound'): array
+{
+    $process = proc_open(
+        ['bash', "{$host['bundle']}/infrastructure/scripts/{$script}", ...$arguments],
+        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+        $pipes,
+        $host['scratch'],
+        [...$host['env'], ...$env],
+    );
+
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/** The machine-readable result line an activation printed, or null. */
+function mailActivationResult(string $output): ?array
+{
+    return preg_match_all('/^RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT=(\{.*\})$/m', $output, $m) === 1 ? json_decode($m[1][0], true) : null;
+}
+
+/**
+ * Every owner call the simulated host received, in order.
+ *
+ * @return list<string>
+ */
+function mailActivationCalls(array $host): array
+{
+    return array_values(array_filter(explode("\n", (string) @file_get_contents($host['host'].'/calls.log'))));
+}
+
+/** The tits-guru delivery mode the simulated host's gateway records as applied. */
+function mailActivationInstalledMode(array $host): string
+{
+    $plan = json_decode((string) file_get_contents($host['fs'].'/var/lib/rateguru-mail-gateway/applied-plan.json'), true);
+
+    return collect($plan['listeners'])->firstWhere('identity', 'tits-guru')['delivery_mode'];
+}
+
+/** The capsule directory of tits-guru's activation on the simulated host. */
+function mailActivationCapsule(array $host): string
+{
+    return $host['scratch'].'/capsules/tits-guru';
 }
 
 /**
@@ -4691,6 +5625,119 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
 }
 
 /**
+ * Collects every uncaught JavaScript error, unhandled promise rejection and
+ * console.error() call of any page served to the browser, for the rest of the
+ * test. Alpine and Livewire report what they catch through console.error(),
+ * and the suite is clean of it, so it counts as a failure as well.
+ *
+ * The browser plugin's own assertNoJavaScriptErrors() reads one page's record:
+ * a navigation starts a new one, a test has to remember to ask, and an
+ * unhandled rejection never makes it into the record at all. This works from
+ * the server's side instead. Every HTML page the application under test sends
+ * — it runs in this process — gets a small reporter at the top of its <head>,
+ * which posts each error to a route that exists only for this test.
+ *
+ * @return ArrayObject<string, array<string, string>>
+ */
+function watchBrowserJavaScriptErrors(Application $app): ArrayObject
+{
+    $errors = new ArrayObject;
+
+    // Keyed by the report's own ID: a report resent as a beacon after its fetch
+    // was cut short by a navigation may arrive twice, and counts once.
+    $app['router']->post('__browser-test/javascript-errors', function (Request $request) use ($errors) {
+        $errors[(string) $request->input('id')] = array_map('strval', $request->only(['kind', 'message', 'source', 'page']));
+
+        return response()->noContent();
+    });
+
+    $reporter = <<<'HTML'
+        <script>
+        (() => {
+            const endpoint = '/__browser-test/javascript-errors';
+
+            // A report that does not get through is not dropped. A refused or
+            // failed fetch is sent again as a beacon, which the browser
+            // delivers even while the page unloads; what neither can send is
+            // kept on the page, where a debugging session can find it.
+            const report = (kind, message, source) => {
+                const body = JSON.stringify({ id: crypto.randomUUID(), kind, message: String(message), source: String(source ?? ''), page: location.pathname + location.search });
+                const resend = () => {
+                    if (! navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }))) {
+                        (window.__rgUndeliveredJavaScriptErrors ??= []).push(body);
+                    }
+                };
+
+                fetch(endpoint, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body })
+                    .then((response) => response.ok || resend(), resend);
+            };
+
+            window.addEventListener('error', (event) => report('error', event.message, `${event.filename}:${event.lineno}:${event.colno}`));
+            window.addEventListener('unhandledrejection', (event) => report('unhandledrejection', event.reason?.stack ?? event.reason?.message ?? event.reason, ''));
+
+            const consoleError = console.error;
+            console.error = (...args) => {
+                report('console.error', args.map(String).join(' '), '');
+                consoleError.apply(console, args);
+            };
+        })();
+        </script>
+        HTML;
+
+    $app['events']->listen(RequestHandled::class, function (RequestHandled $event) use ($reporter): void {
+        $response = $event->response;
+
+        if (! str_contains((string) $response->headers->get('Content-Type'), 'text/html')) {
+            return;
+        }
+
+        // The whole opening tag, attributes included (<head prefix="og: …">),
+        // and never <header>.
+        $content = (string) $response->getContent();
+
+        if (preg_match('/<head(?=[\s>])[^>]*>/i', $content, $head, PREG_OFFSET_CAPTURE) === 1) {
+            $response->setContent(substr_replace($content, $reporter, $head[0][1] + strlen($head[0][0]), 0));
+        }
+    });
+
+    return $errors;
+}
+
+/**
+ * Fails the test with every JavaScript error watchBrowserJavaScriptErrors()
+ * collected.
+ *
+ * A report is sent the instant its error happens, but the server only answers
+ * while the test lets the event loop run, and the test cannot ask a page what
+ * it still has in flight. So this waits until the reports stop coming: at
+ * least $quietSeconds with none arriving, and never longer than $maxSeconds.
+ *
+ * @param  ArrayObject<string, array<string, string>>  $errors
+ */
+function assertNoBrowserJavaScriptErrors(ArrayObject $errors, float $quietSeconds = 0.075, float $maxSeconds = 1.0): void
+{
+    $start = microtime(true);
+    $seen = count($errors);
+    $lastArrival = $start;
+
+    do {
+        browserTestPause(0.025);
+
+        if (count($errors) !== $seen) {
+            $seen = count($errors);
+            $lastArrival = microtime(true);
+        }
+    } while (microtime(true) - $lastArrival < $quietSeconds && microtime(true) - $start < $maxSeconds);
+
+    $reported = array_map(
+        fn (array $error): string => "{$error['kind']} on {$error['page']}: {$error['message']} ({$error['source']})",
+        array_values($errors->getArrayCopy()),
+    );
+
+    expect($reported)->toBe([], 'the pages this test opened raised JavaScript errors');
+}
+
+/**
  * Holds the page for $seconds to prove that $what does NOT happen in that time,
  * and returns the page.
  *
@@ -4708,6 +5755,25 @@ function proveNothingHappensFor(mixed $page, float $seconds, string $what): mixe
     }
 
     browserTestPause($seconds);
+
+    return $page;
+}
+
+/**
+ * Sends the page to $url, as following a link would, and returns once the call
+ * that did it has returned.
+ *
+ * The plugin retries every page call that fails, for up to five seconds. A
+ * call whose page navigates away before it returns fails with "Execution
+ * context was destroyed", so a navigation started inside that call is started
+ * again on every retry: a probe counted 454 requests for the page in those
+ * five seconds, and the page never finished loading. navigate() is a call
+ * retried the same way. This schedules the navigation for after the call has
+ * returned, so it happens exactly once. Wait for the page it lands on.
+ */
+function navigatePageTo(mixed $page, string $url): mixed
+{
+    $page->script('() => { setTimeout(() => { location.href = '.json_encode($url).'; }, 0); return true; }');
 
     return $page;
 }
@@ -4772,6 +5838,63 @@ function supportedLocales(): array
 function translatedLocales(): array
 {
     return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * The built-in static pages as a project that has translated them stores
+ * them: the English the repository ships, and a made-up translation of every
+ * field in each of these languages — "[ru] About RateGuru". The repository
+ * ships its pages in English alone; their translations are each project's.
+ *
+ * @param  list<string>  $locales
+ * @return array<string, array<string, array<string, string>>>
+ */
+function staticPagesTranslatedInto(array $locales): array
+{
+    $pages = [];
+
+    foreach (config('static-pages.defaults') as $page => $byLocale) {
+        $pages[$page] = ['en' => $byLocale['en']];
+
+        foreach ($locales as $locale) {
+            $pages[$page][$locale] = array_map(fn (string $text): string => "[{$locale}] {$text}", $byLocale['en']);
+        }
+    }
+
+    return $pages;
+}
+
+/**
+ * Makes the repository ship a made-up translation — "[ru] General" — of every
+ * preset value and static page field in these languages. The repository ships
+ * its project content in English alone; this is for what reads repository
+ * translations whatever it finds, such as the backfill.
+ *
+ * @param  list<string>  $locales
+ */
+function shipRepositoryContentTranslatedInto(array $locales): void
+{
+    $translate = function (mixed $value) use (&$translate, $locales): mixed {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        // A value per language: the English the repository ships, then the made-up translations.
+        if (array_keys($value) === ['en'] && (is_string($value['en']) || $value['en'] === null)) {
+            foreach ($locales as $locale) {
+                $value[$locale] = $value['en'] === null ? null : "[{$locale}] {$value['en']}";
+            }
+
+            return $value;
+        }
+
+        return array_map($translate, $value);
+    };
+
+    config([
+        'project_presets' => $translate(config('project_presets')),
+        'static-pages.defaults' => staticPagesTranslatedInto($locales),
+    ]);
 }
 
 /**
@@ -4942,7 +6065,10 @@ function offeredLocales(): array
     return app(LocaleManager::class)->enabledCodes();
 }
 
-/** Project settings with every translatable field translated into these languages. */
+/**
+ * The project's settings row with every translatable field — its static pages
+ * included — translated into these languages.
+ */
 function settingsTranslatedInto(array $locales): void
 {
     $attributes = projectSettingsTranslationsIn($locales);
@@ -4950,6 +6076,8 @@ function settingsTranslatedInto(array $locales): void
     foreach (PresetSettingsBuilder::TRANSLATABLE as $field) {
         $attributes[$field] = "{$field} text";
     }
+
+    $attributes['static_pages'] = staticPagesTranslatedInto(array_values(array_diff($locales, ['en'])));
 
     ProjectSettings::query()->update(collect($attributes)->map(fn (mixed $value): mixed => is_array($value) ? json_encode($value) : $value)->all());
     app(ProjectSettingsManager::class)->flush();
@@ -5159,6 +6287,11 @@ function trustedToolingRefs(): array
         // Production control plane.
         'configure-tits-guru.yml' => 'main',
         'provision-tits-guru.yml' => 'main',
+        // tits-guru's outbound mail: the activation, its initial-launch
+        // rollback, and the first real delivery.
+        'activate-tits-guru-mail.yml' => 'main',
+        'rollback-tits-guru-mail-activation.yml' => 'main',
+        'send-tits-guru-mail-canary.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -8038,4 +9171,68 @@ function translationValueContains(mixed $value, string $needle): bool
     }
 
     return false;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Background translation generation
+|--------------------------------------------------------------------------
+|
+| Generate missing plans, stores and queues; its jobs call the translation
+| engine later. Tests fake the queue, then run the collected jobs the way a
+| worker would — so "the request did not call a provider" and "the job did"
+| are both observable. The draft store is the application's array store
+| (tests/TestCase.php), so no test needs Redis.
+|
+*/
+
+/** Starts Generate missing as this administrator, the way Translation Center does. */
+function startTranslationGeneration(User $admin, string $locale): array
+{
+    return app(StartProjectTranslationGenerationAction::class)->handle($admin, $locale);
+}
+
+/**
+ * Why a background generation operation was refused — its reason, or with
+ * $withMessage the reason and the message an administrator reads, as
+ * "reason: message" — or null when it was not.
+ */
+function generationRefusal(Closure $operation, bool $withMessage = false): ?string
+{
+    try {
+        $operation();
+    } catch (CannotGenerateTranslationsException $exception) {
+        return $withMessage ? $exception->reason.': '.$exception->getMessage() : $exception->reason;
+    }
+
+    return null;
+}
+
+/** The administrator's background generation for a language, as Translation Center reads it. */
+function translationGenerationOf(User $admin, string $locale): ?array
+{
+    return app(ReadProjectTranslationGenerationAction::class)->handle($admin, $locale);
+}
+
+/**
+ * Runs every chunk job the faked queue has collected, each once, as a worker
+ * would — or only the ones $which selects — and returns how many ran.
+ *
+ * @param  (Closure(GenerateProjectTranslationChunkJob): bool)|null  $which
+ */
+function runTranslationGenerationJobs(?Closure $which = null): int
+{
+    $jobs = Queue::pushed(GenerateProjectTranslationChunkJob::class, $which)->values()->all();
+
+    foreach ($jobs as $job) {
+        app()->call([$job, 'handle']);
+    }
+
+    return count($jobs);
+}
+
+/** One item of a generation summary, by unit id. */
+function translationGenerationItem(array $generation, string $unit): ?array
+{
+    return collect($generation['items'] ?? [])->firstWhere('unit', $unit);
 }

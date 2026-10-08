@@ -1342,8 +1342,8 @@ it('records the identity foundation and keeps the remaining mail work in its own
     expect($roadmap)
         ->toContain('**8.4B.4.1 Production mail identity foundation — IMPLEMENTED, nothing activated.**')
         ->toContain('**8.4B.4.1d Public DNS verified by independent public resolvers — IMPLEMENTED.**')
-        ->toContain('**8.4B.4.2a DKIM signing foundation — IMPLEMENTED — production acceptance pending.**')
-        ->toContain('**8.4B.4.2b DNS-ready activation and the first real delivery — planned.**')
+        ->toContain('**8.4B.4.2a DKIM signing foundation — PRODUCTION-ACCEPTED.**')
+        ->toContain('**8.4B.4.2b Guarded outbound activation and the first real delivery — IMPLEMENTED — production activation pending.**')
         ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.6 Suppression, delivery state and per-target metrics — planned.**')
         ->toContain('**8.4B.7 Mail operations, recovery and security acceptance — planned.**');

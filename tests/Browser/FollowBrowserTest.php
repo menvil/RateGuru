@@ -22,21 +22,28 @@ it('can follow and unfollow author in browser', function () {
 
     actingAs($viewer);
 
-    $pressed = 'document.querySelector(\'[data-testid="profile-header"] [data-testid="follow-button"]\').getAttribute("aria-pressed")';
+    $button = 'document.querySelector(\'[data-testid="profile-header"] [data-testid="follow-button"]\')';
+    $follows = fn (): bool => Follow::query()->where('follower_id', $viewer->id)->where('author_id', $author->id)->exists();
 
     $page = visit(route('profile.show', $author->username))
-        ->assertPresent('[data-testid="profile-header"] [data-testid="follow-button"]')
-        ->click('[data-testid="profile-header"] [data-testid="follow-button"]');
+        ->assertPresent('[data-testid="profile-header"] [data-testid="follow-button"]');
 
-    // The server has answered: the button it rendered back is pressed.
-    waitForScript($page, $pressed, 'true');
+    expect($follows())->toBeFalse();
 
-    $page->assertSee('Following')
-        ->click('[data-testid="profile-header"] [data-testid="follow-button"]');
+    $page->click('[data-testid="profile-header"] [data-testid="follow-button"]');
 
-    waitForScript($page, $pressed, 'false');
+    // The server has answered: the button it rendered back is pressed, says
+    // so, and the follow is stored. The page itself is checked rather than for
+    // "Following" anywhere on it, which "Followers" would also satisfy.
+    waitForScript($page, "{$button}.getAttribute('aria-pressed')", 'true');
+    expect($page->script("{$button}.innerText.trim()"))->toBe('Following')
+        ->and($follows())->toBeTrue();
 
-    $page->assertSee('Follow');
+    $page->click('[data-testid="profile-header"] [data-testid="follow-button"]');
+
+    waitForScript($page, "{$button}.getAttribute('aria-pressed')", 'false');
+    expect($page->script("{$button}.innerText.trim()"))->toBe('Follow')
+        ->and($follows())->toBeFalse();
 });
 
 it('does not show follow button on own profile in browser', function () {

@@ -38,9 +38,10 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
 
     $page
         ->click('[data-testid="post-card"]')
-        ->waitForText('Mobile overlay browser post')
-        ->assertVisible('[data-testid="post-detail-overlay"]');
+        ->waitForText('Mobile overlay browser post');
 
+    // Open, not merely visible: a closed panel parks just off-screen, which a
+    // visibility check counts as visible.
     waitForPostDetailOverlayOpen($page);
 
     $geometry = $page->script(<<<'JS'
