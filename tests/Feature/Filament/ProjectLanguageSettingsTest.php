@@ -33,13 +33,19 @@ function withheldProject(): array
 it('keeps every installed language in the translation editors when some are not offered', function () {
     [, $withheld] = withheldProject();
 
+    // Each editor is drawn once and asked for every language: the fields are
+    // all in that one form, so drawing it again per language proves nothing.
+    $settings = Livewire::test(ProjectSettingsPage::class);
+    $category = Livewire::test(CreateCategory::class);
+    $tag = Livewire::test(CreateTag::class);
+    $ratingGroup = Livewire::test(CreateRatingGroup::class);
+
     foreach (supportedLocales() as $locale) {
-        Livewire::test(ProjectSettingsPage::class)
-            ->assertFormFieldExists("site_name_translations.{$locale}")
+        $settings->assertFormFieldExists("site_name_translations.{$locale}")
             ->assertFormFieldExists("static_pages.about.{$locale}.title");
-        Livewire::test(CreateCategory::class)->assertFormFieldExists("name_translations.{$locale}");
-        Livewire::test(CreateTag::class)->assertFormFieldExists("name_translations.{$locale}");
-        Livewire::test(CreateRatingGroup::class)->assertFormFieldExists("label_translations.{$locale}");
+        $category->assertFormFieldExists("name_translations.{$locale}");
+        $tag->assertFormFieldExists("name_translations.{$locale}");
+        $ratingGroup->assertFormFieldExists("label_translations.{$locale}");
     }
 
     expect(app(LocaleManager::class)->isEnabled($withheld))->toBeFalse();
