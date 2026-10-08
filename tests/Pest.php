@@ -2431,8 +2431,30 @@ function mailRoutingPolicy(): array
 }
 
 /**
- * The committed policy — or BASE — with dot-path changes applied: `set`
- * replaces or adds a value, `forget` removes one.
+ * DOCUMENT with dot-path changes applied: `set` replaces or adds a value,
+ * `forget` removes one. Shared by every test that varies a committed JSON
+ * contract one path at a time.
+ *
+ * @param  array<string, mixed>  $document
+ * @param  array<string, mixed>  $set
+ * @param  list<string>  $forget
+ * @return array<string, mixed>
+ */
+function withDotPaths(array $document, array $set = [], array $forget = []): array
+{
+    foreach ($set as $path => $value) {
+        data_set($document, $path, $value);
+    }
+
+    foreach ($forget as $path) {
+        Arr::forget($document, $path);
+    }
+
+    return $document;
+}
+
+/**
+ * The committed policy — or BASE — with dot-path changes applied.
  *
  * @param  array<string, mixed>  $set
  * @param  list<string>  $forget
@@ -2441,17 +2463,7 @@ function mailRoutingPolicy(): array
  */
 function mailRoutingPolicyWith(array $set = [], array $forget = [], ?array $base = null): array
 {
-    $policy = $base ?? mailRoutingPolicy();
-
-    foreach ($set as $path => $value) {
-        data_set($policy, $path, $value);
-    }
-
-    foreach ($forget as $path) {
-        Arr::forget($policy, $path);
-    }
-
-    return $policy;
+    return withDotPaths($base ?? mailRoutingPolicy(), $set, $forget);
 }
 
 /**

@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -36,8 +35,7 @@ function mailInboundContract(): array
 }
 
 /**
- * The committed contract — or BASE — with dot-path changes applied: `set`
- * replaces or adds a value, `forget` removes one.
+ * The committed contract — or BASE — with dot-path changes applied.
  *
  * @param  array<string, mixed>  $set
  * @param  list<string>  $forget
@@ -46,17 +44,7 @@ function mailInboundContract(): array
  */
 function mailInboundContractWith(array $set = [], array $forget = [], ?array $base = null): array
 {
-    $contract = $base ?? mailInboundContract();
-
-    foreach ($set as $path => $value) {
-        data_set($contract, $path, $value);
-    }
-
-    foreach ($forget as $path) {
-        Arr::forget($contract, $path);
-    }
-
-    return $contract;
+    return withDotPaths($base ?? mailInboundContract(), $set, $forget);
 }
 
 /**
