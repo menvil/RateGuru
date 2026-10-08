@@ -85,7 +85,7 @@
         "Tests\\Feature\\Architecture\\ReleaseBookkeepingTest": 0.1715,
         "Tests\\Feature\\Architecture\\RepairTargetTest": 12.8031,
         "Tests\\Feature\\Architecture\\RepairWorkflowsTest": 0.544,
-        "Tests\\Feature\\Architecture\\RepositoryTranslationParityTest": 0.1439,
+        "Tests\\Feature\\Architecture\\RepositoryProjectContentLanguageTest": 0.94,
         "Tests\\Feature\\Architecture\\RestoreDatabaseTest": 14.4309,
         "Tests\\Feature\\Architecture\\RestoreOperatorSurfaceScopeTest": 0.9355,
         "Tests\\Feature\\Architecture\\RestoreRateGuruActionTest": 0.2415,
@@ -118,6 +118,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.0799,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0706
     },
-    "checksum": "0b4dcb0c9beab819c9409a8e3a40df05",
-    "updated_at": "2026-10-06T19:27:50+00:00"
+    "checksum": "3fa17a8f4640bc7c2067665a4a64900e",
+    "updated_at": "2026-10-08T08:54:11+00:00"
 }
