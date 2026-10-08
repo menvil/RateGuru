@@ -73,8 +73,11 @@ inputs:
 
 outputs:
   status:
-    description: "pass or fail, from the canary's machine-readable result"
+    description: "pass or fail, from the canary's machine-readable result once it passed the result check"
     value: ${{ steps.canary.outputs.status }}
+  result:
+    description: "pass or fail (a checked result); invalid (a result that failed the result check); missing (no result at all)"
+    value: ${{ steps.canary.outputs.result }}
 
 runs:
   using: composite
@@ -347,6 +350,7 @@ runs:
         count="$(grep -c '^RATEGURU_MAIL_CANARY_RESULT=' <<<"${canary_output}" || true)"
 
         if [[ "${count}" != "1" ]]; then
+          echo "result=missing" >> "${GITHUB_OUTPUT}"
           echo "Expected exactly one RATEGURU_MAIL_CANARY_RESULT line, got ${count}; the canary exited ${canary_status}." >&2
           exit 1
         fi
@@ -354,26 +358,54 @@ runs:
         json="$(grep '^RATEGURU_MAIL_CANARY_RESULT=' <<<"${canary_output}")"
         json="${json#RATEGURU_MAIL_CANARY_RESULT=}"
 
-        # Judged before any of it is shown: this target, a send, a closed
-        # verdict, a recipient DOMAIN and never an address, and a pass only
-        # for a canary whose own queue ID was logged status=sent.
-        jq -e --arg target "${DEPLOYMENT_TARGET}" '
-          type == "object"
+        # Judged before any of it is shown: exactly the canary's own fields,
+        # this target, a send, a closed verdict and delivery status, a
+        # recipient DOMAIN and never an address, the canary ID in the form
+        # send-mail-canary makes it (rgcanary-YYYYMMDDTHHMMSSZ-12hex) and its
+        # Message-ID made from that same ID — and a pass only for a canary
+        # whose own queue ID was logged status=sent.
+        result_check='
+          def matches($re): type == "string" and test($re);
+          def nullable($re): . == null or matches($re);
+          . as $result
+          | type == "object"
+          and (keys == ["canary_id", "deleted", "dsn", "message_id", "mode", "queue_id", "recipient_domain", "smtp_delivery", "status", "target"])
           and .target == $target
           and .mode == "send"
           and (.status == "pass" or .status == "fail")
-          and (.recipient_domain == null or ((.recipient_domain | type) == "string" and (.recipient_domain | test("^[a-z0-9.-]+$"))))
-          and (.queue_id == null or ((.queue_id | type) == "string" and (.queue_id | test("^[0-9A-Za-z]+$"))))
-          and (.message_id == null or ((.message_id | type) == "string" and (.message_id | test("^<[a-z0-9-]+@[a-z0-9.-]+>$"))))
+          and (.recipient_domain | nullable("^[a-z0-9.-]+$"))
+          and (.queue_id | nullable("^[0-9A-Za-z]+$"))
+          and (.canary_id | nullable("^rgcanary-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"))
+          and (.message_id == null
+               or ($result.canary_id != null
+                   and (.message_id | matches("^<" + $result.canary_id + "@[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)+>$"))))
+          and (.smtp_delivery == null or (.smtp_delivery | IN("sent", "bounced", "expired", "deferred", "not_submitted", "unknown")))
+          and (.dsn | nullable("^[0-9][.][0-9]{1,3}[.][0-9]{1,3}$"))
           and (.deleted | type) == "boolean"
           and (tostring | test("@[^>]*\"") | not)
-          and (.status == "fail" or (.smtp_delivery == "sent" and .queue_id != null))
-        ' <<<"${json}" >/dev/null || {
-          echo "The machine-readable result is not a canary result for ${DEPLOYMENT_TARGET}." >&2
-          exit 1
-        }
+          and (.status == "fail"
+               or (.smtp_delivery == "sent" and .queue_id != null and .canary_id != null and .message_id != null))
+        '
 
-        echo "status=$(jq -r '.status' <<<"${json}")" >> "${GITHUB_OUTPUT}"
+        # A result that fails the check is reported as exactly that — never
+        # as a delivery that failed, and never as no result at all — and
+        # nothing in it is shown.
+        if ! jq -e --arg target "${DEPLOYMENT_TARGET}" "${result_check}" <<<"${json}" >/dev/null 2>&1; then
+          echo "result=invalid" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## ${DEPLOYMENT_TARGET} production mail canary"
+            echo
+            echo "**The canary's result was not accepted.** It printed one machine-readable result, but that result failed the result check, so nothing in it is reported here and this run cannot pass."
+            echo
+            echo "This is a failed result check, not a failed delivery: whether the receiving server accepted the message is in the canary's own report in the job log. Read it before sending another canary — a message that was delivered would be delivered again."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "The machine-readable result is not a canary result for ${DEPLOYMENT_TARGET}: it failed the result check, so it is not reported. The canary exited ${canary_status}; its own report is above." >&2
+          exit 1
+        fi
+
+        status="$(jq -r '.status' <<<"${json}")"
+        echo "result=${status}" >> "${GITHUB_OUTPUT}"
+        echo "status=${status}" >> "${GITHUB_OUTPUT}"
 
         {
           jq -r '
@@ -397,7 +429,7 @@ runs:
           ' <<<"${json}"
         } >> "${GITHUB_STEP_SUMMARY}"
 
-        if [[ "$(jq -r '.status' <<<"${json}")" != "pass" ]] || (( canary_status != 0 )); then
+        if [[ "${status}" != "pass" ]] || (( canary_status != 0 )); then
           echo "The canary for ${DEPLOYMENT_TARGET} did not pass (exit ${canary_status}). The complete report is above." >&2
           exit 1
         fi
