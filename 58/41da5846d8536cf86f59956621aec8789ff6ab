@@ -1,0 +1,24 @@
+infrastructure/runbooks/mail-routing.md
+  s_1bfa4d0742417e::t_337d22d069c2a4 301,303-306,317-318
+infrastructure/runbooks/mail-gateway.md
+  s_1bfa4d0742417e::t_337d22d069c2a4 184,194-195
+  s_1bfa4d0742417e::t_a25e7c0476e57a 196-200
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_1bfa4d0742417e::t_337d22d069c2a4 1467-1468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5841da5846d8536cf86f59956621aec8789ff6ab",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
