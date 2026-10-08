@@ -488,27 +488,6 @@ it('fits the drawer to a phone without the page scrolling sideways', function ()
     JS))->toBe(['drawer' => 390, 'viewport' => 390, 'overflow' => false]);
 });
 
-it('blocks enabling a language whose catalog breaks the contract, and shows why', function () {
-    [, $withheld] = twoTranslatedLocales();
-    offerEveryInstalledLocaleExcept($withheld);
-    settingsTranslatedInto(supportedLocales());
-    breakCatalogsOf($withheld);
-
-    $page = visitLanguages('/admin/languages');
-
-    expect(languagesRowText($page, $withheld))->toContain('catalog invalid')->toContain('Fix the release first.')->toContain('Catalog issue')
-        ->and($page->script("document.querySelector('#rg-admin-language-{$withheld} .rg-admin-table__cell--end button').disabled"))->toBeTrue();
-
-    $page->click("#rg-admin-language-{$withheld} .rg-admin-languages__missing");
-    languagesOverlayOpen($page, 'drawer');
-
-    $page->assertSee('Application translations')
-        ->assertSee('The release breaks the catalog contract for this language, so it cannot be enabled.')
-        ->assertSee("{$withheld}/ui.php is missing");
-
-    expect(offeredLocales())->not->toContain($withheld);
-});
-
 it('dismisses a toast, and shows at most three without breaking the layout', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();

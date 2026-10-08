@@ -6254,8 +6254,8 @@ function livewireUpdatesSinceWatching(mixed $page): array
 }
 
 /**
- * A rendered Admin v2 screen, queryable: a Livewire component under test, or
- * the HTML of a plain response.
+ * A rendered page, queryable: a Livewire component under test, or the HTML of
+ * a plain response.
  */
 function livewireDom(Testable|string $page): DOMXPath
 {
