@@ -11,13 +11,13 @@ is [`mail-signing.md`](mail-signing.md).
 
 | What | State |
 |------|-------|
-| Host MTA identity (`config/mail-outbound.json`) | **`mta1.tits.guru`, reviewed — direct delivery still disabled** |
+| Host MTA identity (`config/mail-outbound.json`) | **`mta1.tits.guru`, reviewed** — the committed contract enables direct delivery; the host applies it only through Activate |
 | `tits-guru` identity (`config/mail-identity.json`) | **Reviewed**: DKIM selector `rg1`, `rsa-sha256`, at least 2048 bits; DMARC `p=none`, `adkim=s`, `aspf=s`, no report address |
 | `infrastructure/scripts/mail-identity` | **Implemented**: `validate`, `dkim-key`, `check-key`, `show-dns`, `verify-dns`, `readiness`, `render-signing-plan` |
 | DKIM private key on the production host | **Installed and validated** at `/etc/opendkim/keys/tits-guru/rg1.private` — supplied by the operator, never generated or committed |
 | Public DNS (A, PTR, SPF, DKIM, DMARC) | **Published; production verification PASS** for all five, through both public resolvers (the resolver isolation is production-accepted) |
-| DKIM signing (OpenDKIM + Postfix milter) | **Implemented — production acceptance pending**: see [`mail-signing.md`](mail-signing.md). Installed by the next Prepare of the shared host; accepted by **Verify production mail signing** |
-| `tits-guru` mail | **Held**; `lifecycle=planned`; direct delivery disabled; no production `MAIL_*` value is set |
+| DKIM signing (OpenDKIM + Postfix milter) | **Production-accepted** by **Verify production mail signing** — see [`mail-signing.md`](mail-signing.md) |
+| `tits-guru` mail | **Committed policy: outbound** by direct delivery; **real host: held** until Activate; `lifecycle=planned`; no production `MAIL_*` value is set |
 
 Nothing here sends mail. The identity, the key, public DNS and — once the
 signing foundation is installed and accepted — signing are what outbound

@@ -120,7 +120,8 @@ function verifyInfraRun(array $host, string $target, ?string $script = null, arr
 /**
  * A scratch checkout whose mail policy adds demo-shop, so the verifier runs
  * from a bundle where a production target is outbound — and, with
- * $lifecycle active, operating.
+ * $lifecycle active, operating. A held demo-shop sits on a host without
+ * direct delivery, beside the pre-activation tits-guru.
  */
 function verifyInfraDemoShopBundle(string $scratch, string $mode, string $lifecycle = 'planned'): string
 {
@@ -128,6 +129,7 @@ function verifyInfraDemoShopBundle(string $scratch, string $mode, string $lifecy
 
     mailIdentityFixtureConfig($repo.'/infrastructure/config', [
         'mode' => $mode,
+        'policy' => $mode === 'outbound' ? mailCommittedPolicy() : mailPreActivationPolicy(),
         'registry' => json_decode(provisionRegistryJson([], $lifecycle), true),
         'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => $mode === 'outbound', 'mta_hostname' => 'mta1.example.net']],
     ]);
@@ -345,11 +347,21 @@ it('stops before verifying anything when the trusted bundle is incomplete', func
 // A PLANNED PRODUCTION TARGET, BEFORE ITS LAUNCH
 // =============================================================================
 
+/**
+ * verify-infrastructure from a checkout of the pre-activation repository, in
+ * which tits-guru is still held with direct delivery disabled — the state a
+ * planned target is verified in before its outbound activation is requested.
+ */
+function verifyInfraPreActivationScript(array $host): string
+{
+    return mailPreActivationCheckout($host['scratch'].'/checkout').'/infrastructure/scripts/verify-infrastructure';
+}
+
 it('verifies planned tits-guru through the host bootstrap and its planned-target contract, never preparation or repair', function () {
     $host = verifyInfraHost();
 
     try {
-        $run = verifyInfraRun($host, 'tits-guru');
+        $run = verifyInfraRun($host, 'tits-guru', verifyInfraPreActivationScript($host));
 
         expect($run['status'])->toBe(0, $run['output']);
 
@@ -402,7 +414,7 @@ it('fails planned production when any of its required groups fails, and still in
     $host = verifyInfraHost(['fail' => [$primitive]]);
 
     try {
-        $run = verifyInfraRun($host, 'tits-guru');
+        $run = verifyInfraRun($host, 'tits-guru', verifyInfraPreActivationScript($host));
 
         expect($run['status'])->not->toBe(0);
         expectVerifyItem($run['output'], 'FAIL', $item);
@@ -423,8 +435,9 @@ it('judges an installed DKIM key even while the target is held, and never prints
     $host = verifyInfraHost();
 
     try {
+        $script = verifyInfraPreActivationScript($host);
         $key = mailIdentityInstallKey($host['scratch'], 'tits-guru', 'rg1');
-        $run = verifyInfraRun($host, 'tits-guru');
+        $run = verifyInfraRun($host, 'tits-guru', $script);
 
         expect($run['status'])->toBe(0, $run['output']);
         expectVerifyItem($run['output'], 'PASS', 'dkim-key', '/etc/opendkim/keys/tits-guru/rg1.private is a usable RSA private key');
@@ -432,7 +445,7 @@ it('judges an installed DKIM key even while the target is held, and never prints
 
         // Broken key material on the host is broken now, held or not.
         $weak = mailIdentityInstallKey($host['scratch'], 'tits-guru', 'rg1', 'rsa1024');
-        $run = verifyInfraRun($host, 'tits-guru');
+        $run = verifyInfraRun($host, 'tits-guru', $script);
 
         expect($run['status'])->not->toBe(0);
         expectVerifyItem($run['output'], 'FAIL', 'dkim-key', 'below the reviewed minimum of 2048 bits');
@@ -1033,14 +1046,15 @@ it('says so in the summary of either workflow when a verification produced no re
 // THE REPOSITORY STAYS AS REVIEWED
 // =============================================================================
 
-it('keeps the real production target planned and held, with direct delivery disabled', function () {
+it('keeps the real production target planned while its committed mail policy requests direct outbound delivery', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
     $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true);
 
     expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
-    expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('held');
-    expect($outbound['direct']['enabled'])->toBeFalse();
+    expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
+    expect($routing['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
+    expect($outbound['direct'])->toBe(['enabled' => true, 'mta_hostname' => 'mta1.tits.guru']);
 });
 
 it('documents the order from merge to the first production verification', function () {

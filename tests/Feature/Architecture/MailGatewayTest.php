@@ -33,10 +33,29 @@ function mailGatewayOutboundContract(mixed $enabled = true, mixed $hostname = 'm
 }
 
 /**
- * The signing plan the real mail-identity CLI renders from the committed
- * contracts: tits-guru, and nothing else. Rendered once per test process.
+ * The pre-activation host contract — direct delivery disabled — as a file,
+ * written once per test process.
  */
-function mailGatewayCommittedSigningPlan(): string
+function mailGatewayPreActivationOutboundFile(): string
+{
+    static $path = null;
+
+    if ($path === null) {
+        $dir = makeScratchDir('mail-gateway-outbound', ['']);
+        register_shutdown_function(static fn () => removeScratchDir($dir));
+
+        $path = $dir.'/mail-outbound.json';
+        file_put_contents($path, mailRoutingJson(mailPreActivationPolicy()['outbound']));
+    }
+
+    return $path;
+}
+
+/**
+ * The signing plan the real mail-identity CLI renders from the pre-activation
+ * contracts: tits-guru, held, and nothing else. Rendered once per test process.
+ */
+function mailGatewayPreActivationSigningPlan(): string
 {
     static $path = null;
 
@@ -44,7 +63,7 @@ function mailGatewayCommittedSigningPlan(): string
         $dir = makeScratchDir('mail-gateway-signing', ['']);
         register_shutdown_function(static fn () => removeScratchDir($dir));
 
-        $run = mailIdentityRun(['render-signing-plan']);
+        $run = mailIdentityRun(['render-signing-plan', ...mailIdentityFixtureConfig($dir.'/config', ['demo-shop' => false, 'policy' => mailPreActivationPolicy()])]);
         expect($run['status'])->toBe(0, $run['stderr']);
 
         $path = $dir.'/signing-plan.json';
@@ -55,10 +74,10 @@ function mailGatewayCommittedSigningPlan(): string
 }
 
 /**
- * The shipped renderer, sourced: plan file, outbound contract (the committed
- * one when none is given), signing plan (the committed one when none is given)
- * and the signer's milter endpoint (the one install-mail-signing prints) in,
- * main.cf and master.cf out.
+ * The shipped renderer, sourced: plan file, outbound contract (the
+ * pre-activation one when none is given), signing plan (the pre-activation one
+ * when none is given) and the signer's milter endpoint (the one
+ * install-mail-signing prints) in, main.cf and master.cf out.
  *
  * @return array{status: int, output: string, main: string, master: string, policies: array<string, string>}
  */
@@ -70,8 +89,8 @@ function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbo
     $output = [];
     $status = 0;
     exec('bash -c '.escapeshellarg('source '.escapeshellarg(mailGatewayScript()).' && render_gateway_config '
-        .escapeshellarg($plan).' '.escapeshellarg($outbound ?? base_path('infrastructure/config/mail-outbound.json')).' '
-        .escapeshellarg($signing ?? mailGatewayCommittedSigningPlan()).' '
+        .escapeshellarg($plan).' '.escapeshellarg($outbound ?? mailGatewayPreActivationOutboundFile()).' '
+        .escapeshellarg($signing ?? mailGatewayPreActivationSigningPlan()).' '
         .escapeshellarg($milter ?? trim((string) shell_exec('bash '.escapeshellarg(mailGatewayScript('install-mail-signing')).' --milter-endpoint'))).' '
         .escapeshellarg($out)).' 2>&1', $output, $status);
 
@@ -91,7 +110,9 @@ function mailGatewayRenderPlanFile(string $scratch, string $plan, ?string $outbo
 
 /**
  * Render the gateway for a policy, registry, host outbound contract and signing
- * plan (the committed ones when null).
+ * plan — the pre-activation ones when null: the gateway a host accepted before
+ * tits-guru's activation, and still runs until activate-mail-outbound crosses
+ * it to the committed request.
  *
  * @param  array<string, mixed>|null  $signing
  * @return array{main: string, master: string, policies: array<string, string>, plan: array<string, mixed>}
@@ -104,7 +125,7 @@ function mailGatewayRender(?array $policy = null, ?array $registry = null, ?arra
         // Exactly what the CLI printed on stdout, which mailRoutingPlanJson()
         // has already proved came with an empty stderr.
         $plan = $scratch.'/plan.json';
-        file_put_contents($plan, mailRoutingPlanJson($policy, $registry));
+        file_put_contents($plan, mailRoutingPlanJson($policy ?? mailPreActivationPolicy()['routing'], $registry));
 
         $contract = null;
         if ($outbound !== null) {
@@ -182,13 +203,14 @@ function mailGatewayMasterServices(string $master): array
 }
 
 /**
- * The committed policy with the synthetic demo-shop target's policy added.
+ * The pre-activation policy — tits-guru held — with the synthetic demo-shop
+ * target's policy added.
  *
  * @return array<string, mixed>
  */
 function mailGatewayDemoShopPolicy(): array
 {
-    $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+    $policy = mailPreActivationPolicy()['routing'];
     $policy['targets']['demo-shop'] = mailRoutingDemoShopPolicy();
 
     return $policy;
@@ -503,7 +525,7 @@ it('refuses with mail-routing\'s own verdict when the policy is invalid', functi
     $host = mailGatewayHost();
 
     try {
-        $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
+        $policy = mailPreActivationPolicy()['routing'];
         $policy['targets']['tits-guru']['submission']['port'] = 2525;
         file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($policy));
 
@@ -774,9 +796,9 @@ it('installs the package safely on a host that has none, and only then activates
         // The policy it was applied from is recorded beside the marker: the
         // whole canonical plan and host contract, and the host's first one is
         // this inert one.
-        expect(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-plan.json'), true))->toEqual(mailRoutingPlan());
+        expect(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-plan.json'), true))->toEqual(mailRoutingPlan(mailPreActivationPolicy()['routing']));
         expect(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-outbound.json'), true))
-            ->toEqual(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true));
+            ->toEqual(mailPreActivationPolicy()['outbound']);
         expect(array_keys(json_decode(File::get($host['fs'].'/var/lib/rateguru-mail-gateway/applied-outbound.json'), true)))->toBe(['direct', 'schema_version']);
         expect($output)->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json');
 
@@ -992,7 +1014,7 @@ it('rolls back the configuration and the service state when the running gateway 
         $installed = mailGatewayTree($host);
 
         // A changed policy, and a capture destination that has gone away.
-        $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
+        $policy = mailPreActivationPolicy()['routing'];
         $policy['targets']['staging-main']['submission']['port'] = 2527;
         file_put_contents($host['scratch'].'/policy.json', mailRoutingJson($policy));
         file_put_contents($host['scratch'].'/state/listeners', "\n");
@@ -1069,13 +1091,13 @@ function mailGatewayDirectRender(?array $outbound = null): array
     return mailGatewayRender($policy, mailRoutingDemoShopRegistry(), $outbound ?? mailGatewayOutboundContract());
 }
 
-it('renders the real committed policy byte for byte as the gateway the staging host accepted, with no Internet route', function () {
+it('renders the pre-activation policy byte for byte as the gateway the host accepted, with no Internet route', function () {
     $render = mailGatewayRender();
 
-    // The configuration the real staging host runs. A plan with no outbound
-    // target must render exactly this, or the host drifts and its read-only
-    // verification fails until it is reconverged: a change here is a host
-    // change, and has to be deliberate. It differs from the configuration the
+    // The configuration the real shared host runs until tits-guru's
+    // activation. A plan with no outbound target must render exactly this, or
+    // the host drifts and its read-only verification fails until it is
+    // reconverged: a change here is a host change, and has to be deliberate. It differs from the configuration the
     // staging host was accepted with in what signs tits-guru's held mail —
     // its listener's milter, its own cleanup service and From policy, and no
     // empty sender on it — and in the name Postfix calls itself, now the
@@ -1096,9 +1118,70 @@ it('renders the real committed policy byte for byte as the gateway the staging h
     $services = collect(mailGatewayMasterServices($render['master']));
     expect($services->where('command', 'smtp')->pluck('name')->values()->all())->toBe(['rateguru-capture-staging-main']);
 
-    // And the host contract that would allow one keeps direct delivery off.
-    expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true))
-        ->toBe(mailGatewayOutboundContract(false, 'mta1.tits.guru'));
+    // And the host contract it was rendered against keeps direct delivery off.
+    expect(mailPreActivationPolicy()['outbound'])->toBe(mailGatewayOutboundContract(false, 'mta1.tits.guru'));
+});
+
+it('renders the committed request as that same gateway plus tits-guru\'s own direct route, and nothing else', function () {
+    $committed = mailCommittedPolicy();
+    $signing = mailIdentityRun(['render-signing-plan']);
+    expect($signing['status'])->toBe(0, $signing['stderr']);
+
+    $held = mailGatewayRender();
+    $render = mailGatewayRender($committed['routing'], null, $committed['outbound'], json_decode($signing['stdout'], true, 512, JSON_THROW_ON_ERROR));
+
+    // What activate-mail-outbound installs on the shared host, pinned.
+    expect(hash('sha256', $render['main']))->toBe('c38944d27093b20155dc177ed44ecaf28cc6328fd73641fb621977eb300e40ec');
+    expect(hash('sha256', $render['master']))->toBe('c670aa50959152d55e077fd23340862077be47ef4b697bb9a8bd1f4ad8c47330');
+
+    // main.cf: one setting more — the queue manager's empty filter next hop,
+    // so the recipient's own domain is the next hop — and the same name.
+    $main = mailGatewayMainParameters($render['main']);
+    expect($main)->toBe([...mailGatewayMainParameters($held['main']), 'default_filter_nexthop' => '']);
+    expect($main['myhostname'])->toBe('mta1.tits.guru');
+    expect($main['relayhost'])->toBe('');
+
+    // master.cf: tits-guru's listener hands its mail to its own client instead
+    // of holding it, and that client is the one new service.
+    $before = collect(mailGatewayMasterServices($held['master']))->keyBy('name');
+    $after = collect(mailGatewayMasterServices($render['master']))->keyBy('name');
+    expect($after->keys()->diff($before->keys())->values()->all())->toBe(['rateguru-outbound-tits-guru']);
+    expect($before->keys()->diff($after->keys())->values()->all())->toBe([]);
+
+    $listener = $after['127.0.0.1:2526']['options'];
+    expect($listener['content_filter'])->toBe('rateguru-outbound-tits-guru:');
+    expect($listener)->not->toHaveKey('smtpd_recipient_restrictions');
+    expect(array_diff_key($listener, ['content_filter' => 1]))
+        ->toBe(array_diff_key($before['127.0.0.1:2526']['options'], ['content_filter' => 1, 'smtpd_recipient_restrictions' => 1]));
+    expect($before['127.0.0.1:2526']['options']['smtpd_recipient_restrictions'])->toContain('static:HOLD');
+
+    expect($after['rateguru-outbound-tits-guru'])->toBe([
+        'name' => 'rateguru-outbound-tits-guru',
+        'type' => 'unix',
+        'command' => 'smtp',
+        'options' => [
+            'syslog_name' => 'postfix/rateguru-outbound-tits-guru',
+            'smtp_helo_name' => 'mta1.tits.guru',
+            'smtp_tls_security_level' => 'may',
+            'smtp_tls_loglevel' => '1',
+            'smtp_sasl_auth_enable' => 'no',
+            'smtp_fallback_relay' => '',
+        ],
+    ]);
+
+    // Every other service — staging's capture listener and transport among
+    // them — is exactly as it was, and so is tits-guru's From policy.
+    foreach ($before->keys()->reject(static fn (string $name): bool => $name === '127.0.0.1:2526') as $name) {
+        expect($after[$name])->toBe($before[$name], "{$name} changed");
+    }
+    expect($render['policies'])->toBe($held['policies']);
+
+    // No smart host, relay or credential anywhere: main.cf's relayhost stays
+    // empty, and nothing else names one.
+    expect($render['master'])->not->toContain('relayhost');
+    expect($render['main'].$render['master'])
+        ->not->toContain('smtp_sasl_password_maps')
+        ->not->toContain('smtp_sasl_auth_enable=yes');
 });
 
 // =============================================================================
@@ -1107,15 +1190,15 @@ it('renders the real committed policy byte for byte as the gateway the staging h
 
 /**
  * Postfix's read-back of a configuration directory, through the shipped
- * postfix_contract_problems and the simulated postconf, with the committed plan
- * and signing plan.
+ * postfix_contract_problems and the simulated postconf, with PLAN and the
+ * pre-activation host contract and signing plan.
  */
 function mailGatewayContractProblems(array $host, string $dir, string $plan, ?string $signing = null): string
 {
     $harness = 'source '.escapeshellarg(mailGatewayScript())
         .' && PLAN_FILE='.escapeshellarg($plan)
-        .' OUTBOUND_FILE='.escapeshellarg(base_path('infrastructure/config/mail-outbound.json'))
-        .' SIGNING_FILE='.escapeshellarg($signing ?? mailGatewayCommittedSigningPlan())
+        .' OUTBOUND_FILE='.escapeshellarg(mailGatewayPreActivationOutboundFile())
+        .' SIGNING_FILE='.escapeshellarg($signing ?? mailGatewayPreActivationSigningPlan())
         .' MILTER_ENDPOINT=inet:127.0.0.1:8891'
         .' POSTCONF_BIN='.escapeshellarg($host['scratch'].'/bin/postconf')
         .' POSTMAP_BIN='.escapeshellarg($host['scratch'].'/bin/postmap')
@@ -1207,7 +1290,7 @@ it('refuses a signer endpoint that is not on loopback', function (string $endpoi
     $scratch = mailGatewayScratch();
 
     try {
-        file_put_contents($scratch.'/plan.json', mailRoutingPlanJson());
+        file_put_contents($scratch.'/plan.json', mailRoutingPlanJson(mailPreActivationPolicy()['routing']));
         $render = mailGatewayRenderPlanFile($scratch, $scratch.'/plan.json', null, null, $endpoint);
 
         expect($render['status'])->not->toBe(0);
@@ -1252,7 +1335,7 @@ it('reads the signing wiring back through Postfix, and refuses every way it coul
         $render = mailGatewayRender();
         $dir = $host['scratch'].'/etc';
         @mkdir($dir, 0o755, true);
-        file_put_contents($host['scratch'].'/plan.json', mailRoutingPlanJson());
+        file_put_contents($host['scratch'].'/plan.json', mailRoutingPlanJson(mailPreActivationPolicy()['routing']));
 
         file_put_contents($dir.'/main.cf', $render['main']);
         file_put_contents($dir.'/master.cf', $render['master']);
@@ -1395,7 +1478,7 @@ it('refuses to write a From policy for a domain it cannot spell as a plain patte
     $scratch = mailGatewayScratch();
 
     try {
-        file_put_contents($scratch.'/plan.json', mailRoutingPlanJson());
+        file_put_contents($scratch.'/plan.json', mailRoutingPlanJson(mailPreActivationPolicy()['routing']));
         $plan = json_decode((string) file_get_contents($scratch.'/plan.json'), true);
         $plan['listeners'][1]['sender']['allowed_domain'] = 'tits.guru|x';
         file_put_contents($scratch.'/plan.json', json_encode($plan));
@@ -1607,19 +1690,20 @@ it('gives every outbound target its own client, and no listener can reach anothe
         static fn (array $service): array => [$service['name'] => $service['options']['content_filter'] ?? null],
     )->all();
 
+    // The two synthetic brands beside the committed tits-guru, outbound too.
     expect($routes)->toBe([
         '127.0.0.1:2598' => 'rateguru-outbound-demo-books:',
         '127.0.0.1:2599' => 'rateguru-outbound-demo-shop:',
         '127.0.0.1:2525' => 'rateguru-capture-staging-main:[127.0.0.1]:1025',
-        '127.0.0.1:2526' => '',
+        '127.0.0.1:2526' => 'rateguru-outbound-tits-guru:',
     ]);
 
-    foreach (['demo-books', 'demo-shop'] as $identity) {
+    foreach (['demo-books', 'demo-shop', 'tits-guru'] as $identity) {
         expect($services->where('name', "rateguru-outbound-{$identity}")->count())->toBe(1);
     }
 
-    // Both share the host's one MTA identity: it is the host's, not a brand's.
-    expect($services->whereIn('name', ['rateguru-outbound-demo-books', 'rateguru-outbound-demo-shop'])->pluck('options.smtp_helo_name')->unique()->values()->all())
+    // All share the host's one MTA identity: it is the host's, not a brand's.
+    expect($services->whereIn('name', ['rateguru-outbound-demo-books', 'rateguru-outbound-demo-shop', 'rateguru-outbound-tits-guru'])->pluck('options.smtp_helo_name')->unique()->values()->all())
         ->toBe(['mta1.example.net']);
 });
 
@@ -1893,7 +1977,7 @@ it('reads a direct route back through Postfix, and refuses every way it could be
             $harness = 'source '.escapeshellarg(mailGatewayScript())
                 .' && PLAN_FILE='.escapeshellarg($scratch.'/plan.json')
                 .' OUTBOUND_FILE='.escapeshellarg($scratch.'/mail-outbound.json')
-                .' SIGNING_FILE='.escapeshellarg(mailGatewayCommittedSigningPlan())
+                .' SIGNING_FILE='.escapeshellarg(mailGatewayPreActivationSigningPlan())
                 .' MILTER_ENDPOINT=inet:127.0.0.1:8891'
                 .' POSTCONF_BIN='.escapeshellarg($host['scratch'].'/bin/postconf')
                 .' POSTMAP_BIN='.escapeshellarg($host['scratch'].'/bin/postmap')
@@ -2511,12 +2595,13 @@ it('never runs the mutating acceptance from ordinary preparation', function () {
 // WHAT DID NOT MOVE
 // =============================================================================
 
-it('keeps tits-guru planned and held, and the production environment untouched', function () {
+it('keeps tits-guru planned and the production environment untouched while its committed mail is outbound', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
 
     expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
-    expect($policy['targets']['tits-guru']['delivery_mode'])->toBe('held');
+    expect($policy['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
+    expect($policy['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
 
     // The staging template names the gateway; production's does not move.
     expect(envFileValues('infrastructure/templates/environment/staging.env.example')['MAIL_PORT'])->toBe('2525');
@@ -2530,7 +2615,7 @@ it('keeps tits-guru planned and held, and the production environment untouched',
     }
 });
 
-it('records the gateway as accepted on the real host, and the direct outbound capability as implemented and not activated', function () {
+it('records the gateway as accepted on the real host, and the direct outbound route as requested and not yet active on it', function () {
     $roadmap = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/ROADMAP.md')));
 
     expect($roadmap)
@@ -2554,22 +2639,16 @@ it('records the gateway as accepted on the real host, and the direct outbound ca
     expect($runbook)
         ->toContain('| Gateway on the staging host | **Installed and accepted**')
         ->toContain('| Staging application mail | **Through the gateway**: the host\'s `shared/.env` says `MAIL_PORT=2525`')
-        ->toContain('**Implemented, not activated**')
-        ->toContain('keeps direct delivery **disabled** on the host');
+        ->toContain('| `tits-guru` — committed policy | `lifecycle=planned`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |')
+        ->toContain('| `tits-guru` — real host | **Held** until Activate: its listener exists and **holds** everything, the recorded applied policy is held, and nothing is delivered |')
+        ->toContain('**Implemented, requested, not yet active on the host**')
+        ->toContain('| Production outbound delivery | **None yet**: no route to the Internet exists on any host.')
+        ->not->toContain('before `main` reaches `develop`');
 });
 
 // =============================================================================
 // THE APPLIED POLICY: THE HOST'S OWN WITNESS OF WHAT WAS ACCEPTED
 // =============================================================================
-
-/** The committed routing policy and host contract, as arrays. */
-function mailGatewayCommittedRequest(): array
-{
-    return [
-        'routing' => json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR),
-        'outbound' => json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR),
-    ];
-}
 
 /** Point the simulated host's bundle at another routing policy and host contract. */
 function mailGatewayRequest(array $host, array $request): void
@@ -2579,14 +2658,15 @@ function mailGatewayRequest(array $host, array $request): void
 }
 
 /**
- * A host whose gateway was applied from the committed policy — tits-guru held,
- * direct delivery disabled — with its bundle's two documents in files a test
- * can change.
+ * A host whose gateway was applied from the pre-activation policy — tits-guru
+ * held, direct delivery disabled — with its bundle's two documents in files a
+ * test can change. It is what the shared host recorded before tits-guru's
+ * activation, whatever the repository requests now.
  */
 function mailGatewayEstablishedHost(array $options = []): array
 {
-    $committed = mailGatewayCommittedRequest();
-    $host = mailGatewayHost(['policy' => $committed['routing'], 'outbound' => $committed['outbound'], ...$options]);
+    $held = mailPreActivationPolicy();
+    $host = mailGatewayHost(['policy' => $held['routing'], 'outbound' => $held['outbound'], ...$options]);
 
     [$status, $log] = mailGatewayRun($host, '--apply');
     expect($status)->toBe(0, $log);
@@ -2622,12 +2702,12 @@ it('records the whole canonical plan and host contract it applied, deterministic
 
         // The complete plan, every field — not the part Postfix renders.
         $recorded = json_decode($plan, true);
-        expect($recorded)->toEqual(mailRoutingPlan());
+        expect($recorded)->toEqual(mailRoutingPlan(mailPreActivationPolicy()['routing']));
         $titsGuru = collect($recorded['listeners'])->firstWhere('identity', 'tits-guru');
         expect($titsGuru)->toMatchArray(['environment_class' => 'production', 'lifecycle' => 'planned', 'delivery_mode' => 'held', 'route' => null]);
         expect($titsGuru['sender'])->toBe(['allowed_domain' => 'tits.guru', 'bounce_domain' => 'bounce.tx.tits.guru', 'default_from' => 'noreply@tits.guru', 'reply_domain' => 'reply.tits.guru']);
         expect(collect($recorded['listeners'])->firstWhere('identity', 'staging-main')['route'])->toBe(['host' => '127.0.0.1', 'kind' => 'capture', 'port' => 1025]);
-        expect(json_decode($outbound, true))->toEqual(mailGatewayCommittedRequest()['outbound']);
+        expect(json_decode($outbound, true))->toEqual(mailPreActivationPolicy()['outbound']);
 
         // Canonical: exactly what jq -S makes of it, so equal policies are
         // equal bytes.
@@ -2693,7 +2773,7 @@ it('sees a requested identity change the rendered Postfix never would, and recor
     $host = mailGatewayEstablishedHost();
 
     try {
-        $request = mailGatewayCommittedRequest();
+        $request = mailPreActivationPolicy();
         $request['routing']['targets']['tits-guru']['default_from'] = 'hello@tits.guru';
         $request['routing']['targets']['tits-guru']['reply_domain'] = 'replies.tits.guru';
         mailGatewayRequest($host, $request);
@@ -2726,7 +2806,7 @@ it('keeps the recorded policy with the configuration when an apply fails, and re
         $recorded = [File::get(mailGatewayApplied($host)), File::get(mailGatewayApplied($host, 'applied-outbound.json'))];
 
         // A changed policy, and a capture destination that has gone away.
-        $request = mailGatewayCommittedRequest();
+        $request = mailPreActivationPolicy();
         $request['routing']['targets']['staging-main']['submission']['port'] = 2527;
         mailGatewayRequest($host, $request);
         file_put_contents($host['scratch'].'/state/listeners', "\n");
@@ -2873,15 +2953,105 @@ function mailGatewayActivatedHost(): array
     return $host;
 }
 
+/**
+ * staging-main's slice of the installed master.cf: its listener and its
+ * capture transport, exactly as master.cf holds them.
+ *
+ * @return list<array<string, mixed>>
+ */
+function mailGatewayStagingCapture(array $host): array
+{
+    $services = collect(mailGatewayMasterServices(File::get($host['fs'].'/etc/postfix/master.cf')))->keyBy('name');
+
+    return [$services['127.0.0.1:2525'], $services['rateguru-capture-staging-main']];
+}
+
+it('takes the committed activation request across a held host only through the guarded activation, and never moves staging\'s capture', function () {
+    $host = mailGatewayEstablishedHost();
+
+    try {
+        $staging = mailGatewayStagingCapture($host);
+        expect($staging[0]['options']['content_filter'])->toBe('rateguru-capture-staging-main:[127.0.0.1]:1025');
+
+        // Nothing real runs here: every tool the installer calls is a stub in
+        // the scratch host, so no test can put a message on a network.
+        foreach ($host['env'] as $variable => $value) {
+            if (str_ends_with($variable, '_BIN')) {
+                expect($value)->toStartWith($host['scratch'], "{$variable} is not the scratch host's");
+            }
+        }
+
+        // The pre-activation host meets the committed request.
+        mailGatewayRequest($host, mailCommittedPolicy());
+        $held = mailGatewayMutableState($host);
+
+        // A: an ordinary apply refuses the crossing, and changes nothing.
+        [$status, $log] = mailGatewayRun($host, '--apply');
+        expect($status)->toBe(1, $log);
+        expect(mailGatewayMutableState($host))->toBe($held);
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+
+        // E: Verify, read-only, reports the difference, and changes nothing.
+        [$status, $report] = mailGatewayRun($host, '--verify');
+        expect($status)->toBe(1, $report);
+        expect($report)->toContain('DRIFT    policy:transition');
+        expect(mailGatewayMutableState($host))->toBe($held);
+        expect(mailGatewayStagingCapture($host))->toBe($staging);
+
+        // B: the guarded activation crosses, records exactly the committed
+        // request, and turns tits-guru's direct route on.
+        mailGatewayAuthorize($host, 'activate', 'tits-guru');
+        [$status, $log] = mailGatewayRun($host, '--apply');
+        expect($status)->toBe(0, $log);
+        expect(json_decode(File::get(mailGatewayApplied($host)), true))->toEqual(mailRoutingPlan());
+        expect(json_decode(File::get(mailGatewayApplied($host, 'applied-outbound.json')), true))->toEqual(mailCommittedPolicy()['outbound']);
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->toContain('-o content_filter=rateguru-outbound-tits-guru:');
+        [$status, $report] = mailGatewayRun($host, '--verify');
+        expect($status)->toBe(0, $report);
+        expect(mailGatewayStagingCapture($host))->toBe($staging);
+        $activated = mailGatewayMutableState($host);
+
+        // C: a stale Prepare with the held documents refuses, and the direct
+        // route keeps working.
+        mailGatewayRequest($host, mailPreActivationPolicy());
+        [$status, $log] = mailGatewayRun($host, '--apply');
+        expect($status)->toBe(1, $log);
+        expect(mailGatewayMutableState($host))->toBe($activated);
+        expect(mailGatewayRecordedMode($host))->toBe('outbound');
+        expect(mailGatewayStagingCapture($host))->toBe($staging);
+
+        // D: the guarded rollback returns the runtime to held.
+        mailGatewayAuthorize($host, 'rollback', 'tits-guru');
+        [$status, $log] = mailGatewayRun($host, '--apply');
+        expect($status)->toBe(0, $log);
+        expect(mailGatewayRecordedMode($host))->toBe('held');
+        expect(File::get($host['fs'].'/etc/postfix/master.cf'))->not->toContain('rateguru-outbound-');
+        [$status, $report] = mailGatewayRun($host, '--verify');
+        expect($status)->toBe(0, $report);
+        expect(mailGatewayStagingCapture($host))->toBe($staging);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
 it('refuses Prepare with the activation request before Activate ran: the host stays held', function () {
-    // Sequence 1 on the shared host: the activation change reached main, and a
-    // host preparation — not Activate — applies the gateway from it.
+    // Sequence 1 on the shared host: the committed policy requests the
+    // activation — merged into develop, promoted to main — and a host
+    // preparation, not Activate, applies the gateway from it.
     $host = mailGatewayEstablishedHost();
 
     try {
         mailGatewayRequest($host, mailActivationRequest());
+        expect(mailActivationRequest())->toEqual(mailCommittedPolicy());
         file_put_contents($host['scratch'].'/log/mutations.log', '');
         $before = mailGatewayMutableState($host);
+
+        // Verify, read-only, reports the difference before the activation, and
+        // changes nothing.
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(1, $report);
+        expect($report)->toContain('DRIFT    policy:transition — the host\'s recorded policy and this bundle differ across the activation boundary (tits-guru from held to outbound) — only activate-mail-outbound crosses it');
+        expect(mailGatewayMutableState($host))->toBe($before);
 
         [$checked, $report] = mailGatewayRun($host, '--check');
         expect($checked)->toBe(1, $report);
@@ -2902,13 +3072,13 @@ it('refuses Prepare with the activation request before Activate ran: the host st
 });
 
 it('refuses Prepare with the stale held configuration after Activate ran: the host keeps delivering', function () {
-    // Sequence 2 on the shared host: production was activated from main, and a
-    // staging preparation from a develop that still holds tits-guru applies
-    // the gateway before main reached develop.
+    // Sequence 2 on the shared host: production was activated, and a host
+    // preparation from a bundle that still holds tits-guru — the pre-activation
+    // documents — applies the gateway.
     $host = mailGatewayActivatedHost();
 
     try {
-        mailGatewayRequest($host, mailGatewayCommittedRequest());
+        mailGatewayRequest($host, mailPreActivationPolicy());
         file_put_contents($host['scratch'].'/log/mutations.log', '');
         $before = mailGatewayMutableState($host);
 
@@ -2956,7 +3126,7 @@ it('crosses the boundary with exactly one valid authorization, consumes it, and 
         expect($verified)->toBe(0, $report);
 
         // I: back to held with no authorization — refused, still outbound.
-        mailGatewayRequest($host, mailGatewayCommittedRequest());
+        mailGatewayRequest($host, mailPreActivationPolicy());
         [$refused, $log] = mailGatewayRun($host, '--apply');
         expect($refused)->toBe(1, $log);
         expect(mailGatewayRecordedMode($host))->toBe('outbound');
@@ -3045,7 +3215,7 @@ it('refuses any change of outbound delivery no single guarded activation makes',
     $host = mailGatewayEstablishedHost();
 
     try {
-        $request = mailGatewayCommittedRequest();
+        $request = mailPreActivationPolicy();
 
         match ($case) {
             // Direct delivery switched on with no target crossing.

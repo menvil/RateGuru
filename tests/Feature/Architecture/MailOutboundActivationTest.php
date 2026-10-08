@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
@@ -29,30 +30,54 @@ function mailActivationPostconf(array $host, string ...$arguments): string
 }
 
 // =============================================================================
-// THE COMMITTED STATE IS INERT
+// THE COMMITTED REQUEST: TITS-GURU OUTBOUND, NOTHING ELSE MOVED
 // =============================================================================
 
-it('keeps tits-guru held, direct delivery disabled and the target planned in the committed configuration', function () {
+it('requests direct outbound delivery for tits-guru in the committed configuration, and moves nothing else', function () {
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
-    expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('held');
-    expect($routing['targets']['tits-guru'])->not->toHaveKey('outbound');
 
+    // tits-guru: outbound by direct delivery, its identity and endpoint as
+    // they were.
+    expect($routing['targets']['tits-guru'])->toBe([
+        'submission' => ['host' => '127.0.0.1', 'port' => 2526],
+        'delivery_mode' => 'outbound',
+        'outbound' => ['kind' => 'direct'],
+        'mail_domain' => 'tits.guru',
+        'default_from' => 'noreply@tits.guru',
+        'bounce_domain' => 'bounce.tx.tits.guru',
+        'reply_domain' => 'reply.tits.guru',
+    ]);
+
+    // Staging still captures into its own Mailpit.
+    expect($routing['targets']['staging-main'])->toBe([
+        'submission' => ['host' => '127.0.0.1', 'port' => 2525],
+        'delivery_mode' => 'capture',
+        'allowed_from_domain' => 'staging.invalid',
+        'capture' => ['host' => '127.0.0.1', 'port' => 1025],
+    ]);
+    expect($routing['schema_version'])->toBe(2);
+
+    // The host contract allows direct delivery under the reviewed name.
     $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true);
-    expect($outbound['direct'])->toBe(['enabled' => false, 'mta_hostname' => 'mta1.tits.guru']);
+    expect($outbound)->toBe(['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.tits.guru']]);
 
+    // The target is still planned: requesting outbound mail is not a launch.
     $registry = collect(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets'])
         ->keyBy('id');
     expect($registry['tits-guru']['lifecycle'])->toBe('planned');
 
-    // No production application mail transport is set by this tooling: the
-    // templates still leave it to the operation before the first deploy.
+    // No production application mail transport is set: the templates still
+    // leave it to the operation before the first deploy.
     foreach (['MAIL_MAILER', 'MAIL_HOST', 'MAIL_PORT', 'MAIL_FROM_ADDRESS'] as $key) {
         expect(envFileValues('infrastructure/templates/environment/tits-guru.env.example')[$key])->toBe('');
     }
     expect(envFileValues('infrastructure/templates/environment/production.env.example')['MAIL_MAILER'])->toBe('');
+
+    // And it is exactly the activation request every activation test runs.
+    expect(mailActivationRequest())->toBe(['routing' => $routing, 'outbound' => $outbound]);
 });
 
-it('refuses every mode from the committed configuration before it changes anything: activation is not requested', function (string $mode) {
+it('refuses every mode from a bundle that does not request the activation, before it changes anything', function (string $mode) {
     $host = mailActivationHost(['requested' => false]);
 
     try {
@@ -78,17 +103,14 @@ it('refuses every mode from the committed configuration before it changes anythi
 // =============================================================================
 
 /**
- * transition_problems, sourced from the shipped script, for the committed
- * pre-activation documents against a request changed by CHANGE.
+ * transition_problems, sourced from the shipped script, for the pre-activation
+ * documents against the committed request changed by CHANGE.
  */
 function mailActivationTransitionProblems(string $change): string
 {
     $scratch = makeScratchDir('mail-activation-transition');
     $request = mailActivationRequest();
-    $pre = [
-        'routing' => json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true),
-        'outbound' => json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true),
-    ];
+    $pre = mailPreActivationPolicy();
 
     match ($change) {
         'none' => null,
@@ -150,11 +172,11 @@ it('refuses any request that is not exactly that transition', function (string $
     'a pre-activation with direct enabled' => ['a pre-activation with direct enabled', 'before activation direct delivery must be disabled'],
 ]);
 
-it('derives the pre-activation documents by undoing exactly the three changes', function () {
+it('derives the pre-activation documents from the committed request by undoing exactly the three changes', function () {
     $source = File::get(base_path('infrastructure/scripts/activate-mail-outbound'));
 
-    // The derivation is these two programs and nothing else; the committed
-    // documents are what they give back from the activation request.
+    // The derivation is these two programs and nothing else; the
+    // pre-activation fixture is what they give back from the committed request.
     expect($source)
         ->toContain("PRE_ROUTING_PROGRAM='.targets[\$t].delivery_mode = \"held\" | .targets[\$t] |= del(.outbound)'")
         ->toContain("PRE_OUTBOUND_PROGRAM='.direct.enabled = false'");
@@ -168,8 +190,26 @@ it('derives the pre-activation documents by undoing exactly the three changes', 
     $outbound = shell_exec('jq '.escapeshellarg('.direct.enabled = false').' '.escapeshellarg($scratch.'/outbound.json'));
     removeScratchDir($scratch);
 
-    expect(json_decode($routing, true))->toBe(json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true));
-    expect(json_decode($outbound, true))->toBe(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true));
+    expect(json_decode($routing, true))->toBe(mailPreActivationPolicy()['routing']);
+    expect(json_decode($outbound, true))->toBe(mailPreActivationPolicy()['outbound']);
+
+    // And the fixture differs from the committed request in exactly those
+    // three places: tits-guru held, no route, direct delivery disabled.
+    $pre = mailPreActivationPolicy();
+    $committed = mailCommittedPolicy();
+    expect($pre['routing']['targets']['tits-guru'])->toBe([
+        'submission' => ['host' => '127.0.0.1', 'port' => 2526],
+        'delivery_mode' => 'held',
+        'mail_domain' => 'tits.guru',
+        'default_from' => 'noreply@tits.guru',
+        'bounce_domain' => 'bounce.tx.tits.guru',
+        'reply_domain' => 'reply.tits.guru',
+    ]);
+    expect(Arr::except($pre['routing'], ['targets.tits-guru']))->toBe(Arr::except($committed['routing'], ['targets.tits-guru']));
+    expect(Arr::except($pre['routing']['targets']['tits-guru'], ['delivery_mode']))
+        ->toBe(Arr::except($committed['routing']['targets']['tits-guru'], ['delivery_mode', 'outbound']));
+    expect($pre['outbound'])->toBe(['schema_version' => 1, 'direct' => ['enabled' => false, 'mta_hostname' => 'mta1.tits.guru']]);
+    expect(Arr::except($pre['outbound'], ['direct.enabled']))->toBe(Arr::except($committed['outbound'], ['direct.enabled']));
 });
 
 it('refuses a request whose transport the routing policy does not implement before anything else', function () {
@@ -326,10 +366,8 @@ it('changes nothing when any part of the pre-activation proof fails', function (
     };
 
     if (($options['installed'] ?? null) === 'drifted') {
-        $drifted = [
-            'routing' => json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true),
-            'outbound' => json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true),
-        ];
+        // Held, but not the pre-activation state: staging captures elsewhere.
+        $drifted = mailPreActivationPolicy();
         $drifted['routing']['targets']['staging-main']['capture']['port'] = 1026;
         $options['installed'] = $drifted;
     }
@@ -544,8 +582,8 @@ it('activates exactly the requested gateway behind the whole proof, with a capsu
             expect(fileperms($file->getPathname()) & 0o777)->toBe(0o600);
             expectNoKeyMaterial(File::get($file->getPathname()), $host['key']);
         }
-        expect(json_decode(File::get($capsule.'/mail-routing.json'), true))->toBe(json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true));
-        expect(json_decode(File::get($capsule.'/mail-outbound.json'), true))->toBe(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true));
+        expect(json_decode(File::get($capsule.'/mail-routing.json'), true))->toBe(mailPreActivationPolicy()['routing']);
+        expect(json_decode(File::get($capsule.'/mail-outbound.json'), true))->toBe(mailPreActivationPolicy()['outbound']);
 
         $record = json_decode(File::get($capsule.'/capsule.json'), true);
         expect(array_keys($record))->toBe(['kind', 'schema_version', 'target', 'state', 'recorded_at', 'pre_activation', 'requested']);
@@ -924,7 +962,7 @@ it('runs exactly activate-mail-outbound in the mode its workflow fixed, judges i
 // THE RECORD: IMPLEMENTED, NOT ACTIVATED
 // =============================================================================
 
-it('records the signing foundation as accepted and the activation as implemented but not yet performed', function () {
+it('records the signing foundation as accepted, the activation requested by the policy, and the host not yet activated', function () {
     $roadmap = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/ROADMAP.md')));
 
     expect($roadmap)
@@ -940,6 +978,15 @@ it('records the signing foundation as accepted and the activation as implemented
         ->toContain('the canary, the operator\'s inspection of the received message\'s raw headers (SPF, DKIM and DMARC PASS, `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then Verify staging infrastructure')
         ->not->toContain('directly against `main`')
         ->toContain('Not accepted until a real canary has been received and its headers inspected')
+        // The tooling's acceptance on the shared host, with its runs.
+        ->toContain('*Tooling accepted on the shared host on 2026-10-08,* with `tits-guru` still held and direct delivery disabled: Prepare staging host run `37779425683` and Verify staging infrastructure run `37780411751` (`develop` `92252559`), Verify production infrastructure run `37780729123` and Verify production mail signing run `37781550331` (`main` `771268e2`), all PASS')
+        // The policy change: requested in the repository, not on the host.
+        ->toContain('**8.4B.4.2c Production outbound activation policy — IMPLEMENTED in the repository — host activation pending.**')
+        ->toContain('*Code and policy:* once promoted to `main`, the repository requests outbound delivery. *The real server:* held until **Activate tits.guru outbound mail** runs, whatever the repository requests')
+        ->toContain('a committed outbound policy is never `OUTBOUND READY: YES` on a held host')
+        ->toContain('*Production accepted:* only after Activate, Verify production infrastructure (`OUTBOUND READY: YES`), and a real canary received with its raw headers inspected.')
+        ->toContain('Nothing was activated or sent by this change.')
+        ->not->toContain('PRODUCTION-ACCEPTED.** The committed policy')
         // The application's mail transport moved to before the first deploy.
         ->toContain('the production application\'s mail transport (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before the first production deploy in 8.6, not here')
         ->toContain('Before the first production deploy, a separately reviewed operation sets and verifies the application\'s mail transport from the reviewed mail routing plan')
@@ -952,14 +999,21 @@ it('records the signing foundation as accepted and the activation as implemented
     $runbook = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/runbooks/mail-outbound-activation.md')));
 
     expect($runbook)
-        ->toContain('Merging this tooling activates nothing.')
+        // Three states, never confused.
+        ->toContain('The committed configuration now **requests** `tits-guru`\'s direct outbound delivery. Requesting it changes no host')
+        ->toContain('1. **Code and policy** — what the repository requests.')
+        ->toContain('2. **The real server** — what the host applies and records. It stays held until Activate runs, whatever the repository requests.')
+        ->toContain('3. **Production accepted** — recorded only after Activate, **Verify production infrastructure** reporting `OUTBOUND READY: YES`, and a real canary received and its raw headers inspected.')
+        ->toContain('| `tits-guru` mail — **committed policy** | **Outbound requested**')
+        ->toContain('| `tits-guru` mail — **real host** | **Held**, direct delivery disabled, until Activate runs from `main` — production activation **pending** |')
         ->toContain('*activation is not requested by this trusted bundle*')
-        ->toContain('Open a separate, tiny **activation pull request into `develop`**. It changes exactly two files and nothing else')
-        ->toContain('It takes the ordinary path — into `develop`, then to `main` by the ordinary promotion. A pull request directly into `main`, and a synchronization back from `main` into `develop`, are not part of this rollout.')
-        ->toContain('**From here until step 16, run neither Prepare staging host nor Verify staging infrastructure.**')
-        ->toContain('The interlock still guarantees that an ordinary Prepare never turns outbound on — the gateway refuses held → outbound without the activation\'s authorization, fails closed and leaves the host held.')
-        ->toContain('A **Prepare production host** in between cannot activate anything: the gateway refuses held → outbound without the activation\'s authorization, and the host stays held.')
-        ->toContain('then revert the activation change — a pull request into `develop`, through CI, promoted to `main` — before the next Prepare or Verify')
+        ->toContain('The activation change is an ordinary pull request **into `develop`**.')
+        ->toContain('reaches `main` by the ordinary promotion. A pull request directly into `main`, and a synchronization back from `main` into `develop`, are not part of this rollout.')
+        ->toContain('**From here until step 11, run neither Prepare staging host nor Verify staging infrastructure.**')
+        ->toContain('It must refuse held → outbound without the activation\'s one-use authorization, and it does: the gateway fails closed and the host stays held.')
+        ->toContain('2. Return the policy to held with a separate pull request into `develop` — reverting the activation change — through CI, promoted to `main`.')
+        ->toContain('3. Only once the committed policy and the host\'s applied policy match again run ordinary Verify and Prepare.')
+        ->not->toContain('Merging this tooling activates nothing.')
         ->not->toContain('directly against `main`')
         ->not->toContain('synchronize `main` → `develop`')
         ->toContain('Prepare converges a state but cannot cross that boundary, and a Prepare from a stale branch fails closed instead of activating or deactivating mail')
@@ -972,23 +1026,27 @@ it('records the signing foundation as accepted and the activation as implemented
         ->toContain('`MAIL_PORT=` the target\'s reviewed submission port (`2526` for `tits-guru`)')
         ->toContain('the production `shared/.env` (`/home/www/rateguru/production/tits-guru/shared/.env`), GitHub `LARAVEL_ENV`, and the production environment template defaults');
 
-    // The rollout, in order.
+    // The rollout, in order: the tooling's, done, then the activation's.
     $steps = [
-        'Merge the tooling pull request into `develop`.',
-        'Run **Prepare staging host**.',
-        'Run **Verify staging infrastructure**.',
-        'Promote `develop` → `main`.',
-        'Run **Verify production infrastructure**.',
-        'Run **Verify production mail signing**.',
-        'Open a separate, tiny **activation pull request into `develop`**.',
-        'Merge it into `develop`.',
-        'Promote `develop` → `main`.',
-        'Run **Activate tits.guru outbound mail**.',
-        'Run **Verify production infrastructure**.',
-        'Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub Environment.',
-        'Run **Send tits.guru production mail canary**.',
-        'Inspect the received message\'s raw headers against the table above.',
-        'Run **Verify staging infrastructure**.',
+        '| Merge the tooling pull request into `develop`. | — | merged |',
+        '| Run **Prepare staging host** (`develop` `92252559`). | `37779425683` | PASS |',
+        '| Run **Verify staging infrastructure** (`develop` `92252559`). | `37780411751` | PASS |',
+        '| Promote `develop` → `main`. | — | promoted |',
+        '| Run **Verify production infrastructure** (`main` `771268e2`). | `37780729123` | PASS |',
+        '| Run **Verify production mail signing** (`main` `771268e2`). | `37781550331` | PASS |',
+        '1. The activation pull request into `develop`: the new policy, the tests and the documents.',
+        '2. The complete CI passes.',
+        '3. Merge it into `develop`.',
+        '4. **From here until step 11, run neither Prepare staging host nor Verify staging infrastructure.**',
+        '5. Promote `develop` → `main` the ordinary way.',
+        '6. Run **Activate tits.guru outbound mail** by hand, from `main`.',
+        '7. Run **Verify production infrastructure**. It must report full outbound readiness — `OUTBOUND READY: YES`',
+        '8. Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub Environment.',
+        '9. Run **Send tits.guru production mail canary**',
+        '10. Inspect the real received message and its raw headers against the table above.',
+        '11. Run **Verify staging infrastructure**.',
+        '12. Only then record the activation and the first delivery as production-accepted, from those actual results.',
+        '1. Run **Rollback tits.guru outbound mail activation**. The runtime returns to held',
     ];
     $position = -1;
     foreach ($steps as $step) {
