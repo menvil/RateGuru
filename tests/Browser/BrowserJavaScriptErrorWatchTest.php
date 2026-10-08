@@ -23,16 +23,11 @@ it('collects an error, a rejection and a console error, across a navigation', fu
     $page->script("() => setTimeout(() => { throw new Error('watched error') }, 0)");
     $page->script("() => { Promise.reject(new Error('watched rejection')); return true; }");
 
-    // Both reports in before the page goes. A same-origin navigation while a
-    // report was still on its way intermittently came back from CI as a
-    // Chromium error page, though the server had answered the page with a 200.
-    eventually(fn () => expect($this->browserJavaScriptErrors)->toHaveCount(2));
-
     navigatePageTo($page, '/login');
     waitForScript($page, "location.pathname + ' ' + document.readyState", '/login complete');
     $page->script("() => { console.error('watched console error'); return true; }");
 
-    // Each one exactly once.
+    // Each one exactly once, whatever the navigation did to a report in flight.
     eventually(function () {
         $collected = watchedJavaScriptErrors($this->browserJavaScriptErrors);
 
