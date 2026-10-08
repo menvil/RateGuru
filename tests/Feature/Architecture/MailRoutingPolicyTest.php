@@ -1122,9 +1122,12 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     // Its only consumers are the gateway's installer and its verifier, the
     // mail identity judge, the read-only infrastructure verifier, which reads
     // a target's delivery mode from the plan, and the signing acceptance,
-    // which reads the one held listener it may submit to — each running the
-    // copy next to itself. No workflow, action, orchestrator or other installer
-    // invokes it. The one other file
+    // which reads the one held listener it may submit to, the outbound
+    // activation, which reads the plan of the bundle it was asked to activate
+    // and of the pre-activation copy it derives, and the canary, which reads
+    // the reviewed sender and endpoint — each running the copy next to itself.
+    // No workflow, action, orchestrator or other installer invokes it. The
+    // one other file
     // that may name the POLICY is the prerequisite installer, which hands its
     // configuration directory's copy to the identity judge — never to this CLI.
     $consumers = [
@@ -1133,6 +1136,8 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/mail-identity',
         'infrastructure/scripts/verify-infrastructure',
         'infrastructure/scripts/verify-mail-signing',
+        'infrastructure/scripts/activate-mail-outbound',
+        'infrastructure/scripts/send-mail-canary',
     ];
 
     foreach (operationalFiles() as $path) {
@@ -1175,12 +1180,18 @@ it('configures no public SMTP listener anywhere in the repository', function () 
     // language; its configuration is rendered on the host, never committed.
     // What it renders is proved loopback-only in MailGatewayTest. The signing
     // acceptance reads and deletes its own one queue entry, by its exact ID,
-    // and configures nothing; MailSigningTest proves it.
+    // and configures nothing; MailSigningTest proves it. The outbound
+    // activation reads the live routes back with postconf and configures
+    // nothing itself — the gateway's installer does — and the canary deletes
+    // only its own queue entry; MailOutboundActivationTest and MailCanaryTest
+    // prove both.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
         'infrastructure/scripts/status-mail-gateway',
         'infrastructure/scripts/verify-mail-signing',
+        'infrastructure/scripts/activate-mail-outbound',
+        'infrastructure/scripts/send-mail-canary',
     ];
 
     foreach (operationalFiles() as $path) {

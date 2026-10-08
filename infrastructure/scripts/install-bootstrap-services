@@ -2068,7 +2068,7 @@ report_mail_gateway_plan() {
     if "${MAIL_GATEWAY_INSTALLER_BIN}" --check >/dev/null 2>&1; then
         item PASS "mail-gateway:plan" "install-mail-gateway --check: the reviewed mail routing plan renders and the gateway can be converged"
     else
-        item CONFLICT "mail-gateway:plan" "install-mail-gateway --check refuses (an invalid routing plan, or a mail transport agent RateGuru does not own)" \
+        item CONFLICT "mail-gateway:plan" "install-mail-gateway --check refuses (an invalid routing plan, a mail transport agent RateGuru does not own, or a held/outbound transition only activate-mail-outbound may make)" \
             "run install-mail-gateway --check for the reason; --apply never takes over an existing mail transport agent"
     fi
 }
@@ -3229,7 +3229,7 @@ apply_gate_mail_gateway() {
         || fail "install-mail-gateway is not executable: ${MAIL_GATEWAY_INSTALLER_BIN} — run from a full repository checkout"
 
     "${MAIL_GATEWAY_INSTALLER_BIN}" --check >/dev/null 2>&1 \
-        || fail "install-mail-gateway --check refuses (run it for the reason) — nothing was changed"
+        || fail "install-mail-gateway --check refuses (run it for the reason; a production target crossing between held and outbound is activate-mail-outbound's alone) — nothing was changed"
 }
 
 # --- Apply --------------------------------------------------------------------

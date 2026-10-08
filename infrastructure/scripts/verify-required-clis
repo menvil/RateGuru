@@ -3,7 +3,7 @@
 # verify-required-clis — proves every infrastructure CLI named in
 # infrastructure/config/required-clis.txt still has its executable bit
 # inside a release tree, and that every sourced library
-# (infrastructure/scripts/common and infrastructure/scripts/restore-common)
+# (infrastructure/scripts/common, restore-common and smtp-submission)
 # remains a readable, non-executable file.
 #
 # Shared by deploy itself (checking the just-normalized, not-yet-switched
@@ -99,7 +99,7 @@ done < "${REQUIRED_CLI_MANIFEST}"
 # executable bit. Kept as an explicit list rather than "everything that is not
 # a required CLI", so adding a library is a deliberate edit here rather than
 # something a release silently stops checking.
-SOURCED_LIBRARIES=(common restore-common)
+SOURCED_LIBRARIES=(common restore-common smtp-submission)
 
 for LIBRARY_NAME in "${SOURCED_LIBRARIES[@]}"; do
     LIBRARY_RELEASE_PATH="${RELEASE_ROOT}/infrastructure/scripts/${LIBRARY_NAME}"

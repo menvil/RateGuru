@@ -222,6 +222,9 @@ it('pins the classification of every operational workflow literally', function (
     expect(trustedToolingRefs())->toBe([
         'configure-tits-guru.yml' => 'main',
         'provision-tits-guru.yml' => 'main',
+        'activate-tits-guru-mail.yml' => 'main',
+        'rollback-tits-guru-mail-activation.yml' => 'main',
+        'send-tits-guru-mail-canary.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -474,6 +477,9 @@ function mainOnlyProductionWorkflows(): array
     return [
         'configure-tits-guru.yml',
         'provision-tits-guru.yml',
+        'activate-tits-guru-mail.yml',
+        'rollback-tits-guru-mail-activation.yml',
+        'send-tits-guru-mail-canary.yml',
         'prepare-production-host.yml',
         'repair-production.yml',
         'restore-production.yml',

@@ -1917,8 +1917,8 @@ Slices, in order:
    *Production-accepted:* on the production host, whose own resolver still
    answers the stale local PTR, PTR and every other record verify PASS.
 
-   **8.4B.4.2a DKIM signing foundation — IMPLEMENTED — production acceptance
-   pending.** OpenDKIM, the Postfix milter and a safe held-message acceptance;
+   **8.4B.4.2a DKIM signing foundation — PRODUCTION-ACCEPTED.** OpenDKIM,
+   the Postfix milter and a safe held-message acceptance;
    nothing is activated. `mail-identity render-signing-plan` is the one source
    of what is signed: every production target with a reviewed identity, held
    ones included, with its mail domain (from the routing plan), selector,
@@ -1965,22 +1965,89 @@ Slices, in order:
    runs it on the host. Rehearsed end to end on a real Ubuntu 22.04 host with
    the real packages. *Unchanged on purpose:* `tits-guru` is still `planned`
    and `held`, direct delivery is still disabled, no production `MAIL_*` value,
-   no external mail, no DNS change. *Next, operator:* Prepare staging host;
-   Verify staging infrastructure; promote to `main`; Verify production
-   infrastructure (readiness: `signing` PASS, `OUTBOUND READY: NO` for
-   `routing` and `direct` only); Verify production mail signing. See
-   [`runbooks/mail-signing.md`](runbooks/mail-signing.md).
+   no external mail, no DNS change. *Production-accepted:* Verify production
+   infrastructure run `37634818870` PASS (A, PTR, SPF, DKIM and DMARC through
+   both public resolvers, signing read-only; `OUTBOUND READY: NO` for
+   `routing` and `direct` only) and Verify production mail signing run
+   `37639732203` PASS (a foreign `From` refused `550 5.7.1` and never queued;
+   the valid probe signed `d=tits.guru s=rg1 a=rsa-sha256`, held, and its
+   exact queue entry deleted), with OpenDKIM `2.11.0~beta2-6` on
+   `inet:127.0.0.1:8891` and the key `root:opendkim 0640` in `0750`
+   directories. See [`runbooks/mail-signing.md`](runbooks/mail-signing.md).
 
-   **8.4B.4.2b DNS-ready activation and the first real delivery — planned.**
-   `mail-identity verify-dns` and then full `mail-identity readiness` are hard
-   prerequisites before any activation mutation, and after activation every
-   ordinary run of Verify production infrastructure requires them: enable
-   direct delivery under `mta1.tits.guru`, move `tits-guru` from `held` to
-   `outbound` behind `mail-identity readiness`, set the production `.env` mail
-   values (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
-   `MAIL_FROM_ADDRESS=noreply@tits.guru`), and send one controlled real canary
-   with its headers verified at the large mailbox providers. Sender reputation
-   warm-up starts here.
+   **8.4B.4.2b Guarded outbound activation and the first real delivery —
+   IMPLEMENTED — production activation pending.** The tooling only: merging
+   it activates nothing, and `tits-guru` stays held, direct delivery
+   disabled, `lifecycle=planned`. `scripts/activate-mail-outbound`
+   (`--check`, `--apply`, `--verify`, `--rollback`, `--target` and nothing
+   else) activates exactly what its trusted bundle requests — the target
+   `outbound` by `direct` delivery and `direct.enabled: true` — and refuses
+   anything else ("activation is not requested by this trusted bundle")
+   before it changes anything. It derives the one legal pre-activation state
+   (`outbound` → `held`, the `outbound` route removed, `direct.enabled` →
+   `false`, everything else identical), builds a root-only temporary copy of
+   the trusted tree holding exactly those two documents, and judges the host
+   with that copy's own tools. Under the host's infrastructure lock it
+   requires, before any change: the pre-activation gateway verify, a live
+   read-back of the held route and of no public SMTP listener, public DNS
+   (`verify-dns`), the signer's verify, the signing acceptance on the held
+   listener (foreign `From` refused, valid probe signed, held and deleted) and
+   an empty HOLD queue. It then writes a root-only rollback capsule (the two
+   pre-activation documents and non-secret metadata, never a key or its
+   hash), applies the requested gateway through `install-mail-gateway` alone,
+   and requires its verify, full `mail-identity readiness` (`OUTBOUND READY:
+   YES`) and the read-back of the activated routes; any failure returns the
+   host to held through the capsule's pre-activation bundle and the same
+   proof, and a return that cannot be proved is CRITICAL with nothing broader
+   attempted. An activated, ready host is a no-op. `--rollback` is the
+   initial-launch rollback only: planned target, its own untampered capsule,
+   the same request; it returns the runtime to held and the committed
+   configuration must then be reverted before the next Prepare or Verify.
+   `scripts/send-mail-canary` sends one plain-text canary from the reviewed
+   sender to the one recipient in a root-only file (never an argument, never
+   printed; the domain alone is reported), only once the activation verifies,
+   and follows only its own queue ID to `status=sent` (the remote MX accepted
+   it); a deferred canary is deleted by that ID at the end of the window. The
+   SMTP conversation is the one `scripts/smtp-submission` library the signing
+   acceptance now uses too, its accepted behaviour unchanged. The gateway
+   records the complete public policy it was last applied from
+   (`/var/lib/rateguru-mail-gateway/applied-plan.json` and
+   `applied-outbound.json`, in its transaction), Verify fails on any
+   difference — `default_from`, bounce and reply domains included — and a
+   host's first record may only be the inert one. Crossing between held and
+   outbound, in either direction, is refused by every ordinary gateway apply —
+   Prepare, bootstrap, repair or a root shell — and is made only with a
+   one-use authorization `activate-mail-outbound` writes after its proof
+   (bound to the target, the direction and the SHA-256 of the exact recorded
+   and requested policies, consumed before the transition): a stale-branch
+   Prepare fails closed instead of activating or deactivating mail. Postfix
+   calls itself by the reviewed MTA hostname (`mta1.tits.guru`), so delivered
+   mail no longer names `mail-gateway.rateguru.invalid`. New `main`-only
+   workflows: **Activate tits.guru outbound mail**, **Rollback tits.guru
+   outbound mail activation** and **Send tits.guru production mail canary**
+   (recipient only from the `MAIL_CANARY_RECIPIENT` Environment secret).
+   *The actual activation is a later, explicit operator cutover:* a separate
+   two-file activation pull request into `develop` (`mail-routing.json`:
+   `tits-guru` held → outbound with `{"kind": "direct"}`;
+   `mail-outbound.json`: `direct.enabled` → `true`) that passes CI and reaches
+   `main` by the ordinary promotion — never a pull request directly into
+   `main`, and no synchronization back from `main` into `develop`. Between its
+   merge into `develop` and the activation, Prepare and Verify staging do not
+   run: the shared host is still held, so Verify would report an expected
+   difference, and the interlock still refuses an ordinary Prepare's held →
+   outbound. After the promotion: Activate, Verify production infrastructure
+   (`OUTBOUND READY: YES`), the canary, the operator's inspection of the
+   received message's raw headers (SPF, DKIM and DMARC PASS,
+   `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then
+   Verify staging infrastructure. Not accepted until a real canary has been
+   received and its headers inspected.
+   *Moved out on purpose:* the production application's mail transport
+   (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
+   `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before
+   the first production deploy in 8.6, not here — the application is still
+   planned and undeployed, so changing it now would widen this transaction
+   for nothing. Sender reputation warm-up follows the first delivery. See
+   [`runbooks/mail-outbound-activation.md`](runbooks/mail-outbound-activation.md).
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
    planned.** The production Return-Path and bounce identity, bounce reception
@@ -1995,13 +2062,25 @@ Slices, in order:
    Operating the production mail path day to day, recovering it on a
    replacement machine, and its security acceptance. Required before go-live:
    production backup and recovery must carry the active DKIM signing private
-   key, so a recovered host signs with the same key the published DNS names.
+   key, so a recovered host signs with the same key the published DNS names; a
+   recovery-time outbound fence, so a replacement host delivers nothing before
+   it is proved; A, PTR and SPF re-accepted for the replacement host's address
+   before mail resumes; and a host-scoped mail topology once staging and
+   production run on separate machines. The permanent outbound hold of a live
+   target belongs here too — the 8.4B.4.2b rollback is for the initial launch
+   only.
 5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,
    and rehearsing on a substitute would prove less than the real cutover with
    a rollback path.
-6. **8.6 Production operations acceptance.** A real production deploy,
+6. **8.6 Production operations acceptance.** Before the first production
+   deploy, a separately reviewed operation sets and verifies the application's
+   mail transport from the reviewed mail routing plan — `MAIL_MAILER=smtp`,
+   `MAIL_HOST=127.0.0.1`, `MAIL_PORT` the target's submission port (`2526`),
+   `MAIL_FROM_ADDRESS` its `default_from` (`noreply@tits.guru`), no SMTP
+   username or password — moved here from 8.4B.4.2b, because the application
+   is undeployed while its mail is activated. Then a real production deploy,
    rollback, and deploy again; queue, scheduler and health; observability;
    backup, offsite and restore-test; the mail delivery and bounce path; and
    target isolation from staging. No infrastructure operation performed

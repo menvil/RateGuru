@@ -1,0 +1,595 @@
+#!/usr/bin/env bash
+#
+# send-mail-canary — one real, controlled message from an activated production
+# target, followed by its exact queue ID until the receiving server accepted
+# it.
+#
+#   send-mail-canary --check --target TARGET --recipient-file FILE
+#   send-mail-canary --send  --target TARGET --recipient-file FILE
+#
+# THE RECIPIENT is never a command-line argument: it is read from FILE, which
+# must be a regular file (never a symlink) owned by root and readable by
+# nobody else, holding exactly one public email address and nothing else — no
+# second line, no space, no control character, no address under a reserved or
+# local domain (.invalid, .test, .localhost, .local, .example, ...). It is
+# never printed, logged or passed to another program: everything this script
+# reports names only the recipient's DOMAIN.
+#
+# THE SENDER is never the caller's. Everything about it comes from the reviewed
+# mail routing plan of the bundle this script runs from: the target's loopback
+# submission endpoint, its reviewed default_from as both the envelope sender
+# and the From header, and its mail domain for the Message-ID. For tits-guru
+# that is 127.0.0.1:2526 and noreply@tits.guru.
+#
+# BEFORE ANY CONNECTION: the target must be production and still planned, its
+# mail outbound by direct delivery, and `activate-mail-outbound --verify
+# --target TARGET` — the gateway, the signer, public DNS and full readiness —
+# must pass with OUTBOUND READY: YES. --check stops there.
+#
+# --send then submits exactly one short plain-text message, with a unique,
+# non-secret canary ID in its subject, body and Message-ID, through the same
+# SMTP conversation the signing acceptance uses (smtp-submission), to the
+# target's own listener — the gateway signs it and delivers it directly. It
+# follows ONLY the queue ID Postfix returned:
+#
+#   status=sent      the receiving MX accepted it                 PASS
+#   status=bounced   refused permanently                          FAIL
+#   status=expired   given up on                                  FAIL
+#   still deferred at the end of the bounded window               FAIL, and
+#                    that one queue entry is deleted so it does not retry for days
+#
+# Interrupted or failed, it deletes only its own queue entry, by its exact ID,
+# and only while that entry is still queued. It never flushes, releases or
+# requeues anything, and never touches another entry.
+#
+# WHAT A PASS IS NOT. status=sent is the local Postfix's record that the
+# remote MX accepted the message. It says nothing about SPF, DKIM or DMARC at
+# the receiver, and nothing about where the message was filed: those are read
+# by an operator from the raw headers of the message as received.
+#
+# One machine-readable line ends every run whose mode and target were
+# understood: RATEGURU_MAIL_CANARY_RESULT={target, mode, status, canary_id,
+# message_id, queue_id, recipient_domain, smtp_delivery, dsn, deleted}. It
+# never contains the recipient's local part.
+#
+# Test overrides: the RATEGURU_MAILCANARY_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILCANARY_EUID "${EUID}")"
+
+# Who must own the recipient file: root on a host.
+FILE_OWNER_UID="$(gated_default RATEGURU_MAILCANARY_FILE_OWNER_UID 0)"
+
+# shellcheck disable=SC2034 # read by smtp-submission's queue lookups
+POSTQUEUE_BIN="$(gated_default RATEGURU_MAILCANARY_POSTQUEUE_BIN postqueue)"
+POSTSUPER_BIN="$(gated_default RATEGURU_MAILCANARY_POSTSUPER_BIN postsuper)"
+JOURNALCTL_BIN="$(gated_default RATEGURU_MAILCANARY_JOURNALCTL_BIN journalctl)"
+
+# How long the receiving server has to accept the canary, and how often its
+# queue entry is looked at. Greylisting defers a first message for minutes, so
+# the window outlasts Postfix's first retry.
+DELIVERY_WINDOW="$(gated_default RATEGURU_MAILCANARY_DELIVERY_WINDOW 900)"
+POLL_INTERVAL="$(gated_default RATEGURU_MAILCANARY_POLL_INTERVAL 5)"
+[[ "${DELIVERY_WINDOW}" =~ ^[1-9][0-9]*$ ]] || DELIVERY_WINDOW=900
+[[ "${POLL_INTERVAL}" =~ ^[1-9][0-9]*$ ]] || POLL_INTERVAL=5
+
+# The owners this composes, from this bundle.
+MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
+ACTIVATION_CLI="${SCRIPT_DIR}/activate-mail-outbound"
+
+# The SMTP conversation and the exact-queue-entry lookups, shared with the
+# signing acceptance.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/smtp-submission"
+
+# A recipient file larger than this does not hold one address.
+MAX_RECIPIENT_FILE_BYTES=320
+
+# Domains that are never a public mailbox: reserved for documentation and
+# testing (RFC 2606, RFC 6761), local-network names, and the special-use ones.
+RESERVED_TLDS=(invalid test localhost local example onion internal localdomain lan home corp arpa)
+RESERVED_DOMAINS=(example.com example.net example.org)
+
+MODE=""
+TARGET_ID=""
+RECIPIENT_FILE=""
+
+RESULT_READY=false
+RESULT_PRINTED=false
+
+# Never printed. The domain alone is reported.
+RECIPIENT=""
+RECIPIENT_DOMAIN=""
+
+LISTEN_HOST=""
+LISTEN_PORT=""
+SENDER=""
+MAIL_DOMAIN=""
+
+CANARY_ID=""
+MESSAGE_ID=""
+QUEUE_ID=""
+SMTP_DELIVERY=""
+DELIVERY_DSN=""
+DELETED=false
+FINISHED=false
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+ok() { printf '  PASS %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*"; }
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  send-mail-canary --check --target TARGET --recipient-file FILE
+  send-mail-canary --send  --target TARGET --recipient-file FILE
+  send-mail-canary --help
+
+  --check  Root. Validate the recipient file and the target: production,
+           planned, outbound by direct delivery, and activate-mail-outbound
+           --verify passing with OUTBOUND READY: YES. No connection.
+  --send   Root. Everything --check proves, then exactly one plain-text canary
+           from the target's reviewed sender, followed by its exact queue ID
+           until Postfix records status=sent — or, at the end of the window,
+           that one entry deleted.
+
+FILE holds exactly one public email address and nothing else: a regular,
+root-owned file readable by root alone. The address is never printed; only its
+domain is reported. The sender, endpoint and domain come from the reviewed
+mail routing plan, never from the caller.
+USAGE
+}
+
+# --- Result -------------------------------------------------------------------------
+
+result_line() {
+    local status="$1"
+
+    [[ "${RESULT_PRINTED}" == false ]] || return 0
+    RESULT_PRINTED=true
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --arg canary_id "${CANARY_ID}" --arg message_id "${MESSAGE_ID}" --arg queue_id "${QUEUE_ID}" \
+        --arg domain "${RECIPIENT_DOMAIN}" --arg delivery "${SMTP_DELIVERY}" --arg dsn "${DELIVERY_DSN}" \
+        --argjson deleted "${DELETED}" '
+        def nullable: if . == "" then null else . end;
+        {target: $target, mode: $mode, status: $status,
+         canary_id: ($canary_id | nullable), message_id: ($message_id | nullable),
+         queue_id: ($queue_id | nullable), recipient_domain: ($domain | nullable),
+         smtp_delivery: ($delivery | nullable), dsn: ($dsn | nullable), deleted: $deleted}' \
+        | sed 's/^/RATEGURU_MAIL_CANARY_RESULT=/'
+}
+
+# --- Exit: its own queue entry, and the result ------------------------------------------
+
+# delete_own_entry — the canary's own queue entry, by its exact ID, while it is
+# still queued; nothing else, ever. A queue that cannot be read is never taken
+# to mean the entry is gone.
+delete_own_entry() {
+    local state
+    [[ -n "${QUEUE_ID}" ]] || return 0
+
+    if ! state="$(queue_state "${QUEUE_ID}")"; then
+        printf '  FAIL could not read the Postfix queue to remove the canary queue entry %s — if it is still there, remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+    [[ -n "${state}" ]] || return 0
+
+    if ! "${POSTSUPER_BIN}" -d "${QUEUE_ID}" >/dev/null 2>&1; then
+        printf '  FAIL could not delete the canary queue entry %s — remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+
+    if ! state="$(queue_state "${QUEUE_ID}")"; then
+        printf '  FAIL could not read the Postfix queue to confirm the canary queue entry %s is gone — if it is still there, remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+
+    if [[ -n "${state}" ]]; then
+        printf '  FAIL the canary queue entry %s is still queued after its deletion — remove it with: postsuper -d %s\n' "${QUEUE_ID}" "${QUEUE_ID}"
+        return 1
+    fi
+
+    DELETED=true
+    log "deleted the canary's own queue entry ${QUEUE_ID}, so it does not keep retrying"
+}
+
+on_exit() {
+    local status=$?
+    trap - EXIT
+    trap '' HUP INT PIPE TERM
+    set +e
+
+    # A canary that did not reach a final status is not left to retry.
+    if [[ "${FINISHED}" == false ]]; then
+        delete_own_entry
+    fi
+
+    if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]] && command -v jq >/dev/null 2>&1; then
+        result_line "$( (( status == 0 )) && echo pass || echo fail)"
+    fi
+
+    exit "${status}"
+}
+
+# --- Preconditions ------------------------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "send-mail-canary --${MODE} must run as root (the queue and the gateway it follows are root's)"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || die "required tool not found: ${tool}"
+    done
+}
+
+# --- The recipient --------------------------------------------------------------------
+
+# load_recipient — RECIPIENT and RECIPIENT_DOMAIN from the recipient file, or a
+# refusal that never repeats what the file holds.
+load_recipient() {
+    local file="${RECIPIENT_FILE}" meta owner mode size content local_part domain tld reserved
+
+    [[ -e "${file}" || -L "${file}" ]] || die "the recipient file does not exist — nothing was sent"
+    [[ ! -L "${file}" ]] || die "the recipient file is a symlink — it must be a regular file; nothing was sent"
+    [[ -f "${file}" ]] || die "the recipient file is not a regular file — nothing was sent"
+
+    meta="$(stat -c '%u %a %s' -- "${file}" 2>/dev/null)" || die "the recipient file cannot be inspected — nothing was sent"
+    read -r owner mode size <<<"${meta}"
+
+    [[ "${owner}" == "${FILE_OWNER_UID}" ]] \
+        || die "the recipient file is not owned by root — nothing was sent"
+    (( (8#${mode} & 8#077) == 0 )) \
+        || die "the recipient file is readable or writable by others (mode ${mode}) — it must be readable by root alone; nothing was sent"
+    (( size > 0 && size <= MAX_RECIPIENT_FILE_BYTES )) \
+        || die "the recipient file is empty or too large to hold one address — nothing was sent"
+
+    # No byte in it but printable ASCII and at most one final newline.
+    [[ "$(LC_ALL=C tr -d '\000-\011\013-\037\177-\377' < "${file}" | wc -c | tr -d ' ')" == "${size}" ]] \
+        || die "the recipient file holds a control character or a non-ASCII byte — nothing was sent"
+    case "$(LC_ALL=C tr -cd '\n' < "${file}" | wc -c | tr -d ' ')" in
+        0) ;;
+        1) [[ "$(tail -c 1 -- "${file}" | od -An -c | tr -d ' ')" == '\n' ]] \
+               || die "the recipient file holds more than one line — nothing was sent" ;;
+        *) die "the recipient file holds more than one line — nothing was sent" ;;
+    esac
+
+    IFS= read -r content < "${file}" || [[ -n "${content:-}" ]] \
+        || die "the recipient file cannot be read — nothing was sent"
+
+    [[ ! "${content}" =~ [[:space:]] ]] || die "the recipient file holds a space — it must hold exactly one address; nothing was sent"
+    (( ${#content} <= 254 )) || die "the recipient address is longer than an address can be — nothing was sent"
+
+    [[ "${content}" =~ ^([A-Za-z0-9._%+-]{1,64})@([A-Za-z0-9.-]{1,253})$ ]] \
+        || die "the recipient file does not hold one plain email address (local@domain) — nothing was sent"
+    local_part="${BASH_REMATCH[1]}"
+    domain="${BASH_REMATCH[2],,}"
+
+    [[ "${local_part}" != .* && "${local_part}" != *. && "${local_part}" != *..* ]] \
+        || die "the recipient's local part is not a plain one — nothing was sent"
+    [[ "${domain}" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$ ]] \
+        || die "the recipient's domain is not a public domain name — nothing was sent"
+
+    tld="${domain##*.}"
+    for reserved in "${RESERVED_TLDS[@]}"; do
+        [[ "${tld}" != "${reserved}" ]] \
+            || die "the recipient's domain is under the reserved or local .${reserved} — a canary goes to a real public mailbox; nothing was sent"
+    done
+    for reserved in "${RESERVED_DOMAINS[@]}"; do
+        [[ "${domain}" != "${reserved}" && "${domain}" != *".${reserved}" ]] \
+            || die "the recipient's domain is the reserved ${reserved} — a canary goes to a real public mailbox; nothing was sent"
+    done
+
+    RECIPIENT="${content}"
+    RECIPIENT_DOMAIN="${domain}"
+    ok "the recipient file holds one public address at ${RECIPIENT_DOMAIN} (the address itself is never printed)"
+}
+
+# redact REPLY — a server reply, safe to print: withheld when it names the
+# recipient.
+redact() {
+    local reply="$1" local_part="${RECIPIENT%@*}"
+
+    if [[ -n "${local_part}" && "${reply,,}" == *"${local_part,,}"* ]]; then
+        printf '%s (the rest of the reply names the recipient and is withheld)\n' "${reply:0:9}"
+    else
+        printf '%s\n' "${reply}"
+    fi
+}
+
+# --- The target -----------------------------------------------------------------------
+
+# load_target — the reviewed sender, endpoint and domain, from this bundle's
+# routing plan; refuses anything but a planned production target delivering
+# outbound by direct delivery.
+load_target() {
+    local plan listener environment lifecycle mode route
+
+    [[ -x "${MAIL_ROUTING_CLI}" ]] || die "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full trusted bundle"
+
+    plan="$("${MAIL_ROUTING_CLI}" render-plan 2>/dev/null)" \
+        || die "mail-routing render-plan refused the reviewed policy — nothing was sent"
+
+    listener="$(jq -c --arg t "${TARGET_ID}" '.listeners[] | select(.identity == $t)' <<<"${plan}")"
+    [[ -n "${listener}" ]] || die "${TARGET_ID} is not a target of the mail routing plan — nothing was sent"
+
+    environment="$(jq -r '.environment_class' <<<"${listener}")"
+    lifecycle="$(jq -r '.lifecycle' <<<"${listener}")"
+    mode="$(jq -r '.delivery_mode' <<<"${listener}")"
+    route="$(jq -r '.route.kind // "none"' <<<"${listener}")"
+
+    [[ "${environment}" == production ]] \
+        || die "${TARGET_ID} is a ${environment} target — a canary is only ever sent by a production target; nothing was sent"
+    [[ "${lifecycle}" == planned ]] \
+        || die "${TARGET_ID} is lifecycle=${lifecycle}, not planned — the first-delivery canary belongs to a target that has not gone live; nothing was sent"
+    [[ "${mode}" == outbound && "${route}" == direct ]] \
+        || die "${TARGET_ID}'s mail is ${mode} (route ${route}), not outbound by direct delivery — a canary can only be sent once it is activated; nothing was sent"
+
+    LISTEN_HOST="$(jq -r '.listen.host' <<<"${listener}")"
+    LISTEN_PORT="$(jq -r '.listen.port' <<<"${listener}")"
+    SENDER="$(jq -r '.sender.default_from' <<<"${listener}")"
+    MAIL_DOMAIN="$(jq -r '.sender.allowed_domain' <<<"${listener}")"
+
+    [[ "${LISTEN_HOST}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ && "${LISTEN_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] \
+        || die "${TARGET_ID}'s listener ${LISTEN_HOST}:${LISTEN_PORT} is not a loopback endpoint — nothing was sent"
+    [[ "${SENDER}" =~ ^[a-z0-9._+-]+@[a-z0-9.-]+$ && "${SENDER#*@}" == "${MAIL_DOMAIN}" ]] \
+        || die "${TARGET_ID}'s reviewed sender is not a plain address in its mail domain — nothing was sent"
+
+    ok "${TARGET_ID} is a planned production target delivering outbound by direct delivery; it sends as ${SENDER} through ${LISTEN_HOST}:${LISTEN_PORT}"
+}
+
+# require_activated — activate-mail-outbound --verify, passing with OUTBOUND
+# READY: YES.
+require_activated() {
+    local output status=0 json line
+
+    [[ -x "${ACTIVATION_CLI}" ]] || die "the activation CLI is not executable: ${ACTIVATION_CLI} — run from a full trusted bundle"
+
+    log "activate-mail-outbound --verify --target ${TARGET_ID}"
+    output="$("${ACTIVATION_CLI}" --verify --target "${TARGET_ID}" 2>&1 </dev/null)" || status=$?
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && printf '       | %s\n' "${line}"
+    done <<<"${output}"
+
+    json="$(grep '^RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT=' <<<"${output}" | tail -n 1 || true)"
+    json="${json#RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT=}"
+
+    if (( status == 0 )) && [[ "$(grep -c '^RATEGURU_MAIL_OUTBOUND_ACTIVATION_RESULT=' <<<"${output}" || true)" == 1 ]] \
+        && jq -e --arg t "${TARGET_ID}" '.target == $t and .mode == "verify" and .status == "pass" and .outbound_ready == true' <<<"${json}" >/dev/null 2>&1
+    then
+        ok "the activation verifies: OUTBOUND READY: YES"
+        return 0
+    fi
+
+    die "the activation of ${TARGET_ID} does not verify (exit ${status}) — a canary is sent only by a fully ready target; nothing was sent"
+}
+
+# --- The canary -----------------------------------------------------------------------
+
+random_hex() {
+    od -An -N6 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+# compose — the canary's headers and body; nothing secret, nothing from the
+# environment.
+compose() {
+    printf 'From: %s\n' "${SENDER}"
+    printf 'To: <%s>\n' "${RECIPIENT}"
+    printf 'Subject: RateGuru mail canary %s\n' "${CANARY_ID}"
+    printf 'Date: %s\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+    printf 'Message-ID: %s\n' "${MESSAGE_ID}"
+    printf 'MIME-Version: 1.0\n'
+    printf 'Content-Type: text/plain; charset=us-ascii\n'
+    printf 'Content-Transfer-Encoding: 7bit\n'
+    printf 'X-RateGuru-Mail-Canary: %s\n' "${CANARY_ID}"
+    printf '\n'
+    printf 'This is a delivery check from %s, sent once and on purpose by its operator.\n' "${MAIL_DOMAIN}"
+    printf '\n'
+    printf 'Canary ID: %s\n' "${CANARY_ID}"
+    printf '\n'
+    printf 'No reply is needed.\n'
+}
+
+# delivery_status — the latest delivery status Postfix logged for the
+# canary's own queue ID since it was submitted, as "STATUS DSN", or nothing.
+# The log line itself names the recipient and is never printed.
+DELIVERY_SINCE=""
+
+delivery_status() {
+    local lines line status dsn last=""
+
+    lines="$("${JOURNALCTL_BIN}" --no-pager --quiet --output=cat --since="@${DELIVERY_SINCE}" SYSLOG_FACILITY=2 2>/dev/null || true)"
+
+    while IFS= read -r line; do
+        [[ "${line}" == "${QUEUE_ID}: "* ]] || continue
+        [[ "${line}" =~ status=([a-z]+) ]] || continue
+        status="${BASH_REMATCH[1]}"
+        dsn=""
+        [[ ! "${line}" =~ dsn=([0-9]\.[0-9]{1,3}\.[0-9]{1,3}) ]] || dsn="${BASH_REMATCH[1]}"
+        last="${status} ${dsn}"
+    done <<<"${lines}"
+
+    printf '%s\n' "${last}"
+}
+
+# follow — the canary's queue ID until a final status or the end of the window.
+follow() {
+    local waited=0 found status dsn
+
+    while :; do
+        found="$(delivery_status)"
+        status="${found%% *}"
+        dsn="${found#* }"
+        [[ "${found}" == *" "* ]] || dsn=""
+
+        case "${status}" in
+            sent|bounced|expired)
+                SMTP_DELIVERY="${status}"
+                DELIVERY_DSN="${dsn}"
+                return 0
+                ;;
+            deferred)
+                if [[ "${SMTP_DELIVERY}" != deferred || "${DELIVERY_DSN}" != "${dsn}" ]]; then
+                    log "queue entry ${QUEUE_ID} is deferred (dsn ${dsn:-none}) — Postfix retries it; still waiting"
+                fi
+                SMTP_DELIVERY=deferred
+                DELIVERY_DSN="${dsn}"
+                ;;
+        esac
+
+        (( waited < DELIVERY_WINDOW )) || return 1
+        sleep "${POLL_INTERVAL}"
+        waited=$((waited + POLL_INTERVAL))
+    done
+}
+
+run_send() {
+    CANARY_ID="rgcanary-$(date -u '+%Y%m%dT%H%M%SZ')-$(random_hex)"
+    MESSAGE_ID="<${CANARY_ID}@${MAIL_DOMAIN}>"
+    DELIVERY_SINCE="$(( $(date -u '+%s') - 2 ))"
+
+    log "sending one canary ${CANARY_ID} from ${SENDER} to an address at ${RECIPIENT_DOMAIN}, through ${TARGET_ID}'s listener ${LISTEN_HOST}:${LISTEN_PORT}"
+
+    if ! smtp_submit_message "${LISTEN_HOST}" "${LISTEN_PORT}" mail-canary "${SENDER}" "${RECIPIENT}" "$(compose)"; then
+        SMTP_DELIVERY="not_submitted"
+        FINISHED=true
+        bad "the gateway did not accept the canary (${SMTP_STAGE}: $(redact "${SMTP_REPLY}"))"
+        log "MAIL CANARY: FAIL — nothing was queued"
+        result_line fail
+        exit 1
+    fi
+
+    QUEUE_ID="${SMTP_QUEUE_ID}"
+    if [[ ! "${QUEUE_ID}" =~ ^[0-9A-Za-z]+$ ]]; then
+        QUEUE_ID=""
+        SMTP_DELIVERY="unknown"
+        FINISHED=true
+        bad "the gateway accepted the canary but named no queue ID ($(redact "${SMTP_REPLY}")) — there is no exact entry to follow, and nothing is guessed or removed"
+        log "MAIL CANARY: FAIL"
+        result_line fail
+        exit 1
+    fi
+    ok "Postfix queued the canary as ${QUEUE_ID}; following that queue ID alone for up to ${DELIVERY_WINDOW}s"
+
+    if ! follow; then
+        bad "queue entry ${QUEUE_ID} reached no final status within ${DELIVERY_WINDOW}s (last: ${SMTP_DELIVERY:-no delivery attempt logged}${DELIVERY_DSN:+, dsn ${DELIVERY_DSN}})"
+        [[ -n "${SMTP_DELIVERY}" ]] || SMTP_DELIVERY="unknown"
+        FINISHED=true
+        delete_own_entry || true
+        log "MAIL CANARY: FAIL"
+        result_line fail
+        exit 1
+    fi
+
+    FINISHED=true
+
+    case "${SMTP_DELIVERY}" in
+        sent)
+            ok "queue entry ${QUEUE_ID}: status=sent (dsn ${DELIVERY_DSN:-none}) — the receiving server at ${RECIPIENT_DOMAIN} accepted the canary"
+            log "MAIL CANARY: PASS — the remote MX accepted ${MESSAGE_ID}. This is NOT proof of SPF, DKIM or DMARC at the receiver: read the raw headers of the received message"
+            result_line pass
+            ;;
+        *)
+            bad "queue entry ${QUEUE_ID}: status=${SMTP_DELIVERY} (dsn ${DELIVERY_DSN:-none}) — the canary was not delivered"
+            delete_own_entry || true
+            log "MAIL CANARY: FAIL"
+            result_line fail
+            exit 1
+            ;;
+    esac
+}
+
+# --- Entry point ---------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--send)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            --recipient-file)
+                [[ -z "${RECIPIENT_FILE}" ]] || die "--recipient-file given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--recipient-file requires a value"
+                RECIPIENT_FILE="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                die "unknown argument — the recipient is never an argument, only the content of --recipient-file"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check or --send (sending is never a default)"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+    [[ -n "${RECIPIENT_FILE}" ]] || die "--${MODE} requires --recipient-file"
+
+    require_tools jq stat od tr wc
+    RESULT_READY=true
+    trap on_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 141' PIPE
+    trap 'exit 143' TERM
+
+    require_root
+    load_recipient
+    load_target
+    require_activated
+
+    if [[ "${MODE}" == check ]]; then
+        FINISHED=true
+        log "MAIL CANARY CHECK: READY — --send would send one canary to an address at ${RECIPIENT_DOMAIN}"
+        result_line pass
+        return 0
+    fi
+
+    run_send
+}
+
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped code rather than a copy of it.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

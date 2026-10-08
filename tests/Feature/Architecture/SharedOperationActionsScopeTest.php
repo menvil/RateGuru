@@ -60,6 +60,10 @@ it('has exactly one build, one deploy and one rollback implementation', function
         ->all();
 
     expect($actions)->toBe([
+        // The outbound mail activation's transport: it runs exactly
+        // activate-mail-outbound, in the one mode its workflow fixed, and
+        // carries no material.
+        'activate-rateguru-mail-outbound',
         'build-rateguru',
         // One CONFIGURE implementation, for an already-provisioned planned
         // production target. Transport only: it carries no material at all —
@@ -91,6 +95,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // three of its modes and both environments.
         'restore-rateguru',
         'rollback-rateguru',
+        // The production mail canary's transport: it runs exactly
+        // send-mail-canary, its recipient carried as a root-only file.
+        'send-rateguru-mail-canary',
         'sentry-release',
         // The infrastructure verification transport: it runs exactly
         // verify-infrastructure on a host and installs nothing.
@@ -103,6 +110,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
 
 it('keeps one operator-facing workflow per environment, with no target selector anywhere', function () {
     expect(array_keys(phase71Workflows()))->toEqualCanonicalizing([
+        // tits-guru's outbound mail: its guarded activation, the rollback of
+        // that activation while it is planned, and the first real delivery.
+        'activate-tits-guru-mail.yml',
         'ci.yml',
         'configure-tits-guru.yml',
         'coverage.yml',
@@ -126,6 +136,8 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        'rollback-tits-guru-mail-activation.yml',
+        'send-tits-guru-mail-canary.yml',
         // One verification workflow per environment, exactly like every other
         // operator-facing operation here, and the production signing
         // acceptance.
@@ -515,6 +527,12 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // The signing acceptance queues and deletes one held message on that
         // same machine, so it waits in the same domain.
         'verify-production-mail-signing.yml:accept' => ['tits-guru', 'rateguru-staging-deployment'],
+        // The outbound mail activation and its rollback change the gateway
+        // that machine shares with staging, and the canary submits through
+        // it: the same domain.
+        'activate-tits-guru-mail.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
+        'rollback-tits-guru-mail-activation.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
+        'send-tits-guru-mail-canary.yml:canary' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];
