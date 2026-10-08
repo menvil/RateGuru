@@ -1,0 +1,26 @@
+app/Support/Locale/LanguageRules.php
+  s_cbcd61fc717774::t_27d70d182406c1 1-5,14-30,45-54,39,41,43-44
+  s_cbcd61fc717774::t_bf05f8ccc0866a 38
+app/Support/Translations/ProjectTranslationRequestFactory.php
+  s_cbcd61fc717774::t_6644c50f8d06fb 5,57-58
+app/Jobs/Translations/GenerateProjectTranslationChunkJob.php
+  s_cbcd61fc717774::t_6644c50f8d06fb 91-93,104,145
+docs/architecture/translation-engine.md
+  s_cbcd61fc717774::t_a47fa4902fc3d5 82-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "929116c71197d646a00a8340af318f261ff590b8",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
