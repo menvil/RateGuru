@@ -181,7 +181,7 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
    {
      "schema_version": 1,
      "direct": {
-       "enabled": false,
+       "enabled": true,
        "mta_hostname": "mta1.tits.guru"
      }
    }
@@ -191,14 +191,13 @@ Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outb
    exactly one PTR name. So the name direct delivery greets receiving servers
    with (`HELO`/`EHLO`) is the **host's** physical MTA identity, kept here once,
    and never a target's `From` domain or anything in a target's policy.
-   `enabled: false` means direct delivery does not exist on this host;
-   `mta_hostname` may then be empty, or — as now — name the reviewed identity
-   ahead of its enablement, which renders nothing. `enabled: true` requires a lowercase,
-   fully qualified public hostname — never under `.invalid`, `.test`,
-   `.localhost`, `.example`, `.local`, `.localdomain`, `.internal`, `.alt`,
-   `.onion` or `.arpa`, because a receiving server compares it with the PTR of
-   the sending address. The file holds no credential; there is nowhere in it to
-   put one.
+   `enabled: false` means direct delivery does not exist on this host, and
+   `mta_hostname` may then be empty. `enabled: true` — the committed contract —
+   requires a lowercase, fully qualified public hostname, never under
+   `.invalid`, `.test`, `.localhost`, `.example`, `.local`, `.localdomain`,
+   `.internal`, `.alt`, `.onion` or `.arpa`, because a receiving server compares
+   it with the PTR of the sending address. The file holds no credential; there
+   is nowhere in it to put one.
 
 **Fail closed before anything changes.** `install-mail-gateway` judges the host
 contract in every mode, before it renders. A plan with a direct route on a host

@@ -298,10 +298,12 @@ Deploy compares a host's `.env` with the template by key, never by value. The
 ordered cutover, and its rollback to the direct `MAIL_PORT=1025` path, are in
 [`mail-gateway.md`](mail-gateway.md#staging-cutover).
 
-### FUTURE gateway values (not set — tits-guru has no route yet)
+### FUTURE application values (not set — tits-guru is not deployed)
 
-`tits-guru`, once its policy is `outbound`, the host's direct delivery is
-enabled under its real MTA identity, and the target is activated:
+`tits-guru`'s committed policy is `outbound`, and the committed
+`config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`; the
+real host stays held until Activate. Once the host is activated and before the
+first production deploy, its application is given:
 
 ```dotenv
 MAIL_MAILER=smtp
@@ -312,8 +314,8 @@ MAIL_FROM_ADDRESS=noreply@tits.guru
 
 Its template keeps `MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT` and
 `MAIL_FROM_ADDRESS` empty: the target is planned, not deployed, and its listener
-holds everything it accepts, so naming it as a working endpoint would claim a
-delivery path that does not exist.
+on the host holds everything it accepts until Activate, so naming it as a
+working endpoint would claim a delivery path that does not exist yet.
 
 Two `2525`s elsewhere in the repository are unrelated framework defaults:
 `config/mail.php` falls back to `env('MAIL_PORT', 2525)`, and the root

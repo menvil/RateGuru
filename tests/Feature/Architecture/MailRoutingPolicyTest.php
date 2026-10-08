@@ -1464,8 +1464,8 @@ it('documents the template, the host and the future apart, and the template and 
     };
 
     $template = $section('### The committed staging template names the gateway', '### CURRENT runtime values');
-    $current = $section('### CURRENT runtime values (what the staging host runs today)', '### FUTURE gateway values');
-    $future = $section('### FUTURE gateway values (not set — tits-guru has no route yet)', '## Adding a target');
+    $current = $section('### CURRENT runtime values (what the staging host runs today)', '### FUTURE application values');
+    $future = $section('### FUTURE application values (not set — tits-guru is not deployed)', '## Adding a target');
 
     // The template is the plan's staging listener, and so is the host since its
     // operator cut over to the gateway; the future is tits-guru's.
