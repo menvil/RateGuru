@@ -18,8 +18,10 @@
 # THE SENDER is never the caller's. Everything about it comes from the reviewed
 # mail routing plan of the bundle this script runs from: the target's loopback
 # submission endpoint, its reviewed default_from as both the envelope sender
-# and the From header, and its mail domain for the Message-ID. For tits-guru
-# that is 127.0.0.1:2526 and noreply@tits.guru.
+# and the address in the From header, and its mail domain for the Message-ID.
+# The From header puts the target's display name before that address when it
+# has one (from_display_name below). For tits-guru that is 127.0.0.1:2526,
+# envelope sender noreply@tits.guru and From: TitsGuru <noreply@tits.guru>.
 #
 # BEFORE ANY CONNECTION: the target must be production and still planned, its
 # mail outbound by direct delivery, and `activate-mail-outbound --verify
@@ -122,6 +124,7 @@ RECIPIENT_DOMAIN=""
 LISTEN_HOST=""
 LISTEN_PORT=""
 SENDER=""
+FROM_HEADER=""
 MAIL_DOMAIN=""
 
 CANARY_ID=""
@@ -362,6 +365,16 @@ load_target() {
     [[ "${SENDER}" =~ ^[a-z0-9._+-]+@[a-z0-9.-]+$ && "${SENDER#*@}" == "${MAIL_DOMAIN}" ]] \
         || die "${TARGET_ID}'s reviewed sender is not a plain address in its mail domain — nothing was sent"
 
+    local display
+    display="$(from_display_name "${TARGET_ID}")"
+    if [[ -n "${display}" ]]; then
+        [[ "${display}" =~ ^[A-Za-z0-9]+( [A-Za-z0-9]+)*$ ]] \
+            || die "${TARGET_ID}'s display name is not plain letters and digits — nothing was sent"
+        FROM_HEADER="${display} <${SENDER}>"
+    else
+        FROM_HEADER="${SENDER}"
+    fi
+
     ok "${TARGET_ID} is a planned production target delivering outbound by direct delivery; it sends as ${SENDER} through ${LISTEN_HOST}:${LISTEN_PORT}"
 }
 
@@ -398,10 +411,21 @@ random_hex() {
     od -An -N6 -tx1 /dev/urandom | tr -d ' \n'
 }
 
+# from_display_name TARGET — the name the canary's From header shows before
+# the reviewed address, or nothing. Presentation only: the envelope sender and
+# the address in the header stay the reviewed default_from, which is all the
+# gateway, its From policy and the signer judge. The application's own
+# MAIL_FROM_NAME is set before its first deploy, not here.
+from_display_name() {
+    case "$1" in
+        tits-guru) printf 'TitsGuru' ;;
+    esac
+}
+
 # compose — the canary's headers and body; nothing secret, nothing from the
 # environment.
 compose() {
-    printf 'From: %s\n' "${SENDER}"
+    printf 'From: %s\n' "${FROM_HEADER}"
     printf 'To: <%s>\n' "${RECIPIENT}"
     printf 'Subject: RateGuru mail canary %s\n' "${CANARY_ID}"
     printf 'Date: %s\n' "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
