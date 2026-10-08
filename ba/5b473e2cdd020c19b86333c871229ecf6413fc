@@ -1,0 +1,15 @@
+infrastructure/scripts/mail-inbound
+  ai_agent 66-69,576-577,664-669,680-685,697-740
+infrastructure/ROADMAP.md
+  ai_agent 2149-2152
+infrastructure/runbooks/mail-inbound.md
+  ai_agent 225-236
+tests/Feature/Architecture/MailInboundTest.php
+  ai_agent 26-31,481,828,896,898-899,905,925,928-954,958-959,962-980,983-985,988-991,1010,1182,1221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ba5b473e2cdd020c19b86333c871229ecf6413fc",
+  "prompts": {}
+}

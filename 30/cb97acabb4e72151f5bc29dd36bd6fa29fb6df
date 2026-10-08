@@ -1,0 +1,21 @@
+tests/Feature/Architecture/MailInboundTest.php
+  s_3481294084957b::t_903fb6816eac62 38,47
+tests/Pest.php
+  s_3481294084957b::t_903fb6816eac62 2433-2435,2437,2442,2445,2449,2452-2465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30cb97acabb4e72151f5bc29dd36bd6fa29fb6df",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
