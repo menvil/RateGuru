@@ -91,7 +91,10 @@ pest()->beforeEach(function (): void {
 
 // A Browser test fails on any JavaScript error any page it opened raised,
 // whether or not it asserts on that page: see watchBrowserJavaScriptErrors().
+// The server the browser talks to is kept from corrupting a reused connection:
+// see keepBodilessResponsesOffKeepAliveConnections().
 pest()->beforeEach(function (): void {
+    keepBodilessResponsesOffKeepAliveConnections($this->app);
     $this->browserJavaScriptErrors = watchBrowserJavaScriptErrors($this->app);
 })->afterEach(function (): void {
     assertNoBrowserJavaScriptErrors($this->browserJavaScriptErrors);
@@ -5622,6 +5625,34 @@ function eventually(callable $assertions, float $timeoutSeconds = 5.0): mixed
             browserTestPause(0.025);
         }
     }
+}
+
+/**
+ * Sends every response that cannot have a body (204, 304) with
+ * "Connection: close", for the rest of the test.
+ *
+ * The browser plugin serves the application through amphp/http-server. Its
+ * HTTP/1.1 driver frames any response without a Content-Length as chunked,
+ * one that cannot have a body included, and writes the terminating chunk after
+ * the headers. Chromium takes such a response as complete at its headers and
+ * puts the connection back in its pool. When it sends the next request on that
+ * connection before those five bytes arrive, the next response reads as
+ * starting with them: the navigation ends on Chromium's error page with
+ * net::ERR_INVALID_HTTP_RESPONSE, although the server answered it. A response
+ * that closes its connection is never chunked, and its connection is never
+ * reused.
+ *
+ * The defect is https://github.com/amphp/http-server/issues/393. Once the
+ * installed amphp/http-server no longer chunk-encodes these responses, this
+ * can go.
+ */
+function keepBodilessResponsesOffKeepAliveConnections(Application $app): void
+{
+    $app['events']->listen(RequestHandled::class, function (RequestHandled $event): void {
+        if (in_array($event->response->getStatusCode(), [204, 304], true)) {
+            $event->response->headers->set('Connection', 'close');
+        }
+    });
 }
 
 /**
