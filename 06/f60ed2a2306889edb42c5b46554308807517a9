@@ -1,0 +1,61 @@
+tests/Feature/Architecture/MailGatewayTest.php
+  s_1bfa4d0742417e::t_61ab24489a8aa3 528,799,801,1017
+  s_1bfa4d0742417e::t_2bf56ef21b154b 36-37,39-58,66,77-80,92-93,113-115,128,206-207,213,1201,1980
+  s_1bfa4d0742417e::t_6823dfad0bcf49 2618,2642-2646
+  s_1bfa4d0742417e::t_5289bb55c1b0d9 1142,1293,1338,1481,1693,1698,1701,1705-1706,2705
+  s_1bfa4d0742417e::t_8600be4244152c 1193-1194,1200
+  s_1bfa4d0742417e::t_ac808f00317f22 2661-2664,2668-2669,2710,2776,2809,3038-3040,3045,3049-3055,3075-3077,3081,3129,3218
+  s_1bfa4d0742417e::t_848fbc85361663 2956-3036
+  s_1bfa4d0742417e::t_2efb3c7e628a1c 1179-1181
+  s_1bfa4d0742417e::t_0debca8e007d9b 1094,1097-1100,1121-1141,1143-1178,1182-1184,2598,2603-2604
+tests/Feature/Architecture/MailOutboundActivationTest.php
+  s_1bfa4d0742417e::t_556c840670c29d 965,981-989,1002-1008,1010-1016,1029,1031-1049
+  s_1bfa4d0742417e::t_53ead18315cb31 585-586
+  s_1bfa4d0742417e::t_279722d5255bfd 3,33,36,39-60,62,64,69-70,75-77,80,106-107,113,175,178-179,193-212
+  s_1bfa4d0742417e::t_ac1c5d6ff31d32 369-370
+infrastructure/config/mail-routing.json
+  s_1bfa4d0742417e::t_ab7969dfa4f548 21-24
+tests/Feature/Architecture/ConfigureRateGuruTargetActionTest.php
+  s_1bfa4d0742417e::t_86bbd663ff61d5 547,567,597,603-604,679-680,682-686,688,690-695,761-764,768-780
+tests/Pest.php
+  s_1bfa4d0742417e::t_63c3f63f9d1de5 2486,2490,2498-2502,2514
+  s_1bfa4d0742417e::t_fd3c1bdd35743c 3121-3140,3143,3146,3149-3168
+  s_1bfa4d0742417e::t_8455917b854a67 3172-3184
+  s_1bfa4d0742417e::t_b66ef7a9ac6134 3217-3220,3225
+  s_1bfa4d0742417e::t_86bbd663ff61d5 2231-2234,2236,2246,2248
+  s_1bfa4d0742417e::t_5289bb55c1b0d9 2322-2324
+  s_1bfa4d0742417e::t_33970a1a7d19ae 3261
+tests/Feature/Architecture/MailGatewayAcceptanceTest.php
+  s_1bfa4d0742417e::t_39e33978a7cab6 777-812
+  s_1bfa4d0742417e::t_13a5f6b7d39df2 308-312,364
+infrastructure/config/mail-outbound.json
+  s_1bfa4d0742417e::t_ab7969dfa4f548 4
+tests/Feature/Architecture/MailSigningTest.php
+  s_1bfa4d0742417e::t_db4545eb5e5617 1258-1262
+  s_1bfa4d0742417e::t_4047fdf31d9746 45-47,274-280,556-557,577,803,827-836,1279-1281,1537-1552
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_1bfa4d0742417e::t_e47c008b92efdf 33-34,38,41,43,56-68,143,146-173,189,204,238-239,243-246,258-261,271,363,365-367,375,444-446,449-478,792,814-822,1034
+  s_1bfa4d0742417e::t_4559736a86478a 1029-1030
+tests/Feature/Architecture/MailIdentityTest.php
+  s_1bfa4d0742417e::t_ab42259b24b7c7 1027
+  s_1bfa4d0742417e::t_be013da23bebc0 37-38,40,61,66-68,80,84-94,330-331,335,414,440,664,1003,1005-1013,1016,1020-1026,1028-1030,1129-1130,1145,1149-1151,1157-1158,1169-1179,1197-1201,1203,1213-1223,1227,1230-1234
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  s_1bfa4d0742417e::t_4be0dfcc669b7b 448,1049,1055-1057
+  s_1bfa4d0742417e::t_590cc907b4497f 350-359,364,417,438,440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "06f60ed2a2306889edb42c5b46554308807517a9",
+  "prompts": {},
+  "sessions": {
+    "s_1bfa4d0742417e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d10b61a6-7708-4bec-8b7c-4131d8f4a054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
