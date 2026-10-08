@@ -382,7 +382,7 @@ runs:
             else
               "## \(.target) initial activation rollback",
               "",
-              "> **This is the pre-go-live initial activation rollback.** It returns the RUNTIME to held; it does not change the committed configuration. Revert the activation change to `mail-routing.json` and `mail-outbound.json` on main before the next Prepare or Verify: until then Verify reports the difference, and Prepare refuses to cross back to outbound — that takes another guarded activation.",
+              "> **This is the pre-go-live initial activation rollback.** It returns the RUNTIME to held; it does not change the committed configuration. Revert the activation change to `mail-routing.json` and `mail-outbound.json` with a pull request into develop, promoted to main, before the next Prepare or Verify: until then Verify reports the difference, and Prepare refuses to cross back to outbound — that takes another guarded activation.",
               "",
               "| Check | Result |",
               "| --- | --- |",

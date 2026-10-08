@@ -9,8 +9,8 @@ first real message is sent and accepted. The gateway itself is
 
 Merging this tooling activates nothing. The committed configuration keeps
 `tits-guru` held with direct delivery disabled, so every workflow below refuses
-before it changes anything until a separate, reviewed activation change is
-merged into `main`.
+before it changes anything until a separate, reviewed activation change has
+reached `main` through `develop`.
 
 ## Status
 
@@ -128,9 +128,10 @@ signing acceptance — and changes no repository file. Afterwards:
 - the gateway's **recorded policy is held**, and the authorization is used up;
 - the **committed configuration on `main` still requests outbound delivery**;
 - the activation change to `mail-routing.json` and `mail-outbound.json` **must
-  be reverted on `main` before the next Prepare or Verify** — until it is,
-  Verify reports the difference and Prepare refuses to cross back to outbound;
-  only another guarded activation does.
+  be reverted — a pull request into `develop`, promoted to `main` — before the
+  next Prepare or Verify**; until it is, Verify reports the difference and
+  Prepare refuses to cross back to outbound; only another guarded activation
+  does.
 
 The permanent mail hold of a live production target, and its recovery-time
 fence, are later work (8.4B.7), not this.
@@ -201,7 +202,7 @@ reported as it.
 
    Production is still held, direct delivery disabled, `tits-guru` planned.
 
-   A separate, tiny **activation pull request directly against `main`** changes
+7. Open a separate, tiny **activation pull request into `develop`**. It changes
    exactly two files and nothing else:
 
    - `infrastructure/config/mail-routing.json` — for `tits-guru`,
@@ -210,40 +211,40 @@ reported as it.
    - `infrastructure/config/mail-outbound.json` — `"enabled": false` →
      `"enabled": true`.
 
-   It is reviewed on its own before merge. It goes to `main` directly on
-   purpose: staging and production share one machine today, so the same change
-   in `develop` would let an ordinary **Prepare staging host** change the real
-   production gateway before the controlled cutover.
+   It is reviewed on its own and passes CI before it is merged. It takes the
+   ordinary path — into `develop`, then to `main` by the ordinary promotion. A
+   pull request directly into `main`, and a synchronization back from `main`
+   into `develop`, are not part of this rollout.
 
-7. After that pull request is merged: run **Activate tits.guru outbound mail**.
-   A **Prepare production host** in between cannot activate anything: the
-   gateway refuses held → outbound without the activation's authorization, and
-   the host stays held.
-8. Run **Verify production infrastructure**.
-9. It must report full outbound readiness — `OUTBOUND READY: YES` — while the
-   target's lifecycle and application stay deferred, because `tits-guru` is
-   still planned.
-10. Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub
+8. Merge it into `develop`. **From here until step 16, run neither Prepare
+   staging host nor Verify staging infrastructure.** Staging and production
+   share one machine today, and it is still held while `develop` already
+   requests outbound delivery: Verify would report that expected difference,
+   and Prepare would be refused. The interlock still guarantees that an
+   ordinary Prepare never turns outbound on — the gateway refuses held →
+   outbound without the activation's authorization, fails closed and leaves
+   the host held.
+9. Promote `develop` → `main`.
+10. Run **Activate tits.guru outbound mail**. A **Prepare production host** in
+    between cannot activate anything: the gateway refuses held → outbound
+    without the activation's authorization, and the host stays held.
+11. Run **Verify production infrastructure**. It must report full outbound
+    readiness — `OUTBOUND READY: YES` — while the target's lifecycle and
+    application stay deferred, because `tits-guru` is still planned.
+12. Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub
     Environment.
-11. Run **Send tits.guru production mail canary**.
-12. Confirm its result: the remote MX accepted the exact canary
+13. Run **Send tits.guru production mail canary**.
+14. Confirm its result: the remote MX accepted the exact canary
     (`status=sent` for its own queue ID).
-13. Inspect the received message's raw headers against the table above.
-14. Only after that acceptance, synchronize `main` → `develop`, so both
-    branches carry the activated routing and outbound policy.
-15. Run **Verify staging infrastructure** against the synchronized `develop`.
-16. Then the activation and first delivery may be recorded as
+15. Inspect the received message's raw headers against the table above.
+16. Run **Verify staging infrastructure**. `develop` and `main` now request the
+    activated routing and outbound policy the host applies.
+17. Then the activation and first delivery may be recorded as
     production-accepted.
 
 If anything is wrong before go-live: **Rollback tits.guru outbound mail
-activation**, then revert the activation pull request on `main` before the next
-Prepare or Verify.
-
-Between Activate and step 14, `develop` still holds `tits-guru`'s mail. A
-**Prepare staging host** in that window cannot deactivate production mail: the
-gateway refuses outbound → held without a rollback authorization, and
-production keeps delivering. **Verify staging infrastructure** reports that
-difference as drift until `main` reaches `develop`.
+activation**, then revert the activation change — a pull request into
+`develop`, through CI, promoted to `main` — before the next Prepare or Verify.
 
 ## The applied policy and the boundary
 

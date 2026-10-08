@@ -2027,14 +2027,20 @@ Slices, in order:
    outbound mail activation** and **Send tits.guru production mail canary**
    (recipient only from the `MAIL_CANARY_RECIPIENT` Environment secret).
    *The actual activation is a later, explicit operator cutover:* a separate
-   two-file pull request directly against `main` (`mail-routing.json`:
+   two-file activation pull request into `develop` (`mail-routing.json`:
    `tits-guru` held → outbound with `{"kind": "direct"}`;
-   `mail-outbound.json`: `direct.enabled` → `true`), then Activate, Verify
-   production infrastructure (`OUTBOUND READY: YES`), the canary, and the
-   operator's inspection of the received message's raw headers (SPF, DKIM and
-   DMARC PASS, `d=tits.guru s=rg1`, from `213.199.41.241` as
-   `mta1.tits.guru`). Not accepted until a real canary has been received and
-   its headers inspected; only then is `main` synchronized to `develop`.
+   `mail-outbound.json`: `direct.enabled` → `true`) that passes CI and reaches
+   `main` by the ordinary promotion — never a pull request directly into
+   `main`, and no synchronization back from `main` into `develop`. Between its
+   merge into `develop` and the activation, Prepare and Verify staging do not
+   run: the shared host is still held, so Verify would report an expected
+   difference, and the interlock still refuses an ordinary Prepare's held →
+   outbound. After the promotion: Activate, Verify production infrastructure
+   (`OUTBOUND READY: YES`), the canary, the operator's inspection of the
+   received message's raw headers (SPF, DKIM and DMARC PASS,
+   `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then
+   Verify staging infrastructure. Not accepted until a real canary has been
+   received and its headers inspected.
    *Moved out on purpose:* the production application's mail transport
    (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`,
    `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before

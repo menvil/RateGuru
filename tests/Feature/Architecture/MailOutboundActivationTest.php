@@ -898,7 +898,7 @@ it('runs exactly activate-mail-outbound in the mode its workflow fixed, judges i
         ->toContain('| OUTBOUND READY |')
         ->toContain('Activation is not requested by this trusted bundle')
         ->toContain('**This is the pre-go-live initial activation rollback.**')
-        ->toContain('Revert the activation change to `mail-routing.json` and `mail-outbound.json` on main before the next Prepare or Verify: until then Verify reports the difference, and Prepare refuses to cross back to outbound — that takes another guarded activation.');
+        ->toContain('Revert the activation change to `mail-routing.json` and `mail-outbound.json` with a pull request into develop, promoted to main, before the next Prepare or Verify: until then Verify reports the difference, and Prepare refuses to cross back to outbound — that takes another guarded activation.');
 
     // Prepare never crosses the boundary, so nothing tells an operator it would.
     foreach (['.github/actions/activate-rateguru-mail-outbound/action.yml', '.github/workflows/rollback-tits-guru-mail-activation.yml', 'infrastructure/scripts/activate-mail-outbound'] as $path) {
@@ -933,6 +933,12 @@ it('records the signing foundation as accepted and the activation as implemented
         ->toContain('Verify production mail signing run `37639732203` PASS')
         ->toContain('**8.4B.4.2b Guarded outbound activation and the first real delivery — IMPLEMENTED — production activation pending.**')
         ->toContain('*The actual activation is a later, explicit operator cutover:*')
+        // The activation change takes the ordinary path: develop, CI, promotion.
+        ->toContain('a separate two-file activation pull request into `develop`')
+        ->toContain('reaches `main` by the ordinary promotion — never a pull request directly into `main`, and no synchronization back from `main` into `develop`')
+        ->toContain('Between its merge into `develop` and the activation, Prepare and Verify staging do not run')
+        ->toContain('the canary, the operator\'s inspection of the received message\'s raw headers (SPF, DKIM and DMARC PASS, `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then Verify staging infrastructure')
+        ->not->toContain('directly against `main`')
         ->toContain('Not accepted until a real canary has been received and its headers inspected')
         // The application's mail transport moved to before the first deploy.
         ->toContain('the production application\'s mail transport (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before the first production deploy in 8.6, not here')
@@ -948,14 +954,17 @@ it('records the signing foundation as accepted and the activation as implemented
     expect($runbook)
         ->toContain('Merging this tooling activates nothing.')
         ->toContain('*activation is not requested by this trusted bundle*')
-        ->toContain('A separate, tiny **activation pull request directly against `main`** changes exactly two files and nothing else')
-        ->toContain('the same change in `develop` would let an ordinary **Prepare staging host** change the real production gateway before the controlled cutover')
+        ->toContain('Open a separate, tiny **activation pull request into `develop`**. It changes exactly two files and nothing else')
+        ->toContain('It takes the ordinary path — into `develop`, then to `main` by the ordinary promotion. A pull request directly into `main`, and a synchronization back from `main` into `develop`, are not part of this rollout.')
+        ->toContain('**From here until step 16, run neither Prepare staging host nor Verify staging infrastructure.**')
+        ->toContain('The interlock still guarantees that an ordinary Prepare never turns outbound on — the gateway refuses held → outbound without the activation\'s authorization, fails closed and leaves the host held.')
         ->toContain('A **Prepare production host** in between cannot activate anything: the gateway refuses held → outbound without the activation\'s authorization, and the host stays held.')
-        ->toContain('A **Prepare staging host** in that window cannot deactivate production mail: the gateway refuses outbound → held without a rollback authorization, and production keeps delivering.')
+        ->toContain('then revert the activation change — a pull request into `develop`, through CI, promoted to `main` — before the next Prepare or Verify')
+        ->not->toContain('directly against `main`')
+        ->not->toContain('synchronize `main` → `develop`')
         ->toContain('Prepare converges a state but cannot cross that boundary, and a Prepare from a stale branch fails closed instead of activating or deactivating mail')
         ->toContain('so production mail no longer carries `mail-gateway.rateguru.invalid` in its `Received` hop')
-        ->toContain('must be reverted on `main` before the next Prepare or Verify')
-        ->toContain('Only after that acceptance, synchronize `main` → `develop`')
+        ->toContain('must be reverted — a pull request into `develop`, promoted to `main` — before the next Prepare or Verify')
         ->toContain('It is the local Postfix\'s record that the **remote MX accepted** the message. It is not SPF, DKIM or DMARC acceptance at the receiver')
         ->toContain('| Sending source IP | `213.199.41.241` |')
         ->toContain('| Sending MTA / HELO | `mta1.tits.guru` |')
@@ -971,11 +980,15 @@ it('records the signing foundation as accepted and the activation as implemented
         'Promote `develop` → `main`.',
         'Run **Verify production infrastructure**.',
         'Run **Verify production mail signing**.',
-        'run **Activate tits.guru outbound mail**.',
+        'Open a separate, tiny **activation pull request into `develop`**.',
+        'Merge it into `develop`.',
+        'Promote `develop` → `main`.',
+        'Run **Activate tits.guru outbound mail**.',
+        'Run **Verify production infrastructure**.',
         'Add `MAIL_CANARY_RECIPIENT` to the `production-tits-guru` GitHub Environment.',
         'Run **Send tits.guru production mail canary**.',
         'Inspect the received message\'s raw headers against the table above.',
-        'synchronize `main` → `develop`',
+        'Run **Verify staging infrastructure**.',
     ];
     $position = -1;
     foreach ($steps as $step) {
