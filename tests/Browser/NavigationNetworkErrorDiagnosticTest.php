@@ -23,10 +23,9 @@ function diagnoseServedRequests(): ArrayObject
 
 function diagnoseReport(mixed $page, ArrayObject $served, float $started): string
 {
-    browserTestPause(0.3);
-
     try {
-        $seen = $page->page()->evaluate("JSON.stringify({ href: location.href, readyState: document.readyState, html: document.documentElement.outerHTML.slice(0, 300), nav: performance.getEntriesByType('navigation').map((n) => ({ name: n.name, type: n.type, status: n.responseStatus, transfer: n.transferSize, decoded: n.decodedBodySize, dur: Math.round(n.duration) })) })");
+        // The error page replaces the document a moment after the navigation fails.
+        $seen = eventually(fn () => $page->page()->evaluate("JSON.stringify({ href: location.href, readyState: document.readyState, html: document.documentElement.outerHTML.slice(0, 300), nav: performance.getEntriesByType('navigation').map((n) => ({ name: n.name, type: n.type, status: n.responseStatus, transfer: n.transferSize, decoded: n.decodedBodySize, dur: Math.round(n.duration) })) })"), 2.0);
     } catch (Throwable $e) {
         $seen = 'evaluate failed: '.$e->getMessage();
     }
