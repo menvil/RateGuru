@@ -13,12 +13,12 @@ name: Rollback tits.guru outbound mail activation
 #
 # It changes no repository file. Afterwards the RUNTIME is held, but main still
 # requests outbound delivery: the activation change to mail-routing.json and
-# mail-outbound.json must be reverted — a pull request into develop, promoted
-# to main — before the next Prepare or Verify. Until it is, Verify reports the difference and Prepare refuses to
-# cross back to outbound; only another guarded activation does. It is not the
-# mail hold of a live target, which is a separate design. This workflow
-# chooses nothing: the target, the trusted ref, the operation and the GitHub
-# Environment are fixed.
+# mail-outbound.json must be reverted on the integration branch and promoted
+# to main before the next Prepare or Verify. Until it is, Verify reports the
+# difference and Prepare refuses to cross back to outbound; only another
+# guarded activation does. It is not the mail hold of a live target, which is
+# a separate design. This workflow chooses nothing: the target, the trusted
+# ref, the operation and the GitHub Environment are fixed.
 on:
   workflow_dispatch:
 
