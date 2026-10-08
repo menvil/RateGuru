@@ -1,0 +1,27 @@
+tests/Feature/I18n/LocaleManagerTest.php
+  s_cbcd61fc717774::t_ad032a8c2519bc 4,183-242
+docs/i18n/multilingual-ui.md
+  s_cbcd61fc717774::t_ca658036176839 47
+lang/README.md
+  s_cbcd61fc717774::t_ca658036176839 69-74
+app/Support/Locale/LocaleManager.php
+  s_cbcd61fc717774::t_bf05f8ccc0866a 136-142,151-152
+app/Support/Locale/LanguageRules.php
+  s_cbcd61fc717774::t_bf05f8ccc0866a 13-16,48-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0a064b5b7ce5456b01274d4b1850402f2f8f51f",
+  "prompts": {},
+  "sessions": {
+    "s_cbcd61fc717774": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "322d3a67-a178-412d-b071-8c5427d471e8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
