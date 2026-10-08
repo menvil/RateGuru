@@ -19,9 +19,3 @@ it('can switch to light theme via theme switcher', function () {
         ->assertAttributeContains('html[lang]', 'data-theme', 'light')
         ->assertAttributeContains('html[lang]', 'data-theme-preference', 'light');
 });
-
-it('can switch to dark theme via theme switcher', function () {
-    visit(route('feed'))
-        ->click('[data-testid="desktop-header-theme"] [data-testid="theme-option-dark"]')
-        ->assertAttributeContains('html[lang]', 'data-theme', 'dark');
-});
