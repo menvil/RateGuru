@@ -14,6 +14,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\Tag;
 use App\Models\User;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
@@ -9628,4 +9629,261 @@ function runTranslationGenerationJobs(?Closure $which = null): int
 function translationGenerationItem(array $generation, string $unit): ?array
 {
     return collect($generation['items'] ?? [])->firstWhere('unit', $unit);
+}
+
+/**
+ * What every Translation Center Browser test starts from: an administrator
+ * signed in, two translated languages of which only the first is offered, and
+ * three categories and a tag to translate — Dogs, Cats and the tag missing,
+ * Birds stored in both. Leaves on TEST the two languages (target, other), the
+ * records (dogs, cats, birds, tag), and unit, which names a record's row.
+ */
+function setUpTranslationCenterScreen(TestCase $test): void
+{
+    ProjectSettings::factory()->create();
+    $test->actingAs(User::factory()->admin()->create());
+    [$test->target, $test->other] = twoTranslatedLocales();
+    offerLocales([$test->target]);
+    $test->dogs = Category::factory()->create(['slug' => 'dogs', 'name' => 'Dogs', 'name_translations' => null, 'is_active' => true]);
+    $test->cats = Category::factory()->create(['slug' => 'cats', 'name' => 'Cats', 'name_translations' => null, 'is_active' => true]);
+    $test->birds = Category::factory()->create(['slug' => 'birds', 'name' => 'Birds', 'name_translations' => [$test->target => 'Птицы', $test->other => 'Птици'], 'is_active' => true]);
+    $test->tag = Tag::factory()->create(['slug' => 'zoomies', 'name' => 'zoomies', 'name_translations' => null]);
+    $test->unit = fn (Category|Tag $record): string => ($record instanceof Tag ? 'tags' : 'categories').":{$record->id}:name";
+}
+
+/** Whether the page would ask before it is left: it cancels the beforeunload event. */
+function pageAsksBeforeLeaving(mixed $page): bool
+{
+    return $page->script("(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented })()");
+}
+
+/** What the screen shows right now. */
+function translationScreen(mixed $page): array
+{
+    return $page->script(<<<'JS'
+        (() => {
+            const visible = (el) => !! el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0
+            // Two strips are drawn, plain and with sparkles; at most one shows.
+            const strip = [...document.querySelectorAll('.rg-admin-notice--strip')].find(visible)
+
+            return {
+                rows: [...document.querySelectorAll('[role="table"] [role="row"][data-unit]')].filter((row) => visible(row)).map((row) => row.dataset.unit),
+                count: document.querySelector('.rg-admin-toolbar__count')?.textContent.trim() ?? null,
+                stats: [...document.querySelectorAll('.rg-admin-stats .rg-admin-stat')].map((stat) => stat.innerText.replace(/\s+/g, ' ').trim()),
+                strip: strip ? strip.innerText.replace(/\s+/g, ' ').trim() : null,
+                stripKind: strip?.closest('[data-strip]')?.dataset.strip ?? null,
+                search: location.search,
+                dialog: visible(document.querySelector('.rg-admin-dialog')),
+                drawer: visible(document.querySelector('.rg-admin-drawer')),
+                focused: document.activeElement?.id || document.activeElement?.innerText?.trim() || null,
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+                toasts: [...document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text')].map((toast) => toast.textContent.trim()),
+            }
+        })()
+    JS);
+}
+
+/** One row as the browser shows it: its state badge, note, field and error. */
+function translationRowState(mixed $page, string $unit): array
+{
+    return $page->script(sprintf(<<<'JS'
+        (() => {
+            const row = document.querySelector('[data-unit="%s"]')
+            const visible = (el) => !! el && getComputedStyle(el).display !== 'none'
+            const field = row.querySelector('input, textarea')
+
+            return {
+                state: [...row.querySelectorAll('.rg-admin-translation-row__state .rg-admin-badge')].filter(visible).map((badge) => badge.textContent.trim()),
+                note: row.querySelector('.rg-admin-translation-row__note').textContent.trim(),
+                value: field.value,
+                changed: (field.closest('.rg-admin-input') ?? field).className.includes('changed'),
+                invalid: field.getAttribute('aria-invalid'),
+                describedBy: field.getAttribute('aria-describedby'),
+                error: visible(row.querySelector('.rg-admin-error')) ? row.querySelector('.rg-admin-error').textContent.trim() : null,
+                counter: row.querySelector('.rg-admin-translation-row__counter').textContent.trim(),
+                canSave: ! [...row.querySelectorAll('button')].find((button) => button.textContent.trim().startsWith('Save') && ! button.textContent.includes('next')).disabled,
+                discard: visible([...row.querySelectorAll('button')].find((button) => button.textContent.trim().startsWith('Discard'))),
+            }
+        })()
+    JS, $unit));
+}
+
+/**
+ * Opens Translation Center at one size once the screen has started: Alpine has
+ * drawn it and lifted x-cloak, and what init() leaves for the next tick — the
+ * filters written back to the URL, a link to one item followed — has run.
+ */
+function visitTranslationCenter(string $url, int $width, int $height): mixed
+{
+    $page = visit($url)->resize($width, $height);
+
+    waitForScript($page, <<<'JS'
+        (async () => {
+            if (! document.querySelector('.rg-admin-translation-center')?._x_dataStack) {
+                return false
+            }
+
+            // A tick asked for now runs after the one init() asked for.
+            await Alpine.nextTick()
+
+            return document.querySelector('[x-cloak]') === null && document.fonts.status === 'loaded'
+        })()
+    JS);
+
+    return $page;
+}
+
+/** Types into one row's field. */
+function typeTranslation(mixed $page, string $unit, string $text): void
+{
+    $selector = "[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea";
+    $page->click($selector)->typeSlowly($selector, $text, 10);
+
+    waitForTranslationDraft($page, $unit, $text);
+}
+
+/** Waits for a row to hold what was typed as its draft: the text in the field, the row marked Edited · not saved. */
+function waitForTranslationDraft(mixed $page, string $unit, string $text): void
+{
+    waitForScript($page, sprintf(<<<'JS'
+        (() => {
+            const row = document.querySelector('[data-unit="%s"]')
+            const edited = [...row.querySelectorAll('.rg-admin-translation-row__state .rg-admin-badge')].find((badge) => badge.textContent.trim() === 'Edited · not saved')
+
+            return row.querySelector('input, textarea').value.includes(%s) && getComputedStyle(edited).display !== 'none'
+        })()
+    JS, $unit, json_encode($text)));
+}
+
+/** Opens the target language list with a click. */
+function openTranslationTargetList(mixed $page): void
+{
+    $page->click('#rg-admin-translation-target-trigger');
+
+    waitForTranslationTargetList($page, open: true);
+}
+
+/**
+ * Waits for the target language list to be open — drawn, focus in its search —
+ * or closed — hidden, focus back on its trigger. Alpine moves the focus and
+ * shows or hides the list at different moments, the list on the next frame.
+ */
+function waitForTranslationTargetList(mixed $page, bool $open): void
+{
+    waitForScript($page, sprintf(
+        "document.activeElement?.id === %s && (getComputedStyle(document.getElementById('rg-admin-translation-target-popover')).display === 'none') === %s",
+        json_encode($open ? 'rg-admin-translation-target-search' : 'rg-admin-translation-target-trigger'),
+        $open ? 'false' : 'true',
+    ));
+}
+
+/**
+ * Waits for the screen to be drawn afresh on another target language: the
+ * server has answered, the URL names the language, and the new screen has
+ * started and handed focus back to where the language was chosen.
+ */
+function waitForTranslationTarget(mixed $page, string $code): void
+{
+    waitForScript($page, sprintf(<<<'JS'
+        (() => {
+            const root = document.querySelector('.rg-admin-translation-center')
+
+            return !! root?._x_dataStack
+                && Alpine.$data(root).locale === %1$s
+                && new URLSearchParams(location.search).get('locale') === %1$s
+                && ! ('rgAdminTranslationCenterRefocus' in window)
+        })()
+    JS, json_encode($code)));
+}
+
+/** Clicks one of a row's buttons by its visible label. */
+function clickRowButton(mixed $page, string $unit, string $label): void
+{
+    $page->script(sprintf(
+        "[...document.querySelectorAll('[data-unit=\"%s\"] button')].find((button) => button.firstChild.textContent.trim() === %s || button.innerText.trim().startsWith(%s)).click()",
+        $unit,
+        json_encode($label),
+        json_encode($label),
+    ));
+}
+
+/** One row's AI side as the browser shows it. */
+function translationAiState(mixed $page, string $unit): array
+{
+    return $page->script(sprintf(<<<'JS'
+        (() => {
+            const row = document.querySelector('[data-unit="%s"]')
+            const visible = (el) => !! el && getComputedStyle(el).display !== 'none'
+            const field = row.querySelector('input, textarea')
+            const frame = field.closest('.rg-admin-input') ?? field
+            const target = row.querySelector('.rg-admin-translation-row__target')
+            const buttons = [...row.querySelectorAll('button')]
+            const ai = buttons.find((button) => button.querySelector('.rg-admin-icon') && ['AI translate', 'Suggest alternative', 'Regenerate'].includes(button.querySelector('span')?.textContent.trim()))
+            const save = buttons.find((button) => button.innerText.trim().startsWith('Save') && ! button.innerText.includes('next'))
+            // What the info tokens resolve to here, to compare the field and cell against.
+            const probe = (token) => {
+                const swatch = row.appendChild(document.createElement('span'))
+                swatch.style.background = `var(${token})`
+                const colour = getComputedStyle(swatch).backgroundColor
+                swatch.remove()
+
+                return colour
+            }
+
+            return {
+                state: [...row.querySelectorAll('.rg-admin-translation-row__state .rg-admin-badge')].filter(visible).map((badge) => badge.textContent.trim()),
+                note: visible(row.querySelector('.rg-admin-translation-row__note')) ? row.querySelector('.rg-admin-translation-row__note').textContent.trim() : null,
+                generating: visible(row.querySelector('.rg-admin-translation-row__generating')),
+                value: field.value,
+                readonly: field.readOnly,
+                busy: target.getAttribute('aria-busy'),
+                infoField: getComputedStyle(frame).backgroundColor === probe('--rg-admin-status-info-field') && frame.className.includes('--info'),
+                infoCell: getComputedStyle(target).backgroundColor === probe('--rg-admin-status-info-cell'),
+                ai: visible(ai) ? ai.querySelector('span').textContent.trim() : null,
+                aiDisabled: ai?.getAttribute('aria-disabled') ?? null,
+                canSave: ! save.disabled,
+                describedBy: field.getAttribute('aria-describedby'),
+            }
+        })()
+    JS, $unit));
+}
+
+/**
+ * Puts the page's Livewire requests behind a gate: held until released, or
+ * failed as a dropped connection would fail them.
+ */
+function gateLivewireRequests(mixed $page): void
+{
+    $page->script(<<<'JS'
+        (() => {
+            const uri = document.querySelector('[data-update-uri]').getAttribute('data-update-uri')
+            const fetch = window.fetch
+            const gate = window.livewireGate = { hold: false, fail: false, waiting: [] }
+
+            window.fetch = function (input, ...rest) {
+                if (String(input?.url ?? input).startsWith(uri)) {
+                    if (gate.fail) {
+                        return Promise.reject(new TypeError('Failed to fetch'))
+                    }
+
+                    if (gate.hold) {
+                        return new Promise((resolve, reject) => gate.waiting.push(() => fetch.call(this, input, ...rest).then(resolve, reject)))
+                    }
+                }
+
+                return fetch.call(this, input, ...rest)
+            }
+
+            window.releaseLivewire = () => {
+                gate.hold = false
+                gate.waiting.splice(0).forEach((go) => go())
+            }
+        })()
+    JS);
+}
+
+/** The id of one row's field. */
+function translationFieldId(mixed $page, string $unit): string
+{
+    return (string) $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').id");
 }
