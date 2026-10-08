@@ -757,7 +757,7 @@ it('opens Translation Center from a missing item on that item, and from Translat
     languagesOverlayOpen($page, 'drawer');
 
     $translate = $page->script("[...document.querySelectorAll('.rg-admin-languages__item')].find((item) => item.innerText.includes('Georgian food')).querySelector('a:not(.rg-admin-languages__edit-source)').getAttribute('href')");
-    $page->navigate($translate);
+    navigatePageTo($page, $translate);
 
     // Translation Center scrolls to the item and focuses it once its filters have drawn the row.
     eventually(fn () => expect($page->script('location.pathname + location.search'))->toBe("/admin/translation-center?locale={$target}&section=categories&mode=missing")
