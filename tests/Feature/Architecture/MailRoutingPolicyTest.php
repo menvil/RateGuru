@@ -30,16 +30,17 @@ function mailRoutingPolicy(): array
 }
 
 /**
- * The committed policy with dot-path changes applied — `set` replaces or adds
- * a value, `forget` removes one.
+ * The committed policy — or BASE — with dot-path changes applied: `set`
+ * replaces or adds a value, `forget` removes one.
  *
  * @param  array<string, mixed>  $set
  * @param  list<string>  $forget
+ * @param  array<string, mixed>|null  $base
  * @return array<string, mixed>
  */
-function mailRoutingPolicyWith(array $set = [], array $forget = []): array
+function mailRoutingPolicyWith(array $set = [], array $forget = [], ?array $base = null): array
 {
-    $policy = mailRoutingPolicy();
+    $policy = $base ?? mailRoutingPolicy();
 
     foreach ($set as $path => $value) {
         data_set($policy, $path, $value);
@@ -50,6 +51,19 @@ function mailRoutingPolicyWith(array $set = [], array $forget = []): array
     }
 
     return $policy;
+}
+
+/**
+ * The pre-activation policy — tits-guru held, with no outbound route — with
+ * dot-path changes applied: what a held production target is judged on.
+ *
+ * @param  array<string, mixed>  $set
+ * @param  list<string>  $forget
+ * @return array<string, mixed>
+ */
+function mailRoutingHeldPolicyWith(array $set = [], array $forget = []): array
+{
+    return mailRoutingPolicyWith($set, $forget, mailPreActivationPolicy()['routing']);
 }
 
 /** @return array<string, mixed> */
@@ -126,8 +140,36 @@ it('routes staging-main from its own gateway port into the existing capture', fu
     ]);
 });
 
-it('holds tits-guru on its own gateway port with no delivery destination', function () {
+it('routes tits-guru from its own gateway port by direct outbound delivery, still planned', function () {
     $listener = mailRoutingListener(mailRoutingPlan(), 'tits-guru');
+
+    expect($listener)->toBe([
+        'delivery_mode' => 'outbound',
+        'environment_class' => 'production',
+        'identity' => 'tits-guru',
+        'lifecycle' => 'planned',
+        'listen' => ['host' => '127.0.0.1', 'port' => 2526],
+        'route' => ['kind' => 'direct'],
+        'sender' => [
+            'allowed_domain' => 'tits.guru',
+            'bounce_domain' => 'bounce.tx.tits.guru',
+            'default_from' => 'noreply@tits.guru',
+            'reply_domain' => 'reply.tits.guru',
+        ],
+    ]);
+
+    // The listener it accepts mail on is the only endpoint anywhere in it:
+    // the route names a kind, not a capture, relay or smart host to send to.
+    $endpoints = array_values(array_filter(
+        array_keys(Arr::dot($listener)),
+        static fn (string $key): bool => str_ends_with($key, '.host') || str_ends_with($key, '.port'),
+    ));
+
+    expect($endpoints)->toBe(['listen.host', 'listen.port']);
+});
+
+it('holds the pre-activation tits-guru on the same gateway port with no delivery destination', function () {
+    $listener = mailRoutingListener(mailRoutingPlan(mailPreActivationPolicy()['routing']), 'tits-guru');
 
     expect($listener)->toBe([
         'delivery_mode' => 'held',
@@ -144,8 +186,7 @@ it('holds tits-guru on its own gateway port with no delivery destination', funct
         ],
     ]);
 
-    // The listener it accepts mail on is the only endpoint anywhere in it:
-    // nothing to capture into, nothing to relay to.
+    // Held: nothing to capture into, nothing to relay to, nothing to deliver.
     $endpoints = array_values(array_filter(
         array_keys(Arr::dot($listener)),
         static fn (string $key): bool => str_ends_with($key, '.host') || str_ends_with($key, '.port'),
@@ -160,6 +201,7 @@ it('holds only the properties the schema declares, and no secret', function () {
         'submission', 'host', 'port', 'delivery_mode',
         'allowed_from_domain', 'capture',
         'mail_domain', 'default_from', 'bounce_domain', 'reply_domain',
+        'outbound', 'kind',
     ];
 
     $policy = mailRoutingPolicy();
@@ -193,10 +235,15 @@ it('leaves lifecycle and environment class to the registry', function () {
         ->not->toContain('"production"')
         ->not->toContain('"staging"');
 
-    // Repeating either one in the policy is refused, not tolerated as a copy.
+    // Repeating either one in the policy is refused, not tolerated as a copy —
+    // in the committed outbound policy and in a held one alike.
     foreach (['lifecycle' => 'planned', 'environment_class' => 'production'] as $property => $value) {
         expectMailRoutingRefusal(
             mailRoutingRun(['validate'], mailRoutingPolicyWith(["targets.tits-guru.{$property}" => $value])),
+            "tits-guru: unexpected property \"{$property}\" in an outbound policy",
+        );
+        expectMailRoutingRefusal(
+            mailRoutingRun(['validate'], mailRoutingHeldPolicyWith(["targets.tits-guru.{$property}" => $value])),
             "tits-guru: unexpected property \"{$property}\" in a held policy",
         );
     }
@@ -208,6 +255,10 @@ it('leaves lifecycle and environment class to the registry', function () {
 
     expectMailRoutingRefusal(
         mailRoutingRun(['validate'], null, $registry),
+        'tits-guru: environment_class staging allows delivery_mode capture, not outbound',
+    );
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], mailRoutingHeldPolicyWith(), $registry),
         'tits-guru: environment_class staging allows delivery_mode capture, not held',
     );
 });
@@ -217,7 +268,7 @@ it('leaves lifecycle and environment class to the registry', function () {
 // =============================================================================
 
 it('never lets a production target render a capture or an Internet destination', function (array $set, string $reason) {
-    $policy = mailRoutingPolicyWith($set);
+    $policy = mailRoutingHeldPolicyWith($set);
 
     expectMailRoutingRefusal(mailRoutingRun(['validate'], $policy), $reason);
     expectMailRoutingRefusal(mailRoutingRun(['render-plan'], $policy), $reason);
@@ -307,14 +358,13 @@ it('refuses staging.invalid as a production identity', function (array $set, str
 
 it('keeps tits-guru planned, and refuses any held target that is active', function () {
     $registry = perimeterRegistry();
-    $policy = mailRoutingPolicy();
 
     expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
-    expect($policy['targets']['tits-guru']['delivery_mode'])->toBe('held');
+    expect(mailRoutingPolicy()['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
 
-    // Activating it is refused by mail routing itself — not only by the
-    // registry's own active allowlist, which this scratch copy widens so the
-    // mail rule is the one left to decide.
+    // A held tits-guru made active is refused by mail routing itself — not
+    // only by the registry's own active allowlist, which this scratch copy
+    // widens so the mail rule is the one left to decide.
     data_set($registry, 'targets.tits-guru.lifecycle', 'active');
 
     $scratch = sys_get_temp_dir().'/mail-routing-active-'.bin2hex(random_bytes(6));
@@ -322,6 +372,7 @@ it('keeps tits-guru planned, and refuses any held target that is active', functi
 
     try {
         $repo = provisionRepo($scratch, mailRoutingJson($registry), widenActiveAllowlist: true);
+        file_put_contents($repo.'/infrastructure/config/mail-routing.json', mailRoutingJson(mailPreActivationPolicy()['routing']));
         $script = $repo.'/infrastructure/scripts/mail-routing';
 
         expectMailRoutingRefusal(
@@ -390,14 +441,41 @@ it('validates and renders a production target delivered outbound by direct SMTP'
     expect($others)->toBe(mailRoutingPlan()['listeners']);
 });
 
-it('keeps the real production target held and planned, with no outbound route in the real plan', function () {
-    expect(mailRoutingPolicy()['targets']['tits-guru'])->not->toHaveKey('outbound');
-    expect(mailRoutingListener(mailRoutingPlan(), 'tits-guru')['route'])->toBeNull();
+it('routes only the real production target outbound in the real plan, by direct delivery and still planned', function () {
+    expect(mailRoutingPolicy()['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
+    expect(mailRoutingListener(mailRoutingPlan(), 'tits-guru')['route'])->toBe(['kind' => 'direct']);
     expect(perimeterRegistry()['targets']['tits-guru']['lifecycle'])->toBe('planned');
 
-    foreach (mailRoutingPlan()['listeners'] as $listener) {
-        expect($listener['delivery_mode'])->not->toBe('outbound', "{$listener['identity']} is outbound in the real plan");
-    }
+    $outbound = array_values(array_filter(mailRoutingPlan()['listeners'], static fn (array $listener): bool => $listener['delivery_mode'] === 'outbound'));
+    expect(array_column($outbound, 'identity'))->toBe(['tits-guru']);
+    expect(array_column($outbound, 'environment_class'))->toBe(['production']);
+});
+
+it('never gives staging the production direct route', function () {
+    $staging = mailRoutingListener(mailRoutingPlan(), 'staging-main');
+
+    // Staging still captures into its own Mailpit, and nothing else.
+    expect($staging['delivery_mode'])->toBe('capture');
+    expect($staging['route'])->toBe(['host' => '127.0.0.1', 'kind' => 'capture', 'port' => 1025]);
+    expect($staging['listen'])->toBe(['host' => '127.0.0.1', 'port' => 2525]);
+
+    // Nor can it be given one: outbound is a production target's mode alone.
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.staging-main' => [
+            'submission' => ['host' => '127.0.0.1', 'port' => 2525],
+            'delivery_mode' => 'outbound',
+            'outbound' => ['kind' => 'direct'],
+            'mail_domain' => 'staging.example.com',
+            'default_from' => 'noreply@staging.example.com',
+            'bounce_domain' => 'bounce.staging.example.com',
+            'reply_domain' => 'reply.staging.example.com',
+        ]])),
+        'staging-main: environment_class staging allows delivery_mode capture, not outbound',
+    );
+    expectMailRoutingRefusal(
+        mailRoutingRun(['validate'], mailRoutingPolicyWith(['targets.staging-main.outbound' => ['kind' => 'direct']])),
+        'staging-main: unexpected property "outbound" in a capture policy',
+    );
 });
 
 it('lets an outbound target be active, and still refuses an active held one', function () {
@@ -711,7 +789,7 @@ it('refuses a document that is not one well-formed policy object', function (str
 ]);
 
 it('refuses a policy whose shape is not exactly its mode\'s', function (array $set, array $forget, string $reason) {
-    expectMailRoutingRefusal(mailRoutingRun(['validate'], mailRoutingPolicyWith($set, $forget)), $reason);
+    expectMailRoutingRefusal(mailRoutingRun(['validate'], mailRoutingHeldPolicyWith($set, $forget)), $reason);
 })->with([
     'an extra property' => [['targets.staging-main.notes' => 'x'], [], 'staging-main: unexpected property "notes" in a capture policy'],
     'no capture destination' => [[], ['targets.staging-main.capture'], 'staging-main: a capture policy must declare capture'],
@@ -731,6 +809,17 @@ it('refuses a policy whose shape is not exactly its mode\'s', function (array $s
         'staging-main: submission must be an object {host, port}, got "127.0.0.1:2525"',
     ],
     'a policy that is not an object' => [['targets.tits-guru' => 'held'], [], 'tits-guru: policy must be an object, got "held"'],
+]);
+
+it('refuses a committed outbound policy whose shape is not exactly an outbound one', function (array $set, array $forget, string $reason) {
+    expectMailRoutingRefusal(mailRoutingRun(['validate'], mailRoutingPolicyWith($set, $forget)), $reason);
+})->with([
+    'no submission endpoint' => [[], ['targets.tits-guru.submission'], 'tits-guru: an outbound policy must declare submission'],
+    'no bounce domain' => [[], ['targets.tits-guru.bounce_domain'], 'tits-guru: an outbound policy must declare bounce_domain'],
+    'no transport named' => [[], ['targets.tits-guru.outbound'], 'tits-guru: an outbound policy must declare outbound'],
+    'a relay transport' => [['targets.tits-guru.outbound' => ['kind' => 'relay']], [], 'tits-guru: outbound.kind must be one of direct, got "relay"'],
+    'a smart host beside the kind' => [['targets.tits-guru.outbound.host' => 'smtp.example.com'], [], 'tits-guru: outbound must be exactly {kind}, found ["host","kind"]'],
+    'a capture destination beside outbound' => [['targets.tits-guru.capture' => ['host' => '127.0.0.1', 'port' => 1025]], [], 'tits-guru: outbound mail leaves only through its own outbound transport, so it may not declare "capture"'],
 ]);
 
 it('refuses a control character anywhere, including the newline a shell would strip', function (string $path, string $value) {
@@ -937,10 +1026,12 @@ it('names no target, domain or port anywhere in its implementation', function ()
     foreach ($policy['targets'] as $id => $target) {
         $names[] = $id;
 
+        // A delivery mode and a route kind are the schema's own vocabulary,
+        // which the validator must name; every other value is the target's.
         foreach (Arr::dot($target) as $key => $value) {
             if (str_ends_with($key, 'port')) {
                 $ports[] = (string) $value;
-            } elseif (is_string($value) && ! str_ends_with($key, 'host') && $key !== 'delivery_mode') {
+            } elseif (is_string($value) && ! str_ends_with($key, 'host') && ! in_array($key, ['delivery_mode', 'outbound.kind'], true)) {
                 $names[] = $value;
             }
         }

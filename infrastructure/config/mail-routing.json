@@ -18,7 +18,10 @@
         "host": "127.0.0.1",
         "port": 2526
       },
-      "delivery_mode": "held",
+      "delivery_mode": "outbound",
+      "outbound": {
+        "kind": "direct"
+      },
       "mail_domain": "tits.guru",
       "default_from": "noreply@tits.guru",
       "bounce_domain": "bounce.tx.tits.guru",

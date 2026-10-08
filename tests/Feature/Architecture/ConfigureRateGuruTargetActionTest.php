@@ -544,7 +544,7 @@ it('passes the optional MAIL_DKIM_PRIVATE_KEY secret through, and nowhere else',
  *
  * @return array{0: int, 1: string, 2: string, 3: string} exit, output, step summary, ssh arguments
  */
-function configureRunDnsPlanStep(string $plan, int $planStatus = 0, string $target = 'tits-guru', ?string $identityAnswer = null, int $identityStatus = 0): array
+function configureRunDnsPlanStep(string $plan, int $planStatus = 0, string $target = 'tits-guru', ?string $identityAnswer = null, int $identityStatus = 0, ?string $workspace = null): array
 {
     $scratch = makeScratchDir('configure-dns-plan', ['/bin', '/workspace/infrastructure/scripts'], 0o700);
 
@@ -564,7 +564,7 @@ function configureRunDnsPlanStep(string $plan, int $planStatus = 0, string $targ
         $process = proc_open(['bash', $scratch.'/step.sh'], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
             'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
             'HOME' => $scratch,
-            'GITHUB_WORKSPACE' => $identityAnswer === null ? base_path() : $scratch.'/workspace',
+            'GITHUB_WORKSPACE' => $identityAnswer === null ? ($workspace ?? base_path()) : $scratch.'/workspace',
             'STUB_REMOTE_OUTPUT' => $scratch.'/remote-output',
             'STUB_SSH_ARGS' => $scratch.'/ssh-args',
             'GITHUB_STEP_SUMMARY' => $scratch.'/summary',
@@ -594,13 +594,14 @@ function configureRunDnsPlanStep(string $plan, int $planStatus = 0, string $targ
  *
  * @return array{0: string, 1: ?string} the JSON plan, the installed key
  */
-function configureRealDnsPlan(bool $withKey, bool $withAddress = true): array
+function configureRealDnsPlan(bool $withKey, bool $withAddress = true, ?array $policy = null): array
 {
     $scratch = mailIdentityScratch();
 
     try {
         $key = $withKey ? mailIdentityInstallKey($scratch, 'tits-guru', 'rg1') : null;
-        $run = mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json'], mailIdentityDnsHost($scratch, [], $withAddress ? '203.0.113.10' : null));
+        $files = $policy === null ? [] : mailIdentityFixtureConfig($scratch.'/config', ['demo-shop' => false, 'policy' => $policy]);
+        $run = mailIdentityRun(['show-dns', '--target', 'tits-guru', '--json', ...$files], mailIdentityDnsHost($scratch, [], $withAddress ? '203.0.113.10' : null));
 
         expect($run['status'])->toBe(0, $run['stderr']);
 
@@ -675,15 +676,23 @@ it('reports no plan, and Configure succeeds, for a target with no reviewed mail 
 });
 
 it('defers the plan, and Configure succeeds, while the target is held and its key is not installed', function () {
-    [$plan] = configureRealDnsPlan(false);
+    // The pre-activation repository, where tits-guru's mail is still held.
+    $scratch = makeScratchDir('configure-held-plan');
 
-    expect(json_decode($plan, true)['dkim']['key_status'])->toBe('absent');
+    try {
+        $workspace = mailPreActivationCheckout($scratch);
+        [$plan] = configureRealDnsPlan(false, policy: mailPreActivationPolicy());
 
-    [$exit, $output, $summary] = configureRunDnsPlanStep($plan);
+        expect(json_decode($plan, true)['dkim']['key_status'])->toBe('absent');
 
-    expect($exit)->toBe(0, $output);
-    expect($output)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.');
-    expect($summary)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.')->not->toContain('| TXT |');
+        [$exit, $output, $summary] = configureRunDnsPlanStep($plan, workspace: $workspace);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.');
+        expect($summary)->toContain('DNS publication plan DEFERRED — DKIM private key not installed.')->not->toContain('| TXT |');
+    } finally {
+        removeScratchDir($scratch);
+    }
 });
 
 it('publishes the complete public plan of an installed key into the summary, and nothing private', function () {
@@ -749,10 +758,26 @@ it('fails once the key is required, or present but unusable, and no DKIM record 
         'the DKIM private key on the host is absent (required for tits-guru)',
     );
 
+    // The committed policy requests tits-guru's outbound delivery, so the
+    // repository's own mail-identity already calls the key required.
+    expectDnsPlanRefused(configureRunDnsPlanStep($absent), 'the DKIM private key on the host is absent (required for tits-guru)');
+
     $unusable = json_decode($absent, true);
     $unusable['dkim']['key_status'] = 'unusable';
 
-    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($unusable)), 'the DKIM private key on the host is unusable (deferred for tits-guru)');
+    expectDnsPlanRefused(configureRunDnsPlanStep(json_encode($unusable)), 'the DKIM private key on the host is unusable (required for tits-guru)');
+
+    // Unusable key material is refused even while the target is still held.
+    $scratch = makeScratchDir('configure-held-plan');
+
+    try {
+        expectDnsPlanRefused(
+            configureRunDnsPlanStep(json_encode($unusable), workspace: mailPreActivationCheckout($scratch)),
+            'the DKIM private key on the host is unusable (deferred for tits-guru)',
+        );
+    } finally {
+        removeScratchDir($scratch);
+    }
 });
 
 it('fails when the host detected no public IPv4 address', function () {

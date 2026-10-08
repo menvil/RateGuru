@@ -2228,10 +2228,12 @@ function expectNoKeyMaterial(string $output, string $keyPath): void
  * The four reviewed configuration files mail identity is judged from, written
  * into DIR: the committed ones, plus — unless `demo-shop` is false — the
  * synthetic demo-shop target in the registry, in mail routing (`mode` held or
- * outbound), and in mail identity (`identity`, or none when null). `outbound`
- * replaces the host contract. Returns the matching FILES arguments.
+ * outbound), and in mail identity (`identity`, or none when null). `policy`
+ * ({routing, outbound}, such as mailPreActivationPolicy()) stands in for the
+ * committed routing policy and host contract; `outbound` replaces the host
+ * contract. Returns the matching FILES arguments.
  *
- * @param  array{demo-shop?: bool, mode?: string, identity?: array<string, mixed>|null, outbound?: array<string, mixed>, registry?: array<string, mixed>}  $options
+ * @param  array{demo-shop?: bool, mode?: string, identity?: array<string, mixed>|null, policy?: array{routing: array<string, mixed>, outbound: array<string, mixed>}, outbound?: array<string, mixed>, registry?: array<string, mixed>}  $options
  * @return list<string>
  */
 function mailIdentityFixtureConfig(string $dir, array $options = []): array
@@ -2241,9 +2243,9 @@ function mailIdentityFixtureConfig(string $dir, array $options = []): array
     $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
 
     $registry = $options['registry'] ?? $read('deployment-targets.json');
-    $routing = $read('mail-routing.json');
+    $routing = $options['policy']['routing'] ?? $read('mail-routing.json');
     $identity = $read('mail-identity.json');
-    $outbound = $options['outbound'] ?? $read('mail-outbound.json');
+    $outbound = $options['outbound'] ?? $options['policy']['outbound'] ?? $read('mail-outbound.json');
 
     if ($options['demo-shop'] ?? true) {
         if (! isset($options['registry'])) {
@@ -2317,9 +2319,9 @@ function mailIdentityRun(array $arguments, array $environment = []): array
 
 /**
  * Two synthetic production brands delivered outbound by direct SMTP, beside the
- * committed targets: demo-shop on 2599 and demo-books on 2598, each with its
- * own registry entry and its own identity. Neither appears in any committed
- * file or in the implementation.
+ * committed targets — tits-guru among them, outbound too: demo-shop on 2599
+ * and demo-books on 2598, each with its own registry entry and its own
+ * identity. Neither appears in any committed file or in the implementation.
  *
  * @return array{policy: array<string, mixed>, registry: array<string, mixed>}
  */
@@ -2481,19 +2483,35 @@ function mailGatewayScratch(): string
  *   otherMta       a package name providing mail-transport-agent
  *   ownPolicyRc    true to give the host its own /usr/sbin/policy-rc.d
  *   listeners      extra TCP listeners on the host (default: Mailpit's 127.0.0.1:1025)
- *   policy         a mail routing policy instead of the committed one
+ *   policy         a mail routing policy (default: the pre-activation one,
+ *                  mailPreActivationPolicy() — tits-guru held; null: none, so
+ *                  the installer reads its own bundle's)
  *   registry       a deployment registry instead of the committed one
- *   outbound       a host outbound contract instead of the committed one
+ *   outbound       a host outbound contract (default: the pre-activation one —
+ *                  direct delivery disabled; null: its own bundle's)
  *   identity       a mail identity contract instead of the committed one
  *   signer         false to leave the DKIM signer's endpoint unheard on the host
  *
  * The signer's endpoint is the one the real install-mail-signing prints, and by
  * default something listens on it, as on a host where the signer is installed.
  *
+ * Its bundle requests the pre-activation documents unless told otherwise: a
+ * gateway's first recorded policy is always the inert one, and only
+ * activate-mail-outbound crosses from it to the committed request
+ * (mailCommittedPolicy()), which a test passes explicitly.
+ *
  * @return array{scratch: string, fs: string, env: array<string, string>}
  */
 function mailGatewayHost(array $options = []): array
 {
+    if (! array_key_exists('policy', $options)) {
+        $options['policy'] = mailPreActivationPolicy()['routing'];
+    }
+
+    if (! array_key_exists('outbound', $options)) {
+        $options['outbound'] = mailPreActivationPolicy()['outbound'];
+    }
+
     $scratch = mailGatewayScratch();
     $fs = $scratch.'/fs';
     $state = $scratch.'/state';
@@ -3100,21 +3118,70 @@ function mailActivationOwnerStubs(): array
     ];
 }
 
-/** The routing policy and host contract that request tits-guru's activation. */
+/**
+ * The mail routing policy and host outbound contract the repository commits,
+ * as arrays — what every bundle built from it requests.
+ *
+ * @return array{routing: array<string, mixed>, outbound: array<string, mixed>}
+ */
+function mailCommittedPolicy(): array
+{
+    return [
+        'routing' => json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR),
+        'outbound' => json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR),
+    ];
+}
+
+/**
+ * The routing policy and host contract that request tits-guru's activation:
+ * the committed ones, tits-guru's submission moved to PORT when one is given.
+ *
+ * @return array{routing: array<string, mixed>, outbound: array<string, mixed>}
+ */
 function mailActivationRequest(?int $port = null): array
 {
-    $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
-    $routing['targets']['tits-guru']['delivery_mode'] = 'outbound';
-    $routing['targets']['tits-guru']['outbound'] = ['kind' => 'direct'];
+    $request = mailCommittedPolicy();
 
     if ($port !== null) {
-        $routing['targets']['tits-guru']['submission']['port'] = $port;
+        $request['routing']['targets']['tits-guru']['submission']['port'] = $port;
     }
 
-    $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true, 512, JSON_THROW_ON_ERROR);
-    $outbound['direct']['enabled'] = true;
+    return $request;
+}
 
-    return ['routing' => $routing, 'outbound' => $outbound];
+/**
+ * The pre-activation state: the activation request with exactly its three
+ * changes undone — tits-guru held, no outbound route, direct delivery disabled
+ * — and every other field as requested. It is what a host recorded before
+ * activate-mail-outbound crossed it, and what a held simulated host starts
+ * from; never a second copy of the production documents.
+ *
+ * @return array{routing: array<string, mixed>, outbound: array<string, mixed>}
+ */
+function mailPreActivationPolicy(?int $port = null): array
+{
+    $policy = mailActivationRequest($port);
+    $policy['routing']['targets']['tits-guru']['delivery_mode'] = 'held';
+    unset($policy['routing']['targets']['tits-guru']['outbound']);
+    $policy['outbound']['direct']['enabled'] = false;
+
+    return $policy;
+}
+
+/**
+ * A scratch checkout of the infrastructure tree under SCRATCH whose mail
+ * routing policy and host contract are the pre-activation ones — the
+ * repository before tits-guru's activation was requested. Returns its root.
+ */
+function mailPreActivationCheckout(string $scratch): string
+{
+    $repo = provisionRepo($scratch, File::get(base_path('infrastructure/config/deployment-targets.json')));
+    $policy = mailPreActivationPolicy();
+
+    file_put_contents($repo.'/infrastructure/config/mail-routing.json', mailRoutingJson($policy['routing']));
+    file_put_contents($repo.'/infrastructure/config/mail-outbound.json', mailRoutingJson($policy['outbound']));
+
+    return $repo;
 }
 
 /**
@@ -3147,13 +3214,15 @@ function mailActivationBundle(string $root, array $documents): void
  * A trusted bundle and the simulated host it activates.
  *
  * Options:
- *   requested  true (default): the bundle requests tits-guru's activation;
- *              false: it holds the committed documents
+ *   requested  true (default): the bundle holds the committed documents, which
+ *              request tits-guru's activation; false: it holds the
+ *              pre-activation documents (mailPreActivationPolicy()), which
+ *              request none
  *   routing    a routing policy for the bundle instead
  *   outbound   a host contract for the bundle instead
  *   registry   a registry for the bundle instead
  *   installed  'held' (default): the host's gateway was applied from the
- *              committed documents, and records them; 'outbound': then
+ *              pre-activation documents, and records them; 'outbound': then
  *              activated to the bundle's request through an authorization; or
  *              an array {routing, outbound} it was applied from instead
  *   listeners  the host's other TCP listeners (default: 127.0.0.1:1025)
@@ -3171,7 +3240,8 @@ function mailActivationBundle(string $root, array $documents): void
  */
 function mailActivationHost(array $options = []): array
 {
-    $gateway = mailGatewayHost(['listeners' => $options['listeners'] ?? ['127.0.0.1:1025']]);
+    // Every bundle's gateway reads that bundle's own documents.
+    $gateway = mailGatewayHost(['listeners' => $options['listeners'] ?? ['127.0.0.1:1025'], 'policy' => null, 'outbound' => null]);
     $scratch = $gateway['scratch'];
     $fs = $gateway['fs'];
     $state = $scratch.'/state';
@@ -3188,11 +3258,7 @@ function mailActivationHost(array $options = []): array
 
     $port = $options['port'] ?? null;
     $committed = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
-    $preActivation = ['routing' => $committed('mail-routing.json'), 'outbound' => $committed('mail-outbound.json')];
-
-    if ($port !== null) {
-        $preActivation['routing']['targets']['tits-guru']['submission']['port'] = $port;
-    }
+    $preActivation = mailPreActivationPolicy($port);
 
     $request = ($options['requested'] ?? true) ? mailActivationRequest($port) : $preActivation;
     $documents = [
