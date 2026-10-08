@@ -22,7 +22,11 @@ it('collects an error, a rejection and a console error, across a navigation', fu
     $page = visit(route('feed'));
     $page->script("() => setTimeout(() => { throw new Error('watched error') }, 0)");
     $page->script("() => { Promise.reject(new Error('watched rejection')); return true; }");
-    $page->navigate(route('login'));
+    // The page navigates itself. The plugin's navigate() retries a page load
+    // that takes longer than a second, and a retry interrupts the load it is
+    // retrying; a navigation the page starts is never started twice.
+    $page->script("() => { location.href = '/login'; return true; }");
+    waitForScript($page, "location.pathname === '/login' && document.readyState === 'complete'");
     $page->script("() => { console.error('watched console error'); return true; }");
 
     // Each one exactly once, whatever the navigation did to a report in flight.
