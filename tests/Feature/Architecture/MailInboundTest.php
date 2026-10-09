@@ -30,30 +30,6 @@ const MAIL_INBOUND_IDENTIFIER = '01hzx3k9q2w8e7r6t5y4v3p2m1';
  */
 const MAIL_INBOUND_TEST_IPV4 = '1.2.3.4';
 
-function mailInboundScript(): string
-{
-    return base_path('infrastructure/scripts/mail-inbound');
-}
-
-/** @return array<string, mixed> */
-function mailInboundContract(): array
-{
-    return json_decode(File::get(base_path('infrastructure/config/mail-inbound.json')), true, 512, JSON_THROW_ON_ERROR);
-}
-
-/**
- * The committed contract — or BASE — with dot-path changes applied.
- *
- * @param  array<string, mixed>  $set
- * @param  list<string>  $forget
- * @param  array<string, mixed>|null  $base
- * @return array<string, mixed>
- */
-function mailInboundContractWith(array $set = [], array $forget = [], ?array $base = null): array
-{
-    return withDotPaths($base ?? mailInboundContract(), $set, $forget);
-}
-
 /**
  * The synthetic demo-shop's inbound policy: its own MX host, two support
  * mailboxes and its own prefixes. None of it appears in the implementation.
@@ -107,69 +83,6 @@ function mailInboundNestedDemoShopRouting(): array
         'bounce_domain' => 'bounce.shop.tits.guru',
         'reply_domain' => 'reply.shop.tits.guru',
     ];
-}
-
-/**
- * Run the shipped CLI. Each document given is written to a scratch file and
- * passed with its own flag; one left out is the committed file, reached
- * through the script's defaults. A string document is written verbatim, for
- * one that is not a valid contract to begin with.
- *
- * stdout and stderr are kept apart: a refusal must print nothing on stdout,
- * and a plan or verdict must be nothing but JSON.
- *
- * @param  list<string>  $arguments
- * @param  array<string, array<string, mixed>|string>  $documents  keyed inbound, routing, registry, outbound, identity
- * @return array{status: int, stdout: string, stderr: string}
- */
-function mailInboundRun(array $arguments, array $documents = [], ?string $script = null): array
-{
-    $scratch = makeScratchDir('mail-inbound');
-
-    try {
-        foreach ($documents as $name => $document) {
-            expect(['inbound', 'routing', 'registry', 'outbound', 'identity'])->toContain($name);
-
-            file_put_contents("{$scratch}/{$name}.json", is_string($document) ? $document : mailRoutingJson($document));
-            $arguments = [...$arguments, "--{$name}", "{$scratch}/{$name}.json"];
-        }
-
-        $process = proc_open(
-            ['bash', $script ?? mailInboundScript(), ...$arguments],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            $scratch,
-            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
-        );
-
-        expect($process)->not->toBeFalse('could not start mail-inbound');
-
-        $stdout = (string) stream_get_contents($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-
-        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
-    } finally {
-        removeScratchDir($scratch);
-    }
-}
-
-/**
- * A command's JSON, decoded — after proving it succeeded cleanly.
- *
- * @param  list<string>  $arguments
- * @param  array<string, array<string, mixed>|string>  $documents
- * @return array<string, mixed>
- */
-function mailInboundJson(array $arguments, array $documents = []): array
-{
-    $run = mailInboundRun($arguments, $documents);
-
-    expect($run['status'])->toBe(0, $run['stderr']);
-    expect($run['stderr'])->toBe('');
-
-    return json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
 }
 
 /**
@@ -356,6 +269,7 @@ it('holds the receiver to the reviewed limits', function () {
         'recipients_per_message' => 1,
         'connections_per_client' => 5,
         'connection_rate_per_client' => 30,
+        'message_rate_per_client' => 60,
         'concurrent_sessions' => 20,
         'storage_bytes' => 1073741824,
         'storage_reserve_bytes' => 104857600,
@@ -375,6 +289,7 @@ it('refuses a limit outside its reviewed range, or not an integer', function (st
     'a fractional recipient limit' => ['recipients_per_message', 1.5, '1 to 50'],
     'a limit as a string' => ['connections_per_client', '5', '1 to 50'],
     'an unlimited connection rate' => ['connection_rate_per_client', 0, '1 to 600'],
+    'an unlimited message rate' => ['message_rate_per_client', 0, '1 to 600'],
     'unlimited sessions' => ['concurrent_sessions', 1000, '1 to 200'],
     'a tiny store' => ['storage_bytes', 1048576, '268435456 to 68719476736'],
     'no host reserve' => ['host_reserve_bytes', 0, '1073741824 to 68719476736'],
@@ -413,9 +328,9 @@ it('refuses a loopback port the gateway owns, or no unprivileged port at all', f
     'port 25' => [25, 'receiver.loopback_port must be an integer from 1024 to 65535, got 25'],
     'beyond the port range' => [65536, 'receiver.loopback_port must be an integer from 1024 to 65535, got 65536'],
     'a string' => ['2580', 'receiver.loopback_port must be an integer from 1024 to 65535, got "2580"'],
-    'the staging listener' => [2525, 'receiver.loopback_port 2525 is a port of the mail routing plan (staging-main): the receiver and the gateway never share a port'],
-    'the staging capture route' => [1025, 'receiver.loopback_port 1025 is a port of the mail routing plan (staging-main): the receiver and the gateway never share a port'],
-    'the tits-guru listener' => [2526, 'receiver.loopback_port 2526 is a port of the mail routing plan (tits-guru): the receiver and the gateway never share a port'],
+    'the staging listener' => [2525, 'receiver.loopback_port 2525 is a port of the mail routing plan (staging-main): the inbound listener never shares a port with a submission listener'],
+    'the staging capture route' => [1025, 'receiver.loopback_port 1025 is a port of the mail routing plan (staging-main): the inbound listener never shares a port with a submission listener'],
+    'the tits-guru listener' => [2526, 'receiver.loopback_port 2526 is a port of the mail routing plan (tits-guru): the inbound listener never shares a port with a submission listener'],
 ]);
 
 it('renders exactly what the receiver accepts: an anchored pattern and a mailbox of its own for every allowed recipient', function () {
@@ -1216,7 +1131,7 @@ it('renders no command, no path and no secret: only names, addresses and closed 
         'mx_hostname', 'domains', 'destinations', 'destination', 'domain', 'handler', 'kind', 'status', 'accepts',
         'addresses', 'address_space', 'local_part_prefix', 'identifier', 'identifies', 'loopback_port', 'limits',
         'host_postmaster', 'address', 'message_size_bytes', 'recipients_per_message', 'connections_per_client',
-        'connection_rate_per_client', 'concurrent_sessions', 'storage_bytes', 'storage_reserve_bytes', 'host_reserve_bytes',
+        'connection_rate_per_client', 'message_rate_per_client', 'concurrent_sessions', 'storage_bytes', 'storage_reserve_bytes', 'host_reserve_bytes',
     ];
 
     $plans = [
@@ -1451,7 +1366,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
         'recipient-limit',
         'connection-limits',
         'queue-limits',
-        'isolated-queue',
+        'shared-queue-guard',
         'no-outbound-submission',
         'no-message-content-in-logs',
         'content-never-executed',
@@ -1461,7 +1376,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
         'malformed-and-duplicate-safe',
         'disk-exhaustion-guard',
         'single-public-port-owner',
-        'no-shared-mail-state',
+        'outbound-unaffected',
     ]);
 
     $runbook = File::get(base_path('infrastructure/runbooks/mail-inbound.md'));
@@ -1476,7 +1391,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
     expect($documented[1])->toBe($requirements);
 });
 
-it('is repository tooling, reached only by the receiver installer, its activation and the infrastructure verifier', function () {
+it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation and the infrastructure verifier', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-inbound');
     expect(requiredCliManifestNames())->not->toContain('mail-inbound');
 
@@ -1496,17 +1411,19 @@ it('is repository tooling, reached only by the receiver installer, its activatio
 
     expect($reaching)->toBe([
         'infrastructure/scripts/activate-mail-inbound',
+        'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/install-mail-inbound',
         'infrastructure/scripts/verify-infrastructure',
     ]);
 
-    // Each of them only reads: no command of it writes anything.
+    // Each of them only reads it.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-gateway'))))->toContain('"${MAIL_INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound'))))->toContain('"${INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/verify-infrastructure'))))->toContain('"${MAIL_INBOUND}" render-plan');
 });
 
 it('leaves every public SMTP port check to the one shared judge, and no consumer its own list of ports', function () {
-    foreach (['install-mail-gateway', 'activate-mail-outbound', 'install-mail-inbound', 'activate-mail-inbound', 'status-mail-gateway'] as $script) {
+    foreach (['install-mail-gateway', 'activate-mail-outbound', 'activate-mail-inbound', 'status-mail-gateway'] as $script) {
         $code = executableSourceLines(File::get(base_path("infrastructure/scripts/{$script}")));
 
         expect($code)->toContain('source "${SCRIPT_DIR}/public-smtp-port"');
@@ -1532,11 +1449,18 @@ it('documents the order: the receiver first, MX records only once it is active',
         ->toContain('| Public inbound SMTP — real host | **Disabled**: nothing listens on port 25 until the guarded activation has run |')
         ->toContain('| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Not published**')
         ->toContain('The envelope sender of every message sent today is `noreply@tits.guru`')
-        ->toContain('`verify-mail-gateway` is never weakened to allow port 25 in general');
+        ->toContain('`verify-mail-gateway` is never weakened to allow port 25 in general')
+        // One Postfix: the queue is shared and never claimed isolated, and no second instance remains.
+        ->toContain('**One Postfix — independent listeners — one shared queue — a separate inbound store — guarded activation of public SMTP.**')
+        ->toContain('Inbound and outbound mail are deliberately **not** isolated from each other in the queue')
+        ->toContain('`queue_minfree` guards the queue\'s file system, never the store')
+        ->not->toContain('/etc/postfix-inbound')
+        ->not->toContain('rateguru-mail-inbound.service')
+        ->not->toContain('postfix -c');
 
     $steps = [
         '1. **The inbound contract**',
-        '2. **An isolated receiver, proved locally**',
+        '2. **Inbound listeners on the host Postfix, proved locally**',
         '3. **Guarded activation of public SMTP**',
         '4. **MX records**',
         '5. **An external test message to `support@tits.guru`**',
@@ -1570,7 +1494,7 @@ it('gives the operator the eleven steps from merge to acceptance, DNS only after
         '6. **Publish DNS** at the DNS provider, the A record first, then the MX records:',
         '7. **Check public DNS**',
         '8. **Send a real message** from an outside mailbox to `support@tits.guru`.',
-        '9. **Check it is in the isolated store**',
+        '9. **Check it is in the inbound store**',
         '10. **Run Verify production infrastructure.**',
         '11. **Run Verify staging infrastructure.**',
     ];
@@ -1601,14 +1525,14 @@ it('records the inbound contract as completed and the receiver as implemented, n
         ->toContain('Verify production infrastructure run `37814215899` SUCCESS, `OUTBOUND READY: YES`')
         ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — current.**')
         ->toContain('**8.4B.5.1 Inbound contract and DNS plan — COMPLETED.**')
-        ->toContain('**8.4B.5.2 Isolated inbound SMTP receiver and guarded activation — IMPLEMENTED in repository, awaiting real-host activation and acceptance.**')
+        ->toContain('**8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — IMPLEMENTED in repository, awaiting real-host activation and acceptance.**')
         ->toContain('8.4B.5.2 is not accepted until a message from outside is stored.')
         ->toContain('**8.4B.5.3 Bounce reception and correlation — planned.**')
         ->toContain('**8.4B.5.4 Reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.5.5 Real-host acceptance and recovery proof — planned.**')
         ->toContain('Inbound mail is not working until a message from outside has actually been received.')
         ->toContain('[`runbooks/mail-inbound.md`](runbooks/mail-inbound.md)')
-        ->not->toContain('8.4B.5.2 Isolated inbound SMTP receiver and guarded activation — PRODUCTION-ACCEPTED')
+        ->not->toContain('8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — PRODUCTION-ACCEPTED')
         ->not->toContain('Inbound mail — ACCEPTED');
 
     // Exactly five inbound slices: none added for the infrastructure alone.

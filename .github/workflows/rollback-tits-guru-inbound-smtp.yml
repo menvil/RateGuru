@@ -4,11 +4,13 @@ name: Rollback tits.guru inbound SMTP
 # infrastructure/scripts/activate-mail-inbound --rollback --target tits-guru,
 # run from trusted main tooling, after a typed confirmation.
 #
-# The receiver returns to disabled through its own one-use authorization,
-# RateGuru's firewall rule for TCP 25 — and only it — is removed, and the run
-# proves nothing listens on TCP 25 any more. The receiver stays installed and
-# keeps every message it stored. The outbound gateway, OpenDKIM and every
-# other queue are never touched.
+# The host's Postfix drops its public inbound listener by a reload, through a
+# one-use authorization the gateway consumes; RateGuru's firewall rule for TCP
+# 25 — and only it — is removed, and the run proves nothing listens on TCP 25
+# any more and that the outbound path is exactly what it was. Postfix is never
+# stopped: outbound mail, the shared queue — mail accepted but not yet stored
+# included — and every stored message are kept. OpenDKIM and the outbound
+# routes are never touched.
 #
 # It changes no DNS record. After it, the published MX records still name this
 # host: the job summary says to check them and remove them unless public SMTP
@@ -144,7 +146,7 @@ jobs:
           bootstrap-host: ${{ vars.DEPLOY_HOST }}
           bootstrap-port: ${{ vars.DEPLOY_PORT }}
 
-          # The privileged bootstrap credential: the receiver, its volume and
+          # The privileged bootstrap credential: Postfix, the inbound store and
           # the firewall are root's. Never the deploy key.
           bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}

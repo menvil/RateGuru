@@ -1,41 +1,52 @@
 <?php
 
-use Illuminate\Support\Facades\File;
-
 /**
  * public-smtp-port: the one judge of who may listen on a public SMTP port.
  *
- * 465 and 587: nothing, ever. 25: nothing — except the activated inbound
- * receiver, on exactly its recorded address, held only by processes of its own
- * unit, on a host whose receiver is installed and whose reviewed contract
- * requests public SMTP. The library is sourced and driven directly against a
- * fixture filesystem and an ss stub; then the mail gateway's own runtime check,
- * the outbound activation and the gateway status are proved to ask it.
+ * 465 and 587: nothing, ever. 25: nothing — except the host's own Postfix,
+ * once activate-mail-inbound has enabled public inbound SMTP: exactly one
+ * socket, on exactly the address the gateway recorded, held only by processes
+ * of Postfix's own unit (judged by their cgroup, never their name), named as
+ * the one public listener of the installed master.cf, on a host whose gateway
+ * is installed and whose reviewed contract requests public SMTP. The library
+ * is sourced and driven directly against a fixture filesystem and an ss stub;
+ * then the mail gateway's own runtime check is proved to ask it.
  */
+const PUBLIC_SMTP_ENABLED = ['public_smtp' => 'enabled', 'address' => '1.2.3.4'];
+const PUBLIC_SMTP_POSTFIX = '1.2.3.4:25 4000 system-postfix.slice/postfix@-.service';
 
 /**
  * The library's verdict on a host: its listeners ("ADDRESS PID UNIT" or
- * "ADDRESS"), the receiver's recorded state and marker, and the contract.
+ * "ADDRESS"), the gateway's recorded inbound state and marker, the public
+ * listeners its master.cf names, and the contract's request.
  *
  * @param  list<string>  $listeners
+ * @param  list<string>  $master
  * @return list<string>
  */
-function publicSmtpProblems(array $listeners, ?array $applied = null, string $marker = 'installed', string $request = 'enabled', bool $ssFails = false, ?string $raw = null): array
+function publicSmtpProblems(array $listeners, ?array $applied = null, string $marker = 'installed', string $request = 'enabled', ?array $master = null, bool $ssFails = false, ?string $raw = null): array
 {
     $scratch = makeScratchDir('public-smtp-port', ['', '/fs', '/bin']);
 
     try {
-        $state = $scratch.'/fs/var/lib/rateguru-mail-inbound';
+        $state = $scratch.'/fs/var/lib/rateguru-mail-gateway';
         @mkdir($state, 0o755, true);
 
         if ($raw !== null) {
-            file_put_contents($state.'/applied.json', $raw);
+            file_put_contents($state.'/applied-inbound.json', $raw);
         } elseif ($applied !== null) {
-            file_put_contents($state.'/applied.json', json_encode(['kind' => 'rateguru-mail-inbound-applied', 'schema_version' => 1, ...$applied]));
+            file_put_contents($state.'/applied-inbound.json', json_encode(['kind' => 'rateguru-mail-gateway-applied-inbound', 'schema_version' => 1, ...$applied]));
         }
         if ($marker !== '') {
-            file_put_contents($state.'/ownership', "owner=rateguru\ncomponent=mail-inbound\nstate={$marker}\n");
+            file_put_contents($state.'/ownership', "owner=rateguru\ncomponent=mail-gateway\nstate={$marker}\n");
         }
+
+        $master ??= ($applied['public_smtp'] ?? null) === 'enabled' ? [($applied['address'] ?? '1.2.3.4').':25'] : [];
+        @mkdir($scratch.'/fs/etc/postfix', 0o755, true);
+        file_put_contents($scratch.'/fs/etc/postfix/master.cf', implode('', array_map(
+            static fn (string $service): string => "{$service} inet  n       -       n       -       -       smtpd\n",
+            ['127.0.0.1:2525', '127.0.0.1:2526', '127.0.0.1:2580', ...$master],
+        )));
 
         $lines = [];
         foreach ($listeners as $listener) {
@@ -52,9 +63,7 @@ function publicSmtpProblems(array $listeners, ?array $applied = null, string $ma
         file_put_contents($scratch.'/bin/ss', $ssFails ? "#!/bin/bash\nexit 1\n" : "#!/bin/bash\ncat ".escapeshellarg($scratch.'/ss.out')."\n");
         chmod($scratch.'/bin/ss', 0o755);
 
-        $contract = json_decode(File::get(base_path('infrastructure/config/mail-inbound.json')), true);
-        $contract['receiver']['public_smtp'] = $request;
-        file_put_contents($scratch.'/inbound.json', json_encode($contract));
+        file_put_contents($scratch.'/inbound.json', json_encode(mailInboundContractWith(['receiver.public_smtp' => $request])));
 
         $script = 'SS_BIN='.escapeshellarg($scratch.'/bin/ss').'; source '.escapeshellarg(base_path('infrastructure/scripts/public-smtp-port'))
             .'; public_smtp_problems '.escapeshellarg($scratch.'/fs').' '.escapeshellarg($scratch.'/inbound.json');
@@ -66,68 +75,65 @@ function publicSmtpProblems(array $listeners, ?array $applied = null, string $ma
     }
 }
 
-const PUBLIC_SMTP_ENABLED = ['public_smtp' => 'enabled', 'address' => '1.2.3.4'];
-const PUBLIC_SMTP_RECEIVER = '1.2.3.4:25 4100 rateguru-mail-inbound.service';
-
 // =============================================================================
 // THE RULE
 // =============================================================================
 
-it('allows nothing on a public SMTP port while no receiver is activated', function (?array $applied, string $marker, string $reason) {
-    expect(publicSmtpProblems(['0.0.0.0:25 4100 rateguru-mail-inbound.service'], $applied, $marker))
+it('allows nothing on a public SMTP port while public inbound SMTP is not activated', function (?array $applied, string $reason) {
+    expect(publicSmtpProblems(['0.0.0.0:25 4000 system-postfix.slice/postfix@-.service'], $applied))
         ->toBe(["something listens on 0.0.0.0:25 — {$reason}"]);
 })->with([
-    'no receiver at all' => [null, '', 'no SMTP service may listen on port 25 while the inbound receiver is not activated'],
-    'a disabled receiver' => [['public_smtp' => 'disabled', 'address' => null], 'installed', 'the inbound receiver is recorded as disabled, so nothing may listen on port 25'],
+    'no inbound mail at all' => [null, 'no SMTP service may listen on port 25 while public inbound SMTP is not activated'],
+    'inbound mail disabled' => [['public_smtp' => 'disabled', 'address' => null], 'public inbound SMTP is recorded as disabled, so nothing may listen on port 25'],
 ]);
 
-it('allows the activated receiver alone, on its recorded address, owned by its own unit', function () {
-    expect(publicSmtpProblems([PUBLIC_SMTP_RECEIVER, '127.0.0.1:2580 4100 rateguru-mail-inbound.service', '127.0.0.1:2526 4000 postfix@-.service'], PUBLIC_SMTP_ENABLED))
+it('allows the host Postfix alone, on its recorded address, as the one public listener of its master.cf', function () {
+    expect(publicSmtpProblems([PUBLIC_SMTP_POSTFIX, '127.0.0.1:2580 4000 system-postfix.slice/postfix@-.service', '127.0.0.1:2526 4000 system-postfix.slice/postfix@-.service'], PUBLIC_SMTP_ENABLED))
         ->toBe([]);
 });
 
 it('never allows 465 or 587, whoever holds them', function (string $listener) {
-    expect(publicSmtpProblems([PUBLIC_SMTP_RECEIVER, $listener], PUBLIC_SMTP_ENABLED))
-        ->toHaveCount(1)
-        ->and(publicSmtpProblems([PUBLIC_SMTP_RECEIVER, $listener], PUBLIC_SMTP_ENABLED)[0])->toContain('no SMTP service may ever listen on port');
+    $problems = publicSmtpProblems([PUBLIC_SMTP_POSTFIX, $listener], PUBLIC_SMTP_ENABLED);
+
+    expect($problems)->toHaveCount(1);
+    expect($problems[0])->toContain('no SMTP service may ever listen on port');
 })->with([
-    'submission, the receiver\'s own unit' => ['1.2.3.4:587 4100 rateguru-mail-inbound.service'],
+    'submission, the host Postfix itself' => ['1.2.3.4:587 4000 system-postfix.slice/postfix@-.service'],
     'smtps, another process' => ['0.0.0.0:465 5000 dovecot.service'],
     'submission on loopback' => ['127.0.0.1:587 5000 dovecot.service'],
 ]);
 
-it('refuses everything on 25 that is not exactly the activated receiver', function (array $listeners, ?array $applied, string $marker, string $request, string $reason) {
-    $problems = publicSmtpProblems($listeners, $applied, $marker, $request);
-
-    expect(implode("\n", $problems))->toContain($reason);
+it('refuses everything on 25 that is not exactly the activated public listener of the host Postfix', function (array $listeners, ?array $applied, string $marker, string $request, ?array $master, string $reason) {
+    expect(implode("\n", publicSmtpProblems($listeners, $applied, $marker, $request, $master)))->toContain($reason);
 })->with([
-    'another process on the address' => [['1.2.3.4:25 5000 exim4.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'is held by process 5000 outside rateguru-mail-inbound.service'],
-    'the gateway\'s own Postfix' => [['1.2.3.4:25 4000 postfix@-.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'is held by process 4000 outside rateguru-mail-inbound.service'],
-    'a process named nothing' => [['1.2.3.4:25'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'is held by a process ss could not name'],
-    'every address' => [['0.0.0.0:25 4100 rateguru-mail-inbound.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'the activated inbound receiver owns only 1.2.3.4:25, never another address or IPv6'],
-    'another address' => [['5.6.7.8:25 4100 rateguru-mail-inbound.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'never another address or IPv6'],
-    'IPv6' => [['[::]:25 4100 rateguru-mail-inbound.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', 'never another address or IPv6'],
-    'a second socket' => [[PUBLIC_SMTP_RECEIVER, PUBLIC_SMTP_RECEIVER], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', '2 sockets listen on 1.2.3.4:25 — the inbound receiver owns exactly one'],
-    'a receiver not marked installed' => [[PUBLIC_SMTP_RECEIVER], PUBLIC_SMTP_ENABLED, 'installing', 'enabled', 'is missing, corrupt or not marked installed'],
-    'no marker at all' => [[PUBLIC_SMTP_RECEIVER], PUBLIC_SMTP_ENABLED, '', 'enabled', 'is missing, corrupt or not marked installed'],
-    'a contract that no longer requests it' => [[PUBLIC_SMTP_RECEIVER], PUBLIC_SMTP_ENABLED, 'installed', 'disabled', 'does not request public SMTP — run the inbound rollback, or restore the request'],
-    'an enabled record with no address' => [[PUBLIC_SMTP_RECEIVER], ['public_smtp' => 'enabled', 'address' => null], 'installed', 'enabled', 'is missing, corrupt or not marked installed'],
+    'another process on the address' => [['1.2.3.4:25 5000 exim4.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'is held by process 5000 outside postfix@-.service — only the host\'s own Postfix may listen on port 25'],
+    'a process named master, outside Postfix\'s unit' => [['1.2.3.4:25 5001 rogue-master.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'is held by process 5001 outside postfix@-.service'],
+    'a process ss could not name' => [['1.2.3.4:25'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'is held by a process ss could not name'],
+    'every address' => [['0.0.0.0:25 4000 system-postfix.slice/postfix@-.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'public inbound SMTP is activated on 1.2.3.4:25 only, never another address or IPv6'],
+    'another address' => [['5.6.7.8:25 4000 system-postfix.slice/postfix@-.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'never another address or IPv6'],
+    'IPv6' => [['[::]:25 4000 system-postfix.slice/postfix@-.service'], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, 'never another address or IPv6'],
+    'a second socket' => [[PUBLIC_SMTP_POSTFIX, PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', null, '2 sockets listen on 1.2.3.4:25 — public inbound SMTP is exactly one listener'],
+    'a gateway not marked installed' => [[PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, 'installing', 'enabled', null, 'is corrupt or its gateway is not marked installed'],
+    'no gateway marker at all' => [[PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, '', 'enabled', null, 'is corrupt or its gateway is not marked installed'],
+    'a contract that no longer requests it' => [[PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, 'installed', 'disabled', null, 'does not request it — run the inbound rollback, or restore the request'],
+    'an enabled record with no address' => [[PUBLIC_SMTP_POSTFIX], ['public_smtp' => 'enabled', 'address' => null], 'installed', 'enabled', ['1.2.3.4:25'], 'is corrupt or its gateway is not marked installed'],
+    'a second public listener in master.cf' => [[PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, 'installed', 'enabled', ['1.2.3.4:25', '0.0.0.0:2525'], 'the installed master.cf names the public listeners [1.2.3.4:25 0.0.0.0:2525], not exactly 1.2.3.4:25'],
+    'a public listener while disabled' => [[], ['public_smtp' => 'disabled', 'address' => null], 'installed', 'enabled', ['1.2.3.4:25'], 'the installed master.cf names a listener off loopback (1.2.3.4:25) while public inbound SMTP is not activated'],
 ]);
 
 it('refuses a recorded state it cannot read, and a socket table it cannot read', function () {
-    expect(implode("\n", publicSmtpProblems([PUBLIC_SMTP_RECEIVER], raw: '{"public_smtp": "enabled"')))
-        ->toContain('is missing, corrupt or not marked installed');
+    expect(implode("\n", publicSmtpProblems([PUBLIC_SMTP_POSTFIX], raw: '{"public_smtp": "enabled"')))
+        ->toContain('is corrupt or its gateway is not marked installed');
 
-    expect(publicSmtpProblems([PUBLIC_SMTP_RECEIVER], PUBLIC_SMTP_ENABLED, ssFails: true))
+    expect(publicSmtpProblems([PUBLIC_SMTP_POSTFIX], PUBLIC_SMTP_ENABLED, ssFails: true))
         ->toBe(['ss -ltnpH could not list the listening sockets — a public SMTP listener cannot be ruled out']);
 });
 
-it('says nothing about a host where nothing listens on a public SMTP port, whatever is recorded', function (?array $applied) {
-    expect(publicSmtpProblems(['127.0.0.1:2526 4000 postfix@-.service', '127.0.0.1:2580 4100 rateguru-mail-inbound.service'], $applied))->toBe([]);
+it('says nothing about a host where nothing listens on a public SMTP port and master.cf names none', function (?array $applied) {
+    expect(publicSmtpProblems(['127.0.0.1:2526 4000 system-postfix.slice/postfix@-.service', '127.0.0.1:2580 4000 system-postfix.slice/postfix@-.service'], $applied, master: []))->toBe([]);
 })->with([
     'nothing recorded' => [null],
     'disabled' => [['public_smtp' => 'disabled', 'address' => null]],
-    'enabled but down — the receiver\'s own verify says so, not this judge' => [PUBLIC_SMTP_ENABLED],
 ]);
 
 // =============================================================================
@@ -136,7 +142,7 @@ it('says nothing about a host where nothing listens on a public SMTP port, whate
 
 it('is the one place that names the public SMTP ports', function () {
     foreach (glob(base_path('infrastructure/scripts/*')) ?: [] as $path) {
-        if (basename($path) === 'public-smtp-port') {
+        if (in_array(basename($path), ['public-smtp-port', 'mail-inbound-host'], true)) {
             continue;
         }
 
@@ -145,50 +151,60 @@ it('is the one place that names the public SMTP ports', function () {
         expect($code)->not->toContain('PUBLIC_SMTP_PORTS');
     }
 
-    foreach (['install-mail-gateway', 'activate-mail-outbound', 'status-mail-gateway', 'install-mail-inbound', 'activate-mail-inbound'] as $script) {
-        $code = executableSourceLines(File::get(base_path('infrastructure/scripts/'.$script)));
-        expect($code)->toContain('source "${SCRIPT_DIR}/public-smtp-port"');
+    foreach (['install-mail-gateway', 'activate-mail-outbound', 'status-mail-gateway', 'activate-mail-inbound'] as $script) {
+        expect(executableSourceLines(File::get(base_path('infrastructure/scripts/'.$script))))->toContain('source "${SCRIPT_DIR}/public-smtp-port"');
     }
 
-    foreach (['install-mail-gateway', 'activate-mail-outbound', 'install-mail-inbound', 'activate-mail-inbound'] as $script) {
+    foreach (['install-mail-gateway', 'activate-mail-outbound', 'activate-mail-inbound'] as $script) {
         expect(executableSourceLines(File::get(base_path('infrastructure/scripts/'.$script))))->toContain('public_smtp_problems');
     }
 });
 
-it('is a sourced library, in every release tree', function () {
-    expect(sourcedLibraryNames())->toContain('public-smtp-port');
-    expect(decoct(fileperms(base_path('infrastructure/scripts/public-smtp-port')) & 0o777))->toBe('644');
-    expect(File::get(base_path('infrastructure/scripts/verify-required-clis')))->toContain('SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port)');
+it('judges the owner by its unit, never by a process name', function () {
+    $code = executableSourceLines(File::get(base_path('infrastructure/scripts/public-smtp-port')));
+
+    expect($code)->toContain('cgroup="$(cat "${root}/proc/${pid}/cgroup" 2>/dev/null)"')->not->toContain('"master"')->not->toContain('comm');
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/mail-inbound-host'))))->toContain('MAIL_INBOUND_POSTFIX_UNIT="postfix@-.service"');
 });
 
-it('fails the mail gateway\'s verify for a foreign listener on 25, and passes it for the activated receiver', function () {
-    $host = mailGatewayEstablishedHost();
+it('only reads: it writes no file and runs nothing that changes the host', function () {
+    foreach (['public-smtp-port', 'mail-inbound-host'] as $library) {
+        $code = executableSourceLines(File::get(base_path("infrastructure/scripts/{$library}")));
+
+        // Output is only ever redirected away, never into a file.
+        preg_match_all('/(?<![<>=-])(?:\d|&)?>{1,2}(?!=)\s*([^\s;|&)]+)/', $code, $targets);
+        expect(array_values(array_diff(array_unique($targets[1]), ['/dev/null', '&2'])))->toBe([], "{$library} writes a file");
+
+        foreach (['systemctl', 'postconf -e', 'postfix reload', 'postfix start', 'postfix stop', 'postsuper', 'ufw', 'mv ', 'cp ', 'rm ', 'install ', 'mkdir', 'chmod', 'chown', 'tee '] as $mutation) {
+            expect(str_contains($code, $mutation))->toBeFalse("{$library} runs {$mutation}");
+        }
+    }
+});
+
+it('is a pair of sourced libraries, in every release tree', function () {
+    foreach (['public-smtp-port', 'mail-inbound-host'] as $library) {
+        expect(sourcedLibraryNames())->toContain($library);
+        expect(decoct(fileperms(base_path("infrastructure/scripts/{$library}")) & 0o777))->toBe('644');
+    }
+    expect(File::get(base_path('infrastructure/scripts/verify-required-clis')))->toContain('SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port mail-inbound-host)');
+});
+
+it('fails the mail gateway\'s verify for a foreign listener on 25, and passes it for the activated public listener', function () {
+    $host = mailInboundHost(['installed' => 'enabled']);
 
     try {
-        [$status, $output] = mailGatewayRun($host, '--verify');
-        expect($status)->toBe(0, $output);
-
-        // An activated receiver, recorded and owned by its own unit.
-        $fs = $host['fs'];
-        @mkdir($fs.'/var/lib/rateguru-mail-inbound', 0o755, true);
-        file_put_contents($fs.'/var/lib/rateguru-mail-inbound/ownership', "state=installed\n");
-        file_put_contents($fs.'/var/lib/rateguru-mail-inbound/applied.json', json_encode(['kind' => 'rateguru-mail-inbound-applied', 'schema_version' => 1, ...PUBLIC_SMTP_ENABLED]));
-        @mkdir($fs.'/proc/4100', 0o755, true);
-        file_put_contents($fs.'/proc/4100/cgroup', "0::/system.slice/rateguru-mail-inbound.service\n");
-        file_put_contents($host['scratch'].'/state/listeners', "1.2.3.4:25 users:((\"master\",pid=4100,fd=12))\n", FILE_APPEND);
-
-        [$status, $output] = mailGatewayRun($host, '--verify');
+        [$status, $output] = mailInboundHostRun($host, 'install-mail-gateway', ['--verify']);
         expect($status)->toBe(0, $output);
 
         // The same port held by another process fails it.
-        @mkdir($fs.'/proc/5000', 0o755, true);
-        file_put_contents($fs.'/proc/5000/cgroup', "0::/system.slice/exim4.service\n");
-        file_put_contents($host['scratch'].'/state/listeners', "0.0.0.0:25 users:((\"exim4\",pid=5000,fd=3))\n", FILE_APPEND);
+        @mkdir($host['fs'].'/proc/5000', 0o755, true);
+        file_put_contents($host['fs'].'/proc/5000/cgroup', "0::/system.slice/exim4.service\n");
+        file_put_contents($host['state'].'/listeners', "0.0.0.0:25 users:((\"exim4\",pid=5000,fd=3))\n", FILE_APPEND);
 
-        [$status, $output] = mailGatewayRun($host, '--verify');
+        [$status, $output] = mailInboundHostRun($host, 'install-mail-gateway', ['--verify']);
         expect($status)->not->toBe(0);
-        expect($output)->toContain('something listens on 0.0.0.0:25 — the activated inbound receiver owns only 1.2.3.4:25');
+        expect($output)->toContain('something listens on 0.0.0.0:25 — public inbound SMTP is activated on 1.2.3.4:25 only');
     } finally {
-        mailGatewayCleanup($host);
+        mailInboundCleanup($host);
     }
 });

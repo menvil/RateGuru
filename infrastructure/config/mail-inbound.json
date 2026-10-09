@@ -8,6 +8,7 @@
       "recipients_per_message": 1,
       "connections_per_client": 5,
       "connection_rate_per_client": 30,
+      "message_rate_per_client": 60,
       "concurrent_sessions": 20,
       "storage_bytes": 1073741824,
       "storage_reserve_bytes": 104857600,

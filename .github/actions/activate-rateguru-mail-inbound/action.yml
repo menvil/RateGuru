@@ -15,13 +15,15 @@ description: >-
 # its whole report, checks there is exactly one well-formed result, writes it
 # into the job summary, and removes everything it uploaded.
 #
-# WHAT IT TOUCHES. apply and rollback change the inbound receiver, its
-# firewall rule and nothing else; verify changes nothing. None of them
-# publishes DNS, reads or prints a received message, or touches the outbound
-# gateway, OpenDKIM or any queue but the receiver's own probe. No secret but
-# the bootstrap credential is read.
+# WHAT IT TOUCHES. apply and rollback change the inbound listeners of the
+# host's one Postfix (through the gateway's own installer, by a reload), the
+# inbound store and RateGuru's own firewall rule, and nothing else; verify
+# changes nothing. None of them publishes DNS, reads or prints a received
+# message, stops Postfix, or touches the outbound routes, OpenDKIM or a queued
+# message but the proof's own probe. No secret but the bootstrap credential is
+# read.
 #
-# CREDENTIAL. The privileged BOOTSTRAP credential, because the receiver, its
+# CREDENTIAL. The privileged BOOTSTRAP credential, because Postfix, the store, its
 # volume and the firewall are root's. Never the deploy credential, and no
 # fallback between them.
 #
@@ -130,7 +132,7 @@ runs:
           || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
         then
           echo "This environment has no bootstrap SSH credential." >&2
-          echo "The inbound receiver is root-owned; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
+          echo "The mail gateway and the inbound store are root-owned; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
           exit 1
         fi
 
@@ -190,7 +192,7 @@ runs:
           privileged_prefix="sudo -n"
         else
           echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
-          echo "The inbound receiver is root's; nothing was uploaded and nothing was changed." >&2
+          echo "The mail gateway and the inbound store are root's; nothing was uploaded and nothing was changed." >&2
           exit 1
         fi
 
@@ -384,11 +386,11 @@ runs:
             "| **Overall** | **\(.status | ascii_upcase)** |",
             "",
             (if .status == "critical" then
-               "**CRITICAL:** the receiver could not be returned to disabled and proved closed. Inspect the host now: install-mail-inbound --verify, what listens on TCP 25, and the firewall rule commented rateguru-mail-inbound."
+               "**CRITICAL:** public SMTP could not be returned to disabled and proved closed. Inspect the host now: install-mail-gateway --verify, what listens on TCP 25, and the firewall rule commented rateguru-mail-inbound. The mail gateway was not stopped."
              elif .mode == "apply" and .status == "pass" then
-               "The receiver accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
+               "The host's mail gateway accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
              elif .mode == "apply" and .rolled_back then
-               "The activation failed and the receiver was returned to disabled: nothing listens on TCP 25."
+               "The activation failed and public SMTP was returned to disabled: nothing listens on TCP 25."
              elif .mode == "apply" then
                "The activation was refused before public SMTP changed. Nothing public was changed."
              elif .mode == "rollback" and .status == "pass" then

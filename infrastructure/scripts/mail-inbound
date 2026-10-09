@@ -60,16 +60,17 @@
 # local parts, and its bounce and reply address forms.
 #
 # PUBLIC SMTP. `disabled` or `enabled`, and only ever a REQUEST. Committing
-# `enabled` opens nothing: the receiver's installer keeps whatever state the
+# `enabled` opens nothing: the gateway's installer keeps whatever state the
 # host recorded, and only activate-mail-inbound, behind its own proof, moves a
 # host between the two. A host's state is the host's record, never this file.
 #
-# THE RECEIVER'S RULES. `render-receiver` prints exactly what the receiver
-# accepts — every allowed recipient as an anchored POSIX extended regular
-# expression with the mailbox its mail is stored in, the domains it serves and
-# the limits — so install-mail-inbound spells these rules in Postfix and
-# restates none of them. The same plan answers `route`, so an address the
-# receiver accepts and one `route` accepts are one decision.
+# THE RECEIVER'S RULES. The receiver is the host's one Postfix, the mail
+# gateway, with inbound listeners of its own. `render-receiver` prints exactly
+# what those listeners accept — every allowed recipient as an anchored POSIX
+# extended regular expression with the mailbox its mail is stored in, the
+# domains they serve and the limits — so install-mail-gateway spells these
+# rules in Postfix and restates none of them. The same plan answers `route`, so
+# an address the receiver accepts and one `route` accepts are one decision.
 #
 # DNS. `render-dns` prints, for one target, an MX record (priority 10, naming
 # the target's own mx_hostname) for each of its three domains, and the A record
@@ -156,6 +157,7 @@ def limit_ranges: {
     recipients_per_message: {min: 1, max: 50},
     connections_per_client: {min: 1, max: 50},
     connection_rate_per_client: {min: 1, max: 600},
+    message_rate_per_client: {min: 1, max: 600},
     concurrent_sessions: {min: 1, max: 200},
     storage_bytes: {min: 268435456, max: 68719476736},
     storage_reserve_bytes: {min: 2097152, max: 17179869184},
@@ -218,7 +220,7 @@ def requirements: [
     "recipient-limit",
     "connection-limits",
     "queue-limits",
-    "isolated-queue",
+    "shared-queue-guard",
     "no-outbound-submission",
     "no-message-content-in-logs",
     "content-never-executed",
@@ -228,7 +230,7 @@ def requirements: [
     "malformed-and-duplicate-safe",
     "disk-exhaustion-guard",
     "single-public-port-owner",
-    "no-shared-mail-state"
+    "outbound-unaffected"
 ];
 '
 
@@ -309,7 +311,7 @@ def loopback_port_problems:
       else
           ($plan.listeners[]
             | select((.listen.port == $port) or ((.route | type) == "object" and .route.port == $port))
-            | "receiver.loopback_port \($port) is a port of the mail routing plan (\(.identity)): the receiver and the gateway never share a port")
+            | "receiver.loopback_port \($port) is a port of the mail routing plan (\(.identity)): the inbound listener never shares a port with a submission listener")
       end;
 
 def receiver_problems:

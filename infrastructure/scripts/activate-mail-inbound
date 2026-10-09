@@ -1,73 +1,79 @@
 #!/usr/bin/env bash
 #
-# activate-mail-inbound — the guarded switch of the host's inbound mail
-# receiver to PUBLIC SMTP on TCP 25, its verification, and its rollback.
+# activate-mail-inbound — the guarded opening of public inbound SMTP on the
+# host's one Postfix, its verification, and its rollback.
 #
 #   activate-mail-inbound --check    --target TARGET   read-only: may --apply proceed
-#   activate-mail-inbound --apply    --target TARGET   install if needed, prove, open TCP 25 (root)
+#   activate-mail-inbound --apply    --target TARGET   install inbound mail if needed, prove, open TCP 25 (root)
 #   activate-mail-inbound --verify   --target TARGET   read-only: what the host is, and whether it is right
-#   activate-mail-inbound --rollback --target TARGET   close TCP 25, receiver disabled (root)
+#   activate-mail-inbound --rollback --target TARGET   close TCP 25, inbound disabled (root)
+#
+# ONE POSTFIX. Inbound mail is received by the mail gateway's own Postfix — one
+# service, one configuration, one queue — through listeners and a delivery
+# route of its own that install-mail-gateway renders, and only it. This script
+# never writes a Postfix file and never starts, stops or restarts Postfix: it
+# writes the one-use authorization the gateway's installer consumes, runs that
+# installer, which RELOADS Postfix with the new listener, and proves the result.
+# Outbound mail on the submission listeners is never interrupted.
 #
 # WHAT ASKS FOR IT. Not the caller: the trusted bundle this script runs from.
 # Its mail-inbound.json must request public SMTP (`receiver.public_smtp:
 # enabled`) and TARGET must be a production target its inbound plan receives
 # for. Otherwise every mode that would change something refuses — "activation
-# is not requested by this trusted bundle" — before it changes anything. The
-# receiver serves every target of the plan; TARGET is the one whose operator
-# runs this, and its GitHub Environment the one that authorizes it.
+# is not requested by this trusted bundle" — before it changes anything.
 #
 # --apply, under the host's infrastructure lock:
 #
-#   1. The request, as above.
-#   2. Already done? A host whose receiver is enabled and verifies — the
-#      receiver, its listener's owner, the firewall rule, the gateway — is a
+#   1. The request, as above, and the host's recorded inbound state.
+#   2. Already done? A host whose public SMTP is enabled and verifies is a
 #      no-op that succeeds.
-#   3. The proof, before anything public changes, all of it required:
-#        - the host's public IPv4 address, from its route to the Internet,
-#          judged globally reachable by `mail-inbound render-dns`;
-#        - a valid TLS certificate for every MX host name
-#          (install-mail-inbound --tls-check);
-#        - the outbound mail gateway verifies (install-mail-gateway --verify),
-#          and its configuration files are recorded, to be proved unchanged;
-#        - nothing listens on 25, 465 or 587 that may not (public-smtp-port);
-#        - the host's firewall is one this script can manage — ufw, active —
-#          or there provably is none; anything else refuses;
-#        - the receiver installs or converges, still disabled
-#          (install-mail-inbound --apply, then --verify);
-#        - the live receiver, on its loopback listener: no SMTP AUTH, the
-#          reviewed message size, every address of a corpus answered exactly
-#          as `mail-inbound route` judges it, the recipient limit enforced, the
-#          null sender accepted, and one probe message stored in the host
-#          postmaster's mailbox, then removed.
-#   4. The rollback capsule, written before anything public changes.
-#   5. TCP 25 opened for exactly that address (ufw), a one-use ENABLE
-#      authorization for the receiver, install-mail-inbound --apply — which
-#      consumes it and adds the public listener — and the proof again: the
-#      receiver verifies, port 25 is owned by its unit alone on that address,
-#      465 and 587 are closed, the firewall rule is there, the gateway still
-#      verifies and its files are byte for byte what they were.
-#   6. Any failure from step 5 on returns the host to disabled through the
-#      same code — a one-use DISABLE authorization, the receiver's apply, the
-#      firewall rule removed — and proves it. When even that cannot be proved
-#      the result is CRITICAL and nothing broader is attempted: the gateway,
-#      OpenDKIM and every queue are never touched by this script.
+#   3. The proof before anything changes: the host's public IPv4 address (its
+#      route to the Internet, judged globally reachable by `mail-inbound
+#      render-dns`), a valid TLS certificate for every MX host name, the mail
+#      gateway verifies, nothing listens on 25, 465 or 587 that may not, a
+#      firewall this script can manage (ufw, active — or provably none), the
+#      store can be created, the shared queue's file system has its reserve
+#      free and no inbound mail is stuck in the queue.
+#   4. What the outbound path is, recorded: everything Postfix reads but the
+#      inbound settings, and the gateway's recorded policy.
+#   5. The store (install-mail-inbound --apply), then — on a host without
+#      inbound mail — the "install" transition: the inbound loopback listener
+#      and the delivery to the store, still no public listener.
+#   6. The proof on loopback: the outbound path unchanged and its listeners
+#      answering a sender as before; the inbound listener answers a corpus of
+#      addresses exactly as `mail-inbound route` judges them, offers no AUTH,
+#      announces the reviewed size, enforces the recipient limit, accepts the
+#      null sender, and one probe is stored in the host postmaster's mailbox,
+#      then removed.
+#   7. The rollback capsule, then TCP 25 opened for exactly that address (ufw)
+#      and the "enable" transition: the gateway reloads Postfix with the public
+#      listener.
+#   8. The proof again: the gateway verifies, port 25 is held by Postfix's own
+#      unit alone on that address, 465 and 587 are closed, the firewall rule is
+#      there, the public listener offers STARTTLS and no AUTH and refuses to
+#      relay, the outbound path is what it was.
+#   9. Any failure from 7 on returns the host to disabled — the "disable"
+#      transition and RateGuru's firewall rule removed — and proves it. When
+#      even that cannot be proved the result is CRITICAL and nothing broader is
+#      attempted: Postfix is never stopped, its queue never touched.
 #
-# --rollback closes public SMTP whatever the bundle requests: the DISABLE
-# authorization, the receiver's apply, RateGuru's firewall rule removed — and
-# only it — and the proof that nothing listens on 25 any more. The receiver
-# stays installed and keeps every message it stored. Published MX records are
-# not touched: the operator removes them, or they point at a closed port.
+# --rollback closes public SMTP whatever the bundle requests: the "disable"
+# transition, RateGuru's firewall rule removed — and only it — and the proof
+# that nothing listens on 25 any more and the outbound path is unchanged. The
+# inbound loopback listener and the delivery stay, so mail already accepted is
+# still delivered from the shared queue, and every stored message is kept.
+# Published MX records are not touched: the operator removes them.
 #
 # --verify is read-only, and says which state the host is in:
-#   not-installed       no receiver on this host
-#   installed-disabled  the receiver verifies, nothing listens on 25, no rule
-#   enabled-verified    the receiver verifies, it alone listens on the
+#   not-installed       no inbound mail on this host, nothing on 25
+#   installed-disabled  inbound delivery verifies, nothing on 25, no rule
+#   enabled-verified    inbound delivery verifies, Postfix alone listens on the
 #                       recorded address, the firewall rule is there
 #   drift               anything else — reported as a failure
-# and in every state, that the outbound gateway still verifies.
+# and in every state, that the mail gateway verifies.
 #
 # NEVER. No DNS record is published, no message is read or printed — the probe
-# is found by its own random token and removed — no rule of the firewall but
+# is found by its own random token and removed — no firewall rule but
 # RateGuru's own TCP 25 rule is added or removed, and no SSH, HTTP or HTTPS
 # rule is touched. The provider's own firewall, outside the host, is the
 # operator's: this script says what it needs and never claims it.
@@ -118,14 +124,17 @@ NFT_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_NFT_BIN nft)"
 IPTABLES_SAVE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_IPTABLES_SAVE_BIN iptables-save)"
 IPTABLES_LEGACY_SAVE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_IPTABLES_LEGACY_SAVE_BIN iptables-legacy-save)"
 
-# The receiver's loopback port comes from the plan; the test seam alone points
-# the probes elsewhere.
+POSTQUEUE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_POSTQUEUE_BIN postqueue)"
+DF_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_DF_BIN df)"
+
+# Every probe goes to the address and port the plan names; the test seam alone
+# points them elsewhere.
 PROBE_PORT_OVERRIDE="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_PROBE_PORT '')"
 PROBE_WAIT="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_PROBE_WAIT 60)"
 [[ "${PROBE_WAIT}" =~ ^[1-9][0-9]*$ ]] || PROBE_WAIT=60
 
-# The SMTP conversations, and the one judge of who may listen on a public SMTP
-# port.
+# The SMTP conversations, the one judge of who may listen on a public SMTP
+# port, and where the receiver lives on a host (which it brings).
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/smtp-submission"
 # shellcheck disable=SC1091
@@ -133,21 +142,16 @@ source "${SCRIPT_DIR}/public-smtp-port"
 
 INBOUND_CONTRACT="${REPO_ROOT}/infrastructure/config/mail-inbound.json"
 
-STATE_DIR="${PUBLIC_SMTP_INBOUND_STATE_DIR}"
-TRANSITION_AUTHORIZATION="${STATE_DIR}/transition-authorization.json"
-AUTHORIZATION_KIND="rateguru-mail-inbound-transition-authorization"
 AUTHORIZATION_LIFETIME=900
 
 CAPSULE_ROOT="/var/lib/rateguru-mail-inbound-activation"
 CAPSULE_KIND="rateguru-mail-inbound-activation"
 
-STORE_DIR="/var/spool/rateguru-mail-inbound/store"
 HOST_POSTMASTER_MAILBOX="host/postmaster/"
 
-# The gateway's own configuration and record: proved byte for byte unchanged.
-GATEWAY_FILES=(
-    /etc/postfix/main.cf
-    /etc/postfix/master.cf
+# What the outbound path is, besides Postfix's own reading of it: the
+# gateway's recorded policy.
+GATEWAY_RECORDS=(
     /var/lib/rateguru-mail-gateway/applied-plan.json
     /var/lib/rateguru-mail-gateway/applied-outbound.json
 )
@@ -163,13 +167,18 @@ REQUESTED=false
 CHANGED=false
 ROLLED_BACK=false
 HOST_STATE="unknown"
+INSTALLED=false
 PUBLIC_STATE="unknown"
 ADDRESS=""
+# The host's public address as the preflight found it — what public SMTP is
+# opened on; ADDRESS is what the host records.
+PUBLIC_ADDRESS=""
 FIREWALL_MODE="unknown"
 
 TRANSACTION_OPEN=false
-GATEWAY_DIGESTS=""
+OUTBOUND_DIGEST=""
 PLAN=""
+ROUTING_PLAN=""
 COUNT_FAIL=0
 
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
@@ -193,15 +202,16 @@ Usage:
   --check     Read-only (root): whether --apply would activate, would be a
               no-op, or must refuse, with every precondition it can judge
               without changing the host.
-  --apply     Root. Install the receiver if needed, prove it, open public TCP
-              25 for exactly the host's address, and prove it again; any
-              failure returns the receiver to disabled. A no-op when the
-              receiver is already enabled and verifies.
+  --apply     Root. Install inbound mail on the host's Postfix if needed,
+              prove it, open public TCP 25 for exactly the host's address, and
+              prove it again; any failure returns it to disabled. A no-op when
+              public SMTP is already enabled and verifies.
   --verify    Read-only (root): which state the host is in —
               not-installed, installed-disabled, enabled-verified or drift —
-              and that the outbound gateway still verifies.
-  --rollback  Root. Close public SMTP: the receiver disabled, RateGuru's TCP
-              25 rule removed, proved closed. Stored mail is kept.
+              and that the mail gateway verifies.
+  --rollback  Root. Close public SMTP: the public listener removed by a
+              reload, RateGuru's TCP 25 rule removed, proved closed. Outbound
+              mail, the queue and stored mail are kept.
 
 The trusted bundle decides everything else; there is nothing to override.
 USAGE
@@ -247,16 +257,16 @@ on_exit() {
 
     if [[ "${TRANSACTION_OPEN}" == true ]]; then
         TRANSACTION_OPEN=false
-        log "the activation did not complete (exit ${status}) — returning the receiver to disabled"
+        log "the activation did not complete (exit ${status}) — returning public inbound SMTP to disabled"
 
         if return_to_disabled; then
             ROLLED_BACK=true
             set_capsule_state rolled-back || true
-            log "ROLLED BACK: public SMTP is closed, nothing listens on 25, the receiver is disabled; the activation failed"
+            log "ROLLED BACK: public SMTP is closed, nothing listens on 25, inbound mail is disabled; the activation failed"
             result_line fail
             status=1
         else
-            printf 'CRITICAL: the activation of public SMTP failed AND its return to disabled could not be proved. Nothing broader was attempted. Inspect now: install-mail-inbound --verify, ss -ltnp sport = :25, and the firewall rule commented %s.\n' "${FIREWALL_COMMENT}" >&2
+            printf 'CRITICAL: the activation of public SMTP failed AND its return to disabled could not be proved. Nothing broader was attempted: Postfix was not stopped and its queue was not touched. Inspect now: install-mail-gateway --verify, ss -ltnp sport = :25, and the firewall rule commented %s.\n' "${FIREWALL_COMMENT}" >&2
             log "ACTIVATION: CRITICAL — rollback not verified"
             result_line critical
             status=2
@@ -276,7 +286,7 @@ on_exit() {
 
 require_root() {
     [[ "${EFFECTIVE_UID}" == 0 ]] \
-        || die "activate-mail-inbound --${MODE} must run as root (the receiver, its firewall rule and the gateway it proves are root's)"
+        || die "activate-mail-inbound --${MODE} must run as root (the gateway, the store and the firewall rule are root's)"
 }
 
 require_tools() {
@@ -336,6 +346,9 @@ load_request() {
         || die "${TARGET_ID} is not a production target the trusted bundle's inbound plan receives mail for — nothing was changed"
 
     if [[ "$(jq -r '.receiver.public_smtp' <<<"${PLAN}")" == enabled ]]; then REQUESTED=true; else REQUESTED=false; fi
+
+    ROUTING_PLAN="$("$(bundle_script mail-routing)" render-plan 2>/dev/null)" \
+        || die "mail-routing render-plan refused the trusted bundle's routing policy — nothing was changed"
 }
 
 require_requested() {
@@ -345,15 +358,17 @@ require_requested() {
 
 # --- The host --------------------------------------------------------------------------
 
-# read_host_state — PUBLIC_STATE and ADDRESS from the receiver's own record.
+# read_host_state — INSTALLED, PUBLIC_STATE and ADDRESS from the gateway's own
+# record of inbound mail.
 read_host_state() {
     local applied
-    applied="$(public_smtp_inbound_applied "${FS_ROOT}")"
+    applied="$(mail_inbound_applied "${FS_ROOT}")"
 
     case "${applied}" in
-        absent)  PUBLIC_STATE=disabled; ADDRESS="" ;;
-        corrupt) PUBLIC_STATE=unknown; ADDRESS="" ;;
+        absent)  INSTALLED=false; PUBLIC_STATE=disabled; ADDRESS="" ;;
+        corrupt) INSTALLED=true; PUBLIC_STATE=unknown; ADDRESS="" ;;
         *)
+            INSTALLED=true
             PUBLIC_STATE="${applied%%$'\t'*}"
             ADDRESS="${applied#*$'\t'}"
             [[ "${ADDRESS}" != "-" ]] || ADDRESS=""
@@ -361,10 +376,10 @@ read_host_state() {
     esac
 }
 
-receiver_installed() {
-    local marker
-    marker="$(physical "${PUBLIC_SMTP_INBOUND_MARKER}")"
-    [[ -f "${marker}" ]] && [[ "$(sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1)" == installed ]]
+# recorded_host_state — HOST_STATE for a host whose public SMTP is not open
+# and not yet proved: what its record says it is.
+recorded_host_state() {
+    if [[ "${INSTALLED}" == true ]]; then HOST_STATE=installed-disabled; else HOST_STATE=not-installed; fi
 }
 
 # detect_address — the source address of this host's route to the Internet,
@@ -380,33 +395,60 @@ detect_address() {
     printf '%s\n' "${address}"
 }
 
-gateway_digests() {
-    local path
-    for path in "${GATEWAY_FILES[@]}"; do
-        if [[ -f "$(physical "${path}")" ]]; then
-            printf '%s %s\n' "$(sha256sum -- "$(physical "${path}")" | cut -d ' ' -f 1)" "${path}"
-        else
-            printf 'absent %s\n' "${path}"
-        fi
-    done
+# outbound_digest — everything Postfix reads but the inbound settings, and the
+# gateway's recorded policy: comments, the inbound listeners, their cleanup and
+# rewriting, virtual(8) and the virtual_* delivery parameters left out. Equal
+# before and after a transition, the outbound path is exactly what it was.
+outbound_digest() {
+    local loopback path
+    loopback="127.0.0.1:$(jq -r '.receiver.loopback_port' <<<"${PLAN}")"
+    {
+        awk '/^[[:space:]]*(#|$)/ { next }
+             /^virtual_(transport|mailbox_domains|mailbox_maps|mailbox_base|uid_maps|gid_maps|minimum_uid|mailbox_limit)[[:space:]]*=/ { next }
+             { print }' "$(physical /etc/postfix/main.cf)" 2>/dev/null
+        printf -- '--- master.cf\n'
+        awk -v loopback="${loopback}" -v cleanup="${MAIL_INBOUND_CLEANUP_SERVICE}" -v rewrite="${MAIL_INBOUND_REWRITE_SERVICE}" '
+            /^[[:space:]]*(#|$)/ { next }
+            /^[^[:space:]]/ { inbound = ($1 == loopback || $1 ~ /:25$/ || $1 == cleanup || $1 == rewrite || ($1 == "virtual" && $2 == "unix")) }
+            inbound { next }
+            { print }' "$(physical /etc/postfix/master.cf)" 2>/dev/null
+        for path in "${GATEWAY_RECORDS[@]}"; do
+            printf -- '--- %s %s\n' "${path}" "$(sha256sum -- "$(physical "${path}")" 2>/dev/null | cut -d ' ' -f 1)"
+        done
+    } | sha256sum | cut -d ' ' -f 1
+}
+
+outbound_unchanged() {
+    if [[ -n "${OUTBOUND_DIGEST}" && "$(outbound_digest)" == "${OUTBOUND_DIGEST}" ]]; then
+        ok "the outbound path is exactly what it was: every submission listener, route, signer and recorded policy, as Postfix reads them"
+        return 0
+    fi
+    bad "the outbound configuration changed — only the inbound listeners and delivery may"
+    return 1
 }
 
 gateway_verify() {
     if run_child "install-mail-gateway --verify" "$(bundle_script install-mail-gateway)" --verify; then
-        ok "the outbound mail gateway verifies: loopback listeners, routes, signing and its recorded policy as reviewed"
+        ok "the mail gateway verifies: its submission listeners, routes, signing, recorded policy and inbound mail as recorded"
         return 0
     fi
-    bad "the outbound mail gateway does not verify — nothing about inbound mail may change on a host whose outbound path is not proved"
+    bad "the mail gateway does not verify — nothing about inbound mail may change on a host whose Postfix is not proved"
     return 1
 }
 
-gateway_unchanged() {
-    if [[ "$(gateway_digests)" == "${GATEWAY_DIGESTS}" ]]; then
-        ok "the gateway's main.cf, master.cf and recorded policy are byte for byte what they were"
+store_verify() {
+    if run_child "install-mail-inbound --verify" "$(bundle_script install-mail-inbound)" --verify; then
+        ok "the inbound store verifies: its account, its mounted volume, its mailboxes, free space and the certificate"
         return 0
     fi
-    bad "the gateway's configuration or recorded policy changed during the activation"
+    bad "the inbound store does not verify"
     return 1
+}
+
+# gateway_apply LABEL — the gateway's own installer converges Postfix: with a
+# pending authorization, across exactly that transition, by a reload.
+gateway_apply() {
+    run_child "install-mail-gateway --apply ($1)" "$(bundle_script install-mail-gateway)" --apply
 }
 
 check_public_ports() {
@@ -428,23 +470,67 @@ port25_listeners() {
     public_smtp_listening_sockets | awk -F'\t' '$1 ~ /:25$/ { print $1 }'
 }
 
-receiver_verify() {
-    if run_child "install-mail-inbound --verify" "$(bundle_script install-mail-inbound)" --verify; then
-        ok "the receiver verifies: files, volume, store, service, listeners and every requirement"
+# inbound_queue_problems — inbound mail waiting in the shared queue because
+# virtual(8) could not store it: a recipient of an inbound domain whose
+# delivery was deferred by the Maildir delivery. Outbound mail an application
+# sends to the same domains leaves by its own smtp client and is deferred, if
+# at all, for reasons of its own — it is never counted here. Counts only: never
+# an address, a sender or a byte of a message.
+inbound_queue_problems() {
+    local listing domains stuck
+    if ! listing="$("${POSTQUEUE_BIN}" -j 2>/dev/null)"; then
+        printf 'the shared queue cannot be read (postqueue -j) — whether inbound mail waits in it cannot be proved\n'
         return 0
     fi
-    bad "the receiver does not verify"
+
+    domains="$(jq -c '[.targets[].domains[], "rateguru-mail-inbound.invalid"] | unique' <<<"${PLAN}")"
+    stuck="$(jq -s --argjson domains "${domains}" '
+        [ .[]
+          | select(.queue_name == "deferred")
+          | select(any(.recipients[]?;
+                ((.address | ascii_downcase | split("@") | last) as $d | any($domains[]; . == $d))
+                and ((.delay_reason // "") | test("maildir delivery failed"; "i")))) ]
+        | length' <<<"${listing}" 2>/dev/null || echo unreadable)"
+
+    if [[ "${stuck}" == unreadable ]]; then
+        printf 'the shared queue listing cannot be read — whether inbound mail waits in it cannot be proved\n'
+    elif (( stuck > 0 )); then
+        printf '%s message(s) for the inbound domains wait in the shared queue instead of reaching the store — check the store volume (install-mail-inbound --verify)\n' "${stuck}"
+    fi
+}
+
+check_inbound_queue() {
+    local problems
+    problems="$(inbound_queue_problems)"
+    if [[ -z "${problems}" ]]; then
+        ok "no inbound mail is waiting in the shared queue"
+        return 0
+    fi
+    bad "${problems}"
     return 1
+}
+
+# queue_space_problems — the shared queue's file system keeps the reserve the
+# inbound listeners refuse new mail below, so outbound mail always has room.
+queue_space_problems() {
+    local free reserve
+    free="$("${DF_BIN}" -B1 --output=avail "$(physical /var/spool/postfix)" 2>/dev/null | tail -n 1 | tr -d ' ')"
+    reserve="$(jq -r '.receiver.limits.host_reserve_bytes' <<<"${PLAN}")"
+    if [[ ! "${free}" =~ ^[0-9]+$ ]]; then
+        printf 'the free space of the queue'"'"'s file system cannot be read\n'
+    elif (( free < reserve )); then
+        printf 'the queue'"'"'s file system has %s bytes free, below the %s the inbound listeners refuse new mail under — public SMTP would refuse everything\n' "${free}" "${reserve}"
+    fi
 }
 
 # --- Firewall ----------------------------------------------------------------------
 #
 # Two hosts are manageable: one whose firewall is ufw, active — RateGuru adds
 # and removes one rule of its own, commented FIREWALL_COMMENT, allowing TCP 25
-# to exactly the receiver's address — and one with no host firewall at all,
-# proved by asking the packet filter itself that nothing drops or rejects
-# inbound traffic. Anything else is a firewall this script cannot prove it
-# manages, and it refuses.
+# to exactly the public address — and one with no host firewall at all, proved
+# by asking the packet filter itself that nothing drops or rejects inbound
+# traffic. Anything else is a firewall this script cannot prove it manages, and
+# it refuses.
 
 FIREWALL_DETAIL=""
 
@@ -455,7 +541,7 @@ detect_firewall() {
         && [[ "$("${UFW_BIN}" status 2>/dev/null | head -n 1)" == "Status: active" ]]
     then
         FIREWALL_MODE=ufw
-        FIREWALL_DETAIL="ufw is active: RateGuru adds and removes one rule of its own (${FIREWALL_COMMENT}) for TCP 25 to the receiver's address"
+        FIREWALL_DETAIL="ufw is active: RateGuru adds and removes one rule of its own (${FIREWALL_COMMENT}) for TCP 25 to the public address"
         return 0
     fi
 
@@ -482,7 +568,7 @@ detect_firewall() {
     fi
 
     FIREWALL_MODE=none
-    FIREWALL_DETAIL="no host firewall filters inbound traffic (ufw is not active, and nothing in the packet filter drops or rejects): TCP 25 is reachable once the receiver listens, and closed when it stops"
+    FIREWALL_DETAIL="no host firewall filters inbound traffic (ufw is not active, and nothing in the packet filter drops or rejects): TCP 25 is reachable while Postfix listens on it, and closed when it does not"
 }
 
 ufw_rule_present() {
@@ -490,8 +576,8 @@ ufw_rule_present() {
         | grep -E "^${1//./\\.} 25/tcp +ALLOW( IN)? +Anywhere +# ${FIREWALL_COMMENT}\$" >/dev/null
 }
 
-# ufw_foreign_port25 ADDRESS — a ufw rule RateGuru did not write already
-# allows TCP 25; its own rule could then never be the only way in.
+# ufw_foreign_port25 — a ufw rule RateGuru did not write already allows TCP 25;
+# its own rule could then never be the only way in.
 ufw_foreign_port25() {
     "${UFW_BIN}" status 2>/dev/null \
         | grep -E '(^| )25(/tcp)?( |$)' \
@@ -520,22 +606,47 @@ close_firewall() {
     ! ufw_rule_present "${address}"
 }
 
-# --- The live receiver: its loopback listener ---------------------------------------------
+# --- The live listeners -------------------------------------------------------------
 
 probe_port() {
     if [[ -n "${PROBE_PORT_OVERRIDE}" ]]; then
         printf '%s\n' "${PROBE_PORT_OVERRIDE}"
     else
-        jq -r '.receiver.loopback_port' <<<"${PLAN}"
+        printf '%s\n' "$1"
     fi
 }
 
+probe_host() {
+    if [[ -n "${PROBE_PORT_OVERRIDE}" ]]; then
+        printf '127.0.0.1\n'
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# outbound_listeners_answer — every submission listener of the routing plan
+# still takes a message from its own sender domain: EHLO and MAIL FROM, then
+# RSET. No recipient is named and nothing is sent.
+outbound_listeners_answer() {
+    local identity host port domain failures=0
+    while IFS=$'\t' read -r identity host port domain; do
+        [[ -n "${identity}" ]] || continue
+        if smtp_probe_mail "$(probe_host "${host}")" "$(probe_port "${port}")" inbound-proof.invalid "rateguru-inbound-proof@${domain}"; then
+            ok "${identity} (${host}:${port}) still takes mail from ${domain}, as before"
+        else
+            bad "${identity} (${host}:${port}) does not take mail from ${domain} (${SMTP_STAGE}: ${SMTP_REPLY})"
+            failures=$((failures + 1))
+        fi
+    done < <(jq -r '.listeners[] | [.identity, .listen.host, (.listen.port | tostring), .sender.allowed_domain] | @tsv' <<<"${ROUTING_PLAN}")
+    (( failures == 0 ))
+}
+
 # probe_corpus — "ADDRESS<TAB>EXPECTED" for every address the proof asks the
-# live receiver about: the plan's own exact addresses, a well-formed and a
-# malformed identifier of every address space, another destination's form, an
-# unknown mailbox, the no-reply sender, a foreign domain and the bare
-# Postmaster. EXPECTED is accept or reject, as `mail-inbound route` judges it —
-# the one decision the receiver must agree with.
+# live inbound listener about: the plan's own exact addresses, a well-formed
+# and a malformed identifier of every address space, another destination's
+# form, an unknown mailbox, a foreign domain and the bare Postmaster.
+# EXPECTED is accept or reject, as `mail-inbound route` judges it — the one
+# decision the listener must agree with.
 probe_corpus() {
     local address verdict sample='01234567890abcdefghjkmnpqr'
 
@@ -563,12 +674,12 @@ probe_corpus() {
     done
 }
 
-# live_proof — the receiver answers exactly as the plan says. Never sends a
-# message but its own probe, which goes to the host postmaster's mailbox and
-# is removed once it is found there.
+# live_proof — the inbound loopback listener answers exactly as the plan says.
+# Never sends a message but its own probe, which goes to the host
+# postmaster's mailbox and is removed once it is found there.
 live_proof() {
     local port corpus addresses=() expected=() reply i size limit failures=0
-    port="$(probe_port)"
+    port="$(probe_port "$(jq -r '.receiver.loopback_port' <<<"${PLAN}")")"
     size="$(jq -r '.receiver.limits.message_size_bytes' <<<"${PLAN}")"
     limit="$(jq -r '.receiver.limits.recipients_per_message' <<<"${PLAN}")"
 
@@ -580,19 +691,22 @@ live_proof() {
     done <<<"${corpus}"
 
     if ! smtp_probe_recipients 127.0.0.1 "${port}" inbound-proof.invalid "" "${addresses[@]}"; then
-        bad "the receiver's loopback listener 127.0.0.1:${port} did not complete the probe (${SMTP_STAGE}: ${SMTP_REPLY})"
+        bad "the inbound loopback listener 127.0.0.1:${port} did not complete the probe (${SMTP_STAGE}: ${SMTP_REPLY})"
         return 1
     fi
 
     if grep -qE '^AUTH( |$)' <<<"${SMTP_EHLO}"; then
-        bad "the receiver offers SMTP AUTH"; failures=$((failures + 1))
+        bad "the inbound listener offers SMTP AUTH"; failures=$((failures + 1))
     else
         ok "no SMTP AUTH is offered"
     fi
+    if grep -qE '^ETRN( |$)' <<<"${SMTP_EHLO}"; then
+        bad "the inbound listener offers ETRN"; failures=$((failures + 1))
+    fi
     if grep -qxF "SIZE ${size}" <<<"${SMTP_EHLO}"; then
-        ok "the receiver announces the reviewed maximum message size (SIZE ${size})"
+        ok "the inbound listener announces the reviewed maximum message size (SIZE ${size})"
     else
-        bad "the receiver does not announce SIZE ${size}"; failures=$((failures + 1))
+        bad "the inbound listener does not announce SIZE ${size}"; failures=$((failures + 1))
     fi
 
     for i in "${!addresses[@]}"; do
@@ -629,14 +743,42 @@ live_proof() {
     (( failures == 0 ))
 }
 
+# public_proof — the public listener itself, from this host: it greets, offers
+# STARTTLS and no AUTH, refuses to relay and takes a support address. No
+# message is sent.
+public_proof() {
+    local host port support failures=0
+    host="$(probe_host "${ADDRESS}")"
+    port="$(probe_port 25)"
+    support="$(jq -r '[.targets[].destinations[] | select(.accepts == "exact-addresses") | .addresses[]][0]' <<<"${PLAN}")"
+
+    if ! smtp_probe_recipients "${host}" "${port}" inbound-proof.invalid "" probe@relay-probe.invalid "${support}"; then
+        bad "the public listener ${ADDRESS}:25 did not complete the probe (${SMTP_STAGE}: ${SMTP_REPLY})"
+        return 1
+    fi
+
+    if grep -qxF STARTTLS <<<"${SMTP_EHLO}"; then ok "the public listener offers STARTTLS"; else bad "the public listener does not offer STARTTLS"; failures=$((failures + 1)); fi
+    if grep -qE '^AUTH( |$)' <<<"${SMTP_EHLO}"; then bad "the public listener offers SMTP AUTH"; failures=$((failures + 1)); else ok "the public listener offers no SMTP AUTH"; fi
+    case "${SMTP_RCPT_REPLIES[0]:0:1}" in
+        5) ok "the public listener refuses to relay (${SMTP_RCPT_REPLIES[0]%% <*})" ;;
+        *) bad "the public listener answered \"${SMTP_RCPT_REPLIES[0]:-}\" to a foreign recipient — it must refuse to relay"; failures=$((failures + 1)) ;;
+    esac
+    case "${SMTP_RCPT_REPLIES[1]:0:1}" in
+        2) ok "the public listener takes ${support}" ;;
+        *) bad "the public listener answered \"${SMTP_RCPT_REPLIES[1]:-}\" to ${support}"; failures=$((failures + 1)) ;;
+    esac
+
+    (( failures == 0 ))
+}
+
 # store_probe — one message to the host postmaster, found in its mailbox by its
 # own random token within PROBE_WAIT seconds, then removed. Nothing else in the
 # store is read but to match that token.
 store_probe() {
     local token mailbox waited=0 file port
-    port="$(probe_port)"
+    port="$(probe_port "$(jq -r '.receiver.loopback_port' <<<"${PLAN}")")"
     token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-    mailbox="$(physical "${STORE_DIR}")/${HOST_POSTMASTER_MAILBOX}"
+    mailbox="$(physical "${MAIL_INBOUND_STORE}")/${HOST_POSTMASTER_MAILBOX}"
 
     if ! smtp_submit_message 127.0.0.1 "${port}" inbound-proof.invalid probe@relay-probe.invalid Postmaster \
         "$(printf 'From: RateGuru inbound proof <probe@relay-probe.invalid>\nTo: postmaster\nSubject: RateGuru inbound store proof\nX-RateGuru-Inbound-Proof: %s\n\nA probe of the inbound store. It is removed by the proof that sent it.' "${token}")"
@@ -649,14 +791,14 @@ store_probe() {
         file="$(grep -rlF -- "X-RateGuru-Inbound-Proof: ${token}" "${mailbox}new" "${mailbox}cur" 2>/dev/null | head -n 1 || true)"
         if [[ -n "${file}" ]]; then
             rm -f -- "${file}"
-            ok "the probe was accepted after it was queued (${SMTP_QUEUE_ID:-queued}), stored in ${HOST_POSTMASTER_MAILBOX} and removed"
+            ok "the probe was accepted once queued (${SMTP_QUEUE_ID:-queued}), delivered by virtual(8) to ${HOST_POSTMASTER_MAILBOX} and removed"
             return 0
         fi
         sleep 1
         waited=$((waited + 1))
     done
 
-    bad "the probe was accepted (${SMTP_QUEUE_ID:-queued}) but did not reach ${HOST_POSTMASTER_MAILBOX} within ${PROBE_WAIT}s — accepted mail is not being stored"
+    bad "the probe was accepted (${SMTP_QUEUE_ID:-queued}) but did not reach ${HOST_POSTMASTER_MAILBOX} within ${PROBE_WAIT}s — accepted mail is not reaching the store"
     return 1
 }
 
@@ -664,24 +806,34 @@ store_probe() {
 
 AUTHORIZATION_NONCE=""
 
-# authorize DIRECTION — the one-use authorization for install-mail-inbound to
-# move the receiver from its recorded state, root-only and short-lived.
+# authorize DIRECTION — the one-use authorization for install-mail-gateway to
+# move inbound mail from the state the host records: install (absent ->
+# disabled), enable (disabled -> enabled on ADDRESS) or disable (enabled ->
+# disabled). Root-only and short-lived; the gateway consumes it.
 authorize() {
-    local direction="$1" path from tmp now
-    path="$(physical "${TRANSITION_AUTHORIZATION}")"
+    local direction="$1" path tmp now from from_address="" to to_address=""
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
     now="$(date -u '+%s')"
     AUTHORIZATION_NONCE="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 
-    if [[ "${direction}" == enable ]]; then from=disabled; else from=enabled; fi
+    case "${direction}" in
+        install) from=absent;   to=disabled ;;
+        enable)  from=disabled; to=enabled; to_address="${ADDRESS}" ;;
+        disable) from=enabled;  to=disabled; from_address="${ADDRESS}" ;;
+        *) return 1 ;;
+    esac
 
     tmp="${path}.new.$$"
     (
         umask 077
-        jq -n --arg kind "${AUTHORIZATION_KIND}" --arg target "${TARGET_ID}" --arg direction "${direction}" \
-            --arg from "${from}" --arg address "${ADDRESS}" --arg nonce "${AUTHORIZATION_NONCE}" \
+        jq -n --arg kind "${MAIL_INBOUND_AUTHORIZATION_KIND}" --arg direction "${direction}" \
+            --arg from "${from}" --arg from_address "${from_address}" \
+            --arg to "${to}" --arg to_address "${to_address}" --arg nonce "${AUTHORIZATION_NONCE}" \
             --argjson now "${now}" --argjson lifetime "${AUTHORIZATION_LIFETIME}" '
-            {kind: $kind, schema_version: 1, target: $target, direction: $direction, from: $from,
-             address: (if $direction == "enable" then $address else null end),
+            def addr($a): if $a == "" then null else $a end;
+            {kind: $kind, schema_version: 1, direction: $direction,
+             from: {public_smtp: $from, address: addr($from_address)},
+             to: {public_smtp: $to, address: addr($to_address)},
              nonce: $nonce, created_at: $now, expires_at: ($now + $lifetime)}' > "${tmp}" \
             && chmod 0600 "${tmp}" \
             && mv -f -- "${tmp}" "${path}"
@@ -690,10 +842,35 @@ authorize() {
 
 withdraw_authorization() {
     local path
-    path="$(physical "${TRANSITION_AUTHORIZATION}")"
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
     [[ -n "${AUTHORIZATION_NONCE}" && -f "${path}" ]] || return 0
     [[ "$(jq -r '.nonce // ""' "${path}" 2>/dev/null)" == "${AUTHORIZATION_NONCE}" ]] || return 0
     rm -f -- "${path}"
+}
+
+# transition DIRECTION — authorize it, have the gateway make it, and confirm
+# the gateway recorded the state it moves to.
+transition() {
+    local direction="$1" want
+    case "${direction}" in
+        install|disable) want=disabled ;;
+        enable) want=enabled ;;
+    esac
+
+    authorize "${direction}" || { bad "the ${direction} authorization could not be written"; return 1; }
+    if ! gateway_apply "${direction}"; then
+        withdraw_authorization
+        bad "install-mail-gateway --apply refused or failed the ${direction} transition (above)"
+        return 1
+    fi
+    withdraw_authorization
+
+    read_host_state
+    if [[ "${INSTALLED}" != true || "${PUBLIC_STATE}" != "${want}" ]]; then
+        bad "after the ${direction} transition the gateway records ${PUBLIC_STATE}, not ${want}"
+        return 1
+    fi
+    ok "the gateway made the ${direction} transition and records public SMTP ${want}${ADDRESS:+ on ${ADDRESS}:25}"
 }
 
 # --- Rollback capsule ---------------------------------------------------------------------
@@ -707,11 +884,10 @@ write_capsule() {
     path="$(capsule_path)"
     install -d -m 0700 "$(dirname -- "$(dirname -- "${path}")")" "$(dirname -- "${path}")"
     jq -n --arg kind "${CAPSULE_KIND}" --arg t "${TARGET_ID}" --arg state "$1" \
-        --arg address "${ADDRESS}" --arg firewall "${FIREWALL_MODE}" --arg gateway "${GATEWAY_DIGESTS}" \
+        --arg address "${ADDRESS}" --arg firewall "${FIREWALL_MODE}" --arg outbound "${OUTBOUND_DIGEST}" \
         --arg now "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '
-        {kind: $kind, schema_version: 1, target: $t, state: $state, address: $address,
-         firewall: $firewall, gateway_sha256: ($gateway | split("\n") | map(select(. != ""))),
-         recorded_at: $now}' > "${path}.new"
+        {kind: $kind, schema_version: 2, target: $t, state: $state, address: $address,
+         firewall: $firewall, outbound_sha256: $outbound, recorded_at: $now}' > "${path}.new"
     chmod 0600 "${path}.new"
     mv -f -- "${path}.new" "${path}"
 }
@@ -726,9 +902,9 @@ set_capsule_state() {
 
 # --- Back to disabled -------------------------------------------------------------------
 
-# return_to_disabled — the receiver's apply with a one-use DISABLE
-# authorization when it recorded enabled, RateGuru's firewall rule removed, and
-# the proof: nothing listens on 25, the receiver verifies, the gateway too.
+# return_to_disabled — the disable transition when the host records public
+# SMTP enabled, RateGuru's firewall rule removed, and the proof: nothing
+# listens on 25, the gateway verifies, the outbound path is what it was.
 return_to_disabled() {
     local failures=0 previous="${ADDRESS}"
 
@@ -736,10 +912,7 @@ return_to_disabled() {
     [[ -n "${previous}" ]] || previous="${ADDRESS}"
 
     if [[ "${PUBLIC_STATE}" == enabled ]]; then
-        authorize disable || { bad "the disable authorization could not be written"; failures=$((failures + 1)); }
-        run_child "install-mail-inbound --apply (disable)" "$(bundle_script install-mail-inbound)" --apply \
-            || { bad "install-mail-inbound --apply did not return the receiver to disabled"; failures=$((failures + 1)); }
-        withdraw_authorization
+        transition disable || failures=$((failures + 1))
     fi
 
     if [[ "${FIREWALL_MODE}" == ufw ]]; then
@@ -748,7 +921,7 @@ return_to_disabled() {
     fi
 
     read_host_state
-    [[ "${PUBLIC_STATE}" == disabled ]] || { bad "the receiver's recorded state is ${PUBLIC_STATE}, not disabled"; failures=$((failures + 1)); }
+    [[ "${PUBLIC_STATE}" == disabled ]] || { bad "the recorded inbound state is ${PUBLIC_STATE}, not disabled"; failures=$((failures + 1)); }
 
     local listeners
     listeners="$(port25_listeners 2>/dev/null || echo unreadable)"
@@ -759,10 +932,10 @@ return_to_disabled() {
         failures=$((failures + 1))
     fi
 
-    if receiver_installed; then
-        receiver_verify || failures=$((failures + 1))
-    fi
     gateway_verify || failures=$((failures + 1))
+    if [[ -n "${OUTBOUND_DIGEST}" ]]; then
+        outbound_unchanged || failures=$((failures + 1))
+    fi
 
     (( failures == 0 ))
 }
@@ -777,66 +950,84 @@ classify() {
     read_host_state
     detect_firewall
 
-    if ! receiver_installed; then
-        if [[ -z "$(port25_listeners 2>/dev/null)" ]] && ! { [[ "${FIREWALL_MODE}" == ufw ]] && ufw_rule_present "${ADDRESS:-0.0.0.0}"; }; then
+    if [[ "${INSTALLED}" != true ]]; then
+        if [[ -z "$(port25_listeners 2>/dev/null)" ]] && ! { [[ "${FIREWALL_MODE}" == ufw ]] && ufw_own_rule_present; }; then
             HOST_STATE=not-installed
-            ok "no inbound receiver is installed on this host, and nothing listens on TCP 25"
+            ok "inbound mail is not installed on this host, and nothing listens on TCP 25"
             check_public_ports "nothing listens on a public SMTP port" || true
         else
             HOST_STATE=drift
-            bad "no inbound receiver is installed, yet TCP 25 is open or RateGuru's rule for it is present"
+            bad "inbound mail is not installed, yet TCP 25 is open or RateGuru's rule for it is present"
         fi
-    else
-        receiver_verify || true
-        check_public_ports "$(public_smtp_summary "${FS_ROOT}")" || true
+        (( COUNT_FAIL == failures_before ))
+        return
+    fi
 
-        case "${PUBLIC_STATE}" in
-            disabled)
-                if [[ -n "$(port25_listeners 2>/dev/null)" ]]; then
-                    bad "the receiver is disabled, yet something listens on TCP 25"
-                fi
-                ;;
-            enabled)
-                if [[ "${FIREWALL_MODE}" == ufw ]]; then
-                    if ufw_rule_present "${ADDRESS}"; then
-                        ok "RateGuru's ufw rule allows TCP 25 to ${ADDRESS}"
-                    else
-                        bad "public SMTP is enabled on ${ADDRESS}, but RateGuru's ufw rule for it is missing"
-                    fi
-                elif [[ "${FIREWALL_MODE}" == none ]]; then
-                    ok "${FIREWALL_DETAIL}"
+    gateway_verify || true
+    store_verify || true
+    check_public_ports "$(public_smtp_summary "${FS_ROOT}")" || true
+    check_inbound_queue || true
+
+    case "${PUBLIC_STATE}" in
+        disabled)
+            if [[ -n "$(port25_listeners 2>/dev/null)" ]]; then
+                bad "public SMTP is disabled, yet something listens on TCP 25"
+            fi
+            if [[ "${FIREWALL_MODE}" == ufw ]] && ufw_own_rule_present; then
+                bad "public SMTP is disabled, yet RateGuru's ufw rule for TCP 25 is present"
+            fi
+            ;;
+        enabled)
+            if "${IP_BIN}" -4 -o addr show 2>/dev/null | grep -qE "[[:space:]]inet ${ADDRESS//./\\.}/"; then
+                ok "${ADDRESS} is configured on this host"
+            else
+                bad "the recorded public address ${ADDRESS} is not configured on this host — Postfix still runs, but public SMTP receives nothing until it is back"
+            fi
+            if [[ "${FIREWALL_MODE}" == ufw ]]; then
+                if ufw_rule_present "${ADDRESS}"; then
+                    ok "RateGuru's ufw rule allows TCP 25 to ${ADDRESS}"
                 else
-                    bad "${FIREWALL_DETAIL}"
+                    bad "public SMTP is enabled on ${ADDRESS}, but RateGuru's ufw rule for it is missing"
                 fi
-                [[ "${REQUESTED}" == true ]] \
-                    || bad "public SMTP is enabled on this host, but the trusted bundle does not request it — run the inbound rollback, or restore the request"
-                ;;
-            *)
-                bad "the receiver's recorded state is corrupt"
-                ;;
-        esac
+            elif [[ "${FIREWALL_MODE}" == none ]]; then
+                ok "${FIREWALL_DETAIL}"
+            else
+                bad "${FIREWALL_DETAIL}"
+            fi
+            [[ "${REQUESTED}" == true ]] \
+                || bad "public SMTP is enabled on this host, but the trusted bundle does not request it — run the inbound rollback, or restore the request"
+            ;;
+        *)
+            bad "the gateway's recorded inbound state is corrupt"
+            ;;
+    esac
 
-        if (( COUNT_FAIL != failures_before )); then
-            HOST_STATE=drift
-        elif [[ "${PUBLIC_STATE}" == enabled ]]; then
-            HOST_STATE=enabled-verified
-        else
-            HOST_STATE=installed-disabled
-        fi
+    if (( COUNT_FAIL != failures_before )); then
+        HOST_STATE=drift
+    elif [[ "${PUBLIC_STATE}" == enabled ]]; then
+        HOST_STATE=enabled-verified
+    else
+        HOST_STATE=installed-disabled
     fi
 
     (( COUNT_FAIL == failures_before ))
 }
 
-# preflight — everything that must hold before public SMTP opens.
-preflight() {
-    log "the proof before anything public changes"
+# ufw_own_rule_present — RateGuru's own rule is present, for any address.
+ufw_own_rule_present() {
+    "${UFW_BIN}" status 2>/dev/null | grep -E " 25/tcp .*# ${FIREWALL_COMMENT}\$" >/dev/null
+}
 
-    if ADDRESS="$(detect_address)"; then
-        ok "this host's public IPv4 address is ${ADDRESS}, globally reachable"
+# preflight — everything that must hold before anything changes.
+preflight() {
+    local problems
+    log "the proof before anything changes"
+
+    if PUBLIC_ADDRESS="$(detect_address)"; then
+        ok "this host's public IPv4 address is ${PUBLIC_ADDRESS}, globally reachable"
     else
-        ADDRESS=""
-        bad "this host has no globally reachable IPv4 address on its route to the Internet — the receiver would bind nothing public"
+        PUBLIC_ADDRESS=""
+        bad "this host has no globally reachable IPv4 address on its route to the Internet — public SMTP would bind nothing public"
     fi
 
     if run_child "install-mail-inbound --tls-check" "$(bundle_script install-mail-inbound)" --tls-check; then
@@ -846,7 +1037,6 @@ preflight() {
     fi
 
     gateway_verify || true
-    GATEWAY_DIGESTS="$(gateway_digests)"
 
     check_public_ports "nothing listens on a public SMTP port that may not" || true
 
@@ -864,15 +1054,21 @@ preflight() {
     esac
 
     if run_child "install-mail-inbound --check" "$(bundle_script install-mail-inbound)" --check; then
-        ok "the receiver can be installed or converged: package, gateway, ownership, disk and loopback port"
+        ok "the inbound store can be created or converged: its account, its volume and the host reserve"
     else
-        bad "the receiver cannot be installed or converged on this host (above)"
+        bad "the inbound store cannot be created or converged on this host (above)"
+    fi
+
+    problems="$(queue_space_problems)"
+    if [[ -z "${problems}" ]]; then ok "the shared queue's file system keeps its reserve free"; else bad "${problems}"; fi
+    if [[ "${INSTALLED}" == true ]]; then
+        check_inbound_queue || true
     fi
 }
 
 print_operator_next() {
     log "NEXT (operator): confirm the provider's firewall outside this host allows inbound TCP 25 to ${ADDRESS} — this script cannot see it and never claims it"
-    log "NEXT (operator): publish DNS in this order, only now that the receiver is active and verified — the A record first, then the MX records:"
+    log "NEXT (operator): publish DNS in this order, only now that public SMTP is active and verified — the A record first, then the MX records:"
     "$(bundle_script mail-inbound)" render-dns --target "${TARGET_ID}" --ipv4 "${ADDRESS}" 2>/dev/null \
         | jq -r '(.records | map(select(.type == "A")) + map(select(.type != "A")))[]
                  | "    \(.name)  \(.type)\(if .priority == null then "" else " \(.priority)" end)  \(.value)"' \
@@ -885,22 +1081,25 @@ run_check() {
     read_host_state
 
     COUNT_FAIL=0
-    if classify && [[ "${HOST_STATE}" == enabled-verified ]]; then
+    if [[ "${INSTALLED}" == true ]] && classify && [[ "${HOST_STATE}" == enabled-verified ]]; then
         log "ACTIVATION CHECK: ALREADY ACTIVE — --apply would change nothing"
         result_line pass
         return 0
     fi
     COUNT_FAIL=0
+    read_host_state
+    recorded_host_state
 
     preflight
 
     if (( COUNT_FAIL == 0 )); then
-        log "ACTIVATION CHECK: READY — --apply would install or converge the receiver, prove it live, and open TCP 25 to ${ADDRESS}"
+        ADDRESS="${PUBLIC_ADDRESS}"
+        log "ACTIVATION CHECK: READY — --apply would install inbound mail if needed, prove it on loopback, and open TCP 25 to ${ADDRESS} by a reload"
         result_line pass
         return 0
     fi
 
-    log "ACTIVATION CHECK: REFUSED — --apply would change nothing public (${COUNT_FAIL} problem(s) above)"
+    log "ACTIVATION CHECK: REFUSED — --apply would change nothing (${COUNT_FAIL} problem(s) above)"
     result_line fail
     exit 1
 }
@@ -914,51 +1113,63 @@ run_apply() {
     read_host_state
 
     COUNT_FAIL=0
-    if receiver_installed && classify && [[ "${HOST_STATE}" == enabled-verified ]]; then
-        log "ACTIVATION: ALREADY ACTIVE — the receiver listens on ${ADDRESS}:25 and verifies; nothing was changed"
+    if [[ "${INSTALLED}" == true ]] && classify && [[ "${HOST_STATE}" == enabled-verified ]]; then
+        log "ACTIVATION: ALREADY ACTIVE — public SMTP listens on ${ADDRESS}:25 and verifies; nothing was changed"
         result_line pass
         return 0
     fi
+    read_host_state
+    [[ "${PUBLIC_STATE}" != unknown ]] \
+        || die "the gateway's recorded inbound state is corrupt — restore it from the gateway's backups; nothing was changed"
     [[ "${PUBLIC_STATE}" != enabled ]] \
         || die "public SMTP is already enabled on this host but does not verify (above) — nothing was changed; --rollback closes it"
+    recorded_host_state
     COUNT_FAIL=0
 
     preflight
-    (( COUNT_FAIL == 0 )) || die "the proof before activation failed (${COUNT_FAIL} problem(s) above) — nothing public was changed"
+    (( COUNT_FAIL == 0 )) || die "the proof before activation failed (${COUNT_FAIL} problem(s) above) — nothing was changed"
 
-    log "installing or converging the receiver, still disabled"
+    OUTBOUND_DIGEST="$(outbound_digest)"
+
     CHANGED=true
-    run_child "install-mail-inbound --apply (disabled)" "$(bundle_script install-mail-inbound)" --apply \
-        || die "install-mail-inbound --apply did not install the receiver — nothing public was changed"
+    log "the inbound store"
+    run_child "install-mail-inbound --apply" "$(bundle_script install-mail-inbound)" --apply \
+        || die "install-mail-inbound --apply did not create the store — nothing of Postfix was changed"
+
+    if [[ "${INSTALLED}" != true ]]; then
+        log "installing inbound mail on the gateway's Postfix: the loopback listener and the delivery to the store, no public listener"
+        transition install || die "inbound mail could not be installed (above) — public SMTP was never opened"
+        recorded_host_state
+    fi
 
     COUNT_FAIL=0
-    receiver_verify || true
-    log "the live proof on the loopback listener"
+    log "the proof on loopback"
+    gateway_verify || true
+    store_verify || true
+    outbound_unchanged || true
+    outbound_listeners_answer || true
     live_proof || true
     (( COUNT_FAIL == 0 )) \
-        || die "the receiver did not prove itself before public SMTP (${COUNT_FAIL} problem(s) above) — it stays installed and disabled; nothing public was changed"
+        || die "inbound mail did not prove itself before public SMTP (${COUNT_FAIL} problem(s) above) — it stays installed and disabled; nothing public was changed"
 
+    ADDRESS="${PUBLIC_ADDRESS}"
     write_capsule activating
     TRANSACTION_OPEN=true
 
     open_firewall
-    authorize enable || die "the enable authorization could not be written"
-    log "enabling public SMTP on ${ADDRESS}:25: install-mail-inbound --apply"
-    run_child "install-mail-inbound --apply (enable)" "$(bundle_script install-mail-inbound)" --apply \
-        || die "install-mail-inbound --apply refused or failed to enable public SMTP"
-    withdraw_authorization
+    log "enabling public SMTP on ${ADDRESS}:25 — the gateway reloads Postfix with the public listener"
+    transition enable || die "the enable transition failed"
 
     COUNT_FAIL=0
-    read_host_state
-    [[ "${PUBLIC_STATE}" == enabled ]] || bad "the receiver did not record public SMTP as enabled"
-    receiver_verify || true
-    check_public_ports "only ${PUBLIC_SMTP_INBOUND_UNIT} listens on TCP 25, on ${ADDRESS} alone; no other public SMTP port is open" || true
+    log "the proof of public SMTP"
+    gateway_verify || true
+    check_public_ports "only the host's Postfix (${MAIL_INBOUND_POSTFIX_UNIT}) listens on TCP 25, on ${ADDRESS} alone; no other public SMTP port is open" || true
     if [[ "${FIREWALL_MODE}" == ufw ]]; then
         if ufw_rule_present "${ADDRESS}"; then ok "RateGuru's ufw rule allows TCP 25 to ${ADDRESS}"; else bad "the ufw rule for TCP 25 to ${ADDRESS} is missing"; fi
     fi
-    live_proof || true
-    gateway_verify || true
-    gateway_unchanged || true
+    public_proof || true
+    outbound_unchanged || true
+    outbound_listeners_answer || true
 
     (( COUNT_FAIL == 0 )) || die "public SMTP did not prove itself (${COUNT_FAIL} problem(s) above)"
 
@@ -966,7 +1177,7 @@ run_apply() {
     set_capsule_state activated
     HOST_STATE=enabled-verified
 
-    log "ACTIVATION: DONE — the inbound receiver accepts mail on ${ADDRESS}:25 for exactly the reviewed recipients; the outbound gateway is unchanged"
+    log "ACTIVATION: DONE — the host's Postfix accepts mail on ${ADDRESS}:25 for exactly the reviewed recipients; the outbound path is unchanged"
     print_operator_next
     result_line pass
 }
@@ -976,7 +1187,9 @@ run_verify() {
 
     COUNT_FAIL=0
     classify || true
-    gateway_verify || true
+    if [[ "${INSTALLED}" != true ]]; then
+        gateway_verify || true
+    fi
 
     log "STATE: ${HOST_STATE}"
     if (( COUNT_FAIL == 0 )); then
@@ -984,7 +1197,7 @@ run_verify() {
         result_line pass
         return 0
     fi
-    [[ "${HOST_STATE}" != enabled-verified && "${HOST_STATE}" != installed-disabled ]] || HOST_STATE=drift
+    HOST_STATE=drift
     log "INBOUND VERIFY: FAIL (${COUNT_FAIL} problem(s) above)"
     result_line fail
     exit 1
@@ -1001,33 +1214,34 @@ run_rollback() {
     read_host_state
     detect_firewall
     [[ "${PUBLIC_STATE}" != unknown ]] \
-        || die "the receiver's recorded state is corrupt — it cannot be moved by its one-use authorization. Inspect install-mail-inbound --verify; nothing was changed"
+        || die "the gateway's recorded inbound state is corrupt — it cannot be moved by a one-use authorization. Inspect install-mail-gateway --verify; nothing was changed"
 
     COUNT_FAIL=0
     if [[ "${PUBLIC_STATE}" == disabled ]] && [[ -z "$(port25_listeners 2>/dev/null)" ]] \
-        && ! { [[ "${FIREWALL_MODE}" == ufw && -n "${ADDRESS}" ]] && ufw_rule_present "${ADDRESS}"; }
+        && ! { [[ "${FIREWALL_MODE}" == ufw ]] && ufw_own_rule_present; }
     then
-        if receiver_installed; then HOST_STATE=installed-disabled; else HOST_STATE=not-installed; fi
+        if [[ "${INSTALLED}" == true ]]; then HOST_STATE=installed-disabled; else HOST_STATE=not-installed; fi
         log "ROLLBACK: NOTHING TO DO — public SMTP is already closed"
         result_line pass
         return 0
     fi
 
-    receiver_installed \
-        || die "something listens on TCP 25 or RateGuru's rule for it is present, but no receiver is installed — it is not RateGuru's to close; nothing was changed"
+    [[ "${INSTALLED}" == true ]] \
+        || die "something listens on TCP 25 or RateGuru's rule for it is present, but inbound mail is not installed — it is not RateGuru's to close; nothing was changed"
 
+    OUTBOUND_DIGEST="$(outbound_digest)"
     CHANGED=true
     if return_to_disabled; then
         ROLLED_BACK=true
         HOST_STATE=installed-disabled
         set_capsule_state rolled-back || true
-        log "ROLLED BACK: public SMTP is closed, nothing listens on TCP 25, the receiver is installed and disabled, and its stored mail is kept"
+        log "ROLLED BACK: public SMTP is closed, nothing listens on TCP 25; outbound mail, the shared queue and every stored message are as they were"
         log "NEXT (operator): check the published MX records of every target in the plan — while they name this host, senders find a closed port and retry; remove them unless public SMTP is coming back"
         result_line pass
         return 0
     fi
 
-    printf 'CRITICAL: the rollback of public SMTP could not be proved. Nothing broader was attempted.\n' >&2
+    printf 'CRITICAL: the rollback of public SMTP could not be proved. Nothing broader was attempted: Postfix was not stopped and its queue was not touched.\n' >&2
     log "ROLLBACK: CRITICAL"
     result_line critical
     exit 2

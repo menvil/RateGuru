@@ -57,18 +57,25 @@ _smtp_step() {
     _smtp_reply "${want}"
 }
 
-# _smtp_connect HOST PORT WHAT — open fd 4 to HOST:PORT, which must be an IPv4
-# loopback address and a port; the one place this library opens a connection.
-# Otherwise nothing is opened and SMTP_REPLY says why, ending with WHAT.
+# _smtp_connect HOST PORT WHAT [public] — open fd 4 to HOST:PORT; the one place
+# this library opens a connection. HOST must be an IPv4 loopback address —
+# or, for a probe that sends no message (the fourth argument "public"), the
+# host's own public listener: an IPv4 address on port 25. Otherwise nothing is
+# opened and SMTP_REPLY says why, ending with WHAT.
 #
 # fd 4 is opened with a bare exec; the stderr silencing is on a group around it,
 # so it lasts only for that exec.
 _smtp_connect() {
-    local host="$1" port="$2" what="$3"
+    local host="$1" port="$2" what="$3" scope="${4:-loopback}" public=false
 
-    if [[ ! "${host}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ || ! "${port}" =~ ^[1-9][0-9]{0,4}$ ]]; then
-        SMTP_REPLY="${host}:${port} is not a loopback endpoint — ${what}"
-        return 1
+    if [[ "${scope}" == public && "${host}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ && "${port}" == 25 ]]; then
+        public=true
+    fi
+    if [[ "${public}" == false ]]; then
+        if [[ ! "${host}" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ || ! "${port}" =~ ^[1-9][0-9]{0,4}$ ]]; then
+            SMTP_REPLY="${host}:${port} is not a loopback endpoint — ${what}"
+            return 1
+        fi
     fi
 
     { exec 4<>"/dev/tcp/${host}/${port}"; } 2>/dev/null
@@ -126,7 +133,8 @@ smtp_submit_message() {
     [[ "${SMTP_STAGE}" == queued ]]
 }
 
-# Probes: conversations with a loopback listener that never send a message.
+# Probes: conversations that never send a message — with a loopback listener,
+# or with the host's own public listener on port 25.
 # Each opens with EHLO, leaves the EHLO keywords in SMTP_EHLO (one per line,
 # upper case, with their arguments; the greeting line dropped) and the reply to
 # each RCPT in SMTP_RCPT_REPLIES, in order, and ends with QUIT. They succeed when
@@ -161,7 +169,7 @@ _smtp_probe_open() {
     # moment to accept; a connection is retried, never anything sent on it.
     local attempt
     for attempt in 1 2 3; do
-        _smtp_connect "${host}" "${port}" "nothing was probed" && break
+        _smtp_connect "${host}" "${port}" "nothing was probed" public && break
         [[ "${attempt}" != 3 && "${SMTP_REPLY}" == "" ]] || return 1
         sleep 1
     done
@@ -187,6 +195,23 @@ _smtp_probe_open() {
 _smtp_probe_close() {
     { printf 'QUIT\r\n' >&4; } 2>/dev/null || true
     { exec 4>&- 4<&-; } 2>/dev/null || true
+}
+
+# smtp_probe_mail HOST PORT HELO SENDER — EHLO and MAIL FROM, then RSET: what a
+# listener answers a sender, with no recipient and no message.
+smtp_probe_mail() {
+    local host="$1" port="$2" helo="$3" sender="$4" status=1
+
+    if _smtp_probe_open "${host}" "${port}" "${helo}" "${sender}" \
+        && _smtp_step mail 2 "MAIL FROM:<${sender}>"
+    then
+        status=0
+        printf 'RSET\r\n' >&4
+        _smtp_reply 2 || true
+    fi
+
+    _smtp_probe_close
+    return "${status}"
 }
 
 # smtp_probe_recipients HOST PORT HELO SENDER RECIPIENT... — each RECIPIENT in

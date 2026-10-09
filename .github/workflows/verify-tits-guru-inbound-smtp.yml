@@ -2,11 +2,12 @@ name: Verify tits.guru inbound SMTP
 
 # Read-only: infrastructure/scripts/activate-mail-inbound --verify --target
 # tits-guru, run from trusted main tooling. It says which state the host is in
-# — not-installed, installed-disabled, enabled-verified, or drift — proves who
-# owns TCP 25 and that 465 and 587 are closed, checks the firewall rule
-# against the receiver's recorded state, and proves the outbound gateway still
-# verifies. It changes nothing: no file, no service, no firewall rule and no
-# DNS record. It shows no received message.
+# — not-installed, installed-disabled, enabled-verified, or drift — proves that
+# only the host's own Postfix holds TCP 25 and that 465 and 587 are closed,
+# checks the firewall rule against the recorded inbound state, the inbound
+# store and the shared queue, and proves the mail gateway still verifies. It
+# changes nothing: no file, no service, no firewall rule and no DNS record. It
+# shows no received message.
 on:
   workflow_dispatch:
 
@@ -103,7 +104,7 @@ jobs:
           bootstrap-host: ${{ vars.DEPLOY_HOST }}
           bootstrap-port: ${{ vars.DEPLOY_PORT }}
 
-          # The privileged bootstrap credential: the receiver, its volume and
+          # The privileged bootstrap credential: Postfix, the inbound store and
           # the firewall are root's. Never the deploy key.
           bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}

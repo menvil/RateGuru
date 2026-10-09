@@ -86,6 +86,38 @@
 # the host and the per-target port. Postfix itself binds nothing public — the
 # firewall is never what makes this safe.
 #
+# INBOUND MAIL. The same Postfix also receives mail for the inbound plan, with
+# one queue and one service, once the host records it — never because the
+# repository asks. What it accepts is `mail-inbound render-receiver`'s, from
+# this bundle; this file only spells it:
+#
+#   * its own listeners: one on loopback, for the activation's proof, and —
+#     only while the host's applied inbound state says public SMTP is enabled —
+#     one on exactly the recorded public IPv4 address, port 25, with STARTTLS
+#     from the operator's certificate. Every setting that makes them a public
+#     receiver is a per-service override in master.cf: recipients judged at RCPT
+#     TO against the rendered table for every client, loopback included, no
+#     relay, no SMTP AUTH, the reviewed limits, a queue floor of their own, and
+#     their own cleanup and address rewriting services, so a bare <Postmaster>
+#     is the host postmaster and no other listener changes;
+#   * delivery: virtual(8) into Maildir under the store install-mail-inbound
+#     owns, for exactly the plan's domains — the one main.cf change, and the
+#     one transport besides the listeners' own that delivers anything.
+#
+# The submission listeners never reach it: each names its own content filter,
+# which decides where its mail goes whatever the recipient's domain, and none
+# judges recipients against the inbound table — mail an application sends to
+# a domain this host receives for still leaves through its own route. Nothing
+# an inbound listener accepts can leave: the default, relay and local
+# transports stay error(8), so not even a bounce reaches the Internet.
+#
+# The host's inbound state — absent, disabled, enabled on one address — is the
+# gateway's own record (applied-inbound.json), moved only by a one-use
+# authorization activate-mail-inbound writes after its proof, and consumed
+# here. An ordinary --apply keeps it, whatever the repository requests, and a
+# bundle that no longer requests public SMTP refuses to touch a host where it
+# is open: only the inbound rollback closes it.
+#
 # ITS NAME. Postfix calls itself (myhostname: its banner, its Received hops, a
 # Message-ID it adds) by the host's reviewed MTA hostname whenever
 # mail-outbound.json names one, so a delivered message names the host the
@@ -201,9 +233,10 @@ MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_D
 IDENTITY_FILE="$(gated_default RATEGURU_MAILGW_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
 MAIL_SIGNING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_SIGNING_CLI "${SCRIPT_DIR}/install-mail-signing")"
 
-# The reviewed inbound contract of this bundle: the one judge of public SMTP
-# ports reads it to know whether the inbound receiver may own TCP 25.
+# The reviewed inbound contract of this bundle, and its one judge: what the
+# inbound listeners accept, and whether the bundle requests public SMTP.
 INBOUND_FILE="$(gated_default RATEGURU_MAILGW_INBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-inbound.json")"
+MAIL_INBOUND_CLI="$(gated_default RATEGURU_MAILGW_MAIL_INBOUND_CLI "${SCRIPT_DIR}/mail-inbound")"
 
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
@@ -214,6 +247,7 @@ POSTCONF_BIN="$(gated_default RATEGURU_MAILGW_POSTCONF_BIN postconf)"
 POSTFIX_BIN="$(gated_default RATEGURU_MAILGW_POSTFIX_BIN postfix)"
 POSTMAP_BIN="$(gated_default RATEGURU_MAILGW_POSTMAP_BIN postmap)"
 SS_BIN="$(gated_default RATEGURU_MAILGW_SS_BIN ss)"
+GETENT_BIN="$(gated_default RATEGURU_MAILGW_GETENT_BIN getent)"
 
 # Owner of every managed file. root:root on a host; the test seam lets the real
 # install path run unprivileged.
@@ -253,9 +287,9 @@ POLICY_RC="/usr/sbin/policy-rc.d"
 POLICY_RC_MARKER="# rateguru-mail-gateway: package service starts suppressed until the gateway configuration is in place"
 BACKUP_ROOT="/var/backups/rateguru-mail-gateway"
 
-# Who may listen on a public SMTP port is judged in one place: public-smtp-port.
-# The gateway never does — nothing of it is ever bound but loopback — and on 25
-# only the activated inbound receiver may, owned by its own unit.
+# Who may listen on a public SMTP port is judged in one place: public-smtp-port,
+# which also brings where the inbound receiver lives (mail-inbound-host). On 25
+# only this Postfix's own public inbound listener may, once activated.
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/public-smtp-port"
 
@@ -506,7 +540,8 @@ MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
     "default_transport = \(no_route)",
     "relay_transport = \(no_route)",
     "local_transport = \(no_route)",
-    "virtual_transport = \(no_route)",
+    (if $inbound == null then "virtual_transport = \(no_route)"
+     else "virtual_transport = virtual" end),
     "",
     "# No authentication and no TLS: the boundary is the host and the port.",
     "smtpd_sasl_auth_enable = no",
@@ -538,6 +573,22 @@ MAIN_CF_PROGRAM="${RENDER_DEFINITIONS}"'
          "# up the recipient domain'"'"'s MX. The client itself, its HELO identity and",
          "# its opportunistic STARTTLS are in master.cf; nothing here routes mail.",
          "default_filter_nexthop ="
+     else empty end),
+    (if $inbound != null then
+         "",
+         "# Inbound mail: virtual(8) delivers into Maildir under the inbound store,",
+         "# for exactly these domains and the recipients of the rendered table — the",
+         "# one delivery route besides the listeners'"'"' own. Every other setting of the",
+         "# inbound listeners is theirs alone, in master.cf. No submission listener",
+         "# reaches this: each routes by its own content filter, and judges no",
+         "# recipient against the table.",
+         "virtual_mailbox_domains = \($inbound.domains | join(", "))",
+         "virtual_mailbox_maps = regexp:\($inbound.table)",
+         "virtual_mailbox_base = \($inbound.store)",
+         "virtual_uid_maps = static:\($inbound.uid)",
+         "virtual_gid_maps = static:\($inbound.gid)",
+         "virtual_minimum_uid = \($inbound.uid)",
+         "virtual_mailbox_limit = \($inbound.limits.message_size_bytes)"
      else empty end)
 )
 '
@@ -611,12 +662,88 @@ def capture_route:
         "  -o smtp_sasl_auth_enable=no"
     );
 
+def inbound_options:
+    $inbound.limits as $limits
+    | (
+        "  -o smtpd_client_restrictions=",
+        "  -o smtpd_helo_restrictions=",
+        "  -o smtpd_sender_restrictions=",
+        "  -o smtpd_relay_restrictions=reject_unauth_destination",
+        "  -o smtpd_recipient_restrictions=reject_unlisted_recipient",
+        "  -o smtpd_reject_unlisted_recipient=yes",
+        "  -o smtpd_data_restrictions=",
+        "  -o smtpd_helo_required=yes",
+        "  -o smtpd_sasl_auth_enable=no",
+        "  -o smtpd_milters=",
+        "  -o content_filter=",
+        "  -o smtpd_discard_ehlo_keywords=etrn",
+        "  -o smtpd_etrn_restrictions=reject",
+        "  -o smtpd_recipient_limit=\($limits.recipients_per_message)",
+        "  -o smtpd_client_connection_count_limit=\($limits.connections_per_client)",
+        "  -o smtpd_client_connection_rate_limit=\($limits.connection_rate_per_client)",
+        "  -o smtpd_client_message_rate_limit=\($limits.message_rate_per_client)",
+        "  -o smtpd_client_event_limit_exceptions=",
+        "  -o message_size_limit=\($limits.message_size_bytes)",
+        "  -o queue_minfree=\($limits.host_reserve_bytes)",
+        "  -o myhostname=\($inbound.hostname)",
+        "  -o cleanup_service_name=\($inbound.cleanup)",
+        "  -o rewrite_service_name=\($inbound.rewrite)"
+    );
+
+# The inbound listeners, their own cleanup and address rewriting, and
+# virtual(8): everything that makes this Postfix receive mail, and nothing a
+# submission listener names.
+def inbound_section:
+    (
+        "# --- inbound: recipients judged at RCPT TO against the rendered table, for",
+        "# every client alike — loopback included — no relay, no SMTP AUTH, the",
+        "# reviewed limits and a queue floor of their own; their own cleanup, which",
+        "# signs nothing, and their own address rewriting, which makes a bare",
+        "# <Postmaster> the host postmaster. The loopback listener is the",
+        "# activation'"'"'s proof; the public one exists only while the host'"'"'s applied",
+        "# inbound state enables it, on exactly the recorded address.",
+        service($inbound.loopback; "inet"; "n"; "-"; "n"; "-"; "2"; "smtpd"),
+        "  -o syslog_name=postfix/rateguru-inbound-loopback",
+        inbound_options,
+        (if $inbound.state == "enabled" then
+             service("\($inbound.address):25"; "inet"; "n"; "-"; "n"; "-"; ($inbound.limits.concurrent_sessions | tostring); "smtpd"),
+             "  -o syslog_name=postfix/rateguru-inbound",
+             inbound_options,
+             "  -o smtpd_tls_security_level=may",
+             "  -o smtpd_tls_chain_files=\($inbound.tls_key),\($inbound.tls_cert)",
+             "  -o smtpd_tls_protocols=>=TLSv1.2",
+             "  -o smtpd_tls_mandatory_protocols=>=TLSv1.2",
+             "  -o smtpd_tls_loglevel=0",
+             "  -o smtpd_tls_received_header=yes"
+         else empty end),
+        service($inbound.cleanup; "unix"; "n"; "-"; "n"; "-"; "0"; "cleanup"),
+        "  -o syslog_name=postfix/\($inbound.cleanup)",
+        "  -o rewrite_service_name=\($inbound.rewrite)",
+        "  -o message_size_limit=\($inbound.limits.message_size_bytes)",
+        "  -o header_checks=",
+        "  -o nested_header_checks=",
+        "  -o body_checks=",
+        service($inbound.rewrite; "unix"; "-"; "-"; "n"; "-"; "-"; "trivial-rewrite"),
+        "  -o syslog_name=postfix/\($inbound.rewrite)",
+        "  -o myorigin=\($inbound.host_postmaster_domain)",
+        service("virtual"; "unix"; "-"; "n"; "n"; "-"; "-"; "virtual"),
+        ""
+    );
+
 (
     "# RateGuru mail gateway — master.cf",
     "#",
     "# Rendered by infrastructure/scripts/install-mail-gateway from the reviewed",
     "# mail routing plan. Never edit it on a host.",
     "#",
+    (if $inbound != null then
+         "# The inet services are the per-target loopback listeners and the inbound",
+         "# listeners below: there is no smtp, submission or smtps listener. The",
+         "# delivery agents are one capture transport per capture target, one direct",
+         "# outbound transport per outbound target and virtual(8) for inbound mail;",
+         "# there is no generic smtp, relay, local or lmtp transport for anything to",
+         "# fall through to."
+     else
     "# The only inet services are the per-target loopback listeners: there is no",
     "# smtp, submission or smtps listener. The only delivery agents are one",
     (if has_outbound then
@@ -626,6 +753,7 @@ def capture_route:
      else
          "# capture transport per capture target; there is no generic smtp, relay,",
          "# local, virtual or lmtp transport for anything to fall through to."
+     end)
      end),
     "#",
     "# service type  private unpriv  chroot  wakeup  maxproc command + args",
@@ -656,6 +784,7 @@ def capture_route:
          (.listeners[] | select(is_direct) | outbound_route),
          ""
      else empty end),
+    (if $inbound != null then inbound_section else empty end),
     "# --- Postfix internal services. Every service the package master.cf repair",
     "# appends when missing is present, so a postfix upgrade adds nothing.",
     service("pickup"; "unix"; "n"; "-"; "n"; "60"; "1"; "pickup"),
@@ -730,13 +859,59 @@ FROM_POLICY_PROGRAM="${RENDER_DEFINITIONS}"'
 # else, whatever port the signer chose.
 MILTER_ENDPOINT_PATTERN='^inet:127\.0\.0\.1:[1-9][0-9]{0,4}$'
 
-# render_gateway_config PLAN OUTBOUND SIGNING MILTER OUT_DIR — judges the host
-# outbound contract and the plan's use of it, then writes OUT_DIR/main.cf and
-# OUT_DIR/master.cf, wiring each listener the signing plan names to the MILTER
-# endpoint. Called as a plain statement, never inside $(...) or on the left of
-# ||, so a refusal or a jq failure stops the run instead of leaving a half file.
+# The inbound input this renderer reads — the host's inbound state, and what
+# `mail-inbound render-receiver` says the listeners accept — as far as it is
+# spliced into Postfix syntax: every value a plain token, number or pattern, so
+# nothing in it can become a second directive. The policy was judged by
+# mail-inbound.
+# shellcheck disable=SC2016
+INBOUND_GUARD_PROGRAM='
+def token: type == "string" and test("\\A[a-z0-9][a-z0-9@._:-]*\\z");
+def path: type == "string" and test("\\A/[a-z0-9/._-]+\\z");
+def count: type == "number" and . == floor and . >= 0;
+(.state == "disabled" or .state == "enabled")
+and (if .state == "enabled" then (.address | type == "string" and test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}\\z")) else .address == null end)
+and (.loopback | type == "string" and test("\\A127\\.0\\.0\\.1:[1-9][0-9]{3,4}\\z"))
+and (.hostname | token)
+and (.host_postmaster_domain | token)
+and (.domains | type == "array" and length > 0 and all(.[]; token))
+and (.table | path) and (.store | path) and (.tls_cert | path) and (.tls_key | path)
+and (.cleanup | token) and (.rewrite | token)
+and (.uid | count) and (.gid | count) and .uid > 0
+and (.limits | type == "object" and length > 0 and all(.[]; count))
+and (.recipients | type == "array" and length > 0
+     and all(.[]; (.pattern | type == "string" and test("\\A\\^[^/[:space:]]+\\$\\z"))
+                  and (.mailbox | type == "string" and test("\\A[a-z0-9][a-z0-9/-]*/\\z"))))
+'
+
+# The table the inbound listeners judge recipients by and virtual(8) delivers
+# by: every allowed recipient, anchored, and the mailbox under the store it is
+# delivered to. Postfix regexp tables match case-insensitively.
+# shellcheck disable=SC2016
+INBOUND_TABLE_PROGRAM='
+(
+    "# RateGuru mail gateway — the recipients its inbound listeners accept, and",
+    "# the Maildir under the inbound store each is delivered to.",
+    "#",
+    "# Rendered by infrastructure/scripts/install-mail-gateway from mail-inbound",
+    "# render-receiver. Never edit it on a host: the next --apply replaces it, and",
+    "# --verify reports any difference. Matching is case-insensitive.",
+    "",
+    (.recipients[] | "/\(.pattern)/ \(.mailbox)")
+)
+'
+
+# render_gateway_config PLAN OUTBOUND SIGNING MILTER OUT_DIR [INBOUND] — judges
+# the host outbound contract and the plan's use of it, then writes
+# OUT_DIR/main.cf and OUT_DIR/master.cf, wiring each listener the signing plan
+# names to the MILTER endpoint. INBOUND, when given, is the inbound input
+# (inbound_render_input): the host's inbound listeners and delivery are then
+# rendered too, with OUT_DIR/rateguru-inbound-recipients.regexp; without it
+# the render is exactly what it was before inbound mail existed. Called as a
+# plain statement, never inside $(...) or on the left of ||, so a refusal or a
+# jq failure stops the run instead of leaving a half file.
 render_gateway_config() {
-    local plan="$1" outbound="$2" signing="$3" milter="$4" out="$5"
+    local plan="$1" outbound="$2" signing="$3" milter="$4" out="$5" inbound_file="${6:-}" inbound=null
 
     jq -e "${PLAN_GUARD_PROGRAM}" "${plan}" >/dev/null \
         || fail "the mail routing plan does not have the shape this renderer spells in Postfix — refusing to render around it"
@@ -755,9 +930,17 @@ render_gateway_config() {
     [[ "${hostname}" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] \
         || fail "the reviewed MTA hostname \"${hostname}\" is not a plain host name — refusing to splice it into main.cf"
 
-    jq -r --slurpfile signing "${signing}" --arg hostname "${hostname}" "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
+    if [[ -n "${inbound_file}" ]]; then
+        jq -e "${INBOUND_GUARD_PROGRAM}" "${inbound_file}" >/dev/null 2>&1 \
+            || fail "the inbound input does not have the shape this renderer spells in Postfix — refusing to render around it"
+        inbound="$(jq -c . "${inbound_file}")"
+        jq -r "${INBOUND_TABLE_PROGRAM}" "${inbound_file}" > "${out}/$(basename "${MAIL_INBOUND_RECIPIENT_TABLE}")"
+    fi
+
+    jq -r --slurpfile signing "${signing}" --arg hostname "${hostname}" --argjson inbound "${inbound}" \
+        "${MAIN_CF_PROGRAM}" "${plan}" > "${out}/main.cf"
     jq -r --slurpfile outbound "${outbound}" --slurpfile signing "${signing}" --arg milter "${milter}" \
-        "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
+        --argjson inbound "${inbound}" "${MASTER_CF_PROGRAM}" "${plan}" > "${out}/master.cf"
 
     local identity
     while IFS= read -r identity; do
@@ -811,7 +994,11 @@ prepare_candidate() {
     MILTER_ENDPOINT="$("${MAIL_SIGNING_CLI}" --milter-endpoint)" \
         || fail "install-mail-signing --milter-endpoint failed — nothing was rendered"
 
-    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${SIGNING_FILE}" "${MILTER_ENDPOINT}" "${CANDIDATE_DIR}"
+    # Inbound mail as the host records it, or as a pending authorization moves
+    # it; nothing at all on a host that never installed it.
+    resolve_inbound
+
+    render_gateway_config "${PLAN_FILE}" "${OUTBOUND_FILE}" "${SIGNING_FILE}" "${MILTER_ENDPOINT}" "${CANDIDATE_DIR}" "${INBOUND_INPUT}"
 
     # The applied policy this run would record: the whole plan and the host
     # contract, canonical — keys sorted, one layout — so equal policies are
@@ -820,6 +1007,9 @@ prepare_candidate() {
     mkdir -m 0700 "${APPLIED_CANDIDATE_DIR}"
     jq -S . "${PLAN_FILE}" > "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_PLAN}")"
     jq -S . "${OUTBOUND_FILE}" > "${APPLIED_CANDIDATE_DIR}/$(basename "${APPLIED_OUTBOUND}")"
+    if [[ "${INBOUND_STATE}" != absent ]]; then
+        mail_inbound_applied_document "${INBOUND_STATE}" "${INBOUND_ADDRESS}" > "${APPLIED_CANDIDATE_DIR}/$(basename "${MAIL_INBOUND_APPLIED}")"
+    fi
 }
 
 # Newline-separated plan facts, read once from the rendered plan.
@@ -862,6 +1052,209 @@ plan_outbound_count() {
 # disabled. Read only after assert_outbound_contract accepted the contract.
 outbound_mta_hostname() {
     jq -r 'if .direct.enabled == true then .direct.mta_hostname else "" end' "${OUTBOUND_FILE}" 2>/dev/null || true
+}
+
+# --- Inbound mail: the host's record, and the transitions between its states ----------
+#
+# The host records whether this Postfix receives inbound mail, and whether its
+# public listener is open: absent, disabled, or enabled on one address. That
+# record — never the repository — is what is rendered. It moves only by one of
+# three transitions, each with a one-use authorization activate-mail-inbound
+# writes after its own proof and this installer consumes:
+#
+#   install   absent   -> disabled   the inbound loopback listener and delivery
+#   enable    disabled -> enabled    the public listener, on one address
+#   disable   enabled  -> disabled   the public listener closed again
+#
+# There is no transition back to absent: mail an inbound listener accepted may
+# still wait in the queue for its store, and only virtual(8) can deliver it.
+
+INBOUND_RECORDED=""          # absent | disabled | enabled | corrupt
+INBOUND_RECORDED_ADDRESS=""
+INBOUND_REQUESTED=""         # what this bundle's contract requests: enabled | disabled
+INBOUND_TRANSITION=""        # the authorized transition this run makes, if any
+INBOUND_PENDING_PROBLEMS=""  # why a pending authorization is not honoured
+INBOUND_STATE=""             # what is rendered: absent | disabled | enabled
+INBOUND_ADDRESS=""
+INBOUND_INPUT=""             # the inbound input file, when INBOUND_STATE is not absent
+
+# The authorization activate-mail-inbound writes, judged against the host's
+# record and this bundle. Every reason it does not permit exactly the
+# transition it names is a line; none when it does.
+# shellcheck disable=SC2016
+INBOUND_AUTHORIZATION_PROGRAM='
+def ipv4: type == "string" and test("\\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\z");
+def shapes: {
+    install: {from: "absent", to: "disabled"},
+    enable: {from: "disabled", to: "enabled"},
+    disable: {from: "enabled", to: "disabled"}
+};
+if type != "object" then
+    "it is not a JSON object"
+else
+    (if .kind == $kind and .schema_version == 1 then empty
+     else "it is not an inbound transition authorization of schema 1" end),
+    (.direction | tostring) as $direction
+    | (if (shapes | has($direction)) then
+         shapes[$direction] as $shape
+         | (if .from.public_smtp == $shape.from and .to.public_smtp == $shape.to then empty
+            else "it names \(.direction), which moves \($shape.from) to \($shape.to), not \(.from.public_smtp | tojson) to \(.to.public_smtp | tojson)" end),
+           (if .from.public_smtp == $recorded and (.from.address // "") == $recorded_address then empty
+            else "it was issued for a host whose inbound state is \(.from.public_smtp | tojson), and this host records \($recorded | tojson)" end),
+           (if .to.public_smtp == "enabled" then
+                (if (.to.address | ipv4) then empty else "it enables public SMTP on no IPv4 address" end)
+            elif .to.address == null then empty
+            else "it names an address for a state that has none" end),
+           (if .direction == "disable" or $requested == "enabled" then empty
+            else "this bundle does not request public SMTP, so it neither installs nor enables it" end)
+     else
+         "it authorizes \(.direction | tojson), which is not install, enable or disable"
+     end),
+    (if (.nonce | type) == "string" and (.nonce | test("^[0-9a-f]{32}$")) then empty
+     else "it carries no nonce" end),
+    (if (.created_at | type) == "number" and (.expires_at | type) == "number"
+        and .created_at <= ($now + 60) and $now < .expires_at and (.expires_at - .created_at) <= $lifetime then empty
+     else "it has expired, or claims a lifetime no authorization has" end)
+end
+'
+
+# inbound_authorization_problems — why no pending authorization permits a
+# transition from the host's record; nothing when one does.
+inbound_authorization_problems() {
+    local path dir meta digest ledger nonce
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
+    dir="$(physical "${STATE_DIR}")"
+    ledger="$(physical "${MAIL_INBOUND_CONSUMED}")"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'no inbound transition authorization is pending\n'
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]]; then
+        printf '%s is not a regular file\n' "${MAIL_INBOUND_AUTHORIZATION}"
+        return 0
+    fi
+
+    meta="$(file_owner_mode "${path}")"
+    if [[ "${meta}" != "${FILE_OWNER}:"*" 600" ]]; then
+        printf '%s is %s, not %s-owned mode 600 — an authorization anyone else could have written is never honoured\n' "${MAIL_INBOUND_AUTHORIZATION}" "${meta}" "${FILE_OWNER}"
+        return 0
+    fi
+
+    meta="$(stat -c '%U %a' "${dir}" 2>/dev/null || true)"
+    if [[ ! "${meta}" =~ ^[^[:space:]]+\ [0-7]{3,4}$ || "${meta%% *}" != "${FILE_OWNER}" ]] || (( (8#${meta##* } & 8#022) != 0 )); then
+        printf '%s is %s, writable by someone other than %s — nothing in it is honoured\n' "${STATE_DIR}" "${meta}" "${FILE_OWNER}"
+        return 0
+    fi
+
+    digest="$(sha256_of "${path}")"
+    nonce="$(jq -r '.nonce // ""' "${path}" 2>/dev/null || true)"
+    if [[ -f "${ledger}" ]] && { grep -q "^${digest} " "${ledger}" || { [[ -n "${nonce}" ]] && grep -q "^[0-9a-f]* ${nonce} " "${ledger}"; }; }; then
+        printf 'this authorization was already used — one is consumed by the transition it permits, and never honoured twice\n'
+        return 0
+    fi
+
+    jq -r \
+        --arg kind "${MAIL_INBOUND_AUTHORIZATION_KIND}" \
+        --arg recorded "${INBOUND_RECORDED}" --arg recorded_address "${INBOUND_RECORDED_ADDRESS}" \
+        --arg requested "${INBOUND_REQUESTED}" \
+        --argjson now "$(date -u '+%s')" --argjson lifetime "${AUTHORIZATION_MAX_LIFETIME}" \
+        "${INBOUND_AUTHORIZATION_PROGRAM}" "${path}" 2>/dev/null \
+        || printf 'it is not a JSON document\n'
+}
+
+# consume_inbound_authorization — the pending authorization, used: its digest
+# and nonce recorded in the ledger, the file removed. Before the transition
+# starts, so a failed transition cannot be retried with it either.
+consume_inbound_authorization() {
+    local path ledger
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
+    ledger="$(physical "${MAIL_INBOUND_CONSUMED}")"
+
+    printf '%s %s %s %s %s\n' "$(sha256_of "${path}")" "$(jq -r '.nonce' "${path}")" "${INBOUND_TRANSITION}" "${INBOUND_ADDRESS:--}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${ledger}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${ledger}"
+    chmod 0644 "${ledger}"
+    rm -f "${path}"
+}
+
+# resolve_inbound — what this run renders for inbound mail: the host's record,
+# or — in --check and --apply only — the state a pending authorization moves
+# it to. --verify always judges the record itself, and reports a pending
+# authorization on its own.
+resolve_inbound() {
+    local recorded path
+    recorded="$(mail_inbound_applied "${FS_ROOT}")"
+    INBOUND_RECORDED="${recorded%%$'\t'*}"
+    INBOUND_RECORDED_ADDRESS=""
+    [[ "${recorded}" != *$'\t'* || "${recorded#*$'\t'}" == "-" ]] || INBOUND_RECORDED_ADDRESS="${recorded#*$'\t'}"
+
+    INBOUND_REQUESTED=disabled
+    public_smtp_contract_requests_enabled "${INBOUND_FILE}" && INBOUND_REQUESTED=enabled
+
+    INBOUND_STATE="${INBOUND_RECORDED}"
+    INBOUND_ADDRESS="${INBOUND_RECORDED_ADDRESS}"
+    [[ "${INBOUND_STATE}" != corrupt ]] || INBOUND_STATE=absent
+
+    INBOUND_TRANSITION=""
+    INBOUND_PENDING_PROBLEMS=""
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        INBOUND_PENDING_PROBLEMS="$(inbound_authorization_problems)"
+        if [[ -z "${INBOUND_PENDING_PROBLEMS}" && "${INBOUND_RECORDED}" != corrupt && "${MODE}" != verify ]]; then
+            INBOUND_TRANSITION="$(jq -r '.direction' "${path}")"
+            INBOUND_STATE="$(jq -r '.to.public_smtp' "${path}")"
+            INBOUND_ADDRESS="$(jq -r '.to.address // ""' "${path}")"
+        fi
+    fi
+
+    INBOUND_INPUT=""
+    [[ "${INBOUND_STATE}" != absent ]] || return 0
+
+    [[ -x "${MAIL_INBOUND_CLI}" ]] \
+        || fail "the inbound mail CLI is not executable: ${MAIL_INBOUND_CLI} — this host records inbound mail, and only mail-inbound says what it accepts"
+
+    local receiver entry uid gid
+    receiver="${WORK_DIR}/receiver.json"
+    "${MAIL_INBOUND_CLI}" render-receiver --inbound "${INBOUND_FILE}" --routing "${POLICY_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" --identity "${IDENTITY_FILE}" > "${receiver}" \
+        || fail "mail-inbound render-receiver refused the reviewed inbound contract (diagnostics above) — this host records inbound mail, so nothing was rendered"
+
+    entry="$("${GETENT_BIN}" passwd "${MAIL_INBOUND_STORE_USER}" 2>/dev/null || true)"
+    uid="$(cut -d: -f3 <<<"${entry}")"
+    gid="$(cut -d: -f4 <<<"${entry}")"
+    [[ "${uid}" =~ ^[1-9][0-9]*$ && "${gid}" =~ ^[0-9]+$ ]] \
+        || fail "the inbound store account ${MAIL_INBOUND_STORE_USER} does not exist — install-mail-inbound --apply creates the store before inbound mail is installed; nothing was rendered"
+
+    INBOUND_INPUT="${WORK_DIR}/inbound.json"
+    jq -n --slurpfile receiver "${receiver}" \
+        --arg state "${INBOUND_STATE}" --arg address "${INBOUND_ADDRESS}" \
+        --argjson uid "${uid}" --argjson gid "${gid}" \
+        --arg table "${MAIL_INBOUND_RECIPIENT_TABLE}" --arg store "${MAIL_INBOUND_STORE}" \
+        --arg cert "${MAIL_INBOUND_TLS_CERT}" --arg key "${MAIL_INBOUND_TLS_KEY}" \
+        --arg cleanup "${MAIL_INBOUND_CLEANUP_SERVICE}" --arg rewrite "${MAIL_INBOUND_REWRITE_SERVICE}" '
+        $receiver[0] as $r
+        | if ($r.mx_hostnames | length) == 0 then error("the inbound plan receives mail for no target") else . end
+        | {
+            state: $state,
+            address: (if $address == "" then null else $address end),
+            loopback: "127.0.0.1:\($r.loopback_port)",
+            hostname: ($r.mx_hostnames | sort | .[0]),
+            host_postmaster_domain: $r.host_postmaster_domain,
+            domains: $r.domains,
+            recipients: [$r.recipients[] | {pattern, mailbox}],
+            limits: $r.limits,
+            table: $table, store: $store, uid: $uid, gid: $gid,
+            tls_cert: $cert, tls_key: $key,
+            cleanup: $cleanup, rewrite: $rewrite
+          }' > "${INBOUND_INPUT}" \
+        || fail "the inbound plan cannot be rendered: it receives mail for no target — nothing was rendered"
+}
+
+# inbound_endpoints — the inbound listeners this run renders, one per line.
+inbound_endpoints() {
+    [[ -n "${INBOUND_INPUT}" ]] || return 0
+    jq -r '.loopback, (if .state == "enabled" then "\(.address):25" else empty end)' "${INBOUND_INPUT}"
 }
 
 # --- Package and ownership state -----------------------------------------------------
@@ -977,10 +1370,22 @@ postfix_contract_problems() {
     fi
     [[ -z "${warnings}" ]] || printf 'postconf reports: %s\n' "${warnings}"
 
-    for name in default_transport relay_transport local_transport virtual_transport; do
+    for name in default_transport relay_transport local_transport; do
         value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
         [[ "${value}" == error:* ]] || printf '%s is "%s", not the error transport — unrouted mail could be delivered\n' "${name}" "${value}"
     done
+
+    # virtual(8) delivers only once the host records inbound mail, and then
+    # only for the inbound plan's domains (inbound_contract_problems).
+    value="$("${POSTCONF_BIN}" -c "${dir}" -h virtual_transport 2>/dev/null || true)"
+    if [[ -n "${INBOUND_INPUT}" ]]; then
+        [[ "${value}" == virtual ]] || printf 'virtual_transport is "%s", not virtual — inbound mail would not be delivered to its store\n' "${value}"
+    else
+        [[ "${value}" == error:* ]] || printf 'virtual_transport is "%s", not the error transport — this host records no inbound mail\n' "${value}"
+    fi
+
+    value="$(alias_maps_value "${dir}")"
+    [[ -z "${value}" ]] || printf 'virtual_alias_maps is "%s", not empty — no address is ever rewritten to another\n' "${value}"
 
     for name in relayhost mydestination relay_domains transport_maps content_filter sender_dependent_relayhost_maps sender_dependent_default_transport_maps; do
         value="$("${POSTCONF_BIN}" -c "${dir}" -h "${name}" 2>/dev/null || true)"
@@ -1029,10 +1434,11 @@ postfix_contract_problems() {
         [[ "${value}" == no ]] || printf '%s is "%s" — the gateway has no SMTP AUTH\n' "${name}" "${value}"
     done
 
-    # The inet services are exactly the plan's endpoints: no smtp, submission
-    # or smtps listener, and no listener the plan does not name.
+    # The inet services are exactly the plan's endpoints and the inbound
+    # listeners the host records: no smtp, submission or smtps listener, and
+    # no listener anything does not name.
     local expected actual
-    expected="$(plan_endpoints | sort)"
+    expected="$({ plan_endpoints; inbound_endpoints; } | sort)"
     actual="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$2 == "inet" { print $1 }' | sort || true)"
     [[ "${actual}" == "${expected}" ]] \
         || printf 'inet services are [%s], the plan names [%s]\n' "${actual//$'\n'/ }" "${expected//$'\n'/ }"
@@ -1077,10 +1483,19 @@ postfix_contract_problems() {
         esac
 
         listener_signing_problems "${dir}" "${identity}" "${endpoint}"
+
+        # A submission listener never judges a recipient: mail to a domain this
+        # host also receives for leaves by its own route, never into the store.
+        [[ "$(service_option "${dir}" "${endpoint}/inet/smtpd_reject_unlisted_recipient")" == no ]] \
+            || printf '%s (%s) judges recipients against the inbound table — its mail to a domain this host receives for would be refused or kept\n' "${identity}" "${endpoint}"
     done < <(jq -r '.listeners[]
         | [.identity, "\(.listen.host):\(.listen.port)", .delivery_mode,
            (if .route == null then "-" elif .route.kind == "direct" then "direct" else "\(.route.host):\(.route.port)" end)]
         | @tsv' "${PLAN_FILE}")
+
+    if [[ -n "${INBOUND_INPUT}" ]]; then
+        inbound_contract_problems "${dir}"
+    fi
 
     # `postfix check` also inspects ownership and permissions; root only.
     if [[ "${EFFECTIVE_UID}" == 0 ]]; then
@@ -1090,6 +1505,213 @@ postfix_contract_problems() {
             printf 'postfix check reports: %s\n' "${warnings}"
         fi
     fi
+}
+
+# alias_maps_value DIR — virtual_alias_maps as it takes effect: Postfix's own
+# default is a reference to the empty virtual_maps, which is no table at all.
+alias_maps_value() {
+    local value
+    value="$("${POSTCONF_BIN}" -c "$1" -h virtual_alias_maps 2>/dev/null || true)"
+    # shellcheck disable=SC2016 # Postfix's own $parameter reference, never the shell's
+    if [[ "${value}" == '$virtual_maps' ]]; then
+        value="$("${POSTCONF_BIN}" -c "$1" -h virtual_maps 2>/dev/null || true)"
+    fi
+    printf '%s\n' "${value}"
+}
+
+# service_option DIR SERVICE/TYPE/PARAMETER — the per-service override Postfix
+# reads from master.cf in DIR; fails, printing nothing, when there is none.
+service_option() {
+    local line
+    line="$("${POSTCONF_BIN}" -c "$1" -P "$2" 2>/dev/null | head -n 1 || true)"
+    [[ -n "${line}" ]] || return 1
+    sed -n 's/^[^=]*= *//p' <<<"${line}"
+}
+
+# The inbound limits and names, read from the inbound input.
+inbound_value() {
+    jq -r "$1" "${INBOUND_INPUT}"
+}
+
+# inbound_listener_specs — "ENDPOINT/inet" for every inbound listener rendered.
+inbound_listener_specs() {
+    inbound_endpoints | sed 's#$#/inet#'
+}
+
+# inbound_expect DIR SPEC EXPECTED WHY — SPEC is explicitly overridden to
+# exactly EXPECTED; a missing override is a problem even when EXPECTED is empty,
+# because the main.cf value it would inherit belongs to the submission
+# listeners.
+inbound_expect() {
+    local dir="$1" spec="$2" expected="$3" why="$4" value
+    if ! value="$(service_option "${dir}" "${spec}")"; then
+        printf '%s is not set on the service — it would inherit main.cf'"'"'s, which is the submission listeners'"'"' (%s)\n' "${spec}" "${why}"
+    elif [[ "${value}" != "${expected}" ]]; then
+        printf '%s is "%s", not "%s" (%s)\n' "${spec}" "${value}" "${expected}" "${why}"
+    fi
+}
+
+# inbound_expect_listeners DIR PARAMETER EXPECTED WHY — on every inbound listener.
+inbound_expect_listeners() {
+    local spec
+    while IFS= read -r spec; do
+        [[ -n "${spec}" ]] || continue
+        inbound_expect "$1" "${spec}/$2" "$3" "$4"
+    done < <(inbound_listener_specs)
+}
+
+inbound_expect_main() {
+    local value
+    value="$("${POSTCONF_BIN}" -c "$1" -h "$2" 2>/dev/null || true)"
+    [[ "${value}" == "$3" ]] || printf '%s is "%s", not "%s" (%s)\n' "$2" "${value}" "$3" "$4"
+}
+
+# The requirements of the inbound plan, as Postfix reads this configuration.
+INBOUND_REQUIREMENTS=(
+    recipient-allowlist postmaster-accepted relay-refused-at-rcpt no-smtp-auth
+    no-relay-no-forwarding message-size-limit recipient-limit connection-limits
+    queue-limits shared-queue-guard no-outbound-submission no-message-content-in-logs
+    content-never-executed untrusted-sender-fields no-automatic-replies
+    null-sender-accepted malformed-and-duplicate-safe disk-exhaustion-guard
+    single-public-port-owner outbound-unaffected
+)
+
+# inbound_requirement_problems DIR ID — why the configuration in DIR does not
+# meet requirement ID; nothing when it does. What Postfix reads, never what a
+# file says.
+inbound_requirement_problems() {
+    local dir="$1" id="$2" table cleanup rewrite size value domain spec expected actual
+    table="$(inbound_value .table)"
+    cleanup="$(inbound_value .cleanup)"
+    rewrite="$(inbound_value .rewrite)"
+    size="$(inbound_value .limits.message_size_bytes)"
+
+    case "${id}" in
+        recipient-allowlist)
+            inbound_expect_listeners "${dir}" smtpd_recipient_restrictions reject_unlisted_recipient "recipients are judged against the table at RCPT TO"
+            inbound_expect_listeners "${dir}" smtpd_reject_unlisted_recipient yes "an address not in the table is refused"
+            inbound_expect_main "${dir}" virtual_mailbox_maps "regexp:${table}" "the table every inbound recipient is judged by"
+            inbound_expect_main "${dir}" virtual_mailbox_domains "$(inbound_value '.domains | join(", ")')" "exactly the inbound plan's domains"
+            ;;
+        postmaster-accepted)
+            inbound_expect "${dir}" "${rewrite}/unix/myorigin" "$(inbound_value .host_postmaster_domain)" "a bare <Postmaster> is the host postmaster"
+            inbound_expect_listeners "${dir}" rewrite_service_name "${rewrite}" "the inbound listeners qualify a bare address as the host postmaster"
+            inbound_expect "${dir}" "${cleanup}/unix/rewrite_service_name" "${rewrite}" "the inbound cleanup qualifies it the same way"
+            while IFS= read -r domain; do
+                [[ -n "${domain}" ]] || continue
+                value="$("${POSTMAP_BIN}" -c "${dir}" -q "postmaster@${domain}" "regexp:${dir}/$(basename "${table}")" 2>/dev/null || true)"
+                [[ -n "${value}" ]] || printf 'postmaster@%s is not in the recipient table — RFC 5321 requires it at every domain received for\n' "${domain}"
+            done < <(inbound_value '.domains[]')
+            ;;
+        relay-refused-at-rcpt)
+            inbound_expect_listeners "${dir}" smtpd_relay_restrictions reject_unauth_destination "no client, loopback included, may relay"
+            inbound_expect_listeners "${dir}" smtpd_client_restrictions "" "no network is trusted"
+            inbound_expect_listeners "${dir}" smtpd_helo_restrictions "" "no network is trusted"
+            ;;
+        no-smtp-auth)
+            inbound_expect_listeners "${dir}" smtpd_sasl_auth_enable no "no SMTP AUTH is offered"
+            ;;
+        no-relay-no-forwarding)
+            for value in relayhost relay_domains transport_maps; do
+                inbound_expect_main "${dir}" "${value}" "" "accepted mail never leaves the host"
+            done
+            value="$(alias_maps_value "${dir}")"
+            [[ -z "${value}" ]] || printf 'virtual_alias_maps is "%s", not empty (no address is rewritten to another)\n' "${value}"
+            ;;
+        message-size-limit)
+            inbound_expect_listeners "${dir}" message_size_limit "${size}" "the reviewed maximum message size, announced in SIZE"
+            inbound_expect "${dir}" "${cleanup}/unix/message_size_limit" "${size}" "the inbound cleanup holds the same limit"
+            inbound_expect_main "${dir}" virtual_mailbox_limit "${size}" "no stored message is larger"
+            ;;
+        recipient-limit)
+            inbound_expect_listeners "${dir}" smtpd_recipient_limit "$(inbound_value .limits.recipients_per_message)" "the reviewed recipients per message"
+            ;;
+        connection-limits)
+            inbound_expect_listeners "${dir}" smtpd_client_connection_count_limit "$(inbound_value .limits.connections_per_client)" "concurrent sessions per client"
+            inbound_expect_listeners "${dir}" smtpd_client_connection_rate_limit "$(inbound_value .limits.connection_rate_per_client)" "new sessions per client a minute"
+            inbound_expect_listeners "${dir}" smtpd_client_event_limit_exceptions "" "no client is exempt"
+            if [[ "$(inbound_value .state)" == enabled ]]; then
+                spec="$(inbound_value .address):25"
+                value="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk -v s="${spec}" '$1 == s && $2 == "inet" { print $7 }' | head -n 1 || true)"
+                expected="$(inbound_value .limits.concurrent_sessions)"
+                [[ "${value}" == "${expected}" ]] || printf '%s runs at most "%s" sessions, not %s\n' "${spec}" "${value}" "${expected}"
+            fi
+            ;;
+        queue-limits)
+            inbound_expect_listeners "${dir}" queue_minfree "$(inbound_value .limits.host_reserve_bytes)" "inbound mail is refused, temporarily, while the shared queue's file system is below its reserve"
+            ;;
+        shared-queue-guard)
+            inbound_expect_listeners "${dir}" smtpd_client_message_rate_limit "$(inbound_value .limits.message_rate_per_client)" "messages per client a minute: no sender fills the shared queue"
+            ;;
+        no-outbound-submission)
+            inbound_expect_listeners "${dir}" content_filter "" "inbound mail is never handed to an outbound route"
+            inbound_expect_listeners "${dir}" smtpd_milters "" "inbound mail is never signed"
+            inbound_expect_listeners "${dir}" cleanup_service_name "${cleanup}" "the inbound cleanup, which signs and routes nothing"
+            ;;
+        no-message-content-in-logs)
+            for value in header_checks body_checks nested_header_checks; do
+                inbound_expect "${dir}" "${cleanup}/unix/${value}" "" "nothing of a message is matched or logged"
+            done
+            if [[ "$(inbound_value .state)" == enabled ]]; then
+                inbound_expect "${dir}" "$(inbound_value .address):25/inet/smtpd_tls_loglevel" 0 "no TLS session details in the log"
+            fi
+            ;;
+        content-never-executed)
+            value="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$8 == "pipe" || $8 == "local" || $8 == "lmtp" || $8 == "spawn" { print $1 }' | paste -sd ' ' - || true)"
+            [[ -z "${value}" ]] || printf 'master.cf runs %s — nothing may deliver to a command or a local mailbox\n' "${value}"
+            inbound_expect_main "${dir}" mailbox_command "" "no command is ever run for a message"
+            ;;
+        untrusted-sender-fields)
+            inbound_expect_listeners "${dir}" smtpd_sender_restrictions "" "the sender never authorizes or routes"
+            ;;
+        no-automatic-replies)
+            for value in default_transport relay_transport; do
+                actual="$("${POSTCONF_BIN}" -c "${dir}" -h "${value}" 2>/dev/null || true)"
+                [[ "${actual}" == error:* ]] || printf '%s is "%s" — a bounce to a forged sender could leave the host\n' "${value}" "${actual}"
+            done
+            ;;
+        null-sender-accepted)
+            inbound_expect_listeners "${dir}" smtpd_sender_restrictions "" "MAIL FROM:<> is accepted"
+            inbound_expect_listeners "${dir}" smtpd_data_restrictions "" "nothing refuses a delivery status notification"
+            ;;
+        malformed-and-duplicate-safe)
+            value="$(awk '/^\// && $NF !~ /\/$/ { print $NF }' "${dir}/$(basename "${table}")" 2>/dev/null | paste -sd ' ' - || true)"
+            [[ -z "${value}" ]] || printf 'the recipient table names %s, not a Maildir — every message must be a file of its own\n' "${value}"
+            value="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$1 == "virtual" && $2 == "unix" && $8 == "virtual"' | wc -l | tr -d ' ' || true)"
+            [[ "${value}" == 1 ]] || printf 'master.cf has %s virtual(8) services, not exactly one\n' "${value:-0}"
+            ;;
+        disk-exhaustion-guard)
+            inbound_expect_main "${dir}" virtual_mailbox_base "$(inbound_value .store)" "the fixed-size inbound store, never the queue's file system"
+            ;;
+        single-public-port-owner)
+            expected=""
+            [[ "$(inbound_value .state)" != enabled ]] || expected="$(inbound_value .address):25"
+            actual="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null | awk '$2 == "inet" && $1 !~ /^127\./ { print $1 }' | paste -sd ' ' - || true)"
+            [[ "${actual}" == "${expected}" ]] || printf 'the listeners off loopback are [%s], not [%s]\n' "${actual}" "${expected}"
+            ;;
+        outbound-unaffected)
+            while IFS= read -r spec; do
+                [[ -n "${spec}" ]] || continue
+                for value in rewrite_service_name queue_minfree; do
+                    ! service_option "${dir}" "${spec}/inet/${value}" >/dev/null \
+                        || printf '%s sets %s — a submission listener takes nothing of the inbound listeners\n' "${spec}" "${value}"
+                done
+                [[ "$(service_option "${dir}" "${spec}/inet/cleanup_service_name" || true)" != "${cleanup}" ]] \
+                    || printf '%s uses the inbound cleanup service\n' "${spec}"
+            done < <(plan_endpoints)
+            inbound_expect "${dir}" "${rewrite}/unix/syslog_name" "postfix/${rewrite}" "the inbound address rewriting is a service of its own"
+            ;;
+    esac
+}
+
+# inbound_contract_problems DIR — every inbound requirement, prefixed with its ID.
+inbound_contract_problems() {
+    local id problem
+    for id in "${INBOUND_REQUIREMENTS[@]}"; do
+        while IFS= read -r problem; do
+            [[ -z "${problem}" ]] || printf '%s: %s\n' "${id}" "${problem}"
+        done < <(inbound_requirement_problems "$1" "${id}")
+    done
 }
 
 # listener_signing_problems DIR IDENTITY ENDPOINT — a signed target's listener
@@ -1304,6 +1926,11 @@ runtime_problems() {
         wait_listener "${endpoint}" || printf 'nothing listens on the gateway endpoint %s\n' "${endpoint}"
     done < <(plan_endpoints)
 
+    while IFS= read -r endpoint; do
+        [[ -n "${endpoint}" ]] || continue
+        wait_listener "${endpoint}" || printf 'nothing listens on the inbound endpoint %s\n' "${endpoint}"
+    done < <(inbound_endpoints)
+
     listeners="$(tcp_listeners)"
 
     # Nothing listens on a public SMTP port that may not — judged by the one
@@ -1341,8 +1968,9 @@ file_owner_mode() {
     stat -c '%U:%G %a' "$1" 2>/dev/null || true
 }
 
-# managed_files — every file the current render installs: main.cf, master.cf
-# and one From policy per signed target.
+# managed_files — every file the current render installs: main.cf, master.cf,
+# one From policy per signed target and, once inbound mail is installed, the
+# inbound recipient table.
 managed_files() {
     local policy
     printf '%s\n' "${MAIN_CF}" "${MASTER_CF}"
@@ -1350,6 +1978,7 @@ managed_files() {
         [[ -f "${policy}" ]] || continue
         printf '%s/%s\n' "${POSTFIX_DIR}" "$(basename "${policy}")"
     done
+    [[ -z "${INBOUND_INPUT}" ]] || printf '%s\n' "${MAIL_INBOUND_RECIPIENT_TABLE}"
 }
 
 # retired_policy_files — "owned|foreign<TAB>LOGICAL" for every From policy file
@@ -1619,6 +2248,28 @@ install_applied_policy() {
     done
 }
 
+# install_inbound_record — the inbound state this configuration carries,
+# recorded with it, in the transaction, before Postfix is reloaded: the judge
+# of who may hold TCP 25 then reads the state that is installed, and a failure
+# restores the previous record with the previous configuration. It differs
+# only after an authorized transition.
+install_inbound_record() {
+    local path candidate tmp
+    [[ "${INBOUND_STATE}" != absent ]] || return 0
+    [[ "$(applied_file_state "${MAIL_INBOUND_APPLIED}")" != PASS ]] || return 0
+
+    path="$(physical "${MAIL_INBOUND_APPLIED}")"
+    candidate="${APPLIED_CANDIDATE_DIR}/$(basename "${MAIL_INBOUND_APPLIED}")"
+
+    action "recording ${MAIL_INBOUND_APPLIED}: inbound mail ${INBOUND_STATE}${INBOUND_ADDRESS:+ on ${INBOUND_ADDRESS}:25}"
+    record_target "${path}"
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.rateguru-tmp.$$"
+    install -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m "0${APPLIED_FILE_MODE}" "${candidate}" "${tmp}"
+    mv -f "${tmp}" "${path}"
+    FILES_CHANGED=true
+}
+
 # report_applied_policy — the recorded policy against this bundle's, and the
 # activation boundary between them.
 report_applied_policy() {
@@ -1672,6 +2323,59 @@ report_applied_policy() {
                 ;;
         esac
     done
+}
+
+# report_inbound — the host's inbound state against this bundle, a pending
+# transition, and — once installed — every inbound requirement by name. A host
+# that never installed inbound mail, with nothing pending, reports nothing.
+report_inbound() {
+    local path problems
+    path="$(physical "${MAIL_INBOUND_AUTHORIZATION}")"
+
+    case "${INBOUND_RECORDED}" in
+        corrupt)
+            item CONFLICT "inbound:applied" "the recorded inbound state (${MAIL_INBOUND_APPLIED}) is incomplete, unreadable or on a gateway not marked installed — it is the host's only witness of what was opened; restore it from the gateway's backups"
+            ;;
+        disabled)
+            item PASS "inbound:applied" "inbound mail is installed: the loopback inbound listener and delivery to the store; public SMTP disabled"
+            ;;
+        enabled)
+            item PASS "inbound:applied" "public inbound SMTP is enabled on ${INBOUND_RECORDED_ADDRESS}:25"
+            ;;
+    esac
+
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        if [[ "${MODE}" == verify ]]; then
+            item DRIFT "inbound:authorization" "an unused inbound transition authorization is waiting — activate-mail-inbound writes and withdraws it"
+        elif [[ -n "${INBOUND_TRANSITION}" ]]; then
+            item PASS "inbound:transition" "this bundle moves inbound mail from ${INBOUND_RECORDED} to ${INBOUND_STATE}${INBOUND_ADDRESS:+ on ${INBOUND_ADDRESS}:25}, authorized by activate-mail-inbound for exactly this host (one use)"
+        else
+            problems="${INBOUND_PENDING_PROBLEMS:-the recorded inbound state cannot be trusted}"
+            item CONFLICT "inbound:transition" "a pending inbound transition authorization is not honoured (${problems//$'\n'/; })"
+        fi
+    fi
+
+    if [[ "${INBOUND_RECORDED}" == enabled && "${INBOUND_REQUESTED}" != enabled && "${INBOUND_TRANSITION}" != disable ]]; then
+        item CONFLICT "inbound:request" "public inbound SMTP is open on this host, and this bundle does not request it — an ordinary apply never closes it; the inbound rollback does"
+    fi
+
+    [[ -n "${INBOUND_INPUT}" ]] || return 0
+
+    local state
+    state="$(applied_file_state "${MAIL_INBOUND_APPLIED}")"
+    case "${state}" in
+        PASS)    item PASS "file:${MAIL_INBOUND_APPLIED}" "the recorded inbound state is the one rendered" ;;
+        MISSING) item MISSING "file:${MAIL_INBOUND_APPLIED}" "absent — --apply records it once the transition is proved" ;;
+        DRIFT)   item DRIFT "file:${MAIL_INBOUND_APPLIED}" "differs from the state rendered — --apply records it once the transition is proved" ;;
+    esac
+
+    if [[ "${MODE}" == verify && "$(package_status)" == installed ]]; then
+        local id
+        for id in "${INBOUND_REQUIREMENTS[@]}"; do
+            report_problems "inbound:requirement:${id}" "$(inbound_requirement_problems "$(physical "${POSTFIX_DIR}")" "${id}")" CONFLICT \
+                "met, as Postfix reads the installed configuration"
+        done
+    fi
 }
 
 # --- Check and verify -----------------------------------------------------------------------
@@ -1781,6 +2485,7 @@ report_contract() {
     done < <(retired_policy_files)
 
     report_applied_policy
+    report_inbound
 
     if [[ "${MODE}" == verify ]]; then
         if [[ "${package}" == installed ]]; then
@@ -1985,7 +2690,15 @@ restore_runtime_state() {
     esac
 
     if [[ "${INSTANCE_ACTIVE_BEFORE}" == active ]]; then
-        "${SYSTEMCTL_BIN}" restart "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
+        # A running Postfix takes its restored configuration by a reload, so
+        # undoing a change never stops mail on the other listeners; one that
+        # is no longer running is started again.
+        if [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" == active ]]; then
+            "${SYSTEMCTL_BIN}" reload "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 \
+                || "${SYSTEMCTL_BIN}" restart "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
+        else
+            "${SYSTEMCTL_BIN}" restart "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
+        fi
         [[ "$(service_property "${POSTFIX_INSTANCE_UNIT}" ActiveState)" == active ]] || status=1
     else
         "${SYSTEMCTL_BIN}" stop "${POSTFIX_INSTANCE_UNIT}" >/dev/null 2>&1 || true
@@ -2110,6 +2823,24 @@ perform_apply() {
             ;;
     esac
 
+    # Inbound mail, before anything changes: a record that cannot be trusted
+    # is never rendered around, a host with public SMTP open is never closed by
+    # a bundle that no longer requests it, and a transition happens only with
+    # its one-use authorization — consumed now, so it is never honoured twice.
+    [[ "${INBOUND_RECORDED}" != corrupt ]] \
+        || fail "the recorded inbound state (${MAIL_INBOUND_APPLIED}) is incomplete, unreadable or on a gateway not marked installed — it is the host's only witness of what was opened. Restore it from the gateway's backups under ${BACKUP_ROOT}. Nothing was changed"
+
+    if [[ "${INBOUND_RECORDED}" == enabled && "${INBOUND_REQUESTED}" != enabled && "${INBOUND_TRANSITION}" != disable ]]; then
+        fail "public inbound SMTP is open on this host on ${INBOUND_RECORDED_ADDRESS}:25, and this bundle does not request it — an ordinary apply never closes it: the inbound rollback (activate-mail-inbound --rollback) does. Nothing was changed"
+    fi
+
+    if [[ -n "${INBOUND_TRANSITION}" ]]; then
+        action "the inbound ${INBOUND_TRANSITION} (${INBOUND_RECORDED} -> ${INBOUND_STATE}${INBOUND_ADDRESS:+ on ${INBOUND_ADDRESS}:25}) is authorized by activate-mail-inbound — consuming that one-use authorization"
+        consume_inbound_authorization
+    elif [[ -n "${INBOUND_PENDING_PROBLEMS}" && "${INBOUND_PENDING_PROBLEMS}" != "no inbound transition authorization is pending" ]]; then
+        action "a pending inbound transition authorization is not honoured (${INBOUND_PENDING_PROBLEMS//$'\n'/; }) — the recorded inbound state is kept"
+    fi
+
     # A policy-rc.d an interrupted run left behind is undone before anything
     # else, so this host's package activity is its own again.
     if leftover_start_suppression; then
@@ -2154,6 +2885,8 @@ perform_apply() {
         action "removing ${logical} (the From policy of a target that is no longer signed)"
         retire_managed_file "${logical}"
     done < <(retired_policy_files)
+
+    install_inbound_record
 
     problems="$(postfix_contract_problems "$(physical "${POSTFIX_DIR}")")"
     [[ -z "${problems}" ]] \

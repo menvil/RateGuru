@@ -6,20 +6,22 @@ name: Activate tits.guru inbound SMTP
 #
 # It activates only what main's own reviewed inbound contract requests: while
 # main's mail-inbound.json does not say receiver.public_smtp is enabled, it
-# refuses before changing anything. When it does, the script installs the
-# isolated inbound receiver if it is not there yet, still disabled, proves it
-# live on its loopback listener — every address answered as mail-inbound
-# route judges it, no SMTP AUTH, the reviewed limits, one probe stored and
-# removed — proves the outbound gateway, a valid TLS certificate and a
-# firewall it can manage, writes a rollback capsule, opens TCP 25 for exactly
-# the host's public address and proves everything again. Any failure from
-# then on returns the receiver to disabled. A host already enabled and
-# verified is a no-op.
+# refuses before changing anything. Inbound mail is received by the host's one
+# Postfix — the mail gateway — through listeners of its own: the script
+# creates the inbound store, has the gateway install the inbound loopback
+# listener and delivery if they are not there yet, proves them live — every
+# address answered as mail-inbound route judges it, no SMTP AUTH, the reviewed
+# limits, one probe stored and removed — and proves that the outbound path is
+# exactly what it was, a valid TLS certificate and a firewall it can manage.
+# Then it writes a rollback capsule, opens TCP 25 for exactly the host's public
+# address, has the gateway reload Postfix with the public listener — never a
+# restart, so outbound mail is not interrupted — and proves everything again.
+# Any failure from then on returns public SMTP to disabled. A host already
+# enabled and verified is a no-op.
 #
 # It publishes no DNS: the job summary and log say which A and MX records the
 # operator publishes, in which order, once this run passed. It sends no mail
-# to anyone, and the outbound gateway, OpenDKIM and every other queue are
-# never touched. Nothing here runs on a merge or a schedule.
+# to anyone; outbound routes, OpenDKIM and the shared queue are never touched. Nothing here runs on a merge or a schedule.
 on:
   workflow_dispatch:
     inputs:
@@ -151,7 +153,7 @@ jobs:
           bootstrap-host: ${{ vars.DEPLOY_HOST }}
           bootstrap-port: ${{ vars.DEPLOY_PORT }}
 
-          # The privileged bootstrap credential: the receiver, its volume and
+          # The privileged bootstrap credential: Postfix, the inbound store and
           # the firewall are root's. Never the deploy key.
           bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
           bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
@@ -169,5 +171,5 @@ jobs:
           {
             echo "## tits-guru inbound SMTP activation"
             echo
-            echo "The activation did not complete, so there is no result. If it had opened public SMTP, any failure returns the receiver to disabled on its own; the reason is in the job log. Run Verify tits.guru inbound SMTP before anything else."
+            echo "The activation did not complete, so there is no result. If it had opened public SMTP, any failure returns public SMTP to disabled on its own; the reason is in the job log. Run Verify tits.guru inbound SMTP before anything else."
           } >> "${GITHUB_STEP_SUMMARY}"

@@ -1,81 +1,53 @@
 #!/usr/bin/env bash
 #
-# install-mail-inbound — the host's inbound mail receiver: a second, isolated
-# Postfix instance that accepts mail for exactly the recipients the reviewed
-# inbound plan allows and stores it, and nothing else.
+# install-mail-inbound — the store inbound mail is delivered to, and the
+# certificate of the public inbound listener. Nothing of Postfix.
 #
-#   install-mail-inbound --check    read-only: may --apply proceed, and what would change
-#   install-mail-inbound --apply    install or converge the receiver (root)
-#   install-mail-inbound --verify   read-only: files, store, service, listeners,
-#                                   every receiver requirement
-#   install-mail-inbound --tls-check
-#                                   read-only: whether the installed certificate
-#                                   can serve every MX host name of the plan
+#   install-mail-inbound --check      read-only: may --apply proceed, and what would change
+#   install-mail-inbound --apply      create or converge the store (root)
+#   install-mail-inbound --verify     read-only: the store, how full it is, the certificate
+#   install-mail-inbound --tls-check  read-only: can the installed certificate serve every
+#                                     MX host name of the inbound plan
 #
-# TWO POSTFIX INSTANCES, NOTHING SHARED BUT THE PACKAGE. The mail gateway
-# (install-mail-gateway) owns /etc/postfix, its queue and postfix@-.service,
-# and listens on loopback only. This receiver owns
+# ONE POSTFIX. Inbound mail is received by the host's one Postfix, the mail
+# gateway: install-mail-gateway alone renders its inbound listeners and the
+# virtual(8) delivery, in /etc/postfix, and owns its service. This installer
+# never writes a Postfix file, never starts, stops or reloads Postfix, and
+# never opens a port. It owns what virtual(8) delivers INTO:
 #
-#   /etc/postfix-inbound                  its main.cf, master.cf and recipient table
-#   /var/spool/rateguru-mail-inbound      a fixed-size volume of its own: the queue,
-#                                         the store, Postfix's data and its log
-#   /var/lib/rateguru-mail-inbound        its ownership marker, its applied state,
-#                                         the volume's image file
-#   rateguru-mail-inbound.service         `postfix -c /etc/postfix-inbound`, nothing
-#                                         else, and not part of postfix.service
+#   rateguru-mail-inbound              a system account, no login: every stored
+#                                      message belongs to it, and nothing runs as it
+#   /var/lib/rateguru-mail-inbound/store.img
+#                                      a fixed-size ext4 image (storage_bytes)
+#   /var/lib/rateguru-mail-inbound/store
+#                                      its mount point, mounted nodev, nosuid and
+#                                      noexec by its own mount unit, ordered before
+#                                      Postfix; one Maildir per destination below it
 #
-# It uses the Postfix package the gateway installed and never installs,
-# upgrades or reconfigures it, and never registers itself in the gateway's
-# configuration: /etc/postfix is never written, and the gateway's rendered
-# main.cf and master.cf stay byte for byte what they were.
+# The store can never grow past its volume and never fills the host's file
+# system; nothing in it can run. The shared Postfix queue is never on it: a
+# message is acknowledged once it is in the queue, and virtual(8) moves it
+# here. While the volume is not mounted, its mount point belongs to root and
+# virtual(8) cannot write there — so delivery is deferred and the message
+# waits in the queue, never written beside the volume. While the volume is
+# full, delivery is deferred the same way, and --verify fails below the
+# reviewed reserve so an operator acts before mail waits for long.
 #
-# THE RULES ARE mail-inbound's. `mail-inbound render-receiver`, from the same
-# bundle, says which recipients are accepted — each an anchored POSIX extended
-# regular expression with the mailbox its mail is stored in — which domains
-# are served and the reviewed limits. This installer spells that in Postfix and
-# restates no rule: recipients are validated at RCPT TO by
-# reject_unlisted_recipient against that table, anything for another domain is
-# refused as relaying, for every client alike — loopback included — and there
-# is no SMTP AUTH, no relay, no forwarding and no SMTP client at all: master.cf
-# has no smtp, lmtp, local or pipe service, and every fallback transport is
-# error(8).
+# ONE BIND MAY NOT TAKE POSTFIX DOWN. The public listener is bound to exactly
+# one IPv4 address. Postfix binds every listener when it starts, and one bind
+# that fails stops all of them — so were that address missing at boot, the
+# outbound listeners would be down with it. The host therefore allows binding
+# an address it does not have yet (net.ipv4.ip_nonlocal_bind = 1, in
+# /etc/sysctl.d/60-rateguru-mail-inbound.conf, applied at once and at every
+# boot): Postfix always starts, and the public listener simply receives
+# nothing until the address is back, which activate-mail-inbound --verify
+# reports.
 #
-# STORAGE. Accepted mail is queued by Postfix — the SMTP reply is sent only once
-# it is safely in the queue — and delivered by virtual(8) into Maildir
-# mailboxes on the receiver's own volume, one per destination
-# (targets/<target>/<destination>/, host/postmaster/). Every message is its own
-# file, named uniquely; nothing deletes it. The volume is a fixed-size ext4
-# image, mounted nodev, nosuid and noexec: the store can never grow past it,
-# can never fill the host's filesystem, and nothing in it can run. When it is
-# nearly full (queue_minfree, the reviewed reserve) the receiver answers new
-# mail with a temporary refusal, never a false success.
-#
-# PUBLIC SMTP. The receiver always listens on its loopback port, for the
-# activation's own proof. It listens on public TCP 25 — on exactly one IPv4
-# address — only while the HOST's applied state says so. That state is never
-# taken from the committed contract: --apply keeps whatever the host recorded,
-# and moves it between disabled and enabled only with a one-use authorization
-# activate-mail-inbound writes after its proof — bound to the direction, the
-# address and the state it crosses from — which this installer consumes. An
-# ordinary apply therefore never opens or closes public SMTP, whatever the
-# repository requests. A public listener needs a valid TLS certificate for
-# every MX host name of the plan.
-#
-# TLS. The certificate and key are the operator's, never generated or committed:
-# /etc/rateguru-mail-inbound/tls/fullchain.pem and privkey.pem, root-owned, the
-# key 0600. STARTTLS is offered once they are present and valid — chaining to a
-# trusted certificate authority, not expiring within TLS_MIN_DAYS, covering
-# every MX host name, the key matching the certificate.
-#
-# THE TRANSACTION. --apply validates the plan, the host and Postfix's own
-# judgement of the rendered configuration before it changes anything, backs up
-# every file it replaces, and on any failure restores them and the service's
-# previous state. The volume, once created, is kept: it is empty until mail
-# arrives, and a second run uses it.
-#
-# NEVER. Nothing in the gateway, OpenDKIM, Mailpit or any other queue is
-# touched; no message is read, printed, released or deleted; no firewall rule
-# is changed — opening port 25 to the Internet is activate-mail-inbound's.
+# TLS. The public listener's certificate is the operator's, copied onto the
+# host: /etc/rateguru-mail-inbound/tls/fullchain.pem and privkey.pem, regular
+# files, the key root-owned 0600. It must chain to a trusted certificate
+# authority, not expire within TLS_MIN_DAYS, cover every MX host name and
+# match its key. Nothing here generates or copies one.
 #
 # Repository tooling: run as root from a trusted bundle by activate-mail-inbound
 # and the read-only infrastructure verification, never installed on a host and
@@ -116,104 +88,41 @@ OUTBOUND_FILE="$(gated_default RATEGURU_MAILINBOUND_OUTBOUND_FILE "${REPO_ROOT}/
 IDENTITY_FILE="$(gated_default RATEGURU_MAILINBOUND_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
 
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILINBOUND_SYSTEMCTL_BIN systemctl)"
-DPKG_QUERY_BIN="$(gated_default RATEGURU_MAILINBOUND_DPKG_QUERY_BIN dpkg-query)"
-POSTCONF_BIN="$(gated_default RATEGURU_MAILINBOUND_POSTCONF_BIN postconf)"
-POSTFIX_BIN="$(gated_default RATEGURU_MAILINBOUND_POSTFIX_BIN postfix)"
-SS_BIN="$(gated_default RATEGURU_MAILINBOUND_SS_BIN ss)"
-POSTQUEUE_BIN="$(gated_default RATEGURU_MAILINBOUND_POSTQUEUE_BIN postqueue)"
 GETENT_BIN="$(gated_default RATEGURU_MAILINBOUND_GETENT_BIN getent)"
 USERADD_BIN="$(gated_default RATEGURU_MAILINBOUND_USERADD_BIN useradd)"
 FALLOCATE_BIN="$(gated_default RATEGURU_MAILINBOUND_FALLOCATE_BIN fallocate)"
 MKFS_BIN="$(gated_default RATEGURU_MAILINBOUND_MKFS_BIN mkfs.ext4)"
 FINDMNT_BIN="$(gated_default RATEGURU_MAILINBOUND_FINDMNT_BIN findmnt)"
 DF_BIN="$(gated_default RATEGURU_MAILINBOUND_DF_BIN df)"
-IP_BIN="$(gated_default RATEGURU_MAILINBOUND_IP_BIN ip)"
 OPENSSL_BIN="$(gated_default RATEGURU_MAILINBOUND_OPENSSL_BIN openssl)"
+SYSCTL_BIN="$(gated_default RATEGURU_MAILINBOUND_SYSCTL_BIN sysctl)"
 
-# Owners of what this installer creates. root, postfix and the store's own user
-# on a host; the test seam lets the real install path run unprivileged.
+# Owners of what this installer creates: root, and the store's own account, on
+# a host; the test seam lets the real install path run unprivileged.
 FILE_OWNER="$(gated_default RATEGURU_MAILINBOUND_FILE_OWNER root)"
 FILE_GROUP="$(gated_default RATEGURU_MAILINBOUND_FILE_GROUP root)"
-POSTFIX_OWNER="$(gated_default RATEGURU_MAILINBOUND_POSTFIX_OWNER postfix)"
-POSTFIX_GROUP="$(gated_default RATEGURU_MAILINBOUND_POSTFIX_GROUP postfix)"
 
-# The store's own system account: virtual(8) writes every message as it, and
-# nothing else on the host runs as it.
-STORE_USER_NAME="rateguru-mail-inbound"
-STORE_OWNER="$(gated_default RATEGURU_MAILINBOUND_STORE_OWNER "${STORE_USER_NAME}")"
-STORE_GROUP="$(gated_default RATEGURU_MAILINBOUND_STORE_GROUP "${STORE_USER_NAME}")"
-
-# Bounded waits; anything that is not a positive integer falls back, so a stray
-# variable can never disable a gate.
-RUNTIME_WAIT="$(gated_default RATEGURU_MAILINBOUND_RUNTIME_WAIT 30)"
-STABILITY_WAIT="$(gated_default RATEGURU_MAILINBOUND_STABILITY_WAIT 4)"
-[[ "${RUNTIME_WAIT}" =~ ^[1-9][0-9]*$ ]] || RUNTIME_WAIT=30
-[[ "${STABILITY_WAIT}" =~ ^[1-9][0-9]*$ ]] || STABILITY_WAIT=4
-
-# The one judge of who may listen on a public SMTP port.
+# Where the receiver lives on a host, shared with the gateway, the activation
+# and the public port judge.
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/public-smtp-port"
+source "${SCRIPT_DIR}/mail-inbound-host"
 
-# --- Host contract --------------------------------------------------------------
+STORE_OWNER="$(gated_default RATEGURU_MAILINBOUND_STORE_OWNER "${MAIL_INBOUND_STORE_USER}")"
+STORE_GROUP="$(gated_default RATEGURU_MAILINBOUND_STORE_GROUP "${MAIL_INBOUND_STORE_USER}")"
 
-POSTFIX_PACKAGE="postfix"
-GATEWAY_MARKER="/var/lib/rateguru-mail-gateway/ownership"
-GATEWAY_CONFIG_DIR="/etc/postfix"
-
-CONFIG_DIR="/etc/postfix-inbound"
-MAIN_CF="${CONFIG_DIR}/main.cf"
-MASTER_CF="${CONFIG_DIR}/master.cf"
-RECIPIENT_TABLE="${CONFIG_DIR}/recipients.regexp"
-
-STATE_DIR="${PUBLIC_SMTP_INBOUND_STATE_DIR}"
-OWNERSHIP_MARKER="${PUBLIC_SMTP_INBOUND_MARKER}"
-APPLIED_STATE="${PUBLIC_SMTP_INBOUND_APPLIED}"
-APPLIED_KIND="${PUBLIC_SMTP_INBOUND_APPLIED_KIND}"
-STORE_IMAGE="${STATE_DIR}/store.img"
-
-# The one-use authorization activate-mail-inbound writes for a public SMTP
-# transition, and the ledger of every authorization this installer consumed.
-TRANSITION_AUTHORIZATION="${STATE_DIR}/transition-authorization.json"
-CONSUMED_AUTHORIZATIONS="${STATE_DIR}/consumed-transition-authorizations"
-AUTHORIZATION_KIND="rateguru-mail-inbound-transition-authorization"
-AUTHORIZATION_MAX_LIFETIME=3600
-
-BACKUP_ROOT="/var/backups/rateguru-mail-inbound"
-
-VOLUME="/var/spool/rateguru-mail-inbound"
-QUEUE_DIR="${VOLUME}/queue"
-STORE_DIR="${VOLUME}/store"
-DATA_DIR="${VOLUME}/data"
-LOG_DIR="${VOLUME}/log"
-MAILLOG_FILE="${LOG_DIR}/maillog"
-VOLUME_LABEL="rgmailin"
-VOLUME_OPTIONS=(nodev nosuid noexec)
+SYSCTL_FILE="/etc/sysctl.d/60-rateguru-mail-inbound.conf"
+SYSCTL_KEY="net.ipv4.ip_nonlocal_bind"
 
 UNIT_DIR="/etc/systemd/system"
-SERVICE_UNIT="${PUBLIC_SMTP_INBOUND_UNIT}"
-# systemd's name for the mount unit of VOLUME, the way systemd-escape --path
-# spells it.
-MOUNT_UNIT='var-spool-rateguru\x2dmail\x2dinbound.mount'
-
-TLS_DIR="/etc/rateguru-mail-inbound/tls"
-TLS_CERT="${TLS_DIR}/fullchain.pem"
-TLS_KEY="${TLS_DIR}/privkey.pem"
-TLS_MIN_DAYS=14
-
-# The system's trusted certificate authorities: a receiver certificate must
-# chain to one of them, so no self-signed certificate ever serves the MX.
-TLS_TRUST_STORE="$(gated_default RATEGURU_MAILINBOUND_TLS_TRUST_STORE /etc/ssl/certs/ca-certificates.crt)"
-
-LOOPBACK_HOST="127.0.0.1"
-
-# How long a message may wait in the queue on its way to the store before
-# --verify calls it stuck.
-QUEUE_GRACE_SECONDS=600
+MOUNT_UNIT_FILE="${UNIT_DIR}/${MAIL_INBOUND_STORE_MOUNT_UNIT}"
+VOLUME_OPTIONS=(nodev nosuid noexec)
 MANAGED_FILE_MODE="644"
 
-# The master.cf services the receiver runs, and nothing else: no smtp or lmtp
-# client, no local, pipe or relay, no pickup of locally submitted mail.
-RECEIVER_SERVICES=(cleanup qmgr rewrite bounce defer trace error retry anvil virtual showq proxymap tlsmgr postlog)
+TLS_MIN_DAYS=14
+
+# The system's trusted certificate authorities: the certificate must chain to
+# one of them, so no self-signed certificate ever serves the MX.
+TLS_TRUST_STORE="$(gated_default RATEGURU_MAILINBOUND_TLS_TRUST_STORE /etc/ssl/certs/ca-certificates.crt)"
 
 # --- Output ---------------------------------------------------------------------
 
@@ -231,50 +140,29 @@ action() {
     printf '[apply] %s\n' "$*"
 }
 
-# item STATUS NAME DETAIL — PASS, FAIL, DRIFT (installed, but not as the plan
-# renders it), MISSING (not installed yet) or DEFERRED (not required in the
-# host's current state, and said so).
+# item STATUS NAME DETAIL — PASS, FAIL, DRIFT (not as reviewed, --apply
+# converges it), MISSING (not created yet) or DEFERRED (not required yet).
 item() {
-    local status="$1" name="$2" detail="${3:-}"
-
+    local status="$1" name="$2" detail="$3"
+    printf '  %-8s %-34s %s\n' "${status}" "${name}" "${detail}"
     case "${status}" in
-        PASS)          COUNT_PASS=$((COUNT_PASS + 1)) ;;
-        FAIL)          COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        PASS) COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL) COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
         DRIFT|MISSING) COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
     esac
-
-    printf '%-8s %-34s %s\n' "${status}" "${name}" "${detail}"
-}
-
-# verdict NAME PROBLEMS DETAIL — PASS with DETAIL when PROBLEMS is empty,
-# otherwise FAIL with the problems.
-verdict() {
-    if [[ -z "$2" ]]; then
-        item PASS "$1" "$3"
-    else
-        item FAIL "$1" "${2//$'\n'/; }"
-    fi
 }
 
 usage() {
     cat <<'USAGE'
-Usage: install-mail-inbound --check | --apply | --verify | --tls-check
+Usage:
+  install-mail-inbound --check      read-only: may --apply proceed, and what would change
+  install-mail-inbound --apply      create or converge the inbound store (root)
+  install-mail-inbound --verify     read-only: the store, how full it is, the certificate
+  install-mail-inbound --tls-check  read-only: can the certificate serve every MX host name
 
-  --check   Read-only: the preconditions, whether the host can take the
-            receiver, and what --apply would change.
-  --apply   Root. Install or converge the isolated inbound receiver from the
-            trusted bundle's inbound plan, transactionally. Keeps the host's
-            recorded public SMTP state; changes it only with the one-use
-            authorization activate-mail-inbound writes.
-  --verify  Read-only: the installed receiver end to end — files, volume,
-            store, service, listeners, TLS, the applied state and every
-            receiver requirement of the plan.
-  --tls-check
-            Read-only: whether the certificate and key the operator installed
-            are valid for at least the reviewed number of days and cover every
-            MX host name. Prints the verdict, never the certificate.
-
-Everything else comes from the trusted bundle; there is nothing to override.
+The store inbound mail is delivered to, and the public listener's certificate.
+It never writes a Postfix file and never touches Postfix: the inbound listeners
+are install-mail-gateway's, and public SMTP is activate-mail-inbound's.
 USAGE
 }
 
@@ -283,8 +171,7 @@ physical() {
 }
 
 require_root() {
-    [[ "${EFFECTIVE_UID}" == 0 ]] \
-        || fail "install-mail-inbound --${MODE} must run as root: the receiver's configuration, queue, store and service are root's"
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--${MODE} must run as root"
 }
 
 require_tools() {
@@ -294,21 +181,16 @@ require_tools() {
     done
 }
 
-sha256_of() {
-    sha256sum -- "$1" | cut -d ' ' -f 1
-}
-
-# --- The plan: mail-inbound is the only judge of inbound rules -------------------
+# --- The receiver's plan --------------------------------------------------------
 
 RECEIVER=""
 
+# load_receiver — what the inbound plan says the store holds and the
+# certificate must cover, from mail-inbound render-receiver in this bundle.
 load_receiver() {
-    [[ -x "${INBOUND_CLI}" ]] \
-        || fail "the inbound mail CLI is not executable: ${INBOUND_CLI} — run from a full trusted bundle"
-
-    RECEIVER="$("${INBOUND_CLI}" render-receiver \
-        --inbound "${INBOUND_FILE}" --routing "${ROUTING_FILE}" --registry "${REGISTRY_FILE}" \
-        --outbound "${OUTBOUND_FILE}" --identity "${IDENTITY_FILE}")" \
+    [[ -x "${INBOUND_CLI}" ]] || fail "the inbound mail CLI is not executable: ${INBOUND_CLI} — run from a full repository bundle"
+    RECEIVER="$("${INBOUND_CLI}" render-receiver --inbound "${INBOUND_FILE}" --routing "${ROUTING_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" --identity "${IDENTITY_FILE}")" \
         || fail "mail-inbound render-receiver refused the inbound contract (diagnostics above) — nothing was changed"
 }
 
@@ -316,242 +198,229 @@ receiver_value() {
     jq -r "$1" <<<"${RECEIVER}"
 }
 
-loopback_endpoint() {
-    printf '%s:%s\n' "${LOOPBACK_HOST}" "$(receiver_value '.loopback_port')"
+# The public listener's state as the gateway recorded it: the certificate is
+# required once public SMTP is enabled, and only then.
+public_smtp_recorded() {
+    local applied
+    applied="$(mail_inbound_applied "${FS_ROOT}")"
+    printf '%s\n' "${applied%%$'\t'*}"
 }
 
-# --- Package, gateway and ownership ------------------------------------------------
+# --- The store account ------------------------------------------------------------
 
-package_installed() {
-    # dpkg-query's own ${field} syntax, never the shell's.
-    # shellcheck disable=SC2016
-    [[ "$("${DPKG_QUERY_BIN}" -W -f='${Status}' "${POSTFIX_PACKAGE}" 2>/dev/null || true)" == "install ok installed" ]]
-}
-
-gateway_installed() {
-    local marker
-    marker="$(physical "${GATEWAY_MARKER}")"
-    [[ -f "${marker}" && ! -L "${marker}" ]] \
-        && [[ "$(sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1)" == installed ]]
-}
-
-marker_state() {
-    local marker
-    marker="$(physical "${OWNERSHIP_MARKER}")"
-
-    [[ -f "${marker}" && ! -L "${marker}" ]] || return 0
-    sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1 || true
-}
-
-# foreign_presence — every receiver path that exists on a host whose marker
-# does not claim it, one per line. Such a path is somebody else's.
-foreign_presence() {
-    local path
-    for path in "${CONFIG_DIR}" "${STORE_IMAGE}" "${APPLIED_STATE}" "${UNIT_DIR}/${SERVICE_UNIT}" "${UNIT_DIR}/${MOUNT_UNIT}"; do
-        [[ -e "$(physical "${path}")" || -L "$(physical "${path}")" ]] && printf '%s\n' "${path}"
-    done
-
-    if [[ -d "$(physical "${VOLUME}")" ]] && [[ -n "$(find "$(physical "${VOLUME}")" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
-        printf '%s (not empty)\n' "${VOLUME}"
+# store_account — absent | ours | foreign: an account of that name RateGuru did
+# not create (another comment, or a login shell) is never taken over.
+store_account() {
+    local entry
+    entry="$("${GETENT_BIN}" passwd "${MAIL_INBOUND_STORE_USER}" 2>/dev/null || true)"
+    if [[ -z "${entry}" ]]; then
+        printf 'absent\n'
+        return 0
     fi
 
-    if "${GETENT_BIN}" passwd "${STORE_USER_NAME}" >/dev/null 2>&1; then
-        printf 'the user %s\n' "${STORE_USER_NAME}"
-    fi
-}
-
-# ownership — fresh | owned | foreign.
-ownership() {
-    local state
-    state="$(marker_state)"
-
-    if [[ "${state}" == installing || "${state}" == installed ]]; then
-        printf 'owned\n'
-    elif [[ -n "$(foreign_presence)" ]]; then
+    if [[ "$(cut -d: -f5 <<<"${entry}")" == "${MAIL_INBOUND_STORE_GECOS}" && "$(cut -d: -f7 <<<"${entry}")" == */nologin ]]; then
+        printf 'ours\n'
+    else
         printf 'foreign\n'
-    else
-        printf 'fresh\n'
     fi
 }
 
-write_marker() {
-    local state="$1" marker tmp
-    marker="$(physical "${OWNERSHIP_MARKER}")"
+# --- The bind that may not take Postfix down ----------------------------------------
 
-    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${STATE_DIR}")"
-    tmp="${marker}.tmp.$$"
-    {
-        printf '# RateGuru inbound mail receiver ownership marker. Non-secret.\n'
-        printf '#\n'
-        printf '# Written by install-mail-inbound before it creates anything, so a partial\n'
-        printf '# installation it started is recognisable and resumable, and a receiver\n'
-        printf '# without this file is never taken over. Do not edit.\n'
-        printf 'owner=rateguru\n'
-        printf 'component=mail-inbound\n'
-        printf 'state=%s\n' "${state}"
-    } > "${tmp}"
-    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
-    chmod 0644 "${tmp}"
-    mv -f "${tmp}" "${marker}"
+render_sysctl() {
+    cat <<EOF
+# RateGuru inbound mail — rendered by install-mail-inbound. Do not edit.
+#
+# The host's one Postfix binds its public inbound listener to exactly one IPv4
+# address, and one bind that fails at start stops every listener — the outbound
+# ones too. Allowing a bind to an address the host does not have yet means
+# Postfix always starts; the inbound listener receives nothing until the
+# address is back.
+${SYSCTL_KEY} = 1
+EOF
 }
 
-# --- The applied state: what the host accepted -------------------------------------
+# sysctl_state — PASS | MISSING | DRIFT: the drop-in as rendered, and in effect.
+sysctl_state() {
+    local path
+    path="$(physical "${SYSCTL_FILE}")"
 
-# applied_state — "STATE<TAB>ADDRESS" (ADDRESS "-" when disabled), "absent", or
-# "corrupt": the library's own reading, so the judge and the installer can
-# never disagree about it.
-applied_state() {
-    public_smtp_inbound_applied "${FS_ROOT}"
-}
-
-write_applied_state() {
-    local state="$1" address="$2" path tmp
-    path="$(physical "${APPLIED_STATE}")"
-    tmp="${path}.tmp.$$"
-
-    jq -n -S --arg kind "${APPLIED_KIND}" --arg state "${state}" --arg address "${address}" \
-        --arg receiver "$(sha256sum <<<"${RECEIVER}" | cut -d ' ' -f 1)" \
-        --arg at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '
-        {kind: $kind, schema_version: 1, public_smtp: $state,
-         address: (if $state == "enabled" then $address else null end),
-         receiver_sha256: $receiver, applied_at: $at}' > "${tmp}"
-    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
-    chmod 0644 "${tmp}"
-    mv -f "${tmp}" "${path}"
-}
-
-# --- The transition authorization ----------------------------------------------------
-
-# authorization_problems FROM — why the authorization file cannot move the host
-# from FROM, one reason per line; nothing when it can. Never consumes it.
-authorization_problems() {
-    local from="$1" path ledger now
-    path="$(physical "${TRANSITION_AUTHORIZATION}")"
-    ledger="$(physical "${CONSUMED_AUTHORIZATIONS}")"
-    now="$(date -u '+%s')"
-
-    if [[ -L "${path}" || ! -f "${path}" ]]; then
-        printf 'the authorization is not a regular file\n'
-        return 0
-    fi
-
-    # Owned by root and readable by nobody else: an authorization any other
-    # account could have written or read is none.
-    local owner_mode
-    owner_mode="$(stat -c '%U:%G %a' "${path}" 2>/dev/null || true)"
-    [[ "${owner_mode}" == "${FILE_OWNER}:${FILE_GROUP} 600" ]] \
-        || printf 'the authorization is %s, not %s:%s 600\n' "${owner_mode:-unreadable}" "${FILE_OWNER}" "${FILE_GROUP}"
-
-    if ! jq -e --arg kind "${AUTHORIZATION_KIND}" --arg from "${from}" \
-        --argjson now "${now}" --argjson max "${AUTHORIZATION_MAX_LIFETIME}" '
-        def ipv4: type == "string" and test("\\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\z");
-        .kind == $kind and .schema_version == 1
-        and (.target | type) == "string"
-        and (.nonce | type) == "string" and (.nonce | test("\\A[0-9a-f]{32}\\z"))
-        and .from == $from
-        and ((.direction == "enable" and $from == "disabled" and (.address | ipv4))
-             or (.direction == "disable" and $from == "enabled" and .address == null))
-        and (.created_at | type) == "number" and (.expires_at | type) == "number"
-        and .created_at <= $now and $now < .expires_at and (.expires_at - .created_at) <= $max' "${path}" >/dev/null 2>&1
+    if [[ ! -e "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] || ! cmp -s <(render_sysctl) "${path}" \
+        || [[ "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ]] \
+        || [[ "$("${SYSCTL_BIN}" -n "${SYSCTL_KEY}" 2>/dev/null)" != 1 ]]
     then
-        printf 'it is not a well-formed, unexpired authorization to move the receiver from %s\n' "${from}"
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+ensure_sysctl() {
+    local path tmp
+    [[ "$(sysctl_state)" != PASS ]] || return 0
+    path="$(physical "${SYSCTL_FILE}")"
+    action "allowing a bind to an address the host does not have yet (${SYSCTL_KEY} = 1, ${SYSCTL_FILE}) — no single address can stop Postfix"
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.rateguru-tmp.$$"
+    render_sysctl > "${tmp}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+    chmod "0${MANAGED_FILE_MODE}" "${tmp}"
+    mv -f "${tmp}" "${path}"
+    "${SYSCTL_BIN}" -q -p "${path}" >/dev/null
+    [[ "$(sysctl_state)" == PASS ]] || fail "${SYSCTL_KEY} is not in effect after ${SYSCTL_FILE} was applied"
+}
+
+# --- The volume -------------------------------------------------------------------
+
+render_mount_unit() {
+    local options
+    options="loop,$(IFS=,; printf '%s' "${VOLUME_OPTIONS[*]}")"
+
+    cat <<EOF
+# RateGuru inbound mail store — a fixed-size volume of its own, rendered by
+# install-mail-inbound. Do not edit. Ordered before Postfix, so mail waiting in
+# the queue is delivered into the store and never beside it; Postfix does not
+# depend on it, and outbound mail never waits for it.
+[Unit]
+Description=RateGuru inbound mail store (fixed-size volume)
+Before=${MAIL_INBOUND_POSTFIX_UNIT}
+
+[Mount]
+What=${MAIL_INBOUND_STORE_IMAGE}
+Where=${MAIL_INBOUND_STORE}
+Type=ext4
+Options=${options}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+service_property() {
+    "${SYSTEMCTL_BIN}" show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+host_free_bytes() {
+    "${DF_BIN}" -B1 --output=avail "$1" 2>/dev/null | tail -n 1 | tr -d ' '
+}
+
+# mount_unit_state — PASS | MISSING | DRIFT against the render.
+mount_unit_state() {
+    local path
+    path="$(physical "${MOUNT_UNIT_FILE}")"
+
+    if [[ ! -e "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] || ! cmp -s <(render_mount_unit) "${path}" \
+        || [[ "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# volume_problems — the image, the mount unit's boot state and the mounted
+# file system, as findmnt and systemd see them.
+volume_problems() {
+    local image mounted fstype options label size option
+    image="$(physical "${MAIL_INBOUND_STORE_IMAGE}")"
+
+    if [[ ! -f "${image}" || -L "${image}" ]]; then
+        printf 'the store image %s does not exist\n' "${MAIL_INBOUND_STORE_IMAGE}"
         return 0
     fi
 
-    if [[ -f "${ledger}" ]] && grep -qxF "$(jq -r '.nonce' "${path}")" "${ledger}"; then
-        printf 'it was already used\n'
+    size="$(stat -c '%s' "${image}" 2>/dev/null || echo 0)"
+    [[ "${size}" == "$(receiver_value '.limits.storage_bytes')" ]] \
+        || printf 'the store image is %s bytes, not the reviewed %s — resizing the store is not automated\n' "${size}" "$(receiver_value '.limits.storage_bytes')"
+
+    [[ "$("${SYSTEMCTL_BIN}" is-enabled "${MAIL_INBOUND_STORE_MOUNT_UNIT}" 2>/dev/null || true)" == enabled ]] \
+        || printf '%s is not enabled for boot\n' "${MAIL_INBOUND_STORE_MOUNT_UNIT}"
+
+    if ! mounted="$("${FINDMNT_BIN}" -n -o FSTYPE,OPTIONS,LABEL --mountpoint "$(physical "${MAIL_INBOUND_STORE}")" 2>/dev/null)" || [[ -z "${mounted}" ]]; then
+        printf 'the store volume is not mounted at %s — delivery waits in the queue until it is\n' "${MAIL_INBOUND_STORE}"
+        return 0
     fi
+
+    read -r fstype options label <<<"${mounted}"
+    [[ "${fstype}" == ext4 ]] || printf 'the store volume is %s, not ext4\n' "${fstype}"
+    [[ "${label}" == "${MAIL_INBOUND_STORE_LABEL}" ]] || printf 'the volume at %s is labelled "%s", not %s — it is not the inbound store\n' "${MAIL_INBOUND_STORE}" "${label}" "${MAIL_INBOUND_STORE_LABEL}"
+    for option in "${VOLUME_OPTIONS[@]}"; do
+        [[ ",${options}," == *",${option},"* ]] || printf 'the store volume is mounted without %s\n' "${option}"
+    done
 }
 
-# consume_authorization — the nonce into the ledger, then the file removed, so
-# the same authorization can never be applied twice, even when the apply it
-# authorized fails.
-consume_authorization() {
-    local path ledger
-    path="$(physical "${TRANSITION_AUTHORIZATION}")"
-    ledger="$(physical "${CONSUMED_AUTHORIZATIONS}")"
-
-    jq -r '.nonce' "${path}" >> "${ledger}"
-    chmod 0600 "${ledger}"
-    rm -f -- "${path}"
+# store_layout — "PATH<TAB>OWNER:GROUP MODE" for the volume's root and every
+# Maildir the plan names: the store's own account, and nobody else, may enter.
+store_layout() {
+    local mailbox
+    printf '%s\t%s\n' "${MAIL_INBOUND_STORE}" "${STORE_OWNER}:${STORE_GROUP} 700"
+    while IFS= read -r mailbox; do
+        [[ -n "${mailbox}" ]] || continue
+        printf '%s/%s\t%s\n' "${MAIL_INBOUND_STORE}" "${mailbox%/}" "${STORE_OWNER}:${STORE_GROUP} 700"
+    done < <(receiver_value '.mailboxes[]')
 }
 
-# desired_state — what this apply installs: the recorded state, or the state an
-# authorization moves it to. Sets DESIRED_STATE, DESIRED_ADDRESS and
-# DESIRED_TRANSITION ("" or the direction).
-DESIRED_STATE=""
-DESIRED_ADDRESS=""
-DESIRED_TRANSITION=""
+store_problems() {
+    local path want got
+    while IFS=$'\t' read -r path want; do
+        got="$(stat -c '%U:%G %a' "$(physical "${path}")" 2>/dev/null || true)"
+        [[ "${got}" == "${want}" ]] || printf '%s is %s, not %s\n' "${path}" "${got:-absent}" "${want}"
+    done < <(store_layout)
+}
 
-resolve_desired_state() {
-    local applied current address path problems
-    applied="$(applied_state)"
-    path="$(physical "${TRANSITION_AUTHORIZATION}")"
+# report_storage — how many messages each mailbox holds and how full the
+# volume is: counts only, never a name, a header or a byte of a message.
+report_storage() {
+    local mailbox count base used avail reserve
+    base="$(physical "${MAIL_INBOUND_STORE}")"
+    reserve="$(receiver_value '.limits.storage_reserve_bytes')"
 
-    case "${applied}" in
-        corrupt)
-            fail "the receiver's recorded state (${APPLIED_STATE}) is incomplete or unreadable — it is the host's only witness of whether public SMTP is open. Restore it from ${BACKUP_ROOT}, or roll the receiver back with activate-mail-inbound. Nothing was changed"
-            ;;
-        absent)
-            current=disabled
-            address=""
-            ;;
-        *)
-            current="${applied%%$'\t'*}"
-            address="${applied#*$'\t'}"
-            [[ "${address}" != "-" ]] || address=""
-            ;;
-    esac
+    while IFS= read -r mailbox; do
+        count="$( { find "${base}/${mailbox}new" "${base}/${mailbox}cur" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"
+        printf '           stored   %-34s %s message(s)\n' "${mailbox}" "${count}"
+    done < <(receiver_value '.mailboxes[]')
 
-    DESIRED_STATE="${current}"
-    DESIRED_ADDRESS="${address}"
-    DESIRED_TRANSITION=""
+    used="$("${DF_BIN}" -B1 --output=used "${base}" 2>/dev/null | tail -n 1 | tr -d ' ')"
+    avail="$(host_free_bytes "${base}")"
+    printf '           volume   used %s bytes, free %s bytes (reserve %s)\n' "${used:-unknown}" "${avail:-unknown}" "${reserve}"
 
-    [[ -e "${path}" || -L "${path}" ]] || return 0
-
-    problems="$(authorization_problems "${current}")"
-    [[ -z "${problems}" ]] \
-        || fail "a public SMTP transition authorization is present but cannot be used (${problems//$'\n'/; }) — only activate-mail-inbound writes one, for one use. Nothing was changed"
-
-    DESIRED_TRANSITION="$(jq -r '.direction' "${path}")"
-    if [[ "${DESIRED_TRANSITION}" == enable ]]; then
-        DESIRED_STATE=enabled
-        DESIRED_ADDRESS="$(jq -r '.address' "${path}")"
+    if [[ "${avail}" =~ ^[0-9]+$ ]] && (( avail < reserve )); then
+        item FAIL storage "the store has ${avail} bytes free, below its reserve of ${reserve} — delivery will soon wait in the shared queue; read and move stored mail before it fills"
     else
-        DESIRED_STATE=disabled
-        DESIRED_ADDRESS=""
+        item PASS storage "free space at or above the reserve"
     fi
 }
 
-# --- TLS ------------------------------------------------------------------------------
+# --- TLS --------------------------------------------------------------------------
 
-TLS_STATE=""
+TLS_STATE=""   # absent | invalid | present
 TLS_PROBLEM=""
 
-# tls_state — present (valid for every MX host name), absent, or invalid with
-# TLS_PROBLEM saying why. Reads the certificate and the key only through
-# openssl's verdicts; never prints either.
 tls_state() {
     local cert key name cert_key key_key mode
-    cert="$(physical "${TLS_CERT}")"
-    key="$(physical "${TLS_KEY}")"
+    cert="$(physical "${MAIL_INBOUND_TLS_CERT}")"
+    key="$(physical "${MAIL_INBOUND_TLS_KEY}")"
     TLS_PROBLEM=""
 
     if [[ ! -e "${cert}" && ! -e "${key}" ]]; then
         TLS_STATE=absent
-        TLS_PROBLEM="no certificate is installed at ${TLS_CERT} and ${TLS_KEY}"
+        TLS_PROBLEM="no certificate is installed at ${MAIL_INBOUND_TLS_CERT} and ${MAIL_INBOUND_TLS_KEY}"
         return 0
     fi
 
     TLS_STATE=invalid
     if [[ -L "${cert}" || ! -f "${cert}" || -L "${key}" || ! -f "${key}" ]]; then
-        TLS_PROBLEM="${TLS_CERT} and ${TLS_KEY} must both be regular files (copied, not linked)"
+        TLS_PROBLEM="${MAIL_INBOUND_TLS_CERT} and ${MAIL_INBOUND_TLS_KEY} must both be regular files (copied, not linked)"
         return 0
     fi
 
     mode="$(stat -c '%U:%G %a' "${key}" 2>/dev/null || true)"
     if [[ "${mode}" != "${FILE_OWNER}:${FILE_GROUP} 600" ]]; then
-        TLS_PROBLEM="${TLS_KEY} is ${mode:-unreadable}, not ${FILE_OWNER}:${FILE_GROUP} 600"
+        TLS_PROBLEM="${MAIL_INBOUND_TLS_KEY} is ${mode:-unreadable}, not ${FILE_OWNER}:${FILE_GROUP} 600"
         return 0
     fi
 
@@ -585,927 +454,193 @@ tls_state() {
     TLS_STATE=present
 }
 
-# --- Rendering (Postfix spelling of the receiver plan) ---------------------------------
-
-CANDIDATE_DIR=""
-STORE_UID=""
-STORE_GID=""
-
-render_main_cf() {
-    local tls="$1" domains
-    domains="$(receiver_value '.domains | join(", ")')"
-
-    cat <<EOF
-# RateGuru inbound mail receiver — rendered by install-mail-inbound from
-# mail-inbound render-receiver. Do not edit: the next apply replaces it.
-compatibility_level = 3.6
-meta_directory = /etc/postfix
-queue_directory = ${QUEUE_DIR}
-data_directory = ${DATA_DIR}
-syslog_name = rateguru-mail-inbound
-maillog_file = ${MAILLOG_FILE}
-myhostname = $(receiver_value '.mx_hostnames[0]')
-mydomain = $(receiver_value '.host_postmaster_domain')
-myorigin = \$mydomain
-mydestination =
-relay_domains =
-local_recipient_maps =
-alias_maps =
-alias_database =
-virtual_alias_maps =
-mynetworks = 127.0.0.1/32
-inet_interfaces = ${LOOPBACK_HOST}
-inet_protocols = ipv4
-virtual_mailbox_domains = ${domains}
-virtual_mailbox_maps = regexp:${RECIPIENT_TABLE}
-virtual_mailbox_base = ${STORE_DIR}
-virtual_uid_maps = static:${STORE_UID}
-virtual_gid_maps = static:${STORE_GID}
-virtual_minimum_uid = ${STORE_UID}
-virtual_mailbox_limit = $(receiver_value '.limits.message_size_bytes')
-virtual_transport = virtual
-local_transport = error:5.1.1 local delivery is disabled on the inbound receiver
-default_transport = error:5.7.1 the inbound receiver never delivers off the host
-relay_transport = error:5.7.1 the inbound receiver never relays
-content_filter =
-smtpd_milters =
-non_smtpd_milters =
-header_checks =
-body_checks =
-mailbox_command =
-smtpd_relay_restrictions = reject_unauth_destination
-smtpd_recipient_restrictions = reject_unlisted_recipient
-smtpd_sender_restrictions =
-smtpd_client_restrictions =
-smtpd_helo_restrictions =
-smtpd_data_restrictions =
-smtpd_helo_required = yes
-smtpd_etrn_restrictions = reject
-smtpd_discard_ehlo_keywords = etrn
-smtpd_sasl_auth_enable = no
-disable_vrfy_command = yes
-smtpd_banner = \$myhostname ESMTP
-message_size_limit = $(receiver_value '.limits.message_size_bytes')
-smtpd_recipient_limit = $(receiver_value '.limits.recipients_per_message')
-smtpd_client_connection_count_limit = $(receiver_value '.limits.connections_per_client')
-smtpd_client_connection_rate_limit = $(receiver_value '.limits.connection_rate_per_client')
-anvil_rate_time_unit = 60s
-smtpd_client_event_limit_exceptions =
-queue_minfree = $(receiver_value '.limits.storage_reserve_bytes')
-maximal_queue_lifetime = 100d
-bounce_queue_lifetime = 100d
-notify_classes =
-enable_long_queue_ids = yes
-EOF
-
-    if [[ "${tls}" == present ]]; then
-        cat <<EOF
-smtpd_tls_security_level = may
-smtpd_tls_chain_files = ${TLS_KEY}, ${TLS_CERT}
-smtpd_tls_protocols = >=TLSv1.2
-smtpd_tls_mandatory_protocols = >=TLSv1.2
-smtpd_tls_received_header = yes
-smtpd_tls_loglevel = 0
-EOF
-    else
-        printf 'smtpd_tls_security_level = none\n'
-    fi
-}
-
-render_master_cf() {
-    local state="$1" address="$2"
-
-    cat <<EOF
-# RateGuru inbound mail receiver — rendered by install-mail-inbound from
-# mail-inbound render-receiver. Do not edit: the next apply replaces it.
-#
-# The loopback listener is the receiver's own, for its proof; the public one
-# exists only while the host's applied state enables public SMTP. There is no
-# smtp, lmtp, local, pipe, relay or pickup service: nothing can leave or be
-# submitted locally.
-$(loopback_endpoint) inet n - n - 2 smtpd
-  -o syslog_name=rateguru-mail-inbound/loopback
-EOF
-
-    if [[ "${state}" == enabled ]]; then
-        cat <<EOF
-${address}:25 inet n - n - $(receiver_value '.limits.concurrent_sessions') smtpd
-  -o syslog_name=rateguru-mail-inbound/public
-EOF
-    fi
-
-    cat <<'EOF'
-cleanup   unix  n       -       n       -       0       cleanup
-qmgr      unix  n       -       n       300     1       qmgr
-rewrite   unix  -       -       n       -       -       trivial-rewrite
-bounce    unix  -       -       n       -       0       bounce
-defer     unix  -       -       n       -       0       bounce
-trace     unix  -       -       n       -       0       bounce
-error     unix  -       -       n       -       -       error
-retry     unix  -       -       n       -       -       error
-anvil     unix  -       -       n       -       1       anvil
-virtual   unix  -       n       n       -       -       virtual
-showq     unix  n       -       n       -       -       showq
-proxymap  unix  -       -       n       -       -       proxymap
-tlsmgr    unix  -       -       n       1000?   1       tlsmgr
-postlog   unix-dgram n  -       n       -       1       postlogd
-EOF
-}
-
-render_recipient_table() {
-    printf '# RateGuru inbound mail receiver — the recipients it accepts and the mailbox each\n'
-    printf '# is stored in, rendered by install-mail-inbound from mail-inbound\n'
-    printf '# render-receiver. Matching is case-insensitive. Do not edit.\n'
-    receiver_value '.recipients[] | "/\(.pattern)/ \(.mailbox)"'
-}
-
-render_service_unit() {
-    cat <<EOF
-# RateGuru inbound mail receiver — rendered by install-mail-inbound. Do not edit.
-#
-# A Postfix instance of its own: its configuration directory, its queue on its
-# own volume, and not part of postfix.service, so nothing the mail gateway's
-# units do reaches it.
-[Unit]
-Description=RateGuru inbound mail receiver (isolated Postfix instance)
-Documentation=man:postfix(1)
-RequiresMountsFor=${VOLUME}
-After=network-online.target nss-lookup.target
-Wants=network-online.target
-
-[Service]
-Type=forking
-GuessMainPID=no
-ExecStartPre=/usr/sbin/postfix -c ${CONFIG_DIR} check
-ExecStart=/usr/sbin/postfix -c ${CONFIG_DIR} start
-ExecStop=/usr/sbin/postfix -c ${CONFIG_DIR} stop
-ExecReload=/usr/sbin/postfix -c ${CONFIG_DIR} reload
-Restart=on-failure
-RestartSec=10s
-
-[Install]
-WantedBy=multi-user.target
-EOF
-}
-
-render_mount_unit() {
-    local options
-    options="loop,$(IFS=,; printf '%s' "${VOLUME_OPTIONS[*]}")"
-
-    cat <<EOF
-# RateGuru inbound mail receiver — its fixed-size store, rendered by
-# install-mail-inbound. Do not edit.
-[Unit]
-Description=RateGuru inbound mail store (fixed-size volume)
-Before=${SERVICE_UNIT}
-
-[Mount]
-What=${STORE_IMAGE}
-Where=${VOLUME}
-Type=ext4
-Options=${options}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-}
-
-# managed_files — every file a render installs: LOGICAL<TAB>CANDIDATE NAME.
-managed_files() {
-    printf '%s\t%s\n' \
-        "${MAIN_CF}" main.cf \
-        "${MASTER_CF}" master.cf \
-        "${RECIPIENT_TABLE}" recipients.regexp \
-        "${UNIT_DIR}/${SERVICE_UNIT}" service.unit \
-        "${UNIT_DIR}/${MOUNT_UNIT}" mount.unit
-}
-
-cleanup_work_dir() {
-    [[ -n "${CANDIDATE_DIR}" && -d "${CANDIDATE_DIR}" ]] && rm -rf -- "${CANDIDATE_DIR}"
-    CANDIDATE_DIR=""
-}
-
-# store_ids — STORE_UID and STORE_GID of the store's user, when it exists.
-store_ids() {
-    local entry
-    entry="$("${GETENT_BIN}" passwd "${STORE_USER_NAME}" 2>/dev/null || true)"
-    STORE_UID="$(cut -d: -f3 <<<"${entry}")"
-    STORE_GID="$(cut -d: -f4 <<<"${entry}")"
-    [[ "${STORE_UID}" =~ ^[0-9]+$ && "${STORE_GID}" =~ ^[0-9]+$ ]]
-}
-
-# prepare_candidate STATE ADDRESS TLS — every managed file, rendered into a
-# private temporary directory.
-prepare_candidate() {
-    local state="$1" address="$2" tls="$3"
-
-    cleanup_work_dir
-    CANDIDATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-mail-inbound.XXXXXX")"
-    chmod 0700 "${CANDIDATE_DIR}"
-
-    render_main_cf "${tls}" > "${CANDIDATE_DIR}/main.cf"
-    render_master_cf "${state}" "${address}" > "${CANDIDATE_DIR}/master.cf"
-    render_recipient_table > "${CANDIDATE_DIR}/recipients.regexp"
-    render_service_unit > "${CANDIDATE_DIR}/service.unit"
-    render_mount_unit > "${CANDIDATE_DIR}/mount.unit"
-}
-
-file_state() {
-    local logical="$1" candidate="$2" path
-    path="$(physical "${logical}")"
-
-    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
-        printf 'MISSING\n'
-    elif [[ -L "${path}" || ! -f "${path}" ]]; then
-        printf 'FOREIGN\n'
-    elif cmp -s "${candidate}" "${path}" \
-        && [[ "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" == "${FILE_OWNER}:${FILE_GROUP} ${MANAGED_FILE_MODE}" ]]
-    then
-        printf 'PASS\n'
-    else
-        printf 'DRIFT\n'
-    fi
-}
-
-# --- Postfix's own judgement of a configuration directory ---------------------------
-
-postconf_value() {
-    "${POSTCONF_BIN}" -c "$1" -h "$2" 2>/dev/null || true
-}
-
-# postfix_config_problems DIR — Postfix parses DIR, and what it reads back is
-# what the receiver depends on. One problem per line.
-postfix_config_problems() {
-    local dir="$1" warnings services name type extra known
-    warnings="$("${POSTCONF_BIN}" -c "${dir}" -n 2>&1 >/dev/null)" \
-        || { printf 'postconf could not parse %s\n' "${dir}"; return 0; }
-    [[ -z "${warnings}" ]] || printf 'postconf warns about %s: %s\n' "${dir}" "${warnings//$'\n'/; }"
-
-    if ! services="$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null)"; then
-        printf 'postconf could not read the services of %s\n' "${dir}"
-        return 0
-    fi
-
-    # Every service is the receiver's own; smtpd only on its listeners.
-    while read -r name type _; do
-        [[ -n "${name}" ]] || continue
-        if [[ "${type}" == inet ]]; then
-            continue
-        fi
-        extra=true
-        for known in "${RECEIVER_SERVICES[@]}"; do
-            [[ "${name}" == "${known}" ]] && extra=false
-        done
-        [[ "${extra}" == false ]] || printf 'master.cf has the service %s (%s), which the receiver never runs\n' "${name}" "${type}"
-    done <<<"${services}"
-
-    awk '$2 == "inet" && $8 != "smtpd" { print "master.cf listener " $1 " runs " $8 ", not smtpd" }' <<<"${services}"
-    awk '$8 ~ /^(smtp|lmtp|local|pipe|pickup|qmqpd)$/ { print "master.cf runs " $8 " (" $1 "): the receiver has no client, local delivery or pickup" }' <<<"${services}"
-}
-
-# _rq_expect DIR KEY WANT, _rq_empty DIR KEY..., _rq_prefix DIR KEY PREFIX —
-# one parameter as Postfix reads it from DIR, against what a requirement needs.
-_rq_expect() {
-    local dir="$1" key="$2" want="$3" got
-    got="$(postconf_value "${dir}" "${key}")"
-    [[ "${got}" == "${want}" ]] || printf '%s is "%s", not "%s"\n' "${key}" "${got}" "${want}"
-}
-
-_rq_empty() {
-    local dir="$1" key
-    shift
-    for key in "$@"; do _rq_expect "${dir}" "${key}" ""; done
-}
-
-_rq_prefix() {
-    local dir="$1" key="$2" prefix="$3" got
-    got="$(postconf_value "${dir}" "${key}")"
-    [[ "${got}" == "${prefix}"* ]] || printf '%s is "%s", not %s...\n' "${key}" "${got}" "${prefix}"
-}
-
-# requirement_problems DIR ID — why DIR's configuration does not meet one
-# receiver requirement as Postfix reads it, one per line; nothing when it does.
-requirement_problems() {
-    local dir="$1" id="$2"
-
-    case "${id}" in
-        recipient-allowlist)
-            _rq_expect "${dir}" virtual_mailbox_maps "regexp:${RECIPIENT_TABLE}"
-            _rq_expect "${dir}" virtual_mailbox_domains "$(receiver_value '.domains | join(", ")')"
-            _rq_expect "${dir}" smtpd_recipient_restrictions reject_unlisted_recipient
-            _rq_empty "${dir}" mydestination relay_domains local_recipient_maps virtual_alias_maps alias_maps
-            ;;
-        postmaster-accepted)
-            # Postfix's own $mydomain, read back unexpanded.
-            # shellcheck disable=SC2016
-            _rq_expect "${dir}" myorigin '$mydomain'
-            _rq_expect "${dir}" mydomain "$(receiver_value '.host_postmaster_domain')"
-            jq -e '[.recipients[] | select(.destination == "host-postmaster")] | length == 1' <<<"${RECEIVER}" >/dev/null \
-                || printf 'the plan has no host postmaster recipient\n'
-            ;;
-        relay-refused-at-rcpt)
-            _rq_expect "${dir}" smtpd_relay_restrictions reject_unauth_destination
-            local key value
-            for key in smtpd_relay_restrictions smtpd_recipient_restrictions smtpd_client_restrictions smtpd_helo_restrictions smtpd_sender_restrictions smtpd_data_restrictions; do
-                value="$(postconf_value "${dir}" "${key}")"
-                [[ "${value}" != *permit_mynetworks* && "${value}" != *permit_sasl* && "${value}" != *permit_auth* ]] \
-                    || printf '%s grants relay by client or authentication: %s\n' "${key}" "${value}"
-            done
-            ;;
-        no-smtp-auth)
-            _rq_expect "${dir}" smtpd_sasl_auth_enable no
-            if grep -q 'smtpd_sasl_auth_enable=yes' "${dir}/master.cf" 2>/dev/null; then
-                printf 'a listener enables SMTP AUTH\n'
-            fi
-            ;;
-        no-relay-no-forwarding)
-            _rq_prefix "${dir}" default_transport error:
-            _rq_prefix "${dir}" relay_transport error:
-            _rq_prefix "${dir}" local_transport error:
-            _rq_expect "${dir}" virtual_transport virtual
-            _rq_empty "${dir}" content_filter virtual_alias_maps
-            ;;
-        message-size-limit)
-            _rq_expect "${dir}" message_size_limit "$(receiver_value '.limits.message_size_bytes')"
-            _rq_expect "${dir}" virtual_mailbox_limit "$(receiver_value '.limits.message_size_bytes')"
-            ;;
-        recipient-limit)
-            _rq_expect "${dir}" smtpd_recipient_limit "$(receiver_value '.limits.recipients_per_message')"
-            ;;
-        connection-limits)
-            _rq_expect "${dir}" smtpd_client_connection_count_limit "$(receiver_value '.limits.connections_per_client')"
-            _rq_expect "${dir}" smtpd_client_connection_rate_limit "$(receiver_value '.limits.connection_rate_per_client')"
-            _rq_expect "${dir}" anvil_rate_time_unit 60s
-            _rq_empty "${dir}" smtpd_client_event_limit_exceptions
-            ;;
-        queue-limits)
-            _rq_expect "${dir}" queue_directory "${QUEUE_DIR}"
-            _rq_expect "${dir}" maximal_queue_lifetime 100d
-            _rq_expect "${dir}" bounce_queue_lifetime 100d
-            ;;
-        isolated-queue)
-            _rq_expect "${dir}" queue_directory "${QUEUE_DIR}"
-            _rq_expect "${dir}" data_directory "${DATA_DIR}"
-            _rq_expect "${dir}" syslog_name rateguru-mail-inbound
-            [[ "$(postconf_value "${dir}" queue_directory)" != /var/spool/postfix* ]] \
-                || printf 'the queue is the gateway'"'"'s\n'
-            ;;
-        no-outbound-submission)
-            _rq_prefix "${dir}" default_transport error:
-            _rq_prefix "${dir}" relay_transport error:
-            if awk '$8 ~ /^(smtp|lmtp)$/ { found = 1 } END { exit !found }' <<<"$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null)"; then
-                printf 'master.cf has an SMTP or LMTP client\n'
-            fi
-            ;;
-        no-message-content-in-logs)
-            _rq_expect "${dir}" maillog_file "${MAILLOG_FILE}"
-            _rq_empty "${dir}" header_checks body_checks
-            [[ "$(postconf_value "${dir}" smtpd_tls_security_level)" != may ]] \
-                || _rq_expect "${dir}" smtpd_tls_loglevel 0
-            ;;
-        content-never-executed)
-            _rq_empty "${dir}" mailbox_command
-            if awk '$8 ~ /^(pipe|local|spawn)$/ { found = 1 } END { exit !found }' <<<"$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null)"; then
-                printf 'master.cf can run a command\n'
-            fi
-            ;;
-        untrusted-sender-fields)
-            _rq_empty "${dir}" smtpd_sender_restrictions smtpd_client_restrictions smtpd_helo_restrictions smtpd_data_restrictions
-            ;;
-        no-automatic-replies)
-            _rq_empty "${dir}" notify_classes
-            _rq_prefix "${dir}" default_transport error:
-            ;;
-        null-sender-accepted)
-            _rq_empty "${dir}" smtpd_sender_restrictions
-            local value
-            value="$(postconf_value "${dir}" smtpd_recipient_restrictions)"
-            [[ "${value}" != *sender* ]] || printf 'smtpd_recipient_restrictions judges the sender: %s\n' "${value}"
-            ;;
-        malformed-and-duplicate-safe)
-            _rq_expect "${dir}" enable_long_queue_ids yes
-            jq -e 'all(.recipients[]; .mailbox | endswith("/"))' <<<"${RECEIVER}" >/dev/null \
-                || printf 'a mailbox is not a Maildir: two deliveries could share one file\n'
-            ;;
-        disk-exhaustion-guard)
-            _rq_expect "${dir}" queue_minfree "$(receiver_value '.limits.storage_reserve_bytes')"
-            _rq_expect "${dir}" virtual_mailbox_base "${STORE_DIR}"
-            ;;
-        single-public-port-owner)
-            local listeners
-            listeners="$(awk '$2 == "inet" && $1 ~ /:25$/ { n++ } END { print n + 0 }' <<<"$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null)")"
-            (( listeners <= 1 )) || printf 'master.cf has %s listeners on port 25\n' "${listeners}"
-            awk -v forbidden="$(IFS='|'; printf '%s' "${PUBLIC_SMTP_FORBIDDEN_PORTS[*]}")" \
-                '$2 == "inet" && $1 ~ (":(" forbidden ")$") { print "master.cf listens on " $1 }' \
-                <<<"$("${POSTCONF_BIN}" -c "${dir}" -M 2>/dev/null)"
-            ;;
-        no-shared-mail-state)
-            _rq_empty "${dir}" smtpd_milters non_smtpd_milters
-            _rq_expect "${dir}" meta_directory /etc/postfix
-            [[ "${dir}" != "$(physical "${GATEWAY_CONFIG_DIR}")" ]] || printf 'the receiver reads the gateway configuration\n'
-            ;;
-        *)
-            printf 'the plan names a requirement this installer does not know: %s\n' "${id}"
-            ;;
-    esac
-}
-
-# --- Host: volume, store, service, listeners -------------------------------------------
-
-service_property() {
-    "${SYSTEMCTL_BIN}" show "$1" --property="$2" --value 2>/dev/null || true
-}
-
-service_is_running() {
-    [[ "$(service_property "$1" ActiveState)" == active && "$(service_property "$1" SubState)" == running ]]
-}
-
-wait_service_running() {
-    local unit="$1" waited=0 state
-    while true; do
-        state="$(service_property "${unit}" ActiveState)"
-        [[ "${state}" == active && "$(service_property "${unit}" SubState)" == running ]] && return 0
-
-        case "${state}" in
-            activating|reloading) ;;
-            *) return 1 ;;
-        esac
-
-        (( waited < RUNTIME_WAIT )) || return 1
-        sleep 1
-        waited=$((waited + 1))
-    done
-}
-
-# volume_problems — the store's volume, as mounted. One problem per line.
-volume_problems() {
-    local image mounted fstype options label size option
-    image="$(physical "${STORE_IMAGE}")"
-
-    if [[ ! -f "${image}" || -L "${image}" ]]; then
-        printf 'the store image %s does not exist\n' "${STORE_IMAGE}"
-        return 0
-    fi
-
-    size="$(stat -c '%s' "${image}" 2>/dev/null || echo 0)"
-    [[ "${size}" == "$(receiver_value '.limits.storage_bytes')" ]] \
-        || printf 'the store image is %s bytes, not the reviewed %s — resizing the store is not automated\n' "${size}" "$(receiver_value '.limits.storage_bytes')"
-
-    [[ "$("${SYSTEMCTL_BIN}" is-enabled "${MOUNT_UNIT}" 2>/dev/null || true)" == enabled ]] \
-        || printf '%s is not enabled for boot\n' "${MOUNT_UNIT}"
-
-    if ! mounted="$("${FINDMNT_BIN}" -n -o FSTYPE,OPTIONS,LABEL --mountpoint "$(physical "${VOLUME}")" 2>/dev/null)" || [[ -z "${mounted}" ]]; then
-        printf 'the store volume is not mounted at %s\n' "${VOLUME}"
-        return 0
-    fi
-
-    read -r fstype options label <<<"${mounted}"
-    [[ "${fstype}" == ext4 ]] || printf 'the store volume is %s, not ext4\n' "${fstype}"
-    [[ "${label}" == "${VOLUME_LABEL}" ]] || printf 'the volume at %s is labelled "%s", not %s — it is not the receiver'"'"'s store\n' "${VOLUME}" "${label}" "${VOLUME_LABEL}"
-    for option in "${VOLUME_OPTIONS[@]}"; do
-        [[ ",${options}," == *",${option},"* ]] || printf 'the store volume is mounted without %s\n' "${option}"
-    done
-}
-
-# store_problems — the directories on the volume, their owners and modes.
-store_problems() {
-    local path want got
-    while IFS=$'\t' read -r path want; do
-        got="$(stat -c '%U:%G %a' "$(physical "${path}")" 2>/dev/null || true)"
-        [[ "${got}" == "${want}" ]] || printf '%s is %s, not %s\n' "${path}" "${got:-absent}" "${want}"
-    done < <(store_layout)
-}
-
-store_layout() {
-    printf '%s\t%s\n' \
-        "${QUEUE_DIR}" "${FILE_OWNER}:${FILE_GROUP} 755" \
-        "${STORE_DIR}" "${STORE_OWNER}:${STORE_GROUP} 700" \
-        "${DATA_DIR}" "${POSTFIX_OWNER}:${POSTFIX_GROUP} 700" \
-        "${LOG_DIR}" "${FILE_OWNER}:${FILE_GROUP} 700"
-}
-
-listening() {
-    "${SS_BIN}" -ltnH 2>/dev/null | awk '{ print $4 }' | grep -qxF "$1"
-}
-
-wait_listening() {
-    local endpoint="$1" waited=0
-    while (( waited < RUNTIME_WAIT )); do
-        listening "${endpoint}" && return 0
-        sleep 1
-        waited=$((waited + 1))
-    done
-    return 1
-}
-
-# runtime_problems STATE ADDRESS — the running receiver, read-only.
-runtime_problems() {
-    local state="$1" address="$2" before after endpoint port_problems
-
-    [[ "$("${SYSTEMCTL_BIN}" is-enabled "${SERVICE_UNIT}" 2>/dev/null || true)" == enabled ]] \
-        || printf '%s is not enabled for boot\n' "${SERVICE_UNIT}"
-
-    if ! wait_service_running "${SERVICE_UNIT}"; then
-        printf '%s is not active and running (ActiveState=%s SubState=%s)\n' "${SERVICE_UNIT}" \
-            "$(service_property "${SERVICE_UNIT}" ActiveState)" "$(service_property "${SERVICE_UNIT}" SubState)"
-        return 0
-    fi
-
-    before="$(service_property "${SERVICE_UNIT}" NRestarts)"
-    sleep "${STABILITY_WAIT}"
-    after="$(service_property "${SERVICE_UNIT}" NRestarts)"
-    service_is_running "${SERVICE_UNIT}" || printf '%s did not stay running\n' "${SERVICE_UNIT}"
-    [[ "${before:-0}" == "${after:-0}" ]] || printf '%s restarted during the stability window\n' "${SERVICE_UNIT}"
-
-    endpoint="$(loopback_endpoint)"
-    wait_listening "${endpoint}" || printf 'nothing listens on the loopback listener %s\n' "${endpoint}"
-
-    if [[ "${state}" == enabled ]]; then
-        wait_listening "${address}:25" || printf 'nothing listens on %s:25, though public SMTP is enabled\n' "${address}"
-    fi
-
-    # Whatever listens on a public SMTP port is judged by the one judge, from
-    # this bundle's reviewed contract — which also refuses a public listener
-    # while the host is recorded as disabled.
-    port_problems="$(public_smtp_problems "${FS_ROOT}" "${INBOUND_FILE}")"
-    [[ -z "${port_problems}" ]] || printf '%s\n' "${port_problems}"
-}
-
-# host_free_bytes PATH — free bytes on PATH's filesystem.
-host_free_bytes() {
-    "${DF_BIN}" -B1 --output=avail "$1" 2>/dev/null | tail -n 1 | tr -d ' '
-}
-
-# address_is_local ADDRESS — ADDRESS is one of this host's own IPv4 addresses.
-address_is_local() {
-    "${IP_BIN}" -4 -o addr show 2>/dev/null | awk '{ split($4, a, "/"); print a[1] }' | grep -qxF "$1"
-}
-
-# queue_problems — mail the receiver accepted but could not store. A message
-# waits in the queue only on its way to the store; one that is deferred could
-# not be written there. Queue IDs and counts only, never an address.
-queue_problems() {
-    local listing deferred
-    if ! listing="$("${POSTQUEUE_BIN}" -c "$(physical "${CONFIG_DIR}")" -j 2>/dev/null)"; then
-        printf 'postqueue could not read the receiver queue — whether accepted mail is being stored cannot be proved\n'
-        return 0
-    fi
-    [[ -n "${listing}" ]] || return 0
-
-    deferred="$(jq -rs --argjson now "$(date -u '+%s')" --argjson grace "${QUEUE_GRACE_SECONDS}" '
-        [.[] | select(.queue_name == "deferred" or .queue_name == "hold" or (.arrival_time < $now - $grace)) | .queue_id]
-        | join(" ")' <<<"${listing}" 2>/dev/null)" \
-        || { printf 'the receiver queue listing could not be parsed\n'; return 0; }
-    [[ -z "${deferred}" ]] || printf 'accepted mail has not reached the store and waits in the queue: %s\n' "${deferred}"
-}
-
-# --- Report ---------------------------------------------------------------------------
-
-report_storage() {
-    local mailbox count base used avail
-    base="$(physical "${STORE_DIR}")"
-
-    while IFS= read -r mailbox; do
-        count=0
-        if [[ -d "${base}/${mailbox}" ]]; then
-            count="$( { find "${base}/${mailbox}new" "${base}/${mailbox}cur" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"
-        fi
-        printf '         stored   %-34s %s message(s)\n' "${mailbox}" "${count}"
-    done < <(receiver_value '.mailboxes[]')
-
-    used="$("${DF_BIN}" -B1 --output=used "$(physical "${VOLUME}")" 2>/dev/null | tail -n 1 | tr -d ' ')"
-    avail="$("${DF_BIN}" -B1 --output=avail "$(physical "${VOLUME}")" 2>/dev/null | tail -n 1 | tr -d ' ')"
-    printf '         volume   used %s bytes, free %s bytes (refuses new mail below %s)\n' \
-        "${used:-unknown}" "${avail:-unknown}" "$(receiver_value '.limits.storage_reserve_bytes')"
-}
-
-# report_contract — every check --verify makes, as items. Read-only.
-report_contract() {
-    local logical candidate state applied problems id address
-
-    if package_installed; then
-        item PASS package "postfix is installed (the gateway's), and used, never reinstalled"
-    else
-        item FAIL package "postfix is not installed — the receiver uses the package the mail gateway installed"
-    fi
-
-    case "$(marker_state)" in
-        installed) item PASS ownership "the receiver's ownership marker: installed" ;;
-        installing) item DRIFT ownership "an installation was started and did not complete — --apply resumes it" ;;
-        *) item MISSING ownership "the receiver is not installed on this host" ;;
-    esac
-
-    applied="$(applied_state)"
-    case "${applied}" in
-        absent)   item MISSING applied-state "no applied state is recorded"; state=disabled; address="" ;;
-        corrupt)  item FAIL applied-state "${APPLIED_STATE} is incomplete or unreadable"; state=corrupt; address="" ;;
-        *)
-            state="${applied%%$'\t'*}"; address="${applied#*$'\t'}"; [[ "${address}" != "-" ]] || address=""
-            item PASS applied-state "public SMTP is ${state}$([[ -n "${address}" ]] && printf ' on %s:25' "${address}")"
-            ;;
-    esac
-
-    if [[ -e "$(physical "${TRANSITION_AUTHORIZATION}")" ]]; then
-        item DRIFT authorization "an unused public SMTP transition authorization is waiting — it is activate-mail-inbound's"
-    fi
-
+report_tls() {
     tls_state
     case "${TLS_STATE}" in
-        present) item PASS tls "a certificate for $(receiver_value '.mx_hostnames | join(", ")'), valid for at least ${TLS_MIN_DAYS} days, its key matching" ;;
-        absent)
-            if [[ "${state}" == enabled ]]; then item FAIL tls "${TLS_PROBLEM} — public SMTP is enabled"
-            else item DEFERRED tls "${TLS_PROBLEM} — required before public SMTP is enabled"; fi
+        present)
+            item PASS tls "a certificate for $(receiver_value '.mx_hostnames | join(", ")'), valid for at least ${TLS_MIN_DAYS} days, its key matching"
             ;;
-        *) item FAIL tls "${TLS_PROBLEM}" ;;
+        absent)
+            if [[ "$(public_smtp_recorded)" == enabled ]]; then
+                item FAIL tls "${TLS_PROBLEM} — public SMTP is enabled"
+            else
+                item DEFERRED tls "${TLS_PROBLEM} — required before public SMTP is enabled, not for the store"
+            fi
+            ;;
+        *)
+            item FAIL tls "${TLS_PROBLEM}"
+            ;;
     esac
-
-    [[ "${state}" != corrupt ]] || state=disabled
-    prepare_candidate "${state}" "${address}" "${TLS_STATE}"
-
-    while IFS=$'\t' read -r logical candidate; do
-        case "$(file_state "${logical}" "${CANDIDATE_DIR}/${candidate}")" in
-            PASS)    item PASS "file:${logical##*/}" "exactly the reviewed render" ;;
-            MISSING) item MISSING "file:${logical##*/}" "${logical} is not installed" ;;
-            FOREIGN) item FAIL "file:${logical##*/}" "${logical} is not a regular file" ;;
-            *)       item DRIFT "file:${logical##*/}" "${logical} differs from the reviewed render" ;;
-        esac
-    done < <(managed_files)
-
-    problems="$(volume_problems)"
-    verdict volume "${problems}" "the fixed-size store volume is mounted at ${VOLUME} (ext4, nodev, nosuid, noexec)"
-
-    problems="$(store_problems)"
-    verdict store "${problems}" "queue, store, data and log directories owned and moded as reviewed"
-
-    problems="$(postfix_config_problems "$(physical "${CONFIG_DIR}")")"
-    verdict postfix "${problems}" "Postfix parses ${CONFIG_DIR} cleanly and runs only the receiver's services"
-
-    problems="$(queue_problems)"
-    verdict queue "${problems}" "nothing accepted is waiting to be stored"
-
-    problems="$(runtime_problems "${state}" "${address}")"
-    verdict runtime "${problems}" "${SERVICE_UNIT} enabled, running and stable; listeners as the applied state says; $(public_smtp_summary "${FS_ROOT}")"
-
-    while IFS= read -r id; do
-        problems="$(requirement_problems "$(physical "${CONFIG_DIR}")" "${id}")"
-        verdict "requirement:${id}" "${problems}" "met, as Postfix reads the installed configuration"
-    done < <(requirement_ids)
-
-    report_storage
 }
 
-# requirement_ids — the plan's receiver requirements, from mail-inbound.
-requirement_ids() {
-    "${INBOUND_CLI}" render-plan \
-        --inbound "${INBOUND_FILE}" --routing "${ROUTING_FILE}" --registry "${REGISTRY_FILE}" \
-        --outbound "${OUTBOUND_FILE}" --identity "${IDENTITY_FILE}" | jq -r '.receiver.requirements[]'
+# --- Check and verify -------------------------------------------------------------
+
+report_store() {
+    local account problems image need free state line
+    account="$(store_account)"
+    case "${account}" in
+        ours)    item PASS account "${MAIL_INBOUND_STORE_USER}, a system account with no login" ;;
+        absent)  item MISSING account "${MAIL_INBOUND_STORE_USER} does not exist — --apply creates it" ;;
+        foreign) item FAIL account "${MAIL_INBOUND_STORE_USER} exists but was not created by RateGuru — it is never taken over" ;;
+    esac
+
+    image="$(physical "${MAIL_INBOUND_STORE_IMAGE}")"
+    if [[ ! -e "${image}" ]]; then
+        need=$(( $(receiver_value '.limits.storage_bytes') + $(receiver_value '.limits.host_reserve_bytes') ))
+        free="$(host_free_bytes "$(physical "$(dirname "${MAIL_INBOUND_HOME}")")")"
+        if [[ "${free}" =~ ^[0-9]+$ ]] && (( free >= need )); then
+            item MISSING volume "${MAIL_INBOUND_STORE_IMAGE} does not exist — --apply creates it ($(receiver_value '.limits.storage_bytes') bytes; ${free} free, ${need} needed with the host reserve)"
+        else
+            item FAIL volume "${free:-unknown} bytes are free; creating the store needs ${need} — its fixed-size volume and the host reserve"
+        fi
+    fi
+
+    state="$(sysctl_state)"
+    case "${state}" in
+        PASS)    item PASS "file:${SYSCTL_FILE}" "${SYSCTL_KEY} = 1, in effect: no single address can stop Postfix from starting" ;;
+        MISSING) item MISSING "file:${SYSCTL_FILE}" "absent — --apply installs it before inbound mail is installed" ;;
+        DRIFT)   item DRIFT "file:${SYSCTL_FILE}" "not as rendered, or ${SYSCTL_KEY} is not in effect — --apply restores it" ;;
+    esac
+
+    state="$(mount_unit_state)"
+    case "${state}" in
+        PASS)    item PASS "file:${MOUNT_UNIT_FILE}" "exactly the reviewed render" ;;
+        MISSING) item MISSING "file:${MOUNT_UNIT_FILE}" "absent — --apply installs it" ;;
+        DRIFT)   item DRIFT "file:${MOUNT_UNIT_FILE}" "differs from the reviewed render — --apply replaces it" ;;
+    esac
+
+    if [[ -e "${image}" ]]; then
+        problems="$(volume_problems)"
+        if [[ -z "${problems}" ]]; then
+            item PASS volume "the fixed-size store volume is mounted at ${MAIL_INBOUND_STORE} (ext4, nodev, nosuid, noexec)"
+            problems="$(store_problems)"
+            if [[ -z "${problems}" ]]; then
+                item PASS store "the store and every mailbox belong to ${MAIL_INBOUND_STORE_USER}, 0700"
+            else
+                while IFS= read -r line; do item DRIFT store "${line}"; done <<<"${problems}"
+            fi
+        else
+            while IFS= read -r line; do item FAIL volume "${line}"; done <<<"${problems}"
+        fi
+    fi
 }
 
 run_check() {
-    require_root
-    require_tools jq stat cmp sha256sum
+    require_tools jq stat cmp
     load_receiver
-
     printf 'install-mail-inbound --check (read-only)\n'
-
-    if package_installed; then
-        item PASS package "postfix is installed"
-    else
-        item FAIL package "postfix is not installed — install the mail gateway first; this installer never installs the package"
-    fi
-    if gateway_installed; then
-        item PASS gateway "the mail gateway is installed (its marker says so); its configuration is never touched"
-    else
-        item FAIL gateway "the mail gateway is not installed — the receiver uses its Postfix package and comes after it"
-    fi
-
-    case "$(ownership)" in
-        owned) item PASS ownership "the receiver is RateGuru's (marker $(marker_state))" ;;
-        fresh) item PASS ownership "nothing of a receiver exists: --apply installs it" ;;
-        *)     item FAIL ownership "receiver paths exist without RateGuru's marker: $(foreign_presence | paste -sd ',' -) — never taken over" ;;
-    esac
-
-    local applied
-    applied="$(applied_state)"
-    case "${applied}" in
-        corrupt) item FAIL applied-state "${APPLIED_STATE} is incomplete or unreadable" ;;
-        absent)  item PASS applied-state "none recorded: a new receiver starts disabled" ;;
-        *)       item PASS applied-state "public SMTP ${applied%%$'\t'*}" ;;
-    esac
-
-    if [[ ! -e "$(physical "${STORE_IMAGE}")" ]]; then
-        local need free
-        need=$(( $(receiver_value '.limits.storage_bytes') + $(receiver_value '.limits.host_reserve_bytes') ))
-        free="$(host_free_bytes "$(physical /var/lib)")"
-        if [[ "${free}" =~ ^[0-9]+$ ]] && (( free >= need )); then
-            item PASS disk "${free} bytes free; the store needs ${need} (its volume and the host reserve)"
-        else
-            item FAIL disk "${free:-unknown} bytes free; creating the store needs ${need} (its $(receiver_value '.limits.storage_bytes')-byte volume and the $(receiver_value '.limits.host_reserve_bytes')-byte host reserve)"
-        fi
-    fi
-
-    local endpoint
-    endpoint="$(loopback_endpoint)"
-    if [[ "$(ownership)" == fresh ]] && listening "${endpoint}"; then
-        item FAIL loopback-port "${endpoint} is already in use by another process"
-    else
-        item PASS loopback-port "${endpoint} is free for the receiver, or already its own"
-    fi
-
-    tls_state
-    case "${TLS_STATE}" in
-        present) item PASS tls "valid for every MX host name" ;;
-        absent)  item DEFERRED tls "${TLS_PROBLEM} — required before public SMTP is enabled, not to install" ;;
-        *)       item FAIL tls "${TLS_PROBLEM}" ;;
-    esac
-
+    report_store
+    report_tls
     printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
-    cleanup_work_dir
     (( COUNT_FAIL == 0 ))
+}
+
+run_verify() {
+    require_root
+    require_tools jq stat cmp
+    load_receiver
+    printf 'install-mail-inbound --verify (read-only)\n'
+    report_store
+    report_tls
+    [[ "$(store_account)" != ours || ! -e "$(physical "${MAIL_INBOUND_STORE_IMAGE}")" ]] || report_storage
+    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
+    (( COUNT_FAIL + COUNT_DRIFT == 0 ))
 }
 
 run_tls_check() {
     require_root
     require_tools jq stat sha256sum
     load_receiver
-
     tls_state
-    case "${TLS_STATE}" in
-        present)
-            printf 'TLS READY: a certificate for %s, valid for at least %s days, its key matching\n' \
-                "$(receiver_value '.mx_hostnames | join(", ")')" "${TLS_MIN_DAYS}"
-            ;;
-        *)
-            printf 'TLS NOT READY: %s\n' "${TLS_PROBLEM}"
-            return 1
-            ;;
-    esac
+    if [[ "${TLS_STATE}" == present ]]; then
+        printf 'TLS READY: a certificate for %s, valid for at least %s days, its key matching\n' "$(receiver_value '.mx_hostnames | join(", ")')" "${TLS_MIN_DAYS}"
+        return 0
+    fi
+    printf 'TLS NOT READY: %s\n' "${TLS_PROBLEM}"
+    return 1
 }
 
-run_verify() {
-    require_root
-    require_tools jq stat cmp sha256sum
-    load_receiver
-    store_ids || true
+# --- Apply --------------------------------------------------------------------------
 
-    printf 'install-mail-inbound --verify (read-only)\n'
-    trap cleanup_work_dir EXIT
-    report_contract
-    cleanup_work_dir
-
-    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
-    (( COUNT_FAIL == 0 && COUNT_DRIFT == 0 ))
-}
-
-# --- Apply: transaction -----------------------------------------------------------------
-
-BACKUP_DIR=""
-ROLLBACK_RESTORE=()
-ROLLBACK_REMOVE=()
+UNIT_BACKUP=""
+UNIT_CHANGED=false
 APPLY_COMMITTED=false
-MAIN_BASHPID=""
-FILES_CHANGED=false
-UNITS_CHANGED=false
-SERVICE_ENABLED_BEFORE=""
-SERVICE_ACTIVE_BEFORE=""
-MOUNT_ACTIVE_BEFORE=""
-
-record_target() {
-    local path="$1" backup
-    if [[ -e "${path}" || -L "${path}" ]]; then
-        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
-        install -d -m 0700 "$(dirname "${backup}")"
-        cp -a "${path}" "${backup}"
-        ROLLBACK_RESTORE+=("${path}")
-    else
-        ROLLBACK_REMOVE+=("${path}")
-    fi
-}
-
-install_managed_file() {
-    local logical="$1" candidate="$2" path tmp
-    path="$(physical "${logical}")"
-
-    record_target "${path}"
-    install -d -m 0755 "$(dirname "${path}")"
-    tmp="${path}.rateguru-tmp.$$"
-    install -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m "0${MANAGED_FILE_MODE}" "${candidate}" "${tmp}"
-    mv -f "${tmp}" "${path}"
-    FILES_CHANGED=true
-}
-
-rollback() {
-    action "rolling back the receiver's configuration and service state"
-    local status=0 path backup
-
-    for path in "${ROLLBACK_REMOVE[@]:-}"; do
-        [[ -n "${path}" ]] || continue
-        rm -f "${path}" || { action "ERROR: could not remove ${path}"; status=1; }
-    done
-
-    for path in "${ROLLBACK_RESTORE[@]:-}"; do
-        [[ -n "${path}" ]] || continue
-        backup="${BACKUP_DIR}${path#"${FS_ROOT}"}"
-        if [[ -e "${backup}" || -L "${backup}" ]]; then
-            rm -f "${path}"
-            cp -a "${backup}" "${path}" || { action "ERROR: could not restore ${path}"; status=1; }
-        else
-            action "ERROR: no backup of ${path}; it was left as installed"
-            status=1
-        fi
-    done
-
-    "${SYSTEMCTL_BIN}" daemon-reload >/dev/null 2>&1 || true
-
-    if [[ "${SERVICE_ACTIVE_BEFORE}" == active ]]; then
-        "${SYSTEMCTL_BIN}" restart "${SERVICE_UNIT}" >/dev/null 2>&1 || true
-        [[ "$(service_property "${SERVICE_UNIT}" ActiveState)" == active ]] || status=1
-    else
-        "${SYSTEMCTL_BIN}" stop "${SERVICE_UNIT}" >/dev/null 2>&1 || true
-        [[ "$(service_property "${SERVICE_UNIT}" ActiveState)" != active ]] || status=1
-    fi
-    if [[ "${SERVICE_ENABLED_BEFORE}" != enabled ]]; then
-        "${SYSTEMCTL_BIN}" disable "${SERVICE_UNIT}" >/dev/null 2>&1 || true
-    fi
-
-    # A volume this run mounted for the first time is unmounted again; its
-    # image is kept, empty, for the next run.
-    if [[ "${MOUNT_ACTIVE_BEFORE}" != active ]]; then
-        "${SYSTEMCTL_BIN}" stop "${MOUNT_UNIT}" >/dev/null 2>&1 || true
-        "${SYSTEMCTL_BIN}" disable "${MOUNT_UNIT}" >/dev/null 2>&1 || true
-    fi
-
-    if (( status != 0 )); then
-        action "ERROR: rollback INCOMPLETE — the previous configuration or service state was not fully restored; backups remain in ${BACKUP_DIR}"
-        return 1
-    fi
-
-    action "rollback complete: configuration, recorded state and service state restored (backups in ${BACKUP_DIR})"
-}
 
 on_apply_error() {
     local code=$?
-
-    # errtrace carries this trap into every $(...) as well; only the apply's own
-    # shell may roll back.
-    [[ "${BASHPID}" == "${MAIN_BASHPID}" ]] || exit "${code}"
-
     trap - ERR EXIT
-
-    if [[ "${APPLY_COMMITTED}" == false && -n "${BACKUP_DIR}" ]]; then
-        rollback || true
+    if [[ "${APPLY_COMMITTED}" == false && "${UNIT_CHANGED}" == true ]]; then
+        action "restoring ${MOUNT_UNIT_FILE}"
+        if [[ -n "${UNIT_BACKUP}" && -f "${UNIT_BACKUP}" ]]; then
+            cp -a "${UNIT_BACKUP}" "$(physical "${MOUNT_UNIT_FILE}")" || true
+        else
+            rm -f "$(physical "${MOUNT_UNIT_FILE}")" || true
+        fi
+        "${SYSTEMCTL_BIN}" daemon-reload >/dev/null 2>&1 || true
     fi
-
-    cleanup_work_dir
-    action "apply FAILED (exit ${code}); the ownership marker stays, so a re-run resumes"
+    [[ -z "${UNIT_BACKUP}" ]] || rm -f "${UNIT_BACKUP}"
+    action "apply FAILED (exit ${code}); the store's image and account, when created, are kept — empty, and reused by the next run"
     exit "${code}"
 }
 
-ensure_store_user() {
-    if store_ids; then
-        return 0
-    fi
-    action "creating the store's system user ${STORE_USER_NAME}"
+ensure_account() {
+    case "$(store_account)" in
+        ours) return 0 ;;
+        foreign) fail "${MAIL_INBOUND_STORE_USER} exists but was not created by RateGuru — it is never taken over. Nothing was changed" ;;
+    esac
+    action "creating the store's system account ${MAIL_INBOUND_STORE_USER}"
     "${USERADD_BIN}" --system --user-group --no-create-home --home-dir /nonexistent \
-        --shell /usr/sbin/nologin "${STORE_USER_NAME}"
-    store_ids || fail "the store user ${STORE_USER_NAME} could not be created"
+        --shell /usr/sbin/nologin --comment "${MAIL_INBOUND_STORE_GECOS}" "${MAIL_INBOUND_STORE_USER}"
+    [[ "$(store_account)" == ours ]] || fail "the store account ${MAIL_INBOUND_STORE_USER} could not be created"
 }
 
 ensure_volume() {
-    local image need free mount_candidate="$1"
-    image="$(physical "${STORE_IMAGE}")"
+    local image need free unit tmp
+    image="$(physical "${MAIL_INBOUND_STORE_IMAGE}")"
+    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${MAIL_INBOUND_HOME}")"
 
     if [[ ! -e "${image}" ]]; then
         need=$(( $(receiver_value '.limits.storage_bytes') + $(receiver_value '.limits.host_reserve_bytes') ))
-        free="$(host_free_bytes "$(physical "${STATE_DIR}")")"
+        free="$(host_free_bytes "$(physical "${MAIL_INBOUND_HOME}")")"
         if [[ ! "${free}" =~ ^[0-9]+$ ]] || (( free < need )); then
-            fail "${free:-unknown} bytes are free on the host; creating the store needs ${need} — its fixed-size volume and the host reserve. Nothing was changed but the marker"
+            fail "${free:-unknown} bytes are free on the host; creating the store needs ${need} — its fixed-size volume and the host reserve"
         fi
-
-        action "creating the store's fixed-size volume: ${STORE_IMAGE} ($(receiver_value '.limits.storage_bytes') bytes, ext4, label ${VOLUME_LABEL})"
-        install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${STATE_DIR}")"
+        action "creating the store's fixed-size volume: ${MAIL_INBOUND_STORE_IMAGE} ($(receiver_value '.limits.storage_bytes') bytes, ext4, label ${MAIL_INBOUND_STORE_LABEL})"
         "${FALLOCATE_BIN}" -l "$(receiver_value '.limits.storage_bytes')" "${image}"
         chmod 0600 "${image}"
-        "${MKFS_BIN}" -q -F -m 0 -L "${VOLUME_LABEL}" "${image}"
+        "${MKFS_BIN}" -q -F -m 0 -L "${MAIL_INBOUND_STORE_LABEL}" "${image}"
     fi
 
-    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${VOLUME}")"
+    # The mount point itself belongs to root, so nothing can be stored beside
+    # the volume while it is not mounted.
+    if [[ "$("${FINDMNT_BIN}" -n -o TARGET --mountpoint "$(physical "${MAIL_INBOUND_STORE}")" 2>/dev/null || true)" == "" ]]; then
+        install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${MAIL_INBOUND_STORE}")"
+    fi
 
-    if [[ "$(file_state "${UNIT_DIR}/${MOUNT_UNIT}" "${mount_candidate}")" != PASS ]]; then
-        action "installing ${UNIT_DIR}/${MOUNT_UNIT}"
-        install_managed_file "${UNIT_DIR}/${MOUNT_UNIT}" "${mount_candidate}"
-        UNITS_CHANGED=true
+    unit="$(physical "${MOUNT_UNIT_FILE}")"
+    if [[ "$(mount_unit_state)" != PASS ]]; then
+        action "installing ${MOUNT_UNIT_FILE}"
+        install -d -m 0755 "$(dirname "${unit}")"
+        if [[ -f "${unit}" ]]; then
+            UNIT_BACKUP="$(mktemp)"
+            cp -a "${unit}" "${UNIT_BACKUP}"
+        fi
+        UNIT_CHANGED=true
+        tmp="${unit}.rateguru-tmp.$$"
+        render_mount_unit > "${tmp}"
+        chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+        chmod "0${MANAGED_FILE_MODE}" "${tmp}"
+        mv -f "${tmp}" "${unit}"
         "${SYSTEMCTL_BIN}" daemon-reload
     fi
 
-    "${SYSTEMCTL_BIN}" enable "${MOUNT_UNIT}" >/dev/null
+    "${SYSTEMCTL_BIN}" enable "${MAIL_INBOUND_STORE_MOUNT_UNIT}" >/dev/null
 
     # Started only when it is not mounted: once mounted, systemd tracks the
-    # volume by its loop device, and a second start of the same mount would
-    # only wait on that device again.
-    if [[ "$(service_property "${MOUNT_UNIT}" ActiveState)" != active ]]; then
-        action "mounting the store volume at ${VOLUME}"
-        "${SYSTEMCTL_BIN}" start "${MOUNT_UNIT}"
+    # volume by its loop device, and a second start would only wait on it.
+    if [[ "$(service_property "${MAIL_INBOUND_STORE_MOUNT_UNIT}" ActiveState)" != active ]]; then
+        action "mounting the store volume at ${MAIL_INBOUND_STORE}"
+        "${SYSTEMCTL_BIN}" start "${MAIL_INBOUND_STORE_MOUNT_UNIT}"
     fi
 
     local problems
@@ -1513,7 +648,7 @@ ensure_volume() {
     [[ -z "${problems}" ]] || fail "the store volume is not as reviewed: ${problems//$'\n'/; }"
 }
 
-ensure_store_layout() {
+ensure_layout() {
     local path want owner mode
     while IFS=$'\t' read -r path want; do
         owner="${want% *}"
@@ -1526,157 +661,64 @@ ensure_store_layout() {
 
 perform_apply() {
     require_root
-    require_tools jq stat cmp install sha256sum mktemp
-
-    trap cleanup_work_dir EXIT
+    require_tools jq stat cmp install mktemp
     load_receiver
 
     action "validating the plan and the host before any mutation"
+    [[ "$(store_account)" != foreign ]] \
+        || fail "${MAIL_INBOUND_STORE_USER} exists but was not created by RateGuru — it is never taken over. Nothing was changed"
 
-    package_installed \
-        || fail "postfix is not installed — the receiver uses the package the mail gateway installed, and this installer never installs it. Nothing was changed"
-    gateway_installed \
-        || fail "the mail gateway is not installed on this host — install it first; the receiver comes after it. Nothing was changed"
-
-    local owner
-    owner="$(ownership)"
-    [[ "${owner}" != foreign ]] \
-        || fail "receiver paths exist without RateGuru's ownership marker ($(foreign_presence | paste -sd ',' -)) — refusing to take over a receiver RateGuru did not install. Nothing was changed"
-
-    if [[ "${owner}" == fresh ]] && listening "$(loopback_endpoint)"; then
-        fail "$(loopback_endpoint) is already in use by another process — nothing was changed"
-    fi
-
-    resolve_desired_state
-
-    # A bundle that does not request public SMTP never converges a host that has
-    # it: it would neither close the port — that is the rollback's — nor keep a
-    # host it does not request. It stops before touching the running receiver.
-    if [[ "${DESIRED_STATE}" == enabled && -z "${DESIRED_TRANSITION}" ]] \
-        && ! public_smtp_contract_requests_enabled "${INBOUND_FILE}"
-    then
-        fail "public SMTP is enabled on this host, but this bundle's inbound contract does not request it — an older or another bundle never closes it. Run the inbound rollback, or apply from a bundle that requests it. Nothing was changed"
-    fi
-
-    tls_state
-    if [[ "${DESIRED_STATE}" == enabled ]]; then
-        [[ "${TLS_STATE}" == present ]] \
-            || fail "public SMTP needs a valid certificate: ${TLS_PROBLEM}. Nothing was changed"
-        address_is_local "${DESIRED_ADDRESS}" \
-            || fail "${DESIRED_ADDRESS} is not an address of this host — the receiver binds exactly the address it was authorized for. Nothing was changed"
-    elif [[ "${TLS_STATE}" == invalid ]]; then
-        fail "the installed certificate is not usable: ${TLS_PROBLEM}. Fix or remove it. Nothing was changed"
-    fi
-
-    # The one-use authorization is consumed before anything changes: even an
-    # apply that fails later cannot leave it to be used again.
-    if [[ -n "${DESIRED_TRANSITION}" ]]; then
-        action "the ${DESIRED_TRANSITION} of public SMTP is authorized by activate-mail-inbound for exactly this state — consuming that one-use authorization"
-        consume_authorization
-    fi
-
-    BACKUP_DIR="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-$$"
-    install -d -m 0700 "$(physical "${BACKUP_ROOT}")" "${BACKUP_DIR}"
-    action "backups for this run: ${BACKUP_DIR}"
-
-    MAIN_BASHPID="${BASHPID}"
     trap on_apply_error ERR EXIT
+    ensure_account
+    ensure_sysctl
+    ensure_volume
+    ensure_layout
 
-    SERVICE_ENABLED_BEFORE="$("${SYSTEMCTL_BIN}" is-enabled "${SERVICE_UNIT}" 2>/dev/null || true)"
-    SERVICE_ACTIVE_BEFORE=inactive
-    [[ "$(service_property "${SERVICE_UNIT}" ActiveState)" == active ]] && SERVICE_ACTIVE_BEFORE=active
-    MOUNT_ACTIVE_BEFORE=inactive
-    [[ "$(service_property "${MOUNT_UNIT}" ActiveState)" == active ]] && MOUNT_ACTIVE_BEFORE=active
-    action "pre-apply state: ${SERVICE_UNIT} ${SERVICE_ENABLED_BEFORE:-not-found}, ${SERVICE_ACTIVE_BEFORE}; public SMTP ${DESIRED_STATE}$([[ -n "${DESIRED_TRANSITION}" ]] && printf ' (after the %s)' "${DESIRED_TRANSITION}")"
-
-    [[ "$(marker_state)" == installed ]] || write_marker installing
-
-    record_target "$(physical "${APPLIED_STATE}")"
-
-    ensure_store_user
-    prepare_candidate "${DESIRED_STATE}" "${DESIRED_ADDRESS}" "${TLS_STATE}"
-    ensure_volume "${CANDIDATE_DIR}/mount.unit"
-    ensure_store_layout
-
-    # Postfix judges the candidate before a single managed file is touched.
     local problems
-    problems="$(postfix_config_problems "${CANDIDATE_DIR}")"
-    [[ -z "${problems}" ]] || fail "Postfix does not accept the rendered receiver configuration: ${problems//$'\n'/; }"
+    problems="$(store_problems)"
+    [[ -z "${problems}" ]] || fail "the store is not as reviewed: ${problems//$'\n'/; }"
 
-    local logical candidate
-    while IFS=$'\t' read -r logical candidate; do
-        [[ "${candidate}" != mount.unit ]] || continue
-        if [[ "$(file_state "${logical}" "${CANDIDATE_DIR}/${candidate}")" != PASS ]]; then
-            action "installing ${logical}"
-            install_managed_file "${logical}" "${CANDIDATE_DIR}/${candidate}"
-            [[ "${candidate}" != service.unit ]] || UNITS_CHANGED=true
-        fi
-    done < <(managed_files)
-
-    [[ "${UNITS_CHANGED}" == false ]] || "${SYSTEMCTL_BIN}" daemon-reload
-
-    # postfix check validates the installed directory and creates the queue.
-    "${POSTFIX_BIN}" -c "$(physical "${CONFIG_DIR}")" check \
-        || fail "postfix -c ${CONFIG_DIR} check refused the installed configuration"
-
-    problems="$(postfix_config_problems "$(physical "${CONFIG_DIR}")")"
-    [[ -z "${problems}" ]] || fail "the installed receiver configuration does not validate: ${problems//$'\n'/; }"
-
-    "${SYSTEMCTL_BIN}" enable "${SERVICE_UNIT}" >/dev/null
-
-    if [[ "$(service_property "${SERVICE_UNIT}" ActiveState)" != active ]]; then
-        action "starting ${SERVICE_UNIT}"
-        "${SYSTEMCTL_BIN}" start "${SERVICE_UNIT}"
-    elif [[ "${FILES_CHANGED}" == true ]]; then
-        action "reloading ${SERVICE_UNIT} with the new configuration"
-        "${SYSTEMCTL_BIN}" reload "${SERVICE_UNIT}"
-    else
-        action "receiver configuration unchanged — ${SERVICE_UNIT} left running as it is"
-    fi
-
-    # The new state is recorded before the runtime is judged, so the judge
-    # reads it — and restored with everything else if the judgement fails.
-    write_applied_state "${DESIRED_STATE}" "${DESIRED_ADDRESS}"
-
-    problems="$(runtime_problems "${DESIRED_STATE}" "${DESIRED_ADDRESS}")"
-    [[ -z "${problems}" ]] || fail "the running receiver is not as reviewed: ${problems//$'\n'/; }"
-
-    [[ "$(marker_state)" == installed ]] || write_marker installed
     APPLY_COMMITTED=true
     trap - ERR EXIT
-    cleanup_work_dir
-
-    action "apply complete — the receiver is installed, validated and running; public SMTP ${DESIRED_STATE}$([[ -n "${DESIRED_ADDRESS}" ]] && printf ' on %s:25' "${DESIRED_ADDRESS}")"
+    [[ -z "${UNIT_BACKUP}" ]] || rm -f "${UNIT_BACKUP}"
+    action "apply complete — the store is mounted at ${MAIL_INBOUND_STORE}, owned by ${MAIL_INBOUND_STORE_USER}; nothing of Postfix was touched"
 }
 
-# --- Entry point ---------------------------------------------------------------------------
+# --- Entry point ---------------------------------------------------------------------
 
 parse_args() {
-    [[ $# -eq 1 ]] || { usage >&2; exit 1; }
+    [[ $# -gt 0 ]] || { usage >&2; fail "one of --check, --apply, --verify or --tls-check is required"; }
 
-    case "$1" in
-        --check)  MODE=check ;;
-        --apply)  MODE=apply ;;
-        --verify) MODE=verify ;;
-        --tls-check) MODE="tls-check" ;;
-        -h|--help) usage; exit 0 ;;
-        *) usage >&2; fail "unknown argument: $1" ;;
-    esac
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--tls-check)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
 }
 
 main() {
     parse_args "$@"
 
     case "${MODE}" in
-        check)  run_check ;;
-        apply)  perform_apply ;;
+        check) run_check ;;
         verify) run_verify ;;
+        apply) perform_apply ;;
         tls-check) run_tls_check ;;
     esac
 }
 
-# Sourcing defines the functions without running anything, so the tests drive
-# the shipped code rather than a copy of it.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

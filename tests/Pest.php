@@ -509,7 +509,7 @@ function executableSourceLines(string $source): string
  */
 function sourcedLibraryNames(): array
 {
-    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port'];
+    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host'];
 }
 
 /**
@@ -538,11 +538,13 @@ function sourcedLibraryNames(): array
  * the inbound plan and its DNS, and judges one recipient address. It installs,
  * opens and receives nothing, and runs from a checkout.
  *
- * `install-mail-inbound` and `activate-mail-inbound` are the inbound receiver's
- * installer and its guarded activation. Host bootstrap never runs them: the
- * receiver reaches a host only through Activate tits.guru inbound SMTP, which
- * uploads its own trusted bundle, and the read-only infrastructure
- * verification runs the activation's --verify from its bundle.
+ * `install-mail-inbound` — the store inbound mail is delivered to — and
+ * `activate-mail-inbound`, the guarded opening of public SMTP on the host's one
+ * Postfix. Host bootstrap never runs them: inbound mail reaches a host only
+ * through Activate tits.guru inbound SMTP, which uploads its own trusted
+ * bundle, and the read-only infrastructure verification runs the activation's
+ * --verify from its bundle. The gateway's installer reads `mail-inbound` from
+ * its bundle, as it reads `mail-routing`, once a host records inbound mail.
  *
  * `activate-mail-outbound` and `send-mail-canary` run only from a trusted bundle
  * uploaded by their own workflows: the activation copies that bundle's whole
@@ -2778,15 +2780,20 @@ function mailGatewayHost(array $options = []): array
                     [[ -e "${STUB_TOGGLES}/start-fail" ]] && exit 1
                     touch "${S}/$2.active" ;;
                 stop) rm -f "${S}/$2.active" ;;
-                reload) [[ -e "${S}/$2.active" ]] || exit 1 ;;
+                reload)
+                    [[ -e "${STUB_TOGGLES}/reload-fail" ]] && exit 1
+                    [[ -e "${S}/$2.active" ]] || exit 1 ;;
             esac
             exit 0
             STUB,
+        // Every listener on the host, and Postfix's own from its installed
+        // master.cf while it runs — held by its master, pid 4000.
         'ss' => <<<'STUB'
             #!/bin/bash
+            [[ -e "${STUB_TOGGLES}/ss-fail" ]] && exit 1
             sed '/^$/d; s/^/LISTEN 0 100 /; s/$/ 0.0.0.0:*/' "${STUB_STATE}/listeners"
             if [[ -e "${STUB_STATE}/postfix@-.service.active" && -f "${STUB_FS}/etc/postfix/master.cf" ]]; then
-                awk '/^[^#[:space:]]/ && $2 == "inet" { print "LISTEN 0 100 " $1 " 0.0.0.0:*" }' "${STUB_FS}/etc/postfix/master.cf"
+                awk '/^[^#[:space:]]/ && $2 == "inet" { print "LISTEN 0 100 " $1 " 0.0.0.0:* users:((\"master\",pid=4000,fd=13))" }' "${STUB_FS}/etc/postfix/master.cf"
             fi
             STUB,
         // A test double that reads the files back, not Postfix.
@@ -3643,7 +3650,7 @@ function mailActivationBundle(string $root, array $documents): void
     @mkdir($root.'/infrastructure/scripts', 0o755, true);
     @mkdir($root.'/infrastructure/config', 0o755, true);
 
-    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
+    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
         $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
         copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$copy}");
         chmod("{$root}/infrastructure/scripts/{$copy}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
@@ -3777,6 +3784,8 @@ function mailActivationHostBuilt(array $options): array
         'RATEGURU_MAILACTIVATE_POSTQUEUE_BIN' => $scratch.'/bin/postqueue',
         'RATEGURU_MAILACTIVATE_POSTCONF_BIN' => $scratch.'/bin/postconf',
         'RATEGURU_MAILACTIVATE_SS_BIN' => $scratch.'/bin/ss',
+        // The port judge reads the simulated host's master.cf and records, never this machine's.
+        'RATEGURU_MAILACTIVATE_FS_ROOT' => $fs,
         'RATEGURU_MAILCANARY_EUID' => '0',
         'RATEGURU_MAILCANARY_FILE_OWNER_UID' => (string) posix_getuid(),
         'RATEGURU_MAILCANARY_POSTQUEUE_BIN' => $scratch.'/bin/postqueue',
@@ -3898,230 +3907,192 @@ function mailActivationCapsule(array $host): string
 
 /*
 |--------------------------------------------------------------------------
-| The simulated inbound receiver host
+| The inbound mail contract's CLI
 |--------------------------------------------------------------------------
 |
-| install-mail-inbound and activate-mail-inbound run for real against FS_ROOT
-| and stubs for systemd, the mount and its volume tools, the store's account,
-| Postfix's own tools, ss, ip, openssl and the packet filter. The stubs read
-| back what the installer wrote — a test double, not Postfix. The fake
-| receiver listener (mailInboundFakeReceiverSource) answers SMTP from the
-| recipient table and main.cf the REAL installer rendered, so the activation's
-| live proof is judged against the real render.
-|
-| MailInboundReceiverTest proves the installer on it; MailInboundActivationTest
-| the activation; MailPublicSmtpPortTest the one judge of port 25.
+| infrastructure/scripts/mail-inbound run against the committed contract or
+| fixture documents: MailInboundTest proves the contract with it, and the
+| gateway's and the activation's tests read the plan it renders.
 */
 
-/** The gateway's own files on a simulated host, never to be changed. */
-function mailInboundGatewayFiles(): array
+function mailInboundScript(): string
+{
+    return base_path('infrastructure/scripts/mail-inbound');
+}
+
+/** @return array<string, mixed> */
+function mailInboundContract(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/mail-inbound.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * The committed contract — or BASE — with dot-path changes applied.
+ *
+ * @param  array<string, mixed>  $set
+ * @param  list<string>  $forget
+ * @param  array<string, mixed>|null  $base
+ * @return array<string, mixed>
+ */
+function mailInboundContractWith(array $set = [], array $forget = [], ?array $base = null): array
+{
+    return withDotPaths($base ?? mailInboundContract(), $set, $forget);
+}
+
+/**
+ * Run the shipped CLI. Each document given is written to a scratch file and
+ * passed with its own flag; one left out is the committed file, reached
+ * through the script's defaults. A string document is written verbatim, for
+ * one that is not a valid contract to begin with.
+ *
+ * stdout and stderr are kept apart: a refusal must print nothing on stdout,
+ * and a plan or verdict must be nothing but JSON.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, array<string, mixed>|string>  $documents  keyed inbound, routing, registry, outbound, identity
+ * @return array{status: int, stdout: string, stderr: string}
+ */
+function mailInboundRun(array $arguments, array $documents = [], ?string $script = null): array
+{
+    $scratch = makeScratchDir('mail-inbound');
+
+    try {
+        foreach ($documents as $name => $document) {
+            expect(['inbound', 'routing', 'registry', 'outbound', 'identity'])->toContain($name);
+
+            file_put_contents("{$scratch}/{$name}.json", is_string($document) ? $document : mailRoutingJson($document));
+            $arguments = [...$arguments, "--{$name}", "{$scratch}/{$name}.json"];
+        }
+
+        $process = proc_open(
+            ['bash', $script ?? mailInboundScript(), ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $scratch,
+            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => $scratch],
+        );
+
+        expect($process)->not->toBeFalse('could not start mail-inbound');
+
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    } finally {
+        removeScratchDir($scratch);
+    }
+}
+
+/**
+ * A command's JSON, decoded — after proving it succeeded cleanly.
+ *
+ * @param  list<string>  $arguments
+ * @param  array<string, array<string, mixed>|string>  $documents
+ * @return array<string, mixed>
+ */
+function mailInboundJson(array $arguments, array $documents = []): array
+{
+    $run = mailInboundRun($arguments, $documents);
+
+    expect($run['status'])->toBe(0, $run['stderr']);
+    expect($run['stderr'])->toBe('');
+
+    return json_decode($run['stdout'], true, 512, JSON_THROW_ON_ERROR);
+}
+
+/*
+|--------------------------------------------------------------------------
+| The simulated inbound host
+|--------------------------------------------------------------------------
+|
+| Inbound mail is received by the host's one Postfix, so its simulated host is
+| the gateway's (mailGatewayHost): the REAL install-mail-gateway, with its stubs
+| for systemd, ss and Postfix's own tools — test doubles that read back what
+| was rendered, not Postfix. To it come a trusted bundle of the real scripts
+| and documents, and stubs for the inbound store's tools (the account, the
+| volume, the mount, the sysctl), openssl, ip and the packet filter. A host in
+| a given inbound state is reached by the real transitions: the authorization
+| activate-mail-inbound writes, consumed by the real gateway. A fake SMTP
+| listener (mailInboundFakeListenerSource) answers every probe of the
+| activation from the configuration the real gateway rendered, so a proof that
+| passes has judged the real render.
+|
+| The MailGatewayInbound*Test files prove the gateway's inbound part on it, the
+| MailInboundStoreTest file the store, the MailInboundActivation*Test files the
+| activation, and MailPublicSmtpPortTest the one judge of port 25. That the
+| render behaves on a real Postfix is MailInboundRealPostfixTest's.
+*/
+
+/** The scripts a trusted inbound bundle carries. */
+function mailInboundBundleScripts(): array
 {
     return [
-        'etc/postfix/main.cf' => "# the gateway's main.cf\ninet_interfaces = loopback-only\n",
-        'etc/postfix/master.cf' => "127.0.0.1:2526 inet n - n - - smtpd\n",
-        'var/lib/rateguru-mail-gateway/ownership' => "owner=rateguru\ncomponent=mail-gateway\nstate=installed\n",
-        'var/lib/rateguru-mail-gateway/applied-plan.json' => "{\"listeners\":[]}\n",
-        'var/lib/rateguru-mail-gateway/applied-outbound.json' => "{\"direct\":{\"enabled\":true}}\n",
+        'install-mail-gateway', 'install-mail-inbound', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
+        'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
 
 /**
- * A simulated host for the inbound receiver.
+ * The documents of an inbound bundle: the committed registry, identity and
+ * inbound contract, and the routing policy and host contract a gateway first
+ * records (mailPreActivationPolicy) — inbound mail is the same on either side
+ * of the outbound activation.
  *
- * Options:
- *   gateway    false: no mail gateway is installed (its marker absent)
- *   package    false: postfix is not installed
- *   tls        true: a certificate and key are installed (valid unless a
- *              toggle says otherwise)
- *   address    the host's public IPv4 address (default 1.2.3.4)
- *   free       free bytes on the host filesystem (default 100 GiB)
- *   listeners  other TCP listeners: "ADDRESS" or "ADDRESS PID CGROUP-UNIT"
- *   inbound    an inbound contract instead of the committed one
- *   ufw        'active' | 'inactive' (default) | 'absent'
- *   filter     the packet filter's own listing (nft/iptables-save), default
- *              empty: nothing drops or rejects
- *   toggles    list of toggle names
- *
- * @return array{scratch: string, fs: string, state: string, log: string, env: array<string, string>}
+ * @return array<string, array<string, mixed>>
  */
-function mailInboundHost(array $options = []): array
+function mailInboundDocuments(?array $inbound = null): array
 {
-    $scratch = makeScratchDir('mail-inbound-host', ['', '/bin', '/fs', '/log', '/state', '/toggles']);
-    $fs = $scratch.'/fs';
-    $state = $scratch.'/state';
+    $committed = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+    $held = mailPreActivationPolicy();
 
-    foreach (mailInboundGatewayFiles() as $path => $content) {
-        if (($options['gateway'] ?? true) === false && str_contains($path, 'rateguru-mail-gateway/ownership')) {
-            continue;
-        }
-        @mkdir(dirname($fs.'/'.$path), 0o755, true);
-        file_put_contents($fs.'/'.$path, $content);
-    }
-
-    // The host's infrastructure lock exists on a bootstrapped host.
-    @mkdir($fs.'/home/www/rateguru/run', 0o755, true);
-    touch($fs.'/home/www/rateguru/run/host-infrastructure.lock');
-    @mkdir($fs.'/var/lib', 0o755, true);
-
-    if ($options['package'] ?? true) {
-        touch($state.'/postfix-installed');
-    }
-
-    if ($options['tls'] ?? false) {
-        @mkdir($fs.'/etc/rateguru-mail-inbound/tls', 0o755, true);
-        file_put_contents($fs.'/etc/rateguru-mail-inbound/tls/fullchain.pem', "-----BEGIN CERTIFICATE-----\nnot a real certificate\n-----END CERTIFICATE-----\n");
-        file_put_contents($fs.'/etc/rateguru-mail-inbound/tls/privkey.pem', "-----BEGIN PRIVATE KEY-----\nnot a real key\n-----END PRIVATE KEY-----\n");
-        chmod($fs.'/etc/rateguru-mail-inbound/tls/privkey.pem', 0o600);
-    }
-
-    file_put_contents($state.'/address', ($options['address'] ?? '1.2.3.4')."\n");
-    file_put_contents($state.'/free', (string) ($options['free'] ?? 107374182400));
-    $listeners = $options['listeners'] ?? ['127.0.0.1:2525 4000 postfix@-.service', '127.0.0.1:2526 4000 postfix@-.service'];
-    file_put_contents($state.'/listeners', implode("\n", $listeners)."\n");
-    mailInboundListenerProcesses($fs, $listeners);
-    file_put_contents($state.'/filter', $options['filter'] ?? '');
-    file_put_contents($state.'/ufw', $options['ufw'] ?? 'inactive');
-    file_put_contents($state.'/ufw-rules', $options['ufwRules'] ?? '');
-
-    foreach ($options['toggles'] ?? [] as $toggle) {
-        touch($scratch.'/toggles/'.$toggle);
-    }
-
-    foreach (mailInboundStubs() as $name => $body) {
-        if ($name === 'ufw' && ($options['ufw'] ?? 'inactive') === 'absent') {
-            continue;
-        }
-        file_put_contents($scratch.'/bin/'.$name, $body."\n");
-        chmod($scratch.'/bin/'.$name, 0o755);
-    }
-
-    $env = [
-        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
-        'HOME' => $scratch,
-        'TMPDIR' => $scratch,
-        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
-        'RATEGURU_MAILINBOUND_EUID' => '0',
-        'RATEGURU_MAILINBOUND_FS_ROOT' => $fs,
-        'RATEGURU_MAILINBOUND_FILE_OWNER' => trim((string) shell_exec('id -un')),
-        'RATEGURU_MAILINBOUND_FILE_GROUP' => trim((string) shell_exec('id -gn')),
-        'RATEGURU_MAILINBOUND_POSTFIX_OWNER' => trim((string) shell_exec('id -un')),
-        'RATEGURU_MAILINBOUND_POSTFIX_GROUP' => trim((string) shell_exec('id -gn')),
-        'RATEGURU_MAILINBOUND_STORE_OWNER' => trim((string) shell_exec('id -un')),
-        'RATEGURU_MAILINBOUND_STORE_GROUP' => trim((string) shell_exec('id -gn')),
-        'RATEGURU_MAILINBOUND_RUNTIME_WAIT' => '1',
-        'RATEGURU_MAILINBOUND_STABILITY_WAIT' => '1',
-        'RATEGURU_MAILINBOUND_TLS_TRUST_STORE' => $scratch.'/trust.pem',
-        'RATEGURU_MAILINBOUNDACTIVATE_EUID' => '0',
-        'RATEGURU_MAILINBOUNDACTIVATE_FS_ROOT' => $fs,
-        'RATEGURU_MAILINBOUNDACTIVATE_RUN_ROOT' => $fs.'/home/www/rateguru/run',
-        'RATEGURU_MAILINBOUNDACTIVATE_PROBE_WAIT' => '2',
-        'STUB_STATE' => $state,
-        'STUB_LOG' => $scratch.'/log',
-        'STUB_TOGGLES' => $scratch.'/toggles',
-        'STUB_FS' => $fs,
+    return [
+        'deployment-targets.json' => $committed('deployment-targets.json'),
+        'mail-routing.json' => $held['routing'],
+        'mail-outbound.json' => $held['outbound'],
+        'mail-identity.json' => $committed('mail-identity.json'),
+        'mail-inbound.json' => $inbound ?? $committed('mail-inbound.json'),
     ];
-
-    foreach (['SYSTEMCTL', 'DPKG_QUERY', 'POSTCONF', 'POSTFIX', 'POSTQUEUE', 'SS', 'GETENT', 'USERADD', 'FALLOCATE', 'MKFS', 'FINDMNT', 'DF', 'IP', 'OPENSSL'] as $tool) {
-        $name = ['DPKG_QUERY' => 'dpkg-query', 'MKFS' => 'mkfs.ext4'][$tool] ?? strtolower($tool);
-        $env["RATEGURU_MAILINBOUND_{$tool}_BIN"] = $scratch.'/bin/'.$name;
-    }
-
-    foreach (['SS' => 'ss', 'IP' => 'ip', 'UFW' => 'ufw', 'NFT' => 'nft', 'IPTABLES_SAVE' => 'iptables-save', 'IPTABLES_LEGACY_SAVE' => 'iptables-legacy-save'] as $tool => $name) {
-        $env["RATEGURU_MAILINBOUNDACTIVATE_{$tool}_BIN"] = $scratch.'/bin/'.$name;
-    }
-
-    if (isset($options['inbound'])) {
-        file_put_contents($scratch.'/inbound.json', mailRoutingJson($options['inbound']));
-        $env['RATEGURU_MAILINBOUND_INBOUND_FILE'] = $scratch.'/inbound.json';
-    }
-
-    return ['scratch' => $scratch, 'fs' => $fs, 'state' => $state, 'log' => $scratch.'/log', 'env' => $env];
 }
 
-/**
- * The /proc/PID/cgroup of every simulated listener "ADDRESS PID UNIT": the unit
- * its process runs in, as the one judge of port 25 reads it.
- *
- * @param  list<string>  $listeners
- */
-function mailInboundListenerProcesses(string $fs, array $listeners): void
+/** Write a trusted inbound bundle into ROOT: the real scripts, DOCUMENTS, and the signer's endpoint. */
+function mailInboundBundle(string $root, array $documents): string
 {
-    foreach ($listeners as $listener) {
-        $parts = preg_split('/\s+/', trim($listener));
-        if (count($parts) === 3) {
-            @mkdir("{$fs}/proc/{$parts[1]}", 0o755, true);
-            file_put_contents("{$fs}/proc/{$parts[1]}/cgroup", "0::/system.slice/{$parts[2]}\n");
-        }
-    }
-}
+    @mkdir($root.'/infrastructure/scripts', 0o755, true);
+    @mkdir($root.'/infrastructure/config', 0o755, true);
 
-/** Add a listener "ADDRESS PID UNIT" to a simulated host. */
-function mailInboundAddListener(array $host, string $listener): void
-{
-    file_put_contents($host['state'].'/listeners', $listener."\n", FILE_APPEND);
-    mailInboundListenerProcesses($host['fs'], [$listener]);
+    foreach (mailInboundBundleScripts() as $name) {
+        copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$name}");
+        chmod("{$root}/infrastructure/scripts/{$name}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
+    }
+
+    // The signer's installer says where it listens, and nothing else is asked
+    // of it here.
+    file_put_contents("{$root}/infrastructure/scripts/install-mail-signing", "#!/bin/bash\n[[ \"\${1:-}\" == --milter-endpoint ]] && { echo 'inet:127.0.0.1:8891'; exit 0; }\nexit 64\n");
+    chmod("{$root}/infrastructure/scripts/install-mail-signing", 0o755);
+
+    foreach ($documents as $name => $data) {
+        file_put_contents("{$root}/infrastructure/config/{$name}", mailRoutingJson($data));
+    }
+
+    return $root;
 }
 
 /** @return array<string, string> */
 function mailInboundStubs(): array
 {
     return [
-        'dpkg-query' => <<<'STUB'
+        'getent' => <<<'STUB'
             #!/bin/bash
-            [[ -e "${STUB_STATE}/postfix-installed" ]] && { printf 'install ok installed'; exit 0; }
-            exit 1
+            [[ "$1" == passwd && "$2" == rateguru-mail-inbound && -e "${STUB_STATE}/store-user" ]] || exit 2
+            cat "${STUB_STATE}/store-user"
             STUB,
-        'systemctl' => <<<'STUB'
+        'useradd' => <<<'STUB'
             #!/bin/bash
-            S="${STUB_STATE}"
-            case "$1" in
-                is-enabled|show) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log" ;;
-                *) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log" ;;
-            esac
-            unit="${2:-}"
-            case "$1" in
-                daemon-reload) exit 0 ;;
-                is-enabled)
-                    [[ -e "${S}/${unit}.enabled" ]] && { echo enabled; exit 0; }
-                    [[ -f "${STUB_FS}/etc/systemd/system/${unit}" ]] && { echo disabled; exit 1; }
-                    exit 1 ;;
-                show)
-                    case "$3" in
-                        --property=ActiveState) [[ -e "${S}/${unit}.active" ]] && echo active || echo inactive ;;
-                        --property=SubState) [[ -e "${S}/${unit}.active" ]] && echo running || echo dead ;;
-                        --property=NRestarts) cat "${S}/${unit}.nrestarts" 2>/dev/null || echo 0 ;;
-                    esac
-                    exit 0 ;;
-                enable) touch "${S}/${unit}.enabled" ;;
-                disable) rm -f "${S}/${unit}.enabled" ;;
-                start|restart)
-                    if [[ "${unit}" == *.mount ]]; then
-                        [[ -e "${STUB_TOGGLES}/mount-start-fail" ]] && exit 1
-                        touch "${S}/${unit}.active"
-                        exit 0
-                    fi
-                    [[ -e "${STUB_TOGGLES}/service-start-fail" ]] && exit 1
-                    touch "${S}/${unit}.active"
-                    mkdir -p "${STUB_FS}/proc/4100"
-                    printf '0::/system.slice/%s\n' "${unit}" > "${STUB_FS}/proc/4100/cgroup" ;;
-                stop) rm -f "${S}/${unit}.active" ;;
-                reload)
-                    [[ -e "${STUB_TOGGLES}/reload-fail" ]] && exit 1
-                    [[ -e "${S}/${unit}.active" ]] || exit 1 ;;
-            esac
-            exit 0
-            STUB,
-        'findmnt' => <<<'STUB'
-            #!/bin/bash
-            [[ -e "${STUB_STATE}/var-spool-rateguru\x2dmail\x2dinbound.mount.active" ]] || exit 1
-            cat "${STUB_STATE}/mount-options" 2>/dev/null || echo 'ext4 rw,nosuid,nodev,noexec,relatime rgmailin'
-            STUB,
-        'df' => <<<'STUB'
-            #!/bin/bash
-            case "$*" in
-                *--output=avail*) printf 'Avail\n%s\n' "$(cat "${STUB_STATE}/free")" ;;
-                *--output=used*) printf 'Used\n4096\n' ;;
-            esac
+            printf 'useradd %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+            [[ -e "${STUB_TOGGLES}/useradd-fail" ]] && exit 1
+            printf 'rateguru-mail-inbound:x:4321:4321:RateGuru inbound mail store:/nonexistent:/usr/sbin/nologin\n' > "${STUB_STATE}/store-user"
             STUB,
         'fallocate' => <<<'STUB'
             #!/bin/bash
@@ -4132,72 +4103,30 @@ function mailInboundStubs(): array
             #!/bin/bash
             printf 'mkfs.ext4 %s\n' "$*" >> "${STUB_LOG}/mutations.log"
             STUB,
-        'getent' => <<<'STUB'
+        // The store volume is mounted while its mount unit is active.
+        'findmnt' => <<<'STUB'
             #!/bin/bash
-            [[ "$1" == passwd && "$2" == rateguru-mail-inbound && -e "${STUB_STATE}/user" ]] || exit 2
-            echo 'rateguru-mail-inbound:x:4321:4321::/nonexistent:/usr/sbin/nologin'
-            STUB,
-        'useradd' => <<<'STUB'
-            #!/bin/bash
-            printf 'useradd %s\n' "$*" >> "${STUB_LOG}/mutations.log"
-            touch "${STUB_STATE}/user"
-            STUB,
-        'postfix' => <<<'STUB'
-            #!/bin/bash
-            printf 'postfix %s\n' "$*" >> "${STUB_LOG}/mutations.log"
-            [[ -e "${STUB_TOGGLES}/postfix-check-fail" ]] && { echo "postfix: fatal: simulated" >&2; exit 1; }
-            exit 0
-            STUB,
-        // A test double that reads the files back, not Postfix.
-        'postconf' => <<<'STUB'
-            #!/bin/bash
-            printf 'postconf %s\n' "$*" >> "${STUB_LOG}/reads.log"
-            dir="${STUB_FS}/etc/postfix"
-            if [[ "$1" == -c ]]; then dir="$2"; shift 2; fi
-            case "$1" in
-                -n)
-                    [[ -e "${STUB_TOGGLES}/postconf-warn" ]] && echo "postconf: warning: simulated unused parameter" >&2
-                    [[ -f "${dir}/main.cf" ]] || exit 1
-                    exit 0 ;;
-                -M)
-                    [[ -f "${dir}/master.cf" ]] || exit 1
-                    awk '/^[^#[:space:]]/ { print $1, $2, $3, $4, $5, $6, $7, $8 }' "${dir}/master.cf"
-                    exit 0 ;;
-                -h)
-                    awk -v k="$2" 'index($0, k " = ") == 1 { v = substr($0, length(k) + 4) } $0 == k " =" { v = "" } END { print v }' "${dir}/main.cf"
-                    exit 0 ;;
+            [[ -e "${STUB_STATE}/var-lib-rateguru\x2dmail\x2dinbound-store.mount.active" ]] || exit 1
+            case "$*" in
+                *TARGET*) echo "${STUB_FS}/var/lib/rateguru-mail-inbound/store" ;;
+                *) cat "${STUB_STATE}/mount-options" 2>/dev/null || echo 'ext4 rw,nosuid,nodev,noexec,relatime rgmailin' ;;
             esac
             STUB,
-        'postqueue' => <<<'STUB'
+        'df' => <<<'STUB'
             #!/bin/bash
-            [[ -e "${STUB_TOGGLES}/postqueue-fail" ]] && exit 1
-            cat "${STUB_STATE}/queue" 2>/dev/null
-            exit 0
-            STUB,
-        // The host's listeners, and the receiver's own from its installed
-        // master.cf while its service runs — held by pid 4100, whose cgroup the
-        // systemctl stub writes.
-        'ss' => <<<'STUB'
-            #!/bin/bash
-            [[ -e "${STUB_TOGGLES}/ss-fail" ]] && exit 1
-            while read -r address pid _; do
-                [[ -n "${address}" ]] || continue
-                if [[ -n "${pid}" ]]; then
-                    printf 'LISTEN 0 100 %s 0.0.0.0:* users:(("master",pid=%s,fd=13))\n' "${address}" "${pid}"
-                else
-                    printf 'LISTEN 0 100 %s 0.0.0.0:*\n' "${address}"
-                fi
-            done < "${STUB_STATE}/listeners"
-            if [[ -e "${STUB_STATE}/rateguru-mail-inbound.service.active" && -f "${STUB_FS}/etc/postfix-inbound/master.cf" ]]; then
-                awk '/^[^#[:space:]]/ && $2 == "inet" { print "LISTEN 0 100 " $1 " 0.0.0.0:* users:((\"master\",pid=4100,fd=12))" }' "${STUB_FS}/etc/postfix-inbound/master.cf"
-            fi
-            STUB,
-        'ip' => <<<'STUB'
-            #!/bin/bash
-            address="$(cat "${STUB_STATE}/address")"
             case "$*" in
-                *"route get"*) [[ -n "${address}" ]] || exit 1; printf '1.1.1.1 via 10.0.0.1 dev eth0 src %s uid 0\n    cache\n' "${address}" ;;
-                *"addr show"*) printf '1: lo    inet 127.0.0.1/8 scope host lo\n'; [[ -n "${address}" ]] && printf '2: eth0    inet %s/24 brd 0.0.0.0 scope global eth0\n' "${address}" ;;
+                *rateguru-mail-inbound/store*--output=avail*|*--output=avail*rateguru-mail-inbound/store*) printf 'Avail\n%s\n' "$(cat "${STUB_STATE}/store-free" 2>/dev/null || echo 1000000000)" ;;
+                *--output=avail*) printf 'Avail\n%s\n' "$(cat "${STUB_STATE}/free")" ;;
+                *--output=used*) printf 'Used\n4096\n' ;;
+            esac
+            STUB,
+        'sysctl' => <<<'STUB'
+            #!/bin/bash
+            case "$1" in
+                -n) cat "${STUB_STATE}/nonlocal-bind" 2>/dev/null || echo 0 ;;
+                -q) printf 'sysctl %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+                    [[ -e "${STUB_TOGGLES}/sysctl-fail" ]] && exit 1
+                    echo 1 > "${STUB_STATE}/nonlocal-bind" ;;
             esac
             STUB,
         // openssl's verdicts on the simulated certificate, decided by toggles.
@@ -4214,6 +4143,17 @@ function mailInboundStubs(): array
                 pkey*) [[ -e "${STUB_TOGGLES}/tls-key-mismatch" ]] && echo "PUBLIC KEY B" || echo "PUBLIC KEY A" ;;
             esac
             exit 0
+            STUB,
+        'ip' => <<<'STUB'
+            #!/bin/bash
+            address="$(cat "${STUB_STATE}/address")"
+            case "$*" in
+                *"route get"*) [[ -n "${address}" ]] || exit 1; printf '1.1.1.1 via 10.0.0.1 dev eth0 src %s uid 0\n    cache\n' "${address}" ;;
+                *"addr show"*)
+                    printf '1: lo    inet 127.0.0.1/8 scope host lo\n'
+                    [[ -n "${address}" && ! -e "${STUB_TOGGLES}/address-gone" ]] && printf '2: eth0    inet %s/24 brd 0.0.0.0 scope global eth0\n' "${address}"
+                    exit 0 ;;
+            esac
             STUB,
         'ufw' => <<<'STUB'
             #!/bin/bash
@@ -4233,31 +4173,155 @@ function mailInboundStubs(): array
                     printf '%s 25/tcp                    ALLOW       Anywhere                   # %s\n' "$6" "${@: -1}" >> "${S}/ufw-rules" ;;
                 delete)
                     printf 'ufw %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+                    [[ -e "${STUB_TOGGLES}/ufw-delete-fail" ]] && exit 1
                     # delete allow in proto tcp to ADDRESS port 25 comment COMMENT
                     grep -v "^$7 25/tcp .*# ${@: -1}\$" "${S}/ufw-rules" > "${S}/ufw-rules.new" || true
                     mv "${S}/ufw-rules.new" "${S}/ufw-rules" ;;
             esac
             STUB,
-        'nft' => <<<'STUB'
+        'nft' => "#!/bin/bash\ncat \"\${STUB_STATE}/filter\"",
+        'iptables-save' => "#!/bin/bash\ncat \"\${STUB_STATE}/filter\"",
+        'iptables-legacy-save' => "#!/bin/bash\nexit 0",
+        // postqueue -j: the shared queue's listing, one JSON object a line.
+        'postqueue' => <<<'STUB'
             #!/bin/bash
-            cat "${STUB_STATE}/filter"
-            STUB,
-        'iptables-save' => <<<'STUB'
-            #!/bin/bash
-            cat "${STUB_STATE}/filter"
-            STUB,
-        'iptables-legacy-save' => <<<'STUB'
-            #!/bin/bash
+            [[ -e "${STUB_TOGGLES}/postqueue-fail" ]] && exit 1
+            cat "${STUB_STATE}/queue" 2>/dev/null
             exit 0
             STUB,
     ];
 }
 
-/** @return array{0: int, 1: string} */
-function mailInboundRunInstaller(array $host, string $mode, array $env = []): array
+/**
+ * A simulated host for inbound mail: the real gateway installed from a
+ * trusted bundle, and the inbound state INSTALLED reached by the real
+ * transitions.
+ *
+ * Options:
+ *   installed  'absent' (default) | 'disabled' | 'enabled'
+ *   inbound    an inbound contract for the bundle instead of the committed one
+ *   store      false: no store is created, even for an installed state
+ *   tls        false: no certificate is installed (default: one, valid unless a toggle says otherwise)
+ *   address    the host's public IPv4 address (default 1.2.3.4)
+ *   free       free bytes on the host file systems (default 100 GiB)
+ *   ufw        'active' | 'inactive' (default) | 'absent'
+ *   ufwRules   ufw's own rules besides RateGuru's
+ *   filter     the packet filter's listing (nft, iptables-save): default nothing drops
+ *
+ * Built once per worker for each set of options and copied for every test.
+ *
+ * @return array{scratch: string, fs: string, state: string, log: string, bundle: string, toggles: string, env: array<string, string>}
+ */
+function mailInboundHost(array $options = []): array
+{
+    return scratchHostFromTemplate('mail-inbound', $options, fn (): array => mailInboundHostBuilt($options));
+}
+
+function mailInboundHostBuilt(array $options): array
+{
+    $gateway = mailGatewayHost(['policy' => null, 'outbound' => null]);
+    $scratch = $gateway['scratch'];
+    $fs = $gateway['fs'];
+    $state = $scratch.'/state';
+
+    foreach (['/run', '/tmp'] as $sub) {
+        @mkdir($scratch.$sub, 0o755, true);
+    }
+    touch($scratch.'/run/host-infrastructure.lock');
+
+    $bundle = mailInboundBundle($scratch.'/bundle', mailInboundDocuments($options['inbound'] ?? null));
+
+    foreach (mailInboundStubs() as $name => $body) {
+        if ($name === 'ufw' && ($options['ufw'] ?? 'inactive') === 'absent') {
+            continue;
+        }
+        file_put_contents($scratch.'/bin/'.$name, $body."\n");
+        chmod($scratch.'/bin/'.$name, 0o755);
+    }
+
+    file_put_contents($state.'/address', ($options['address'] ?? '1.2.3.4')."\n");
+    file_put_contents($state.'/free', (string) ($options['free'] ?? 107374182400));
+    file_put_contents($state.'/filter', $options['filter'] ?? '');
+    file_put_contents($state.'/ufw', $options['ufw'] ?? 'inactive');
+    file_put_contents($state.'/ufw-rules', $options['ufwRules'] ?? '');
+    file_put_contents($state.'/queue', '');
+    @mkdir($fs.'/var/spool/postfix', 0o755, true);
+
+    // The host's one Postfix runs in its own unit: the ss stub names it as
+    // the holder of every listener its master.cf declares.
+    @mkdir($fs.'/proc/4000', 0o755, true);
+    file_put_contents($fs.'/proc/4000/cgroup', "0::/system.slice/system-postfix.slice/postfix@-.service\n");
+
+    if ($options['tls'] ?? true) {
+        @mkdir($fs.'/etc/rateguru-mail-inbound/tls', 0o755, true);
+        file_put_contents($fs.'/etc/rateguru-mail-inbound/tls/fullchain.pem', "-----BEGIN CERTIFICATE-----\nnot a real certificate\n-----END CERTIFICATE-----\n");
+        file_put_contents($fs.'/etc/rateguru-mail-inbound/tls/privkey.pem', "-----BEGIN PRIVATE KEY-----\nnot a real key\n-----END PRIVATE KEY-----\n");
+        chmod($fs.'/etc/rateguru-mail-inbound/tls/privkey.pem', 0o600);
+    }
+
+    $me = trim((string) shell_exec('id -un'));
+    $group = trim((string) shell_exec('id -gn'));
+
+    $env = [
+        ...$gateway['env'],
+        'TMPDIR' => $scratch.'/tmp',
+        'RATEGURU_MAILGW_GETENT_BIN' => $scratch.'/bin/getent',
+        'RATEGURU_MAILINBOUND_EUID' => '0',
+        'RATEGURU_MAILINBOUND_FS_ROOT' => $fs,
+        'RATEGURU_MAILINBOUND_FILE_OWNER' => $me,
+        'RATEGURU_MAILINBOUND_FILE_GROUP' => $group,
+        'RATEGURU_MAILINBOUND_STORE_OWNER' => $me,
+        'RATEGURU_MAILINBOUND_STORE_GROUP' => $group,
+        'RATEGURU_MAILINBOUND_TLS_TRUST_STORE' => $scratch.'/trust.pem',
+        'RATEGURU_MAILINBOUNDACTIVATE_EUID' => '0',
+        'RATEGURU_MAILINBOUNDACTIVATE_FS_ROOT' => $fs,
+        'RATEGURU_MAILINBOUNDACTIVATE_RUN_ROOT' => $scratch.'/run',
+        'RATEGURU_MAILINBOUNDACTIVATE_PROBE_WAIT' => '2',
+    ];
+
+    foreach (['SYSTEMCTL' => 'systemctl', 'GETENT' => 'getent', 'USERADD' => 'useradd', 'FALLOCATE' => 'fallocate', 'MKFS' => 'mkfs.ext4', 'FINDMNT' => 'findmnt', 'DF' => 'df', 'OPENSSL' => 'openssl', 'SYSCTL' => 'sysctl'] as $tool => $name) {
+        $env["RATEGURU_MAILINBOUND_{$tool}_BIN"] = $scratch.'/bin/'.$name;
+    }
+
+    foreach (['SS' => 'ss', 'IP' => 'ip', 'UFW' => 'ufw', 'NFT' => 'nft', 'IPTABLES_SAVE' => 'iptables-save', 'IPTABLES_LEGACY_SAVE' => 'iptables-legacy-save', 'POSTQUEUE' => 'postqueue', 'DF' => 'df'] as $tool => $name) {
+        $env["RATEGURU_MAILINBOUNDACTIVATE_{$tool}_BIN"] = $scratch.'/bin/'.$name;
+    }
+
+    $host = ['scratch' => $scratch, 'fs' => $fs, 'state' => $state, 'log' => $scratch.'/log', 'bundle' => $bundle, 'toggles' => $scratch.'/toggles', 'env' => $env];
+
+    // The gateway, installed by its own installer from the bundle.
+    [$status, $output] = mailInboundHostRun($host, 'install-mail-gateway', ['--apply']);
+    expect($status)->toBe(0, "the simulated host could not be given its gateway:\n{$output}");
+
+    $installed = $options['installed'] ?? 'absent';
+    if ($installed !== 'absent') {
+        if ($options['store'] ?? true) {
+            [$status, $output] = mailInboundHostRun($host, 'install-mail-inbound', ['--apply']);
+            expect($status)->toBe(0, "the simulated host could not be given its store:\n{$output}");
+        }
+        mailInboundTransition($host, 'install');
+        if ($installed === 'enabled') {
+            mailInboundTransition($host, 'enable', $options['address'] ?? '1.2.3.4');
+            file_put_contents($state.'/ufw-rules', ($options['address'] ?? '1.2.3.4')." 25/tcp                    ALLOW       Anywhere                   # rateguru-mail-inbound\n", FILE_APPEND);
+        }
+    }
+
+    foreach (['mutations.log', 'reads.log'] as $name) {
+        file_put_contents($host['log'].'/'.$name, '');
+    }
+
+    return $host;
+}
+
+/**
+ * Run one of the bundle's scripts against the simulated host.
+ *
+ * @return array{0: int, 1: string}
+ */
+function mailInboundHostRun(array $host, string $script, array $arguments, array $env = []): array
 {
     $process = proc_open(
-        ['bash', base_path('infrastructure/scripts/install-mail-inbound'), $mode],
+        ['bash', "{$host['bundle']}/infrastructure/scripts/{$script}", ...$arguments],
         [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
         $pipes,
         $host['scratch'],
@@ -4270,6 +4334,60 @@ function mailInboundRunInstaller(array $host, string $mode, array $env = []): ar
     return [proc_close($process), $output];
 }
 
+function mailInboundCleanup(array $host): void
+{
+    removeScratchDir($host['scratch']);
+}
+
+/**
+ * The one-use authorization activate-mail-inbound writes for DIRECTION
+ * (install | enable | disable), from the state the host records, with CHANGES
+ * applied to it.
+ */
+function mailInboundAuthorize(array $host, string $direction, ?string $address = null, array $changes = [], ?int $mode = 0o600): string
+{
+    [$from, $to] = ['install' => ['absent', 'disabled'], 'enable' => ['disabled', 'enabled'], 'disable' => ['enabled', 'disabled']][$direction] ?? ['disabled', 'enabled'];
+    $recorded = mailInboundApplied($host);
+    $now = time();
+
+    $authorization = withDotPaths([
+        'kind' => 'rateguru-mail-gateway-inbound-transition-authorization',
+        'schema_version' => 1,
+        'direction' => $direction,
+        'from' => ['public_smtp' => $from, 'address' => $direction === 'disable' ? ($recorded['address'] ?? null) : null],
+        'to' => ['public_smtp' => $to, 'address' => $direction === 'enable' ? $address : null],
+        'nonce' => bin2hex(random_bytes(16)),
+        'created_at' => $now,
+        'expires_at' => $now + 900,
+    ], $changes);
+
+    $path = $host['fs'].'/var/lib/rateguru-mail-gateway/inbound-transition-authorization.json';
+    file_put_contents($path, json_encode($authorization));
+    if ($mode !== null) {
+        chmod($path, $mode);
+    }
+
+    return $path;
+}
+
+/** DIRECTION made by the real gateway with its authorization; it must succeed. */
+function mailInboundTransition(array $host, string $direction, ?string $address = null): string
+{
+    mailInboundAuthorize($host, $direction, $address);
+    [$status, $output] = mailInboundHostRun($host, 'install-mail-gateway', ['--apply']);
+    expect($status)->toBe(0, "the {$direction} transition failed:\n{$output}");
+
+    return $output;
+}
+
+/** The gateway's recorded inbound state, decoded, or null. */
+function mailInboundApplied(array $host): ?array
+{
+    $path = $host['fs'].'/var/lib/rateguru-mail-gateway/applied-inbound.json';
+
+    return is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+}
+
 function mailInboundLog(array $host, string $name): string
 {
     $path = $host['log'].'/'.$name;
@@ -4277,76 +4395,57 @@ function mailInboundLog(array $host, string $name): string
     return is_file($path) ? (string) file_get_contents($path) : '';
 }
 
-/** Every file under the simulated host, by hash, so an unchanged host can be proved. */
-function mailInboundTree(array $host, string $prefix = ''): array
+function mailInboundFile(array $host, string $path): string
 {
-    $tree = [];
-    $root = $host['fs'].($prefix === '' ? '' : '/'.$prefix);
-
-    if (! is_dir($root)) {
-        return [];
-    }
-
-    foreach (File::allFiles($root, true) as $file) {
-        $tree[$file->getRelativePathname()] = hash_file('sha256', $file->getPathname());
-    }
-
-    ksort($tree);
-
-    return $tree;
+    return (string) @file_get_contents($host['fs'].$path);
 }
 
-/** The gateway's files on the host, by hash. */
-function mailInboundGatewayDigests(array $host): array
+/** @return array<string, string> */
+function mailInboundMainParameters(string $main): array
 {
-    $digests = [];
+    $parameters = [];
 
-    foreach (array_keys(mailInboundGatewayFiles()) as $path) {
-        $digests[$path] = is_file($host['fs'].'/'.$path) ? hash_file('sha256', $host['fs'].'/'.$path) : null;
+    foreach (preg_split('/\R/', $main) as $line) {
+        if (preg_match('/^([a-z_]+) = ?(.*)$/', $line, $match)) {
+            $parameters[$match[1]] = $match[2];
+        }
     }
 
-    return $digests;
-}
-
-/** An authorization activate-mail-inbound would write, for one use. */
-function mailInboundAuthorize(array $host, string $direction, array $changes = []): void
-{
-    $path = $host['fs'].'/var/lib/rateguru-mail-inbound/transition-authorization.json';
-    @mkdir(dirname($path), 0o755, true);
-
-    $authorization = array_replace([
-        'kind' => 'rateguru-mail-inbound-transition-authorization',
-        'schema_version' => 1,
-        'target' => 'tits-guru',
-        'direction' => $direction,
-        'from' => $direction === 'enable' ? 'disabled' : 'enabled',
-        'address' => $direction === 'enable' ? '1.2.3.4' : null,
-        'nonce' => bin2hex(random_bytes(16)),
-        'created_at' => time() - 5,
-        'expires_at' => time() + 600,
-    ], $changes);
-
-    file_put_contents($path, json_encode($authorization, JSON_UNESCAPED_SLASHES));
-    chmod($path, 0o600);
-}
-
-/** The receiver's recorded state on the host, decoded, or null. */
-function mailInboundApplied(array $host): ?array
-{
-    $path = $host['fs'].'/var/lib/rateguru-mail-inbound/applied.json';
-
-    return is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+    return $parameters;
 }
 
 /**
- * A fake inbound receiver: answers SMTP the way the receiver the REAL installer
- * rendered on the simulated host would — recipients from its recipients.regexp
- * (case-insensitive, POSIX patterns read as PCRE), the served domains, the size
- * and recipient limits and the host postmaster's domain from its main.cf,
- * STARTTLS offered when main.cf enables TLS — and stores each message as a
- * Maildir file of its mailbox. A test double, not Postfix.
+ * Every master.cf service: its fields and its -o overrides.
+ *
+ * @return array<string, array{type: string, maxproc: string, command: string, options: array<string, string>}>
  */
-function mailInboundFakeReceiverSource(): string
+function mailInboundServices(string $master): array
+{
+    $services = [];
+    $current = null;
+
+    foreach (preg_split('/\R/', $master) as $line) {
+        if (preg_match('/^([^#\s]\S*)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(\S+)/', $line, $match)) {
+            $current = "{$match[1]}/{$match[2]}";
+            $services[$current] = ['type' => $match[2], 'maxproc' => $match[3], 'command' => $match[4], 'options' => []];
+        } elseif ($current !== null && preg_match('/^\s+-o\s+([a-z_]+)=(.*)$/', $line, $match)) {
+            $services[$current]['options'][$match[1]] = $match[2];
+        } elseif (! preg_match('/^\s/', $line)) {
+            $current = null;
+        }
+    }
+
+    return $services;
+}
+
+/**
+ * The fake SMTP listener every probe of the activation talks to: it answers
+ * from the configuration the REAL gateway rendered — the inbound loopback
+ * listener's overrides, the rewrite service's origin, main.cf's domains and the
+ * recipient table — and stores what it accepts into the store, unless a
+ * toggle says otherwise.
+ */
+function mailInboundFakeListenerSource(): string
 {
     return <<<'PHP'
         <?php
@@ -4360,7 +4459,7 @@ function mailInboundFakeReceiverSource(): string
 
         while (true) {
             $read = [$server, STDIN]; $write = null; $except = null;
-            if (@stream_select($read, $write, $except, 1) === false) { break; }
+            if (@stream_select($read, $write, $except, 1) === false) { continue; }
             if (in_array(STDIN, $read, true)) { fread(STDIN, 8192); if (feof(STDIN)) { break; } }
             if (! in_array($server, $read, true)) { continue; }
 
@@ -4368,35 +4467,54 @@ function mailInboundFakeReceiverSource(): string
             if ($client === false) { continue; }
             $say = static function (string $line) use ($client): void { fwrite($client, $line."\r\n"); };
 
+            // What the gateway rendered.
             $main = [];
-            foreach (preg_split('/\R/', (string) @file_get_contents("{$fs}/etc/postfix-inbound/main.cf")) as $line) {
+            foreach (preg_split('/\R/', (string) @file_get_contents("{$fs}/etc/postfix/main.cf")) as $line) {
                 if (preg_match('/^([a-z_]+) = ?(.*)$/', $line, $m)) { $main[$m[1]] = $m[2]; }
             }
+            $services = []; $current = null;
+            foreach (preg_split('/\R/', (string) @file_get_contents("{$fs}/etc/postfix/master.cf")) as $line) {
+                if (preg_match('/^([^#\s]\S*)\s+(\S+)\s/', $line, $m)) { $current = $m[1]; $services[$current] = []; }
+                elseif ($current !== null && preg_match('/^\s+-o\s+([a-z_]+)=(.*)$/', $line, $m)) { $services[$current][$m[1]] = $m[2]; }
+            }
+            $inbound = [];
+            foreach ($services as $name => $options) {
+                if (str_starts_with($name, '127.0.0.1:') && isset($options['rewrite_service_name'])) { $inbound = $options; }
+            }
+            $public = null;
+            foreach ($services as $name => $options) {
+                if (str_ends_with($name, ':25')) { $public = $options; }
+            }
+            $origin = $services['rateguru-inbound-rewrite']['myorigin'] ?? 'unqualified.invalid';
             $table = [];
-            foreach (preg_split('/\R/', (string) @file_get_contents("{$fs}/etc/postfix-inbound/recipients.regexp")) as $line) {
+            foreach (preg_split('/\R/', (string) @file_get_contents("{$fs}/etc/postfix/rateguru-inbound-recipients.regexp")) as $line) {
                 if (preg_match('#^/(.*)/ (\S+)$#', $line, $m)) { $table[] = [$m[1], $m[2]]; }
             }
-            $domains = array_map('trim', explode(',', $main['virtual_mailbox_domains'] ?? ''));
-            $limit = (int) ($main['smtpd_recipient_limit'] ?? 1000);
+            $domains = array_filter(array_map('trim', explode(',', $main['virtual_mailbox_domains'] ?? '')));
+            $limit = (int) ($inbound['smtpd_recipient_limit'] ?? 1000);
 
-            $say('220 '.($main['myhostname'] ?? 'receiver').' ESMTP');
+            $say('220 '.($inbound['myhostname'] ?? ($main['myhostname'] ?? 'receiver')).' ESMTP');
             $recipients = [];
             while (($line = fgets($client)) !== false) {
                 $line = rtrim($line, "\r\n");
                 $verb = strtoupper(substr($line, 0, 4));
                 if ($verb === 'EHLO') {
-                    $say('250-'.($main['myhostname'] ?? 'receiver'));
-                    if (! $on('no-size')) { $say('250-SIZE '.($main['message_size_limit'] ?? '0')); }
-                    if (($main['smtpd_tls_security_level'] ?? '') === 'may') { $say('250-STARTTLS'); }
+                    $say('250-'.($inbound['myhostname'] ?? 'receiver'));
+                    if (! $on('no-size') && isset($inbound['message_size_limit'])) { $say('250-SIZE '.$inbound['message_size_limit']); }
+                    if (($public['smtpd_tls_security_level'] ?? '') === 'may' && ! $on('no-starttls')) { $say('250-STARTTLS'); }
                     if ($on('offer-auth')) { $say('250-AUTH PLAIN'); }
+                    if ($on('offer-etrn')) { $say('250-ETRN'); }
                     $say('250 8BITMIME');
                 } elseif ($verb === 'MAIL') {
                     $recipients = [];
-                    $say('250 2.1.0 Ok');
+                    // The activation asks every submission listener for its own
+                    // sender, as rateguru-inbound-proof@ that sender's domain.
+                    $outbound = str_contains($line, 'rateguru-inbound-proof@');
+                    $say(($outbound && $on('outbound-refused')) || $on('mail-refused') ? '451 4.3.0 Error: simulated' : '250 2.1.0 Ok');
                 } elseif ($verb === 'RCPT') {
                     preg_match('/<([^>]*)>/', $line, $m);
                     $rcpt = strtolower($m[1] ?? '');
-                    if (! str_contains($rcpt, '@')) { $rcpt .= '@'.($main['mydomain'] ?? ''); }
+                    if (! str_contains($rcpt, '@')) { $rcpt .= '@'.$origin; }
                     if (count($recipients) >= $limit) { $say('452 4.5.3 Error: too many recipients'); continue; }
                     $mailbox = null;
                     foreach ($table as [$pattern, $box]) {
@@ -4425,7 +4543,7 @@ function mailInboundFakeReceiverSource(): string
                     $id = strtoupper(bin2hex(random_bytes(5)));
                     if (! $on('no-store')) {
                         foreach ($recipients as [$rcpt, $box]) {
-                            $dir = "{$fs}/var/spool/rateguru-mail-inbound/store/{$box}new";
+                            $dir = "{$fs}/var/lib/rateguru-mail-inbound/store/{$box}new";
                             @mkdir($dir, 0o700, true);
                             file_put_contents("{$dir}/".microtime(true).".{$id}.fake", "Delivered-To: {$rcpt}\n".str_replace("\r\n", "\n", $message));
                         }
@@ -4439,101 +4557,34 @@ function mailInboundFakeReceiverSource(): string
         PHP;
 }
 
-/**
- * A trusted bundle for activate-mail-inbound: the REAL activation, installer,
- * inbound, routing, identity and registry tools and libraries, the committed
- * configuration (or INBOUND instead of the inbound contract), and a mail
- * gateway stub whose --verify answers PASS unless the host's
- * gateway-verify-fail toggle exists, gateway-verify-fail-at names the one call
- * that fails, or gateway-verify-fail-after the call from which every one does.
- */
-function mailInboundBundle(array $host, ?array $inbound = null): string
+/** Start the fake listener for HOST, and point every probe of the activation at it. */
+function mailInboundStartFakeListener(array &$host): array
 {
-    $root = $host['scratch'].'/bundle';
-    @mkdir($root.'/infrastructure/scripts', 0o755, true);
-    @mkdir($root.'/infrastructure/config', 0o755, true);
+    file_put_contents($host['scratch'].'/fake-listener.php', mailInboundFakeListenerSource());
 
-    foreach (['activate-mail-inbound', 'install-mail-inbound', 'mail-inbound', 'mail-routing', 'mail-identity', 'targets', 'smtp-submission', 'public-smtp-port'] as $name) {
-        copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$name}");
-        chmod("{$root}/infrastructure/scripts/{$name}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
-    }
-
-    foreach (['deployment-targets.json', 'mail-routing.json', 'mail-outbound.json', 'mail-identity.json', 'mail-inbound.json'] as $name) {
-        copy(base_path('infrastructure/config/'.$name), "{$root}/infrastructure/config/{$name}");
-    }
-
-    if ($inbound !== null) {
-        file_put_contents("{$root}/infrastructure/config/mail-inbound.json", mailRoutingJson($inbound));
-    }
-
-    file_put_contents("{$root}/infrastructure/scripts/install-mail-gateway", <<<'STUB'
-        #!/bin/bash
-        count="$(( $(cat "${STUB_STATE}/gateway-verify-calls" 2>/dev/null || echo 0) + 1 ))"
-        echo "${count}" > "${STUB_STATE}/gateway-verify-calls"
-        if [[ -e "${STUB_TOGGLES}/gateway-verify-fail" ]] \
-            || { [[ -f "${STUB_TOGGLES}/gateway-verify-fail-at" ]] && (( count == $(cat "${STUB_TOGGLES}/gateway-verify-fail-at") )); } \
-            || { [[ -f "${STUB_TOGGLES}/gateway-verify-fail-after" ]] && (( count >= $(cat "${STUB_TOGGLES}/gateway-verify-fail-after") )); }
-        then
-            echo "FAIL the simulated gateway does not verify"
-            exit 1
-        fi
-        echo "PASS the simulated gateway verifies"
-        STUB."\n");
-    chmod("{$root}/infrastructure/scripts/install-mail-gateway", 0o755);
-
-    return $root;
-}
-
-/**
- * Start the fake receiver for HOST on a free loopback port, and point the
- * activation's probes at it.
- *
- * @return array{server: resource, pipes: array<int, resource>, port: int}
- */
-function mailInboundStartFakeReceiver(array &$host): array
-{
-    file_put_contents($host['scratch'].'/fake-receiver.php', mailInboundFakeReceiverSource());
-
-    $server = proc_open([PHP_BINARY, $host['scratch'].'/fake-receiver.php', $host['fs'], $host['scratch'].'/toggles'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $server = proc_open([PHP_BINARY, $host['scratch'].'/fake-listener.php', $host['fs'], $host['toggles']], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    expect($server)->not->toBeFalse('could not start the fake listener');
     $port = (int) trim((string) fgets($pipes[1]));
     expect($port)->toBeGreaterThan(0);
 
     $host['env']['RATEGURU_MAILINBOUNDACTIVATE_PROBE_PORT'] = (string) $port;
 
-    return ['server' => $server, 'pipes' => $pipes, 'port' => $port];
+    return ['process' => $server, 'pipes' => $pipes, 'port' => $port];
 }
 
-/** @param  array{server: resource, pipes: array<int, resource>}  $receiver */
-function mailInboundStopFakeReceiver(array $receiver): void
+function mailInboundStopFakeListener(array $listener): void
 {
-    fclose($receiver['pipes'][0]);
-    proc_terminate($receiver['server']);
-    proc_close($receiver['server']);
+    fclose($listener['pipes'][0]);
+    foreach ([1, 2] as $i) {
+        if (is_resource($listener['pipes'][$i])) {
+            fclose($listener['pipes'][$i]);
+        }
+    }
+    proc_terminate($listener['process']);
+    proc_close($listener['process']);
 }
 
-/**
- * Run the bundle's activate-mail-inbound on HOST.
- *
- * @param  list<string>  $arguments
- * @return array{0: int, 1: string}
- */
-function mailInboundActivate(array $host, string $bundle, array $arguments, array $env = []): array
-{
-    $process = proc_open(
-        ['bash', $bundle.'/infrastructure/scripts/activate-mail-inbound', ...$arguments],
-        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
-        $pipes,
-        $host['scratch'],
-        [...$host['env'], ...$env],
-    );
-
-    $output = (string) stream_get_contents($pipes[1]);
-    fclose($pipes[1]);
-
-    return [proc_close($process), $output];
-}
-
-/** The one RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT of OUTPUT, decoded, or null. */
+/** The machine-readable result line an activation printed, or null. */
 function mailInboundResult(string $output): ?array
 {
     preg_match_all('/^RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=(.*)$/m', $output, $matches);
@@ -4541,79 +4592,37 @@ function mailInboundResult(string $output): ?array
     return count($matches[1]) === 1 ? json_decode($matches[1][0], true) : null;
 }
 
-/*
-|--------------------------------------------------------------------------
-| The inbound receiver and its activation, as the test files use them
-|--------------------------------------------------------------------------
-*/
-
-/** Install the receiver on HOST and require it to succeed. */
-function mailInboundInstalled(array $host, array $env = []): string
-{
-    [$status, $output] = mailInboundRunInstaller($host, '--apply', $env);
-    expect($status)->toBe(0, $output);
-
-    return $output;
-}
-
-function mailInboundFile(array $host, string $path): string
-{
-    return (string) file_get_contents($host['fs'].$path);
-}
-
-/** @return array<string, string> */
-function mailInboundMainParameters(string $main): array
-{
-    $parameters = [];
-
-    foreach (preg_split('/\R/', $main) as $line) {
-        if (preg_match('/^([a-z_]+) = ?(.*)$/', $line, $match)) {
-            $parameters[$match[1]] = $match[2];
-        }
-    }
-
-    return $parameters;
-}
-
-/** @return list<array{name: string, type: string, command: string, maxproc: string}> */
-function mailInboundServices(string $master): array
-{
-    $services = [];
-
-    foreach (preg_split('/\R/', $master) as $line) {
-        if (preg_match('/^([^#\s]\S*)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(\S+)/', $line, $match)) {
-            $services[] = ['name' => $match[1], 'type' => $match[2], 'maxproc' => $match[3], 'command' => $match[4]];
-        }
-    }
-
-    return $services;
-}
-
 /**
- * A host, its trusted bundle and a running fake receiver. Stop with
- * mailInboundActivationCleanup().
+ * A host for the activation, and the fake listener its probes talk to. Stop
+ * with mailInboundActivationCleanup().
  *
- * @return array{host: array, bundle: string, receiver: array}
+ * @return array{host: array, listener: array}
  */
-function mailInboundActivationHost(array $options = [], ?array $inbound = null): array
+function mailInboundActivationHost(array $options = []): array
 {
-    $host = mailInboundHost(['tls' => true, ...$options]);
-    $bundle = mailInboundBundle($host, $inbound);
-    $receiver = mailInboundStartFakeReceiver($host);
+    $toggles = $options['toggles'] ?? [];
+    unset($options['toggles']);
 
-    return ['host' => $host, 'bundle' => $bundle, 'receiver' => $receiver];
+    $host = mailInboundHost($options);
+    $listener = mailInboundStartFakeListener($host);
+
+    foreach ($toggles as $toggle) {
+        touch($host['toggles'].'/'.$toggle);
+    }
+
+    return ['host' => $host, 'listener' => $listener];
 }
 
 function mailInboundActivationCleanup(array $setup): void
 {
-    mailInboundStopFakeReceiver($setup['receiver']);
-    removeScratchDir($setup['host']['scratch']);
+    mailInboundStopFakeListener($setup['listener']);
+    mailInboundCleanup($setup['host']);
 }
 
 /** @return array{0: int, 1: string, 2: ?array} */
 function mailInboundActivationRun(array $setup, string $mode, string $target = 'tits-guru', array $env = []): array
 {
-    [$status, $output] = mailInboundActivate($setup['host'], $setup['bundle'], ["--{$mode}", '--target', $target], $env);
+    [$status, $output] = mailInboundHostRun($setup['host'], 'activate-mail-inbound', ["--{$mode}", '--target', $target], $env);
 
     return [$status, $output, mailInboundResult($output)];
 }
@@ -4626,12 +4635,36 @@ function mailInboundActivated(array $setup): void
     expect($result)->toMatchArray(['status' => 'pass', 'state' => 'enabled-verified', 'public_smtp' => 'enabled']);
 }
 
-/** The receiver does not listen on TCP 25 on the simulated host. */
+/** No listener on TCP 25 is rendered on the simulated host. */
 function mailInboundPort25Closed(array $setup): bool
 {
-    $master = (string) @file_get_contents($setup['host']['fs'].'/etc/postfix-inbound/master.cf');
+    return preg_match('/^\S+:25\s+inet\s/m', mailInboundFile($setup['host'], '/etc/postfix/master.cf')) === 0;
+}
 
-    return preg_match('/^\S+:25\s+inet\s/m', $master) === 0;
+/**
+ * The outbound part of the rendered configuration — everything but the
+ * inbound settings and comments, and the gateway's recorded policy — so a
+ * test proves it did not change.
+ */
+function mailInboundOutboundConfiguration(array $host): string
+{
+    $main = array_filter(preg_split('/\R/', mailInboundFile($host, '/etc/postfix/main.cf')), static fn (string $line): bool => $line !== '' && ! str_starts_with($line, '#') && ! preg_match('/^virtual_/', $line));
+    $master = [];
+    $inbound = false;
+    foreach (preg_split('/\R/', mailInboundFile($host, '/etc/postfix/master.cf')) as $line) {
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        if (! str_starts_with($line, ' ')) {
+            $name = strtok($line, " \t");
+            $inbound = str_starts_with($name, '127.0.0.1:2580') || str_ends_with($name, ':25') || str_starts_with($name, 'rateguru-inbound-') || $name === 'virtual';
+        }
+        if (! $inbound) {
+            $master[] = $line;
+        }
+    }
+
+    return implode("\n", [...$main, '--- master.cf', ...$master, mailInboundFile($host, '/var/lib/rateguru-mail-gateway/applied-plan.json'), mailInboundFile($host, '/var/lib/rateguru-mail-gateway/applied-outbound.json')]);
 }
 
 /**
