@@ -49,7 +49,10 @@ it('runs in CI as a job of its own, holding no secret, and its result decides CI
     expect($install)
         ->toContain('echo "postfix postfix/main_mailer_type select No configuration" | sudo debconf-set-selections')
         ->toContain('apt-get install -y -qq --no-install-recommends postfix')
-        ->toContain('sudo systemctl stop postfix');
+        ->toContain('sudo systemctl stop postfix')
+        // With no configuration there is no main.cf, so only the compiled-in default can be read.
+        ->toContain('postconf -d mail_version')
+        ->not->toMatch('/^\s*postconf mail_version$/m');
 
     // The scenario, in namespaces of its own, on a lowercase scratch path.
     $run = $steps->firstWhere('name', 'Run the scenario in a network and mount namespace of its own')['run'];

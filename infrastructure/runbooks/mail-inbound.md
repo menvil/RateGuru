@@ -638,9 +638,12 @@ reviewed documents, into a directory of its own, and runs it:
 - a reload to disabled closes 25 with the same master process, and every
   listener left still works.
 
-The same flow was rehearsed end to end on Ubuntu 22.04 with systemd and ufw —
-install, activation, verify, a message from outside, rollback, a host reboot,
-and a reboot without the public address.
+CI's runner is Ubuntu 24.04, so the job runs Postfix 3.8; the scenario passes
+on Ubuntu 22.04's Postfix 3.6 as well, the version the hosts run. The same flow
+was rehearsed end to end on Ubuntu 22.04 with systemd and ufw —
+install, activation, verify, a repeat that changes nothing, rollback, the
+store unavailable, a stale bundle, a host reboot, and a reboot without the
+public address.
 
 ## The operator order
 

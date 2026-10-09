@@ -919,7 +919,7 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postfix
           sudo systemctl stop postfix >/dev/null 2>&1 || true
-          postconf mail_version
+          postconf -d mail_version
 
       - name: Run the scenario in a network and mount namespace of its own
         shell: bash
