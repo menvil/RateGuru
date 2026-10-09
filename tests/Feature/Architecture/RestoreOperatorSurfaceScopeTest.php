@@ -15,6 +15,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         ->all();
 
     expect($workflows)->toBe([
+        // tits-guru's inbound SMTP receiver: its guarded activation, its
+        // read-only verification and its rollback, guarded by
+        // MailInboundWorkflowTest.
+        'activate-tits-guru-inbound-smtp.yml',
         // tits-guru's outbound mail activation, its initial-launch rollback
         // and the first real delivery, guarded by the MailOutboundActivation*Test
         // and MailCanary*Test files.
@@ -39,6 +43,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
@@ -48,6 +53,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'verify-production-infrastructure.yml',
         'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
+        'verify-tits-guru-inbound-smtp.yml',
     ]);
 
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
@@ -57,6 +63,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         ->all();
 
     expect($actions)->toBe([
+        // The inbound receiver's transport, guarded by MailInboundWorkflowTest.
+        'activate-rateguru-mail-inbound',
         // The outbound mail activation's transport and the canary's.
         'activate-rateguru-mail-outbound',
         'build-rateguru',

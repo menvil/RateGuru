@@ -399,16 +399,17 @@ it('restates no policy rule and names no target, domain or port', function () {
         }
     }
 
-    // The installer reads the policy only through mail-routing and
-    // mail-identity, from its own bundle: the policy and registry files are
+    // The installer reads the policy only through mail-routing, mail-identity
+    // and mail-inbound, from its own bundle: the policy and registry files are
     // arguments to those CLIs and are never parsed here.
     $installer = executableSourceLines(File::get(mailGatewayScript()));
 
     expect($installer)->toContain('"${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}"');
     expect($installer)->toContain('--identity "${IDENTITY_FILE}" --routing "${POLICY_FILE}"');
-    expect(substr_count($installer, '${POLICY_FILE}'))->toBe(2);
-    expect(substr_count($installer, '${REGISTRY_FILE}'))->toBe(2);
-    expect(substr_count($installer, '${IDENTITY_FILE}'))->toBe(1);
+    expect($installer)->toContain('"${MAIL_INBOUND_CLI}" render-receiver --inbound "${INBOUND_FILE}" --routing "${POLICY_FILE}"');
+    expect(substr_count($installer, '${POLICY_FILE}'))->toBe(3);
+    expect(substr_count($installer, '${REGISTRY_FILE}'))->toBe(3);
+    expect(substr_count($installer, '${IDENTITY_FILE}'))->toBe(2);
     expect($installer)->toContain('MAIL_ROUTING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_ROUTING_CLI "${SCRIPT_DIR}/mail-routing")"');
 
     // None of mail-routing's own rules live here.
@@ -937,7 +938,12 @@ it('rolls back the configuration and the service state when the running gateway 
         $restored = array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
         $original = array_filter($installed, static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
         expect($restored)->toBe($original);
-        expect(mailGatewayLog($host, 'mutations.log'))->toContain('systemctl restart postfix@-.service');
+        // Running all along: the restored configuration is taken by a reload,
+        // so undoing a change never stops mail on the other listeners.
+        expect(mailGatewayLog($host, 'mutations.log'))
+            ->toContain('systemctl reload postfix@-.service')
+            ->not->toContain('systemctl restart postfix@-.service')
+            ->not->toContain('systemctl stop postfix@-.service');
         expect(file_exists($host['scratch'].'/state/postfix@-.service.active'))->toBeTrue();
 
         // Backups hold configuration only — never a queue, never a message.
@@ -1546,8 +1552,10 @@ it('records the gateway as accepted on the real host, and the direct outbound ro
         ->toContain('| `tits-guru` — real host | **Outbound**, activated on 2026-10-08 through `activate-mail-outbound`')
         ->toContain('**Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08')
         ->toContain('| Production outbound delivery | **Production-accepted** on 2026-10-08')
-        // Inbound mail is a separate receiver, never a listener of this gateway.
-        ->toContain('| Inbound mail (bounces, replies, support) | **Not received**: the gateway has no public listener and never will')
+        // Inbound mail is part of this one Postfix, and active on no host until its guarded activation.
+        ->toContain('| Inbound mail (bounces, replies, support) | **Implemented on this Postfix, not active on any host**')
+        ->not->toContain('/etc/postfix-inbound')
+        ->not->toContain('rateguru-mail-inbound.service')
         ->not->toContain('**None yet**: no route to the Internet exists on any host')
         ->not->toContain('before `main` reaches `develop`');
 });
