@@ -1296,6 +1296,86 @@ function copyScratchTemplate(string $template, string $scratch): void
     expect($stale)->toBe([], "the copy still names the template it came from ({$template})");
 }
 
+/**
+ * A simulated host of KIND for OPTIONS: what BUILD makes, the first time a
+ * worker asks for one; a copy of it every time after.
+ *
+ * Preparing a host is often most of what a test costs — the mail gateway's
+ * real installer, run once or three times — while the host it leaves never
+ * varies for the same options. So the first host a worker builds for a set of
+ * options is kept as a template, and every later one is a copy:
+ * copyScratchTemplate() rewrites the absolute paths the host records and
+ * proves none still names the template, and the host's own description is
+ * moved with it.
+ *
+ * What a file cannot carry (a running process) is not kept. REVIVE gives a
+ * copy what it needs of that, or returns null when it cannot; the host is then
+ * built afresh, so a copy is only ever a faster way to the same host. BUILD's
+ * host must hold everything it is under its `scratch` directory.
+ *
+ * @param  array<string, mixed>  $options
+ * @param  Closure(): array<string, mixed>  $build
+ * @param  (Closure(array<string, mixed>): (array<string, mixed>|null))|null  $revive
+ * @return array<string, mixed>
+ */
+function scratchHostFromTemplate(string $kind, array $options, Closure $build, ?Closure $revive = null): array
+{
+    /** @var array<string, array{0: string, 1: array<string, mixed>}> $templates */
+    static $templates = [];
+
+    $key = $kind."\0".serialize($options);
+
+    if (isset($templates[$key])) {
+        [$directory, $template] = $templates[$key];
+        $scratch = makeScratchDir($kind);
+        copyScratchTemplate($directory, $scratch);
+        $host = scratchHostRelocated($template, $directory, $scratch);
+        $host = $revive === null ? $host : $revive($host);
+
+        if ($host !== null) {
+            return $host;
+        }
+
+        removeScratchDir($scratch);
+    }
+
+    $host = $build();
+
+    if (! isset($templates[$key])) {
+        $directory = makeScratchDir($kind.'-template');
+        register_shutdown_function(fn () => removeScratchDir($directory));
+        copyScratchTemplate($host['scratch'], $directory);
+        $templates[$key] = [$directory, scratchHostRelocated($host, $host['scratch'], $directory)];
+    }
+
+    return $host;
+}
+
+/**
+ * A host's description with its paths moved from FROM to TO, its environment
+ * included, and nothing a file cannot carry: the resources of a process it
+ * started are left out.
+ *
+ * @param  array<array-key, mixed>  $host
+ * @return array<array-key, mixed>
+ */
+function scratchHostRelocated(array $host, string $from, string $to): array
+{
+    $relocated = [];
+
+    foreach ($host as $name => $value) {
+        if (is_string($value)) {
+            $relocated[$name] = strtr($value, [$from => $to]);
+        } elseif (is_array($value)) {
+            $relocated[$name] = scratchHostRelocated($value, $from, $to);
+        } elseif (! is_resource($value) && gettype($value) !== 'resource (closed)') {
+            $relocated[$name] = $value;
+        }
+    }
+
+    return $relocated;
+}
+
 function infraScript(string $name): string
 {
     return base_path('infrastructure/scripts/'.$name);
@@ -3154,13 +3234,15 @@ function mailGatewayRequest(array $host, array $request): void
  */
 function mailGatewayEstablishedHost(array $options = []): array
 {
-    $held = mailPreActivationPolicy();
-    $host = mailGatewayHost(['policy' => $held['routing'], 'outbound' => $held['outbound'], ...$options]);
+    return scratchHostFromTemplate('mail-gateway', $options, function () use ($options): array {
+        $held = mailPreActivationPolicy();
+        $host = mailGatewayHost(['policy' => $held['routing'], 'outbound' => $held['outbound'], ...$options]);
 
-    [$status, $log] = mailGatewayRun($host, '--apply');
-    expect($status)->toBe(0, $log);
+        [$status, $log] = mailGatewayRun($host, '--apply');
+        expect($status)->toBe(0, $log);
 
-    return $host;
+        return $host;
+    });
 }
 
 function mailGatewayApplied(array $host, string $name = 'applied-plan.json'): string
@@ -3191,7 +3273,7 @@ function mailGatewayFakeListenerSource(): string
     return <<<'PHP'
         <?php
         $state = $argv[1];
-        $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+        $server = stream_socket_server('tcp://127.0.0.1:'.(int) ($argv[2] ?? 0), $errno, $error);
         if ($server === false) { fwrite(STDERR, $error); exit(1); }
         echo parse_url('tcp://'.stream_socket_get_name($server, false), PHP_URL_PORT), "\n";
         fflush(STDOUT);
@@ -3272,14 +3354,34 @@ function mailGatewayFakeListenerSource(): string
  */
 function mailGatewayStartFakeListener(string $scratch, string $state): array
 {
+    $listener = mailGatewayStartFakeListenerOn($scratch, $state, 0);
+
+    expect($listener)->not->toBeNull('the fake mail gateway listener did not start');
+
+    return $listener;
+}
+
+/**
+ * Start the fake listener on PORT (0: any free one), its state in STATE; null
+ * when PORT was asked for and something else holds it.
+ *
+ * @return array{server: resource, pipes: array<int, resource>, port: int}|null
+ */
+function mailGatewayStartFakeListenerOn(string $scratch, string $state, int $port): ?array
+{
     @mkdir($state.'/toggles', 0o755, true);
     file_put_contents($scratch.'/fake-postfix.php', mailGatewayFakeListenerSource());
 
-    $server = proc_open([PHP_BINARY, $scratch.'/fake-postfix.php', $state], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-    $port = (int) trim((string) fgets($pipes[1]));
-    expect($port)->toBeGreaterThan(0);
+    $server = proc_open([PHP_BINARY, $scratch.'/fake-postfix.php', $state, (string) $port], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $listening = (int) trim((string) fgets($pipes[1]));
 
-    return ['server' => $server, 'pipes' => $pipes, 'port' => $port];
+    if ($listening === 0 || ($port !== 0 && $listening !== $port)) {
+        mailGatewayStopFakeListener(['server' => $server, 'pipes' => $pipes]);
+
+        return null;
+    }
+
+    return ['server' => $server, 'pipes' => $pipes, 'port' => $listening];
 }
 
 /** @param  array{server: resource, pipes: array<int, resource>}  $listener */
@@ -3581,6 +3683,38 @@ function mailActivationBundle(string $root, array $documents): void
  */
 function mailActivationHost(array $options = []): array
 {
+    $toggles = $options['toggles'] ?? [];
+    unset($options['toggles']);
+
+    // A copy listens where its template's fake gateway did: that port is in
+    // every document and in the configuration rendered from them.
+    $host = scratchHostFromTemplate('mail-activation', $options, fn (): array => mailActivationHostBuilt($options), function (array $host): ?array {
+        if ($host['listener'] === null) {
+            return $host;
+        }
+
+        $host['listener'] = mailGatewayStartFakeListenerOn($host['scratch'], $host['state'], $host['listener']['port']);
+
+        return $host['listener'] === null ? null : $host;
+    });
+
+    // Only now: a toggle describes the host from here on, not how it was set up.
+    foreach ($toggles as $toggle) {
+        touch("{$host['host']}/toggles/{$toggle}");
+    }
+
+    return $host;
+}
+
+/**
+ * The host mailActivationHost() describes, built from nothing: its options
+ * without the toggles, which describe the host from then on.
+ *
+ * @param  array<string, mixed>  $options
+ * @return array{scratch: string, bundle: string, host: string, state: string, log: string, fs: string, key: string, env: array<string, string>, listener: ?array}
+ */
+function mailActivationHostBuilt(array $options): array
+{
     // Every bundle's gateway reads that bundle's own documents.
     $gateway = mailGatewayHost(['listeners' => $options['listeners'] ?? ['127.0.0.1:1025'], 'policy' => null, 'outbound' => null]);
     $scratch = $gateway['scratch'];
@@ -3676,11 +3810,6 @@ function mailActivationHost(array $options = []): array
     File::deleteDirectory($scratch.'/installed');
     @unlink($host['host'].'/calls.log');
     file_put_contents($host['log'].'/mutations.log', '');
-
-    // Only now: a toggle describes the host from here on, not how it was set up.
-    foreach ($options['toggles'] ?? [] as $toggle) {
-        touch("{$host['host']}/toggles/{$toggle}");
-    }
 
     return $host;
 }
