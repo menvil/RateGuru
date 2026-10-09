@@ -1174,7 +1174,9 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     // activation, which reads the plan of the bundle it was asked to activate
     // and of the pre-activation copy it derives, the canary, which reads the
     // reviewed sender and endpoint, and the inbound contract, which reads each
-    // target's domains — each running the copy next to itself.
+    // target's domains — each running the copy next to itself — and the
+    // inbound activation, which reads the submission listeners it proves still
+    // work, from its trusted bundle.
     // No workflow, action, orchestrator or other installer invokes it. The
     // one other file
     // that may name the POLICY is the prerequisite installer, which hands its
@@ -1189,11 +1191,12 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/send-mail-canary',
         'infrastructure/scripts/mail-inbound',
     ];
+    $bundled = ['infrastructure/scripts/activate-mail-inbound'];
 
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers], true)) {
+        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled], true)) {
             continue;
         }
 
@@ -1206,13 +1209,17 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
             ->toContain('${SCRIPT_DIR}/mail-routing')
             ->toContain('render-plan');
     }
+
+    foreach ($bundled as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))->toContain('"$(bundle_script mail-routing)" render-plan');
+    }
 });
 
 // =============================================================================
-// NOTHING IS LISTENING YET, AND NOTHING ELSE MOVED
+// NOTHING LISTENS IN PUBLIC BUT THE ACTIVATED RECEIVER, AND NOTHING ELSE MOVED
 // =============================================================================
 
-it('configures no public SMTP listener anywhere in the repository', function () {
+it('configures no public SMTP listener anywhere in the repository but the activated inbound listener', function () {
     // Every gateway endpoint in the plan is loopback.
     foreach (mailRoutingPlan()['listeners'] as $listener) {
         expect($listener['listen']['host'])->toBe('127.0.0.1');
@@ -1234,7 +1241,18 @@ it('configures no public SMTP listener anywhere in the repository', function () 
     // activation reads the live routes back with postconf and configures
     // nothing itself — the gateway's installer does — and the canary deletes
     // only its own queue entry; the MailOutboundActivation*Test and
-    // MailCanary*Test files prove both.
+    // MailCanary*Test files prove both. Inbound mail is part of the same
+    // Postfix, rendered by the gateway's installer and made public only by its
+    // guarded activation: MailGatewayInboundTest proves its listeners —
+    // loopback, and public TCP 25 only while the host's recorded state enables
+    // it — and MailPublicSmtpPortTest that nothing else may hold the port. The
+    // inbound store's installer orders its mount before Postfix and configures
+    // nothing of it; MailInboundStoreTest proves that. CI's one job that runs a
+    // real Postfix — Ubuntu's package, in namespaces of its own, against the
+    // gateway's own render — is MailInboundRealPostfixTest's. The two sourced
+    // libraries every port check shares only read: the gateway's recorded
+    // inbound state, its installed master.cf and which unit holds a socket —
+    // MailPublicSmtpPortTest proves they write nothing.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
@@ -1242,6 +1260,10 @@ it('configures no public SMTP listener anywhere in the repository', function () 
         'infrastructure/scripts/verify-mail-signing',
         'infrastructure/scripts/activate-mail-outbound',
         'infrastructure/scripts/send-mail-canary',
+        'infrastructure/scripts/install-mail-inbound',
+        'infrastructure/scripts/activate-mail-inbound',
+        'infrastructure/scripts/mail-inbound-host',
+        'infrastructure/scripts/public-smtp-port',
     ];
 
     foreach (operationalFiles() as $path) {
@@ -1252,6 +1274,12 @@ it('configures no public SMTP listener anywhere in the repository', function () 
         }
 
         $code = mb_strtolower(executableSourceLines(File::get($path)));
+
+        if ($relative === '.github/workflows/ci.yml') {
+            $ci = Yaml::parse(File::get($path));
+            unset($ci['jobs']['mail-real-postfix']);
+            $code = preg_replace('/real[-_ ]postfix/', '', mb_strtolower(Yaml::dump($ci, 20)));
+        }
 
         foreach (['postfix', 'postconf', 'postmap', 'postsuper', 'inet_interfaces', 'smtpd_', 'exim4'] as $needle) {
             expect(str_contains($code, $needle))->toBeFalse("{$relative} configures a mail transfer agent ({$needle})");

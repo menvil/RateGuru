@@ -532,6 +532,10 @@ it('adds no rehearsal harness and no host provisioner', function () {
         ->all();
 
     expect($workflows)->toBe([
+        // tits-guru's inbound SMTP receiver: its guarded activation, its
+        // read-only verification and its rollback, guarded by
+        // MailInboundWorkflowTest.
+        'activate-tits-guru-inbound-smtp.yml',
         // tits-guru's outbound mail activation, its initial-launch rollback
         // and the first real delivery, guarded by the MailOutboundActivation*Test
         // and MailCanary*Test files.
@@ -553,6 +557,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
@@ -562,6 +567,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'verify-production-infrastructure.yml',
         'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
+        'verify-tits-guru-inbound-smtp.yml',
     ]);
 });
 

@@ -1,0 +1,181 @@
+# shellcheck shell=bash
+#
+# public-smtp-port — the one judge of who may listen on a public SMTP port on a
+# RateGuru host. A sourced library, never executed: the mail gateway's
+# installer, the outbound activation's route read-back, the gateway's status,
+# the inbound store installer and the inbound activation all ask it, so the
+# rule is written once.
+#
+# THE RULE.
+#
+#   465 and 587  Nothing, ever, on any address.
+#   25           Nothing — with exactly one exception: the inbound listener of
+#                the host's one Postfix, once activate-mail-inbound has enabled
+#                it. Then exactly ONE socket may listen on 25, on exactly the
+#                IPv4 address the gateway's applied inbound state records, held
+#                only by processes of Postfix's own systemd unit (judged by the
+#                cgroup each process runs in, never by its name), the installed
+#                master.cf must name exactly one listener off loopback — that
+#                one — and the reviewed inbound contract of the caller's bundle
+#                must request public SMTP. Anything else on 25 — another
+#                process, a second socket, another address, IPv6, a second
+#                public listener in master.cf, or a recorded state that is
+#                missing, corrupt or disabled — is a problem.
+#
+# Public SMTP not activated changes nothing: every earlier prohibition holds
+# without exception. The exception never widens to "port 25 is open, so it must
+# be fine".
+#
+# WHAT THE CALLER PROVIDES. SS_BIN, the ss(8) it uses. Every path is read under
+# the ROOT argument ("" on a host) so a caller's test seam reaches them.
+#
+# Whether the receiver is healthy — its recipients, limits, delivery and store
+# — is the gateway's and install-mail-inbound's verdict, not this library's:
+# outbound mail is never failed because inbound delivery is down, only because
+# something is listening that may not.
+
+# shellcheck source=mail-inbound-host disable=SC1091
+source "$(dirname -- "${BASH_SOURCE[0]}")/mail-inbound-host"
+
+PUBLIC_SMTP_FORBIDDEN_PORTS=(465 587)
+PUBLIC_SMTP_INBOUND_PORT="${MAIL_INBOUND_PUBLIC_PORT}"
+
+# public_smtp_listening_sockets — "LOCAL_ADDRESS<TAB>PIDS" for every listening
+# TCP socket, PIDS comma-separated (empty when ss names none). Fails, printing
+# nothing, when the socket table cannot be read: an unreadable table is never
+# an empty one.
+public_smtp_listening_sockets() {
+    local table
+    table="$("${SS_BIN}" -ltnpH 2>/dev/null)" || return 1
+
+    awk '
+        NF >= 4 {
+            pids = ""
+            rest = $0
+            while (match(rest, /pid=[0-9]+/)) {
+                pid = substr(rest, RSTART + 4, RLENGTH - 4)
+                pids = (pids == "" ? pid : pids "," pid)
+                rest = substr(rest, RSTART + RLENGTH)
+            }
+            print $4 "\t" pids
+        }
+    ' <<<"${table}"
+}
+
+# public_smtp_pid_in_postfix ROOT PID — PID runs in the host Postfix's own unit.
+public_smtp_pid_in_postfix() {
+    local root="$1" pid="$2" cgroup
+    [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+
+    cgroup="$(cat "${root}/proc/${pid}/cgroup" 2>/dev/null)" || return 1
+    grep -qE "(^|/)${MAIL_INBOUND_POSTFIX_UNIT//./\\.}\$" <<<"${cgroup}"
+}
+
+# public_smtp_master_public_services ROOT — every inet service of the
+# installed master.cf that is not bound to loopback, one per line.
+public_smtp_master_public_services() {
+    awk '/^[^#[:space:]]/ && $2 == "inet" && $1 !~ /^127\./ { print $1 }' "$1/etc/postfix/master.cf" 2>/dev/null || true
+}
+
+# public_smtp_contract_requests_enabled CONTRACT — the caller's bundle's
+# reviewed inbound contract requests public SMTP.
+public_smtp_contract_requests_enabled() {
+    [[ -f "$1" ]] && jq -e '.receiver.public_smtp == "enabled"' "$1" >/dev/null 2>&1
+}
+
+# public_smtp_problems ROOT CONTRACT — every reason a public SMTP port is open
+# that may not be, one per line; nothing when the host is as the rule allows.
+public_smtp_problems() {
+    local root="$1" contract="$2" sockets local_address pids port applied state address
+    local owners=0 pid forbidden services
+
+    if ! sockets="$(public_smtp_listening_sockets)"; then
+        printf 'ss -ltnpH could not list the listening sockets — a public SMTP listener cannot be ruled out\n'
+        return 0
+    fi
+
+    applied="$(mail_inbound_applied "${root}")"
+    state="${applied%%$'\t'*}"
+    address="${applied#*$'\t'}"
+
+    while IFS=$'\t' read -r local_address pids; do
+        [[ -n "${local_address}" ]] || continue
+        port="${local_address##*:}"
+
+        for forbidden in "${PUBLIC_SMTP_FORBIDDEN_PORTS[@]}"; do
+            [[ "${port}" != "${forbidden}" ]] \
+                || printf 'something listens on %s — no SMTP service may ever listen on port %s\n' "${local_address}" "${forbidden}"
+        done
+
+        [[ "${port}" == "${PUBLIC_SMTP_INBOUND_PORT}" ]] || continue
+
+        case "${state}" in
+            absent)
+                printf 'something listens on %s — no SMTP service may listen on port 25 while public inbound SMTP is not activated\n' "${local_address}"
+                continue
+                ;;
+            corrupt)
+                printf 'something listens on %s, and the gateway'"'"'s recorded inbound state (%s) is corrupt or its gateway is not marked installed — port 25 is allowed only to an activation whose record can be trusted\n' "${local_address}" "${MAIL_INBOUND_APPLIED}"
+                continue
+                ;;
+            disabled)
+                printf 'something listens on %s — public inbound SMTP is recorded as disabled, so nothing may listen on port 25\n' "${local_address}"
+                continue
+                ;;
+        esac
+
+        if [[ "${local_address}" != "${address}:${PUBLIC_SMTP_INBOUND_PORT}" ]]; then
+            printf 'something listens on %s — public inbound SMTP is activated on %s:25 only, never another address or IPv6\n' "${local_address}" "${address}"
+            continue
+        fi
+
+        if [[ -z "${pids}" ]]; then
+            printf '%s is held by a process ss could not name — its owner cannot be proved to be %s\n' "${local_address}" "${MAIL_INBOUND_POSTFIX_UNIT}"
+            continue
+        fi
+
+        local foreign=""
+        for pid in ${pids//,/ }; do
+            public_smtp_pid_in_postfix "${root}" "${pid}" || foreign+="${foreign:+,}${pid}"
+        done
+        if [[ -n "${foreign}" ]]; then
+            printf '%s is held by process %s outside %s — only the host'"'"'s own Postfix may listen on port 25\n' "${local_address}" "${foreign}" "${MAIL_INBOUND_POSTFIX_UNIT}"
+            continue
+        fi
+
+        if ! public_smtp_contract_requests_enabled "${contract}"; then
+            printf 'public inbound SMTP listens on %s, but the reviewed inbound contract (%s) does not request it — run the inbound rollback, or restore the request\n' "${local_address}" "${contract}"
+            continue
+        fi
+
+        owners=$((owners + 1))
+    done <<<"${sockets}"
+
+    (( owners <= 1 )) \
+        || printf '%d sockets listen on %s:25 — public inbound SMTP is exactly one listener\n' "${owners}" "${address}"
+
+    # What the installed configuration says, whatever is listening right now:
+    # nothing off loopback while public SMTP is closed, and exactly the one
+    # recorded listener while it is open.
+    services="$(public_smtp_master_public_services "${root}")"
+    if [[ "${state}" == enabled ]]; then
+        [[ "${services}" == "${address}:${PUBLIC_SMTP_INBOUND_PORT}" ]] \
+            || printf 'the installed master.cf names the public listeners [%s], not exactly %s:25\n' "${services//$'\n'/ }" "${address}"
+    elif [[ -n "${services}" ]]; then
+        printf 'the installed master.cf names a listener off loopback (%s) while public inbound SMTP is not activated\n' "${services//$'\n'/ }"
+    fi
+}
+
+# public_smtp_summary ROOT — one line for a report: what may listen on port 25
+# on this host now.
+public_smtp_summary() {
+    local applied
+    applied="$(mail_inbound_applied "$1")"
+
+    case "${applied%%$'\t'*}" in
+        absent)   printf 'inbound mail is not installed: nothing may listen on 25, 465 or 587\n' ;;
+        disabled) printf 'public inbound SMTP is disabled: nothing may listen on 25, 465 or 587\n' ;;
+        enabled)  printf 'public inbound SMTP is activated: the host Postfix (%s) alone may listen on 25, on %s only; nothing on 465 or 587\n' "${MAIL_INBOUND_POSTFIX_UNIT}" "${applied#*$'\t'}" ;;
+        *)        printf 'the recorded inbound state is corrupt: nothing may listen on 25, 465 or 587\n' ;;
+    esac
+}

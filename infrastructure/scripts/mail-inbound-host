@@ -1,0 +1,107 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034 # every name below is read by the scripts that source it
+#
+# mail-inbound-host — where the inbound receiver lives on a host, and how its
+# applied state is read. A sourced library, never executed.
+#
+# The receiver is not a mail server of its own: it is a set of listeners and a
+# delivery route of the host's one Postfix, the mail gateway. So every part of
+# it has exactly one owner, and they all read these names from here:
+#
+#   install-mail-gateway   renders the inbound listeners and the virtual(8)
+#                          delivery into /etc/postfix from `mail-inbound
+#                          render-receiver`, and records the applied state;
+#   install-mail-inbound   owns the store those messages are delivered to, and
+#                          judges the public listener's certificate;
+#   activate-mail-inbound  moves the host between states, through a one-use
+#                          authorization the gateway consumes;
+#   public-smtp-port       judges who may hold TCP 25.
+#
+# Every path is a host path; a caller prefixes its own FS_ROOT test seam.
+
+# The store: a fixed-size volume of its own, mounted at the base virtual(8)
+# delivers under, and the system account everything stored belongs to. The
+# shared Postfix queue is never on it.
+MAIL_INBOUND_HOME="/var/lib/rateguru-mail-inbound"
+MAIL_INBOUND_STORE_IMAGE="${MAIL_INBOUND_HOME}/store.img"
+MAIL_INBOUND_STORE="${MAIL_INBOUND_HOME}/store"
+MAIL_INBOUND_STORE_LABEL="rgmailin"
+MAIL_INBOUND_STORE_MOUNT_UNIT='var-lib-rateguru\x2dmail\x2dinbound-store.mount'
+MAIL_INBOUND_STORE_USER="rateguru-mail-inbound"
+MAIL_INBOUND_STORE_GECOS="RateGuru inbound mail store"
+
+# The public listener's certificate: the operator's, copied onto the host, and
+# never generated or committed.
+MAIL_INBOUND_TLS_DIR="/etc/rateguru-mail-inbound/tls"
+MAIL_INBOUND_TLS_CERT="${MAIL_INBOUND_TLS_DIR}/fullchain.pem"
+MAIL_INBOUND_TLS_KEY="${MAIL_INBOUND_TLS_DIR}/privkey.pem"
+
+# The gateway's own record of the receiver — whether its listeners are
+# installed and whether public SMTP is open, as the gateway applied them — the
+# one-use authorization activate-mail-inbound writes for a transition, and the
+# ledger of every authorization the gateway consumed.
+MAIL_INBOUND_GATEWAY_STATE="/var/lib/rateguru-mail-gateway"
+MAIL_INBOUND_GATEWAY_MARKER="${MAIL_INBOUND_GATEWAY_STATE}/ownership"
+MAIL_INBOUND_APPLIED="${MAIL_INBOUND_GATEWAY_STATE}/applied-inbound.json"
+MAIL_INBOUND_APPLIED_KIND="rateguru-mail-gateway-applied-inbound"
+MAIL_INBOUND_AUTHORIZATION="${MAIL_INBOUND_GATEWAY_STATE}/inbound-transition-authorization.json"
+MAIL_INBOUND_AUTHORIZATION_KIND="rateguru-mail-gateway-inbound-transition-authorization"
+MAIL_INBOUND_CONSUMED="${MAIL_INBOUND_GATEWAY_STATE}/consumed-inbound-transition-authorizations"
+
+# What the gateway renders for the receiver: the table virtual(8) and the
+# listeners read the allowed recipients from, the cleanup and address
+# rewriting services of the inbound listeners alone, and the port the public
+# listener holds.
+MAIL_INBOUND_RECIPIENT_TABLE="/etc/postfix/rateguru-inbound-recipients.regexp"
+MAIL_INBOUND_CLEANUP_SERVICE="rateguru-inbound-cleanup"
+MAIL_INBOUND_REWRITE_SERVICE="rateguru-inbound-rewrite"
+MAIL_INBOUND_PUBLIC_PORT=25
+
+# The Postfix unit every listener of the gateway runs in, the inbound ones
+# included: Ubuntu runs Postfix as postfix@-.service.
+MAIL_INBOUND_POSTFIX_UNIT="postfix@-.service"
+
+# mail_inbound_applied ROOT — the receiver as the gateway recorded it:
+# "absent" (no inbound listener was ever installed), "disabled<TAB>-" (its
+# listeners and delivery are installed, public SMTP is closed),
+# "enabled<TAB>ADDRESS" (public SMTP is open on ADDRESS:25), or "corrupt" when
+# the record cannot be trusted — a link, a document of another kind, or a
+# record on a host whose gateway is not marked installed.
+mail_inbound_applied() {
+    local root="$1" path marker
+
+    path="${root}${MAIL_INBOUND_APPLIED}"
+    marker="${root}${MAIL_INBOUND_GATEWAY_MARKER}"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! [[ -f "${marker}" && ! -L "${marker}" ]] \
+        || [[ "$(sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1)" != installed ]]
+    then
+        printf 'corrupt\n'
+        return 0
+    fi
+
+    jq -r --arg kind "${MAIL_INBOUND_APPLIED_KIND}" '
+        def ipv4: type == "string" and test("\\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\z");
+        if type == "object" and (keys == ["address", "kind", "public_smtp", "schema_version"])
+            and .kind == $kind and .schema_version == 1
+        then
+            if .public_smtp == "disabled" and .address == null then "disabled\t-"
+            elif .public_smtp == "enabled" and (.address | ipv4) then "enabled\t\(.address)"
+            else "corrupt" end
+        else
+            "corrupt"
+        end' "${path}" 2>/dev/null || printf 'corrupt\n'
+}
+
+# mail_inbound_applied_document STATE [ADDRESS] — the record of STATE
+# (disabled | enabled), canonical: what the gateway writes and compares.
+mail_inbound_applied_document() {
+    jq -S -n --arg kind "${MAIL_INBOUND_APPLIED_KIND}" --arg state "$1" --arg address "${2:-}" \
+        '{kind: $kind, schema_version: 1, public_smtp: $state, address: (if $address == "" then null else $address end)}'
+}

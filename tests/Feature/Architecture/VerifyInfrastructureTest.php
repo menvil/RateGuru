@@ -12,7 +12,7 @@ use Symfony\Component\Yaml\Yaml;
  * The verifier is run as shipped. Every contract owner it composes —
  * prepare-host, repair-target, bootstrap-host, configure-target,
  * bootstrap-host-preflight, install-target-perimeter, verify-mail-capture,
- * verify-mail-gateway, health-check — is a stub that records exactly how it was
+ * verify-mail-gateway, activate-mail-inbound, health-check — is a stub that records exactly how it was
  * called; mail-identity is the real one, with real keys and a DNS stub. What is
  * proved is the verifier's own job: which contracts the target's CURRENT
  * reviewed state requires, in which read-only modes, and how their verdicts
@@ -29,6 +29,7 @@ const VERIFY_INFRA_PRIMITIVES = [
     'install-target-perimeter' => 'RATEGURU_VERIFYINFRA_TARGET_PERIMETER_BIN',
     'verify-mail-capture' => 'RATEGURU_VERIFYINFRA_MAIL_CAPTURE_BIN',
     'verify-mail-gateway' => 'RATEGURU_VERIFYINFRA_MAIL_GATEWAY_BIN',
+    'activate-mail-inbound' => 'RATEGURU_VERIFYINFRA_MAIL_INBOUND_BIN',
     'health-check' => 'RATEGURU_VERIFYINFRA_HEALTH_CHECK_BIN',
 ];
 
@@ -38,9 +39,12 @@ const VERIFY_INFRA_PRIMITIVES = [
  *
  * Each option lists primitives: `fail` exit 1, `signal` are killed by SIGTERM,
  * `unrunnable` exit 127 as a command that could not be executed, `missing` are
- * left out of the bundle altogether.
+ * left out of the bundle altogether. The inbound verifier also prints its one
+ * result line, in the state `inbound` names (not-installed unless given;
+ * `none` prints no result at all; `:unrequested` after the state says the
+ * bundle does not request public SMTP).
  *
- * @param  array{fail?: list<string>, signal?: list<string>, unrunnable?: list<string>, missing?: list<string>, dns?: array<string, mixed>}  $options
+ * @param  array{fail?: list<string>, signal?: list<string>, unrunnable?: list<string>, missing?: list<string>, dns?: array<string, mixed>, inbound?: string}  $options
  * @return array{scratch: string, env: array<string, string>}
  */
 function verifyInfraHost(array $options = []): array
@@ -62,6 +66,17 @@ function verifyInfraHost(array $options = []): array
             echo "  stub {$primitive}: ok"
             STUB."\n");
         chmod($scratch."/bin/{$primitive}", 0o755);
+    }
+
+    [$inbound, $request] = explode(':', ($options['inbound'] ?? 'not-installed').':requested');
+
+    if ($inbound !== 'none' && is_file($scratch.'/bin/activate-mail-inbound')) {
+        $line = 'RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT='.json_encode([
+            'target' => 'tits-guru', 'mode' => 'verify', 'status' => 'pass', 'requested' => $request === 'requested', 'changed' => false,
+            'rolled_back' => false, 'state' => $inbound, 'public_smtp' => $inbound === 'enabled-verified' ? 'enabled' : 'disabled',
+            'address' => null, 'firewall' => 'none',
+        ]);
+        file_put_contents($scratch.'/bin/activate-mail-inbound', "echo '{$line}'\n", FILE_APPEND);
     }
 
     foreach (['fail', 'signal', 'unrunnable'] as $how) {
@@ -165,6 +180,7 @@ const VERIFY_INFRA_PLANNED_CALLS = [
     'configure-target --verify --target tits-guru',
     'install-target-perimeter --verify',
     'verify-mail-gateway --read-only',
+    'activate-mail-inbound --verify --target tits-guru',
 ];
 
 // =============================================================================
@@ -192,10 +208,11 @@ it('verifies active staging-main through its preparation and live-target contrac
             'mail-capture' => 'pass',
             'mail-gateway' => 'pass',
             'mail-identity' => 'not_applicable',
+            'mail-inbound' => 'not_applicable',
             'application' => 'pass',
         ]);
 
-        foreach (['PREPARATION CONTRACT', 'HOST INVENTORY', 'LIVE TARGET CONTRACT', 'OPERATIONS & BACKUP PERIMETER', 'MAIL CAPTURE', 'MAIL GATEWAY', 'MAIL IDENTITY', 'APPLICATION', 'SUMMARY'] as $section) {
+        foreach (['PREPARATION CONTRACT', 'HOST INVENTORY', 'LIVE TARGET CONTRACT', 'OPERATIONS & BACKUP PERIMETER', 'MAIL CAPTURE', 'MAIL GATEWAY', 'MAIL IDENTITY', 'MAIL INBOUND', 'APPLICATION', 'SUMMARY'] as $section) {
             expect($run['output'])->toContain("\n{$section}\n");
         }
 
@@ -205,6 +222,7 @@ it('verifies active staging-main through its preparation and live-target contrac
         expectVerifyItem($run['output'], 'PASS', 'verify-mail-capture --read-only');
         expectVerifyItem($run['output'], 'PASS', 'verify-mail-gateway --read-only');
         expectVerifyItem($run['output'], 'N/A', 'mail-identity', 'a staging target has no production mail identity');
+        expectVerifyItem($run['output'], 'N/A', 'mail-inbound', 'a staging target never receives public mail: who may listen on TCP 25 is proved in the mail gateway group');
         expectVerifyItem($run['output'], 'PASS', 'health-check', 'staging-main answers its health endpoint');
 
         // Every child's own report stays in the log.
@@ -220,7 +238,7 @@ it('verifies active staging-main through its preparation and live-target contrac
             'pass' => 6,
             'fail' => 0,
             'deferred' => 0,
-            'not_applicable' => 1,
+            'not_applicable' => 2,
         ]);
     } finally {
         removeScratchDir($host['scratch']);
@@ -288,7 +306,7 @@ it('prints the full host inventory, and never lets it decide anything', function
 
         expect($run['result']['status'])->toBe('pass');
         expect(array_keys($run['groups']))->not->toContain('host-inventory');
-        expect($run['result']['pass'] + $run['result']['fail'] + $run['result']['deferred'] + $run['result']['not_applicable'])->toBe(7);
+        expect($run['result']['pass'] + $run['result']['fail'] + $run['result']['deferred'] + $run['result']['not_applicable'])->toBe(8);
 
         // It is only ever --report: never the preflight's gate mode.
         expect(collect($run['calls'])->filter(fn (string $call): bool => str_starts_with($call, 'bootstrap-host-preflight'))->values()->all())
@@ -383,6 +401,7 @@ it('verifies planned tits-guru through the host bootstrap and its planned-target
             'mail-capture' => 'not_applicable',
             'mail-gateway' => 'pass',
             'mail-identity' => 'pass',
+            'mail-inbound' => 'deferred',
             'application' => 'deferred',
         ]);
 
@@ -395,6 +414,7 @@ it('verifies planned tits-guru through the host bootstrap and its planned-target
         expectVerifyItem($run['output'], 'PASS', 'identity contract', 'mail-identity validate');
         expectVerifyItem($run['output'], 'DEFERRED', 'dkim-key', '/etc/opendkim/keys/tits-guru/rg1.private is absent — not required while tits-guru\'s mail is held');
         expectVerifyItem($run['output'], 'DEFERRED', 'outbound-readiness', 'not activated (delivery_mode held, direct delivery disabled)');
+        expectVerifyItem($run['output'], 'DEFERRED', 'inbound receiver', 'not-installed: public SMTP is requested by the reviewed contract and not yet activated');
         expectVerifyItem($run['output'], 'DEFERRED', 'health-check', 'tits-guru is planned: it is intentionally not deployed or active');
 
         // The readiness picture is still shown, never hidden behind DEFERRED.
@@ -404,7 +424,7 @@ it('verifies planned tits-guru through the host bootstrap and its planned-target
             ->toContain("Target: tits-guru\nEnvironment class: production\nLifecycle: planned\nMail delivery mode: held")
             ->toContain('  Mail identity                   PASS (2 deferred)')
             ->toContain("VERIFY INFRASTRUCTURE: PASS\nPASS means the CURRENT reviewed planned state is correct. It does NOT mean production is live.");
-        expect($run['result'])->toMatchArray(['status' => 'pass', 'pass' => 5, 'fail' => 0, 'deferred' => 4, 'not_applicable' => 1, 'lifecycle' => 'planned', 'delivery_mode' => 'held']);
+        expect($run['result'])->toMatchArray(['status' => 'pass', 'pass' => 5, 'fail' => 0, 'deferred' => 5, 'not_applicable' => 1, 'lifecycle' => 'planned', 'delivery_mode' => 'held']);
     } finally {
         removeScratchDir($host['scratch']);
     }
@@ -429,6 +449,29 @@ it('fails planned production when any of its required groups fails, and still in
     'the planned-target contract' => ['configure-target', 'configure-target --verify --target tits-guru', 'planned-target'],
     'the operations perimeter' => ['install-target-perimeter', 'install-target-perimeter --verify', 'operations-perimeter'],
     'the mail gateway' => ['verify-mail-gateway', 'verify-mail-gateway --read-only', 'mail-gateway'],
+    'the inbound receiver' => ['activate-mail-inbound', 'inbound receiver', 'mail-inbound'],
+]);
+
+it('passes the inbound receiver only when it is enabled and verified, and defers it while it waits for its activation', function (string $state, string $verdict, string $group, string $detail) {
+    $host = verifyInfraHost(['inbound' => $state]);
+
+    try {
+        $run = verifyInfraRun($host, 'tits-guru', verifyInfraPreActivationScript($host));
+
+        expect($run['groups']['mail-inbound'])->toBe($group);
+        expectVerifyItem($run['output'], $verdict, 'inbound receiver', $detail);
+        expect($run['calls'])->toContain('activate-mail-inbound --verify --target tits-guru');
+        expect($run['status'])->toBe($group === 'fail' ? 1 : 0, $run['output']);
+    } finally {
+        removeScratchDir($host['scratch']);
+    }
+})->with([
+    'not installed' => ['not-installed', 'DEFERRED', 'deferred', 'not-installed: public SMTP is requested by the reviewed contract and not yet activated'],
+    'installed, disabled' => ['installed-disabled', 'DEFERRED', 'deferred', 'installed-disabled: public SMTP is requested'],
+    'enabled and verified' => ['enabled-verified', 'PASS', 'pass', 'public SMTP enabled: the receiver alone listens on TCP 25, verifies, and the outbound gateway is untouched'],
+    'disabled, and not requested' => ['installed-disabled:unrequested', 'PASS', 'pass', 'installed-disabled: public SMTP is not requested, and nothing listens on TCP 25'],
+    'a pass with no result' => ['none', 'FAIL', 'fail', 'passed without saying which state the receiver is in (unknown) — a verification with no verdict is never a pass'],
+    'a pass with a state it does not know' => ['open', 'FAIL', 'fail', 'passed without saying which state the receiver is in (open)'],
 ]);
 
 it('judges an installed DKIM key even while the target is held, and never prints it', function () {
@@ -638,12 +681,13 @@ it('runs every primitive in its read-only mode and nothing that could change the
         'run_child "${PERIMETER_VERIFIER}" --verify',
         'run_child "${MAIL_CAPTURE_VERIFIER}" --read-only',
         'run_child "${MAIL_GATEWAY_VERIFIER}" --read-only',
+        'run_child "${MAIL_INBOUND_VERIFIER}" --verify --target "${TARGET_ID}"',
         'run_child "${HEALTH_CHECK}" --target "${TARGET_ID}"',
     ] as $call) {
         expect(substr_count($code, $call))->toBe(1, "expected exactly one {$call}");
     }
 
-    foreach (['PREPARATION_VERIFIER', 'LIVE_TARGET_VERIFIER', 'HOST_BOOTSTRAP_VERIFIER', 'PLANNED_TARGET_VERIFIER', 'HOST_INVENTORY', 'PERIMETER_VERIFIER', 'MAIL_CAPTURE_VERIFIER', 'MAIL_GATEWAY_VERIFIER', 'HEALTH_CHECK'] as $child) {
+    foreach (['PREPARATION_VERIFIER', 'LIVE_TARGET_VERIFIER', 'HOST_BOOTSTRAP_VERIFIER', 'PLANNED_TARGET_VERIFIER', 'HOST_INVENTORY', 'PERIMETER_VERIFIER', 'MAIL_CAPTURE_VERIFIER', 'MAIL_GATEWAY_VERIFIER', 'MAIL_INBOUND_VERIFIER', 'HEALTH_CHECK'] as $child) {
         expect(substr_count($code, 'run_child "${'.$child.'}"'))->toBe(1, "{$child} is run more than once");
     }
 
@@ -651,12 +695,17 @@ it('runs every primitive in its read-only mode and nothing that could change the
     preg_match_all('/"\$\{MAIL_IDENTITY\}" ([a-z-]+)/', $code, $commands);
     expect(array_values(array_unique($commands[1])))->toBe(['validate', 'dkim-key', 'check-key', 'readiness']);
 
+    // mail-inbound: only its plan.
+    preg_match_all('/"\$\{MAIL_INBOUND\}" ([a-z-]+)/', $code, $inbound);
+    expect(array_values(array_unique($inbound[1])))->toBe(['render-plan']);
+
     // The scripts it can reach at all are exactly the primitives it composes:
     // no backup, restore, deploy, rollback or installer in --apply.
     preg_match_all('/\$\{SCRIPT_DIR\}\/([a-z-]+)/', $code, $scripts);
     expect(array_values(array_unique($scripts[1])))->toEqualCanonicalizing([
         'prepare-host', 'repair-target', 'bootstrap-host', 'configure-target', 'bootstrap-host-preflight', 'install-target-perimeter',
-        'verify-mail-capture', 'verify-mail-gateway', 'health-check', 'mail-identity', 'mail-routing', 'targets',
+        'verify-mail-capture', 'verify-mail-gateway', 'activate-mail-inbound', 'health-check', 'mail-identity', 'mail-inbound',
+        'mail-routing', 'targets',
     ]);
 
     foreach (['--apply', '--check', '--e2e', '--repair', '--provisioning', '--material-dir', '--recovery-backup', 'postsuper', 'postqueue', 'postfix ', 'sendmail', 'swaks', 'smtp', '/dev/tcp', 'nsupdate', 'apt-get', 'install -', 'mkdir', 'chmod', 'chown', 'setfacl', 'rm -', 'mv ', 'cp ', 'tee ', 'opendkim-', 'milter', 'genpkey', 'backup-cycle', 'restore-test', 'restore-target', 'offsite-', 'deploy ', 'rollback ', 'migrate', 'shared/.env'] as $mutation) {
@@ -795,14 +844,17 @@ it('gates production verification to main before any job holds production creden
     expect($staging)->toBe(verifyInfraWorkflow('prepare-staging-host.yml')['jobs']['validate-ref']['steps'][0]['run']);
 });
 
-it('creates no subsystem-specific verification workflow beyond the one signing acceptance', function () {
+it('creates no subsystem-specific verification workflow beyond the signing acceptance and the inbound receiver\'s own', function () {
     $workflows = array_map('basename', glob(base_path('.github/workflows/*.yml')) ?: []);
     $verify = array_values(array_filter($workflows, static fn (string $file): bool => str_starts_with($file, 'verify-')));
 
-    // The two permanent read-only verifications, and the one deliberate
-    // exception: the live proof that held production mail is signed, which no
-    // read-only check can give. MailSigningTest guards it.
-    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml']);
+    // The two permanent read-only verifications, and two deliberate
+    // exceptions: the live proof that held production mail is signed, which no
+    // read-only check can give (MailSigningTest guards it), and the read-only
+    // third of the inbound receiver's Activate, Verify and Rollback, which
+    // Verify production infrastructure also runs as its Mail inbound group
+    // (MailInboundWorkflowTest guards it).
+    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml', 'verify-tits-guru-inbound-smtp.yml']);
 
     // The deep primitives stay on the host, and no workflow or action runs
     // them — except that one acceptance, through its own transport, which runs
