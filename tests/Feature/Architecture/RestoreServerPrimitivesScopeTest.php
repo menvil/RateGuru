@@ -743,7 +743,10 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
     // which are asserted in full by RestoreOperatorSurfaceScopeTest and by their own test
     // files. (See the note above on toContain's variadic signature.)
     foreach ([
-        'infrastructure/scripts/health-check',
+        // health-check left this list as well. Making the check honest, so it
+        // asks for the home page as well as /up, is ordinary operations work,
+        // not a restore surface. What a restore relies on is said directly
+        // below instead: it knows nothing of restores and changes nothing.
         'infrastructure/scripts/status',
         'infrastructure/scripts/bootstrap-host',
         // prepare-host is deliberately NOT here any more. It printed one
@@ -773,6 +776,7 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
     foreach ([
         'infrastructure/scripts/targets',
         'infrastructure/config/deployment-targets.json',
+        'infrastructure/scripts/health-check',
     ] as $path) {
         $source = File::get(base_path($path));
 
@@ -785,6 +789,10 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
             expect(mb_strtolower($source))->not->toContain($forbidden);
         }
     }
+
+    // And health-check stays a probe: it reads over HTTP and writes nothing.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/health-check'))))
+        ->not->toMatch('/^\s*(rm|mv|cp|install|touch|mkdir|chmod|chown|ln)\s/m');
 
     // What deploy may never gain, in any phase: a backup selector, a restore
     // of its own, or a way to run a migration it was not explicitly asked for.

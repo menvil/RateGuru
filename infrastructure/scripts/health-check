@@ -35,28 +35,44 @@ LABEL="${TARGET_ID}"
 
 HEALTH_URL="${BASE_URL%/}/up"
 
+# The home page too. /up answers for the framework, the database and the cache
+# store, but not for what a release can break on its own: a migration it needs
+# and does not have, its built assets, a view that does not compile. Each of
+# those fails every page while /up still answers, and the home page is the one
+# every visitor gets.
+HOME_URL="${BASE_URL%/}/"
+
 ATTEMPTS=10
 DELAY_SECONDS=2
 
+http_status() {
+    curl \
+        --silent \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        --max-time 5 \
+        --header "Host: ${HOST_HEADER}" \
+        "$1" \
+        2>/dev/null || true
+}
+
 for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
-    HTTP_STATUS="$(
-        curl \
-            --silent \
-            --output /dev/null \
-            --write-out '%{http_code}' \
-            --max-time 5 \
-            --header "Host: ${HOST_HEADER}" \
-            "${HEALTH_URL}" \
-            2>/dev/null || true
-    )"
+    HTTP_STATUS="$(http_status "${HEALTH_URL}")"
 
     if [[ "${HTTP_STATUS}" == "200" ]]; then
-        log "${LABEL} health check passed: ${HEALTH_URL}"
-        exit 0
+        HOME_STATUS="$(http_status "${HOME_URL}")"
+
+        if [[ "${HOME_STATUS}" == "200" ]]; then
+            log "${LABEL} health check passed: ${HEALTH_URL} and ${HOME_URL}"
+            exit 0
+        fi
+
+        log "${LABEL} health check attempt ${attempt}/${ATTEMPTS}: ${HEALTH_URL} answered, but the home page failed with HTTP ${HOME_STATUS:-000}"
+    else
+        log "${LABEL} health check attempt ${attempt}/${ATTEMPTS} failed with HTTP ${HTTP_STATUS:-000}"
     fi
 
-    log "${LABEL} health check attempt ${attempt}/${ATTEMPTS} failed with HTTP ${HTTP_STATUS:-000}"
     sleep "${DELAY_SECONDS}"
 done
 
-fail "${LABEL} health check failed: ${HEALTH_URL}"
+fail "${LABEL} health check failed: ${HEALTH_URL} and ${HOME_URL}"
