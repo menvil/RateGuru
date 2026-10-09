@@ -78,12 +78,13 @@ final class ImageFixtures
     }
 
     /**
-     * Writes a synthetic fixture PNG under public/ and registers a
-     * throwaway filesystem disk rooted at that same directory, then creates
-     * and returns a MediaAsset (kind: post_image) with disk + path pointing
-     * at it.
+     * Registers this worker's fixture directory as a filesystem disk and
+     * returns its name. Files on it are under public/, so the browser test
+     * server hands them to the browser as it does the built assets: a test
+     * that has the application store media of its own points
+     * config('media.disks.public') here, and the pictures it uploads load.
      */
-    public static function write(int $width, int $height): MediaAsset
+    public static function disk(): string
     {
         $directory = self::directory();
 
@@ -91,13 +92,26 @@ final class ImageFixtures
             mkdir($directory, 0o755, true);
         }
 
-        $diskName = self::diskName();
-        config()->set("filesystems.disks.{$diskName}", [
+        config()->set('filesystems.disks.'.self::diskName(), [
             'driver' => 'local',
             'root' => $directory,
             'url' => '/test-fixtures/'.self::worker(),
             'visibility' => 'public',
         ]);
+
+        return self::diskName();
+    }
+
+    /**
+     * Writes a synthetic fixture PNG under public/ and registers a
+     * throwaway filesystem disk rooted at that same directory, then creates
+     * and returns a MediaAsset (kind: post_image) with disk + path pointing
+     * at it.
+     */
+    public static function write(int $width, int $height): MediaAsset
+    {
+        $diskName = self::disk();
+        $directory = self::directory();
 
         $image = imagecreatetruecolor($width, $height);
 
