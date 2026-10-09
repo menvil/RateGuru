@@ -2121,14 +2121,15 @@ Slices, in order:
    production target — support mail, delivery status notifications on the
    bounce domain and replies on the reply domain — through a public receiver
    that is a separate Postfix instance, never the loopback-only outbound
-   gateway, whose no-public-port checks stay exactly as strict. Inbound mail
-   is not working until a message from outside has actually been received.
+   gateway; every public-port check recognizes that receiver, and nothing
+   else, through one shared judge. Inbound mail is not working until a
+   message from outside has actually been received.
    See [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md).
 
-   **8.4B.5.1 Inbound contract and DNS plan — IMPLEMENTED, nothing
-   installed.** The new `config/mail-inbound.json` (schema 1) holds only what
-   is new: `receiver.public_smtp` — `disabled`, the one state there is while
-   no receiver exists — and per production target its MX host inside its own
+   **8.4B.5.1 Inbound contract and DNS plan — COMPLETED.** Merged as PR #1248.
+   The new `config/mail-inbound.json` (schema 1) held only what was new:
+   `receiver.public_smtp` — `disabled` while no receiver existed — and per
+   production target its MX host inside its own
    mail domain (`tits-guru`: `mx1.tits.guru`), its exact support local parts
    (`postmaster` and `support`; `postmaster` is required, and accepted at the
    bounce and reply domains too, by RFC 5321 §4.5.1), and its bounce and reply
@@ -2154,15 +2155,40 @@ Slices, in order:
    published only after the receiver is installed, verified and activated.
    *Unchanged on purpose:* the gateway and its public-port checks, OpenDKIM,
    the routing policy, `mail-outbound.json`, every lifecycle, environment
-   file and secret, DNS and the firewall; nothing listens on port 25.
+   file and secret, DNS and the firewall; nothing listened on port 25.
 
    **8.4B.5.2 Isolated inbound SMTP receiver and guarded activation —
-   planned.** The separate Postfix instance with its own configuration, queue
-   and service, rendered from the inbound plan and proved on the host with
-   public SMTP still disabled; then its guarded activation: the `enabled`
-   state, one verifiable owner of public port 25 that the gateway's checks
-   recognize exactly, the firewall, and a rollback that closes the port
-   again.
+   IMPLEMENTED in repository, awaiting real-host activation and acceptance.**
+   `scripts/install-mail-inbound` installs a second, independent Postfix
+   instance — `/etc/postfix-inbound`, its queue, data, log and Maildir store
+   on a fixed-size `nodev,nosuid,noexec` volume of its own under
+   `/var/spool/rateguru-mail-inbound`, `rateguru-mail-inbound.service`, state
+   under `/var/lib/rateguru-mail-inbound` — from the same Postfix package,
+   never through `postmulti` and never registered in the gateway's
+   configuration, whose files stay byte for byte. Its recipient table is
+   rendered by `mail-inbound render-receiver` (schema 2 of the contract adds
+   the receiver's loopback port and reviewed limits: 10 MB, one recipient,
+   five connections per client, a 1 GiB store with a temporary refusal below
+   its reserve); the bare `<Postmaster>` goes to a host mailbox of its own.
+   It has no AUTH, no relay, no SMTP client and no delivery to a command, and
+   proves all twenty requirements by name. The committed request is now
+   `public_smtp: enabled`, which opens nothing: a host moves between disabled
+   and enabled only through `scripts/activate-mail-inbound` — preflight
+   (address, TLS for `mx1.tits.guru` from the host, the gateway, the
+   firewall), a live proof on the loopback listener, a capsule, a one-use
+   authorization, TCP 25 opened for exactly one IPv4 address in ufw (or no
+   host firewall at all; anything else refuses), the proof again, and an
+   automatic return to disabled on any failure, CRITICAL when even that
+   cannot be proved. Prepare, bootstrap and repair never open or close it.
+   One library, `scripts/public-smtp-port`, is now every check's judge of
+   25, 465 and 587: 465 and 587 never, 25 only for the activated receiver's
+   own unit on its recorded address. Activate, Verify and Rollback tits.guru
+   inbound SMTP run from `main` only, the two that change the host behind a
+   typed confirmation judged before any secret; Verify production
+   infrastructure gains a Mail inbound group. *Not done here:* the real-host
+   activation, the A and MX records the operator publishes afterwards in the
+   runbook's order, and the external message that accepts it — 8.4B.5.2 is
+   not accepted until a message from outside is stored.
 
    **8.4B.5.3 Bounce reception and correlation — planned.** The Return-Path
    on the bounce domain; delivery status notifications received with an

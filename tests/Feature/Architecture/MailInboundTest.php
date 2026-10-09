@@ -11,9 +11,10 @@ use Illuminate\Support\Facades\File;
  * recipient's domain alone: support (exact addresses at its mail domain),
  * bounce (`<prefix>-<identifier>` at its bounce domain) and reply (the same
  * form, another prefix, at its reply domain). The domains belong to the mail
- * routing policy, and the contract never restates them. Public SMTP is
- * `disabled`, the one state there is: no receiver exists, nothing listens and
- * no MX is published.
+ * routing policy, and the contract never restates them. Public SMTP is a
+ * request — `disabled` or `enabled` — and never the state of a host: only
+ * activate-mail-inbound moves a host between the two, and no MX is published
+ * from here.
  *
  * Every behavioural test runs the shipped infrastructure/scripts/mail-inbound
  * against fixture files. None restates a rule in PHP: a validator reimplemented
@@ -239,12 +240,19 @@ it('validates the committed contract against the committed routing policy, regis
     expect($run['stdout'])->toContain('inbound mail contract is valid: ');
 });
 
-it('renders tits-guru receiving support, bounce and reply mail at the domains its routing policy reviews, with public SMTP disabled', function () {
+it('renders tits-guru receiving support, bounce and reply mail at the domains its routing policy reviews, with public SMTP requested', function () {
     $plan = mailInboundJson(['render-plan']);
 
     expect(array_keys($plan))->toBe(['receiver', 'schema_version', 'targets']);
-    expect($plan['schema_version'])->toBe(1);
-    expect($plan['receiver']['public_smtp'])->toBe('disabled');
+    expect($plan['schema_version'])->toBe(2);
+    expect(array_keys($plan['receiver']))->toBe(['host_postmaster', 'limits', 'loopback_port', 'public_smtp', 'requirements']);
+    expect($plan['receiver']['public_smtp'])->toBe('enabled');
+    expect($plan['receiver']['loopback_port'])->toBe(2580);
+    expect($plan['receiver']['host_postmaster'])->toBe([
+        'address' => 'postmaster@rateguru-mail-inbound.invalid',
+        'destination' => 'host-postmaster',
+        'handler' => ['kind' => 'host-postmaster', 'status' => 'planned'],
+    ]);
     expect(array_column($plan['targets'], 'target'))->toBe(['tits-guru']);
 
     expect(mailInboundPlanTarget($plan, 'tits-guru'))->toBe([
@@ -316,19 +324,183 @@ it('refuses a contract that restates or replaces a domain mail-routing owns', fu
     'a list of domains' => ['domains', ['tits.guru', 'evil.example']],
 ]);
 
-it('keeps public inbound SMTP disabled, the one state there is while no receiver exists', function (mixed $state) {
-    expect(mailInboundContract()['receiver'])->toBe(['public_smtp' => 'disabled']);
+it('requests public inbound SMTP, which no host takes as its own state', function () {
+    // The committed request is enabled; a host stays disabled until Activate
+    // tits.guru inbound SMTP proves the receiver and opens TCP 25 itself.
+    expect(mailInboundContract()['receiver']['public_smtp'])->toBe('enabled');
 
+    expect(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => 'disabled'])])['status'])->toBe(0);
+    expect(mailInboundJson(['render-plan'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => 'disabled'])])['receiver']['public_smtp'])->toBe('disabled');
+});
+
+it('refuses a public SMTP request that is not exactly disabled or enabled', function (mixed $state) {
     expectMailInboundRefusal(
         mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => $state])]),
-        'receiver.public_smtp must be disabled, got '.json_encode($state).': no public receiver exists, and public SMTP is enabled only by the change that installs, verifies and activates its own isolated receiver',
+        'receiver.public_smtp must be disabled or enabled, got '.json_encode($state).': it is a request, and only activate-mail-inbound moves a host between the two',
     );
 })->with([
-    'enabled' => ['enabled'],
     'true' => [true],
     'on' => ['on'],
     'listening' => ['listening'],
+    'capitalized' => ['Enabled'],
+    'null' => [null],
 ]);
+
+// =============================================================================
+// THE RECEIVER: LIMITS AND ITS LOOPBACK PORT
+// =============================================================================
+
+it('holds the receiver to the reviewed limits', function () {
+    expect(mailInboundContract()['receiver']['limits'])->toBe([
+        'message_size_bytes' => 10485760,
+        'recipients_per_message' => 1,
+        'connections_per_client' => 5,
+        'connection_rate_per_client' => 30,
+        'concurrent_sessions' => 20,
+        'storage_bytes' => 1073741824,
+        'storage_reserve_bytes' => 104857600,
+        'host_reserve_bytes' => 2147483648,
+    ]);
+});
+
+it('refuses a limit outside its reviewed range, or not an integer', function (string $key, mixed $value, string $range) {
+    expectMailInboundRefusal(
+        mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(["receiver.limits.{$key}" => $value])]),
+        "receiver.limits.{$key} must be an integer from {$range}, got ".json_encode($value),
+    );
+})->with([
+    'an unlimited message size' => ['message_size_bytes', 0, '1048576 to 52428800'],
+    'a huge message size' => ['message_size_bytes', 104857600, '1048576 to 52428800'],
+    'no recipient at all' => ['recipients_per_message', 0, '1 to 50'],
+    'a fractional recipient limit' => ['recipients_per_message', 1.5, '1 to 50'],
+    'a limit as a string' => ['connections_per_client', '5', '1 to 50'],
+    'an unlimited connection rate' => ['connection_rate_per_client', 0, '1 to 600'],
+    'unlimited sessions' => ['concurrent_sessions', 1000, '1 to 200'],
+    'a tiny store' => ['storage_bytes', 1048576, '268435456 to 68719476736'],
+    'no host reserve' => ['host_reserve_bytes', 0, '1073741824 to 68719476736'],
+]);
+
+it('refuses limits that contradict each other', function (array $set, string $reason) {
+    expectMailInboundRefusal(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith($set)]), $reason);
+})->with([
+    'fewer sessions than one client may open' => [
+        ['receiver.limits.concurrent_sessions' => 4],
+        'receiver.limits.concurrent_sessions (4) is below connections_per_client (5): one client could never open as many sessions as it is allowed',
+    ],
+    'a store reserve that cannot hold an accepted message' => [
+        ['receiver.limits.storage_reserve_bytes' => 10485760],
+        'receiver.limits.storage_reserve_bytes must be at least twice message_size_bytes (20971520), so a message that was accepted can always be stored',
+    ],
+    'a store reserve that leaves almost no store' => [
+        ['receiver.limits.storage_reserve_bytes' => 536870912],
+        'receiver.limits.storage_reserve_bytes must be at most a quarter of storage_bytes, or the store would refuse mail almost from the start',
+    ],
+]);
+
+it('refuses a missing or unknown limit', function (array $set, array $forget, string $reason) {
+    expectMailInboundRefusal(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith($set, $forget)]), $reason);
+})->with([
+    'no message size' => [[], ['receiver.limits.message_size_bytes'], 'receiver.limits must declare message_size_bytes'],
+    'no disk floor' => [[], ['receiver.limits.storage_reserve_bytes'], 'receiver.limits must declare storage_reserve_bytes'],
+    'an unknown limit' => [['receiver.limits.max_recipients_total' => 10], [], 'receiver.limits has an unexpected property "max_recipients_total"'],
+    'no limits' => [[], ['receiver.limits'], 'receiver must declare limits'],
+    'limits as a number' => [['receiver.limits' => 10], [], 'receiver.limits must be an object, got 10'],
+]);
+
+it('refuses a loopback port the gateway owns, or no unprivileged port at all', function (mixed $port, string $reason) {
+    expectMailInboundRefusal(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.loopback_port' => $port])]), $reason);
+})->with([
+    'port 25' => [25, 'receiver.loopback_port must be an integer from 1024 to 65535, got 25'],
+    'beyond the port range' => [65536, 'receiver.loopback_port must be an integer from 1024 to 65535, got 65536'],
+    'a string' => ['2580', 'receiver.loopback_port must be an integer from 1024 to 65535, got "2580"'],
+    'the staging listener' => [2525, 'receiver.loopback_port 2525 is a port of the mail routing plan (staging-main): the receiver and the gateway never share a port'],
+    'the staging capture route' => [1025, 'receiver.loopback_port 1025 is a port of the mail routing plan (staging-main): the receiver and the gateway never share a port'],
+    'the tits-guru listener' => [2526, 'receiver.loopback_port 2526 is a port of the mail routing plan (tits-guru): the receiver and the gateway never share a port'],
+]);
+
+it('renders exactly what the receiver accepts: an anchored pattern and a mailbox of its own for every allowed recipient', function () {
+    $receiver = mailInboundJson(['render-receiver']);
+    $contract = mailInboundContract();
+
+    expect(array_keys($receiver))->toBe(['domains', 'host_postmaster_domain', 'limits', 'loopback_port', 'mailboxes', 'mx_hostnames', 'public_smtp', 'recipients', 'schema_version']);
+    expect($receiver['schema_version'])->toBe(1);
+    expect($receiver['public_smtp'])->toBe($contract['receiver']['public_smtp']);
+    expect($receiver['loopback_port'])->toBe($contract['receiver']['loopback_port']);
+    expect($receiver['limits'])->toEqualCanonicalizing($contract['receiver']['limits']);
+    expect($receiver['domains'])->toBe(['bounce.tx.tits.guru', 'rateguru-mail-inbound.invalid', 'reply.tits.guru', 'tits.guru']);
+    expect($receiver['mx_hostnames'])->toBe(['mx1.tits.guru']);
+    expect($receiver['mailboxes'])->toBe(['host/postmaster/', 'targets/tits-guru/bounce/', 'targets/tits-guru/reply/', 'targets/tits-guru/support/']);
+
+    $identifier = '[0-7][0-9abcdefghjkmnpqrstvwxyz]{25}';
+    expect($receiver['recipients'])->toBe([
+        ['destination' => 'support', 'mailbox' => 'targets/tits-guru/support/', 'pattern' => '^postmaster@bounce\\.tx\\.tits\\.guru$', 'target' => 'tits-guru'],
+        ['destination' => 'support', 'mailbox' => 'targets/tits-guru/support/', 'pattern' => '^postmaster@reply\\.tits\\.guru$', 'target' => 'tits-guru'],
+        ['destination' => 'support', 'mailbox' => 'targets/tits-guru/support/', 'pattern' => '^postmaster@tits\\.guru$', 'target' => 'tits-guru'],
+        ['destination' => 'support', 'mailbox' => 'targets/tits-guru/support/', 'pattern' => '^support@tits\\.guru$', 'target' => 'tits-guru'],
+        ['destination' => 'bounce', 'mailbox' => 'targets/tits-guru/bounce/', 'pattern' => "^b-{$identifier}@bounce\\.tx\\.tits\\.guru$", 'target' => 'tits-guru'],
+        ['destination' => 'reply', 'mailbox' => 'targets/tits-guru/reply/', 'pattern' => "^r-{$identifier}@reply\\.tits\\.guru$", 'target' => 'tits-guru'],
+        ['destination' => 'host-postmaster', 'mailbox' => 'host/postmaster/', 'pattern' => '^postmaster@rateguru-mail-inbound\\.invalid$', 'target' => null],
+    ]);
+
+    // Every pattern agrees with the judge: what it matches, route accepts,
+    // into the same destination.
+    foreach (['support@tits.guru', 'postmaster@reply.tits.guru', 'b-'.MAIL_INBOUND_IDENTIFIER.'@bounce.tx.tits.guru', 'r-'.MAIL_INBOUND_IDENTIFIER.'@reply.tits.guru'] as $address) {
+        $matching = array_values(array_filter($receiver['recipients'], static fn (array $r): bool => preg_match('/'.$r['pattern'].'/', $address) === 1));
+        expect(count($matching))->toBe(1, $address);
+        expect(mailInboundRoute($address)['destination'])->toBe($matching[0]['destination']);
+    }
+
+    foreach (['supportx@tits.guru', 'b-'.MAIL_INBOUND_IDENTIFIER.'@reply.tits.guru', 'b-81hzx3k9q2w8e7r6t5y4v3p2m1@bounce.tx.tits.guru', 'support@titsxguru'] as $address) {
+        foreach ($receiver['recipients'] as $recipient) {
+            expect(preg_match('/'.$recipient['pattern'].'/', $address))->toBe(0, "{$recipient['pattern']} matches {$address}");
+        }
+    }
+});
+
+it('renders a mailbox of its own for every target, never shared', function () {
+    $receiver = mailInboundJson(['render-receiver'], mailInboundDemoShop(inbound: mailInboundDemoShopPolicy()));
+
+    expect($receiver['mailboxes'])->toBe([
+        'host/postmaster/',
+        'targets/demo-shop/bounce/', 'targets/demo-shop/reply/', 'targets/demo-shop/support/',
+        'targets/tits-guru/bounce/', 'targets/tits-guru/reply/', 'targets/tits-guru/support/',
+    ]);
+
+    foreach ($receiver['recipients'] as $recipient) {
+        expect($recipient['mailbox'])->toStartWith($recipient['target'] === null ? 'host/' : "targets/{$recipient['target']}/");
+    }
+});
+
+it('accepts the bare Postmaster, which names no brand, as the host postmaster', function (string $recipient) {
+    expect(mailInboundRoute($recipient))->toBe([
+        'address' => 'postmaster@rateguru-mail-inbound.invalid',
+        'destination' => 'host-postmaster',
+        'handler' => ['kind' => 'host-postmaster', 'status' => 'planned'],
+        'identifier' => null,
+        'public_smtp' => 'enabled',
+        'reason' => null,
+        'recipient' => $recipient,
+        'rejection' => null,
+        'target' => null,
+        'verdict' => 'accept',
+    ]);
+})->with([
+    'bare' => ['Postmaster'],
+    'bare, lowercase' => ['postmaster'],
+    'qualified by the receiver' => ['postmaster@rateguru-mail-inbound.invalid'],
+]);
+
+it('accepts nothing else at the host postmaster domain', function () {
+    expect(mailInboundRoute('root@rateguru-mail-inbound.invalid'))->toMatchArray([
+        'verdict' => 'reject',
+        'rejection' => 'unknown-recipient',
+        'target' => null,
+        'reason' => 'root@rateguru-mail-inbound.invalid is not the host postmaster: rateguru-mail-inbound.invalid receives only postmaster@rateguru-mail-inbound.invalid',
+    ]);
+
+    // Nor is any other bare local part an address.
+    expect(mailInboundRoute('support'))->toMatchArray(['verdict' => 'reject', 'rejection' => 'malformed-address']);
+});
 
 // =============================================================================
 // GENERIC: A SECOND BRAND, NO CODE CHANGE
@@ -594,7 +766,7 @@ it('accepts support mail at exactly the addresses the contract lists, compared a
         'destination' => 'support',
         'handler' => ['kind' => 'support-mailbox', 'status' => 'planned'],
         'identifier' => null,
-        'public_smtp' => 'disabled',
+        'public_smtp' => 'enabled',
         'reason' => null,
         'recipient' => $recipient,
         'rejection' => null,
@@ -880,7 +1052,7 @@ it('plans an MX for the mail domain and both subdomains, and the A record of the
     expect($dns)->toBe([
         'mx_hostname' => 'mx1.tits.guru',
         'outbound_identity' => ['mta_hostname' => 'mta1.tits.guru', 'records' => 'unchanged'],
-        'public_smtp' => 'disabled',
+        'public_smtp' => 'enabled',
         'receiver_ipv4' => ['address' => null, 'status' => 'not-provided'],
         'records' => [
             ['name' => 'tits.guru', 'priority' => 10, 'publish' => 'after-receiver-activation', 'serves' => 'support', 'type' => 'MX', 'value' => 'mx1.tits.guru'],
@@ -888,7 +1060,7 @@ it('plans an MX for the mail domain and both subdomains, and the A record of the
             ['name' => 'reply.tits.guru', 'priority' => 10, 'publish' => 'after-receiver-activation', 'serves' => 'reply', 'type' => 'MX', 'value' => 'mx1.tits.guru'],
             ['name' => 'mx1.tits.guru', 'priority' => null, 'publish' => 'before-mx', 'serves' => 'receiver', 'type' => 'A', 'value' => null],
         ],
-        'schema_version' => 1,
+        'schema_version' => 2,
         'target' => 'tits-guru',
     ]);
 
@@ -1042,7 +1214,9 @@ it('renders no command, no path and no secret: only names, addresses and closed 
     $vocabulary = [
         'schema_version', 'receiver', 'public_smtp', 'requirements', 'targets', 'target', 'environment_class', 'lifecycle',
         'mx_hostname', 'domains', 'destinations', 'destination', 'domain', 'handler', 'kind', 'status', 'accepts',
-        'addresses', 'address_space', 'local_part_prefix', 'identifier', 'identifies',
+        'addresses', 'address_space', 'local_part_prefix', 'identifier', 'identifies', 'loopback_port', 'limits',
+        'host_postmaster', 'address', 'message_size_bytes', 'recipients_per_message', 'connections_per_client',
+        'connection_rate_per_client', 'concurrent_sessions', 'storage_bytes', 'storage_reserve_bytes', 'host_reserve_bytes',
     ];
 
     $plans = [
@@ -1079,20 +1253,21 @@ it('renders no command, no path and no secret: only names, addresses and closed 
 it('refuses a document that is not one well-formed contract', function (string $document, string $reason) {
     expectMailInboundRefusal(mailInboundRun(['validate'], ['inbound' => $document]), $reason);
 })->with([
-    'not JSON' => ['{"schema_version": 1,', 'the inbound mail contract is not valid JSON'],
-    'two documents' => ['{"schema_version": 1} {"schema_version": 1}', 'the inbound mail contract must hold exactly one JSON document, found 2'],
+    'not JSON' => ['{"schema_version": 2,', 'the inbound mail contract is not valid JSON'],
+    'two documents' => ['{"schema_version": 2} {"schema_version": 2}', 'the inbound mail contract must hold exactly one JSON document, found 2'],
     'an array' => ['[]', 'the inbound mail contract must be a JSON object'],
     'a duplicated key' => [
-        '{"schema_version": 1, "receiver": {"public_smtp": "disabled"}, "targets": {}, "targets": {}}',
+        '{"schema_version": 2, "receiver": {"public_smtp": "disabled"}, "targets": {}, "targets": {}}',
         'the inbound mail contract declares the same key twice in one object',
     ],
     'a control character' => [
-        '{"schema_version": 1, "receiver": {"public_smtp": "disabled\n"}, "targets": {}}',
+        '{"schema_version": 2, "receiver": {"public_smtp": "disabled\n"}, "targets": {}}',
         'the inbound mail contract must not contain control characters in any key or value',
     ],
-    'the next schema' => ['{"schema_version": 2, "receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: 2 (expected 1)'],
-    'a schema written as a string' => ['{"schema_version": "1", "receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: "1" (expected 1)'],
-    'no schema' => ['{"receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: null (expected 1)'],
+    'the schema before the receiver' => ['{"schema_version": 1, "receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: 1 (expected 2)'],
+    'the next schema' => ['{"schema_version": 3, "receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: 3 (expected 2)'],
+    'a schema written as a string' => ['{"schema_version": "2", "receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: "2" (expected 2)'],
+    'no schema' => ['{"receiver": {"public_smtp": "disabled"}, "targets": {}}', 'unsupported inbound mail schema_version: null (expected 2)'],
 ]);
 
 it('refuses an unknown or missing property at every level', function (array $set, array $forget, string $reason) {
@@ -1129,7 +1304,11 @@ it('lets a host receive for no target at all, and then renders no target', funct
     $plan = mailInboundJson(['render-plan'], ['inbound' => mailInboundContractWith(['targets' => new stdClass])]);
 
     expect($plan['targets'])->toBe([]);
-    expect($plan['receiver']['public_smtp'])->toBe('disabled');
+    expect($plan['receiver']['public_smtp'])->toBe('enabled');
+
+    // Only the host postmaster is left to receive.
+    expect(array_column(mailInboundJson(['render-receiver'], ['inbound' => mailInboundContractWith(['targets' => new stdClass])])['recipients'], 'destination'))
+        ->toBe(['host-postmaster']);
 });
 
 it('judges the contract only against a routing policy, a registry and an outbound identity their own judges accept', function (string $document, mixed $value, string $reason) {
@@ -1188,7 +1367,8 @@ it('handles its arguments strictly', function (array $arguments, int $status, st
     'a repeated target' => [['render-dns', '--target', 'tits-guru', '--target', 'tits-guru'], 1, 'ERROR: --target given more than once'],
     'a file flag with no value' => [['validate', '--inbound'], 1, 'ERROR: --inbound requires a value'],
     'a missing contract' => [['validate', '--inbound', '/nonexistent/mail-inbound.json'], 1, 'the inbound mail contract is unavailable'],
-    'help' => [['--help'], 0, 'mail-inbound route       --recipient ADDRESS [FILES]'],
+    'a target for render-receiver' => [['render-receiver', '--target', 'tits-guru'], 1, 'ERROR: --target is not an option of render-receiver'],
+    'help' => [['--help'], 0, 'mail-inbound route           --recipient ADDRESS [FILES]'],
 ]);
 
 // =============================================================================
@@ -1218,10 +1398,11 @@ it('changes nothing on disk when it validates, renders or routes', function () {
 
         expect(mailInboundRun(['validate'], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['render-plan'], [], $script)['status'])->toBe(0);
+        expect(mailInboundRun(['render-receiver'], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['render-dns', '--target', 'tits-guru', '--ipv4', MAIL_INBOUND_TEST_IPV4], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['route', '--recipient', 'support@tits.guru'], [], $script)['status'])->toBe(0);
         expect(mailInboundRun(['route', '--recipient', 'someone@gmail.com'], [], $script)['status'])->toBe(2);
-        expect(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => 'enabled'])], $script)['status'])->toBe(1);
+        expect(mailInboundRun(['validate'], ['inbound' => mailInboundContractWith(['receiver.public_smtp' => 'on'])], $script)['status'])->toBe(1);
 
         expect($snapshot())->toBe($before);
     } finally {
@@ -1249,13 +1430,12 @@ it('installs nothing, starts nothing, opens no port and asks no DNS', function (
         ->toContain('MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"')
         ->toContain('MAIL_IDENTITY_CLI="${SCRIPT_DIR}/mail-identity"');
 
-    // Output is only ever redirected away: no file is written.
+    // Output is only ever redirected away: no file is written. A comparison
+    // of the jq program — `. > $range.max` — is an object path, not a file.
     preg_match_all('/(?:^|[\s\d])>{1,2}\s*(["\/$][^\s;|&)]*)/m', $code, $matches);
+    $targets = array_filter($matches[1], static fn (string $target): bool => preg_match('/\A\$[a-z_]+\.[a-z_]+\z/', $target) !== 1);
 
-    expect(array_values(array_unique($matches[1])))->toBe(['/dev/null']);
-
-    // The committed contract receives nothing: public SMTP is disabled.
-    expect(mailInboundContract()['receiver']['public_smtp'])->toBe('disabled');
+    expect(array_values(array_unique($targets)))->toBe(['/dev/null']);
 });
 
 it('carries every requirement the future receiver is held to, and the runbook states each one', function () {
@@ -1296,33 +1476,47 @@ it('carries every requirement the future receiver is held to, and the runbook st
     expect($documented[1])->toBe($requirements);
 });
 
-it('is repository tooling that no host, workflow, action or installer reaches', function () {
+it('is repository tooling, reached only by the receiver installer, its activation and the infrastructure verifier', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-inbound');
     expect(requiredCliManifestNames())->not->toContain('mail-inbound');
+
+    // The CLI itself, as a word: never rateguru-mail-inbound, mail-inbound.json
+    // or the scripts whose names contain it.
+    $reaching = [];
 
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if ($relative === 'infrastructure/scripts/mail-inbound') {
-            continue;
+        if ($relative !== 'infrastructure/scripts/mail-inbound' && preg_match('/(?<![\w-])mail-inbound(?![\w.-])/', executableSourceLines(File::get($path))) === 1) {
+            $reaching[] = $relative;
         }
-
-        expect(executableSourceLines(File::get($path)))
-            ->not->toContain('mail-inbound', "{$relative} reaches the inbound mail contract — nothing installs or verifies an inbound receiver yet");
     }
+
+    sort($reaching);
+
+    expect($reaching)->toBe([
+        'infrastructure/scripts/activate-mail-inbound',
+        'infrastructure/scripts/install-mail-inbound',
+        'infrastructure/scripts/verify-infrastructure',
+    ]);
+
+    // Each of them only reads: no command of it writes anything.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound'))))->toContain('"${INBOUND_CLI}" render-receiver');
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/verify-infrastructure'))))->toContain('"${MAIL_INBOUND}" render-plan');
 });
 
-it('leaves the public SMTP port checks of the gateway and the outbound activation exactly as strict', function () {
-    // Every public SMTP port stays forbidden to everything on the host: the
-    // receiver's own port gets a named owner when the receiver exists, never a
-    // general exception.
-    foreach (['install-mail-gateway', 'activate-mail-outbound'] as $script) {
-        expect(executableSourceLines(File::get(base_path("infrastructure/scripts/{$script}"))))
-            ->toContain('PUBLIC_SMTP_PORTS=(25 465 587)');
+it('leaves every public SMTP port check to the one shared judge, and no consumer its own list of ports', function () {
+    foreach (['install-mail-gateway', 'activate-mail-outbound', 'install-mail-inbound', 'activate-mail-inbound', 'status-mail-gateway'] as $script) {
+        $code = executableSourceLines(File::get(base_path("infrastructure/scripts/{$script}")));
+
+        expect($code)->toContain('source "${SCRIPT_DIR}/public-smtp-port"');
+        expect($code)->not->toContain('PUBLIC_SMTP_PORTS=');
     }
 
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-gateway'))))
-        ->toContain("printf 'something listens on %s — no SMTP service may listen on port %s\\n'");
+        ->toContain('port_problems="$(public_smtp_problems "${FS_ROOT}" "${INBOUND_FILE}")"');
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/activate-mail-outbound'))))
+        ->toContain('port_problems="$(public_smtp_problems "${FS_ROOT}" "${REPO_ROOT}/${INBOUND_DOCUMENT}")"');
 });
 
 // =============================================================================
@@ -1334,7 +1528,8 @@ it('documents the order: the receiver first, MX records only once it is active',
 
     expect($runbook)
         ->toContain('**No MX record is published before the receiver is installed, verified and activated.**')
-        ->toContain('| Public inbound SMTP | **Disabled**')
+        ->toContain('| Public inbound SMTP — committed request | **`enabled`** — a request, never the state of a host |')
+        ->toContain('| Public inbound SMTP — real host | **Disabled**: nothing listens on port 25 until the guarded activation has run |')
         ->toContain('| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Not published**')
         ->toContain('The envelope sender of every message sent today is `noreply@tits.guru`')
         ->toContain('`verify-mail-gateway` is never weakened to allow port 25 in general');
@@ -1360,26 +1555,63 @@ it('documents the order: the receiver first, MX records only once it is active',
     }
 });
 
-it('records the outbound activation as accepted in the roadmap, and inbound mail as started, not working', function () {
+it('gives the operator the eleven steps from merge to acceptance, DNS only after Activate and Verify', function () {
+    $runbook = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/runbooks/mail-inbound.md')));
+    $start = strpos($runbook, '## The operator order');
+    expect($start)->not->toBeFalse('the runbook lost the operator order');
+    $section = substr($runbook, $start, strpos($runbook, '## Returning to disabled') - $start);
+
+    $steps = [
+        '1. **Merge** this implementation into `develop` after CI.',
+        '2. **Promote** `develop` → `main`.',
+        '3. **Prepare the external conditions**',
+        '4. **Run Activate tits.guru inbound SMTP** with `ACTIVATE tits-guru inbound SMTP`.',
+        '5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`.',
+        '6. **Publish DNS** at the DNS provider, the A record first, then the MX records:',
+        '7. **Check public DNS**',
+        '8. **Send a real message** from an outside mailbox to `support@tits.guru`.',
+        '9. **Check it is in the isolated store**',
+        '10. **Run Verify production infrastructure.**',
+        '11. **Run Verify staging infrastructure.**',
+    ];
+    $position = -1;
+
+    foreach ($steps as $step) {
+        $next = strpos($section, $step, $position + 1);
+        expect($next)->not->toBeFalse("the operator order does not say: {$step}");
+        expect($next)->toBeGreaterThan($position, "the operator order says \"{$step}\" out of order");
+        $position = $next;
+    }
+
+    expect($section)
+        ->toContain('mx1.tits.guru A <the address Activate printed> tits.guru MX 10 mx1.tits.guru bounce.tx.tits.guru MX 10 mx1.tits.guru reply.tits.guru MX 10 mx1.tits.guru')
+        ->toContain('If TCP 25 is not reachable from outside, or DNS is not published, 8.4B.5.2 is not accepted.');
+
+    expect($runbook)
+        ->toContain('**Run Rollback tits.guru inbound SMTP** with `ROLLBACK tits-guru inbound SMTP`.')
+        ->toContain('**It changes no DNS record.** After it, check the published MX records');
+});
+
+it('records the inbound contract as completed and the receiver as implemented, not accepted', function () {
     $roadmap = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/ROADMAP.md')));
 
     expect($roadmap)
         ->toContain('**8.4B.4.2 Production outbound activation — PRODUCTION-ACCEPTED 2026-10-08.**')
         ->toContain('Activate tits.guru outbound mail run `37813433328` SUCCESS')
         ->toContain('Verify production infrastructure run `37814215899` SUCCESS, `OUTBOUND READY: YES`')
-        ->toContain('run `37814715904`')
-        ->toContain('run `37821815403` SUCCESS')
-        ->toContain('run `37822226157` SUCCESS')
-        ->toContain('Verify staging infrastructure run `37823079457` SUCCESS: 6 PASS, 0 FAIL, 0 DEFERRED, 1 N/A')
         ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — current.**')
-        ->toContain('**8.4B.5.1 Inbound contract and DNS plan — IMPLEMENTED, nothing installed.**')
-        ->toContain('**8.4B.5.2 Isolated inbound SMTP receiver and guarded activation — planned.**')
+        ->toContain('**8.4B.5.1 Inbound contract and DNS plan — COMPLETED.**')
+        ->toContain('**8.4B.5.2 Isolated inbound SMTP receiver and guarded activation — IMPLEMENTED in repository, awaiting real-host activation and acceptance.**')
+        ->toContain('8.4B.5.2 is not accepted until a message from outside is stored.')
         ->toContain('**8.4B.5.3 Bounce reception and correlation — planned.**')
         ->toContain('**8.4B.5.4 Reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.5.5 Real-host acceptance and recovery proof — planned.**')
         ->toContain('Inbound mail is not working until a message from outside has actually been received.')
         ->toContain('[`runbooks/mail-inbound.md`](runbooks/mail-inbound.md)')
-        ->not->toContain('production activation pending')
-        ->not->toContain('host activation pending')
+        ->not->toContain('8.4B.5.2 Isolated inbound SMTP receiver and guarded activation — PRODUCTION-ACCEPTED')
         ->not->toContain('Inbound mail — ACCEPTED');
+
+    // Exactly five inbound slices: none added for the infrastructure alone.
+    preg_match_all('/\*\*8\.4B\.5\.(\d+) /', $roadmap, $slices);
+    expect(array_values(array_unique($slices[1])))->toBe(['1', '2', '3', '4', '5']);
 });

@@ -20,6 +20,7 @@ transport works and reaches a host only through the guarded activation.
 | Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08: the committed `config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`, and the host rendered the route when `activate-mail-outbound` crossed the activation boundary |
 | Production outbound delivery | **Production-accepted** on 2026-10-08: `tits-guru`'s mail is delivered directly, signed, and the real canary was received with SPF, DKIM and DMARC passing. A production target is activated only through the guarded `activate-mail-outbound` — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 | Inbound mail (bounces, replies, support) | **Not received**: the gateway has no public listener and never will; inbound mail is a separate receiver — see [`mail-inbound.md`](mail-inbound.md) |
+| Public SMTP ports on the host | **Judged by one library**, `scripts/public-smtp-port`, in every check below: 465 and 587 never; 25 only for the activated inbound receiver — see [Port 25 and the inbound receiver](#port-25-and-the-inbound-receiver) |
 
 ## What is installed
 
@@ -48,7 +49,9 @@ One Postfix instance for the host, owned end to end by
   policy names (`127.0.0.1:2525`, `127.0.0.1:2526`). There is no `smtp`
   (port 25), `submission` (587) or `smtps` (465) listener, nothing binds
   `0.0.0.0`, `::` or a public address, and Postfix runs IPv4-only. A firewall is
-  never what makes this safe: Postfix itself binds nothing public.
+  never what makes this safe: Postfix itself binds nothing public. Port 25 on
+  the host, once activated, belongs to the separate inbound receiver, never to
+  this instance.
 - **Capture is store-and-forward.** The staging listener sets a content filter
   naming its own transport and its capture destination. Postfix **accepts and
   queues** the message, then delivers it to `[127.0.0.1]:1025`. If Mailpit is
@@ -377,7 +380,8 @@ sudo infrastructure/scripts/verify-mail-gateway --e2e
 `--read-only` is `install-mail-gateway --verify`: installed files equal the
 current render, Postfix parses them, `postfix.service` is enabled and
 `postfix@-.service` stably running, the listeners are exactly the plan's
-loopback endpoints, nothing listens on 25/465/587, no gateway port is bound off
+loopback endpoints, nothing listens on a public SMTP port that may not (see
+[below](#port-25-and-the-inbound-receiver)), no gateway port is bound off
 loopback, every capture destination is listening, held mail has no route and
 unclassified mail cannot be delivered. The smtp clients are exactly the plan's
 transports, and for an outbound target its transport is the only one its
@@ -425,11 +429,37 @@ sudo infrastructure/scripts/status-mail-gateway
 ```
 
 Read-only: package and version, ownership marker, service state, listeners,
-each listener's route as Postfix reads it from the installed configuration —
+who holds a public SMTP port and whether that is allowed, each listener's route as Postfix reads it from the installed configuration —
 an outbound one as `outbound, queued -> direct SMTP -> recipient MX` with its
 transport, HELO name and TLS level — queue counts by queue (counts only — no
 address, no body), and the last hour of gateway warnings. Logs:
 `journalctl -u postfix@-.service`.
+
+## Port 25 and the inbound receiver
+
+The host's inbound receiver ([`mail-inbound.md`](mail-inbound.md)) is a second,
+independent Postfix instance — `/etc/postfix-inbound`, its own queue and volume,
+`rateguru-mail-inbound.service` — installed by `install-mail-inbound`, never by
+this installer, and never registered in `/etc/postfix`. Once its guarded
+activation has run, it listens on public TCP 25. Every check that refuses a
+public SMTP listener — `install-mail-gateway --verify` (Prepare, Verify,
+`verify-mail-gateway --read-only`), `activate-mail-outbound`'s read-back and
+`status-mail-gateway` — asks the same library,
+`infrastructure/scripts/public-smtp-port`:
+
+- 465 and 587 are refused to everything, always;
+- 25 is refused to everything unless the receiver's ownership marker says
+  `installed`, its applied state says `enabled` on one address, the trusted
+  bundle's inbound contract requests `enabled`, the listener is on exactly that
+  address, and every process holding it runs in
+  `rateguru-mail-inbound.service`'s own cgroup — never judged by a process
+  name.
+
+While the receiver is disabled — the state of every host until Activate
+tits.guru inbound SMTP runs — every check refuses 25 exactly as before. The
+gateway's own listeners are proved loopback-only whatever the receiver does,
+and the receiver's activation proves the gateway's `main.cf` and `master.cf`
+byte for byte unchanged before and after it opens the port.
 
 ## Staging cutover
 

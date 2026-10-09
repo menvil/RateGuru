@@ -201,6 +201,10 @@ MAIL_IDENTITY_CLI="$(gated_default RATEGURU_MAILGW_MAIL_IDENTITY_CLI "${SCRIPT_D
 IDENTITY_FILE="$(gated_default RATEGURU_MAILGW_IDENTITY_FILE "${REPO_ROOT}/infrastructure/config/mail-identity.json")"
 MAIL_SIGNING_CLI="$(gated_default RATEGURU_MAILGW_MAIL_SIGNING_CLI "${SCRIPT_DIR}/install-mail-signing")"
 
+# The reviewed inbound contract of this bundle: the one judge of public SMTP
+# ports reads it to know whether the inbound receiver may own TCP 25.
+INBOUND_FILE="$(gated_default RATEGURU_MAILGW_INBOUND_FILE "${REPO_ROOT}/infrastructure/config/mail-inbound.json")"
+
 SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILGW_SYSTEMCTL_BIN systemctl)"
 APT_GET_BIN="$(gated_default RATEGURU_MAILGW_APT_GET_BIN apt-get)"
 DPKG_BIN="$(gated_default RATEGURU_MAILGW_DPKG_BIN dpkg)"
@@ -249,9 +253,11 @@ POLICY_RC="/usr/sbin/policy-rc.d"
 POLICY_RC_MARKER="# rateguru-mail-gateway: package service starts suppressed until the gateway configuration is in place"
 BACKUP_ROOT="/var/backups/rateguru-mail-gateway"
 
-# The ports a public SMTP service lives on. Nothing on a RateGuru host may listen
-# on them.
-PUBLIC_SMTP_PORTS=(25 465 587)
+# Who may listen on a public SMTP port is judged in one place: public-smtp-port.
+# The gateway never does — nothing of it is ever bound but loopback — and on 25
+# only the activated inbound receiver may, owned by its own unit.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/public-smtp-port"
 
 # The name Postfix calls itself when the host reviews no MTA hostname: never a
 # deliverable one, and never used while direct delivery is enabled.
@@ -1273,7 +1279,7 @@ wait_listener() {
 
 # runtime_problems — the running gateway, read-only. One problem per line.
 runtime_problems() {
-    local listeners endpoint port local_address public_port
+    local listeners endpoint port local_address port_problems
 
     [[ "$("${SYSTEMCTL_BIN}" is-enabled "${POSTFIX_UNIT}" 2>/dev/null || true)" == enabled ]] \
         || printf '%s is not enabled for boot\n' "${POSTFIX_UNIT}"
@@ -1300,16 +1306,14 @@ runtime_problems() {
 
     listeners="$(tcp_listeners)"
 
-    # No public SMTP port is open on the host at all, and no gateway port is
-    # bound anywhere but loopback.
+    # Nothing listens on a public SMTP port that may not — judged by the one
+    # judge — and no gateway port is bound anywhere but loopback.
+    port_problems="$(public_smtp_problems "${FS_ROOT}" "${INBOUND_FILE}")"
+    [[ -z "${port_problems}" ]] || printf '%s\n' "${port_problems}"
+
     while IFS= read -r local_address; do
         [[ -n "${local_address}" ]] || continue
         port="${local_address##*:}"
-
-        for public_port in "${PUBLIC_SMTP_PORTS[@]}"; do
-            [[ "${port}" == "${public_port}" ]] \
-                && printf 'something listens on %s — no SMTP service may listen on port %s\n' "${local_address}" "${public_port}"
-        done
 
         if grep -qxF "${port}" <<<"$(plan_ports)" && ! grep -qxF "${local_address}" <<<"$(plan_endpoints)"; then
             printf 'gateway port %s is bound on %s, not only on loopback\n' "${port}" "${local_address}"

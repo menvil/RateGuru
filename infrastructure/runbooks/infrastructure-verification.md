@@ -58,6 +58,7 @@ contract owners (unchanged, still usable on their own)
   bootstrap-host-preflight --report         install-target-perimeter --verify
   verify-mail-capture --read-only           verify-mail-gateway --read-only
   mail-identity validate | dkim-key | check-key | readiness
+  activate-mail-inbound --verify --target T
   health-check --target T
         │
         ▼
@@ -124,6 +125,7 @@ The result line carries `target`, `environment_class`, `lifecycle`,
 | Mail capture | `verify-mail-capture --read-only` | required (staging) |
 | Mail gateway | `verify-mail-gateway --read-only` | required |
 | Mail identity | `mail-identity …` | `N/A` for staging: it captures its mail and never signs it |
+| Mail inbound | — | `N/A` for staging: it never receives public mail; who may listen on TCP 25 is proved in the mail gateway group |
 | Application | `health-check --target staging-main` | required |
 
 Expected today: `VERIFY INFRASTRUCTURE: PASS`.
@@ -142,6 +144,7 @@ host and the target are judged by the contracts that apply to a planned target.
 | Mail capture | — | `N/A` | `N/A` |
 | Mail gateway | `verify-mail-gateway --read-only` | required: 2526 → HOLD, no outbound route | required: 2526 → its own direct transport |
 | Mail identity | `mail-identity validate`, `dkim-key`, `check-key`, `readiness` | contract required; key absent → `DEFERRED`, installed → judged; readiness `DEFERRED`, shown in full — its signing condition is `verify-mail-signing --read-only` | key and `OUTBOUND READY: YES` required |
+| Mail inbound | `activate-mail-inbound --verify --target tits-guru` | `enabled-verified` → `PASS`; not installed or installed and disabled while the contract requests public SMTP → `DEFERRED` (Activate tits.guru inbound SMTP is the guarded step); drift, or no state at all → `FAIL` — see [`mail-inbound.md`](mail-inbound.md) | the same |
 | Application | `health-check` | `DEFERRED` — never called | required |
 
 Expected today: `VERIFY INFRASTRUCTURE: PASS` with deferred items. **PASS means

@@ -151,11 +151,19 @@ STATE_ROOT="$(gated_default RATEGURU_MAILACTIVATE_STATE_ROOT /var/lib/rateguru-m
 # shellcheck disable=SC2034 # read by smtp-submission's queue lookups
 POSTQUEUE_BIN="$(gated_default RATEGURU_MAILACTIVATE_POSTQUEUE_BIN postqueue)"
 POSTCONF_BIN="$(gated_default RATEGURU_MAILACTIVATE_POSTCONF_BIN postconf)"
+# shellcheck disable=SC2034 # read by public-smtp-port
 SS_BIN="$(gated_default RATEGURU_MAILACTIVATE_SS_BIN ss)"
 
 # The queue lookups the mail tooling shares; this script opens no SMTP.
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/smtp-submission"
+
+# The one judge of who may listen on a public SMTP port, reading the host under
+# FS_ROOT and this bundle's reviewed inbound contract.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/public-smtp-port"
+FS_ROOT="$(gated_default RATEGURU_MAILACTIVATE_FS_ROOT '')"
+INBOUND_DOCUMENT="infrastructure/config/mail-inbound.json"
 
 # The two documents an activation changes, and the ones it never does.
 ROUTING_DOCUMENT="infrastructure/config/mail-routing.json"
@@ -168,10 +176,6 @@ CAPSULE_SCHEMA_VERSION=1
 # outbound: its kind, and how long it may wait to be used.
 AUTHORIZATION_KIND="rateguru-mail-gateway-transition-authorization"
 AUTHORIZATION_LIFETIME=900
-
-# The ports a public SMTP service lives on. Nothing on a RateGuru host may
-# listen on them, activated or not.
-PUBLIC_SMTP_PORTS=(25 465 587)
 
 # Every condition readiness reports, each of which must be PASS.
 READINESS_CONDITIONS=(target routing direct mta identity key host address a ptr spf dkim dmarc signing)
@@ -571,16 +575,12 @@ postconf_service_value() {
 # activated one). A second witness beside the gateway's own --verify, which
 # remains the authority on the whole configuration.
 route_problems() {
-    local plan="$1" expect="$2" identity endpoint mode route filter recipients outbound_services port local_address public_port master sockets
+    local plan="$1" expect="$2" identity endpoint mode route filter recipients outbound_services master port_problems
 
     # A tool that cannot answer is a problem, never an empty answer: an
     # unreadable socket table must not read as "nothing listens".
     if ! master="$("${POSTCONF_BIN}" -M 2>/dev/null)"; then
         printf 'postconf -M could not read the live master.cf — the routes cannot be read back\n'
-        return 0
-    fi
-    if ! sockets="$("${SS_BIN}" -ltnH 2>/dev/null)"; then
-        printf 'ss -ltnH could not list the listening sockets — a public SMTP listener cannot be ruled out\n'
         return 0
     fi
 
@@ -628,14 +628,10 @@ route_problems() {
            (if .route == null then "-" elif .route.kind == "capture" then "\(.route.host):\(.route.port)" else .route.kind end)]
         | @tsv' <<<"${plan}")
 
-    while IFS= read -r local_address; do
-        [[ -n "${local_address}" ]] || continue
-        port="${local_address##*:}"
-        for public_port in "${PUBLIC_SMTP_PORTS[@]}"; do
-            [[ "${port}" != "${public_port}" ]] \
-                || printf 'something listens on %s — no SMTP service may listen on port %s\n' "${local_address}" "${public_port}"
-        done
-    done < <(awk '{ print $4 }' <<<"${sockets}")
+    # Whatever listens on a public SMTP port, judged by the one judge: an
+    # unreadable socket table is a problem, never an empty one.
+    port_problems="$(public_smtp_problems "${FS_ROOT}" "${REPO_ROOT}/${INBOUND_DOCUMENT}")"
+    [[ -z "${port_problems}" ]] || printf '%s\n' "${port_problems}"
 }
 
 # check_routes PLAN EXPECT WHAT — route_problems as PASS/FAIL lines.

@@ -1209,10 +1209,10 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
 });
 
 // =============================================================================
-// NOTHING IS LISTENING YET, AND NOTHING ELSE MOVED
+// NOTHING LISTENS IN PUBLIC BUT THE ACTIVATED RECEIVER, AND NOTHING ELSE MOVED
 // =============================================================================
 
-it('configures no public SMTP listener anywhere in the repository', function () {
+it('configures no public SMTP listener anywhere in the repository but the inbound receiver', function () {
     // Every gateway endpoint in the plan is loopback.
     foreach (mailRoutingPlan()['listeners'] as $listener) {
         expect($listener['listen']['host'])->toBe('127.0.0.1');
@@ -1234,7 +1234,11 @@ it('configures no public SMTP listener anywhere in the repository', function () 
     // activation reads the live routes back with postconf and configures
     // nothing itself — the gateway's installer does — and the canary deletes
     // only its own queue entry; the MailOutboundActivation*Test and
-    // MailCanary*Test files prove both.
+    // MailCanary*Test files prove both. The inbound receiver is a Postfix
+    // instance of its own, installed by its own installer and made public only
+    // by its guarded activation: MailInboundReceiverTest proves its listeners —
+    // loopback, and public TCP 25 only while the host's applied state enables
+    // it — and MailPublicSmtpPortTest that nothing else may hold the port.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
@@ -1242,6 +1246,8 @@ it('configures no public SMTP listener anywhere in the repository', function () 
         'infrastructure/scripts/verify-mail-signing',
         'infrastructure/scripts/activate-mail-outbound',
         'infrastructure/scripts/send-mail-canary',
+        'infrastructure/scripts/install-mail-inbound',
+        'infrastructure/scripts/activate-mail-inbound',
     ];
 
     foreach (operationalFiles() as $path) {

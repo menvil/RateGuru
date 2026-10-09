@@ -1,0 +1,456 @@
+name: Activate RateGuru inbound mail
+description: >-
+  Open, verify or close the host's public inbound SMTP for one production
+  target: run activate-mail-inbound from a temporary trusted bundle — and
+  nothing else.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/activate-mail-inbound owns every decision: whether the
+# trusted bundle requests public SMTP at all, the proof it requires before TCP
+# 25 opens, the firewall rule it adds and removes, the rollback capsule, the
+# return to disabled on any failure, and which state the host is in. None of
+# that is reproduced here. This action uploads the trusted infrastructure/
+# tree, runs that one command as root in the one mode its caller fixed, prints
+# its whole report, checks there is exactly one well-formed result, writes it
+# into the job summary, and removes everything it uploaded.
+#
+# WHAT IT TOUCHES. apply and rollback change the inbound receiver, its
+# firewall rule and nothing else; verify changes nothing. None of them
+# publishes DNS, reads or prints a received message, or touches the outbound
+# gateway, OpenDKIM or any queue but the receiver's own probe. No secret but
+# the bootstrap credential is read.
+#
+# CREDENTIAL. The privileged BOOTSTRAP credential, because the receiver, its
+# volume and the firewall are root's. Never the deploy credential, and no
+# fallback between them.
+#
+# CALLER REQUIREMENT: a Bash 4.4+ runner. Remote argv is quoted with
+# ${array[@]@Q}, as the other operational actions here quote theirs, so a caller
+# runs this on `runs-on: ubuntu-24.04`.
+
+inputs:
+  operation:
+    required: true
+    description: >-
+      apply, verify or rollback, fixed by the calling workflow. Never an
+      operator's choice: each operation has a workflow of its own.
+
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. The trusted
+      bundle's reviewed inbound contract, not this input, decides whether
+      public SMTP is requested.
+
+  bootstrap-host:
+    required: true
+    description: SSH hostname or IP of the host the target lives on.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap user. Must be root, or hold passwordless
+      non-interactive sudo.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from any deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the host. Strict host key checking is
+      non-negotiable: no TOFU, no relaxed policy, no password fallback.
+
+outputs:
+  status:
+    description: "pass, fail or critical, from the activation's machine-readable result"
+    value: ${{ steps.inbound.outputs.status }}
+
+  state:
+    description: "not-installed, installed-disabled, enabled-verified or drift"
+    value: ${{ steps.inbound.outputs.state }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        case "${OPERATION}" in
+          apply|verify|rollback) ;;
+          *)
+            echo "Invalid operation: ${OPERATION} (expected apply, verify or rollback)" >&2
+            exit 1
+            ;;
+        esac
+
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        # 10# forces decimal: a leading-zero port read as octal would abort
+        # (( )) and be mistaken for a passing condition by the || chain.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for this environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "This environment has no bootstrap SSH credential." >&2
+          echo "The inbound receiver is root-owned; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
+          exit 1
+        fi
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_mail_inbound_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_mail_inbound_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Verify privileged access on the host
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "The inbound receiver is root's; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # Only infrastructure/ — the activation resolves every owner it runs beneath
+    # it. No application code, and no material of any kind: the TLS certificate
+    # and key are already on the host.
+    - name: Package trusted infrastructure bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-mail-inbound-bundle.tar.gz"
+
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/activate-mail-inbound"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/smtp-submission"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/public-smtp-port"
+
+        tar --create --gzip --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+
+    - name: Upload the trusted infrastructure bundle
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-mail-inbound-${run_tag}"
+        remote_root="/root/rateguru-mail-inbound-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        # scp writes as the bootstrap user, so the bundle lands in that user's
+        # home and is extracted into a root-only directory before anything
+        # runs from it; the copy in the home directory is removed at once.
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s chown -R root:root %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+    - name: Run the inbound operation
+      id: inbound
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX:-}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/activate-mail-inbound"
+          "--${OPERATION}"
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        # The status is captured explicitly rather than allowed to abort the
+        # step: under `set -e` a failing command substitution ends the step
+        # before the captured output is printed, and the server-side report is
+        # the whole diagnosis.
+        set +e
+        inbound_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        inbound_status=$?
+        set -e
+
+        printf '%s\n' "${inbound_output}"
+
+        # Exactly one result line, whatever the verdict: zero means the run did
+        # not complete, two would be a broken contract.
+        count="$(grep -c '^RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=' <<<"${inbound_output}" || true)"
+
+        if [[ "${count}" != "1" ]]; then
+          echo "Expected exactly one RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT line, got ${count}; the operation exited ${inbound_status}." >&2
+          exit 1
+        fi
+
+        json="$(grep '^RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=' <<<"${inbound_output}")"
+        json="${json#RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=}"
+
+        # The whole result is judged before any of it is shown: the target and
+        # mode it names, a verdict and a state from their closed sets, every
+        # flag a boolean, and a pass that means what its mode promises — an
+        # activation that left public SMTP enabled and verified, a rollback
+        # that left it disabled, a verify that found a consistent state.
+        jq -e --arg target "${DEPLOYMENT_TARGET}" --arg mode "${OPERATION}" '
+          type == "object"
+          and .target == $target
+          and .mode == $mode
+          and (.status == "pass" or .status == "fail" or .status == "critical")
+          and (.state | IN("not-installed", "installed-disabled", "enabled-verified", "drift", "unknown"))
+          and (.public_smtp | IN("enabled", "disabled", "unknown"))
+          and (.firewall | IN("ufw", "none", "unmanaged", "unknown"))
+          and (.address == null or (.address | type == "string" and test("^[0-9.]+$")))
+          and ([.requested, .changed, .rolled_back] | all(type == "boolean"))
+          and (.status != "pass"
+               or ($mode == "apply" and .requested and .state == "enabled-verified" and .public_smtp == "enabled" and (.rolled_back | not))
+               or ($mode == "rollback" and .public_smtp == "disabled" and (.state | IN("installed-disabled", "not-installed")))
+               or ($mode == "verify" and (.state | IN("not-installed", "installed-disabled", "enabled-verified"))))
+        ' <<<"${json}" >/dev/null || {
+          echo "The machine-readable result is not an inbound result for ${DEPLOYMENT_TARGET} (${OPERATION}): ${json}" >&2
+          exit 1
+        }
+
+        {
+          echo "status=$(jq -r '.status' <<<"${json}")"
+          echo "state=$(jq -r '.state' <<<"${json}")"
+        } >> "${GITHUB_OUTPUT}"
+
+        {
+          jq -r '
+            def yesno: if . then "yes" else "no" end;
+            "## \(.target) inbound SMTP — \(.mode)",
+            "",
+            "| Check | Result |",
+            "| --- | --- |",
+            "| Public SMTP requested by the trusted bundle | \(.requested | yesno) |",
+            "| Host state | **\(.state)** |",
+            "| Public SMTP on the host | \(.public_smtp) |",
+            "| Receiver address | \(.address // "none") |",
+            "| Host firewall | \(.firewall) |",
+            "| Changed by this run | \(.changed | yesno) |",
+            "| Rolled back to disabled | \(.rolled_back | yesno) |",
+            "| **Overall** | **\(.status | ascii_upcase)** |",
+            "",
+            (if .status == "critical" then
+               "**CRITICAL:** the receiver could not be returned to disabled and proved closed. Inspect the host now: install-mail-inbound --verify, what listens on TCP 25, and the firewall rule commented rateguru-mail-inbound."
+             elif .mode == "apply" and .status == "pass" then
+               "The receiver accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
+             elif .mode == "apply" and .rolled_back then
+               "The activation failed and the receiver was returned to disabled: nothing listens on TCP 25."
+             elif .mode == "apply" then
+               "The activation was refused before public SMTP changed. Nothing public was changed."
+             elif .mode == "rollback" and .status == "pass" then
+               "Public SMTP is closed: nothing listens on TCP 25, and RateGuru'"'"'s firewall rule is gone. Stored mail is kept. **Check the published MX records** of every target in the inbound plan: while they name this host, senders find a closed port."
+             elif .mode == "verify" and .status == "pass" then
+               "The host is in a consistent state: \(.state). The outbound gateway verifies."
+             else
+               "The host is not in a consistent state. The complete report is in the job log."
+             end),
+            "",
+            "The complete report is in the job log; no received message is ever shown."
+          ' <<<"${json}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        # The verdict is the operation's, and its exit status must agree.
+        if [[ "$(jq -r '.status' <<<"${json}")" != "pass" ]] || (( inbound_status != 0 )); then
+          echo "The inbound SMTP ${OPERATION} for ${DEPLOYMENT_TARGET} did not pass (exit ${inbound_status}). The complete report is above." >&2
+          exit 1
+        fi
+
+    # Runs on failure too. Uploaded tooling must never outlive the run.
+    - name: Remove the remote infrastructure bundle
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"

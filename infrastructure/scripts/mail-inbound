@@ -4,10 +4,11 @@
 # receive mail from the Internet, at exactly which addresses, for which
 # destination, and the DNS that would bring that mail to them.
 #
-#   mail-inbound validate    [FILES]
-#   mail-inbound render-plan [FILES]
-#   mail-inbound render-dns  --target TARGET [--ipv4 ADDRESS] [FILES]
-#   mail-inbound route       --recipient ADDRESS [FILES]
+#   mail-inbound validate        [FILES]
+#   mail-inbound render-plan     [FILES]
+#   mail-inbound render-receiver [FILES]
+#   mail-inbound render-dns      --target TARGET [--ipv4 ADDRESS] [FILES]
+#   mail-inbound route           --recipient ADDRESS [FILES]
 #
 #   FILES: [--inbound PATH] [--routing PATH] [--registry PATH] [--outbound PATH] [--identity PATH]
 #
@@ -30,15 +31,21 @@
 # A target's bounce prefix is never its reply prefix, so a bounce address never
 # reads as a reply address, whichever domain it arrives at.
 #
+# THE HOST'S OWN POSTMASTER. RFC 5321 section 4.5.1 also requires the bare
+# `RCPT TO:<Postmaster>`, with no domain. On a receiver serving several brands
+# that address belongs to none of them, so it is the host's: the receiver
+# qualifies it to the reserved, never-deliverable domain HOST_POSTMASTER_DOMAIN
+# below, and it reaches a host-postmaster destination of its own.
+#
 # THE IDENTIFIER, `base32-128`: 128 bits as exactly 26 characters of Crockford's
 # base32 alphabet in lowercase — the digits and the letters without i, l, o and
 # u — the first character 0 to 7. Those four letters are refused, never mapped
 # to digits: each reads as another character, and one address must never name
 # two identifiers. Addresses are compared case-insensitively, as a receiver
-# compares them. An identifier is a capability — whoever knows it can report on or answer that
-# message — so it is drawn at random for every message and never derived from a
-# sequential or time-ordered identifier: a monotonic ULID increments within a
-# millisecond, and its neighbours are guessable.
+# compares them. An identifier is a capability — whoever knows it can report on
+# or answer that message — so it is drawn at random for every message and never
+# derived from a sequential or time-ordered identifier: a monotonic ULID
+# increments within a millisecond, and its neighbours are guessable.
 #
 # WHAT LIVES WHERE. A target's mail domain, its reviewed sender and its bounce
 # and reply domains belong to mail-routing.json. This script reads them from
@@ -48,17 +55,21 @@
 # The host's outbound MTA hostname belongs to mail-outbound.json, judged by
 # `mail-identity validate`. The inbound contract,
 # infrastructure/config/mail-inbound.json, holds only what none of them can:
-# whether the host receives public SMTP at all, and per production target its
-# receiver's MX host name, its support local parts, and its bounce and reply
-# address forms.
+# whether public SMTP is requested, the receiver's loopback port and reviewed
+# limits, and per production target its receiver's MX host name, its support
+# local parts, and its bounce and reply address forms.
 #
-# PUBLIC SMTP. A closed vocabulary of one state, `disabled`: no public receiver
-# exists. A state is added by the change that implements it, never ahead of it —
-# a value the validator accepts is a value somebody can configure — so public
-# SMTP is enabled by the change that installs, verifies and activates its own
-# isolated receiver, never by editing this file. Until then a plan describes
-# what that receiver will accept, and DNS that would send mail to it is not
-# published.
+# PUBLIC SMTP. `disabled` or `enabled`, and only ever a REQUEST. Committing
+# `enabled` opens nothing: the receiver's installer keeps whatever state the
+# host recorded, and only activate-mail-inbound, behind its own proof, moves a
+# host between the two. A host's state is the host's record, never this file.
+#
+# THE RECEIVER'S RULES. `render-receiver` prints exactly what the receiver
+# accepts — every allowed recipient as an anchored POSIX extended regular
+# expression with the mailbox its mail is stored in, the domains it serves and
+# the limits — so install-mail-inbound spells these rules in Postfix and
+# restates none of them. The same plan answers `route`, so an address the
+# receiver accepts and one `route` accepts are one decision.
 #
 # DNS. `render-dns` prints, for one target, an MX record (priority 10, naming
 # the target's own mx_hostname) for each of its three domains, and the A record
@@ -96,7 +107,7 @@ IDENTITY_FILE="${REPO_ROOT}/infrastructure/config/mail-identity.json"
 MAIL_ROUTING_CLI="${SCRIPT_DIR}/mail-routing"
 MAIL_IDENTITY_CLI="${SCRIPT_DIR}/mail-identity"
 
-SCHEMA_VERSION=1
+SCHEMA_VERSION=2
 
 # Property names that would mean a credential reached committed, world-readable
 # data. The contract's shape is closed, so such a key is refused regardless;
@@ -133,9 +144,41 @@ def one_of($values): . as $value | any($values[]; . == $value);
 # sender and bounce and reply domains.
 def has_production_identity: .delivery_mode == "held" or .delivery_mode == "outbound";
 
-# The states public inbound SMTP may be in. Only one exists, because no public
-# receiver does.
-def public_smtp_states: ["disabled"];
+# The states public inbound SMTP may be requested in. Either is a request, never
+# the state of a host.
+def public_smtp_states: ["disabled", "enabled"];
+
+# The reviewed receiver limits: each key, its unit, and the range a review
+# may choose from. Every one is enforced by the receiver, never only written
+# down: install-mail-inbound renders and reads each one back.
+def limit_ranges: {
+    message_size_bytes: {min: 1048576, max: 52428800},
+    recipients_per_message: {min: 1, max: 50},
+    connections_per_client: {min: 1, max: 50},
+    connection_rate_per_client: {min: 1, max: 600},
+    concurrent_sessions: {min: 1, max: 200},
+    storage_bytes: {min: 268435456, max: 68719476736},
+    storage_reserve_bytes: {min: 2097152, max: 17179869184},
+    host_reserve_bytes: {min: 1073741824, max: 68719476736}
+};
+
+# The domain a bare <Postmaster> is qualified to, and its mailbox: reserved, so
+# it can never be the domain of a brand, or deliverable anywhere else.
+def host_postmaster_domain: "rateguru-mail-inbound.invalid";
+def host_postmaster_destination: "host-postmaster";
+def host_postmaster_mailbox: "host/postmaster/";
+
+# Where the mail of each destination is stored, under the receiver store: a
+# directory of the target alone, never shared with another target or the host.
+def target_mailbox($target; $destination): "targets/\($target)/\($destination)/";
+
+# The identifier alphabet as a POSIX bracket expression: Crockford base32 in
+# lowercase, without i, l, o and u.
+def identifier_alphabet_ere: "[0-9abcdefghjkmnpqrstvwxyz]";
+
+# A literal string as a POSIX extended regular expression: in the addresses this
+# contract allows, the dot is the one character that means anything else.
+def ere_literal: gsub("\\."; "\\.");
 
 # The identifier formats an address space may use, each implemented by the
 # router below.
@@ -230,14 +273,55 @@ def shape_problems($where; $expected):
               "\($where) may not declare \($key | tojson): \($reason)"
           end);
 
+def is_integer: type == "number" and . == floor;
+
+def limits_problems:
+    if type != "object" then
+        "receiver.limits must be an object, got \(tojson)"
+    else
+        . as $limits
+        | shape_problems("receiver.limits"; limit_ranges | keys),
+          (limit_ranges | to_entries[]
+            | .key as $key | .value as $range
+            | select($limits | has($key))
+            | $limits[$key]
+            | if (is_integer | not) or . < $range.min or . > $range.max then
+                  "receiver.limits.\($key) must be an integer from \($range.min) to \($range.max), got \(tojson)"
+              else empty end),
+          (if ($limits.concurrent_sessions | is_integer) and ($limits.connections_per_client | is_integer)
+              and $limits.concurrent_sessions < $limits.connections_per_client then
+               "receiver.limits.concurrent_sessions (\($limits.concurrent_sessions)) is below connections_per_client (\($limits.connections_per_client)): one client could never open as many sessions as it is allowed"
+           else empty end),
+          (if ($limits.storage_reserve_bytes | is_integer) and ($limits.message_size_bytes | is_integer)
+              and $limits.storage_reserve_bytes < 2 * $limits.message_size_bytes then
+               "receiver.limits.storage_reserve_bytes must be at least twice message_size_bytes (\(2 * $limits.message_size_bytes)), so a message that was accepted can always be stored"
+           else empty end),
+          (if ($limits.storage_reserve_bytes | is_integer) and ($limits.storage_bytes | is_integer)
+              and $limits.storage_reserve_bytes * 4 > $limits.storage_bytes then
+               "receiver.limits.storage_reserve_bytes must be at most a quarter of storage_bytes, or the store would refuse mail almost from the start"
+           else empty end)
+    end;
+
+def loopback_port_problems:
+    . as $port
+    | if (is_integer | not) or . < 1024 or . > 65535 then
+          "receiver.loopback_port must be an integer from 1024 to 65535, got \(tojson)"
+      else
+          ($plan.listeners[]
+            | select((.listen.port == $port) or ((.route | type) == "object" and .route.port == $port))
+            | "receiver.loopback_port \($port) is a port of the mail routing plan (\(.identity)): the receiver and the gateway never share a port")
+      end;
+
 def receiver_problems:
     if type != "object" then
-        "receiver must be an object {public_smtp}, got \(tojson)"
+        "receiver must be an object {public_smtp, loopback_port, limits}, got \(tojson)"
     else
-        shape_problems("receiver"; ["public_smtp"]),
+        shape_problems("receiver"; ["limits", "loopback_port", "public_smtp"]),
         (if has("public_smtp") and (.public_smtp | one_of(public_smtp_states) | not) then
-             "receiver.public_smtp must be \(public_smtp_states | join(" or ")), got \(.public_smtp | tojson): no public receiver exists, and public SMTP is enabled only by the change that installs, verifies and activates its own isolated receiver"
-         else empty end)
+             "receiver.public_smtp must be \(public_smtp_states | join(" or ")), got \(.public_smtp | tojson): it is a request, and only activate-mail-inbound moves a host between the two"
+         else empty end),
+        (if has("loopback_port") then .loopback_port | loopback_port_problems else empty end),
+        (if has("limits") then .limits | limits_problems else empty end)
     end;
 
 def mx_problems($id; $sender):
@@ -395,6 +479,13 @@ def destination_domain($sender; $name):
     schema_version: .schema_version,
     receiver: {
         public_smtp: .receiver.public_smtp,
+        loopback_port: .receiver.loopback_port,
+        limits: .receiver.limits,
+        host_postmaster: {
+            address: "\(postmaster)@\(host_postmaster_domain)",
+            destination: host_postmaster_destination,
+            handler: {kind: host_postmaster_destination, status: "planned"}
+        },
         requirements: requirements
     },
     targets: [
@@ -437,6 +528,47 @@ def destination_domain($sender; $name):
   }
 '
 
+# What the receiver accepts, from the rendered inbound plan and nothing else:
+# every allowed recipient as an anchored POSIX extended regular expression and
+# the mailbox its mail is stored in, the domains it serves, the MX host names
+# its certificate must cover, its loopback port and its limits. Matching is
+# case-insensitive, as a receiver matches; every pattern is lowercase.
+# shellcheck disable=SC2016
+RECEIVER_PROGRAM="${INBOUND_DEFINITIONS}"'
+def identifier_ere($format):
+    if $format == "base32-128" then "[0-7]" + identifier_alphabet_ere + "{\(identifier_length - 1)}"
+    else error("no receiver pattern is defined for identifier format \($format | tojson)")
+    end;
+
+$inbound
+| {
+    schema_version: 1,
+    public_smtp: .receiver.public_smtp,
+    loopback_port: .receiver.loopback_port,
+    limits: .receiver.limits,
+    host_postmaster_domain: host_postmaster_domain,
+    domains: ([.targets[].domains[], host_postmaster_domain] | unique),
+    mx_hostnames: ([.targets[].mx_hostname] | unique),
+    recipients: [
+        (.targets[] as $t
+          | $t.destinations[]
+          | . as $d
+          | if $d.accepts == "exact-addresses" then
+                ($d.addresses[]
+                  | {target: $t.target, destination: $d.destination,
+                     pattern: "^\(ere_literal)$", mailbox: target_mailbox($t.target; $d.destination)})
+            else
+                {target: $t.target, destination: $d.destination,
+                 pattern: "^\($d.address_space.local_part_prefix | ere_literal)\(identifier_ere($d.address_space.identifier))@\($d.domain | ere_literal)$",
+                 mailbox: target_mailbox($t.target; $d.destination)}
+            end),
+        {target: null, destination: host_postmaster_destination,
+         pattern: "^\(postmaster)@\(host_postmaster_domain | ere_literal)$", mailbox: host_postmaster_mailbox}
+    ]
+  }
+| .mailboxes = ([.recipients[].mailbox] | unique)
+'
+
 # The verdict a receiver gives one recipient at RCPT TO, judged against the
 # rendered plan: the address itself first, then the domain, then the
 # destination at that domain. Every verdict has the same keys.
@@ -474,8 +606,17 @@ def identifier_problem:
         null
     end;
 
+def host_postmaster_verdict:
+    verdict({address: "\(postmaster)@\(host_postmaster_domain)", verdict: "accept",
+             destination: host_postmaster_destination,
+             handler: $inbound.receiver.host_postmaster.handler});
+
 ($recipient | ascii_downcase) as $address
-| if ($recipient | length) > 254 then
+# RFC 5321 section 4.5.1: the bare <Postmaster>, which names no brand, is the
+# host postmaster.
+| if $address == postmaster then
+      host_postmaster_verdict
+  elif ($recipient | length) > 254 then
       malformed("an address is at most 254 characters")
   elif $recipient | anchored("[!-~]+") | not then
       malformed("an address is printable ASCII with no space or control character")
@@ -487,6 +628,10 @@ def identifier_problem:
             malformed("a local part is 1 to 64 characters")
         elif $domain | is_domain | not then
             malformed("\($domain | tojson) is not a domain name: address literals and trailing dots are not accepted")
+        elif $domain == host_postmaster_domain then
+            if $local == postmaster then host_postmaster_verdict
+            else reject("unknown-recipient"; "\($address) is not the host postmaster: \(host_postmaster_domain) receives only \(postmaster)@\(host_postmaster_domain)"; {address: $address})
+            end
         else
             [$inbound.targets[] as $t | $t.destinations[] | select(.domain == $domain) | {target: $t, destination: .}] as $matches
             | if $matches == [] then
@@ -559,26 +704,32 @@ fail() {
 usage() {
     cat <<'USAGE'
 Usage:
-  mail-inbound validate    [FILES]
-  mail-inbound render-plan [FILES]
-  mail-inbound render-dns  --target TARGET [--ipv4 ADDRESS] [FILES]
-  mail-inbound route       --recipient ADDRESS [FILES]
+  mail-inbound validate        [FILES]
+  mail-inbound render-plan     [FILES]
+  mail-inbound render-receiver [FILES]
+  mail-inbound render-dns      --target TARGET [--ipv4 ADDRESS] [FILES]
+  mail-inbound route           --recipient ADDRESS [FILES]
 
-  validate     Judge the inbound mail contract against the mail routing plan,
-               the deployment registry and the host's outbound identity.
-               Read-only; exit 0 only when it is valid.
-  render-plan  Validate, then print the inbound plan as JSON: the public SMTP
-               state, the receiver's requirements, and per target its MX host,
-               domains and destinations — the exact support addresses, the
-               bounce and reply address spaces, and each one's future handler.
-  render-dns   Validate, then print TARGET's inbound DNS plan as JSON: an MX
-               (priority 10) for its mail, bounce and reply domains and the A
-               record of its MX host — with --ipv4's globally reachable
-               address, or marked not provided. Publishes nothing; MX records wait until the
-               receiver is active.
-  route        Validate, then print as JSON the verdict a receiver gives
-               ADDRESS at RCPT TO: accepted for one destination, or refused
-               with its reason. Exit 0 when accepted, 2 when refused.
+  validate         Judge the inbound mail contract against the mail routing
+                   plan, the deployment registry and the host's outbound
+                   identity. Read-only; exit 0 only when it is valid.
+  render-plan      Validate, then print the inbound plan as JSON: the requested
+                   public SMTP state, the receiver's limits and requirements,
+                   the host postmaster, and per target its MX host, domains and
+                   destinations — the exact support addresses, the bounce and
+                   reply address spaces, and each one's future handler.
+  render-receiver  Validate, then print as JSON exactly what the receiver
+                   accepts: every allowed recipient as an anchored POSIX
+                   extended regular expression with its mailbox, the domains
+                   served, the MX host names, the loopback port and the limits.
+  render-dns       Validate, then print TARGET's inbound DNS plan as JSON: an
+                   MX (priority 10) for its mail, bounce and reply domains and
+                   the A record of its MX host — with --ipv4's globally
+                   reachable address, or marked not provided. Publishes
+                   nothing; MX records wait until the receiver is active.
+  route            Validate, then print as JSON the verdict a receiver gives
+                   ADDRESS at RCPT TO: accepted for one destination, or refused
+                   with its reason. Exit 0 when accepted, 2 when refused.
 
   FILES default to infrastructure/config/{mail-inbound,mail-routing,
   deployment-targets,mail-outbound,mail-identity}.json beside this script:
@@ -613,7 +764,7 @@ parse_args() {
     fi
 
     case "$1" in
-        validate|render-plan|render-dns|route)
+        validate|render-plan|render-receiver|render-dns|route)
             COMMAND="$1"
             shift
             ;;
@@ -647,7 +798,7 @@ parse_args() {
     # Each command takes exactly the options it reads, and every one it needs.
     local files="--inbound --routing --registry --outbound --identity" allowed flag
     case "${COMMAND}" in
-        validate|render-plan) allowed="${files}" ;;
+        validate|render-plan|render-receiver) allowed="${files}" ;;
         render-dns)           allowed="--target --ipv4 ${files}" ;;
         route)                allowed="--recipient ${files}" ;;
     esac
@@ -863,6 +1014,17 @@ command_render_plan() {
     printf '%s\n' "${plan}"
 }
 
+command_render_receiver() {
+    assert_inbound_valid
+    render_inbound_plan
+
+    local receiver
+    receiver="$(jq -n -S --argjson inbound "${INBOUND_PLAN}" "${RECEIVER_PROGRAM}")" \
+        || fail "could not render the receiver's rules from the inbound plan"
+
+    printf '%s\n' "${receiver}"
+}
+
 command_render_dns() {
     assert_inbound_valid
     render_inbound_plan
@@ -911,9 +1073,10 @@ main() {
 
     case "${COMMAND}" in
         validate)    command_validate ;;
-        render-plan) command_render_plan ;;
-        render-dns)  command_render_dns ;;
-        route)       command_route ;;
+        render-plan)     command_render_plan ;;
+        render-receiver) command_render_receiver ;;
+        render-dns)      command_render_dns ;;
+        route)           command_route ;;
     esac
 }
 

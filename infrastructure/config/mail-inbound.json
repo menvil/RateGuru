@@ -1,7 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "receiver": {
-    "public_smtp": "disabled"
+    "public_smtp": "enabled",
+    "loopback_port": 2580,
+    "limits": {
+      "message_size_bytes": 10485760,
+      "recipients_per_message": 1,
+      "connections_per_client": 5,
+      "connection_rate_per_client": 30,
+      "concurrent_sessions": 20,
+      "storage_bytes": 1073741824,
+      "storage_reserve_bytes": 104857600,
+      "host_reserve_bytes": 2147483648
+    }
   },
   "targets": {
     "tits-guru": {

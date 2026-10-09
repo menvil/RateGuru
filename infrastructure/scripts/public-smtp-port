@@ -1,0 +1,202 @@
+# shellcheck shell=bash
+#
+# public-smtp-port — the one judge of who may listen on a public SMTP port on a
+# RateGuru host. A sourced library, never executed: the mail gateway's
+# installer, the outbound activation's route read-back, the gateway's status,
+# the inbound receiver's installer and its activation all ask it, so the rule
+# is written once.
+#
+# THE RULE.
+#
+#   465 and 587  Nothing, ever, on any address.
+#   25           Nothing — with exactly one exception: the inbound receiver,
+#                once activate-mail-inbound has enabled it. Then exactly ONE
+#                socket may listen on 25, on exactly the IPv4 address the
+#                receiver's applied state records, held only by processes of
+#                the receiver's own systemd unit (judged by the cgroup each
+#                process runs in, never by its name), on a host where the
+#                receiver's ownership marker says it is installed and the
+#                reviewed inbound contract of the caller's bundle requests
+#                public SMTP. Anything else on 25 — another process, the
+#                gateway's own Postfix, a second socket, another address, IPv6,
+#                or a receiver whose recorded state is missing, corrupt or
+#                disabled — is a problem.
+#
+# A disabled or uninstalled receiver changes nothing: every earlier
+# prohibition holds without exception. The exception never widens to "port 25
+# is open, so it must be fine".
+#
+# WHAT THE CALLER PROVIDES. SS_BIN, the ss(8) it uses. Every path below is read
+# under the ROOT argument ("" on a host) so a caller's test seam reaches them.
+#
+# Whether the receiver itself is healthy — its configuration, queue, store and
+# limits — is install-mail-inbound --verify's verdict, not this library's: an
+# outbound gateway is never failed because the inbound receiver is down, only
+# because something is listening that may not.
+
+PUBLIC_SMTP_FORBIDDEN_PORTS=(465 587)
+PUBLIC_SMTP_INBOUND_PORT=25
+
+# The receiver's unit and its recorded state, exactly as install-mail-inbound
+# writes them.
+PUBLIC_SMTP_INBOUND_UNIT="rateguru-mail-inbound.service"
+PUBLIC_SMTP_INBOUND_STATE_DIR="/var/lib/rateguru-mail-inbound"
+PUBLIC_SMTP_INBOUND_MARKER="${PUBLIC_SMTP_INBOUND_STATE_DIR}/ownership"
+PUBLIC_SMTP_INBOUND_APPLIED="${PUBLIC_SMTP_INBOUND_STATE_DIR}/applied.json"
+PUBLIC_SMTP_INBOUND_APPLIED_KIND="rateguru-mail-inbound-applied"
+
+# public_smtp_listening_sockets — "LOCAL_ADDRESS<TAB>PIDS" for every listening
+# TCP socket, PIDS comma-separated (empty when ss names none). Fails, printing
+# nothing, when the socket table cannot be read: an unreadable table is never
+# an empty one.
+public_smtp_listening_sockets() {
+    local table
+    table="$("${SS_BIN}" -ltnpH 2>/dev/null)" || return 1
+
+    awk '
+        NF >= 4 {
+            pids = ""
+            rest = $0
+            while (match(rest, /pid=[0-9]+/)) {
+                pid = substr(rest, RSTART + 4, RLENGTH - 4)
+                pids = (pids == "" ? pid : pids "," pid)
+                rest = substr(rest, RSTART + RLENGTH)
+            }
+            print $4 "\t" pids
+        }
+    ' <<<"${table}"
+}
+
+# public_smtp_inbound_applied ROOT — the receiver's recorded state as
+# "STATE<TAB>ADDRESS" (ADDRESS "-" when disabled), "absent" when nothing is
+# recorded, or "corrupt" when the record cannot be trusted.
+public_smtp_inbound_applied() {
+    local root="$1" path marker
+
+    path="${root}${PUBLIC_SMTP_INBOUND_APPLIED}"
+    marker="${root}${PUBLIC_SMTP_INBOUND_MARKER}"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! [[ -f "${marker}" && ! -L "${marker}" ]] \
+        || [[ "$(sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1)" != installed ]]
+    then
+        printf 'corrupt\n'
+        return 0
+    fi
+
+    jq -r --arg kind "${PUBLIC_SMTP_INBOUND_APPLIED_KIND}" '
+        def ipv4: type == "string" and test("\\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\z");
+        if .kind == $kind and .schema_version == 1 and .public_smtp == "disabled" and .address == null then
+            "disabled\t-"
+        elif .kind == $kind and .schema_version == 1 and .public_smtp == "enabled" and (.address | ipv4) then
+            "enabled\t\(.address)"
+        else
+            "corrupt"
+        end' "${path}" 2>/dev/null || printf 'corrupt\n'
+}
+
+# public_smtp_pid_in_receiver ROOT PID — PID runs in the receiver's own unit.
+public_smtp_pid_in_receiver() {
+    local root="$1" pid="$2" cgroup
+    [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+
+    cgroup="$(cat "${root}/proc/${pid}/cgroup" 2>/dev/null)" || return 1
+    grep -qE "(^|/)${PUBLIC_SMTP_INBOUND_UNIT//./\\.}\$" <<<"${cgroup}"
+}
+
+# public_smtp_contract_requests_enabled CONTRACT — the caller's bundle's
+# reviewed inbound contract requests public SMTP.
+public_smtp_contract_requests_enabled() {
+    [[ -f "$1" ]] && jq -e '.receiver.public_smtp == "enabled"' "$1" >/dev/null 2>&1
+}
+
+# public_smtp_problems ROOT CONTRACT — every reason a public SMTP port is open
+# that may not be, one per line; nothing when the host is as the rule allows.
+public_smtp_problems() {
+    local root="$1" contract="$2" sockets local_address pids port applied state address
+    local owners=0 pid forbidden
+
+    if ! sockets="$(public_smtp_listening_sockets)"; then
+        printf 'ss -ltnpH could not list the listening sockets — a public SMTP listener cannot be ruled out\n'
+        return 0
+    fi
+
+    applied="$(public_smtp_inbound_applied "${root}")"
+    state="${applied%%$'\t'*}"
+    address="${applied#*$'\t'}"
+
+    while IFS=$'\t' read -r local_address pids; do
+        [[ -n "${local_address}" ]] || continue
+        port="${local_address##*:}"
+
+        for forbidden in "${PUBLIC_SMTP_FORBIDDEN_PORTS[@]}"; do
+            [[ "${port}" != "${forbidden}" ]] \
+                || printf 'something listens on %s — no SMTP service may ever listen on port %s\n' "${local_address}" "${forbidden}"
+        done
+
+        [[ "${port}" == "${PUBLIC_SMTP_INBOUND_PORT}" ]] || continue
+
+        case "${state}" in
+            absent)
+                printf 'something listens on %s — no SMTP service may listen on port 25 while the inbound receiver is not activated\n' "${local_address}"
+                continue
+                ;;
+            corrupt)
+                printf 'something listens on %s, and the inbound receiver'"'"'s recorded state (%s) is missing, corrupt or not marked installed — port 25 is allowed only to an activated receiver whose record can be trusted\n' "${local_address}" "${PUBLIC_SMTP_INBOUND_APPLIED}"
+                continue
+                ;;
+            disabled)
+                printf 'something listens on %s — the inbound receiver is recorded as disabled, so nothing may listen on port 25\n' "${local_address}"
+                continue
+                ;;
+        esac
+
+        if [[ "${local_address}" != "${address}:${PUBLIC_SMTP_INBOUND_PORT}" ]]; then
+            printf 'something listens on %s — the activated inbound receiver owns only %s:25, never another address or IPv6\n' "${local_address}" "${address}"
+            continue
+        fi
+
+        if [[ -z "${pids}" ]]; then
+            printf '%s is held by a process ss could not name — its owner cannot be proved to be %s\n' "${local_address}" "${PUBLIC_SMTP_INBOUND_UNIT}"
+            continue
+        fi
+
+        local foreign=""
+        for pid in ${pids//,/ }; do
+            public_smtp_pid_in_receiver "${root}" "${pid}" || foreign+="${foreign:+,}${pid}"
+        done
+        if [[ -n "${foreign}" ]]; then
+            printf '%s is held by process %s outside %s — only the inbound receiver may listen on port 25\n' "${local_address}" "${foreign}" "${PUBLIC_SMTP_INBOUND_UNIT}"
+            continue
+        fi
+
+        if ! public_smtp_contract_requests_enabled "${contract}"; then
+            printf 'the inbound receiver listens on %s, but the reviewed inbound contract (%s) does not request public SMTP — run the inbound rollback, or restore the request\n' "${local_address}" "${contract}"
+            continue
+        fi
+
+        owners=$((owners + 1))
+    done <<<"${sockets}"
+
+    (( owners <= 1 )) \
+        || printf '%d sockets listen on %s:25 — the inbound receiver owns exactly one\n' "${owners}" "${address}"
+}
+
+# public_smtp_summary ROOT — one line for a report: what may listen on port 25
+# on this host now.
+public_smtp_summary() {
+    local applied
+    applied="$(public_smtp_inbound_applied "$1")"
+
+    case "${applied%%$'\t'*}" in
+        absent)   printf 'no inbound receiver is recorded: nothing may listen on 25, 465 or 587\n' ;;
+        disabled) printf 'the inbound receiver is recorded as disabled: nothing may listen on 25, 465 or 587\n' ;;
+        enabled)  printf 'the inbound receiver is activated: %s alone may listen on 25, on %s only; nothing on 465 or 587\n' "${PUBLIC_SMTP_INBOUND_UNIT}" "${applied#*$'\t'}" ;;
+        *)        printf 'the inbound receiver record is corrupt: nothing may listen on 25, 465 or 587\n' ;;
+    esac
+}
