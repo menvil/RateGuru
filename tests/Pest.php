@@ -6164,6 +6164,22 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
 }
 
 /**
+ * Submits a modal form and waits until the server's answer has replaced the
+ * page. A failed submission comes back to the very same URL with the dialog
+ * open again, so the URL and the dialog cannot tell the two pages apart: a
+ * marker on window can, because only the old document carries it.
+ */
+function submitAndWaitForNewPage(mixed $page, string $submit): mixed
+{
+    $page->script('window.__rgPageBeforeSubmit = true');
+    $page->click($submit);
+
+    waitForScript($page, 'window.__rgPageBeforeSubmit !== true && document.readyState === "complete"');
+
+    return $page;
+}
+
+/**
  * Runs $assertions until they pass, and lets their last failure through once
  * $timeoutSeconds have gone by — waitForScript() for a state that is easier to
  * say in PHP than in one JavaScript expression.

@@ -22,22 +22,6 @@ const REGISTER_PANEL = '[data-testid="auth-modal-register-panel"]';
 /** Whether the dialog is on screen, as one expression a test can wait for. */
 const AUTH_MODAL_SHOWN = 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"';
 
-/**
- * Submits a modal form and waits until the server's answer has replaced the
- * page. A failed submission comes back to the very same URL with the dialog
- * open again, so the URL and the dialog cannot tell the two pages apart: a
- * marker on window can, because only the old document carries it.
- */
-function submitAndWaitForNewPage(mixed $page, string $submit): mixed
-{
-    $page->script('window.__rgPageBeforeSubmit = true');
-    $page->click($submit);
-
-    waitForScript($page, 'window.__rgPageBeforeSubmit !== true && document.readyState === "complete"');
-
-    return $page;
-}
-
 /** The vertical position of an element inside one of the modal's panels. */
 function topOf(string $panel, string $testId): string
 {
