@@ -69,6 +69,9 @@ $middle = intdiv(count($ratios), 2);
 $speed = match (true) {
     $ratios === [] => 1.0,
     count($ratios) % 2 === 1 => $ratios[$middle],
+    // Of two files, the slower one would raise its own threshold if the two
+    // were averaged; the faster one is the better guess at the runner.
+    count($ratios) === 2 => $ratios[0],
     default => ($ratios[$middle - 1] + $ratios[$middle]) / 2,
 };
 

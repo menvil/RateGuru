@@ -397,6 +397,46 @@ it('lets a small overrun go, however large as a ratio', function () {
     ))->toBe(['status' => 0, 'output' => '']);
 });
 
+it('names a file that took exactly half as long again as planned, well over fifteen seconds more', function () {
+    $drift = shardDrift(
+        ['Tests\\AlphaTest' => 60, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+        ['Tests\\AlphaTest' => 40, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+    );
+
+    expect($drift['status'])->toBe(0)
+        ->and($drift['output'])->toContain('| `AlphaTest` | 40 s | 60 s |');
+});
+
+it('names a file that took exactly fifteen seconds more than planned, well over half as long again', function () {
+    $drift = shardDrift(
+        ['Tests\\AlphaTest' => 35, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+        ['Tests\\AlphaTest' => 20, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+    );
+
+    expect($drift['status'])->toBe(0)
+        ->and($drift['output'])->toContain('| `AlphaTest` | 20 s | 35 s |');
+});
+
+it('lets a large overrun go when it stays under half as long again', function () {
+    expect(shardDrift(
+        ['Tests\\AlphaTest' => 140, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+        ['Tests\\AlphaTest' => 100, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10, 'Tests\\DeltaTest' => 10],
+    ))->toBe(['status' => 0, 'output' => '']);
+});
+
+it('names the slow file of a leg with only two, which an average of the two would hide', function () {
+    // Averaged, 30 -> 80 s and 20 -> 20 s give a runner speed of x1.83, and
+    // 80 s is then under the x1.5 threshold of what that speed predicts.
+    $drift = shardDrift(
+        ['Tests\\AlphaTest' => 80, 'Tests\\BravoTest' => 20],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20],
+    );
+
+    expect($drift['status'])->toBe(0)
+        ->and($drift['output'])->toContain('| `AlphaTest` | 30 s | 80 s |')
+        ->not->toContain('BravoTest');
+});
+
 it('reports drift in every leg\'s job summary as a warning that never fails the run', function () {
     $ci = Yaml::parseFile(base_path('.github/workflows/ci.yml'));
     $legStep = collect($ci['jobs']['tests-architecture']['steps'])->firstWhere('name', 'Check the shard ran its share');
