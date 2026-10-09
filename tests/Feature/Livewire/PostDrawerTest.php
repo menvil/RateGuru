@@ -128,7 +128,7 @@ it('renders not found state for an unpublished mobile-only selected post', funct
         'asOverlay' => true,
         'mobileOnly' => true,
     ])
-        ->dispatch('select-post', postId: $post->id)
+        ->call('setSelectedPost', $post->id)
         ->assertSet('postId', $post->id)
         ->assertSee('Post not found')
         ->assertSee('This post is unavailable')
