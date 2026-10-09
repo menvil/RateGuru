@@ -62,20 +62,47 @@ function shardLine(int $index, int $shards, int $ran, int $files): string
 
 /**
  * A JUnit report shaped the way Pest writes one: an outer suite, one nested suite
- * per test class, each carrying the file it came from.
+ * per test class, each carrying the file it came from and the seconds it took.
  *
  * @param  list<string>  $classes
+ * @param  array<string, float|int>  $seconds  by class; one second where not given
  */
-function shardJunit(array $classes): string
+function shardJunit(array $classes, array $seconds = []): string
 {
     $suites = '';
 
     foreach ($classes as $class) {
         $file = 'tests/Feature/Architecture/'.str_replace('\\', '/', $class).'.php';
-        $suites .= "    <testsuite name=\"{$class}\" file=\"{$file}\" tests=\"3\"><testcase name=\"a\"/></testsuite>\n";
+        $time = $seconds[$class] ?? 1;
+        $suites .= "    <testsuite name=\"{$class}\" file=\"{$file}\" tests=\"3\" time=\"{$time}\"><testcase name=\"a\"/></testsuite>\n";
     }
 
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites>\n  <testsuite name=\"CLI Arguments\" tests=\"3\">\n{$suites}  </testsuite>\n</testsuites>\n";
+}
+
+/**
+ * What shard-timing-drift.php says about a leg that took SECONDS, planned from
+ * TIMINGS.
+ *
+ * @param  array<string, float|int>  $seconds  by class
+ * @param  array<string, float|int>  $timings  by class, as tests/.pest/shards.json holds them
+ * @return array{status: int, output: string}
+ */
+function shardDrift(array $seconds, array $timings): array
+{
+    $junit = sys_get_temp_dir().'/rateguru-shard-drift-'.bin2hex(random_bytes(5)).'.xml';
+    $shards = sys_get_temp_dir().'/rateguru-shard-drift-'.bin2hex(random_bytes(5)).'.json';
+    file_put_contents($junit, shardJunit(array_keys($seconds), $seconds));
+    file_put_contents($shards, (string) json_encode(['timings' => $timings]));
+
+    try {
+        exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, base_path('tools/pest/bin/shard-timing-drift.php'), $junit, $shards])).' 2>&1', $output, $status);
+    } finally {
+        @unlink($junit);
+        @unlink($shards);
+    }
+
+    return ['status' => $status, 'output' => implode("\n", $output)];
 }
 
 /** @param list<string> $classes */
@@ -321,4 +348,61 @@ it('is wired into the Architecture job, both per leg and across them', function 
 
     expect(str_contains($verdict['run'], '$SHARD_PARTITION_RESULT'))
         ->toBeTrue("the verdict must read the shard partition result:\n{$verdict['run']}");
+});
+
+// shards.json drift -------------------------------------------------------------
+
+it('says nothing while every file of a leg takes about what it was planned to', function () {
+    expect(shardDrift(
+        ['Tests\\AlphaTest' => 31, 'Tests\\BravoTest' => 19, 'Tests\\CharlieTest' => 10],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10],
+    ))->toBe(['status' => 0, 'output' => '']);
+});
+
+it('names a file that took far longer than planned, with both times and how to regenerate', function () {
+    $drift = shardDrift(
+        ['Tests\\AlphaTest' => 75, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10],
+    );
+
+    expect($drift['status'])->toBe(0)
+        ->and($drift['output'])->toContain('| `AlphaTest` | 30 s | 75 s |')
+        ->toContain('shards-from-junit.php architecture-junit-*.xml > tests/.pest/shards.json')
+        ->not->toContain('BravoTest')
+        ->not->toContain('CharlieTest');
+});
+
+it('tells a slower runner from stale timings: every file twice as slow is no drift', function () {
+    expect(shardDrift(
+        ['Tests\\AlphaTest' => 60, 'Tests\\BravoTest' => 40, 'Tests\\CharlieTest' => 20],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 10],
+    ))->toBe(['status' => 0, 'output' => '']);
+});
+
+it('names a file the timings do not know, which Pest hands out round-robin', function () {
+    $drift = shardDrift(
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\NewTest' => 40],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20],
+    );
+
+    expect($drift['status'])->toBe(0)
+        ->and($drift['output'])->toContain('| `NewTest` | not timed | 40 s |')
+        ->not->toContain('AlphaTest');
+});
+
+it('lets a small overrun go, however large as a ratio', function () {
+    expect(shardDrift(
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 12],
+        ['Tests\\AlphaTest' => 30, 'Tests\\BravoTest' => 20, 'Tests\\CharlieTest' => 4],
+    ))->toBe(['status' => 0, 'output' => '']);
+});
+
+it('reports drift in every leg\'s job summary as a warning that never fails the run', function () {
+    $ci = Yaml::parseFile(base_path('.github/workflows/ci.yml'));
+    $legStep = collect($ci['jobs']['tests-architecture']['steps'])->firstWhere('name', 'Check the shard ran its share');
+
+    expect($legStep['run'])
+        ->toContain('php tools/pest/bin/shard-timing-drift.php architecture-junit.xml tests/.pest/shards.json || true')
+        ->toContain('>> "${GITHUB_STEP_SUMMARY}"')
+        ->toContain('::warning');
 });
