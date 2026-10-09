@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
 use App\Models\RatingGroup;
@@ -33,6 +34,21 @@ it('shows newly published post after upload event', function () {
     $component
         ->dispatch('post-uploaded')
         ->assertSee('New Uploaded Dish');
+});
+
+it('drops a post its author deleted from the feed', function () {
+    $author = User::factory()->create();
+    $post = Post::factory()->published()->for($author)->create(['title' => 'Soon Deleted Dish']);
+
+    $component = Livewire::actingAs($author)
+        ->test(PostFeed::class)
+        ->assertSee('Soon Deleted Dish');
+
+    app(DeletePostAction::class)->handle($author, $post);
+
+    $component
+        ->dispatch('post-deleted', postId: $post->id)
+        ->assertDontSee('Soon Deleted Dish');
 });
 
 it('can render post feed component', function () {
