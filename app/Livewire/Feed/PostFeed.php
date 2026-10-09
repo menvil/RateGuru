@@ -35,6 +35,9 @@ class PostFeed extends Component
     #[On('post-moderated')]
     public function refreshAfterPostModerated(): void {}
 
+    #[On('post-deleted')]
+    public function refreshAfterPostDeleted(): void {}
+
     #[On('comment-created')]
     #[On('comment-deleted')]
     public function refreshAfterCommentChange(): void {}
