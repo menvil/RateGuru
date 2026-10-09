@@ -57,6 +57,7 @@
         "Tests\\Feature\\Architecture\\MailGatewaySigningTest": 59.9226,
         "Tests\\Feature\\Architecture\\MailGatewayTest": 62.7735,
         "Tests\\Feature\\Architecture\\MailIdentityTest": 69.5255,
+        "Tests\\Feature\\Architecture\\MailInboundTest": 74.49,
         "Tests\\Feature\\Architecture\\MailOutboundActivationApplyTest": 24.2454,
         "Tests\\Feature\\Architecture\\MailOutboundActivationFailureTest": 51.3753,
         "Tests\\Feature\\Architecture\\MailOutboundActivationProofTest": 34.3909,
@@ -129,6 +130,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.1222,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0466
     },
-    "checksum": "e1c4d8b580ed6cb0abb7925f39d1ca7a",
+    "checksum": "987869af904bc220cf616acab5798a03",
     "updated_at": "2026-10-08T21:56:15+03:00"
 }

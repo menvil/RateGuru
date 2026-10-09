@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "receiver": {
+    "public_smtp": "disabled"
+  },
+  "targets": {
+    "tits-guru": {
+      "mx_hostname": "mx1.tits.guru",
+      "support": {
+        "local_parts": [
+          "postmaster",
+          "support"
+        ]
+      },
+      "bounce": {
+        "prefix": "b",
+        "identifier": "base32-128"
+      },
+      "reply": {
+        "prefix": "r",
+        "identifier": "base32-128"
+      }
+    }
+  }
+}

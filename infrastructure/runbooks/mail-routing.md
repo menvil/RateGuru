@@ -12,9 +12,9 @@ leaves the application, and the repository tooling that proves the contract.
 | Local mail gateway | **Implemented** as committed host infrastructure — `install-mail-gateway`, converged by Prepare Host; see [`mail-gateway.md`](mail-gateway.md) |
 | Gateway on the real staging host | **Installed and accepted** |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
-| `outbound` mode, `kind: direct` | **Implemented, requested for `tits-guru`**: the committed policy routes it outbound and `config/mail-outbound.json` enables direct delivery; a host renders it only through `activate-mail-outbound` |
+| `outbound` mode, `kind: direct` | **Implemented, active for `tits-guru`**: the committed policy routes it outbound, `config/mail-outbound.json` enables direct delivery, and the shared host rendered it through `activate-mail-outbound` on 2026-10-08 |
 | Production mail (`tits-guru`) — committed policy | **Outbound** by direct delivery, identity reviewed, still `lifecycle=planned` |
-| Production mail (`tits-guru`) — real host | **Held** until Activate: its listener holds everything, no route exists there, nothing is delivered — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| Production mail (`tits-guru`) — real host | **Outbound**, production-accepted on 2026-10-08: delivered directly, signed — see [`mail-outbound-activation.md`](mail-outbound-activation.md). Its bounce and reply domains receive nothing yet — see [`mail-inbound.md`](mail-inbound.md) |
 
 The policy is the contract; `install-mail-gateway` turns its rendered plan into
 Postfix configuration and never re-derives a rule of its own. It was written
@@ -51,7 +51,7 @@ For the two targets in the registry today:
 ```
 staging-main  127.0.0.1:2525 ──capture──▶ Mailpit 127.0.0.1:1025 ──mirror──▶ Mailtrap Local
 tits-guru     127.0.0.1:2526 ──outbound─▶ direct SMTP to each recipient domain's MX
-                                          (requested; the host holds it until Activate)
+                                          (active on the shared host since 2026-10-08)
 ```
 
 The application side is identical for every target: `MAIL_MAILER=smtp`,
@@ -300,9 +300,9 @@ ordered cutover, and its rollback to the direct `MAIL_PORT=1025` path, are in
 
 ### FUTURE application values (not set — tits-guru is not deployed)
 
-`tits-guru`'s committed policy is `outbound`, and the committed
-`config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`; the
-real host stays held until Activate. Once the host is activated and before the
+`tits-guru`'s committed policy is `outbound`, the committed
+`config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`, and the
+shared host has delivered it since its activation on 2026-10-08. Before the
 first production deploy, its application is given:
 
 ```dotenv
@@ -313,9 +313,9 @@ MAIL_FROM_ADDRESS=noreply@tits.guru
 ```
 
 Its template keeps `MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT` and
-`MAIL_FROM_ADDRESS` empty: the target is planned, not deployed, and its listener
-on the host holds everything it accepts until Activate, so naming it as a
-working endpoint would claim a delivery path that does not exist yet.
+`MAIL_FROM_ADDRESS` empty: the target is planned and not deployed, and its
+mail transport is set by a separately reviewed operation before its first
+deploy, not by the template.
 
 Two `2525`s elsewhere in the repository are unrelated framework defaults:
 `config/mail.php` falls back to `env('MAIL_PORT', 2525)`, and the root

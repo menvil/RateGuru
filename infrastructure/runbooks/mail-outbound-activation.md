@@ -21,6 +21,10 @@ must never be confused:
    infrastructure** reporting `OUTBOUND READY: YES`, and a real canary received
    and its raw headers inspected.
 
+On 2026-10-08 all three came to agree: Activate ran, Verify production reported
+`OUTBOUND READY: YES`, and the real canary was received and its headers
+inspected — see [Activation rollout](#activation-rollout-done).
+
 ## Status
 
 | What | State |
@@ -31,8 +35,8 @@ must never be confused:
 | Workflows **Activate tits.guru outbound mail**, **Rollback tits.guru outbound mail activation**, **Send tits.guru production mail canary** | **Implemented**, `main` only |
 | Tooling accepted on the shared host | **Yes**, 2026-10-08 — see [Tooling rollout](#tooling-rollout-done) |
 | `tits-guru` mail — **committed policy** | **Outbound requested**: `delivery_mode` `outbound` with `{"kind": "direct"}`, `direct.enabled: true` as `mta1.tits.guru`; `lifecycle=planned` |
-| `tits-guru` mail — **real host** | **Held**, direct delivery disabled, until Activate runs from `main` — production activation **pending** |
-| Production acceptance | **Pending** — only after Activate, Verify production (`OUTBOUND READY: YES`), a real canary received and its raw headers inspected |
+| `tits-guru` mail — **real host** | **Outbound**, activated on 2026-10-08 by **Activate tits.guru outbound mail** (run `37813433328`); **Verify production infrastructure** `OUTBOUND READY: YES` (run `37814215899`) |
+| Production acceptance | **Accepted** on 2026-10-08 — a real canary received with SPF, DKIM and DMARC passing and its raw headers inspected; see [Activation rollout](#activation-rollout-done) |
 | Production application `MAIL_*` | **Deliberately not set here** — see [Application mail transport](#application-mail-transport-is-not-part-of-this) |
 
 ## The activation
@@ -303,6 +307,27 @@ outbound without the activation's one-use authorization, and it does: the
 gateway fails closed and the host stays held. That refusal is the interlock
 working, not something to retry; only Activate crosses, after its own proof.
 Verify, read-only, reports the same difference until Activate has run.
+
+### Activation rollout (done)
+
+The activation ran in that order on 2026-10-08 and was production-accepted from
+its real results:
+
+| Step | Run | Result |
+|------|-----|--------|
+| Run **Activate tits.guru outbound mail** (`main`). | `37813433328` | SUCCESS |
+| Run **Verify production infrastructure**. | `37814215899` | SUCCESS — `OUTBOUND READY: YES` |
+| Run **Send tits.guru production mail canary** to Gmail. | `37814715904` | delivered — `status=sent`, DSN `2.0.0`, SPF, DKIM and DMARC PASS — but the run failed its result check (see [The canary](#the-canary)) |
+| Make the result check follow the canary ID's form, and show the sender as `TitsGuru`. | — | merged and promoted |
+| Run **Send tits.guru production mail canary** to Gmail again. | `37821815403` | SUCCESS |
+| Inspect the received message's raw headers. | — | `From: TitsGuru <noreply@tits.guru>`; SPF PASS, DKIM PASS (`d=tits.guru`, `s=rg1`), DMARC PASS; TLS 1.3; from `213.199.41.241` as `mta1.tits.guru` |
+| Check with Mail-Tester. | `37822226157` | SUCCESS — SpamAssassin and blocklists pass; 7/10 for the missing MX of `tits.guru`, which is inbound mail ([`mail-inbound.md`](mail-inbound.md)) |
+| Run **Verify staging infrastructure**. | `37823079457` | SUCCESS — 6 PASS, 0 FAIL, 0 DEFERRED, 1 N/A; Mailpit, Mailtrap Local and staging's isolation confirmed |
+
+The production application is still `lifecycle=planned` and undeployed: outbound
+delivery was activated independently of it, and its own `MAIL_*` values belong
+to its first deploy (see below). Mail sent today carries the envelope sender
+`noreply@tits.guru`.
 
 ### If anything is wrong before go-live
 

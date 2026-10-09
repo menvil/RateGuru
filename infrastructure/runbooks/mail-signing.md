@@ -24,11 +24,11 @@ and a signing error; and when the signer is down the listener defers.
 |------|-------|
 | `install-mail-signing` / `verify-mail-signing` | **Implemented**, part of host bootstrap (after mail capture, before the gateway) |
 | `mail-identity render-signing-plan` | **Implemented**: the one source of what is signed |
-| Gateway milter on `tits-guru`'s held listener (`127.0.0.1:2526`) | **Implemented**; the staging capture listener is never signed |
+| Gateway milter on `tits-guru`'s listener (`127.0.0.1:2526`) | **Implemented** — accepted while it was held, signing its delivered mail since its activation; the staging capture listener is never signed |
 | `mail-identity readiness` signing condition | **Implemented**: the verdict of `verify-mail-signing --read-only` |
 | Signer on the shared production/staging host | **Installed and accepted**: OpenDKIM `2.11.0~beta2-6` on `inet:127.0.0.1:8891`; the key `/etc/opendkim/keys/tits-guru/rg1.private` is `root:opendkim 0640` in `root:opendkim 0750` directories |
 | Production acceptance | **Accepted**: **Verify production infrastructure** run `37634818870` PASS (public A, PTR, SPF, DKIM and DMARC, signing read-only); **Verify production mail signing** run `37639732203` PASS (foreign `From` refused with `550 5.7.1` and never queued; the valid probe signed `d=tits.guru s=rg1 a=rsa-sha256`, held, and its exact queue entry deleted) |
-| `tits-guru` mail | **Held**; `lifecycle=planned`; direct delivery disabled; no production `MAIL_*` value. Its guarded activation is [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| `tits-guru` mail | **Outbound**, signed and delivered directly since its guarded activation on 2026-10-08 — see [`mail-outbound-activation.md`](mail-outbound-activation.md); `lifecycle=planned`; no production `MAIL_*` value |
 
 ## What is installed
 
@@ -36,7 +36,8 @@ and a signing error; and when the signer is down the listener defers.
 tits-guru (not deployed) ─▶ 127.0.0.1:2526 ──▶ Postfix smtpd ──milter──▶ OpenDKIM 127.0.0.1:8891
                                                      │                   (signs d=tits.guru s=rg1)
                                                      ▼
-                                               HOLD queue → no route, ever
+                                   Postfix queue → rateguru-outbound-tits-guru → recipient domain's MX
+                                   (the HOLD queue, with no route, until its activation on 2026-10-08)
 
 Laravel staging ──────────▶ 127.0.0.1:2525 ──▶ Postfix smtpd (no milter) → capture
 ```

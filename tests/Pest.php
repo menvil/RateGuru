@@ -42,6 +42,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -531,6 +532,11 @@ function sourcedLibraryNames(): array
  * and target mail identity, the DKIM keys it names, and public DNS against both.
  * It installs nothing, and runs from a trusted bundle or checkout.
  *
+ * `mail-inbound` is another of them: it judges the reviewed inbound mail
+ * contract against the routing plan and the host's outbound identity, renders
+ * the inbound plan and its DNS, and judges one recipient address. It installs,
+ * opens and receives nothing, and runs from a checkout.
+ *
  * `activate-mail-outbound` and `send-mail-canary` run only from a trusted bundle
  * uploaded by their own workflows: the activation copies that bundle's whole
  * infrastructure/ tree to judge the pre-activation state with it, and both
@@ -544,7 +550,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-outbound', 'mail-identity', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-outbound', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -2412,6 +2418,69 @@ function mailRoutingRun(array $arguments, array|string|null $policy = null, ?arr
     } finally {
         exec('rm -rf '.escapeshellarg($scratch));
     }
+}
+
+/**
+ * The committed mail routing policy, decoded.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingPolicy(): array
+{
+    return json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * DOCUMENT with dot-path changes applied: `set` replaces or adds a value,
+ * `forget` removes one. Shared by every test that varies a committed JSON
+ * contract one path at a time.
+ *
+ * @param  array<string, mixed>  $document
+ * @param  array<string, mixed>  $set
+ * @param  list<string>  $forget
+ * @return array<string, mixed>
+ */
+function withDotPaths(array $document, array $set = [], array $forget = []): array
+{
+    foreach ($set as $path => $value) {
+        data_set($document, $path, $value);
+    }
+
+    foreach ($forget as $path) {
+        Arr::forget($document, $path);
+    }
+
+    return $document;
+}
+
+/**
+ * The committed policy — or BASE — with dot-path changes applied.
+ *
+ * @param  array<string, mixed>  $set
+ * @param  list<string>  $forget
+ * @param  array<string, mixed>|null  $base
+ * @return array<string, mixed>
+ */
+function mailRoutingPolicyWith(array $set = [], array $forget = [], ?array $base = null): array
+{
+    return withDotPaths($base ?? mailRoutingPolicy(), $set, $forget);
+}
+
+/**
+ * One target's listener in a rendered routing plan.
+ *
+ * @return array<string, mixed>
+ */
+function mailRoutingListener(array $plan, string $identity): array
+{
+    $matches = array_values(array_filter(
+        $plan['listeners'],
+        static fn (array $listener): bool => $listener['identity'] === $identity,
+    ));
+
+    expect(count($matches))->toBe(1, "expected exactly one listener for {$identity}");
+
+    return $matches[0];
 }
 
 /**
