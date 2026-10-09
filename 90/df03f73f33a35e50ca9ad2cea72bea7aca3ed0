@@ -1,0 +1,43 @@
+infrastructure/runbooks/mail-identity.md
+  s_3481294084957b::t_f4d1c9c5131c55 14,20
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_78c5c0851355c9 1979-1980,2029-2031,2043-2044,2059-2061,2091-2108,2111-2117
+  s_3481294084957b::t_691dec6465730d 1981-1983
+  s_3481294084957b::t_4484e7fc04cc05 2109-2110
+tests/Feature/Architecture/MailIdentityTest.php
+  s_3481294084957b::t_1ad71c2ae29271 1396
+tests/Feature/Architecture/MailOutboundActivationTest.php
+  s_3481294084957b::t_1ad71c2ae29271 494,501-502,509-510,514,518-523,542-545
+infrastructure/runbooks/mail-outbound-activation.md
+  s_3481294084957b::t_f4d1c9c5131c55 24-27,38-39,311-323,325-330
+infrastructure/runbooks/mail-signing.md
+  s_3481294084957b::t_0714a3c4241431 27,39-40
+  s_3481294084957b::t_f4d1c9c5131c55 31
+infrastructure/README.md
+  s_3481294084957b::t_92b2b8a1a0a2d4 149-151
+infrastructure/runbooks/mail-gateway.md
+  s_3481294084957b::t_f4d1c9c5131c55 18-21,36-41,57,160-161
+  s_3481294084957b::t_31d6f5f685d97a 31-33,58,238-243
+  s_3481294084957b::t_32adfedbba2e83 59-61
+  s_3481294084957b::t_0b7b44f5f2ee6f 62,69-70
+infrastructure/runbooks/mail-routing.md
+  s_3481294084957b::t_f4d1c9c5131c55 15,54,303-305,316-318
+tests/Feature/Architecture/MailGatewayTest.php
+  s_3481294084957b::t_1ad71c2ae29271 1520,1531-1532,1546-1549
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "90df03f73f33a35e50ca9ad2cea72bea7aca3ed0",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
