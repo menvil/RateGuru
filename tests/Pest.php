@@ -6290,7 +6290,19 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
  */
 function supportedLocales(): array
 {
-    return array_keys((require dirname(__DIR__).'/config/locales.php')['supported']);
+    return array_keys(localesConfig()['supported']);
+}
+
+/**
+ * config/locales.php as the file declares it, read directly for the same
+ * reason supportedLocales() is: datasets are collected before the application
+ * boots.
+ *
+ * @return array<string, mixed>
+ */
+function localesConfig(): array
+{
+    return require dirname(__DIR__).'/config/locales.php';
 }
 
 /**
@@ -6332,7 +6344,7 @@ function representativeLocales(): array
         ...array_values(LanguageRules::BROWSER_ALIASES),
     ];
 
-    return array_values(array_intersect(supportedLocales(), [(require dirname(__DIR__).'/config/locales.php')['default'], translatedLocales()[0], ...$ruled]));
+    return array_values(array_intersect(supportedLocales(), [localesConfig()['default'], ...array_slice(translatedLocales(), 0, 1), ...$ruled]));
 }
 
 /**
