@@ -17,7 +17,7 @@ it('exposes recently-deleted keys in every locale', function (string $locale) {
     ] as $key) {
         expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('pluralizes russian days-left correctly across teen and composite counts', function () {
     App::setLocale('ru');

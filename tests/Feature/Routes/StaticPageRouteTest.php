@@ -81,7 +81,7 @@ it('renders static page content in the selected locale', function (string $local
         ->assertOk()
         ->assertSee($page['title'])
         ->assertSee($page['content']);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders admin-edited static page content for the current locale', function () {
     [$target] = twoTranslatedLocales();

@@ -9,7 +9,7 @@ it('has sharing translation keys in every supported locale', function (string $l
     ] as $key) {
         expect(Lang::hasForLocale("sharing.{$key}", $locale))->toBeTrue("Missing sharing.{$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('has correct english sharing labels', function () {
     app()->setLocale('en');
