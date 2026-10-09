@@ -4339,6 +4339,12 @@ function mailInboundCleanup(array $host): void
     removeScratchDir($host['scratch']);
 }
 
+/** The gateway's apply on HOST. @return array{0: int, 1: string} */
+function mailGatewayInboundApply(array $host): array
+{
+    return mailInboundHostRun($host, 'install-mail-gateway', ['--apply']);
+}
+
 /**
  * The one-use authorization activate-mail-inbound writes for DIRECTION
  * (install | enable | disable), from the state the host records, with CHANGES
