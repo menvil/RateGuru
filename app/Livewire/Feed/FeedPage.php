@@ -111,7 +111,10 @@ class FeedPage extends Component
         $this->ratings = $ratings;
     }
 
-    #[On('select-post')]
+    // Called by the browser (feed-page.blade.php), not by a listener: in the
+    // split view a selection opens the inline detail column only on a desktop,
+    // and below it the mobile overlay shows the post, so a phone must not
+    // also load it into the hidden column.
     public function selectPost(int $postId, ?string $focus = null): void
     {
         $this->selectedPostId = $postId;

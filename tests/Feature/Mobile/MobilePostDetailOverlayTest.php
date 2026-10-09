@@ -38,7 +38,7 @@ it('keeps selected post detail queries bounded in split mode', function () {
     });
 
     Livewire::test(FeedPage::class, ['search' => 'no matching feed result'])
-        ->dispatch('select-post', postId: $post->id)
+        ->call('selectPost', $post->id)
         ->assertSet('selectedPostId', $post->id);
 
     $feedView = file_get_contents(resource_path('views/livewire/feed/feed-page.blade.php'));
@@ -54,7 +54,7 @@ it('renders the mobile-only post drawer full width through the landscape breakpo
         'asOverlay' => true,
         'mobileOnly' => true,
     ])
-        ->dispatch('select-post', postId: $post->id)
+        ->call('setSelectedPost', $post->id)
         ->assertSet('isOpen', true)
         ->html();
 
@@ -97,4 +97,27 @@ it('closes the overlay immediately and clears its selected post', function () {
         ->assertSet('isOpen', false)
         ->assertSet('postId', null)
         ->assertSee("classList.add('translate-x-full'", false);
+});
+
+it('lets only the global overlay hear a selected post from the server', function () {
+    // The split view's drawers are handed the selection by the browser, each
+    // only where it is on screen; the global overlay has no parent to do it.
+    $post = Post::factory()->published()->create();
+    $unheard = 'Handler for event select-post does not exist';
+
+    expect(fn () => Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])->dispatch('select-post', postId: $post->id))->toThrow(Exception::class, $unheard)
+        ->and(fn () => Livewire::test(PostDrawer::class)->dispatch('select-post', postId: $post->id))->toThrow(Exception::class, $unheard)
+        ->and(fn () => Livewire::test(FeedPage::class)->dispatch('select-post', postId: $post->id))->toThrow(Exception::class, $unheard);
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true])
+        ->dispatch('select-post', postId: $post->id)
+        ->assertSet('postId', $post->id);
+});
+
+it('hands the split view a selection only where its drawer is on screen', function () {
+    $html = Livewire::test(FeedPage::class)->html();
+
+    expect($html)
+        ->toContain('x-on:select-post.window="if (false || window.innerWidth >= 1024) $wire.selectPost(')
+        ->toContain('if (true) $wire.setSelectedPost(');
 });
