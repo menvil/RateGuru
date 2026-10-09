@@ -41,8 +41,11 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      # Checking each file is independent of every other, so the files are
+      # spread over the runner's CPUs: 46 s on one, about a quarter of that
+      # on four.
       - name: Check code style
-        run: vendor/bin/pint --test
+        run: vendor/bin/pint --test --parallel
 
   static-analysis:
     name: Architecture & static analysis (PHPStan)
@@ -553,14 +556,21 @@ jobs:
       # third file goes unrun: the sums still come out right. Its own negative cases
       # are covered by tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
       #
-      # A stale timings file costs balance, not coverage; it stays a warning.
+      # A stale timings file costs balance, not coverage, so it never fails the
+      # run. But a file that now takes far longer than recorded, or one with no
+      # timing, makes its leg run long while the others wait, and that is easy
+      # not to notice. shard-timing-drift.php names those files, with how to
+      # regenerate the timings, in the job summary, and the run carries a
+      # warning that points there.
       - name: Check the shard ran its share
         run: |
           php tools/pest/bin/verify-shard-partition.php leg \
             architecture-pest.log architecture-junit.xml \
             | tee "shard-${{ matrix.shard }}.json"
-          if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
-            echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
+          drift="$(php tools/pest/bin/shard-timing-drift.php architecture-junit.xml tests/.pest/shards.json || true)"
+          if [ -n "${drift}" ]; then
+            printf '%s\n' "${drift}" >> "${GITHUB_STEP_SUMMARY}"
+            echo '::warning title=Architecture shard timings::tests/.pest/shards.json no longer describes leg ${{ matrix.shard }}. The job summary names the files and how to regenerate it.'
           fi
 
       - name: Upload shard partition report
