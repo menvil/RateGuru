@@ -89,11 +89,15 @@ jobs:
       # infrastructure/, not app/, so it contributes essentially nothing to the
       # figure this job reports while costing the whole suite's runtime. It is
       # gated by the CI "Architecture tests" job.
+      # In parallel, as CI's own Unit and Feature run: each worker records the
+      # coverage of the files it ran and Pest merges them into one report. On
+      # one process this step took about nine minutes.
       - name: Run tests with coverage
         id: coverage
         shell: bash
         run: |
           php -d memory_limit=1G artisan test \
+            --parallel \
             --testsuite=Unit,Feature \
             --coverage \
             --coverage-clover=coverage.xml \
