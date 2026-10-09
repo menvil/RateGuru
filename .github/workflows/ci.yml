@@ -41,8 +41,11 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      # Checking each file is independent of every other, so the files are
+      # spread over the runner's CPUs: 46 s on one, about a quarter of that
+      # on four.
       - name: Check code style
-        run: vendor/bin/pint --test
+        run: vendor/bin/pint --test --parallel
 
   static-analysis:
     name: Architecture & static analysis (PHPStan)
