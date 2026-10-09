@@ -2119,16 +2119,18 @@ Slices, in order:
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
    current.** Started 2026-10-08. Receiving mail from the Internet for a
    production target — support mail, delivery status notifications on the
-   bounce domain and replies on the reply domain — through a public receiver
-   that is a separate Postfix instance, never the loopback-only outbound
-   gateway, whose no-public-port checks stay exactly as strict. Inbound mail
-   is not working until a message from outside has actually been received.
+   bounce domain and replies on the reply domain — through the host's one
+   Postfix: independent SMTP listeners, one shared queue, a separate inbound
+   store, and guarded activation of public SMTP. Every public-port check
+   recognizes that Postfix's own recorded public listener, and nothing else,
+   through one shared judge. Inbound mail is not working until a message
+   from outside has actually been received.
    See [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md).
 
-   **8.4B.5.1 Inbound contract and DNS plan — IMPLEMENTED, nothing
-   installed.** The new `config/mail-inbound.json` (schema 1) holds only what
-   is new: `receiver.public_smtp` — `disabled`, the one state there is while
-   no receiver exists — and per production target its MX host inside its own
+   **8.4B.5.1 Inbound contract and DNS plan — COMPLETED.** Merged as PR #1248.
+   The new `config/mail-inbound.json` (schema 1) held only what was new:
+   `receiver.public_smtp` — `disabled` while no receiver existed — and per
+   production target its MX host inside its own
    mail domain (`tits-guru`: `mx1.tits.guru`), its exact support local parts
    (`postmaster` and `support`; `postmaster` is required, and accepted at the
    bounce and reply domains too, by RFC 5321 §4.5.1), and its bounce and reply
@@ -2154,15 +2156,52 @@ Slices, in order:
    published only after the receiver is installed, verified and activated.
    *Unchanged on purpose:* the gateway and its public-port checks, OpenDKIM,
    the routing policy, `mail-outbound.json`, every lifecycle, environment
-   file and secret, DNS and the firewall; nothing listens on port 25.
+   file and secret, DNS and the firewall; nothing listened on port 25.
 
-   **8.4B.5.2 Isolated inbound SMTP receiver and guarded activation —
-   planned.** The separate Postfix instance with its own configuration, queue
-   and service, rendered from the inbound plan and proved on the host with
-   public SMTP still disabled; then its guarded activation: the `enabled`
-   state, one verifiable owner of public port 25 that the gateway's checks
-   recognize exactly, the firewall, and a rollback that closes the port
-   again.
+   **8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation —
+   IMPLEMENTED in repository, awaiting real-host activation and acceptance.**
+   One Postfix — independent SMTP listeners — one shared queue — a separate
+   inbound store — guarded activation of public SMTP. `install-mail-gateway`
+   stays the only owner of `main.cf`, `master.cf` and `postfix@-.service`,
+   and renders the inbound part from `mail-inbound render-receiver` beside
+   the outbound one: a loopback inbound listener (`127.0.0.1:2580`) and,
+   only once activated, one public listener on exactly one IPv4 address,
+   port 25, each with its own per-service overrides — recipients judged at
+   `RCPT TO` against the rendered table, relaying refused to every client,
+   loopback included, no AUTH, no milter, no content filter, their own
+   cleanup and address rewriting (the bare `<Postmaster>` to a host mailbox
+   of its own), STARTTLS as `mx1.tits.guru` from the operator's certificate
+   on the host — and `virtual(8)` delivery into Maildirs. The submission
+   listeners on 2525 and 2526, their routes, OpenDKIM and the hostname
+   `mta1.tits.guru` are untouched, and mail they take for `tits.guru` still
+   leaves through its outbound route. The queue is shared and not isolated:
+   the inbound listeners refuse new mail below a queue floor of their own,
+   with per-client session, rate and message limits (schema 2 of the
+   contract adds the loopback port and the reviewed limits). The store
+   (`scripts/install-mail-inbound`) is a 1 GiB `nodev,nosuid,noexec` volume
+   of its own with a no-login owner; while it cannot be written, mail waits
+   in the queue. `net.ipv4.ip_nonlocal_bind` keeps a missing public address
+   from stopping Postfix at boot. The host's state — absent, disabled or
+   enabled on one address — is the gateway's own record, moved only by a
+   one-use authorization from `scripts/activate-mail-inbound`, each move a
+   reload, never a stop: preflight (address, TLS, the gateway, the firewall,
+   the store, the queue reserve), a live proof on the loopback listener, a
+   capsule, TCP 25 opened for that address in ufw (or no host firewall at
+   all; anything else refuses), the proof again, and an automatic return to
+   disabled on any failure, CRITICAL when even that cannot be proved.
+   Rollback closes only 25, keeping 2525, 2526, the queue and the store. The
+   committed `public_smtp: enabled` is a request that opens nothing; Prepare,
+   bootstrap and repair never open or close it. One library,
+   `scripts/public-smtp-port`, is every check's judge of 25, 465 and 587:
+   465 and 587 never, 25 only for `postfix@-.service`'s own recorded
+   listener. Activate, Verify and Rollback tits.guru inbound SMTP run from
+   `main` only, the two that change the host behind a typed confirmation
+   judged before any secret; Verify production infrastructure gains a Mail
+   inbound group. A CI job runs the rendered configuration on a real Postfix
+   in a network namespace with only loopback. *Not done here:* the real-host
+   activation, the A and MX records the operator publishes afterwards in the
+   runbook's order, and the external message that accepts it — 8.4B.5.2 is
+   not accepted until a message from outside is stored.
 
    **8.4B.5.3 Bounce reception and correlation — planned.** The Return-Path
    on the bounce domain; delivery status notifications received with an
