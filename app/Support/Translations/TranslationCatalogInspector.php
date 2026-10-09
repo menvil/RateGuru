@@ -13,6 +13,11 @@ namespace App\Support\Translations;
  * extra, a non-blank string on every line, the same :placeholders, no catalog
  * that is English line for line, and no JSON catalogs. Catalogs only ever read
  * in English (the admin panel) are not part of what a language translates.
+ *
+ * An inspector reads the English reference once and keeps it: every language
+ * is checked against the same files, so offering every installed language, or
+ * drawing the Languages page, reads English once rather than once per
+ * language. Make a new one to see catalogs that changed since.
  */
 final class TranslationCatalogInspector
 {
@@ -23,6 +28,15 @@ final class TranslationCatalogInspector
     public const ENGLISH_ONLY_CATALOGS = ['admin'];
 
     private readonly string $langPath;
+
+    /** @var list<string>|null */
+    private ?array $referenceCatalogs = null;
+
+    /** @var array<string, array<string, mixed>> English lines by catalog. */
+    private array $referenceLines = [];
+
+    /** @var array<string, array<string, list<string>>> The :placeholders of each English line, by catalog and key. */
+    private array $referencePlaceholders = [];
 
     public function __construct(?string $langPath = null)
     {
@@ -48,7 +62,7 @@ final class TranslationCatalogInspector
      */
     public function referenceCatalogs(): array
     {
-        return array_values(array_diff($this->catalogsIn(self::REFERENCE_LOCALE), self::ENGLISH_ONLY_CATALOGS));
+        return $this->referenceCatalogs ??= array_values(array_diff($this->catalogsIn(self::REFERENCE_LOCALE), self::ENGLISH_ONLY_CATALOGS));
     }
 
     /**
@@ -59,9 +73,11 @@ final class TranslationCatalogInspector
      */
     public function lines(string $locale, string $catalog): array
     {
-        $path = "{$this->langPath}/{$locale}/{$catalog}.php";
+        if ($locale === self::REFERENCE_LOCALE) {
+            return $this->referenceLines[$catalog] ??= $this->read($locale, $catalog);
+        }
 
-        return is_file($path) ? $this->flatten((array) require $path) : [];
+        return $this->read($locale, $catalog);
     }
 
     /** @return list<string> */
@@ -163,9 +179,9 @@ final class TranslationCatalogInspector
                     continue;
                 }
 
-                if (is_string($referenceLine) && $this->placeholdersIn($line) !== $this->placeholdersIn($referenceLine)) {
+                if (is_string($referenceLine) && $this->placeholdersIn($line) !== ($expectedPlaceholders = $this->referencePlaceholders[$catalog][$key] ??= $this->placeholdersIn($referenceLine))) {
                     $issues[] = TranslationCatalogIssue::placeholderMismatch(
-                        $locale, $catalog, $key, $this->placeholdersIn($line), $this->placeholdersIn($referenceLine),
+                        $locale, $catalog, $key, $this->placeholdersIn($line), $expectedPlaceholders,
                     );
 
                     continue;
@@ -180,6 +196,14 @@ final class TranslationCatalogInspector
         }
 
         return new TranslationCatalogReport($locale, $expected, $complete, $issues);
+    }
+
+    /** @return array<string, mixed> */
+    private function read(string $locale, string $catalog): array
+    {
+        $path = "{$this->langPath}/{$locale}/{$catalog}.php";
+
+        return is_file($path) ? $this->flatten((array) require $path) : [];
     }
 
     /** A line a reader can be shown: a string with something in it. */
