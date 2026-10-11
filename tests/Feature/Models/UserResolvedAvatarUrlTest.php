@@ -1,11 +1,7 @@
 <?php
 
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('resolves the avatar url through the avatar asset disk and path', function () {
     Storage::fake('public');

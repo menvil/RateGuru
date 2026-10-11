@@ -97,6 +97,24 @@ it('keeps the Architecture suite out of Feature, so it runs exactly once per eng
     expect($offenders)->toBe([], 'these Architecture tests touch the database and would stop being covered on MariaDB and SQLite');
 });
 
+it('keeps the tests that work on a migrated database out of the Unit suite', function () {
+    // Feature is where a test gets a migrated database, from tests/Pest.php.
+    // A Unit test that pulls one in for itself still runs on every engine,
+    // but reads as a test that needs none.
+    $offenders = collect(File::allFiles(base_path('tests/Unit')))
+        ->filter(fn ($file): bool => (bool) preg_match(
+            // Every one of Laravel's database testing traits, named by the
+            // namespace they share so that this file does not name one.
+            '/Illuminate\\\\Foundation\\\\Testing\\\\\w*Database\w*\b/',
+            $file->getContents(),
+        ))
+        ->map(fn ($file): string => $file->getRelativePathname())
+        ->values()
+        ->all();
+
+    expect($offenders)->toBe([], 'these Unit tests migrate a database and belong in Feature');
+});
+
 it('uses host PostgreSQL for local development without Docker Compose', function () {
     $composer = json_decode(
         File::get(base_path('composer.json')),

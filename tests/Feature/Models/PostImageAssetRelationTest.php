@@ -2,10 +2,6 @@
 
 use App\Models\MediaAsset;
 use App\Models\Post;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('belongs to an image asset', function () {
     $asset = MediaAsset::factory()->postImage()->create();
