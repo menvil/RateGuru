@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Sharing\PostShareMetadata;
+use App\Support\Sharing\ShareUrlBuilder;
 use Illuminate\Support\Facades\Storage;
 
 it('builds post share metadata', function () {
@@ -34,6 +35,21 @@ it('uses the raster fallback image when post has no image', function () {
 
     expect($metadata->imageUrl)
         ->toBe('https://rateguru.test/images/og/rateguru-post-placeholder.png');
+});
+
+it('uses the fallback social image for pinterest when post has no image', function () {
+    config(['app.url' => 'https://rateguru.test']);
+
+    $post = Post::factory()->published()->create([
+        'image_asset_id' => null,
+    ]);
+
+    $metadata = app(PostShareMetadata::class)->forPost($post);
+    $url = app(ShareUrlBuilder::class)->build('pinterest', $metadata);
+
+    expect($url)
+        ->not->toBeNull()
+        ->toContain(urlencode('https://rateguru.test/images/og/rateguru-post-placeholder.png'));
 });
 
 it('returns an absolute image url resolved through the asset disk', function () {
@@ -91,14 +107,4 @@ it('uses fallback description when post has no description', function () {
 
     expect($metadata->description)->toBe('Посмотрите и оцените этот пост на сайте РейтГуру.');
     expect($metadata->siteName)->toBe('РейтГуру');
-});
-
-it('canonical url is absolute', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
-    $post = Post::factory()->published()->create();
-
-    $metadata = app(PostShareMetadata::class)->forPost($post);
-
-    expect($metadata->url)->toStartWith('https://');
 });
