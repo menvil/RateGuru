@@ -40,6 +40,13 @@ parameters:
                 bindings: literal_only
                 behaviorTests: [tests/Feature/Queries/RatingVoteCountsQueryTest.php]
                 status: approved
+            -
+                class: App\Queries\Translations\TranslationAiUsageQuery
+                methods: [selectRaw]
+                reason: 'Translation AI usage needs conditional sums by status and a UTC hour or day bucket per engine, without hydrating call rows; every value is bound.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/TranslationAiUsageQueryTest.php]
+                status: approved
         paginationBoundaries:
             -
                 class: App\Queries\Feed\FeedQuery
@@ -64,6 +71,12 @@ parameters:
                 method: forOwner
                 uniqueOrder: [id]
                 behaviorTests: [tests/Feature/Queries/RecentlyDeletedPostsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Translations\TranslationAiUsageQuery
+                method: recentCalls
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Queries/TranslationAiUsageQueryTest.php]
                 status: approved
 
 services:
