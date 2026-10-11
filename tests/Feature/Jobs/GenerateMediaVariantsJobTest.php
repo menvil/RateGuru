@@ -38,10 +38,11 @@ it('logs a warning and returns without failing when the media asset no longer ex
 });
 
 it('delegates to the media variant generator for an existing ready asset', function () {
+    bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+    Storage::disk($asset->disk)->put($asset->path, 'master-bytes');
 
     (new GenerateMediaVariantsJob($asset->id))->handle(app(MediaVariantGenerator::class));
 
@@ -52,7 +53,7 @@ it('logs a structured failure and rethrows when variant generation fails, withou
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+    Storage::disk($asset->disk)->put($asset->path, 'master-bytes');
 
     $failingProcessor = new class implements ImageVariantProcessor
     {
@@ -83,11 +84,13 @@ it('logs a structured failure and rethrows when variant generation fails, withou
                 && array_key_exists('job_uuid', $context)
                 && $context['attempt'] === 1
                 && $context['exception_class'] === RuntimeException::class
-                && ! str_contains($json, 'jpegMarkerBytes');
+                && ! str_contains($json, 'master-bytes');
         })
         ->atLeast()->once();
 });
 
+// Runs the real GD processor end to end through the job; the other tests
+// here stub it, since they check what the job does, not the pixels.
 it('does not log an error and generates every variant, including open graph, when nothing fails', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
@@ -105,15 +108,17 @@ it('does not log an error and generates every variant, including open graph, whe
 it('defaults force to false and leaves an already-generated variant file untouched', function () {
     Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
 
+    $processor = bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+    Storage::disk($asset->disk)->put($asset->path, 'master-bytes');
 
     (new GenerateMediaVariantsJob($asset->id))->handle(app(MediaVariantGenerator::class));
     $originalTimestamps = $asset->variants()->pluck('updated_at', 'id')
         ->map(fn ($timestamp) => $timestamp->toIso8601String())
         ->all();
+    $processor->invoked = [];
 
     // Time genuinely advances before the rerun — without force, an
     // incorrectly-rewritten row would carry this later timestamp instead of
@@ -128,7 +133,8 @@ it('defaults force to false and leaves an already-generated variant file untouch
         ->map(fn ($timestamp) => $timestamp->toIso8601String())
         ->all();
 
-    expect($refreshedTimestamps)->toBe($originalTimestamps);
+    expect($refreshedTimestamps)->toBe($originalTimestamps)
+        ->and($processor->invoked)->toBe([]);
 
     Carbon::setTestNow();
 });
@@ -136,10 +142,11 @@ it('defaults force to false and leaves an already-generated variant file untouch
 it('force true regenerates every applicable variant even though they already exist', function () {
     Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
 
+    bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+    Storage::disk($asset->disk)->put($asset->path, 'master-bytes');
 
     (new GenerateMediaVariantsJob($asset->id))->handle(app(MediaVariantGenerator::class));
     $originalCount = $asset->variants()->count();
