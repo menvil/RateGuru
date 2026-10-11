@@ -16,6 +16,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\Media\GeneratedMediaVariant;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Import\Dns\HostResolver;
@@ -963,6 +965,68 @@ function variantSpec(
     ?string $outputMimeType = null,
 ): MediaVariantSpecification {
     return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality, $outputMimeType);
+}
+
+/**
+ * An ImageVariantProcessor test double that never decodes, resizes or
+ * encodes anything: it records the name of every spec it is asked to
+ * generate and returns a few placeholder bytes sized to the spec's bounds.
+ * Shared by the MediaVariantGenerator, GenerateMediaVariantsJob and
+ * media:generate-variants tests that check which variants get generated,
+ * skipped or regenerated, not what their pixels look like — real GD output
+ * is covered by GdImageVariantProcessorTest and by the end-to-end tests
+ * each of those files keeps on the real processor. The master is never
+ * read, so a test using this double can store any bytes as the master.
+ * Pass $failOnceFor to make the first request for that variant throw.
+ */
+final class RecordingImageVariantProcessor implements ImageVariantProcessor
+{
+    /** @var list<string> */
+    public array $invoked = [];
+
+    public function __construct(private ?MediaVariantName $failOnceFor = null) {}
+
+    public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
+    {
+        $this->invoked[] = $specification->name->value;
+
+        if ($specification->name === $this->failOnceFor) {
+            $this->failOnceFor = null;
+
+            throw new RuntimeException("Simulated {$specification->name->value} generation failure.");
+        }
+
+        $outputMimeType = $specification->outputMimeType ?? $mimeType;
+        $bytes = "{$specification->name->value}-bytes";
+
+        return new GeneratedMediaVariant(
+            bytes: $bytes,
+            mimeType: $outputMimeType,
+            extension: match ($outputMimeType) {
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+            },
+            byteSize: strlen($bytes),
+            width: $specification->maxWidth,
+            height: $specification->maxHeight,
+        );
+    }
+}
+
+/**
+ * Binds a RecordingImageVariantProcessor in place of the real GD processor
+ * and returns it, so the test can read back which specs were requested.
+ * Bind it before resolving MediaVariantGenerator (or running the job or
+ * command): the writer takes the processor in its constructor.
+ */
+function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = null): RecordingImageVariantProcessor
+{
+    $processor = new RecordingImageVariantProcessor($failOnceFor);
+
+    app()->instance(ImageVariantProcessor::class, $processor);
+
+    return $processor;
 }
 
 /**
