@@ -4,8 +4,9 @@ This contract defines the visual and interaction rules of the RateGuru admin (Ad
 counterpart of [`docs/design/design-contract.md`](../design-contract.md), which governs the public site. The two
 are separate design systems on purpose: they share the Inter typeface and nothing else.
 
-Every value below was taken from the two reference files, not invented. Where production deliberately departs
-from them, the departure is listed under [Deviations from the reference](#deviations-from-the-reference).
+Every value below was taken from the reference files, not invented — for the screens migrated so far, from the UI
+kit and the earlier delivery of the admin prototype. Where production deliberately departs from them, the departure
+is listed under [Deviations from the reference](#deviations-from-the-reference).
 
 ## Source of truth
 
@@ -14,16 +15,21 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Media diagnostics) |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, and the Growth section: Games with the game editor, Experiments with the experiment editor, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The earlier delivery of the admin prototype, which the screens migrated so far were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 
 Rules for the reference files:
 
-- They are kept byte for byte as delivered. Do not format, minify or edit them; a test pins their checksums.
+- They are kept byte for byte as delivered. Do not format, minify or edit them; a test pins their checksums. A
+  new delivery replaces a file and its checksum together, in a change of its own; the delivery it replaces is
+  kept beside it under its own name.
 - They are self-unpacking bundles. Open them in a browser to view them; the readable source is inside, gzip
   compressed. They are references, not code: nothing from their runtime, data or React-like structure is used
   in production.
 - When this document and a reference disagree, the reference wins unless the difference is listed as a
   deliberate deviation below.
+- A screen already migrated keeps the delivery it was built from as its reference until it is reviewed against the
+  current prototype; a screen migrated from now on is built from the current one.
 
 Production builds the same design with Laravel, Filament, Livewire, Blade, Alpine and Tailwind:
 
