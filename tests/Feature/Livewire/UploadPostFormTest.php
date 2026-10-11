@@ -489,11 +489,14 @@ it('rejects uploaded images with disallowed mime type', function () {
 
 it('rejects uploaded images exceeding configured max dimensions', function () {
     Storage::fake('public');
-    config()->set('uploads.images.max_width', 6000);
-    config()->set('uploads.images.max_height', 6000);
+    // The dimensions rule reads only the image header: one pixel past a
+    // lowered limit is rejected the same way as one past the default 6000,
+    // without having to encode an image that large.
+    config()->set('uploads.images.max_width', 100);
+    config()->set('uploads.images.max_height', 100);
 
     $user = User::factory()->create();
-    $file = UploadedFile::fake()->image('huge.jpg', 7000, 7000);
+    $file = UploadedFile::fake()->image('oversized.jpg', 101, 101);
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
