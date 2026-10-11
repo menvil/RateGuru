@@ -1,0 +1,50 @@
+app/Support/Translations/Telemetry/TranslationAiConsumer.php
+  s_7d2d8843838027::t_f02989757e6775 1-19
+app/Jobs/Translations/GenerateProjectTranslationChunkJob.php
+  s_7d2d8843838027::t_b287026410b4d1 23-24,63-67,89,153,182-183,187,197
+tests/Feature/I18n/TranslationAiTelemetryTest.php
+  s_7d2d8843838027::t_fc233e46adbd22 1-2,4,6-10,12,14-18,21-50,52,54-351,372-449,452-514,516-543
+  s_7d2d8843838027::t_54c056e9ed4b14 450-451,515
+  s_7d2d8843838027::t_ef570fb3b003d4 11,13,19-20,352-371
+  s_7d2d8843838027::t_1db7606099aac7 3,5,51,53
+app/Models/TranslationAiProviderCall.php
+  s_7d2d8843838027::t_681707e1bf6328 1-18,20-57
+  s_7d2d8843838027::t_6bb229eba72d45 19
+database/migrations/2026_10_11_100000_create_translation_ai_provider_calls_table.php
+  s_7d2d8843838027::t_a67943af532be7 1-71
+tests/Feature/I18n/TranslationAiPricingTest.php
+  s_7d2d8843838027::t_3cbc7e528114a4 1-20,23-62
+  s_7d2d8843838027::t_e46471424f0d7e 21-22
+app/Support/Translations/Telemetry/TranslationAiCostEstimate.php
+  s_7d2d8843838027::t_7ab03a3f5e1aae 1-17
+app/Actions/Translations/GenerateProjectTranslationSuggestionAction.php
+  s_7d2d8843838027::t_81292fa9a94f0f 16-17,45-48,57,96-97,106
+app/Providers/AppServiceProvider.php
+  s_7d2d8843838027::t_b2f6fe8777b5fa 29,62-65
+app/Support/Translations/Telemetry/TranslationAiCallRecorder.php
+  s_7d2d8843838027::t_ef570fb3b003d4 31-32,84,198-206
+  s_7d2d8843838027::t_9f36779617ed13 163
+  s_7d2d8843838027::t_63aee50a6ee31c 1-30,33-83,85-162,164-197,207-231
+config/translation.php
+  s_7d2d8843838027::t_091429c110db50 49-72
+database/factories/TranslationAiProviderCallFactory.php
+  s_7d2d8843838027::t_dcd122089e32ac 1-64
+app/Support/Translations/Telemetry/TranslationAiPricing.php
+  s_7d2d8843838027::t_9b8839141b8df8 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b537b271a1a824c84e252084e46f86967a33ce40",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
