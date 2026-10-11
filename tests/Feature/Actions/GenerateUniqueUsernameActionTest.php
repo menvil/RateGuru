@@ -25,11 +25,13 @@ it('adds a suffix while respecting the username length limit', function () {
 });
 
 it('stops after the maximum number of occupied candidates', function () {
-    User::factory()->create(['username' => 'user']);
+    $rows = [User::factory()->raw(['username' => 'user'])];
 
     for ($attempt = 2; $attempt <= GenerateUniqueUsernameAction::MAX_ATTEMPTS; $attempt++) {
-        User::factory()->create(['username' => 'user_'.$attempt]);
+        $rows[] = User::factory()->raw(['username' => 'user_'.$attempt]);
     }
+
+    User::query()->insert($rows);
 
     expect(fn () => app(GenerateUniqueUsernameAction::class)->handle('User'))
         ->toThrow(RuntimeException::class, 'Unable to generate a unique username.');
