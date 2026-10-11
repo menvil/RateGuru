@@ -20,6 +20,8 @@ use App\Support\Translations\Generation\ProjectTranslationGenerationSnapshot;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
 use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectTranslationCatalog;
+use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
+use App\Support\Translations\Telemetry\TranslationAiConsumer;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -58,6 +60,11 @@ use Throwable;
  * ready suggestion or a failure per item, in the store, never as project
  * content. The batch lock is held only while state changes — never across
  * the provider call.
+ *
+ * The call it made is recorded as Translation AI telemetry (generate_missing)
+ * before its outcomes are stored — best effort: a failed record neither fails
+ * the job nor keeps a paid result from the store. A job that sends nothing
+ * records nothing.
  */
 final class GenerateProjectTranslationChunkJob implements ShouldQueue
 {
@@ -79,6 +86,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         ProjectTranslationCatalog $catalog,
         ProjectTranslationGenerationPlanner $planner,
         TranslationService $translations,
+        TranslationAiCallRecorder $telemetry,
     ): void {
         $claimed = $store->claim($this->batchId, $this->chunkId, CarbonImmutable::now());
 
@@ -142,7 +150,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         }
 
         if ($send !== []) {
-            $outcomes += $this->translate($translations, ProjectTranslationGenerationSnapshot::request($writtenAs, $chunk['classification'], $send, $chunk['glossary']));
+            $outcomes += $this->translate($translations, $telemetry, ProjectTranslationGenerationSnapshot::request($writtenAs, $chunk['classification'], $send, $chunk['glossary']), $locale);
         }
 
         $store->complete($this->batchId, $this->chunkId, $outcomes, CarbonImmutable::now());
@@ -171,11 +179,12 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
     }
 
     /**
-     * One call to the translation engine, whose answer is per item.
+     * One call to the translation engine, whose answer is per item, and the
+     * provider call behind it recorded under the installed language.
      *
      * @return array<string, array{status: ProjectTranslationGenerationItemStatus, text?: ?string, provider?: ?string, model?: ?string, issue?: ?string, message?: ?string}>
      */
-    private function translate(TranslationService $translations, TranslationBatchRequest $request): array
+    private function translate(TranslationService $translations, TranslationAiCallRecorder $telemetry, TranslationBatchRequest $request, string $locale): array
     {
         try {
             $result = $translations->translate($request);
@@ -184,6 +193,8 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         } catch (InvalidTranslationRequestException) {
             return $this->allFailed(array_map(fn (TranslationItem $item): array => ['id' => $item->id], $request->items), TranslationErrorCode::RequestTooLarge);
         }
+
+        $telemetry->record($request, $result, TranslationAiConsumer::GenerateMissing, $locale);
 
         return $this->outcomesOf($result);
     }

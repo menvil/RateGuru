@@ -13,6 +13,8 @@ use App\Support\TranslationEngine\TranslationService;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationRequestFactory;
 use App\Support\Translations\ProjectTranslationSuggestion;
+use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
+use App\Support\Translations\Telemetry\TranslationAiConsumer;
 use App\Support\Translations\TranslatableField;
 use Illuminate\Support\Facades\Gate;
 
@@ -40,6 +42,10 @@ use Illuminate\Support\Facades\Gate;
  * One unit is a batch of one: the request goes through the engine's one batch
  * contract, exactly as a batch of many would. There is no retry — every
  * request may be a paid one, and asking again is the administrator's choice.
+ *
+ * Whatever the provider answered, its call is recorded as Translation AI
+ * telemetry (interactive_ai) before the suggestion or the refusal goes back —
+ * best effort: a failed record changes neither.
  */
 final class GenerateProjectTranslationSuggestionAction
 {
@@ -48,6 +54,7 @@ final class GenerateProjectTranslationSuggestionAction
         private readonly ProjectTranslationRequestFactory $requests,
         private readonly TranslationService $translations,
         private readonly LocaleManager $locales,
+        private readonly TranslationAiCallRecorder $telemetry,
     ) {}
 
     /**
@@ -86,7 +93,8 @@ final class GenerateProjectTranslationSuggestionAction
         }
 
         try {
-            $result = $this->translations->translate($this->requests->make([$unit], $targetLocale));
+            $request = $this->requests->make([$unit], $targetLocale);
+            $result = $this->translations->translate($request);
         } catch (TranslationConfigurationException $exception) {
             throw CannotSuggestTranslationException::becauseTheEngineFailed($exception->errorCode);
         } catch (InvalidTranslationRequestException) {
@@ -94,6 +102,8 @@ final class GenerateProjectTranslationSuggestionAction
             // limits — in practice, a text too large to send.
             throw CannotSuggestTranslationException::becauseTheEngineFailed(TranslationErrorCode::RequestTooLarge);
         }
+
+        $this->telemetry->record($request, $result, TranslationAiConsumer::InteractiveAi, $targetLocale);
 
         $item = $result->item($unit->id);
 

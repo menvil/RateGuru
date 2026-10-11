@@ -46,6 +46,30 @@ return [
         'stale_queued_seconds' => 3600,
     ],
 
+    // Translation AI telemetry: one row in translation_ai_provider_calls for
+    // every request a provider was actually sent, recorded by the consumer
+    // after the engine returns — technical metadata only, never a text.
+    'telemetry' => [
+        // Days a call's row is kept; translations:purge-ai-calls deletes the
+        // older ones every day.
+        'retention_days' => 90,
+
+        // The estimated cost of a call, by provider and model, in USD per
+        // million tokens — written as strings, so no float rounds them, with
+        // at most six decimals. A call is priced by the model its provider
+        // reported: listed here exactly, or a dated snapshot of a listed model
+        // (gpt-6-luna-2026-09-01 is priced as gpt-6-luna). A model not listed
+        // is never guessed at: its calls' cost stays unknown. The rates applied
+        // are stored with each call, so changing one here never changes a
+        // cost already recorded.
+        'pricing' => [
+            'openai' => [
+                // https://developers.openai.com/api/docs/models/gpt-6-luna, read 2026-10-11.
+                'gpt-6-luna' => ['input' => '0.10', 'output' => '0.50'],
+            ],
+        ],
+    ],
+
     // Every provider the router can choose, by name. `driver` is a class
     // implementing App\Support\TranslationEngine\Contracts\TranslationProvider;
     // it reads the rest of its own entry. A provider is added here, without
