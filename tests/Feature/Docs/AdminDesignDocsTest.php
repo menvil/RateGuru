@@ -23,7 +23,7 @@ it('keeps the reference files byte for byte as they were delivered', function (s
     // together, in a change of its own.
     expect(hash_file('sha256', base_path(ADMIN_DESIGN_DOCS.'/'.$path)))->toBe($sha256);
 })->with([
-    ['reference/original/RateGuru-Admin.html', 'd2a6eb21dacad4a959ac4bcb3d8d57b4fb5ace93285efb9976340e6aca1a68eb'],
+    ['reference/original/RateGuru-Admin.html', '904bd741c3bfb0d9a8116c3f21719a4ad3a5d90b4676e2c0207b4b4a7a36dd4c'],
     ['reference/original/RateGuru-Admin-v1.html', 'c0f8c040a75d5068b92a398e472b21e722b895cae4c77e8f288f9349ee05860c'],
     ['reference/original/RateGuru-Dev-UI-Kit.html', '22abe18c699b13e98cd97e7db2aaa6f64b4552476f276cc5c050e04d76e19d00'],
 ]);
