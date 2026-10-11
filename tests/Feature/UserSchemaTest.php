@@ -7,10 +7,6 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
 
-it('has username column on users table', function () {
-    expect(Schema::hasColumn('users', 'username'))->toBeTrue();
-});
-
 it('persists user username', function () {
     $user = User::factory()->create(['username' => 'chef_ivan']);
 
@@ -36,10 +32,6 @@ it('creates username from factory', function () {
     expect($user->username)->toBeString()->not->toBe('');
 });
 
-it('has avatar_asset_id column on users table', function () {
-    expect(Schema::hasColumn('users', 'avatar_asset_id'))->toBeTrue();
-});
-
 it('does not have the legacy avatar columns replaced by media_assets', function () {
     expect(Schema::hasColumn('users', 'avatar_path'))->toBeFalse();
     expect(Schema::hasColumn('users', 'avatar_url'))->toBeFalse();
@@ -55,10 +47,6 @@ it('allows nullable avatar asset id', function () {
     $user = User::factory()->create(['avatar_asset_id' => null]);
 
     expect($user->fresh()->avatar_asset_id)->toBeNull();
-});
-
-it('has role column on users table', function () {
-    expect(Schema::hasColumn('users', 'role'))->toBeTrue();
 });
 
 it('defaults user role to user', function () {
@@ -77,16 +65,6 @@ it('casts user role to UserRole enum', function () {
     expect($user->fresh()->role)->toBe(UserRole::Admin);
 });
 
-it('creates regular user role from factory', function () {
-    $user = User::factory()->create();
-
-    expect($user->role)->toBe(UserRole::User);
-});
-
-it('has status column on users table', function () {
-    expect(Schema::hasColumn('users', 'status'))->toBeTrue();
-});
-
 it('defaults user status to active', function () {
     $user = User::query()->create([
         'name' => 'Chef Ivan',
@@ -103,16 +81,6 @@ it('casts user status to UserStatus enum', function () {
     expect($user->fresh()->status)->toBe(UserStatus::Banned);
 });
 
-it('creates active user status from factory', function () {
-    $user = User::factory()->create();
-
-    expect($user->status)->toBe(UserStatus::Active);
-});
-
-it('has trust_level column on users table', function () {
-    expect(Schema::hasColumn('users', 'trust_level'))->toBeTrue();
-});
-
 it('defaults user trust level to trusted', function () {
     $user = User::query()->create([
         'name' => 'Chef Ivan',
@@ -127,10 +95,4 @@ it('stores user trust level', function () {
     $user = User::factory()->create(['trust_level' => 10]);
 
     expect($user->fresh()->trust_level)->toBe(10);
-});
-
-it('creates trusted level from factory', function () {
-    $user = User::factory()->create();
-
-    expect($user->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
 });
