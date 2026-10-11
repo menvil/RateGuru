@@ -1,0 +1,65 @@
+tests/Feature/Livewire/PostFeedTest.php
+  s_3481294084957b::t_d0edffc1ffea72 130-153
+tests/Feature/Architecture/MailGatewayTest.php
+  ai_agent 55
+tests/Feature/Architecture/MailOutboundActivationRollbackTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-121
+tests/Feature/Architecture/MailCanaryDeliveryTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-181
+tests/Feature/Architecture/MailGatewaySigningTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-427
+tests/Feature/Architecture/MailCanaryRecipientFileTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-105
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_3481294084957b::t_d0edffc1ffea72 19-20
+tests/.pest/shards.json
+  s_3481294084957b::t_0872e6c96ab17d 3-59,61-131,133-134
+tests/Feature/Architecture/MailGatewayRecordedPolicyTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-272
+tests/Feature/Architecture/MailOutboundActivationFailureTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-100
+tests/Feature/Architecture/MailOutboundActivationProofTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-109
+tests/Feature/Architecture/MailOutboundActivationTest.php
+  s_3481294084957b::t_d0edffc1ffea72 8-11,21-25,27-58,61-62,64
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1236-1237
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_d0edffc1ffea72 536-537
+tests/Feature/Sharing/PostShowShareButtonsTest.php
+  s_3481294084957b::t_d0edffc1ffea72 5-6,51-62
+tests/Feature/Architecture/MailOutboundActivationApplyTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-152
+tests/Feature/Architecture/MailGatewayActivationBoundaryTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-385
+tests/Feature/Architecture/MailGatewayDirectRouteTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-498
+tests/Feature/Architecture/MailGatewayAcceptanceTest.php
+  s_3481294084957b::t_d0edffc1ffea72 328-329
+tests/Feature/Filament/LanguagesPageTest.php
+  s_3481294084957b::t_d0edffc1ffea72 920
+tests/Browser/AuthModalBrowserTest.php
+  s_3481294084957b::t_d0edffc1ffea72 273-281,288-289
+tests/Pest.php
+  s_3481294084957b::t_d0edffc1ffea72 2509-2512,2891-3156,3162-3163,3190-3194,4725-4750,6610-6611
+tests/Feature/Architecture/MailOutboundActivationRollbackAuthorizationTest.php
+  s_3481294084957b::t_d0edffc1ffea72 1-78
+tests/Feature/Architecture/MailCanaryTest.php
+  s_3481294084957b::t_d0edffc1ffea72 7-11,102-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "993487bcdb110087edb9f08985c948005361494e",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
