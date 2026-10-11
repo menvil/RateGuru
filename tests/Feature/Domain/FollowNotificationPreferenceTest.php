@@ -2,18 +2,16 @@
 
 use App\Models\User;
 
-it('stores followed author post notification preference', function () {
-    $user = User::factory()->create([
-        'notify_followed_author_posts' => false,
+it('defaults notify_followed_author_posts to true', function () {
+    // Created without the factory, which sets the flag itself, so the default
+    // under test is the one a newly registered account gets.
+    $user = User::query()->create([
+        'name' => 'Follower',
+        'email' => 'follower@example.com',
+        'password' => 'password',
     ]);
 
-    expect($user->notify_followed_author_posts)->toBeFalse();
-});
-
-it('defaults notify_followed_author_posts to true', function () {
-    $user = User::factory()->create();
-
-    expect($user->notify_followed_author_posts)->toBeTrue();
+    expect($user->fresh()->notify_followed_author_posts)->toBeTrue();
 });
 
 it('can disable notify_followed_author_posts', function () {

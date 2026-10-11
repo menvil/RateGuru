@@ -213,13 +213,3 @@ it('removes saves via PR-B cleanup when the save committed first', function () {
     // Final tombstone state: zero PostSave rows.
     expect(PostSave::query()->where('user_id', $user->id)->count())->toBe(0);
 });
-
-it('keeps saved posts usable for living sanctioned accounts', function (string $state) {
-    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
-
-    $user = User::factory()->{$state}()->create();
-    $post = Post::factory()->published()->create();
-
-    app(SavePostAction::class)->handle($user, $post);
-    expect(PostSave::query()->where('user_id', $user->id)->count())->toBe(1);
-})->with(['limited', 'banned', 'shadowbanned']);

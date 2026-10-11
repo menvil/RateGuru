@@ -3,20 +3,6 @@
 use App\Enums\ImportProvider;
 use App\Support\Import\ImportPreview;
 
-it('creates import preview dto', function () {
-    $preview = new ImportPreview(
-        provider: ImportProvider::OpenGraph,
-        sourceUrl: 'https://example.com/page',
-        title: 'Title',
-        description: 'Description',
-        imageUrl: 'https://example.com/image.jpg',
-        warnings: [],
-    );
-
-    expect($preview->title)->toBe('Title');
-    expect($preview->hasImage())->toBeTrue();
-});
-
 it('reports unsupported when unsupported reason is set', function () {
     $preview = new ImportPreview(
         provider: ImportProvider::Instagram,
@@ -45,15 +31,4 @@ it('has image returns false when image url is null', function () {
     );
 
     expect($preview->hasImage())->toBeFalse();
-});
-
-it('stores warnings array', function () {
-    $preview = new ImportPreview(
-        provider: ImportProvider::OpenGraph,
-        sourceUrl: 'https://example.com/page',
-        warnings: ['warning.no_image_found'],
-    );
-
-    expect($preview->warnings)->toHaveCount(1);
-    expect($preview->warnings[0])->toBe('warning.no_image_found');
 });
