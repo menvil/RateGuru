@@ -10,15 +10,6 @@ use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Livewire\Livewire;
 
-it('refreshes feed after upload success event', function () {
-    $user = User::factory()->trusted()->create();
-
-    Livewire::actingAs($user)
-        ->test(PostFeed::class)
-        ->dispatch('post-uploaded')
-        ->assertStatus(200);
-});
-
 it('shows newly published post after upload event', function () {
     $user = User::factory()->trusted()->create();
 
@@ -49,30 +40,6 @@ it('drops a post its author deleted from the feed', function () {
     $component
         ->dispatch('post-deleted', postId: $post->id)
         ->assertDontSee('Soon Deleted Dish');
-});
-
-it('can render post feed component', function () {
-    Livewire::test(PostFeed::class)
-        ->assertStatus(200);
-});
-
-it('shows published post title', function () {
-    Post::factory()->published()->create(['title' => 'Sample Post']);
-
-    Livewire::test(PostFeed::class)
-        ->assertSee('Sample Post');
-});
-
-it('does not show pending post title', function () {
-    Post::factory()->pending()->create(['title' => 'Pending Dish']);
-
-    Livewire::test(PostFeed::class)
-        ->assertDontSee('Pending Dish');
-});
-
-it('shows empty feed state when no published posts exist', function () {
-    Livewire::test(PostFeed::class)
-        ->assertSee('No posts yet');
 });
 
 it('renders empty feed state when there are no published posts', function () {

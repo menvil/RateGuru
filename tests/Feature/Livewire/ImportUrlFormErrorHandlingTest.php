@@ -19,7 +19,9 @@ it('shows clear message for unsupported social import', function () {
     Livewire::test(ImportUrlForm::class)
         ->set('url', 'https://www.instagram.com/p/abc')
         ->call('import')
-        ->assertSee('cannot be imported automatically');
+        ->assertSet('unsupported', true)
+        ->assertSee('cannot be imported automatically')
+        ->assertSee('manually');
 });
 
 it('shows unsafe url error message', function () {
@@ -38,19 +40,6 @@ it('shows validation error for invalid url format', function () {
         ->set('url', 'not-a-url')
         ->call('import')
         ->assertHasErrors(['url']);
-});
-
-it('shows manual upload hint when url is unsupported', function () {
-    app(ProjectSettingsManager::class)->flush();
-
-    Http::fake([
-        'www.instagram.com/*' => Http::response('', 403),
-    ]);
-
-    Livewire::test(ImportUrlForm::class)
-        ->set('url', 'https://www.instagram.com/p/abc')
-        ->call('import')
-        ->assertSee('manually');
 });
 
 it('does not expose internal exception class names', function () {

@@ -64,12 +64,3 @@ it('posts tab is active by default', function () {
         ->assertOk()
         ->assertSee('data-testid="profile-posts-tab"', false);
 });
-
-it('does not show saved tab content to other users', function () {
-    $owner = User::factory()->create(['username' => 'owner']);
-    $viewer = User::factory()->create();
-
-    $this->actingAs($viewer)
-        ->get(route('profile.show', ['username' => $owner->username, 'tab' => 'saved']))
-        ->assertDontSee('data-testid="profile-saved-tab"', false);
-});

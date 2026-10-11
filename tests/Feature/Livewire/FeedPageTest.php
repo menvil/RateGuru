@@ -8,22 +8,18 @@ use App\Models\RatingGroup;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('can render feed page component', function () {
+it('renders the feed page shell with default filters and no header filter controls', function () {
     Livewire::test(FeedPage::class)
-        ->assertStatus(200);
-});
-
-it('renders the feed page shell', function () {
-    Livewire::test(FeedPage::class)
+        ->assertSet('search', '')
+        ->assertSet('category', [])
+        ->assertSet('ratings', [])
+        ->assertSet('sort', 'newest')
         ->assertSee('data-testid="feed-page"', false)
         ->assertSee('data-testid="feed-content-shell"', false)
         ->assertSee('max-w-[820px]', false)
-        ->assertDontSee('data-testid="post-detail-column"', false);
-});
-
-it('has search state on feed page', function () {
-    Livewire::test(FeedPage::class)
-        ->assertSet('search', '');
+        ->assertDontSee('data-testid="post-detail-column"', false)
+        ->assertDontSee('data-testid="feed-rating-filters"', false)
+        ->assertDontSee('data-testid="tag-tabs"', false);
 });
 
 it('filters feed results when search state changes', function () {
@@ -34,17 +30,6 @@ it('filters feed results when search state changes', function () {
         ->set('search', 'sample')
         ->assertSee('Sample Entry')
         ->assertDontSee('Chocolate Cake');
-});
-
-it('has rating filter state on feed page', function () {
-    Livewire::test(FeedPage::class)
-        ->assertSet('category', [])
-        ->assertSet('ratings', []);
-});
-
-it('has sort state on feed page with default newest', function () {
-    Livewire::test(FeedPage::class)
-        ->assertSet('sort', 'newest');
 });
 
 it('sorts feed when sort is changed to top', function () {
@@ -113,12 +98,6 @@ it('does not delete another users post from the feed page action menu event', fu
         ->assertNotDispatched('post-deleted');
 
     expect(Post::query()->find($post->id))->not->toBeNull();
-});
-
-it('does not render a sort dropdown in the feed header (sorting lives in the sidebar nav)', function () {
-    Livewire::test(FeedPage::class)
-        ->assertDontSee('data-testid="feed-rating-filters"', false)
-        ->assertDontSee('data-testid="tag-tabs"', false);
 });
 
 it('filters feed when a category is selected', function () {

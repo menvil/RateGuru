@@ -12,11 +12,6 @@ use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
-it('can render post drawer component', function () {
-    Livewire::test(PostDrawer::class)
-        ->assertStatus(200);
-});
-
 it('renders report button in post drawer', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
@@ -191,25 +186,24 @@ it('renders drawer author metadata', function () {
         ->assertDontSee('Posted by');
 });
 
-it('renders large post image in drawer', function () {
+it('renders the drawer post image uncropped, with a contained fullscreen view', function () {
     $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee(Storage::disk('public')->url('posts/1/dish.jpg'))
-        ->assertSee('alt="Dish"', false);
-});
+        ->assertSee('alt="Dish"', false)
+        ->html();
 
-it('renders drawer post title and description', function () {
-    $post = Post::factory()->published()->create([
-        'title' => 'Sample Post',
-        'description' => 'Creamy pasta with pepper',
-    ]);
-
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Sample Post')
-        ->assertSee('Creamy pasta with pepper');
+    expect($html)
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[4/3]')
+        ->not->toContain('object-cover')
+        ->toContain('data-testid="post-fullscreen-image"')
+        // Capped at 80vh, and at the room the viewer measured below the app header.
+        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]');
 });
 
 it('renders drawer description under title before image', function () {
@@ -246,15 +240,22 @@ it('renders image placeholder when drawer post has no image', function () {
         ->assertSee('Image preview');
 });
 
-it('renders type voting buttons in drawer before user votes', function () {
+it('renders the seeded rating groups in order with their voting buttons before the user votes', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $post = Post::factory()->published()->create();
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Type')
         ->assertSee('Type A')
-        ->assertSee('Type B');
+        ->assertSee('Type B')
+        ->assertSee('Attribute')
+        ->assertSee('Attribute A')
+        ->assertSee('Attribute B')
+        ->assertSee('Attribute C')
+        ->html();
+
+    expect(strpos($html, 'Type'))->toBeLessThan(strpos($html, 'Attribute'));
 });
 
 it('renders drawer rating histogram after user votes on type group', function () {
@@ -275,59 +276,6 @@ it('renders drawer rating histogram after user votes on type group', function ()
         ->assertSee('Type A')
         ->assertSee('67% (4)')
         ->assertSee('33% (2)');
-});
-
-it('renders drawer rating histogram with percentage and vote count on same line', function () {
-    $this->seed(DefaultRatingConfigurationSeeder::class);
-
-    $user = User::factory()->create();
-    $post = Post::factory()->published()->create();
-    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
-    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
-
-    RatingVote::factory()->count(3)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
-    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
-    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
-
-    $html = Livewire::actingAs($user)
-        ->test(PostDrawer::class, ['postId' => $post->id])
-        ->html();
-
-    // type is a binary group → side-by-side percentages with vote counts in parens
-    // user's vote is included: typeA=4, typeB=2, total=6 → 67% (4) / 33% (2)
-    expect($html)->toContain('67% (4)');
-    expect($html)->toContain('33% (2)');
-});
-
-it('uses rating group question as drawer section header', function () {
-    $this->seed(DefaultRatingConfigurationSeeder::class);
-
-    $post = Post::factory()->published()->create();
-
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Type')
-        ->assertSee('Attribute');
-});
-
-it('renders attribute voting buttons in drawer', function () {
-    $this->seed(DefaultRatingConfigurationSeeder::class);
-
-    $post = Post::factory()->published()->create();
-
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Attribute A')
-        ->assertSee('Attribute B')
-        ->assertSee('Attribute C');
-});
-
-it('renders drawer rating groups in order', function () {
-    $this->seed(DefaultRatingConfigurationSeeder::class);
-
-    $post = Post::factory()->published()->create();
-
-    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
-
-    expect(strpos($html, 'Type'))->toBeLessThan(strpos($html, 'Attribute'));
 });
 
 it('does not listen for vote events so the card does not reload on votes', function () {
@@ -364,34 +312,6 @@ it('hides save button in post drawer when feature is disabled', function () {
         ->html();
 
     expect($html)->not->toContain('data-testid="save-post-button"');
-});
-
-it('does not crop the drawer post image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
-        'title' => 'Dish',
-    ]);
-
-    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
-
-    expect($html)
-        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
-        ->toContain('object-contain')
-        ->not->toContain('aspect-[4/3]')
-        ->not->toContain('object-cover');
-});
-
-it('renders the drawer fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
-        'title' => 'Dish',
-    ]);
-
-    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
-
-    expect($html)
-        ->toContain('data-testid="post-fullscreen-image"')
-        // Capped at 80vh, and at the room the viewer measured below the app header.
-        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]')
-        ->toContain('object-contain');
 });
 
 it('resolves drawer author avatar via the resolved avatar accessor', function () {

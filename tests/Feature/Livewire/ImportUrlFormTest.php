@@ -45,19 +45,6 @@ it('shows error message when url is unsafe', function () {
         ->assertNotSet('error', null);
 });
 
-it('shows unsupported message when social provider blocks access', function () {
-    app(ProjectSettingsManager::class)->flush();
-
-    Http::fake([
-        'www.instagram.com/*' => Http::response('', 403),
-    ]);
-
-    Livewire::test(ImportUrlForm::class)
-        ->set('url', 'https://www.instagram.com/p/abc')
-        ->call('import')
-        ->assertSet('unsupported', true);
-});
-
 it('hides form when feature flag is disabled', function () {
     ProjectSettings::factory()->create([
         'feature_flags' => ['allow_url_imports' => false],
