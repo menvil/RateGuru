@@ -101,7 +101,7 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is next.
+**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, is done, and the Translation AI page is next.
 
 In separate steps:
 
@@ -139,9 +139,24 @@ In separate steps:
      are still missing and untouched; a partly failed batch keeps what it produced. Save, Save all generated (after
      OVL-01) and Discard go through the server, which holds the text: each suggestion is saved on its own through
      `UpdateProjectTranslationAction`, and one whose English or stored translation changed is skipped.
-   - **5D — Observability, limits and provider policies. Status: next.** What the engine's call metadata feeds:
-     usage and cost visibility, budgets and limits, and the retry and fallback policies the engine deliberately
-     leaves out.
+   - **5D — Observability, limits and provider policies. Status: in progress.** What the engine's call metadata
+     feeds: usage and cost visibility, budgets and limits, and the retry and fallback policies the engine
+     deliberately leaves out.
+     - **5D.1 — Translation AI telemetry. Status: done.** Every request a provider was actually sent is one row of
+       `translation_ai_provider_calls`, recorded by the consumer once the engine has returned — the engine itself
+       still stores nothing — through one `TranslationAiCallRecorder`: AI translate, Suggest alternative and
+       Regenerate as `interactive_ai`, Generate missing as `generate_missing`. A row is metadata only: provider,
+       model, consumer, the installed language and the tag the provider was asked for, status and error code, HTTP
+       status, the provider's request id, latency, items sent, succeeded and failed with failures by code, tokens,
+       and an estimated cost in USD with the rates it used — never a text, a prompt, context, an item id or a
+       credential. Provider success and item success are counted apart. The cost is priced from
+       `translation.telemetry.pricing` for the model the provider reported, and is `null` — never $0 — when the
+       rates or the tokens are unknown. Recording is best effort: a failed write is logged and dropped, and never
+       changes, repeats or withholds a translation. `TranslationAiUsageQuery` reads it back for the page — summary,
+       errors by code, an hourly or daily timeline, recent calls — and `translations:purge-ai-calls` deletes rows
+       older than 90 days, daily. No page yet.
+     - **Next: the Translation AI page**, built on `TranslationAiUsageQuery`; then budgets, limits and provider
+       policies.
 6. **Workflow** — review states, if the product needs them.
 7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,

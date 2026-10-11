@@ -92,3 +92,25 @@ it('records Generate missing as a second consumer that keeps its drafts and queu
         ->toContain('never a source text, a translation, a prompt or a provider request')
         ->toContain('so no test needs a Redis server either');
 });
+
+it('records Translation AI telemetry as the consumers\' record of provider calls, outside the engine', function () {
+    expect(translationEngineDoc())
+        ->toContain('## Translation AI telemetry')
+        ->toContain('Translation engine ≠ translation storage ≠ telemetry storage')
+        ->toContain('→ TranslationAiCallRecorder::record(request, result, consumer, installed language)')
+        ->toContain('`translation_ai_provider_calls`')
+        ->toContain('**One row per physical request.**')
+        ->toContain('**Provider success is not item success.**')
+        ->toContain('a successful call with 10 items, 9 succeeded, 1 failed')
+        ->toContain('for the model the provider *reported*')
+        ->toContain('**Unknown cost is not free.**')
+        ->toContain('the cost is `null`, never `0`')
+        ->toContain('The rates applied are stored on the row')
+        ->toContain('**A telemetry failure never touches a translation.**')
+        ->toContain('`translation.telemetry_write_failed`')
+        ->toContain('a savepoint inside a caller\'s')
+        ->toContain('`App\Queries\Translations\TranslationAiUsageQuery`')
+        ->toContain('**Kept 90 days.**')
+        ->toContain('`translations:purge-ai-calls`')
+        ->toContain('the engine stores it nowhere');
+});

@@ -108,10 +108,10 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
     $phase4 = substr($plan, (int) strpos($plan, '### Phase 4 — Translation Center'), 200);
-    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 300);
+    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 400);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is next.');
+        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, is done, and the Translation AI page is next.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -137,7 +137,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain("A list's search is clearable");
 });
 
-it('splits AI suggestions into four steps, the engine, interactive and bulk suggestions done and 5D next', function () {
+it('splits AI suggestions into four steps, the engine, interactive and bulk suggestions done and 5D in progress', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
     $start = strpos($plan, '### Phase 5+');
     $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
@@ -154,14 +154,16 @@ it('splits AI suggestions into four steps, the engine, interactive and bulk sugg
         '**5A — Translation engine. Status: done.**',
         '**5B — Interactive AI suggestions. Status: done.**',
         '**5C — Background and bulk generation. Status: done.**',
-        '**5D — Observability, limits and provider policies. Status: next.**',
+        '**5D — Observability, limits and provider policies. Status: in progress.**',
+        '**5D.1 — Translation AI telemetry. Status: done.**',
     ];
     $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
 
     expect($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all())
-        ->and(substr_count($phase5, 'Status: done.'))->toBe(3)
-        ->and(substr_count($phase5, 'Status: next.'))->toBe(1)
+        ->and(substr_count($phase5, 'Status: done.'))->toBe(4)
+        ->and(substr_count($phase5, 'Status: in progress.'))->toBe(1)
+        ->and(substr_count($phase5, 'Status: next.'))->toBe(0)
         ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
         ->and($phase5)->toContain('docs/architecture/translation-engine.md');
 });
@@ -213,6 +215,20 @@ it('records Generate missing: background generation, persisted drafts and an exp
         ->toContain('GenerateProjectTranslationChunkJob')
         ->toContain('48 hours from creation — never the database, so no migration')
         ->toContain('is never retried');
+});
+
+it('records Translation AI telemetry as done and the Translation AI page as next', function () {
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($plan)
+        ->toContain('5D.1, Translation AI telemetry, is done, and the Translation AI page is next')
+        ->toContain('**5D.1 — Translation AI telemetry. Status: done.**')
+        ->toContain('`TranslationAiCallRecorder`')
+        ->toContain('Provider success and item success are counted apart.')
+        ->toContain('`null` — never $0 —')
+        ->toContain('`translations:purge-ai-calls` deletes rows older than 90 days')
+        ->toContain('**Next: the Translation AI page**')
+        ->not->toContain('5D, observability, limits and provider policies, is next');
 });
 
 it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {

@@ -90,7 +90,8 @@ place project content is described to it.
   20,000 characters in installed order. The glossary is empty for now and is the caller's to pass.
 - **What comes back stays a suggestion.** The action returns a `ProjectTranslationSuggestion` to the browser and
   stores nothing; neither does the engine. A suggestion becomes project content only when an administrator saves
-  it, through `UpdateProjectTranslationAction` like any other draft. Reloading the page drops it.
+  it, through `UpdateProjectTranslationAction` like any other draft. Reloading the page drops it. Only the provider
+  call behind it is recorded, as metadata without its text (see Translation AI telemetry).
 - **It works from what the administrator sees.** A missing translation gets a suggestion that fills it; a saved one
   can get an alternative, which replaces nothing until it is saved. The browser names the stored text it shows,
   and the action compares it with what is stored now — it is never sent for translation, and the target's own
@@ -142,8 +143,8 @@ Translation engine  ≠  translation storage  ≠  draft storage
   `translation-generation:active:{user}:{locale}`, `translation-generation:running:{locale}`,
   `translation-generation:batch:{uuid}` and `translation-generation:batch:{uuid}:chunk:{id}` — as plain arrays
   only (the cache unserializes no objects). Every key of a batch
-  expires 48 hours after the batch was created (`translation.bulk.ttl_seconds`); reading never extends it. Nothing
-  is written to the database, and there is no migration.
+  expires 48 hours after the batch was created (`translation.bulk.ttl_seconds`); reading never extends it. No draft
+  is written to the database; only each job's provider call is, as metadata without its text.
 - **Locks only around state.** Every change of state happens under a short lock on the batch; the provider call
   happens outside it. A lock not had in time is refused as `busy` — the store is there, someone else holds the
   batch — never as an unreachable store, and a job's result waits for it longer than the lock is ever held, so a paid
@@ -172,6 +173,70 @@ Translation engine  ≠  translation storage  ≠  draft storage
   and nothing changes.
 - **Nothing sensitive in logs.** A failed chunk logs `translation.generation_chunk_failed` with the batch and chunk
   ids and an error code — never a source text, a translation, a prompt or a provider request.
+
+## Translation AI telemetry
+
+Every request a provider was actually sent leaves one row of technical metadata in PostgreSQL, the raw material of
+the Translation AI page. The engine still stores nothing: its consumers record the calls of a result it returned.
+
+```text
+consumer
+→ TranslationService::translate(request)            returns items + one TranslationProviderCall per request
+→ TranslationAiCallRecorder::record(request, result, consumer, installed language)
+→ translation_ai_provider_calls                     one row per provider call
+→ TranslationAiUsageQuery                           what the Translation AI page reads
+```
+
+```text
+Translation engine  ≠  translation storage  ≠  telemetry storage
+```
+
+- **Outside the engine, on purpose.** The recorder lives in `App\Support\Translations\Telemetry`, the table is
+  `translation_ai_provider_calls` (`App\Models\TranslationAiProviderCall`), and both consumers call the recorder
+  once `translate()` has returned: `GenerateProjectTranslationSuggestionAction` as `interactive_ai`,
+  `GenerateProjectTranslationChunkJob` as `generate_missing`. `TranslationService::translate()` is unchanged, and
+  the engine has no database, cache or queue to fail; the architecture guard keeps it that way. A later consumer —
+  posts or comments translated automatically — calls the same recorder under a new `TranslationAiConsumer` case;
+  the column is a string, so the schema does not change.
+- **One row per physical request.** Not per item, not per click: a batch the engine cut into three provider
+  requests is three rows. Only what reached a provider is recorded — a batch refused before anything was sent (no
+  API key, over the logical limits) has no calls and records nothing; an item set apart as `request_too_large`
+  belongs to no call and is counted nowhere, and neither is a request a provider's own size guard refused before
+  sending it (`request_too_large` without an HTTP status — a provider's own refusal answers 413). The installed language and the tag the provider was asked for are both
+  kept (`sr` and `sr-Cyrl`). Each call's completion time is worked back from the latencies of the calls after it.
+- **Provider success is not item success.** A call succeeded when the provider answered with something usable; an
+  item succeeded when its translation also passed every check. A call of ten items whose answer broke one item's
+  length limit is a successful call with 10 items, 9 succeeded, 1 failed and `item_failures`
+  `{"constraint_violation": 1}`. A call that failed — `provider_timeout`, `authentication_failed`, `rate_limited`,
+  `invalid_provider_response` — keeps its code, and its items failed under it. Both rates can be computed apart.
+- **Estimated cost.** `TranslationAiPricing` prices a call at the rates in `translation.telemetry.pricing` — USD per
+  million input and output tokens, by provider and model, as strings — for the model the provider *reported*, listed
+  exactly or as a dated snapshot of a listed model (`gpt-6-luna-2026-09-01` as `gpt-6-luna`; `gpt-6-luna-mini` is
+  not). The arithmetic is exact decimal arithmetic, stored to 12 decimals, so a single token still counts. It is an
+  estimate, never the provider's invoice: cached input is priced as ordinary input, so it errs high. The rates
+  applied are stored on the row, so changing them later never changes a cost already recorded.
+- **Unknown cost is not free.** No rates for the reported model, or no token usage reported — a timeout — and the
+  cost is `null`, never `0`; tokens the provider did not report are `null` too. Usage figures report how many calls
+  their cost total leaves out, rather than counting them as $0. No rate is ever guessed for an unlisted model.
+- **Nothing but metadata.** A row holds provider, model, consumer, both language tags, status, error code, HTTP
+  status, the provider's request id, latency, item counts, failures by code, tokens and cost — never a source text,
+  a translation, the prompt, context, glossary, existing translations, an item id, a request or response body, a
+  provider's error message or a credential. A model name or request id that does not look like an identifier is
+  not kept.
+- **A telemetry failure never touches a translation.** Recording is best effort: a write that fails is logged as
+  `translation.telemetry_write_failed` with the consumer, the number of calls and the exception's class — nothing
+  it said — and dropped. The suggestion is still returned, Generate missing still stores its drafts, nothing is
+  retried and no provider is asked again. The write runs in its own transaction, a savepoint inside a caller's, so
+  a failed insert never aborts the caller's transaction. A call is recorded at most once, even if the same result
+  is handed over twice; a Generate missing job delivered again sends nothing and so records nothing.
+- **Reading it back.** `App\Queries\Translations\TranslationAiUsageQuery`, over a half-open UTC period
+  (`TranslationAiUsageFilter`, from included, until excluded) optionally narrowed to a provider, model, installed
+  language or consumer: `summary()` (calls and items, succeeded and failed, tokens, the known estimated cost, calls
+  of unknown cost, average and p95 latency), `errors()` (provider errors by call and item errors by item),
+  `timeline()` (the same figures hour by hour or day by day, without gaps) and `recentCalls()` (newest first, a page
+  at a time).
+- **Kept 90 days.** `translation.telemetry.retention_days`; `translations:purge-ai-calls` runs daily and deletes
+  older rows of this table only, in batches of 1,000, and may run any number of times.
 
 ## Always a batch
 
@@ -352,14 +417,14 @@ third request is still sent. Bulk generation relies on exactly this.
 request: provider, model, the provider's request id, the item ids it carried, latency, HTTP status, input, output
 and total tokens when reported, status and error code.
 
-Call metadata is the raw material for observability and cost accounting; it is not either of them, and it is
-stored nowhere.
+Call metadata is the raw material for observability and cost accounting; it is not either of them, and the engine
+stores it nowhere. Its consumers record it, outside the engine, as Translation AI telemetry (see above).
 
 ## What the engine deliberately does not do
 
 - **No storage.** No database writes, no migrations, no cache, no Redis, no AI-suggestion store. A result exists only
   as the returned object; what is kept, and where, is the consumer's decision — Generate missing keeps its drafts in
-  its own store, outside the engine.
+  its own store, and the consumers record call telemetry in its own table, both outside the engine.
 - **No queue.** No jobs, no dispatch, no orchestration; Generate missing queues its own jobs, each of which calls
   the engine once.
 - **No fallback.** When the configured provider fails, its items fail; content is never quietly sent to a second,
@@ -393,6 +458,20 @@ stored nowhere.
 A provider is added by registering its class under a name here and pointing `default` at it — without changing the
 router or any consumer.
 
+Translation AI telemetry has its own section of the same file, read by the consumers' recorder and never by the
+engine. It needs no environment variable:
+
+```php
+'telemetry' => [
+    'retention_days' => 90,
+    'pricing' => [
+        'openai' => [
+            'gpt-6-luna' => ['input' => '0.10', 'output' => '0.50'],   // USD per million tokens
+        ],
+    ],
+],
+```
+
 An empty `TRANSLATION_OPENAI_API_KEY` is a valid state locally, in CI and on a freshly provisioned host: the
 application boots, caches its configuration, runs its queues and the admin, and only an actual translation is refused
 as `not_configured`, before any request is sent. The provider reads its settings itself and never receives the key
@@ -422,4 +501,7 @@ No test reaches OpenAI. The provider is tested under `Http::fake()` with stray r
 against a scripted provider registered like any other. See `tests/Unit/Support/TranslationEngine/` and
 `tests/Feature/TranslationEngine/`. Generate missing is tested with the queue faked and its jobs run by hand,
 against the same scripted provider and with the array cache store in place of Redis, so no test needs a Redis
-server either (`tests/Feature/I18n/*Generation*`).
+server either (`tests/Feature/I18n/*Generation*`). Telemetry is tested through both consumers against the same
+scripted provider and a faked OpenAI, including a write that fails at the database itself
+(`tests/Feature/I18n/TranslationAiTelemetryTest.php`, `TranslationAiPricingTest.php`,
+`tests/Feature/Queries/TranslationAiUsageQueryTest.php`, `tests/Feature/Console/TranslationsPurgeAiCallsCommandTest.php`).
