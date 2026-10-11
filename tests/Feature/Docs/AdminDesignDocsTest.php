@@ -1,7 +1,8 @@
 <?php
 
 /**
- * The Admin v2 design documents and the two reference files they are built on.
+ * The Admin v2 design documents and the two reference files they are built on,
+ * with the earlier delivery of the admin prototype kept beside them.
  */
 const ADMIN_DESIGN_DOCS = 'docs/design/admin';
 
@@ -12,6 +13,7 @@ it('files the Admin v2 contract, checklist, migration plan and both references',
     'ui-review-checklist.md',
     'migration-plan.md',
     'reference/original/RateGuru-Admin.html',
+    'reference/original/RateGuru-Admin-v1.html',
     'reference/original/RateGuru-Dev-UI-Kit.html',
 ]);
 
@@ -21,7 +23,8 @@ it('keeps the reference files byte for byte as they were delivered', function (s
     // together, in a change of its own.
     expect(hash_file('sha256', base_path(ADMIN_DESIGN_DOCS.'/'.$path)))->toBe($sha256);
 })->with([
-    ['reference/original/RateGuru-Admin.html', 'c0f8c040a75d5068b92a398e472b21e722b895cae4c77e8f288f9349ee05860c'],
+    ['reference/original/RateGuru-Admin.html', 'd2a6eb21dacad4a959ac4bcb3d8d57b4fb5ace93285efb9976340e6aca1a68eb'],
+    ['reference/original/RateGuru-Admin-v1.html', 'c0f8c040a75d5068b92a398e472b21e722b895cae4c77e8f288f9349ee05860c'],
     ['reference/original/RateGuru-Dev-UI-Kit.html', '22abe18c699b13e98cd97e7db2aaa6f64b4552476f276cc5c050e04d76e19d00'],
 ]);
 
@@ -31,6 +34,7 @@ it('names both reference files as the source of truth', function () {
     expect($contract)
         ->toContain('reference/original/RateGuru-Dev-UI-Kit.html')
         ->toContain('reference/original/RateGuru-Admin.html')
+        ->toContain('reference/original/RateGuru-Admin-v1.html')
         ->toContain('--rg-admin-*')
         ->toContain('x-admin.ui.*')
         ->toContain('/admin/dev/ui-kit')
