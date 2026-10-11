@@ -86,6 +86,13 @@ jobs:
           git show "$BASE_SHA:phpstan-baseline.neon" > /tmp/phpstan-base-baseline.neon \
             || touch /tmp/phpstan-base-baseline.neon
 
+      # The rules' own tests, against their fixtures: a rule that stopped
+      # reporting what it exists to report would let the analysis below pass
+      # for the wrong reason. They need no application and no database, so
+      # they run here, once, and not in every database job's Unit suite.
+      - name: Test the PHPStan rules
+        run: composer test:phpstan
+
       - name: Run baseline-free architecture rules
         run: composer analyse:architecture
 

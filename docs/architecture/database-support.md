@@ -21,6 +21,11 @@ It ran there only because it happened to live under `tests/Feature`, which cost
 both compatibility jobs the whole suite and made a shell-script regression
 report itself as a database failure.
 
+The **PHPStan** suite, the tests of this repository's own PHPStan rules against
+their fixtures, is not one of the three either. It needs neither the
+application nor a database, so it runs once, in the static analysis job that
+applies those rules (`composer test:phpstan`).
+
 Every suite runs in parallel (`--parallel`). Parallel testing gives each worker
 its own database, `<database>_test_<token>`, created on first use — which is
 why the MariaDB CI job widens the test user's grant to that family of names.

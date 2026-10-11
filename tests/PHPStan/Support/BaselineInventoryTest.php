@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\PHPStan\Support;
+namespace Tests\PHPStan\Support;
 
 use PHPUnit\Framework\TestCase;
 use RateGuru\PHPStan\Support\BaselineInventory;

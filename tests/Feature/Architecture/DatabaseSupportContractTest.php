@@ -39,9 +39,9 @@ it('provides explicit test commands for every supported database', function () {
     $scripts = $composer['scripts'];
 
     // The compatibility commands carry Unit and Feature and stop there: the
-    // Architecture suite has its own command, because running it against a
-    // second and third engine proves nothing it could not prove against the
-    // first.
+    // Architecture and PHPStan suites have their own commands, because running
+    // them against a second and third engine proves nothing they could not
+    // prove against the first.
     //
     // Arguments given after `--` (CI passes `--log-junit`) belong to the test
     // run alone: without @no_additional_args Composer appends them to every
@@ -49,7 +49,7 @@ it('provides explicit test commands for every supported database', function () {
     // know.
     expect($scripts['test'])->toBe([
         '@php artisan config:clear --ansi @no_additional_args',
-        '@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature,Architecture',
+        '@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature,Architecture,PHPStan',
     ])->and($scripts['test:postgres'])->toBe('@test')
         ->and($scripts['test:sqlite'])->toBe([
             'DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi @no_additional_args',
@@ -58,7 +58,9 @@ it('provides explicit test commands for every supported database', function () {
             'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi @no_additional_args',
             'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Unit,Feature',
         ])->and($scripts['test:architecture'])
-        ->toBe('@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Architecture');
+        ->toBe('@php -d memory_limit=512M vendor/bin/pest --parallel --testsuite=Architecture')
+        ->and($scripts['test:phpstan'])
+        ->toBe('@php vendor/bin/pest --testsuite=PHPStan');
 
     // Every command runs in parallel. A sequential compatibility job was the
     // difference between a four-minute run and a forty-minute one.

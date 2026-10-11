@@ -25,6 +25,14 @@
         <testsuite name="Browser">
             <directory>tests/Browser</directory>
         </testsuite>
+        <!-- The PHPStan rules this repository enforces, tried against
+             fixtures. They need neither the application nor a database, and
+             every worker that runs one first builds PHPStan's own container,
+             so they run once, in the static analysis job that applies those
+             rules, rather than in each database job's Unit suite. -->
+        <testsuite name="PHPStan">
+            <directory>tests/PHPStan</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
