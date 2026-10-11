@@ -3,12 +3,6 @@
 use App\Support\Ranking\HotScoreCalculator;
 use Carbon\CarbonImmutable;
 
-it('has hot score calculator with calculate method', function () {
-    $calculator = app(HotScoreCalculator::class);
-
-    expect(method_exists($calculator, 'calculate'))->toBeTrue();
-});
-
 it('increases hot score with upvotes', function () {
     $calculator = app(HotScoreCalculator::class);
 
