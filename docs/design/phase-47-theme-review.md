@@ -101,7 +101,7 @@
 ## Tests
 
 - [x] `ThemeConfigTest` — config values
-- [x] `ThemePreferenceUserTest` — column exists, stores value
+- [x] `SaveUserThemePreferenceTest` — stores the preference
 - [x] `ThemePreferenceEnumTest` — enum validation
 - [x] `ThemeManagerTest` — resolution logic
 - [x] `RootLayoutThemeTest` — data-theme in HTML
