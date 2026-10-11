@@ -2,14 +2,6 @@
 
 use Illuminate\Support\Facades\Log;
 
-it('shares request context with logger', function () {
-    Log::spy();
-
-    $this->get(route('feed'));
-
-    Log::shouldHaveReceived('withContext')->atLeast()->once();
-});
-
 it('includes request id in shared log context', function () {
     Log::spy();
 

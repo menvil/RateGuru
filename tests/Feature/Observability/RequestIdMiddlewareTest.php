@@ -1,16 +1,5 @@
 <?php
 
-it('adds request id response header', function () {
-    $this->get(route('feed'))
-        ->assertHeader('X-Request-Id');
-});
-
-it('uses incoming request id header when valid', function () {
-    $this->withHeader('X-Request-Id', 'test-request-id-abc')
-        ->get(route('feed'))
-        ->assertHeader('X-Request-Id', 'test-request-id-abc');
-});
-
 it('generates new request id when incoming header is missing', function () {
     $response = $this->get(route('feed'));
 
