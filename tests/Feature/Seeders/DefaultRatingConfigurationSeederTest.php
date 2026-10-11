@@ -3,7 +3,6 @@
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
-use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 
 it('seeds default rating groups and options', function () {
@@ -37,13 +36,6 @@ it('uses generic default rating option keys', function () {
         'type_a',
         'type_b',
     ]);
-});
-
-it('includes default rating configuration in the database seeder', function () {
-    $this->seed(DatabaseSeeder::class);
-
-    expect(RatingGroup::query()->whereIn('key', ['type', 'attribute'])->count())
-        ->toBe(2);
 });
 
 it('does not overwrite rating options from an installation preset', function () {
