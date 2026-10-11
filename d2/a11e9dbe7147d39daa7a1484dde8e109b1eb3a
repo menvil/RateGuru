@@ -1,0 +1,112 @@
+infrastructure/scripts/install-mail-inbound
+  ai_agent 1-724
+infrastructure/scripts/smtp-submission
+  ai_agent 3-5,7-9,11-14,60-83,105,136-264
+.github/workflows/ci.yml
+  ai_agent 893-931,947,998,1064,1125,1137-1138
+infrastructure/scripts/status-mail-gateway
+  ai_agent 21-29,81-84
+tests/Feature/Architecture/MailInboundActivationTest.php
+  ai_agent 1-150
+tests/Feature/Architecture/MailGatewayInboundTransitionTest.php
+  ai_agent 1-130
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  ai_agent 15,32,42-45,47,71-81,183,211,215,225,241,309,404,417,427,452-474,684,690,698-701,707-708,847,851-857
+.github/actions/activate-rateguru-mail-inbound/action.yml
+  ai_agent 1-458
+infrastructure/scripts/activate-mail-inbound
+  ai_agent 1-1303
+infrastructure/config/mail-inbound.json
+  ai_agent 2,4-16
+tests/Feature/Architecture/MailGatewayInboundRequirementsTest.php
+  ai_agent 1-74
+tests/Feature/Architecture/MailInboundActivationFailureTest.php
+  ai_agent 1-62
+tests/Feature/Architecture/MailInboundActivationApplyTest.php
+  ai_agent 1-107
+infrastructure/ROADMAP.md
+  ai_agent 2122-2127,2130-2133,2159-2204
+infrastructure/scripts/verify-infrastructure
+  ai_agent 35-40,117-118,343,567-621,690
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  ai_agent 1177-1179,1194,1199,1212-1215,1219,1222,1244-1255,1263-1266,1278-1282
+.github/workflows/rollback-tits-guru-inbound-smtp.yml
+  ai_agent 1-168
+tests/Feature/Architecture/MailGatewayInboundAuthorizationTest.php
+  s_3481294084957b::t_228629aa8bdf3f 1-41,43-58
+  s_3481294084957b::t_1610c449225b2a 42
+infrastructure/scripts/activate-mail-outbound
+  ai_agent 154,161-167,578,631-634
+infrastructure/runbooks/mail-gateway.md
+  ai_agent 22-23,52-56,385-386,434,440-486
+infrastructure/scripts/install-mail-gateway
+  ai_agent 89-120,236-240,250,290-294,543-544,576-591,665-732,739-746,756,787,862-912,914,933-941,943,997-1001,1010-1012,1057-1259,1373,1378-1389,1437-1439,1441,1486-1490,1496-1499,1510-1716,1904,1929-1933,1936-1940,1971-1973,1981,2251-2272,2328-2380,2488,2693-2701,2826-2843,2889
+infrastructure/scripts/verify-required-clis
+  ai_agent 6-8,103
+tests/.pest/shards.json
+  ai_agent 3-146,148-149
+tests/Feature/Architecture/MailInboundActivationRollbackTest.php
+  ai_agent 1-84
+tests/Feature/Architecture/MailInboundActivationVerifyTest.php
+  ai_agent 1-66
+tests/Feature/Architecture/MailInboundTest.php
+  ai_agent 14-17,156,160-168,240-243,245-249,252,258-259,262-419,684,970,978,1132-1134,1171-1172,1175,1179,1182-1185,1222-1226,1285-1286,1316,1320,1348-1349,1351,1353,1369,1379,1394,1398-1401,1405-1406,1409-1422,1425-1430,1434-1436,1448-1449,1452-1459,1463,1482-1519,1527-1529,1535,1537-1540
+tests/Feature/Architecture/MailInboundWorkflowTest.php
+  ai_agent 1-171
+.github/workflows/activate-tits-guru-inbound-smtp.yml
+  ai_agent 1-175
+infrastructure/runbooks/mail-inbound.md
+  ai_agent 3,6-22,28-35,37-38,46,48-60,63-68,71-148,152,156,158-170,191-192,198-203,206,209-214,240-245,254-262,264,267-268,271,273,277-279,281-283,288-291,293,295-300,302-308,319,330-332,336-339,341-342,346,350-354,358-372,374-456,458-477,480-703,708-711,713-715,720,729-731,738-739,747-760,762,767-772
+infrastructure/scripts/public-smtp-port
+  ai_agent 1-181
+tests/Feature/Architecture/MailPublicSmtpPortTest.php
+  ai_agent 1-210
+tests/Feature/Architecture/MailInboundRealPostfixTest.php
+  ai_agent 1-112
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  ai_agent 63-66,117-121,545-550
+tests/Feature/Architecture/MailGatewayInboundTest.php
+  ai_agent 1-330
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  ai_agent 18-21,46,56,66-67
+tests/Feature/Architecture/MailGatewayTest.php
+  ai_agent 402-403,409-412,941-946,1555-1558
+tests/Pest.php
+  ai_agent 512,541-548,562,2783-2785,2789-2790,2793,2796,3653,3656,3787-3788,3908-4675,7725-7729
+tests/Support/real-postfix/scenario.sh
+  ai_agent 1-400
+infrastructure/runbooks/infrastructure-verification.md
+  ai_agent 61,128,147
+infrastructure/scripts/mail-inbound
+  ai_agent 7-11,34-39,45-48,58-65,67-73,111,148-183,223,233,278-316,319,321,323-326,484-490,533-573,611-615,617-621,633-636,709-734,769,803,1019-1029,1078-1081
+.github/workflows/verify-tits-guru-inbound-smtp.yml
+  ai_agent 1-126
+tests/Feature/Architecture/MailInboundActivationDriftTest.php
+  ai_agent 1-41
+infrastructure/scripts/mail-inbound-host
+  ai_agent 1-107
+tests/Feature/Architecture/MailInboundActivationProofTest.php
+  ai_agent 1-72
+tests/Feature/Architecture/MailInboundStoreTest.php
+  ai_agent 1-227
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  ai_agent 228-230,486-488
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  ai_agent 535-538,560,570
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2a11e9dbe7147d39daa7a1484dde8e109b1eb3a",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
