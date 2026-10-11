@@ -180,6 +180,33 @@ mail_inbound_queue_scan() {
            queues: (group_by(.queue) | map({key: .[0].queue, value: length}) | from_entries)}' <<<"${rows}"
 }
 
+# mail_inbound_gate_verdict GATE STORE RESERVE MIN_INODES MOUNTINFO — what the
+# installed store gate GATE answers right now, as the inbound listeners ask it:
+# DUNNO when the store takes mail, a 451/452 action when it does not, nothing
+# when the gate cannot run. It is asked one empty request; it reads no message.
+mail_inbound_gate_verdict() {
+    [[ -f "$1" ]] || return 0
+    printf 'request=smtpd_access_policy\n\n' \
+        | bash "$1" "$2" "$3" "$4" "$5" 2>/dev/null \
+        | sed -n 's/^action=//p' | head -n 1 || true
+}
+
+# mail_inbound_queue_lifetime POSTCONF — maximal_queue_lifetime as Postfix reads
+# it, in seconds (a number without a unit is days); nothing when it cannot be
+# read.
+mail_inbound_queue_lifetime() {
+    local value
+    value="$("$1" -h maximal_queue_lifetime 2>/dev/null || true)"
+    [[ "${value}" =~ ^([0-9]+)([smhdw]?)$ ]] || return 0
+    case "${BASH_REMATCH[2]}" in
+        s) printf '%s\n' "${BASH_REMATCH[1]}" ;;
+        m) printf '%s\n' $(( BASH_REMATCH[1] * 60 )) ;;
+        h) printf '%s\n' $(( BASH_REMATCH[1] * 3600 )) ;;
+        w) printf '%s\n' $(( BASH_REMATCH[1] * 604800 )) ;;
+        *) printf '%s\n' $(( BASH_REMATCH[1] * 86400 )) ;;
+    esac
+}
+
 # mail_inbound_duration SECONDS — "2d 3h", "5h 12m" or "7m": an age, for a person.
 mail_inbound_duration() {
     local seconds="$1"

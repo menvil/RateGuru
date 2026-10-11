@@ -72,6 +72,7 @@
         "Tests\\Feature\\Architecture\\MailInboundActivationVerifyTest": 74.9693,
         "Tests\\Feature\\Architecture\\MailInboundHealthTest": 89.1073,
         "Tests\\Feature\\Architecture\\MailInboundHealthWorkflowTest": 0.2557,
+        "Tests\\Feature\\Architecture\\MailInboundMonitorTest": 173.1,
         "Tests\\Feature\\Architecture\\MailInboundRealPostfixTest": 0.1367,
         "Tests\\Feature\\Architecture\\MailInboundStoreGateTest": 20.4753,
         "Tests\\Feature\\Architecture\\MailInboundStoreTest": 57.8461,
@@ -150,6 +151,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.1519,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0421
     },
-    "checksum": "51c059e2af49fdafd10ba57d47ccbbee",
+    "checksum": "13e94eea3a27e699ce02d64c771e7abb",
     "updated_at": "2026-10-11T13:50:13+00:00"
 }

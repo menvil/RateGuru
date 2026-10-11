@@ -136,10 +136,12 @@ it('runs exactly activate-mail-inbound in the mode its workflow fixed, judges it
     $action = Yaml::parse($source);
     $code = executableSourceLines($source);
 
-    expect(array_keys($action['inputs']))->toBe(['operation', 'deployment-target', 'bootstrap-host', 'bootstrap-port', 'bootstrap-user', 'bootstrap-ssh-key', 'bootstrap-known-hosts']);
-    expect(array_keys($action['outputs']))->toBe(['status', 'state', 'waiting', 'risk', 'oldest']);
+    expect(array_keys($action['inputs']))->toBe(['operation', 'deployment-target', 'monitor-public-key', 'bootstrap-host', 'bootstrap-port', 'bootstrap-user', 'bootstrap-ssh-key', 'bootstrap-known-hosts']);
+    expect(array_keys($action['outputs']))->toBe(['status', 'state']);
 
-    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|health|rollback) ;;");
+    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|rollback|install-monitor) ;;");
+    // The monitor's public key reaches the host only for install-monitor, as one argument.
+    expect($code)->toContain("if [[ \"\${OPERATION}\" == install-monitor ]]; then\n          remote_command+=(--monitor-public-key \"\${MONITOR_PUBLIC_KEY}\")");
     expect($code)->toMatch('#remote_command=\(\s+\$\{RATEGURU_PRIVILEGED_PREFIX:-\}\s+"\$\{RATEGURU_REMOTE_ROOT\}/infrastructure/scripts/activate-mail-inbound"\s+"--\$\{OPERATION\}"\s+--target "\$\{DEPLOYMENT_TARGET\}"\s+\)#');
 
     expect($code)

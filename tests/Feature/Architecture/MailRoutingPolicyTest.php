@@ -1252,7 +1252,10 @@ it('configures no public SMTP listener anywhere in the repository but the activa
     // gateway's own render — is MailInboundRealPostfixTest's. The two sourced
     // libraries every port check shares only read: the gateway's recorded
     // inbound state, its installed master.cf and which unit holds a socket —
-    // MailPublicSmtpPortTest proves they write nothing.
+    // MailPublicSmtpPortTest proves they write nothing. The monitor's installer
+    // renders a program that reads the queue's envelopes as postfix, and the
+    // sudoers rule that lets it — MailInboundMonitorTest proves it writes and
+    // configures nothing of Postfix.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
@@ -1264,6 +1267,7 @@ it('configures no public SMTP listener anywhere in the repository but the activa
         'infrastructure/scripts/activate-mail-inbound',
         'infrastructure/scripts/mail-inbound-host',
         'infrastructure/scripts/public-smtp-port',
+        'infrastructure/scripts/install-mail-inbound-monitor',
     ];
 
     foreach (operationalFiles() as $path) {

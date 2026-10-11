@@ -73,6 +73,12 @@
 # and in every state, that the mail gateway verifies and no accepted inbound
 # mail waits in the shared queue.
 #
+# --install-monitor installs, through install-mail-inbound-monitor, the
+# read-only access the automatic health check uses: an account whose one key,
+# the public half the operator gives, runs the inbound mail monitor as postfix
+# and nothing else. Under the host's infrastructure lock, once inbound mail is
+# installed. --verify then judges that access too, when it is installed.
+#
 # --health is read-only and takes no lock, for a schedule: whether the store
 # takes mail right now — the store verifies and its gate admits mail — and
 # whether accepted inbound mail waits in the shared queue, with the count and
@@ -174,8 +180,12 @@ GATEWAY_RECORDS=(
 
 FIREWALL_COMMENT="rateguru-mail-inbound"
 
+# The automatic health check's read-only program, which install-mail-inbound-monitor installs.
+MONITOR_PROGRAM="/usr/local/libexec/rateguru-mail-inbound-monitor"
+
 MODE=""
 TARGET_ID=""
+MONITOR_PUBLIC_KEY=""
 
 RESULT_READY=false
 RESULT_PRINTED=false
@@ -216,6 +226,7 @@ Usage:
   activate-mail-inbound --verify   --target TARGET
   activate-mail-inbound --health   --target TARGET
   activate-mail-inbound --rollback --target TARGET
+  activate-mail-inbound --install-monitor --target TARGET --monitor-public-key KEY
   activate-mail-inbound --help
 
   --check     Read-only (root): whether --apply would activate, would be a
@@ -234,8 +245,14 @@ Usage:
   --rollback  Root. Close public SMTP: the public listener removed by a
               reload, RateGuru's TCP 25 rule removed, proved closed. Outbound
               mail, the queue and stored mail are kept.
+  --install-monitor
+              Root. The automatic health check's read-only access: an account
+              whose one ed25519 key KEY runs the inbound mail monitor, as
+              postfix, and nothing else. Installed once, after the activation;
+              run again to replace the key.
 
-The trusted bundle decides everything else; there is nothing to override.
+The trusted bundle decides everything else; there is nothing to override but
+the monitor's public key, which only the operator has.
 USAGE
 }
 
@@ -499,21 +516,6 @@ inbound_domains() {
     jq -c '[.targets[].domains[], (.receiver.host_postmaster.address | split("@") | last)] | unique' <<<"${PLAN}"
 }
 
-# queue_lifetime_seconds — maximal_queue_lifetime as Postfix reads it, in
-# seconds (a number without a unit is days); nothing when it cannot be read.
-queue_lifetime_seconds() {
-    local value
-    value="$("${POSTCONF_BIN}" -h maximal_queue_lifetime 2>/dev/null || true)"
-    [[ "${value}" =~ ^([0-9]+)([smhdw]?)$ ]] || return 0
-    case "${BASH_REMATCH[2]}" in
-        s) printf '%s\n' "${BASH_REMATCH[1]}" ;;
-        m) printf '%s\n' $(( BASH_REMATCH[1] * 60 )) ;;
-        h) printf '%s\n' $(( BASH_REMATCH[1] * 3600 )) ;;
-        w) printf '%s\n' $(( BASH_REMATCH[1] * 604800 )) ;;
-        *) printf '%s\n' $(( BASH_REMATCH[1] * 86400 )) ;;
-    esac
-}
-
 # check_inbound_queue — accepted inbound mail still in the shared queue, read
 # from each message's own envelope (mail_inbound_queue_scan): waiting is a
 # failure, whatever Postfix gave as the reason, and waiting for more than a
@@ -541,7 +543,7 @@ check_inbound_queue() {
 
     bad "${waiting} accepted inbound message(s) wait in the shared queue instead of reaching the store (${queues}); the oldest was accepted $(mail_inbound_duration "${oldest}") ago — restore the store (install-mail-inbound --verify); Postfix then delivers them on its own"
     if (( at_risk > 0 )); then
-        lifetime="$(queue_lifetime_seconds)"
+        lifetime="$(mail_inbound_queue_lifetime "${POSTCONF_BIN}")"
         if [[ -n "${lifetime}" ]]; then
             bad "AT RISK OF LOSS: ${at_risk} inbound message(s) accepted more than $(mail_inbound_duration "${MAIL_INBOUND_QUEUE_RISK_SECONDS}") ago are still not stored. Postfix gives a message up $(mail_inbound_duration "${lifetime}") after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has $(mail_inbound_duration $(( lifetime > oldest ? lifetime - oldest : 0 ))) left"
         else
@@ -562,10 +564,8 @@ check_store_gate() {
         return 1
     fi
 
-    verdict="$(printf 'request=smtpd_access_policy\n\n' \
-        | bash "${gate}" "$(physical "${MAIL_INBOUND_STORE}")" "$(jq -r '.receiver.limits.storage_reserve_bytes' <<<"${PLAN}")" \
-            "${MAIL_INBOUND_STORE_GATE_MIN_INODES}" "${MOUNTINFO_FILE}" 2>/dev/null \
-        | sed -n 's/^action=//p' | head -n 1 || true)"
+    verdict="$(mail_inbound_gate_verdict "${gate}" "$(physical "${MAIL_INBOUND_STORE}")" \
+        "$(jq -r '.receiver.limits.storage_reserve_bytes' <<<"${PLAN}")" "${MAIL_INBOUND_STORE_GATE_MIN_INODES}" "${MOUNTINFO_FILE}")"
 
     case "${verdict}" in
         DUNNO)
@@ -1067,6 +1067,7 @@ classify() {
     store_verify || true
     check_public_ports "$(public_smtp_summary "${FS_ROOT}")" || true
     check_inbound_queue || true
+    check_monitor || true
 
     case "${PUBLIC_STATE}" in
         disabled)
@@ -1377,6 +1378,59 @@ run_health() {
     exit 1
 }
 
+# check_monitor — the automatic health check's read-only access, when it is
+# installed: exactly what this bundle renders. Not installed is not a fault:
+# the operator installs it once, after the activation.
+check_monitor() {
+    if [[ ! -e "$(physical "${MONITOR_PROGRAM}")" ]]; then
+        ok "the automatic inbound mail monitor is not installed on this host (activate-mail-inbound --install-monitor installs it)"
+        return 0
+    fi
+    if run_child "install-mail-inbound-monitor --verify" "$(bundle_script install-mail-inbound-monitor)" --verify --target "${TARGET_ID}"; then
+        ok "the automatic inbound mail monitor's access is exactly what this bundle renders: one key, one read-only program"
+        return 0
+    fi
+    bad "the automatic inbound mail monitor's access is not what this bundle renders — run Install tits.guru inbound mail monitor again"
+    return 1
+}
+
+# run_install_monitor — the read-only access of the automatic health check:
+# install-mail-inbound-monitor from this bundle, with the public key the
+# operator generated for it, on a host whose inbound mail it can watch.
+run_install_monitor() {
+    require_tools flock
+    acquire_host_lock
+    load_request
+
+    COUNT_FAIL=0
+    read_host_state
+    [[ "${INSTALLED}" == true ]] \
+        || die "inbound mail is not installed on this host — the monitor watches it, so it is installed after the activation. Nothing was changed"
+    case "${PUBLIC_STATE}" in
+        disabled) HOST_STATE=installed-disabled ;;
+        enabled)  HOST_STATE=installed-enabled ;;
+        *)        die "the gateway's recorded inbound state is corrupt — nothing was changed" ;;
+    esac
+
+    if run_child "install-mail-inbound-monitor --apply" "$(bundle_script install-mail-inbound-monitor)" \
+        --apply --target "${TARGET_ID}" --public-key "${MONITOR_PUBLIC_KEY}"
+    then
+        CHANGED=true
+        check_monitor || true
+    else
+        bad "the monitor's access could not be installed (above)"
+    fi
+
+    if (( COUNT_FAIL == 0 )); then
+        log "MONITOR: INSTALLED — its one key runs the read-only inbound mail monitor as postfix, and nothing else"
+        result_line pass
+        return 0
+    fi
+    log "MONITOR: NOT INSTALLED (${COUNT_FAIL} problem(s) above)"
+    result_line fail
+    exit 1
+}
+
 run_rollback() {
     require_tools flock sha256sum od
     acquire_host_lock
@@ -1426,10 +1480,16 @@ run_rollback() {
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify|--health|--rollback)
+            --check|--apply|--verify|--health|--rollback|--install-monitor)
                 [[ -z "${MODE}" ]] || die "mode given more than once"
                 MODE="${1#--}"
                 shift
+                ;;
+            --monitor-public-key)
+                [[ -z "${MONITOR_PUBLIC_KEY}" ]] || die "--monitor-public-key given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--monitor-public-key requires a value"
+                MONITOR_PUBLIC_KEY="$2"
+                shift 2
                 ;;
             --target)
                 [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
@@ -1448,7 +1508,12 @@ main() {
         esac
     done
 
-    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify, --health or --rollback"; }
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify, --health, --rollback or --install-monitor"; }
+    if [[ "${MODE}" == install-monitor ]]; then
+        [[ -n "${MONITOR_PUBLIC_KEY}" ]] || die "--install-monitor requires --monitor-public-key"
+    else
+        [[ -z "${MONITOR_PUBLIC_KEY}" ]] || die "--monitor-public-key belongs to --install-monitor alone"
+    fi
     [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
     [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
 
@@ -1468,6 +1533,7 @@ main() {
         verify)   run_verify ;;
         health)   run_health ;;
         rollback) run_rollback ;;
+        install-monitor) run_install_monitor ;;
     esac
 }
 

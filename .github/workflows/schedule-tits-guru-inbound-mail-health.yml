@@ -2,9 +2,10 @@ name: Schedule tits.guru inbound mail health
 
 # Every six hours, asks for one run of Check tits.guru inbound mail health — on
 # main, as every production operation runs. A schedule always runs on the
-# default branch, and the production-tits-guru Environment admits only main and
-# v*, so this workflow never runs the check itself: it holds no secret, reaches
-# no host, and can do nothing but dispatch that one workflow.
+# default branch, and the monitor's Environment admits only main, so this
+# workflow never runs the check itself: it holds no secret, reaches no host,
+# and can do nothing but dispatch that one workflow. The check needs no
+# approval: it reaches the host only through the monitor's own read-only key.
 #
 # It does nothing until an operator sets the repository variable
 # RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE to "enabled" — after the inbound

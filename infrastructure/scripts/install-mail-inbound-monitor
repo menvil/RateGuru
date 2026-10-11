@@ -1,0 +1,579 @@
+#!/usr/bin/env bash
+#
+# install-mail-inbound-monitor — the read-only access the automatic inbound
+# mail health check uses: one account, one key that can run one program, and
+# that program. Nothing else.
+#
+#   install-mail-inbound-monitor --check  --target TARGET --public-key KEY   read-only: may --apply proceed
+#   install-mail-inbound-monitor --apply  --target TARGET --public-key KEY   install it, or replace its key (root)
+#   install-mail-inbound-monitor --verify --target TARGET                    read-only: installed, and current
+#
+# WHAT IT INSTALLS
+#
+#   rateguru-mail-monitor              a system account, password locked, its
+#                                      home /var/lib/rateguru-mail-monitor owned
+#                                      by root, so it can change nothing of its own
+#   …/.ssh/authorized_keys             root:root 0644, exactly one ed25519 key,
+#                                      with `restrict` (no shell, no terminal, no
+#                                      forwarding) and a forced command: whatever
+#                                      the client asks, sshd runs the monitor
+#   /etc/sudoers.d/rateguru-mail-monitor
+#                                      root:root 0440: that account may run the
+#                                      monitor, with no argument, as postfix — and
+#                                      nothing else; checked by visudo first
+#   /usr/local/libexec/rateguru-mail-inbound-monitor
+#                                      root:root 0755: the monitor, rendered from
+#                                      this bundle — what the host records about
+#                                      inbound mail, what the store gate answers,
+#                                      what waits in the shared queue, and the
+#                                      queue's reserve. Read-only; it takes no
+#                                      argument, reads no environment and has
+#                                      nothing to override.
+#
+# The monitor runs as postfix, not root: reading the queue's envelopes is all
+# it needs that an ordinary account cannot do. It never writes a file, changes
+# a service, or reads a header or a body of a message.
+#
+# NEVER: a Postfix file, the queue, the store, sshd's configuration, the
+# firewall, or another account's keys. The key is refused when any other
+# account on this host holds it too: the monitor key is a key of its own, never
+# a privileged one reused.
+#
+# Repository tooling: run as root from a trusted bundle by activate-mail-inbound
+# --install-monitor, never installed on a host and never run by host bootstrap.
+#
+# Test overrides: the RATEGURU_MAILMONITOR_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, and only when the monitor is
+# rendered: the installed monitor reads none.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILMONITOR_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MAILMONITOR_FS_ROOT '')"
+
+GETENT_BIN="$(gated_default RATEGURU_MAILMONITOR_GETENT_BIN getent)"
+USERADD_BIN="$(gated_default RATEGURU_MAILMONITOR_USERADD_BIN useradd)"
+VISUDO_BIN="$(gated_default RATEGURU_MAILMONITOR_VISUDO_BIN visudo)"
+
+# What the rendered monitor runs, by absolute path: sudo resets PATH, and the
+# monitor resolves nothing at run time.
+MONITOR_POSTQUEUE="$(gated_default RATEGURU_MAILMONITOR_POSTQUEUE_BIN /usr/sbin/postqueue)"
+MONITOR_POSTCAT="$(gated_default RATEGURU_MAILMONITOR_POSTCAT_BIN /usr/sbin/postcat)"
+MONITOR_POSTCONF="$(gated_default RATEGURU_MAILMONITOR_POSTCONF_BIN /usr/sbin/postconf)"
+MONITOR_DF="$(gated_default RATEGURU_MAILMONITOR_DF_BIN /usr/bin/df)"
+MONITOR_MOUNTINFO="$(gated_default RATEGURU_MAILMONITOR_MOUNTINFO /proc/self/mountinfo)"
+
+FILE_OWNER="$(gated_default RATEGURU_MAILMONITOR_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_MAILMONITOR_FILE_GROUP root)"
+
+INBOUND_CLI="${SCRIPT_DIR}/mail-inbound"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/mail-inbound-host"
+
+MONITOR_USER="rateguru-mail-monitor"
+MONITOR_GECOS="RateGuru inbound mail monitor"
+MONITOR_SHELL="/bin/sh"
+MONITOR_HOME="/var/lib/rateguru-mail-monitor"
+MONITOR_KEYS="${MONITOR_HOME}/.ssh/authorized_keys"
+MONITOR_RUNAS="postfix"
+MONITOR_PROGRAM="/usr/local/libexec/rateguru-mail-inbound-monitor"
+MONITOR_SUDOERS="/etc/sudoers.d/rateguru-mail-monitor"
+MONITOR_KEY_COMMENT="rateguru-mail-monitor"
+MONITOR_COMMAND="/usr/bin/sudo -n -u ${MONITOR_RUNAS} ${MONITOR_PROGRAM}"
+
+# An ed25519 public key, and nothing else: the key type, its 68-character
+# blob and at most a plain comment, which is dropped.
+PUBLIC_KEY_PATTERN='^ssh-ed25519 (AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]{43})( [A-Za-z0-9@._-]{1,64})?$'
+
+# --- Output ---------------------------------------------------------------------
+
+MODE=""
+TARGET_ID=""
+PUBLIC_KEY=""
+KEY_BLOB=""
+COUNT_PASS=0
+COUNT_FAIL=0
+COUNT_DRIFT=0
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+action() {
+    printf '[apply] %s\n' "$*"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3"
+    printf '  %-8s %-34s %s\n' "${status}" "${name}" "${detail}"
+    case "${status}" in
+        PASS) COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL) COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        DRIFT|MISSING) COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+    esac
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-mail-inbound-monitor --check  --target TARGET --public-key KEY
+  install-mail-inbound-monitor --apply  --target TARGET --public-key KEY
+  install-mail-inbound-monitor --verify --target TARGET
+
+The read-only access of the automatic inbound mail health check: an account
+whose one ed25519 key can run one program — the monitor, as postfix, with no
+argument — and that program. KEY is the public half, "ssh-ed25519 AAAA…".
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--${MODE} must run as root"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- The inbound plan -------------------------------------------------------------
+
+PLAN=""
+
+load_plan() {
+    [[ -x "${INBOUND_CLI}" ]] || fail "the inbound mail CLI is not executable: ${INBOUND_CLI} — run from a full repository bundle"
+    PLAN="$("${INBOUND_CLI}" render-plan)" \
+        || fail "mail-inbound render-plan refused the trusted bundle's inbound contract — nothing was changed"
+    jq -e --arg t "${TARGET_ID}" 'any(.targets[]; .target == $t)' <<<"${PLAN}" >/dev/null \
+        || fail "${TARGET_ID} is not a target the trusted bundle's inbound plan receives mail for — nothing was changed"
+}
+
+# --- The key --------------------------------------------------------------------------
+
+# judge_key — the key is an ed25519 public key and nothing more, and no other
+# account on this host holds it.
+judge_key() {
+    [[ "${PUBLIC_KEY}" =~ ${PUBLIC_KEY_PATTERN} ]] \
+        || fail "--public-key is not an ed25519 public key (\"ssh-ed25519 AAAA…\", one line, no options) — nothing was changed"
+    KEY_BLOB="${BASH_REMATCH[1]}"
+
+    local holders
+    holders="$(key_holders "${KEY_BLOB}")"
+    [[ -z "${holders}" ]] \
+        || fail "this key is already authorized for ${holders//$'\n'/, } — the monitor needs a key of its own, never one that can do more. Nothing was changed"
+}
+
+# key_holders BLOB — every account other than the monitor's whose
+# authorized_keys holds BLOB.
+key_holders() {
+    local blob="$1" name home file
+    while IFS=: read -r name _ _ _ _ home _; do
+        [[ -n "${name}" && "${name}" != "${MONITOR_USER}" && "${home}" == /* ]] || continue
+        for file in "$(physical "${home}")/.ssh/authorized_keys" "$(physical "${home}")/.ssh/authorized_keys2"; do
+            if [[ -f "${file}" ]] && grep -qF -- "${blob}" "${file}" 2>/dev/null; then
+                printf '%s\n' "${name}"
+                break
+            fi
+        done
+    done < <("${GETENT_BIN}" passwd 2>/dev/null || true)
+}
+
+# --- What is rendered ------------------------------------------------------------------
+
+render_keys() {
+    printf '# RateGuru inbound mail monitor — rendered by install-mail-inbound-monitor. Do not edit.\n'
+    printf '# One key, which runs the monitor and nothing else.\n'
+    printf 'restrict,command="%s" ssh-ed25519 %s %s\n' "${MONITOR_COMMAND}" "$1" "${MONITOR_KEY_COMMENT}"
+}
+
+render_sudoers() {
+    cat <<EOF
+# RateGuru inbound mail monitor — rendered by install-mail-inbound-monitor. Do not edit.
+#
+# The monitor account may run the monitor, with no argument, as postfix — and
+# nothing else.
+Defaults:${MONITOR_USER} !requiretty
+${MONITOR_USER} ALL=(${MONITOR_RUNAS}) NOPASSWD: ${MONITOR_PROGRAM} ""
+EOF
+}
+
+# render_monitor — the monitor, self-contained: the shared inbound library,
+# what this bundle's plan says, and its one entry point. Everything it reads is
+# decided here; it reads no environment and takes no argument.
+render_monitor() {
+    local domains port store_reserve host_reserve
+    domains="$(jq -c '[.targets[].domains[], (.receiver.host_postmaster.address | split("@") | last)] | unique' <<<"${PLAN}")"
+    port="$(jq -r '.receiver.loopback_port' <<<"${PLAN}")"
+    store_reserve="$(jq -r '.receiver.limits.storage_reserve_bytes' <<<"${PLAN}")"
+    host_reserve="$(jq -r '.receiver.limits.host_reserve_bytes' <<<"${PLAN}")"
+
+    cat <<'EOF'
+#!/bin/bash
+# shellcheck disable=SC2034 # the shared inbound library names more than the monitor reads
+# RateGuru inbound mail monitor — rendered by install-mail-inbound-monitor from
+# the trusted bundle. Do not edit.
+#
+# Run by the monitor account's one key, through sudo as postfix, and by nothing
+# else. Read-only: what the host records about inbound mail, what the store
+# gate answers now, what accepted inbound mail waits in the shared queue, and
+# the queue's reserve. It takes no argument, reads no environment, never writes
+# and never reads a header or a body. Its last line is
+# RATEGURU_MAIL_INBOUND_MONITOR_RESULT={...}; without it, nothing was judged.
+set -Euo pipefail
+umask 077
+
+EOF
+    sed '/^# shellcheck shell=bash$/d' "${SCRIPT_DIR}/mail-inbound-host"
+    printf '\n# --- What the trusted bundle says --------------------------------------------\n\n'
+    printf 'MONITOR_TARGET=%q\n' "${TARGET_ID}"
+    printf 'MONITOR_ROOT=%q\n' "${FS_ROOT}"
+    printf 'MONITOR_DOMAINS=%q\n' "${domains}"
+    printf 'MONITOR_LOOPBACK_PORT=%q\n' "${port}"
+    printf 'MONITOR_STORE_RESERVE=%q\n' "${store_reserve}"
+    printf 'MONITOR_HOST_RESERVE=%q\n' "${host_reserve}"
+    printf 'MONITOR_MOUNTINFO=%q\n' "${MONITOR_MOUNTINFO}"
+    printf 'MONITOR_POSTQUEUE=%q\n' "${MONITOR_POSTQUEUE}"
+    printf 'MONITOR_POSTCAT=%q\n' "${MONITOR_POSTCAT}"
+    printf 'MONITOR_POSTCONF=%q\n' "${MONITOR_POSTCONF}"
+    printf 'MONITOR_DF=%q\n' "${MONITOR_DF}"
+    cat <<'EOF'
+
+# --- The check ------------------------------------------------------------------
+
+monitor_main() {
+    local failures=0 applied state address verdict summary="null" waiting at_risk oldest queues lifetime free
+
+    if (( $# > 0 )); then
+        printf 'the inbound mail monitor takes no argument — refused\n' >&2
+        exit 2
+    fi
+
+    pass() { printf '  PASS %s\n' "$*"; }
+    flag() { printf '  FAIL %s\n' "$*"; failures=$((failures + 1)); }
+
+    printf 'rateguru inbound mail monitor — %s (read-only)\n' "${MONITOR_TARGET}"
+
+    applied="$(mail_inbound_applied "${MONITOR_ROOT}")"
+    state="${applied%%$'\t'*}"
+    address="${applied#*$'\t'}"
+    case "${state}" in
+        disabled) pass "inbound mail is installed; public SMTP is closed"; state=installed-disabled ;;
+        enabled)  pass "inbound mail is installed; public SMTP is open on ${address}:25"; state=installed-enabled ;;
+        absent)   flag "inbound mail is not installed on this host — a monitored host always has it"; state=not-installed ;;
+        *)        flag "the gateway's record of inbound mail cannot be trusted"; state=drift ;;
+    esac
+
+    verdict="$(mail_inbound_gate_verdict "${MONITOR_ROOT}${MAIL_INBOUND_STORE_GATE}" "${MONITOR_ROOT}${MAIL_INBOUND_STORE}" \
+        "${MONITOR_STORE_RESERVE}" "${MAIL_INBOUND_STORE_GATE_MIN_INODES}" "${MONITOR_MOUNTINFO}")"
+    case "${verdict}" in
+        DUNNO) pass "the store gate admits new inbound mail: the store is mounted, writable and above its reserve" ;;
+        "")    flag "the store gate gave no answer — the inbound listeners refuse every recipient until it does" ;;
+        *)     flag "the store gate refuses new inbound mail now (${verdict})" ;;
+    esac
+
+    if summary="$(mail_inbound_queue_scan "${MONITOR_POSTQUEUE}" "${MONITOR_POSTCAT}" "${MONITOR_LOOPBACK_PORT}" "${MONITOR_DOMAINS}" "$(date +%s)")" \
+        && read -r waiting at_risk oldest < <(jq -r '[.waiting, .at_risk, .oldest_seconds] | @tsv' <<<"${summary}")
+    then
+        queues="$(jq -r '.queues | to_entries | map("\(.key) \(.value)") | join(", ")' <<<"${summary}")"
+        if (( waiting == 0 )); then
+            pass "no accepted inbound mail waits in the shared queue"
+        else
+            flag "${waiting} accepted inbound message(s) wait in the shared queue instead of reaching the store (${queues}); the oldest was accepted $(mail_inbound_duration "${oldest}") ago"
+            if (( at_risk > 0 )); then
+                lifetime="$(mail_inbound_queue_lifetime "${MONITOR_POSTCONF}")"
+                flag "AT RISK OF LOSS: ${at_risk} of them were accepted more than $(mail_inbound_duration "${MAIL_INBOUND_QUEUE_RISK_SECONDS}") ago; the queue gives a message up ${lifetime:+$(mail_inbound_duration "${lifetime}") }after accepting it, and an inbound message given up is lost"
+            fi
+        fi
+    else
+        summary="null"
+        flag "the shared queue cannot be read — whether accepted inbound mail waits in it cannot be proved"
+    fi
+
+    free="$("${MONITOR_DF}" -B1 --output=avail "${MONITOR_ROOT}/var/spool/postfix" 2>/dev/null | tail -n 1 | tr -d ' ')"
+    if [[ ! "${free}" =~ ^[0-9]+$ ]]; then
+        flag "the free space of the queue's file system cannot be read"
+    elif (( free < MONITOR_HOST_RESERVE )); then
+        flag "the queue's file system has ${free} bytes free, below the ${MONITOR_HOST_RESERVE} the inbound listeners refuse new mail under"
+    else
+        pass "the shared queue's file system keeps its reserve free"
+    fi
+
+    jq -c -n --arg target "${MONITOR_TARGET}" --arg state "${state}" --arg gate "${verdict}" \
+        --arg status "$( (( failures == 0 )) && echo pass || echo fail)" --argjson queue "${summary}" \
+        '{target: $target, mode: "monitor", status: $status, state: $state, gate: $gate, queue: $queue}' \
+        | sed 's/^/RATEGURU_MAIL_INBOUND_MONITOR_RESULT=/'
+
+    (( failures == 0 ))
+}
+
+monitor_main "$@"
+EOF
+}
+
+# --- State ------------------------------------------------------------------------------
+
+# monitor_account — absent | ours | foreign | unlocked: an account of that name
+# RateGuru did not create is never taken over, and one with a password is not
+# the monitor's.
+monitor_account() {
+    local entry shadow
+    entry="$("${GETENT_BIN}" passwd "${MONITOR_USER}" 2>/dev/null || true)"
+    if [[ -z "${entry}" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+
+    if [[ "$(cut -d: -f5 <<<"${entry}")" != "${MONITOR_GECOS}" || "$(cut -d: -f6 <<<"${entry}")" != "${MONITOR_HOME}" \
+        || "$(cut -d: -f7 <<<"${entry}")" != "${MONITOR_SHELL}" ]]; then
+        printf 'foreign\n'
+        return 0
+    fi
+
+    shadow="$("${GETENT_BIN}" shadow "${MONITOR_USER}" 2>/dev/null | cut -d: -f2 || true)"
+    if [[ "${shadow}" == '!'* || "${shadow}" == '*'* ]]; then
+        printf 'ours\n'
+    else
+        printf 'unlocked\n'
+    fi
+}
+
+file_state() {
+    local logical="$1" expected="$2" mode="$3" path
+    path="$(physical "${logical}")"
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] || ! cmp -s "${expected}" "${path}" \
+        || [[ "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} ${mode}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+dir_state() {
+    local path
+    path="$(physical "$1")"
+    [[ -d "${path}" && ! -L "${path}" && "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" == "${FILE_OWNER}:${FILE_GROUP} 755" ]]
+}
+
+# installed_key_blob — the one key the installed authorized_keys holds, when it
+# holds exactly one, with exactly the forced command and restrict.
+installed_key_blob() {
+    local path lines pattern
+    path="$(physical "${MONITOR_KEYS}")"
+    [[ -f "${path}" && ! -L "${path}" ]] || return 1
+    lines="$(grep -v '^#' "${path}" | grep -v '^[[:space:]]*$' || true)"
+    [[ "$(wc -l <<<"${lines}" | tr -d ' ')" == 1 ]] || return 1
+    pattern="^restrict,command=\"${MONITOR_COMMAND}\" ssh-ed25519 (AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]{43}) ${MONITOR_KEY_COMMENT}\$"
+    [[ "${lines}" =~ ${pattern} ]] || return 1
+    printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+# --- Modes -------------------------------------------------------------------------------
+
+WORK=""
+
+render_all() {
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "${WORK}"' EXIT
+    render_monitor > "${WORK}/monitor"
+    render_sudoers > "${WORK}/sudoers"
+    [[ -z "${KEY_BLOB}" ]] || render_keys "${KEY_BLOB}" > "${WORK}/keys"
+}
+
+report() {
+    local account state blob
+
+    account="$(monitor_account)"
+    case "${account}" in
+        ours)     item PASS account "${MONITOR_USER}, a system account with no password; its home is root's" ;;
+        absent)   item MISSING account "${MONITOR_USER} does not exist — --apply creates it" ;;
+        unlocked) item FAIL account "${MONITOR_USER} has a password — the monitor account never logs in with one" ;;
+        foreign)  item FAIL account "${MONITOR_USER} exists but was not created by RateGuru — it is never taken over" ;;
+    esac
+
+    for state in "${MONITOR_HOME}" "${MONITOR_HOME}/.ssh"; do
+        if dir_state "${state}"; then
+            item PASS "dir:${state}" "${FILE_OWNER}:${FILE_GROUP} 755 — nothing in it is the account's to change"
+        else
+            item DRIFT "dir:${state}" "not ${FILE_OWNER}:${FILE_GROUP} 755"
+        fi
+    done
+
+    case "$(file_state "${MONITOR_PROGRAM}" "${WORK}/monitor" 755)" in
+        PASS)    item PASS "file:${MONITOR_PROGRAM}" "exactly what this bundle renders" ;;
+        MISSING) item MISSING "file:${MONITOR_PROGRAM}" "absent" ;;
+        *)       item DRIFT "file:${MONITOR_PROGRAM}" "differs from what this bundle renders — --apply replaces it" ;;
+    esac
+
+    case "$(file_state "${MONITOR_SUDOERS}" "${WORK}/sudoers" 440)" in
+        PASS)    item PASS "file:${MONITOR_SUDOERS}" "the monitor, with no argument, as ${MONITOR_RUNAS} — nothing else" ;;
+        MISSING) item MISSING "file:${MONITOR_SUDOERS}" "absent" ;;
+        *)       item DRIFT "file:${MONITOR_SUDOERS}" "differs from what this bundle renders — --apply replaces it" ;;
+    esac
+
+    if blob="$(installed_key_blob)"; then
+        if [[ "$(stat -c '%U:%G %a' "$(physical "${MONITOR_KEYS}")" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} 644" ]]; then
+            item DRIFT "file:${MONITOR_KEYS}" "not ${FILE_OWNER}:${FILE_GROUP} 644"
+        elif [[ -n "$(key_holders "${blob}")" ]]; then
+            item FAIL "file:${MONITOR_KEYS}" "its key is authorized for another account too: $(key_holders "${blob}" | paste -sd ' ' -)"
+        elif [[ -n "${KEY_BLOB}" && "${blob}" != "${KEY_BLOB}" ]]; then
+            item DRIFT "file:${MONITOR_KEYS}" "holds another key — --apply replaces it with the given one"
+        else
+            item PASS "file:${MONITOR_KEYS}" "one ed25519 key, restricted to the monitor"
+        fi
+    elif [[ -e "$(physical "${MONITOR_KEYS}")" ]]; then
+        item DRIFT "file:${MONITOR_KEYS}" "not exactly one key restricted to the monitor"
+    else
+        item MISSING "file:${MONITOR_KEYS}" "absent — the monitor cannot be reached until --apply installs its key"
+    fi
+}
+
+run_check() {
+    require_tools jq cmp stat
+    load_plan
+    judge_key
+    render_all
+    printf 'install-mail-inbound-monitor --check (read-only)\n'
+    report
+    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
+    (( COUNT_FAIL == 0 ))
+}
+
+run_verify() {
+    require_root
+    require_tools jq cmp stat
+    load_plan
+    render_all
+    printf 'install-mail-inbound-monitor --verify (read-only)\n'
+    report
+    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
+    (( COUNT_FAIL + COUNT_DRIFT == 0 ))
+}
+
+# install_file CANDIDATE LOGICAL MODE — atomically, owner and mode first.
+install_file() {
+    local path tmp
+    path="$(physical "$2")"
+    install -d -m 0755 "$(dirname "${path}")"
+    tmp="${path}.rateguru-tmp.$$"
+    cp "$1" "${tmp}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+    chmod "0$3" "${tmp}"
+    mv -f "${tmp}" "${path}"
+}
+
+run_apply() {
+    require_root
+    require_tools jq cmp stat install
+    load_plan
+    judge_key
+    render_all
+
+    case "$(monitor_account)" in
+        foreign)  fail "${MONITOR_USER} exists but was not created by RateGuru — it is never taken over. Nothing was changed" ;;
+        unlocked) fail "${MONITOR_USER} has a password — it is never given access while it does. Nothing was changed" ;;
+        absent)
+            action "creating the monitor account ${MONITOR_USER} (system, no password)"
+            "${USERADD_BIN}" --system --user-group --no-create-home --home-dir "${MONITOR_HOME}" \
+                --shell "${MONITOR_SHELL}" --comment "${MONITOR_GECOS}" "${MONITOR_USER}"
+            [[ "$(monitor_account)" == ours ]] || fail "the monitor account ${MONITOR_USER} could not be created as reviewed"
+            ;;
+    esac
+
+    "${VISUDO_BIN}" -cqf "${WORK}/sudoers" >/dev/null \
+        || fail "visudo refuses the rendered sudoers rule — nothing was installed"
+
+    install -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 "$(physical "${MONITOR_HOME}")" "$(physical "${MONITOR_HOME}/.ssh")"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "$(physical "${MONITOR_HOME}")" "$(physical "${MONITOR_HOME}/.ssh")"
+    chmod 0755 "$(physical "${MONITOR_HOME}")" "$(physical "${MONITOR_HOME}/.ssh")"
+
+    # The program and its one rule first; the key that reaches them last.
+    action "installing the monitor ${MONITOR_PROGRAM}"
+    install_file "${WORK}/monitor" "${MONITOR_PROGRAM}" 755
+    action "installing the sudoers rule ${MONITOR_SUDOERS}: the monitor, with no argument, as ${MONITOR_RUNAS}"
+    install_file "${WORK}/sudoers" "${MONITOR_SUDOERS}" 440
+    action "installing the monitor key, restricted to the monitor"
+    install_file "${WORK}/keys" "${MONITOR_KEYS}" 644
+
+    COUNT_PASS=0 COUNT_FAIL=0 COUNT_DRIFT=0
+    report
+    (( COUNT_FAIL + COUNT_DRIFT == 0 )) || fail "the monitor access is not as rendered after --apply (above)"
+    action "apply complete — ${MONITOR_USER}'s one key runs ${MONITOR_PROGRAM} as ${MONITOR_RUNAS}, and nothing else"
+}
+
+# --- Entry point --------------------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" && $# -ge 2 ]] || { usage >&2; fail "--target needs one value"; }
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            --public-key)
+                [[ -z "${PUBLIC_KEY}" && $# -ge 2 ]] || { usage >&2; fail "--public-key needs one value"; }
+                PUBLIC_KEY="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check, --apply or --verify is required"; }
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "--${MODE} needs --target with a valid target ID"
+    if [[ "${MODE}" == verify ]]; then
+        [[ -z "${PUBLIC_KEY}" ]] || fail "--verify takes no --public-key: it judges the key that is installed"
+    else
+        [[ -n "${PUBLIC_KEY}" ]] || fail "--${MODE} needs --public-key"
+    fi
+
+    case "${MODE}" in
+        check)  run_check ;;
+        apply)  run_apply ;;
+        verify) run_verify ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

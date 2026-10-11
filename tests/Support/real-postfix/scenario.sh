@@ -41,6 +41,9 @@
 #   * the queue scan: a message an inbound listener accepted and Postfix
 #     deferred is counted as waiting whatever its delay reason, and a
 #     submission listener's deferred message to the same domain is not;
+#   * the inbound mail monitor, rendered by install-mail-inbound-monitor and
+#     run as postfix — the account its key reaches it as — reads the real
+#     queue: FAIL while that message waits, PASS once it is stored;
 #   * the shared queue: the inbound listeners refuse new mail below their own
 #     queue floor while the submission listeners still accept;
 #   * no backscatter: a bounce to a forged sender has no route off the host;
@@ -257,6 +260,9 @@ render disabled "${WORK}/cfg-disabled"
 # over it in this mount namespace only.
 cp -a /etc/postfix "${WORK}/etc-postfix"
 install -m 0644 "${CFG}/rateguru-from-tits-guru.regexp" "${WORK}/etc-postfix/rateguru-from-tits-guru.regexp"
+# postqueue names another configuration for an account but root only when the
+# default one lists it, and the monitor runs as postfix.
+printf 'alternate_config_directories = %s\n' "${CFG}" >> "${WORK}/etc-postfix/main.cf"
 mount --bind "${WORK}/etc-postfix" /etc/postfix
 
 # --- Postfix's own judgement, and the gateway's read-back ----------------------------
@@ -405,10 +411,51 @@ expect "the outbound message to support@tits.guru is still deferred by its own r
     "$(postqueue -c "${CFG}" -j | jq -s '[.[] | select(.queue_name == "deferred") | select(any(.recipients[]; (.delay_reason // "") | test("maildir") | not))] | length')" 1
 expect "the scan counts the inbound message as waiting, and not the outbound one to the same domain" \
     "$(scan | jq -c '{inbound, waiting, at_risk, queues}')" '{"inbound":1,"waiting":1,"at_risk":0,"queues":{"deferred":1}}'
+
+# The monitor, as its key reaches it: rendered from this repository, run as
+# postfix. A host of its own under WORK/root holds what the monitor reads — the
+# gateway's record, the store gate and, bound there, the store.
+MONITOR_ROOT="${WORK}/root"
+mkdir -p "${MONITOR_ROOT}/var/lib/rateguru-mail-gateway" "${MONITOR_ROOT}/etc/postfix" "${MONITOR_ROOT}/var/spool/postfix" \
+    "${MONITOR_ROOT}/var/lib/rateguru-mail-inbound/store"
+printf 'state=installed\n' > "${MONITOR_ROOT}/var/lib/rateguru-mail-gateway/ownership"
+(
+    # shellcheck disable=SC1091
+    source "${SCRIPTS}/mail-inbound-host"
+    mail_inbound_applied_document enabled "${PUBLIC}"
+) > "${MONITOR_ROOT}/var/lib/rateguru-mail-gateway/applied-inbound.json"
+cp "${CFG}/rateguru-inbound-store-gate" "${MONITOR_ROOT}/etc/postfix/rateguru-inbound-store-gate"
+mount --bind "${STORE}" "${MONITOR_ROOT}/var/lib/rateguru-mail-inbound/store"
+for tool in postqueue postcat postconf; do
+    printf '#!/bin/sh\nexec %s -c %s "$@"\n' "${tool}" "${CFG}" > "${WORK}/bin/${tool}-cfg"
+    chmod 0755 "${WORK}/bin/${tool}-cfg"
+done
+(
+    export RATEGURU_ALLOW_TEST_OVERRIDES=true RATEGURU_MAILMONITOR_FS_ROOT="${MONITOR_ROOT}" \
+        RATEGURU_MAILMONITOR_POSTQUEUE_BIN="${WORK}/bin/postqueue-cfg" RATEGURU_MAILMONITOR_POSTCAT_BIN="${WORK}/bin/postcat-cfg" \
+        RATEGURU_MAILMONITOR_POSTCONF_BIN="${WORK}/bin/postconf-cfg"
+    # shellcheck disable=SC1091
+    source "${SCRIPTS}/install-mail-inbound-monitor"
+    # shellcheck disable=SC2034 # read by the installer's own functions
+    TARGET_ID=tits-guru
+    load_plan
+    render_monitor
+) > "${WORK}/monitor"
+# This run's store is a small one, with a reserve to match.
+sed -i "s/^MONITOR_STORE_RESERVE=.*/MONITOR_STORE_RESERVE=${STORE_RESERVE}/" "${WORK}/monitor"
+# A failing monitor exits 1: its report is the subject here, not its status.
+monitor() { runuser -u postfix -- bash "${WORK}/monitor" 2>&1 || true; }
+monitor_result() { sed -n 's/^RATEGURU_MAIL_INBOUND_MONITOR_RESULT=//p' <<<"$1"; }
+out="$(monitor)"
+expect "the monitor, run as postfix, reads the real queue: FAIL, one accepted inbound message waiting" \
+    "$(monitor_result "${out}" | jq -c '{status, state, waiting: .queue.waiting}')" '{"status":"fail","state":"installed-enabled","waiting":1}'
+if [[ "${out}" != *support@* && "${out}" != *sender.example* ]]; then pass "and prints no address"; else fail "the monitor printed an address"; fi
 mv "${WORK}/targets-away" "${STORE}/targets"; chown nobody "${STORE}"; chmod 0700 "${STORE}"
 postqueue -c "${CFG}" -f; sleep 3
 expect "once it can be written, the waiting message is stored" "$(find "${STORE}/targets/tits-guru/support/new" -type f | wc -l | tr -d ' ')" 3
 expect "and the scan finds no inbound message in the queue" "$(scan | jq -c '{inbound, waiting}')" '{"inbound":0,"waiting":0}'
+expect "and the monitor, as postfix, passes" "$(monitor_result "$(monitor)" | jq -c '{status, waiting: .queue.waiting}')" '{"status":"pass","waiting":0}'
+umount "${MONITOR_ROOT}/var/lib/rateguru-mail-inbound/store"
 
 # No backscatter: a bounce to a forged sender has no route off the host.
 chown root:root "${STORE}"; chmod 0555 "${STORE}"; mv "${STORE}/targets" "${WORK}/targets-away"

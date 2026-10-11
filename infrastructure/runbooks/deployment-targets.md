@@ -116,7 +116,12 @@ allowlist alone would also admit a manual dispatch of a production operational
 workflow from a tag.
 
 **The decision is one Environment permitting `main` and `v*`, with the main-only
-rule enforced in the repository rather than by splitting the Environment.** Each of
+rule enforced in the repository rather than by splitting the Environment.** The
+one other production Environment, `production-tits-guru-monitor`, is not a
+split of it: it holds no production credential — only the read-only key of the
+automatic inbound mail monitor — admits `main` alone and needs no approval, and
+one job of one workflow uses it ([`mail-inbound.md`](mail-inbound.md), "The
+automatic monitor"). Each of
 the seven manual production workflows carries a fail-closed gate:
 
 ```text

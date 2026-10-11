@@ -559,7 +559,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -4057,7 +4057,7 @@ function mailInboundJson(array $arguments, array $documents = []): array
 function mailInboundBundleScripts(): array
 {
     return [
-        'install-mail-gateway', 'install-mail-inbound', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
+        'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
         'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
@@ -4111,16 +4111,46 @@ function mailInboundBundle(string $root, array $documents): string
 function mailInboundStubs(): array
 {
     return [
+        // The account database: the store's own entry, and every other account
+        // in passwd and shadow.
         'getent' => <<<'STUB'
             #!/bin/bash
-            [[ "$1" == passwd && "$2" == rateguru-mail-inbound && -e "${STUB_STATE}/store-user" ]] || exit 2
-            cat "${STUB_STATE}/store-user"
+            S="${STUB_STATE}"
+            case "$1:${2:-}" in
+                passwd:rateguru-mail-inbound) [[ -e "${S}/store-user" ]] || exit 2; cat "${S}/store-user" ;;
+                passwd:) cat "${S}/passwd" 2>/dev/null; cat "${S}/store-user" 2>/dev/null; exit 0 ;;
+                passwd:*) grep "^$2:" "${S}/passwd" 2>/dev/null || exit 2 ;;
+                shadow:*) grep "^$2:" "${S}/shadow" 2>/dev/null || exit 2 ;;
+                *) exit 2 ;;
+            esac
             STUB,
         'useradd' => <<<'STUB'
             #!/bin/bash
             printf 'useradd %s\n' "$*" >> "${STUB_LOG}/mutations.log"
             [[ -e "${STUB_TOGGLES}/useradd-fail" ]] && exit 1
-            printf 'rateguru-mail-inbound:x:4321:4321:RateGuru inbound mail store:/nonexistent:/usr/sbin/nologin\n' > "${STUB_STATE}/store-user"
+            name="${@: -1}"
+            if [[ "${name}" == rateguru-mail-inbound ]]; then
+                printf 'rateguru-mail-inbound:x:4321:4321:RateGuru inbound mail store:/nonexistent:/usr/sbin/nologin\n' > "${STUB_STATE}/store-user"
+                exit 0
+            fi
+            home="" shell="" comment=""
+            while [[ $# -gt 1 ]]; do
+                case "$1" in
+                    --home-dir) home="$2"; shift 2 ;;
+                    --shell) shell="$2"; shift 2 ;;
+                    --comment) comment="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            printf '%s:x:4400:4400:%s:%s:%s\n' "${name}" "${comment}" "${home}" "${shell}" >> "${STUB_STATE}/passwd"
+            printf '%s:!:20000:0:99999:7:::\n' "${name}" >> "${STUB_STATE}/shadow"
+            STUB,
+        // visudo -cqf FILE: the rule parses, unless a toggle says it does not.
+        'visudo' => <<<'STUB'
+            #!/bin/bash
+            printf 'visudo %s\n' "$*" >> "${STUB_LOG}/reads.log"
+            [[ -e "${STUB_TOGGLES}/visudo-fail" ]] && { echo "visudo: syntax error" >&2; exit 1; }
+            exit 0
             STUB,
         'fallocate' => <<<'STUB'
             #!/bin/bash
@@ -4229,6 +4259,36 @@ function mailInboundStubs(): array
     ];
 }
 
+/** A public key the host's root already holds: never a monitor's. */
+const MAIL_MONITOR_BOOTSTRAP_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBootstrapKeyOfRootOnTheSimulatedHost0000000';
+
+/** The monitor's own public key, as ssh-keygen writes it. */
+const MAIL_MONITOR_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMonitorKeyOfItsOwnOnTheSimulatedHost0000000 rateguru-mail-monitor';
+
+/**
+ * Install the monitor's access on HOST through the activation, as the install
+ * workflow does. @return array{0: int, 1: string, 2: ?array}
+ */
+function mailInboundMonitorInstalled(array $host, string $key = MAIL_MONITOR_KEY): array
+{
+    [$status, $output] = mailInboundHostRun($host, 'activate-mail-inbound', ['--install-monitor', '--target', 'tits-guru', '--monitor-public-key', $key]);
+
+    return [$status, $output, mailInboundResult($output)];
+}
+
+/**
+ * Run the installed monitor on HOST as its forced command would: no argument.
+ *
+ * @return array{0: int, 1: string, 2: ?array}
+ */
+function mailInboundMonitorRun(array $host, array $arguments = []): array
+{
+    [$status, $output] = mailInboundHostRunProgram($host, $host['fs'].'/usr/local/libexec/rateguru-mail-inbound-monitor', $arguments);
+    $line = collect(preg_split('/\R/', $output))->first(static fn (string $line): bool => str_starts_with($line, 'RATEGURU_MAIL_INBOUND_MONITOR_RESULT='));
+
+    return [$status, $output, $line === null ? null : json_decode(substr($line, strlen('RATEGURU_MAIL_INBOUND_MONITOR_RESULT=')), true)];
+}
+
 /**
  * Put MESSAGES in the simulated host's shared queue, each with the envelope
  * Postfix records for it: ['id', 'queue' (deferred), 'age' (seconds since it
@@ -4334,6 +4394,11 @@ function mailInboundHostBuilt(array $options): array
     file_put_contents($state.'/ufw-rules', $options['ufwRules'] ?? '');
     file_put_contents($state.'/queue', '');
     file_put_contents($state.'/mountinfo', '');
+    // The host's other accounts, each with a key of its own.
+    file_put_contents($state.'/passwd', "root:x:0:0:root:/root:/bin/bash\ndeploy-rateguru-staging:x:1001:1001::/home/deploy-rateguru-staging:/bin/bash\n");
+    file_put_contents($state.'/shadow', "root:*:20000:0:99999:7:::\n");
+    @mkdir($fs.'/root/.ssh', 0o700, true);
+    file_put_contents($fs.'/root/.ssh/authorized_keys', MAIL_MONITOR_BOOTSTRAP_KEY." bootstrap\n");
     @mkdir($fs.'/var/spool/postfix', 0o755, true);
 
     // The host's one Postfix runs in its own unit: the ss stub names it as
@@ -4377,6 +4442,18 @@ function mailInboundHostBuilt(array $options): array
     }
     $env['RATEGURU_MAILINBOUNDACTIVATE_MOUNTINFO'] = $state.'/mountinfo';
 
+    // The monitor's installer, and what the monitor it renders runs.
+    $env += [
+        'RATEGURU_MAILMONITOR_EUID' => '0',
+        'RATEGURU_MAILMONITOR_FS_ROOT' => $fs,
+        'RATEGURU_MAILMONITOR_FILE_OWNER' => $me,
+        'RATEGURU_MAILMONITOR_FILE_GROUP' => $group,
+        'RATEGURU_MAILMONITOR_MOUNTINFO' => $state.'/mountinfo',
+    ];
+    foreach (['GETENT' => 'getent', 'USERADD' => 'useradd', 'VISUDO' => 'visudo', 'POSTQUEUE' => 'postqueue', 'POSTCAT' => 'postcat', 'POSTCONF' => 'postconf', 'DF' => 'df'] as $tool => $name) {
+        $env["RATEGURU_MAILMONITOR_{$tool}_BIN"] = $scratch.'/bin/'.$name;
+    }
+
     $host = ['scratch' => $scratch, 'fs' => $fs, 'state' => $state, 'log' => $scratch.'/log', 'bundle' => $bundle, 'toggles' => $scratch.'/toggles', 'env' => $env];
 
     // The gateway, installed by its own installer from the bundle.
@@ -4401,6 +4478,20 @@ function mailInboundHostBuilt(array $options): array
     }
 
     return $host;
+}
+
+/**
+ * Run PROGRAM, a file of the simulated host, with bash, as the host would.
+ *
+ * @return array{0: int, 1: string}
+ */
+function mailInboundHostRunProgram(array $host, string $program, array $arguments = []): array
+{
+    $process = proc_open(['bash', $program, ...$arguments], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $host['scratch'], $host['env']);
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
 }
 
 /**
@@ -7843,8 +7934,10 @@ function trustedToolingRefs(): array
         'activate-tits-guru-inbound-smtp.yml' => 'main',
         'verify-tits-guru-inbound-smtp.yml' => 'main',
         'rollback-tits-guru-inbound-smtp.yml' => 'main',
-        // and the read-only health check of its inbound mail.
+        // and the read-only health check of its inbound mail, and the one-time
+        // installation of the monitor access that check uses.
         'check-tits-guru-inbound-mail-health.yml' => 'main',
+        'install-tits-guru-inbound-mail-monitor.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',

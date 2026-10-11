@@ -36,7 +36,7 @@ identity and signing are not changed by any of this.
 | `mx1.tits.guru` A record | **Not published**; the receiver's address is never committed |
 | TLS certificate for `mx1.tits.guru` | **The operator's** — not on the host until installed as [below](#tls-for-mx1titsguru) |
 | Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned` |
-| Inbound mail health check, every six hours | **Implemented in the repository**; off until an operator turns its schedule on after the activation — each run waits for the `production-tits-guru` approval, see [below](#the-health-check) |
+| Inbound mail health check, every six hours | **Implemented in the repository**, unattended: it reaches the host only through a read-only monitor key, with no approval; off until an operator installs that access and turns the schedule on — see [the automatic monitor](#the-automatic-monitor) |
 | Envelope sender (Return-Path) of mail sent today | `noreply@tits.guru` — the bounce domain is not an envelope sender yet |
 | `tits-guru` outbound mail | **Production-accepted** 2026-10-08, and untouched by any of this — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
@@ -693,24 +693,84 @@ It prints counts and ages, never an address, a sender or a byte of a message:
 
 On a host without inbound mail it has nothing to check, and passes.
 
-**From GitHub.** **Check tits.guru inbound mail health** runs it, from `main`
-behind the same main-only gate, in the `production-tits-guru` Environment with
-the bootstrap credential. A failed run opens one issue titled *tits-guru inbound
-mail health check failed* — or adds to the one already open — with the counts
-and the oldest age; the next passing run closes it. **Schedule tits.guru inbound
-mail health** dispatches that workflow on `main` every six hours: GitHub runs a
-schedule on the default branch, which the Environment does not admit, so the
-schedule itself holds no secret and reaches no host — it can only start the
-check. It does nothing until the repository variable
-`RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is `enabled`, which the operator sets
-after the activation (step 5 of [the operator order](#the-operator-order)).
+On the host, as root, it is also what the automatic monitor checks — the
+monitor runs the same library, without the store's full verify.
 
-**The approval.** The `production-tits-guru` Environment requires a reviewer, so
-every scheduled run waits for that approval before it reaches the host: the
-schedule asks every six hours, a person lets it run. Running it unattended
-would need the check to hold a production credential without an approval —
-an Environment of its own, without a reviewer, admitting only `main` — which
-is a decision about the production credentials, not made here.
+## The automatic monitor
+
+Every six hours, without a person: **Schedule tits.guru inbound mail health**
+dispatches **Check tits.guru inbound mail health** on `main`, which asks the
+production host's **inbound mail monitor** — through a key that can do nothing
+else — whether accepted inbound mail is at risk, and keeps one GitHub issue
+open while it is.
+
+| | What it is | What it can do |
+|---|---|---|
+| The schedule | `schedule-tits-guru-inbound-mail-health.yml`, on the default branch | dispatch the check on `main` — no secret, no host |
+| The check | `check-tits-guru-inbound-mail-health.yml`, from `main`, behind the main-only gate, in the Environment `production-tits-guru-monitor` | connect as `rateguru-mail-monitor` with the monitor key — nothing else |
+| The key | one ed25519 key, `restrict,command="/usr/bin/sudo -n -u postfix /usr/local/libexec/rateguru-mail-inbound-monitor"` | run the monitor: no shell, no other command, no terminal, no forwarding, no file transfer — whatever the client asks |
+| The account | `rateguru-mail-monitor`, a system account with no password; its home and keys are root's | nothing of its own |
+| sudo | `/etc/sudoers.d/rateguru-mail-monitor`: `rateguru-mail-monitor ALL=(postfix) NOPASSWD: /usr/local/libexec/rateguru-mail-inbound-monitor ""` | the monitor, with no argument, as postfix — never root, never another command |
+| The monitor | `/usr/local/libexec/rateguru-mail-inbound-monitor`, `root:root 0755`, rendered from the trusted bundle | read the gateway's record, ask the store gate, read the queue's envelopes (`postcat -e`) and its free space — and print counts and ages |
+
+It reaches the host through none of the production credentials: the
+`production-tits-guru` Environment, its reviewers and its `BOOTSTRAP_SSH_KEY` are
+unchanged and are never used by it. Its verdict is **PASS** only when the monitor
+ran, said pass, exited 0 and found nothing waiting; a monitor that cannot be
+reached, does not report, or reports anything else is **FAILED** or **UNKNOWN**,
+and opens the issue.
+
+Installing the access needs the production approval, once; running the check
+never does. Proved on a real host (Ubuntu 24.04, OpenSSH 9.6, sudo 1.9.15): with
+that key, a requested command (`id; cat /etc/shadow`) still runs only the
+monitor; a terminal, `ssh -W` forwarding and `sftp` are refused; as the account,
+`sudo -l` lists the monitor alone, and the monitor with an argument, as root,
+`/bin/sh` or `postsuper -d ALL` all ask for a password it does not have; it
+cannot write its own `authorized_keys`. The real-Postfix scenario runs the
+monitor as postfix against a real queue.
+
+### Setting it up, once
+
+After the activation (step 5 of [the operator order](#the-operator-order)):
+
+1. **Generate the monitor key**, on your own machine — a key of its own, never
+   the bootstrap or a deploy key:
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C rateguru-mail-monitor -f rateguru-mail-monitor
+   ```
+2. **Install its access on the host:** run **Install tits.guru inbound mail
+   monitor** from `main` with `public_key` = the one line of
+   `rateguru-mail-monitor.pub`, and approve it in `production-tits-guru`. It
+   refuses anything but one ed25519 public key, and a key any other account on
+   the host already holds.
+3. **Create the Environment** in GitHub → Settings → Environments → New
+   environment:
+   - **Name** `production-tits-guru-monitor`;
+   - **Required reviewers**: none — and no wait timer;
+   - **Deployment branches and tags**: Selected branches and tags — the branch
+     `main`, and nothing else;
+   - **Secrets**: `MAIL_MONITOR_SSH_KEY` — the private half of the monitor key;
+     `MAIL_MONITOR_KNOWN_HOSTS` — the host's verified known_hosts line, the same
+     as `production-tits-guru`'s `BOOTSTRAP_KNOWN_HOSTS`;
+   - **Variables**: `DEPLOY_HOST` and `DEPLOY_PORT` — the same as
+     `production-tits-guru`'s.
+
+   Never `BOOTSTRAP_SSH_KEY`, `DEPLOY_SSH_KEY` or any other key: this
+   Environment needs no approval, so it holds the monitor key and nothing else.
+4. **Delete the local copies** of both halves of the key.
+5. **Run Check tits.guru inbound mail health** once by hand: it passes, with no
+   approval asked.
+6. **Turn the schedule on:** the repository variable
+   `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` = `enabled`.
+
+If the host's sshd restricts who may log in (`AllowUsers`, `AllowGroups`), it
+must admit `rateguru-mail-monitor`; the stock Ubuntu sshd does.
+
+**To replace the key**, repeat steps 1–4: the install replaces the one key.
+**To revoke it** at once, delete `MAIL_MONITOR_SSH_KEY` from the Environment and,
+on the host, `sudo rm /var/lib/rateguru-mail-monitor/.ssh/authorized_keys`; Verify
+tits.guru inbound SMTP then reports the access as not what the bundle renders,
+until it is installed again.
 
 ## When the health check fails
 
@@ -787,10 +847,10 @@ is needed for it. In this order, and no step before the previous one passed:
    `ACTIVATE tits-guru inbound SMTP`. It creates the store, installs inbound
    mail on the gateway's Postfix, proves it, opens TCP 25 and prints the DNS
    records to publish.
-5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`. Then turn the
-   health check's schedule on: set the repository variable
-   `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` to `enabled`, and run **Check
-   tits.guru inbound mail health** once by hand — it passes.
+5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`. Then set up the
+   automatic monitor as [above](#setting-it-up-once) — its key, its access on
+   the host, its Environment — run **Check tits.guru inbound mail health** once
+   by hand, and turn the schedule on.
 6. **Publish DNS** at the DNS provider, the A record first, then the MX records:
    ```
    mx1.tits.guru          A     <the address Activate printed>

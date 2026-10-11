@@ -101,7 +101,8 @@ it('never leaves its namespaces, writes the host\'s Postfix, or touches its serv
         ->toContain('if ip -4 route get 1.1.1.1 >/dev/null 2>&1; then');
 
     // /etc/postfix is a copy, bind-mounted in its own mount namespace; nothing is written to the real one.
-    $touching = array_values(array_filter(array_map('trim', explode("\n", $code)), static fn (string $line): bool => str_contains($line, '/etc/postfix')));
+    // The real /etc/postfix, not the copies under WORK the monitor reads.
+    $touching = array_values(array_filter(array_map('trim', explode("\n", $code)), static fn (string $line): bool => preg_match('#(?<![\w}])/etc/postfix#', $line) === 1));
     expect($touching)->toBe([
         '[[ -d /etc/postfix ]] || { echo "scenario.sh needs the Postfix package\'s /etc/postfix" >&2; exit 2; }',
         'cp -a /etc/postfix "${WORK}/etc-postfix"',

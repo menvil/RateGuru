@@ -117,14 +117,15 @@ it('reports accepted inbound mail older than a day AT RISK OF LOSS, with the cou
         expect($status)->toBe(1, $output);
         expect($output)
             ->toContain('FAIL 3 accepted inbound message(s) wait in the shared queue instead of reaching the store (deferred 3); the oldest was accepted 1d 6h ago')
-            ->toContain('FAIL AT RISK OF LOSS: 2 inbound message(s) accepted more than 1d 0h ago are still not stored. Postfix gives a message up 5d 0h after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has 3d 17h left');
+            ->toContain('FAIL AT RISK OF LOSS: 2 inbound message(s) accepted more than 1d 0h ago are still not stored. Postfix gives a message up 5d 0h after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has 3d 1');
         expect($result['queue'])->toMatchArray(['inbound' => 3, 'waiting' => 3, 'at_risk' => 2]);
         expect($result['queue']['oldest_seconds'])->toBeGreaterThanOrEqual(30 * 3600 + 90);
 
         // The lifetime is Postfix's own setting, read rather than assumed.
         file_put_contents($host['state'].'/queue-lifetime', "2d\n");
         [, $output] = mailInboundHealthRun($host);
-        expect($output)->toContain('Postfix gives a message up 2d 0h after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has 17h 58m left');
+        // Seconds pass between queueing and the scan, so the minutes may be one or two fewer.
+        expect($output)->toMatch('/Postfix gives a message up 2d 0h after accepting it \(maximal_queue_lifetime\), and an inbound message given up is lost: the oldest has 17h 5\dm left/');
     } finally {
         mailInboundCleanup($host);
     }

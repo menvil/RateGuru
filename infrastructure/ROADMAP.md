@@ -2190,10 +2190,13 @@ Slices, in order:
    detected long before: `activate-mail-inbound --health` reads each queued
    message's envelope (the listener that accepted it, never its recipient),
    fails as soon as accepted inbound mail waits, and reports it AT RISK OF
-   LOSS after a day; Check tits.guru inbound mail health runs it, keeps one
-   issue open while it fails, and a schedule dispatches it from main every six
-   hours once the operator turns it on — each run behind the Environment's
-   approval. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
+   LOSS after a day. Every six hours, unattended, a schedule dispatches Check
+   tits.guru inbound mail health on main, which runs the same checks on the
+   host through a read-only monitor key of its own — an account whose one key
+   runs the monitor, as postfix, with no argument, and nothing else — from an
+   Environment of its own that needs no approval and admits main alone, and
+   keeps one issue open while it fails; the production Environment, its
+   reviewers and the bootstrap credential are never used by it. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
    stopping Postfix at boot. The host's state — absent, disabled or
    enabled on one address — is the gateway's own record, moved only by a
    one-use authorization from `scripts/activate-mail-inbound`, each move a

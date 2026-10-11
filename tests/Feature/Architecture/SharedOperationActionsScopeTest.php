@@ -119,10 +119,12 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'activate-tits-guru-inbound-smtp.yml',
         'verify-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-inbound-smtp.yml',
-        // Its inbound mail health check, read-only, and the schedule that only
-        // dispatches it on main.
+        // Its inbound mail health check, read-only, the schedule that only
+        // dispatches it on main, and the one-time installation of the monitor
+        // access it reaches the host through.
         'check-tits-guru-inbound-mail-health.yml',
         'schedule-tits-guru-inbound-mail-health.yml',
+        'install-tits-guru-inbound-mail-monitor.yml',
         // tits-guru's outbound mail: its guarded activation, the rollback of
         // that activation while it is planned, and the first real delivery.
         'activate-tits-guru-mail.yml',
@@ -552,13 +554,12 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'activate-tits-guru-inbound-smtp.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
         'verify-tits-guru-inbound-smtp.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
         'rollback-tits-guru-inbound-smtp.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
-        // The inbound health check is the one deliberate exception: read-only,
-        // dispatched by a schedule, and waiting for the Environment's approval
-        // before it reaches the host. In the host's domain it would hold that
-        // domain while it waits, and every six hours displace an operator's
-        // pending run; in a domain of its own it never touches either, and a
-        // check that reads a host mid-change only fails and runs again.
-        'check-tits-guru-inbound-mail-health.yml:health' => ['tits-guru', 'rateguru-mail-inbound-health'],
+        // Installing the health check's monitor access adds an account and a
+        // sudoers rule on that same machine: the same domain. The health check
+        // itself names no target here — it runs no action, only the monitor
+        // key's one read-only program — and waits in a group of its own, so
+        // its schedule never displaces an operator's pending run.
+        'install-tits-guru-inbound-mail-monitor.yml:install' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

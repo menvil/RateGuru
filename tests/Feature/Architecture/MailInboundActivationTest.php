@@ -126,11 +126,13 @@ it('handles its arguments strictly, and refuses to run unprivileged', function (
         mailInboundCleanup($host);
     }
 })->with([
-    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify, --health or --rollback'],
+    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify, --health, --rollback or --install-monitor'],
     'no target' => [['--apply'], [], '--apply requires --target'],
     'two modes' => [['--apply', '--verify', '--target', 'tits-guru'], [], 'mode given more than once'],
     'an invalid target' => [['--apply', '--target', '../tits-guru'], [], 'invalid target ID: ../tits-guru'],
     'an override' => [['--apply', '--target', 'tits-guru', '--address', '1.2.3.4'], [], 'unknown argument: --address'],
+    'a monitor key for another mode' => [['--apply', '--target', 'tits-guru', '--monitor-public-key', MAIL_MONITOR_KEY], [], '--monitor-public-key belongs to --install-monitor alone'],
+    'a monitor without its key' => [['--install-monitor', '--target', 'tits-guru'], [], '--install-monitor requires --monitor-public-key'],
     'unprivileged' => [['--verify', '--target', 'tits-guru'], ['RATEGURU_MAILINBOUNDACTIVATE_EUID' => '1000'], 'activate-mail-inbound --verify must run as root'],
 ]);
 

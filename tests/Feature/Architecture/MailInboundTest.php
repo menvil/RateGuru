@@ -1392,7 +1392,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
     expect($documented[1])->toBe($requirements);
 });
 
-it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation and the infrastructure verifier', function () {
+it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation, the monitor and the infrastructure verifier', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-inbound');
     expect(requiredCliManifestNames())->not->toContain('mail-inbound');
 
@@ -1414,6 +1414,7 @@ it('is repository tooling, reached only by the gateway that renders its rules, t
         'infrastructure/scripts/activate-mail-inbound',
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/install-mail-inbound',
+        'infrastructure/scripts/install-mail-inbound-monitor',
         'infrastructure/scripts/verify-infrastructure',
     ]);
 
@@ -1421,6 +1422,7 @@ it('is repository tooling, reached only by the gateway that renders its rules, t
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-gateway'))))->toContain('"${MAIL_INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound'))))->toContain('"${INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/verify-infrastructure'))))->toContain('"${MAIL_INBOUND}" render-plan');
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound-monitor'))))->toContain('PLAN="$("${INBOUND_CLI}" render-plan)"');
 });
 
 it('leaves every public SMTP port check to the one shared judge, and no consumer its own list of ports', function () {

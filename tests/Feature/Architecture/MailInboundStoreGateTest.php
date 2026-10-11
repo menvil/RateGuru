@@ -142,10 +142,14 @@ it('is rendered with the store, its reserve and the gate floor every other judge
             ->toContain('MAIL_INBOUND_STORE_GATE_USER="nobody"')
             ->toContain('MAIL_INBOUND_STORE_GATE_MIN_INODES=1024');
 
-        // The activation's health check asks the installed gate the same question.
+        // The activation's health check and the monitor ask the installed gate
+        // the same question, through the one shared function.
+        expect(executableSourceLines(File::get(base_path('infrastructure/scripts/mail-inbound-host'))))
+            ->toContain('| bash "$1" "$2" "$3" "$4" "$5" 2>/dev/null');
         expect(executableSourceLines(File::get(base_path('infrastructure/scripts/activate-mail-inbound'))))
-            ->toContain('| bash "${gate}" "$(physical "${MAIL_INBOUND_STORE}")" "$(jq -r \'.receiver.limits.storage_reserve_bytes\' <<<"${PLAN}")" \\')
-            ->toContain('"${MAIL_INBOUND_STORE_GATE_MIN_INODES}" "${MOUNTINFO_FILE}" 2>/dev/null \\');
+            ->toContain('verdict="$(mail_inbound_gate_verdict "${gate}" "$(physical "${MAIL_INBOUND_STORE}")"');
+        expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound-monitor'))))
+            ->toContain('verdict="$(mail_inbound_gate_verdict "${MONITOR_ROOT}${MAIL_INBOUND_STORE_GATE}" "${MONITOR_ROOT}${MAIL_INBOUND_STORE}"');
     } finally {
         mailInboundCleanup($host);
     }
