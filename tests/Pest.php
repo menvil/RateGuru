@@ -2778,8 +2778,14 @@ function mailGatewayHost(array $options = []): array
                 mask) touch "${S}/$2.masked" ;;
                 start|restart)
                     [[ -e "${STUB_TOGGLES}/start-fail" ]] && exit 1
-                    touch "${S}/$2.active" ;;
-                stop) rm -f "${S}/$2.active" ;;
+                    touch "${S}/$2.active"
+                    # The inbound store's volume appears in the kernel's mount table.
+                    if [[ "$2" == 'var-lib-rateguru\x2dmail\x2dinbound-store.mount' ]]; then
+                        printf '36 25 7:0 / %s rw,nosuid,nodev,noexec,relatime - ext4 /dev/loop0 rw\n' "${STUB_FS}/var/lib/rateguru-mail-inbound/store" > "${S}/mountinfo"
+                    fi ;;
+                stop)
+                    rm -f "${S}/$2.active"
+                    [[ "$2" != 'var-lib-rateguru\x2dmail\x2dinbound-store.mount' ]] || : > "${S}/mountinfo" ;;
                 reload)
                     [[ -e "${STUB_TOGGLES}/reload-fail" ]] && exit 1
                     [[ -e "${S}/$2.active" ]] || exit 1 ;;
@@ -2807,11 +2813,33 @@ function mailGatewayHost(array $options = []): array
                     [[ -e "${STUB_TOGGLES}/postconf-warn" ]] && echo "postconf: warning: simulated unused parameter" >&2
                     exit 0 ;;
                 -M)
+                    # As postconf -M prints a service: its eight fields, then its
+                    # arguments, a spawn(8) service's continued onto one line;
+                    # with NAME/TYPE, that service alone.
                     [[ -e "${STUB_TOGGLES}/postconf-fatal" ]] && { echo "postconf: fatal: bad field count" >&2; exit 1; }
-                    awk '/^[^#[:space:]]/ { print $1, $2, $3, $4, $5, $6, $7, $8 }' "${dir}/master.cf"
+                    awk -v want="${2:-}" '
+                        function flush() { if (line != "" && (want == "" || want == name "/" type)) print line; line = "" }
+                        /^[^#[:space:]]/ {
+                            flush(); name = $1; type = $2
+                            line = $1 " " $2 " " $3 " " $4 " " $5 " " $6 " " $7 " " $8
+                            for (i = 9; i <= NF; i++) line = line " " $i
+                            next
+                        }
+                        /^[[:space:]]+[^-#[:space:]]/ && line != "" { for (i = 1; i <= NF; i++) line = line " " $i }
+                        END { flush() }
+                    ' "${dir}/master.cf"
                     exit 0 ;;
                 -h)
-                    awk -v k="$2" 'index($0, k " = ") == 1 { v = substr($0, length(k) + 4) } $0 == k " =" { v = "" } END { print v }' "${dir}/main.cf"
+                    value="$(awk -v k="$2" 'index($0, k " = ") == 1 { v = substr($0, length(k) + 4); found = 1 } $0 == k " =" { v = ""; found = 1 } END { if (found) print v; else print "\001" }' "${dir}/main.cf")"
+                    if [[ "${value}" == $'\001' ]]; then
+                        # A parameter main.cf leaves unset: Postfix's own default.
+                        case "$2" in
+                            maximal_queue_lifetime) cat "${STUB_STATE}/queue-lifetime" 2>/dev/null || echo 5d ;;
+                            *) echo ;;
+                        esac
+                    else
+                        printf '%s\n' "${value}"
+                    fi
                     exit 0 ;;
                 -P)
                     spec="$2"; svc="${spec%%/*}"; rest="${spec#*/}"; type="${rest%%/*}"; param="${rest#*/}"
@@ -4189,7 +4217,67 @@ function mailInboundStubs(): array
             cat "${STUB_STATE}/queue" 2>/dev/null
             exit 0
             STUB,
+        // postcat -e -q ID: one queued message's envelope records — and nothing
+        // else: asked for anything but the envelope, it refuses.
+        'postcat' => <<<'STUB'
+            #!/bin/bash
+            printf 'postcat %s\n' "$*" >> "${STUB_LOG}/reads.log"
+            [[ -e "${STUB_TOGGLES}/postcat-fail" ]] && { echo "postcat: fatal: simulated" >&2; exit 1; }
+            [[ "$#" == 3 && "$1" == -e && "$2" == -q ]] || { echo "postcat: only the envelope (-e -q ID) is simulated" >&2; exit 64; }
+            cat "${STUB_STATE}/envelopes/$3" 2>/dev/null || { echo "postcat: fatal: open queue file $3: No such file or directory" >&2; exit 1; }
+            STUB,
     ];
+}
+
+/**
+ * Put MESSAGES in the simulated host's shared queue, each with the envelope
+ * Postfix records for it: ['id', 'queue' (deferred), 'age' (seconds since it
+ * was accepted, 0), 'to' (support@tits.guru), 'reason' (a delay reason, none),
+ * 'via' (inbound)]. VIA is the listener that accepted it, as Postfix records it
+ * in the envelope: 'inbound' — 127.0.0.1:2580; 'public' — the public address,
+ * port 25; 'submission' — 127.0.0.1:2526, with that listener's content filter;
+ * 'local' — no listener at all, as for mail Postfix makes itself.
+ *
+ * @param  list<array<string, mixed>>  $messages
+ */
+function mailInboundQueued(array $host, array $messages): void
+{
+    @mkdir($host['state'].'/envelopes', 0o755, true);
+
+    foreach ($messages as $message) {
+        $id = $message['id'];
+        $to = $message['to'] ?? 'support@tits.guru';
+        $recipient = ['address' => $to] + (isset($message['reason']) ? ['delay_reason' => $message['reason']] : []);
+
+        file_put_contents($host['state'].'/queue', json_encode([
+            'queue_name' => $message['queue'] ?? 'deferred',
+            'queue_id' => $id,
+            'arrival_time' => time() - ($message['age'] ?? 0),
+            'message_size' => 512,
+            'forced_expire' => false,
+            'sender' => 'someone@sender.example',
+            'recipients' => [$recipient],
+        ])."\n", FILE_APPEND);
+
+        $listener = match ($message['via'] ?? 'inbound') {
+            'inbound' => ['named_attribute: server_address=127.0.0.1', 'named_attribute: server_port=2580'],
+            'public' => ['named_attribute: server_address=1.2.3.4', 'named_attribute: server_port=25'],
+            'submission' => ['content_filter: rateguru-outbound-tits-guru:', 'named_attribute: server_address=127.0.0.1', 'named_attribute: server_port=2526'],
+            'local' => [],
+        };
+
+        file_put_contents($host['state'].'/envelopes/'.$id, implode("\n", [
+            '*** ENVELOPE RECORDS '.($message['queue'] ?? 'deferred').'/'.$id.' ***',
+            'message_size:             512             184               1               0             512               0',
+            'named_attribute: log_ident='.$id,
+            'named_attribute: rewrite_context=remote',
+            'sender: someone@sender.example',
+            ...$listener,
+            'original_recipient: '.$to,
+            'recipient: '.$to,
+            '*** HEADER EXTRACTED '.$id.' ***',
+        ])."\n");
+    }
 }
 
 /**
@@ -4245,6 +4333,7 @@ function mailInboundHostBuilt(array $options): array
     file_put_contents($state.'/ufw', $options['ufw'] ?? 'inactive');
     file_put_contents($state.'/ufw-rules', $options['ufwRules'] ?? '');
     file_put_contents($state.'/queue', '');
+    file_put_contents($state.'/mountinfo', '');
     @mkdir($fs.'/var/spool/postfix', 0o755, true);
 
     // The host's one Postfix runs in its own unit: the ss stub names it as
@@ -4283,9 +4372,10 @@ function mailInboundHostBuilt(array $options): array
         $env["RATEGURU_MAILINBOUND_{$tool}_BIN"] = $scratch.'/bin/'.$name;
     }
 
-    foreach (['SS' => 'ss', 'IP' => 'ip', 'UFW' => 'ufw', 'NFT' => 'nft', 'IPTABLES_SAVE' => 'iptables-save', 'IPTABLES_LEGACY_SAVE' => 'iptables-legacy-save', 'POSTQUEUE' => 'postqueue', 'DF' => 'df'] as $tool => $name) {
+    foreach (['SS' => 'ss', 'IP' => 'ip', 'UFW' => 'ufw', 'NFT' => 'nft', 'IPTABLES_SAVE' => 'iptables-save', 'IPTABLES_LEGACY_SAVE' => 'iptables-legacy-save', 'POSTQUEUE' => 'postqueue', 'POSTCAT' => 'postcat', 'POSTCONF' => 'postconf', 'DF' => 'df'] as $tool => $name) {
         $env["RATEGURU_MAILINBOUNDACTIVATE_{$tool}_BIN"] = $scratch.'/bin/'.$name;
     }
+    $env['RATEGURU_MAILINBOUNDACTIVATE_MOUNTINFO'] = $state.'/mountinfo';
 
     $host = ['scratch' => $scratch, 'fs' => $fs, 'state' => $state, 'log' => $scratch.'/log', 'bundle' => $bundle, 'toggles' => $scratch.'/toggles', 'env' => $env];
 
@@ -4433,9 +4523,12 @@ function mailInboundServices(string $master): array
     foreach (preg_split('/\R/', $master) as $line) {
         if (preg_match('/^([^#\s]\S*)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(\S+)/', $line, $match)) {
             $current = "{$match[1]}/{$match[2]}";
-            $services[$current] = ['type' => $match[2], 'maxproc' => $match[3], 'command' => $match[4], 'options' => []];
+            $services[$current] = ['type' => $match[2], 'maxproc' => $match[3], 'command' => $match[4], 'options' => [], 'args' => ''];
         } elseif ($current !== null && preg_match('/^\s+-o\s+([a-z_]+)=(.*)$/', $line, $match)) {
             $services[$current]['options'][$match[1]] = $match[2];
+        } elseif ($current !== null && preg_match('/^\s+(\S.*)$/', $line, $match)) {
+            // A command's own arguments, continued: spawn(8)'s user= and argv=.
+            $services[$current]['args'] = trim($services[$current]['args'].' '.$match[1]);
         } elseif (! preg_match('/^\s/', $line)) {
             $current = null;
         }
@@ -4501,6 +4594,10 @@ function mailInboundFakeListenerSource(): string
 
             $say('220 '.($inbound['myhostname'] ?? ($main['myhostname'] ?? 'receiver')).' ESMTP');
             $recipients = [];
+            // As smtpd_hard_error_limit does: past this many refused recipients
+            // in one session, the session ends. Off unless a toggle sets it.
+            $errors = 0;
+            $hardErrorLimit = is_file("{$toggles}/hard-error-limit") ? (int) file_get_contents("{$toggles}/hard-error-limit") : PHP_INT_MAX;
             while (($line = fgets($client)) !== false) {
                 $line = rtrim($line, "\r\n");
                 $verb = strtoupper(substr($line, 0, 4));
@@ -4530,6 +4627,9 @@ function mailInboundFakeListenerSource(): string
                     if ($mailbox !== null || $on('accept-all')) {
                         $recipients[] = [$rcpt, $mailbox ?? 'targets/unknown/'];
                         $say('250 2.1.5 Ok');
+                    } elseif (++$errors > $hardErrorLimit) {
+                        $say('421 4.7.0 Error: too many errors');
+                        break;
                     } elseif (! in_array($domain, $domains, true)) {
                         $say("554 5.7.1 <{$rcpt}>: Relay access denied");
                     } else {
@@ -7743,6 +7843,8 @@ function trustedToolingRefs(): array
         'activate-tits-guru-inbound-smtp.yml' => 'main',
         'verify-tits-guru-inbound-smtp.yml' => 'main',
         'rollback-tits-guru-inbound-smtp.yml' => 'main',
+        // and the read-only health check of its inbound mail.
+        'check-tits-guru-inbound-mail-health.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',

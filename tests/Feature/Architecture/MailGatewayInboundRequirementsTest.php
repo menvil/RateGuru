@@ -45,6 +45,7 @@ it('fails the requirement a tampered configuration no longer meets', function (s
     'every recipient accepted' => ['  -o smtpd_recipient_restrictions=reject_unlisted_recipient', '  -o smtpd_recipient_restrictions=permit', 'recipient-allowlist'],
     'SMTP AUTH offered' => ['  -o smtpd_sasl_auth_enable=no', '  -o smtpd_sasl_auth_enable=yes', 'no-smtp-auth'],
     'a bigger message' => ['  -o message_size_limit=10485760', '  -o message_size_limit=52428800', 'message-size-limit'],
+    'virtual(8) left the submission listeners\' size limit' => ["virtual        unix  -       n       n       -       -       virtual\n  -o message_size_limit=10485760", 'virtual        unix  -       n       n       -       -       virtual', 'message-size-limit'],
     'more recipients' => ['  -o smtpd_recipient_limit=1', '  -o smtpd_recipient_limit=50', 'recipient-limit'],
     'a client exempt from the limits' => ['  -o smtpd_client_event_limit_exceptions=', '  -o smtpd_client_event_limit_exceptions=127.0.0.0/8', 'connection-limits'],
     'no queue floor' => ['  -o queue_minfree=2147483648', '  -o queue_minfree=0', 'queue-limits'],
@@ -54,6 +55,11 @@ it('fails the requirement a tampered configuration no longer meets', function (s
     'the bare postmaster qualified as the MTA' => ['  -o myorigin=rateguru-mail-inbound.invalid', '  -o myorigin=mta1.tits.guru', 'postmaster-accepted'],
     'TLS sessions logged' => ['  -o smtpd_tls_loglevel=0', '  -o smtpd_tls_loglevel=2', 'no-message-content-in-logs'],
     'a second public listener' => ['1.2.3.4:25     inet', "0.0.0.0:587    inet  n       -       n       -       -       smtpd\n1.2.3.4:25     inet", 'single-public-port-owner'],
+    'the store gate taken out of the restrictions' => ['  -o smtpd_recipient_restrictions=reject_unlisted_recipient,check_policy_service,unix:private/rateguru-inbound-store-gate', '  -o smtpd_recipient_restrictions=reject_unlisted_recipient', 'store-checked-before-acceptance'],
+    'the store gate run as root' => ['  user=nobody argv=/bin/bash', '  user=root argv=/bin/bash', 'store-checked-before-acceptance'],
+    'the store gate asked about another file system' => [' /var/lib/rateguru-mail-inbound/store 104857600', ' /tmp 104857600', 'store-checked-before-acceptance'],
+    'the store gate with no reserve' => [' /var/lib/rateguru-mail-inbound/store 104857600 1024', ' /var/lib/rateguru-mail-inbound/store 0 0', 'store-checked-before-acceptance'],
+    'another command run through spawn' => ["\nvirtual ", "\nrateguru-extra unix  -       n       n       -       0       spawn\n  user=nobody argv=/bin/sh -c true\nvirtual ", 'content-never-executed'],
     'a submission listener takes the queue floor' => ["  -o syslog_name=postfix/rateguru-tits-guru\n", "  -o syslog_name=postfix/rateguru-tits-guru\n  -o queue_minfree=1\n", 'outbound-unaffected'],
 ]);
 

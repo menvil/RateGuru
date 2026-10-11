@@ -1,0 +1,194 @@
+name: Check tits.guru inbound mail health
+
+# Read-only: infrastructure/scripts/activate-mail-inbound --health --target
+# tits-guru, run from trusted main tooling. It says whether the inbound store
+# takes mail right now — the store verifies and its gate admits new mail — and
+# whether mail the host already accepted waits in the shared queue instead of
+# reaching the store: how many messages, how long the oldest has waited, and
+# how many were accepted more than a day ago and are AT RISK OF LOSS, because
+# Postfix gives a message up after maximal_queue_lifetime. Any such risk fails
+# the run, and the last job keeps one GitHub issue open while it lasts. It
+# changes nothing on the host, and shows no address and no received message.
+#
+# Schedule tits.guru inbound mail health dispatches this every six hours, from
+# main; an operator may run it at any time.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Its own group: a health check waits for an earlier one, and never displaces a
+# pending production operation, which a shared group would. It needs no host
+# lock either: it changes nothing.
+concurrency:
+  group: rateguru-mail-inbound-health
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  health:
+    name: Check tits-guru's inbound mail health
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    outputs:
+      status: ${{ steps.inbound.outputs.status }}
+      waiting: ${{ steps.inbound.outputs.waiting }}
+      risk: ${{ steps.inbound.outputs.risk }}
+      oldest: ${{ steps.inbound.outputs.oldest }}
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from the integration branch.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check on the production host
+        id: inbound
+        uses: ./.github/actions/activate-rateguru-mail-inbound
+        with:
+          operation: health
+          deployment-target: tits-guru
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the queue's envelopes and the
+          # inbound store are root's. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The action writes the result of every completed run. A run that
+      # produced no result at all says so here, rather than leaving an empty
+      # summary that could be read as nothing wrong.
+      - name: Report an incomplete run
+        if: ${{ always() && steps.inbound.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru inbound mail health"
+            echo
+            echo "The check did not complete, so there is no result: whether accepted inbound mail is at risk is UNKNOWN. The reason is in the job log."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # A failed health check opens one issue, or adds to the one already open, so
+  # the operator hears of it however the run was started; a passing one closes
+  # it. Counts only: no address, no message. This job holds no Environment and
+  # no secret.
+  report:
+    name: Keep the inbound mail health issue current
+    runs-on: ubuntu-24.04
+    needs: [validate-ref, health]
+    if: ${{ always() && needs.validate-ref.result == 'success' && (needs.health.result == 'success' || needs.health.result == 'failure') }}
+    timeout-minutes: 5
+
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open, update or close the issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEALTH_RESULT: ${{ needs.health.result }}
+          WAITING: ${{ needs.health.outputs.waiting }}
+          RISK: ${{ needs.health.outputs.risk }}
+          OLDEST: ${{ needs.health.outputs.oldest }}
+        run: |
+          set -Eeuo pipefail
+
+          title="tits-guru inbound mail health check failed"
+          open_issue="$(gh api "repos/${REPOSITORY}/issues?state=open&per_page=100" \
+            | jq -r --arg title "${title}" 'map(select(.title == $title and (has("pull_request") | not))) | .[0].number // empty')"
+
+          if [[ "${HEALTH_RESULT}" == success ]]; then
+            if [[ -n "${open_issue}" ]]; then
+              gh api "repos/${REPOSITORY}/issues/${open_issue}/comments" -f body="The inbound mail health check passes again: the store takes mail and no accepted inbound mail waits in the shared queue. ${RUN_URL}" >/dev/null
+              gh api -X PATCH "repos/${REPOSITORY}/issues/${open_issue}" -f state=closed -f state_reason=completed >/dev/null
+              echo "Closed issue #${open_issue}."
+            fi
+            exit 0
+          fi
+
+          # An output the check never wrote arrives empty, or not at all.
+          waiting="${WAITING:-}" risk="${RISK:-0}" oldest="${OLDEST:-0}"
+
+          if [[ -z "${waiting}" ]]; then
+            finding="The check did not complete or could not read the shared queue: whether accepted inbound mail is at risk is unknown."
+          elif (( risk > 0 )); then
+            finding="AT RISK OF LOSS: ${waiting} accepted inbound message(s) wait in the shared queue, ${risk} of them accepted more than a day ago; the oldest has waited $(( oldest / 3600 )) h. The shared queue gives a message up after maximal_queue_lifetime (five days by default), and an inbound message given up is lost."
+          elif (( waiting > 0 )); then
+            finding="${waiting} accepted inbound message(s) wait in the shared queue instead of reaching the store; the oldest has waited $(( oldest / 3600 )) h."
+          else
+            finding="No accepted inbound mail waits, but the store or its gate does not verify: new inbound mail may be refused, temporarily."
+          fi
+          body="${finding} Restore the store as infrastructure/runbooks/mail-inbound.md says under \"When the health check fails\". ${RUN_URL}"
+
+          if [[ -n "${open_issue}" ]]; then
+            gh api "repos/${REPOSITORY}/issues/${open_issue}/comments" -f body="${body}" >/dev/null
+            echo "Updated issue #${open_issue}."
+          else
+            gh api "repos/${REPOSITORY}/issues" -f title="${title}" -f body="${body}" >/dev/null
+            echo "Opened an issue: ${title}."
+          fi

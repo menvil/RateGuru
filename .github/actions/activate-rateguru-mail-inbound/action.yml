@@ -35,8 +35,8 @@ inputs:
   operation:
     required: true
     description: >-
-      apply, verify or rollback, fixed by the calling workflow. Never an
-      operator's choice: each operation has a workflow of its own.
+      apply, verify, health or rollback, fixed by the calling workflow. Never
+      an operator's choice: each operation has a workflow of its own.
 
   deployment-target:
     required: true
@@ -76,8 +76,20 @@ outputs:
     value: ${{ steps.inbound.outputs.status }}
 
   state:
-    description: "not-installed, installed-disabled, enabled-verified or drift"
+    description: "not-installed, installed-disabled, enabled-verified, installed-enabled (health) or drift"
     value: ${{ steps.inbound.outputs.state }}
+
+  waiting:
+    description: "Accepted inbound messages waiting in the shared queue, when the run scanned it; empty otherwise"
+    value: ${{ steps.inbound.outputs.waiting }}
+
+  risk:
+    description: "Of those, how many were accepted more than a day ago; empty when the queue was not scanned"
+    value: ${{ steps.inbound.outputs.risk }}
+
+  oldest:
+    description: "Seconds since the oldest of them was accepted; empty when the queue was not scanned"
+    value: ${{ steps.inbound.outputs.oldest }}
 
 runs:
   using: composite
@@ -97,9 +109,9 @@ runs:
         set -Eeuo pipefail
 
         case "${OPERATION}" in
-          apply|verify|rollback) ;;
+          apply|verify|health|rollback) ;;
           *)
-            echo "Invalid operation: ${OPERATION} (expected apply, verify or rollback)" >&2
+            echo "Invalid operation: ${OPERATION} (expected apply, verify, health or rollback)" >&2
             exit 1
             ;;
         esac
@@ -344,21 +356,27 @@ runs:
         # mode it names, a verdict and a state from their closed sets, every
         # flag a boolean, and a pass that means what its mode promises — an
         # activation that left public SMTP enabled and verified, a rollback
-        # that left it disabled, a verify that found a consistent state.
+        # that left it disabled, a verify that found a consistent state, a
+        # health check that found the queue holding no waiting inbound mail.
         jq -e --arg target "${DEPLOYMENT_TARGET}" --arg mode "${OPERATION}" '
           type == "object"
           and .target == $target
           and .mode == $mode
           and (.status == "pass" or .status == "fail" or .status == "critical")
-          and (.state | IN("not-installed", "installed-disabled", "enabled-verified", "drift", "unknown"))
+          and (.state | IN("not-installed", "installed-disabled", "installed-enabled", "enabled-verified", "drift", "unknown"))
           and (.public_smtp | IN("enabled", "disabled", "unknown"))
           and (.firewall | IN("ufw", "none", "unmanaged", "unknown"))
           and (.address == null or (.address | type == "string" and test("^[0-9.]+$")))
           and ([.requested, .changed, .rolled_back] | all(type == "boolean"))
+          and (.queue == null
+               or (.queue | type == "object"
+                   and ([.inbound, .waiting, .at_risk, .oldest_seconds] | all(type == "number" and . >= 0 and . == floor))))
           and (.status != "pass"
                or ($mode == "apply" and .requested and .state == "enabled-verified" and .public_smtp == "enabled" and (.rolled_back | not))
                or ($mode == "rollback" and .public_smtp == "disabled" and (.state | IN("installed-disabled", "not-installed")))
-               or ($mode == "verify" and (.state | IN("not-installed", "installed-disabled", "enabled-verified"))))
+               or ($mode == "verify" and (.state | IN("not-installed", "installed-disabled", "enabled-verified")))
+               or ($mode == "health" and (.state | IN("not-installed", "installed-disabled", "installed-enabled"))
+                   and (.queue == null or .queue.waiting == 0)))
         ' <<<"${json}" >/dev/null || {
           echo "The machine-readable result is not an inbound result for ${DEPLOYMENT_TARGET} (${OPERATION}): ${json}" >&2
           exit 1
@@ -367,6 +385,9 @@ runs:
         {
           echo "status=$(jq -r '.status' <<<"${json}")"
           echo "state=$(jq -r '.state' <<<"${json}")"
+          echo "waiting=$(jq -r '.queue.waiting // ""' <<<"${json}")"
+          echo "risk=$(jq -r '.queue.at_risk // ""' <<<"${json}")"
+          echo "oldest=$(jq -r '.queue.oldest_seconds // ""' <<<"${json}")"
         } >> "${GITHUB_OUTPUT}"
 
         {
@@ -383,6 +404,11 @@ runs:
             "| Host firewall | \(.firewall) |",
             "| Changed by this run | \(.changed | yesno) |",
             "| Rolled back to disabled | \(.rolled_back | yesno) |",
+            (if .queue != null then
+               "| Accepted inbound mail waiting in the shared queue | \(.queue.waiting) |",
+               "| Of it, accepted more than a day ago (at risk of loss) | \(.queue.at_risk) |",
+               "| The oldest waiting for | \(.queue.oldest_seconds / 3600 | floor) h |"
+             else empty end),
             "| **Overall** | **\(.status | ascii_upcase)** |",
             "",
             (if .status == "critical" then
@@ -397,6 +423,12 @@ runs:
                "Public SMTP is closed: nothing listens on TCP 25, and RateGuru'"'"'s firewall rule is gone. Stored mail is kept. **Check the published MX records** of every target in the inbound plan: while they name this host, senders find a closed port."
              elif .mode == "verify" and .status == "pass" then
                "The host is in a consistent state: \(.state). The outbound gateway verifies."
+             elif .mode == "health" and .status == "pass" then
+               "The inbound store takes mail and no accepted inbound mail waits in the shared queue."
+             elif .mode == "health" and (.queue.at_risk // 0) > 0 then
+               "**FAILED — accepted inbound mail is at risk of loss.** Messages accepted more than a day ago are still not stored; the shared queue gives a message up after maximal_queue_lifetime (five days by default), and an inbound message given up is lost. Restore the store now — infrastructure/runbooks/mail-inbound.md, \"When the health check fails\"."
+             elif .mode == "health" then
+               "**FAILED — the inbound store, or accepted inbound mail, needs attention.** The job log says which check failed; infrastructure/runbooks/mail-inbound.md, \"When the health check fails\"."
              else
                "The host is not in a consistent state. The complete report is in the job log."
              end),
@@ -448,11 +480,16 @@ runs:
           echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
         fi
 
+    # By their fixed paths too: a key ssh-keygen refused was written before its
+    # path was ever exported, and must not outlive the run either.
     - name: Remove temporary local files
       if: ${{ always() }}
       shell: bash
       run: |
         rm -f \
+          "${RUNNER_TEMP}/rateguru-mail-inbound-bundle.tar.gz" \
+          "${RUNNER_TEMP}/rateguru_mail_inbound_key" \
+          "${RUNNER_TEMP}/rateguru_mail_inbound_known_hosts" \
           "${RATEGURU_BUNDLE_PATH:-}" \
           "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
           "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"

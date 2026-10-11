@@ -42,6 +42,9 @@ it('runs in CI as a job of its own, holding no secret, and its result decides CI
 
     expect($job['runs-on'])->toBe('ubuntu-24.04');
     expect($job)->not->toHaveKey('environment');
+    // It runs a script as root: no write permission, and no token in the checkout.
+    expect($job['permissions'])->toBe(['contents' => 'read']);
+    expect($job['steps'][0])->toBe(['name' => 'Checkout', 'uses' => 'actions/checkout@v7', 'with' => ['persist-credentials' => false]]);
     expect(json_encode($job))->not->toContain('secrets.');
 
     // Ubuntu's own package, with no configuration of its own and its service stopped.
@@ -80,9 +83,12 @@ it('runs the gateway\'s own renderer and read-back, never a configuration of its
         // Every address of the corpus is judged by mail-inbound route, not by the scenario.
         ->toContain('"${SCRIPTS}/mail-inbound" route --recipient');
 
-    // No Postfix setting is written but where this run's queue, data and log live.
-    preg_match_all('/^\s*(?:postconf -e|postconf -c "[^"]+" -e)/m', $code, $edits);
-    expect($edits[0])->toBe([]);
+    // No Postfix setting is written but where this run's queue, data and log
+    // live — and, for one check and then put back, a larger global message
+    // size limit, to prove virtual(8) keeps its own.
+    preg_match_all('/^\s*postconf(?: -c "[^"]+")? -e.*$/m', $code, $edits);
+    expect(array_map('trim', $edits[0]))->toBe(['postconf -c "${CFG}" -e message_size_limit=20971520']);
+    expect($code)->toContain('cp "${WORK}/main.cf.kept" "${CFG}/main.cf"');
 });
 
 it('never leaves its namespaces, writes the host\'s Postfix, or touches its service', function () {

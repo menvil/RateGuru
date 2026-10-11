@@ -107,7 +107,7 @@ it('installs inbound mail as listeners and a delivery route of the same Postfix,
             'smtpd_helo_restrictions' => '',
             'smtpd_sender_restrictions' => '',
             'smtpd_relay_restrictions' => 'reject_unauth_destination',
-            'smtpd_recipient_restrictions' => 'reject_unlisted_recipient',
+            'smtpd_recipient_restrictions' => 'reject_unlisted_recipient,check_policy_service,unix:private/rateguru-inbound-store-gate',
             'smtpd_reject_unlisted_recipient' => 'yes',
             'smtpd_data_restrictions' => '',
             'smtpd_helo_required' => 'yes',
@@ -141,7 +141,20 @@ it('installs inbound mail as listeners and a delivery route of the same Postfix,
         ]);
         expect($services['rateguru-inbound-rewrite/unix'])->toMatchArray(['command' => 'trivial-rewrite']);
         expect($services['rateguru-inbound-rewrite/unix']['options']['myorigin'])->toBe('rateguru-mail-inbound.invalid');
-        expect($services['virtual/unix'])->toMatchArray(['command' => 'virtual', 'options' => []]);
+        // virtual(8) carries the inbound size limit itself: it refuses to start
+        // while message_size_limit exceeds virtual_mailbox_limit.
+        expect($services['virtual/unix'])->toMatchArray(['command' => 'virtual', 'options' => ['message_size_limit' => '10485760']]);
+
+        // The store gate the listeners ask at RCPT TO, before any 250: a policy
+        // service of spawn(8), unprivileged, given the store, its reserve of
+        // space and inodes and the kernel's mount table — and no message.
+        expect($services['rateguru-inbound-store-gate/unix'])->toMatchArray([
+            'command' => 'spawn', 'maxproc' => '0', 'options' => [],
+            'args' => 'user=nobody argv=/bin/bash /etc/postfix/rateguru-inbound-store-gate /var/lib/rateguru-mail-inbound/store 104857600 1024 /proc/self/mountinfo',
+        ]);
+        expect(mailInboundFile($host, '/etc/postfix/rateguru-inbound-store-gate'))->toStartWith("# RateGuru inbound mail store gate — rendered by install-mail-gateway. Do not edit.\n");
+        expect(decoct(fileperms($host['fs'].'/etc/postfix/rateguru-inbound-store-gate') & 0o777))->toBe('644');
+        expect(array_keys(array_filter($services, static fn (array $s): bool => $s['command'] === 'spawn')))->toBe(['rateguru-inbound-store-gate/unix']);
 
         // No public listener, and still no SMTP client but the plan's.
         expect(array_keys(array_filter($services, static fn (array $s): bool => $s['type'] === 'inet')))
@@ -185,7 +198,10 @@ it('leaves every submission listener exactly as it was: routed by its own filter
             expect($services[$listener]['options']['smtpd_reject_unlisted_recipient'])->toBe('no');
             expect($services[$listener]['options'])->not->toHaveKey('rewrite_service_name')->not->toHaveKey('queue_minfree');
             expect($services[$listener]['options']['content_filter'] ?? '')->not->toBe('virtual:');
+            // and never asks the store gate: the store has nothing to do with it.
+            expect(implode(' ', $services[$listener]['options']))->not->toContain('rateguru-inbound-store-gate');
         }
+        expect(mailInboundMainParameters(mailInboundFile($enabled, '/etc/postfix/main.cf'))['smtpd_recipient_restrictions'] ?? '')->not->toContain('check_policy_service');
     } finally {
         mailInboundCleanup($absent);
         mailInboundCleanup($installed);
@@ -208,7 +224,7 @@ it('opens exactly one public listener, on the recorded IPv4 address and port 25,
         expect($public['options'])->toMatchArray([
             'syslog_name' => 'postfix/rateguru-inbound',
             'smtpd_relay_restrictions' => 'reject_unauth_destination',
-            'smtpd_recipient_restrictions' => 'reject_unlisted_recipient',
+            'smtpd_recipient_restrictions' => 'reject_unlisted_recipient,check_policy_service,unix:private/rateguru-inbound-store-gate',
             'smtpd_sasl_auth_enable' => 'no',
             'smtpd_tls_security_level' => 'may',
             'smtpd_tls_chain_files' => '/etc/rateguru-mail-inbound/tls/privkey.pem,/etc/rateguru-mail-inbound/tls/fullchain.pem',

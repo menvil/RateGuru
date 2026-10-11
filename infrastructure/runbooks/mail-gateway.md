@@ -448,7 +448,7 @@ render-receiver`, only what the host's recorded inbound state says
 | Recorded state | Rendered |
 |----------------|----------|
 | absent | nothing of inbound mail: `main.cf` and `master.cf` exactly as without it |
-| disabled | the inbound loopback listener `127.0.0.1:2580`, its cleanup and address rewriting, `virtual(8)` delivery into the store; `virtual_transport` and `virtual_mailbox_*` in `main.cf` |
+| disabled | the inbound loopback listener `127.0.0.1:2580`, its cleanup and address rewriting, the store gate (a policy service the inbound listeners ask at `RCPT TO` whether the store can take mail, `/etc/postfix/rateguru-inbound-store-gate`), `virtual(8)` delivery into the store; `virtual_transport` and `virtual_mailbox_*` in `main.cf` |
 | enabled on one address | all of that, and one public listener on that address, port 25 |
 
 Every inbound rule is a per-service override of the inbound listeners
@@ -457,12 +457,13 @@ names its own content filter and judges no recipient against the inbound table,
 so mail to `tits.guru` taken on `2526` still leaves through its outbound route.
 The default, relay and local transports stay `error(8)`.
 
-The recorded state moves only by a one-use authorization
-`activate-mail-inbound` writes after its proof — `install`, `enable` or
+One `--apply` runs at a time — it holds `/var/lib/rateguru-mail-gateway` locked
+for its whole run, and a second one refuses at once. The recorded state moves
+only by a one-use authorization `activate-mail-inbound` writes after its proof — `install`, `enable` or
 `disable` — consumed by `--apply`, each a reload, never a stop or a restart. An
 ordinary `--apply` — Prepare, bootstrap, repair — keeps the recorded state, and
 a bundle that no longer requests public SMTP refuses to touch a host where it is
-open. `--verify` judges the inbound part like the rest: the twenty receiver
+open. `--verify` judges the inbound part like the rest: the twenty-one receiver
 requirements by name, against `postconf`.
 
 Every check that refuses a public SMTP listener — `install-mail-gateway

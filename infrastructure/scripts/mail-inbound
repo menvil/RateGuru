@@ -229,6 +229,7 @@ def requirements: [
     "null-sender-accepted",
     "malformed-and-duplicate-safe",
     "disk-exhaustion-guard",
+    "store-checked-before-acceptance",
     "single-public-port-owner",
     "outbound-unaffected"
 ];

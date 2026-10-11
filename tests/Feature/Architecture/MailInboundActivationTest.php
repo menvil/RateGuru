@@ -70,6 +70,7 @@ it('says the host is ready, and changes nothing while it says so', function () {
             ->toContain('PASS nothing listens on a public SMTP port that may not')
             ->toContain('PASS the inbound store can be created or converged')
             ->toContain("PASS the shared queue's file system keeps its reserve free")
+            ->toContain("PASS the proof on loopback fits the inbound listener's own limits")
             ->toContain('ACTIVATION CHECK: READY — --apply would install inbound mail if needed, prove it on loopback, and open TCP 25 to 1.2.3.4 by a reload');
         expect($result)->toMatchArray(['mode' => 'check', 'status' => 'pass', 'state' => 'not-installed', 'changed' => false, 'address' => '1.2.3.4']);
         expect(mailInboundActivationTree($setup))->toBe($before);
@@ -125,7 +126,7 @@ it('handles its arguments strictly, and refuses to run unprivileged', function (
         mailInboundCleanup($host);
     }
 })->with([
-    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify or --rollback'],
+    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify, --health or --rollback'],
     'no target' => [['--apply'], [], '--apply requires --target'],
     'two modes' => [['--apply', '--verify', '--target', 'tits-guru'], [], 'mode given more than once'],
     'an invalid target' => [['--apply', '--target', '../tits-guru'], [], 'invalid target ID: ../tits-guru'],
@@ -136,9 +137,18 @@ it('handles its arguments strictly, and refuses to run unprivileged', function (
 it('never publishes DNS, reads a message, stops Postfix or touches its queue', function () {
     $code = executableSourceLines(File::get(base_path('infrastructure/scripts/activate-mail-inbound')));
 
-    foreach (['nsupdate', 'curl', 'wget', 'postsuper', 'postcat', 'sendmail', 'systemctl', 'postfix stop', 'postfix -c', '/etc/postfix/main.cf"', 'cat "${file}"'] as $forbidden) {
+    foreach (['nsupdate', 'curl', 'wget', 'postsuper', 'sendmail', 'systemctl', 'postfix stop', 'postfix -c', '/etc/postfix/main.cf"', 'cat "${file}"'] as $forbidden) {
         expect(str_contains($code, $forbidden))->toBeFalse("activate-mail-inbound uses {$forbidden}");
     }
+
+    // postcat reads one envelope at a time, through the shared queue scan, and
+    // only with -e: never a header or a body.
+    expect($code)->toContain('POSTCAT_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_POSTCAT_BIN postcat)"');
+    expect(substr_count($code, '"${POSTCAT_BIN}"'))->toBe(1);
+    expect($code)->toContain('mail_inbound_queue_scan "${POSTQUEUE_BIN}" "${POSTCAT_BIN}"');
+    $library = executableSourceLines(File::get(base_path('infrastructure/scripts/mail-inbound-host')));
+    expect($library)->toContain('envelope="$("${postcat}" -e -q "${id}" 2>/dev/null)"');
+    expect(substr_count($library, '"${postcat}"'))->toBe(1);
 
     // Postfix is changed only by the gateway's own installer, through a one-use authorization.
     expect($code)

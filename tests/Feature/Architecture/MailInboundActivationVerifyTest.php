@@ -50,16 +50,16 @@ it('fails while inbound mail waits in the shared queue for its store, and never 
     try {
         // An application's message to support@ leaves by its own route, and
         // waits for that route: never inbound mail stuck.
-        file_put_contents($setup['host']['state'].'/queue', '{"queue_name":"deferred","queue_id":"OUT1","recipients":[{"address":"support@tits.guru","delay_reason":"Host or domain name not found"}]}'."\n");
+        mailInboundQueued($setup['host'], [['id' => 'OUT1', 'via' => 'submission', 'reason' => 'Host or domain name not found', 'age' => 90000]]);
         [$status, $output] = mailInboundActivationRun($setup, 'verify');
         expect($status)->toBe(0, $output);
-        expect($output)->toContain('PASS no inbound mail is waiting in the shared queue');
+        expect($output)->toContain('PASS no accepted inbound mail is in the shared queue');
 
-        file_put_contents($setup['host']['state'].'/queue', '{"queue_name":"deferred","queue_id":"IN1","recipients":[{"address":"support@tits.guru","delay_reason":"maildir delivery failed: create maildir file: No space left on device"}]}'."\n", FILE_APPEND);
+        mailInboundQueued($setup['host'], [['id' => 'IN1', 'reason' => 'mail system configuration error', 'age' => 3600]]);
         [$status, $output, $result] = mailInboundActivationRun($setup, 'verify');
         expect($status)->not->toBe(0);
-        expect($output)->toContain('1 message(s) for the inbound domains wait in the shared queue instead of reaching the store')->not->toContain('support@tits.guru');
-        expect($result)->toMatchArray(['state' => 'drift']);
+        expect($output)->toContain('1 accepted inbound message(s) wait in the shared queue instead of reaching the store (deferred 1); the oldest was accepted 1h 0m ago')->not->toContain('support@tits.guru');
+        expect($result)->toMatchArray(['state' => 'drift', 'queue' => ['inbound' => 1, 'waiting' => 1, 'at_risk' => 0, 'oldest_seconds' => $result['queue']['oldest_seconds'], 'queues' => ['deferred' => 1]]]);
     } finally {
         mailInboundActivationCleanup($setup);
     }

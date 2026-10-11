@@ -28,6 +28,7 @@
         "Tests\\Feature\\Architecture\\EnvironmentContractTest": 2.2161,
         "Tests\\Feature\\Architecture\\FetchBackupTest": 8.6107,
         "Tests\\Feature\\Architecture\\FetchRecoveryMaterialTest": 6.4062,
+        "Tests\\Feature\\Architecture\\HealthCheckTest": 1.0,
         "Tests\\Feature\\Architecture\\HostInfrastructureLockTest": 0.6037,
         "Tests\\Feature\\Architecture\\HostPreparationInterlockTest": 8.7953,
         "Tests\\Feature\\Architecture\\HttpAndDatabaseBoundariesTest": 0.0621,
@@ -68,7 +69,10 @@
         "Tests\\Feature\\Architecture\\MailInboundActivationRollbackTest": 38.6559,
         "Tests\\Feature\\Architecture\\MailInboundActivationTest": 71.5259,
         "Tests\\Feature\\Architecture\\MailInboundActivationVerifyTest": 51.5232,
+        "Tests\\Feature\\Architecture\\MailInboundHealthTest": 102.1,
+        "Tests\\Feature\\Architecture\\MailInboundHealthWorkflowTest": 1.7,
         "Tests\\Feature\\Architecture\\MailInboundRealPostfixTest": 0.1268,
+        "Tests\\Feature\\Architecture\\MailInboundStoreGateTest": 11.9,
         "Tests\\Feature\\Architecture\\MailInboundStoreTest": 39.8254,
         "Tests\\Feature\\Architecture\\MailInboundTest": 69.5784,
         "Tests\\Feature\\Architecture\\MailInboundWorkflowTest": 0.2559,
@@ -145,6 +149,6 @@
         "Tests\\Feature\\Architecture\\WorkflowRunnerImageTest": 0.1576,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0609
     },
-    "checksum": "5e9fb8249a7c35def73f7ce170b3d3fe",
+    "checksum": "b179ec6d7ecdea5d6f3d92e98869882b",
     "updated_at": "2026-10-09T17:33:42+00:00"
 }

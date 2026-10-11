@@ -173,7 +173,9 @@ it('only reads: it writes no file and runs nothing that changes the host', funct
 
         // Output is only ever redirected away, never into a file.
         preg_match_all('/(?<![<>=-])(?:\d|&)?>{1,2}(?!=)\s*([^\s;|&)]+)/', $code, $targets);
-        expect(array_values(array_diff(array_unique($targets[1]), ['/dev/null', '&2'])))->toBe([], "{$library} writes a file");
+        // A number after > is a comparison (jq's length > 0), never a file.
+        $files = array_filter(array_unique($targets[1]), static fn (string $target): bool => ! in_array($target, ['/dev/null', '&2'], true) && preg_match('/\A\d+\z/', $target) !== 1);
+        expect(array_values($files))->toBe([], "{$library} writes a file");
 
         foreach (['systemctl', 'postconf -e', 'postfix reload', 'postfix start', 'postfix stop', 'postsuper', 'ufw', 'mv ', 'cp ', 'rm ', 'install ', 'mkdir', 'chmod', 'chown', 'tee '] as $mutation) {
             expect(str_contains($code, $mutation))->toBeFalse("{$library} runs {$mutation}");

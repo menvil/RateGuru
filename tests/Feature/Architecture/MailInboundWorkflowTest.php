@@ -137,14 +137,14 @@ it('runs exactly activate-mail-inbound in the mode its workflow fixed, judges it
     $code = executableSourceLines($source);
 
     expect(array_keys($action['inputs']))->toBe(['operation', 'deployment-target', 'bootstrap-host', 'bootstrap-port', 'bootstrap-user', 'bootstrap-ssh-key', 'bootstrap-known-hosts']);
-    expect(array_keys($action['outputs']))->toBe(['status', 'state']);
+    expect(array_keys($action['outputs']))->toBe(['status', 'state', 'waiting', 'risk', 'oldest']);
 
-    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|rollback) ;;");
+    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|health|rollback) ;;");
     expect($code)->toMatch('#remote_command=\(\s+\$\{RATEGURU_PRIVILEGED_PREFIX:-\}\s+"\$\{RATEGURU_REMOTE_ROOT\}/infrastructure/scripts/activate-mail-inbound"\s+"--\$\{OPERATION\}"\s+--target "\$\{DEPLOYMENT_TARGET\}"\s+\)#');
 
     expect($code)
         ->toContain("grep -c '^RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT='")
-        ->toContain('and (.state | IN("not-installed", "installed-disabled", "enabled-verified", "drift", "unknown"))')
+        ->toContain('and (.state | IN("not-installed", "installed-disabled", "installed-enabled", "enabled-verified", "drift", "unknown"))')
         ->toContain('or ($mode == "apply" and .requested and .state == "enabled-verified" and .public_smtp == "enabled" and (.rolled_back | not))')
         ->toContain('or ($mode == "rollback" and .public_smtp == "disabled" and (.state | IN("installed-disabled", "not-installed")))')
         ->toContain('**Check the published MX records**');
@@ -159,6 +159,17 @@ it('runs exactly activate-mail-inbound in the mode its workflow fixed, judges it
     foreach ($last as $step) {
         expect($step['if'])->toBe('${{ always() }}');
     }
+
+    // The credential is removed by its fixed path too: a key ssh-keygen refused
+    // was written before its path was ever exported.
+    expect($last[1]['run'])
+        ->toContain('"${RUNNER_TEMP}/rateguru_mail_inbound_key"')
+        ->toContain('"${RUNNER_TEMP}/rateguru_mail_inbound_known_hosts"')
+        ->toContain('"${RUNNER_TEMP}/rateguru-mail-inbound-bundle.tar.gz"');
+    $configure = collect($action['runs']['steps'])->firstWhere('name', 'Configure bootstrap SSH')['run'];
+    expect($configure)
+        ->toContain('key_path="${RUNNER_TEMP}/rateguru_mail_inbound_key"')
+        ->toContain('known_hosts_path="${RUNNER_TEMP}/rateguru_mail_inbound_known_hosts"');
 });
 
 it('tells the operator, after a rollback, to check the MX records that still name the host', function () {

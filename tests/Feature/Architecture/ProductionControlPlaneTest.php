@@ -228,6 +228,7 @@ it('pins the classification of every operational workflow literally', function (
         'activate-tits-guru-inbound-smtp.yml' => 'main',
         'verify-tits-guru-inbound-smtp.yml' => 'main',
         'rollback-tits-guru-inbound-smtp.yml' => 'main',
+        'check-tits-guru-inbound-mail-health.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -267,6 +268,10 @@ it('classifies every operational workflow in the repository', function () {
             'ci.yml',
             'coverage.yml',
             'label-review-bot-prs.yml',
+            // The inbound mail health check's schedule: it holds no secret,
+            // reaches no host and can only dispatch Check tits.guru inbound mail
+            // health on main, which is classified — MailInboundHealthWorkflowTest.
+            'schedule-tits-guru-inbound-mail-health.yml',
             // The application release path, governed by its own rules below.
             'release.yml',
         ], true))
@@ -486,6 +491,7 @@ function mainOnlyProductionWorkflows(): array
         'activate-tits-guru-inbound-smtp.yml',
         'verify-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-inbound-smtp.yml',
+        'check-tits-guru-inbound-mail-health.yml',
         'prepare-production-host.yml',
         'repair-production.yml',
         'restore-production.yml',

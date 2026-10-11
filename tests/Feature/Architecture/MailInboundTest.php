@@ -1375,6 +1375,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
         'null-sender-accepted',
         'malformed-and-duplicate-safe',
         'disk-exhaustion-guard',
+        'store-checked-before-acceptance',
         'single-public-port-owner',
         'outbound-unaffected',
     ]);
@@ -1493,7 +1494,7 @@ it('gives the operator the eleven steps from merge to acceptance, DNS only after
         '5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`.',
         '6. **Publish DNS** at the DNS provider, the A record first, then the MX records:',
         '7. **Check public DNS**',
-        '8. **Send a real message** from an outside mailbox to `support@tits.guru`.',
+        '8. **Send a real message** from an outside mailbox to `support@tits.guru` — with the support mailbox\'s count noted just before',
         '9. **Check it is in the inbound store**',
         '10. **Run Verify production infrastructure.**',
         '11. **Run Verify staging infrastructure.**',

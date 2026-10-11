@@ -128,3 +128,62 @@ it('restores the previous configuration and record when Postfix will not reload 
         mailInboundCleanup($host);
     }
 });
+
+it('runs one apply at a time: while another holds the gateway, an apply refuses and leaves the authorization unused', function () {
+    $host = mailInboundHost(['installed' => 'disabled']);
+
+    try {
+        $path = mailInboundAuthorize($host, 'enable', '1.2.3.4');
+
+        // Another apply holds the gateway's state directory.
+        $held = fopen($host['fs'].'/var/lib/rateguru-mail-gateway', 'r');
+        expect(flock($held, LOCK_EX))->toBeTrue();
+        try {
+            [$status, $output] = mailGatewayInboundApply($host);
+        } finally {
+            flock($held, LOCK_UN);
+            fclose($held);
+        }
+
+        expect($status)->not->toBe(0);
+        expect($output)->toContain('another install-mail-gateway --apply is running on this host (it holds /var/lib/rateguru-mail-gateway) — nothing was changed');
+        expect(file_exists($path))->toBeTrue();
+        expect(mailInboundApplied($host)['public_smtp'])->toBe('disabled');
+
+        // Once it is free, the authorization is honoured — once.
+        [$status, $output] = mailGatewayInboundApply($host);
+        expect($status)->toBe(0, $output);
+        expect(mailInboundApplied($host))->toMatchArray(['public_smtp' => 'enabled', 'address' => '1.2.3.4']);
+    } finally {
+        mailInboundCleanup($host);
+    }
+});
+
+it('honours one authorization once even when two applies start together', function () {
+    $host = mailInboundHost(['installed' => 'disabled']);
+
+    try {
+        $path = mailInboundAuthorize($host, 'enable', '1.2.3.4');
+        $nonce = json_decode((string) file_get_contents($path), true)['nonce'];
+        $command = ['bash', $host['bundle'].'/infrastructure/scripts/install-mail-gateway', '--apply'];
+
+        $runs = [];
+        foreach ([1, 2] as $run) {
+            $runs[$run] = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes[$run], $host['scratch'], $host['env']);
+        }
+        $outputs = [];
+        foreach ($runs as $run => $process) {
+            $outputs[$run] = (string) stream_get_contents($pipes[$run][1]);
+            fclose($pipes[$run][1]);
+            proc_close($process);
+        }
+
+        $honoured = array_filter($outputs, static fn (string $output): bool => str_contains($output, 'consuming that one-use authorization'));
+        expect($honoured)->toHaveCount(1, implode("\n----\n", $outputs));
+        expect(substr_count(mailInboundFile($host, '/var/lib/rateguru-mail-gateway/consumed-inbound-transition-authorizations'), " {$nonce} "))->toBe(1);
+        expect(mailInboundApplied($host))->toMatchArray(['public_smtp' => 'enabled', 'address' => '1.2.3.4']);
+        expect(file_exists($path))->toBeFalse();
+    } finally {
+        mailInboundCleanup($host);
+    }
+});

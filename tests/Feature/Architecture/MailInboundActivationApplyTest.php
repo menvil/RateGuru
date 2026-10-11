@@ -22,11 +22,13 @@ it('installs, proves on loopback, opens TCP 25 for exactly the host address by a
         expect($result)->toBe([
             'target' => 'tits-guru', 'mode' => 'apply', 'status' => 'pass', 'requested' => true, 'changed' => true,
             'rolled_back' => false, 'state' => 'enabled-verified', 'public_smtp' => 'enabled', 'address' => '1.2.3.4', 'firewall' => 'ufw',
+            // A host that never had inbound mail has none in its queue to scan.
+            'queue' => null,
         ]);
 
         // In order: the store, the install transition, the proof on loopback,
         // the firewall, the enable transition, the proof again.
-        $order = ['install-mail-inbound --apply (exit 0)', 'the gateway made the install transition', 'the proof on loopback',
+        $order = ['install-mail-inbound --apply (exit 0)', 'the gateway made the install transition', "Z] the proof on loopback\n",
             'opening TCP 25 to 1.2.3.4 in ufw', 'the gateway made the enable transition and records public SMTP enabled on 1.2.3.4:25', 'the proof of public SMTP'];
         $position = -1;
         foreach ($order as $step) {

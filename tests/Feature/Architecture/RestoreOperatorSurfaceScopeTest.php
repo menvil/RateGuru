@@ -23,6 +23,9 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         // and the first real delivery, guarded by the MailOutboundActivation*Test
         // and MailCanary*Test files.
         'activate-tits-guru-mail.yml',
+        // The inbound mail health check, and below its schedule, guarded by
+        // MailInboundHealthWorkflowTest.
+        'check-tits-guru-inbound-mail-health.yml',
         'ci.yml',
         'configure-tits-guru.yml',
         'coverage.yml',
@@ -45,6 +48,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'rollback-staging.yml',
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
+        'schedule-tits-guru-inbound-mail-health.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
         // environment, guarded by VerifyInfrastructureTest — and the live

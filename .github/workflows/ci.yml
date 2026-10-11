@@ -907,9 +907,15 @@ jobs:
     name: Mail on a real Postfix
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # It reads the checkout and runs a script as root: no write permission, and
+    # no token left behind in the checkout for that script to find.
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Postfix, with no configuration of its own
         shell: bash

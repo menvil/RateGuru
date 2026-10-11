@@ -2180,8 +2180,21 @@ Slices, in order:
    contract adds the loopback port and the reviewed limits). The store
    (`scripts/install-mail-inbound`) is a 1 GiB `nodev,nosuid,noexec` volume
    of its own with a no-login owner; while it cannot be written, mail waits
-   in the queue. `net.ipv4.ip_nonlocal_bind` keeps a missing public address
-   from stopping Postfix at boot. The host's state — absent, disabled or
+   in the queue. `250` means queued, not stored: at `RCPT TO`, before any
+   `250`, the inbound listeners ask a store gate — a Postfix policy service
+   (spawn, as `nobody`) — and refuse temporarily while the store is not
+   mounted, is read-only, or is below its reserve of space or inodes. Mail
+   accepted before the store failed waits in the queue for
+   `maximal_queue_lifetime` (five days, shared with outbound mail, so not made
+   unlimited) and is lost after it — that is the stated boundary. The risk is
+   detected long before: `activate-mail-inbound --health` reads each queued
+   message's envelope (the listener that accepted it, never its recipient),
+   fails as soon as accepted inbound mail waits, and reports it AT RISK OF
+   LOSS after a day; Check tits.guru inbound mail health runs it, keeps one
+   issue open while it fails, and a schedule dispatches it from main every six
+   hours once the operator turns it on — each run behind the Environment's
+   approval. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
+   stopping Postfix at boot. The host's state — absent, disabled or
    enabled on one address — is the gateway's own record, moved only by a
    one-use authorization from `scripts/activate-mail-inbound`, each move a
    reload, never a stop: preflight (address, TLS, the gateway, the firewall,

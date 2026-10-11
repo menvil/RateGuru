@@ -82,3 +82,37 @@ it('never closes a TCP 25 that is not RateGuru\'s', function () {
         mailInboundActivationCleanup($setup);
     }
 });
+
+it('closes a rule of its own an earlier run left behind, though the host records no address, and never claims a rule still open closed', function () {
+    // Recorded disabled, nothing listening on 25 — but RateGuru's own ufw rule
+    // for an address no record names any more is still there.
+    $setup = mailInboundActivationHost(['installed' => 'disabled', 'ufw' => 'active', 'ufwRules' => "22/tcp                     ALLOW       Anywhere\n5.6.7.8 25/tcp                    ALLOW       Anywhere                   # rateguru-mail-inbound\n"]);
+
+    try {
+        $host = $setup['host'];
+        [$status, $output, $result] = mailInboundActivationRun($setup, 'rollback');
+
+        expect($status)->toBe(0, $output);
+        expect($output)->toContain("removing RateGuru's ufw rule for TCP 25 to 5.6.7.8")->toContain('ROLLED BACK');
+        expect($result)->toMatchArray(['status' => 'pass', 'state' => 'installed-disabled']);
+        expect((string) file_get_contents($host['state'].'/ufw-rules'))->not->toContain('rateguru-mail-inbound')->toContain('22/tcp');
+    } finally {
+        mailInboundActivationCleanup($setup);
+    }
+
+    // ...and when that rule cannot be removed, the rollback is not proved.
+    $setup = mailInboundActivationHost(['installed' => 'disabled', 'ufw' => 'active', 'ufwRules' => "5.6.7.8 25/tcp                    ALLOW       Anywhere                   # rateguru-mail-inbound\n", 'toggles' => ['ufw-delete-fail']]);
+
+    try {
+        [$status, $output, $result] = mailInboundActivationRun($setup, 'rollback');
+
+        expect($status)->toBe(2, $output);
+        expect($output)
+            ->toContain("FAIL RateGuru's ufw rule for TCP 25 to 5.6.7.8 could not be removed")
+            ->toContain("FAIL a ufw rule of RateGuru's for TCP 25 is still present — public SMTP is not proved closed")
+            ->toContain('ROLLBACK: CRITICAL');
+        expect($result)->toMatchArray(['status' => 'critical']);
+    } finally {
+        mailInboundActivationCleanup($setup);
+    }
+});

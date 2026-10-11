@@ -36,6 +36,7 @@ identity and signing are not changed by any of this.
 | `mx1.tits.guru` A record | **Not published**; the receiver's address is never committed |
 | TLS certificate for `mx1.tits.guru` | **The operator's** — not on the host until installed as [below](#tls-for-mx1titsguru) |
 | Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned` |
+| Inbound mail health check, every six hours | **Implemented in the repository**; off until an operator turns its schedule on after the activation — each run waits for the `production-tits-guru` approval, see [below](#the-health-check) |
 | Envelope sender (Return-Path) of mail sent today | `noreply@tits.guru` — the bounce domain is not an envelope sender yet |
 | `tits-guru` outbound mail | **Production-accepted** 2026-10-08, and untouched by any of this — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
@@ -72,7 +73,9 @@ applications ──▶ 127.0.0.1:2525 ──▶ queue ──▶ rateguru-capture
 `master.cf`, so no submission listener changes:
 
 - recipients judged at `RCPT TO` against the rendered table
-  (`reject_unlisted_recipient`) and relaying refused
+  (`reject_unlisted_recipient`), then the store gate asked whether the store
+  can take mail now (see [the reliability
+  contract](#what-250-means-the-reliability-contract)), and relaying refused
   (`reject_unauth_destination`) for every client — loopback included: no
   `permit_mynetworks`, no trusted network;
 - no SMTP AUTH, no ETRN, no milter, no content filter;
@@ -116,26 +119,73 @@ so the inbound listeners are kept from crowding it:
   floor, so outbound mail still has room;
 - **flow limits** per client — sessions, new sessions a minute, messages a
   minute, one recipient — and 20 public sessions in all;
-- **queue health in Verify**: mail for an inbound domain whose delivery
-  `virtual(8)` deferred is reported, by count only.
+- **queue health**: Verify and the health check count accepted inbound mail
+  still in the queue — by count and age only.
 
-Accepted mail is acknowledged with `250` once it is in the queue, then
-`virtual(8)` delivers it into **the inbound store**, a fixed-size volume of its
-own (1 GiB) that holds nothing but the Maildirs — never the queue:
+`virtual(8)` delivers accepted mail into **the inbound store**, a fixed-size
+volume of its own (1 GiB) that holds nothing but the Maildirs — never the queue.
+The store cannot grow past its volume, and cannot fill the host's file system;
+it is mounted `nodev,nosuid,noexec`. `queue_minfree` guards the queue's file
+system, never the store: the store is guarded by its volume, its gate and its
+reserve check.
 
-- the store cannot grow past its volume, and cannot fill the host's file
-  system; it is mounted `nodev,nosuid,noexec`;
-- while the store cannot be written — full, or its volume not mounted — the
-  message stays in the queue and is retried; nothing is lost and no false
-  success is returned. While the volume is not mounted, its mount point belongs
-  to root, so nothing can be stored beside it;
-- **the queue's lifetime is shared**: Postfix's default `maximal_queue_lifetime`
-  (five days) applies to inbound mail as to outbound mail. A message the store
-  cannot take for longer is returned — and since a bounce has no route off the
-  host, it is then lost. Verify reports waiting inbound mail and a store below
-  its reserve long before that; act on it the same day;
-- `queue_minfree` guards the queue's file system, never the store: the store is
-  guarded by its volume and by Verify's reserve check.
+## What `250` means: the reliability contract
+
+**`250` means the message is in Postfix's queue on disk — not that it is in the
+Maildir.** Postfix answers `250` once the message is safely queued; `virtual(8)`
+then moves it into the store, normally within a second. Between those two
+moments the message is in the shared queue, and the guarantees are these:
+
+1. **The store is checked before any `250`.** At `RCPT TO` every inbound
+   listener asks the **store gate** — a Postfix policy service
+   (`check_policy_service`, run by `spawn(8)` as `nobody`, rendered by the
+   gateway into `/etc/postfix/rateguru-inbound-store-gate`) — whether the store
+   can take mail right now. While the store volume is not mounted, is mounted
+   read-only, or has less free space than its reserve (`storage_reserve_bytes`,
+   100 MB) or fewer than 1024 free inodes, the answer is a temporary refusal —
+   `451 4.3.0` (unavailable) or `452 4.3.1` (insufficient storage) — so the
+   sender keeps the message and retries, and nothing is accepted that could
+   only wait in the queue. A gate that cannot run is answered `451` by Postfix
+   itself: it never fails open. The gate reads no message and no attribute of
+   the request, logs nothing, and the submission listeners never ask it, so
+   2525 and 2526 accept whatever the store does.
+2. **What the gate cannot see waits in the queue.** A store that fails after
+   the gate said yes — between `RCPT TO` and delivery, or through a fault the
+   gate does not check, such as a mailbox directory with the wrong owner — makes
+   `virtual(8)` defer the message. It stays in the queue and is retried; no
+   false success is given and nothing is lost yet. While the volume is not
+   mounted, its mount point belongs to root, so nothing is stored beside it.
+3. **The queue keeps a message for `maximal_queue_lifetime`** — Postfix's
+   default, five days, for inbound and outbound mail alike. A message the store
+   cannot take for longer is given up, and since a bounce has no route off the
+   host, **it is then lost**. That is the boundary of the guarantee: accepted
+   mail survives any store outage shorter than the queue lifetime, and no
+   longer.
+4. **The risk is detected long before that.** The health check (below) counts
+   every accepted inbound message still in the queue and fails as soon as one
+   waits; a message waiting for more than a day is reported **AT RISK OF LOSS**
+   with the count, the oldest one's age and how long Postfix still keeps it —
+   four days in which to restore the store.
+
+**Why the queue lifetime is not made unlimited.** `maximal_queue_lifetime` is
+one setting of the whole Postfix — there is no per-transport lifetime — so
+`0` (or a very long one) would keep undeliverable *outbound* mail in the shared
+queue for ever too, and a long outage of a recipient domain would then fill the
+queue the outbound listeners need. It stays Postfix's default; the outbound
+routes are not changed.
+
+**How the queue scan tells inbound from outbound.** Postfix records in each
+message's envelope the address and port of the listener that accepted it
+(`server_address`, `server_port`), and a submission listener's message carries
+its content filter as well. The scan reads those envelope records with `postcat
+-e` — never a header or a body — and counts a message as inbound only when the
+inbound loopback listener, or port 25 on any address, accepted it and it names
+no content filter. So an application's message to `support@tits.guru`, deferred
+by its own route, is never counted, whatever its recipient. A recipient at an
+inbound domain only chooses which envelopes are read at all. A message counts
+as **waiting** once it is deferred or held, or has been in the queue for
+15 minutes in any state; Postfix's own notices, which no listener accepted,
+are never counted.
 
 ## No single address may stop Postfix
 
@@ -360,19 +410,20 @@ runs the same read-back against the real `postconf`.
 | `relay-refused-at-rcpt` | A recipient at any other domain is refused at `RCPT TO` (`reject_unauth_destination`), for every client, loopback included: the inbound listeners trust no network. |
 | `no-smtp-auth` | No SMTP AUTH is offered on an inbound listener. |
 | `no-relay-no-forwarding` | No relay host, relay domain, transport map or address rewrite to another address: accepted mail reaches only its own Maildir. |
-| `message-size-limit` | 10 MB on the inbound listeners and their cleanup, announced in `SIZE`, and no stored message larger. |
+| `message-size-limit` | 10 MB on the inbound listeners and their cleanup, announced in `SIZE`, and no stored message larger — `virtual(8)` carries the same limit itself, since it refuses to start while the global one exceeds its mailbox limit. |
 | `recipient-limit` | One recipient per message; a second is refused, temporarily. |
 | `connection-limits` | Five concurrent and 30 new sessions a minute per client, no client exempt, 20 public sessions in all. |
 | `queue-limits` | The inbound listeners refuse new mail, temporarily, while the shared queue's file system is below their reserve; the submission listeners keep their own. |
 | `shared-queue-guard` | 60 messages a minute per client, so no sender fills the shared queue; Verify reports inbound mail waiting in it. |
 | `no-outbound-submission` | No content filter and no milter on an inbound listener, their own cleanup, and no SMTP client but the plan's routes: inbound mail never reaches an outbound route. |
 | `no-message-content-in-logs` | Nothing of a message is matched or logged (no header or body checks), no TLS session details, and no workflow prints a message. |
-| `content-never-executed` | No delivery to a command, a local mailbox or LMTP; the store is mounted `noexec`, `nosuid`, `nodev`. |
+| `content-never-executed` | No delivery to a command, a local mailbox or LMTP — the one command master.cf runs is the store gate, which is never given a message; the store is mounted `noexec`, `nosuid`, `nodev`. |
 | `untrusted-sender-fields` | The sender never authorizes or routes: no sender restriction on an inbound listener, and nothing reads `From`, `Reply-To` or attachments. |
 | `no-automatic-replies` | No auto-reply, and a bounce to any sender — a forged one included — has no route off the host: the default and relay transports are `error(8)`. |
 | `null-sender-accepted` | `MAIL FROM:<>` is accepted, so delivery status notifications reach the bounce domain. |
 | `malformed-and-duplicate-safe` | Every message is a Maildir file of its own, never overwritten or merged. |
 | `disk-exhaustion-guard` | The store is a fixed-size volume of its own, never the queue's file system; below its reserve Verify fails. |
+| `store-checked-before-acceptance` | At `RCPT TO`, before any `250`, the inbound listeners ask the store gate: a store not mounted, mounted read-only, or below its reserve of space or inodes is answered `451`/`452`, temporarily. The gate runs as `nobody`, with exactly the store, its reserve and the kernel's mount table. |
 | `single-public-port-owner` | The installed `master.cf` names no public listener while disabled, and exactly the recorded one while enabled; on port 25 only the host's own Postfix may listen. |
 | `outbound-unaffected` | Every submission listener, route, signer, the hostname and the recorded policy are exactly what they are without inbound mail: no submission listener takes an inbound setting. |
 
@@ -411,6 +462,10 @@ So:
 - an authorization that is malformed, expired, reused, for another state or
   address, or not root's `0600` is never honoured, and changes nothing;
 - a recorded state that cannot be trusted is refused, never guessed around.
+
+One `install-mail-gateway --apply` runs at a time: it holds the gateway's state
+directory locked for its whole run, and a second one refuses at once, so two
+runs never both honour one authorization.
 
 Every transition is a reload of the running Postfix (`systemctl reload
 postfix@-.service`), never a stop or a restart: the submission listeners keep
@@ -566,7 +621,10 @@ Environment's approval is even requested.
    route to the Internet, judged by `render-dns`), a valid certificate, the
    gateway verifies, nothing foreign listens on 25, 465 or 587, the firewall is
    manageable, the store can be created, the queue's file system keeps its
-   reserve, no inbound mail is stuck in the queue.
+   reserve, no inbound mail is stuck in the queue, and the proof on loopback
+   fits the inbound listener's own per-client limits — which bind `127.0.0.1`
+   like any client — asked a few addresses a session, below Postfix's error
+   limits however many targets the plan has.
 4. **The outbound path recorded**: everything Postfix reads but the inbound
    settings, and the gateway's recorded policy.
 5. **The store** (`install-mail-inbound --apply`), then — on a host without
@@ -598,18 +656,80 @@ Environment's approval is even requested.
 | `enabled-verified` | all of that, Postfix alone listens on the recorded address, which the host has, and the rule is there |
 | `drift` | anything else — reported as a failure |
 
-and in every state, that the mail gateway verifies and no inbound mail waits in
-the queue for its store. Verify production infrastructure runs it as its
+and in every state, that the mail gateway verifies and no accepted inbound
+mail waits in the queue for its store. Verify production infrastructure runs it as its
 **Mail inbound** group: `enabled-verified` is PASS, inbound mail requested but
 not activated is DEFERRED, drift is FAIL.
 
 Every run ends with exactly one line, which the workflows check and summarize:
 
 ```
-RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT={"target":"tits-guru","mode":"apply","status":"pass","requested":true,"changed":true,"rolled_back":false,"state":"enabled-verified","public_smtp":"enabled","address":"…","firewall":"ufw"}
+RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT={"target":"tits-guru","mode":"apply","status":"pass","requested":true,"changed":true,"rolled_back":false,"state":"enabled-verified","public_smtp":"enabled","address":"…","firewall":"ufw","queue":null}
 ```
 
-It carries no message, header, certificate or secret.
+It carries no message, header, address, certificate or secret; `queue` is the
+last queue scan's counts and ages, when the run made one.
+
+## The health check
+
+`activate-mail-inbound --health --target tits-guru` — read-only, no lock, so it
+may run at any time — answers two questions: **can the store take mail right
+now**, and **is mail the host already accepted waiting in the shared queue**.
+
+| Check | Fails when |
+|-------|-----------|
+| the store | `install-mail-inbound --verify` fails: the volume not mounted, a mailbox not as reviewed, free space below its reserve, or the certificate |
+| the store gate | the installed gate refuses new mail now (`451` unavailable, `452` full), or is missing |
+| the shared queue | any accepted inbound message waits — deferred or held for any reason, or in the queue for 15 minutes in any state; one accepted more than a day ago is reported **AT RISK OF LOSS** |
+| the queue's file system | it is below the reserve the inbound listeners refuse new mail under |
+
+It prints counts and ages, never an address, a sender or a byte of a message:
+
+```
+  FAIL 3 accepted inbound message(s) wait in the shared queue instead of reaching the store (deferred 3); the oldest was accepted 1d 6h ago — …
+  FAIL AT RISK OF LOSS: 2 inbound message(s) accepted more than 1d 0h ago are still not stored. Postfix gives a message up 5d 0h after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has 3d 17h left
+[…] INBOUND HEALTH: FAILED (3 problem(s) above) — restore the store before accepted inbound mail is given up
+```
+
+On a host without inbound mail it has nothing to check, and passes.
+
+**From GitHub.** **Check tits.guru inbound mail health** runs it, from `main`
+behind the same main-only gate, in the `production-tits-guru` Environment with
+the bootstrap credential. A failed run opens one issue titled *tits-guru inbound
+mail health check failed* — or adds to the one already open — with the counts
+and the oldest age; the next passing run closes it. **Schedule tits.guru inbound
+mail health** dispatches that workflow on `main` every six hours: GitHub runs a
+schedule on the default branch, which the Environment does not admit, so the
+schedule itself holds no secret and reaches no host — it can only start the
+check. It does nothing until the repository variable
+`RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is `enabled`, which the operator sets
+after the activation (step 5 of [the operator order](#the-operator-order)).
+
+**The approval.** The `production-tits-guru` Environment requires a reviewer, so
+every scheduled run waits for that approval before it reaches the host: the
+schedule asks every six hours, a person lets it run. Running it unattended
+would need the check to hold a production credential without an approval —
+an Environment of its own, without a reviewer, admitting only `main` — which
+is a decision about the production credentials, not made here.
+
+## When the health check fails
+
+1. **Read which check failed** in the run's log; the issue says how many
+   messages wait and for how long.
+2. **Restore the store** on the host, as root: `install-mail-inbound --verify`
+   says what is wrong. A volume that is not mounted: `systemctl start
+   'var-lib-rateguru\x2dmail\x2dinbound-store.mount'`. A full one: read and
+   move stored mail off it (by count: `find …/new -type f | wc -l`; never into a
+   log). A mailbox not as reviewed: `install-mail-inbound --apply`.
+3. **Let Postfix deliver what waits.** It retries on its own, at most every
+   `maximal_backoff_time` (about an hour); to retry at once, `postqueue -f`
+   retries every deferred message — inbound and outbound alike, which is
+   harmless: nothing is removed. Never `postsuper -d`.
+4. **Run the health check again**: it passes, and closes the issue, once
+   nothing waits.
+
+A message reported **AT RISK OF LOSS** is lost when its queue lifetime runs
+out: restore the store before the time the check prints.
 
 ## Tested on a real Postfix
 
@@ -621,7 +741,7 @@ scenario renders the configuration with the gateway's own renderer, from the
 reviewed documents, into a directory of its own, and runs it:
 
 - Postfix accepts it, and the gateway's read-back — the outbound contract and
-  all twenty requirements — passes against the real `postconf`;
+  all twenty-one requirements — passes against the real `postconf`;
 - the outbound part, as `postconf -n`, `-M` and `-P` read it, is identical with
   inbound mail absent, disabled and enabled;
 - the production listener still takes its sender, and its mail to
@@ -633,13 +753,21 @@ reviewed documents, into a directory of its own, and runs it:
 - `virtual(8)` stores support, bounce and the bare `<Postmaster>` in their
   Maildirs; a message waits in the queue while the store cannot be written and
   is stored once it can; a bounce to a forged sender has no route;
+- the queue scan, on Postfix's own envelopes, counts that waiting message as
+  inbound and never the application's deferred message to `support@tits.guru`;
+- the store gate, on a store volume of its own: with the volume not mounted,
+  mounted read-only, below its reserve of space or of inodes, both inbound
+  listeners refuse at `RCPT TO` — `451`/`452`, so no message reaches `DATA` and
+  nothing is queued — while 2525 and 2526 still accept; without its gate they
+  refuse too; with the store back they accept;
 - the inbound listeners refuse below their queue floor while the submission
   listeners accept;
 - a reload to disabled closes 25 with the same master process, and every
   listener left still works.
 
 CI's runner is Ubuntu 24.04, so the job runs Postfix 3.8; the scenario passes
-on Ubuntu 22.04's Postfix 3.6 as well, the version the hosts run. The same flow
+on Ubuntu 22.04's Postfix 3.6 as well, the version the hosts run — the store
+gate and the queue scan included. The same flow
 was rehearsed end to end on Ubuntu 22.04 with systemd and ufw —
 install, activation, verify, a repeat that changes nothing, rollback, the
 store unavailable, a stale bundle, a host reboot, and a reboot without the
@@ -659,7 +787,10 @@ is needed for it. In this order, and no step before the previous one passed:
    `ACTIVATE tits-guru inbound SMTP`. It creates the store, installs inbound
    mail on the gateway's Postfix, proves it, opens TCP 25 and prints the DNS
    records to publish.
-5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`.
+5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`. Then turn the
+   health check's schedule on: set the repository variable
+   `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` to `enabled`, and run **Check
+   tits.guru inbound mail health** once by hand — it passes.
 6. **Publish DNS** at the DNS provider, the A record first, then the MX records:
    ```
    mx1.tits.guru          A     <the address Activate printed>
@@ -668,14 +799,24 @@ is needed for it. In this order, and no step before the previous one passed:
    reply.tits.guru        MX 10 mx1.tits.guru
    ```
    Nothing for `mta1.tits.guru`, no PTR, SPF, DKIM or DMARC change.
-7. **Check public DNS**: the A and MX records answer the same from public
-   resolvers (`dig @1.1.1.1` and `dig @8.8.8.8`), and TCP 25 on that address
-   answers from outside the host.
-8. **Send a real message** from an outside mailbox to `support@tits.guru`.
-9. **Check it is in the inbound store**, on the host, without printing it
-   anywhere — the count, never the content:
+7. **Check public DNS**: the A and MX records answer the same from both public
+   resolvers —
+   ```bash
+   for resolver in 1.1.1.1 8.8.8.8; do
+     dig +short @"${resolver}" A mx1.tits.guru
+     for domain in tits.guru bounce.tx.tits.guru reply.tits.guru; do
+       dig +short @"${resolver}" MX "${domain}"
+     done
+   done
+   ```
+   — each answer `<the address Activate printed>` and `10 mx1.tits.guru.`, and
+   TCP 25 on that address answers from outside the host.
+8. **Send a real message** from an outside mailbox to `support@tits.guru` — with
+   the support mailbox's count noted just before, on the host:
    `sudo find /var/lib/rateguru-mail-inbound/store/targets/tits-guru/support/new -type f | wc -l`.
-   Never into a workflow log.
+9. **Check it is in the inbound store**: the same count, once the message has
+   had time to arrive, is one more than before — the count, never the content,
+   and never into a workflow log.
 10. **Run Verify production infrastructure.**
 11. **Run Verify staging infrastructure.**
 

@@ -70,7 +70,14 @@
 #   enabled-verified    inbound delivery verifies, Postfix alone listens on the
 #                       recorded address, the firewall rule is there
 #   drift               anything else — reported as a failure
-# and in every state, that the mail gateway verifies.
+# and in every state, that the mail gateway verifies and no accepted inbound
+# mail waits in the shared queue.
+#
+# --health is read-only and takes no lock, for a schedule: whether the store
+# takes mail right now — the store verifies and its gate admits mail — and
+# whether accepted inbound mail waits in the shared queue, with the count and
+# the oldest one's age. Waiting mail fails; mail waiting for more than a day is
+# reported AT RISK OF LOSS, with how long Postfix keeps it before giving it up.
 #
 # NEVER. No DNS record is published, no message is read or printed — the probe
 # is found by its own random token and removed — no firewall rule but
@@ -80,8 +87,8 @@
 #
 # Every run whose mode and target were understood ends with exactly one line
 # RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT={target, mode, status, requested,
-# changed, rolled_back, state, public_smtp, address, firewall}; status is pass,
-# fail or critical.
+# changed, rolled_back, state, public_smtp, address, firewall, queue}; status
+# is pass, fail or critical, and queue the last scan's counts and ages, or null.
 #
 # Repository tooling: run as root from a trusted bundle by its workflows, never
 # installed on a host.
@@ -125,7 +132,12 @@ IPTABLES_SAVE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_IPTABLES_SAVE_BI
 IPTABLES_LEGACY_SAVE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_IPTABLES_LEGACY_SAVE_BIN iptables-legacy-save)"
 
 POSTQUEUE_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_POSTQUEUE_BIN postqueue)"
+POSTCAT_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_POSTCAT_BIN postcat)"
+POSTCONF_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_POSTCONF_BIN postconf)"
 DF_BIN="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_DF_BIN df)"
+
+# Where the kernel lists the host's mounts, for the store gate.
+MOUNTINFO_FILE="$(gated_default RATEGURU_MAILINBOUNDACTIVATE_MOUNTINFO /proc/self/mountinfo)"
 
 # Every probe goes to the address and port the plan names; the test seam alone
 # points them elsewhere.
@@ -148,6 +160,10 @@ CAPSULE_ROOT="/var/lib/rateguru-mail-inbound-activation"
 CAPSULE_KIND="rateguru-mail-inbound-activation"
 
 HOST_POSTMASTER_MAILBOX="host/postmaster/"
+
+# The proof on loopback asks this many addresses in one session, so a session
+# never reaches Postfix's soft error limit however many targets the plan has.
+PROBE_SESSION_RECIPIENTS=8
 
 # What the outbound path is, besides Postfix's own reading of it: the
 # gateway's recorded policy.
@@ -180,6 +196,8 @@ OUTBOUND_DIGEST=""
 PLAN=""
 ROUTING_PLAN=""
 COUNT_FAIL=0
+# What the last queue scan found: counts and ages only.
+QUEUE_SUMMARY="null"
 
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 ok() { printf '  PASS %s\n' "$*"; }
@@ -196,6 +214,7 @@ Usage:
   activate-mail-inbound --check    --target TARGET
   activate-mail-inbound --apply    --target TARGET
   activate-mail-inbound --verify   --target TARGET
+  activate-mail-inbound --health   --target TARGET
   activate-mail-inbound --rollback --target TARGET
   activate-mail-inbound --help
 
@@ -209,6 +228,9 @@ Usage:
   --verify    Read-only (root): which state the host is in —
               not-installed, installed-disabled, enabled-verified or drift —
               and that the mail gateway verifies.
+  --health    Read-only (root): whether the store takes mail right now, and
+              how much accepted inbound mail waits in the shared queue, and
+              for how long. Fails on anything that puts accepted mail at risk.
   --rollback  Root. Close public SMTP: the public listener removed by a
               reload, RateGuru's TCP 25 rule removed, proved closed. Outbound
               mail, the queue and stored mail are kept.
@@ -237,11 +259,12 @@ result_line() {
         --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
         --argjson requested "${REQUESTED}" --argjson changed "${CHANGED}" \
         --argjson rolled_back "${ROLLED_BACK}" --arg state "${HOST_STATE}" \
-        --arg public_smtp "${PUBLIC_STATE}" --arg address "${ADDRESS}" --arg firewall "${FIREWALL_MODE}" '
+        --arg public_smtp "${PUBLIC_STATE}" --arg address "${ADDRESS}" --arg firewall "${FIREWALL_MODE}" \
+        --argjson queue "${QUEUE_SUMMARY}" '
         {target: $target, mode: $mode, status: $status, requested: $requested,
          changed: $changed, rolled_back: $rolled_back, state: $state,
          public_smtp: $public_smtp, address: (if $address == "" then null else $address end),
-         firewall: $firewall}' \
+         firewall: $firewall, queue: $queue}' \
         | sed 's/^/RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=/'
 }
 
@@ -407,9 +430,9 @@ outbound_digest() {
              /^virtual_(transport|mailbox_domains|mailbox_maps|mailbox_base|uid_maps|gid_maps|minimum_uid|mailbox_limit)[[:space:]]*=/ { next }
              { print }' "$(physical /etc/postfix/main.cf)" 2>/dev/null
         printf -- '--- master.cf\n'
-        awk -v loopback="${loopback}" -v cleanup="${MAIL_INBOUND_CLEANUP_SERVICE}" -v rewrite="${MAIL_INBOUND_REWRITE_SERVICE}" '
+        awk -v loopback="${loopback}" -v cleanup="${MAIL_INBOUND_CLEANUP_SERVICE}" -v rewrite="${MAIL_INBOUND_REWRITE_SERVICE}" -v gate="${MAIL_INBOUND_STORE_GATE_SERVICE}" '
             /^[[:space:]]*(#|$)/ { next }
-            /^[^[:space:]]/ { inbound = ($1 == loopback || $1 ~ /:25$/ || $1 == cleanup || $1 == rewrite || ($1 == "virtual" && $2 == "unix")) }
+            /^[^[:space:]]/ { inbound = ($1 == loopback || $1 ~ /:25$/ || $1 == cleanup || $1 == rewrite || $1 == gate || ($1 == "virtual" && $2 == "unix")) }
             inbound { next }
             { print }' "$(physical /etc/postfix/master.cf)" 2>/dev/null
         for path in "${GATEWAY_RECORDS[@]}"; do
@@ -470,43 +493,92 @@ port25_listeners() {
     public_smtp_listening_sockets | awk -F'\t' '$1 ~ /:25$/ { print $1 }'
 }
 
-# inbound_queue_problems — inbound mail waiting in the shared queue because
-# virtual(8) could not store it: a recipient of an inbound domain whose
-# delivery was deferred by the Maildir delivery. Outbound mail an application
-# sends to the same domains leaves by its own smtp client and is deferred, if
-# at all, for reasons of its own — it is never counted here. Counts only: never
-# an address, a sender or a byte of a message.
-inbound_queue_problems() {
-    local listing domains stuck
-    if ! listing="$("${POSTQUEUE_BIN}" -j 2>/dev/null)"; then
-        printf 'the shared queue cannot be read (postqueue -j) — whether inbound mail waits in it cannot be proved\n'
-        return 0
-    fi
-
-    domains="$(jq -c '[.targets[].domains[], "rateguru-mail-inbound.invalid"] | unique' <<<"${PLAN}")"
-    stuck="$(jq -s --argjson domains "${domains}" '
-        [ .[]
-          | select(.queue_name == "deferred")
-          | select(any(.recipients[]?;
-                ((.address | ascii_downcase | split("@") | last) as $d | any($domains[]; . == $d))
-                and ((.delay_reason // "") | test("maildir delivery failed"; "i")))) ]
-        | length' <<<"${listing}" 2>/dev/null || echo unreadable)"
-
-    if [[ "${stuck}" == unreadable ]]; then
-        printf 'the shared queue listing cannot be read — whether inbound mail waits in it cannot be proved\n'
-    elif (( stuck > 0 )); then
-        printf '%s message(s) for the inbound domains wait in the shared queue instead of reaching the store — check the store volume (install-mail-inbound --verify)\n' "${stuck}"
-    fi
+# inbound_domains — the domains the inbound listeners receive for, the host
+# postmaster's included, as a JSON array.
+inbound_domains() {
+    jq -c '[.targets[].domains[], (.receiver.host_postmaster.address | split("@") | last)] | unique' <<<"${PLAN}"
 }
 
+# queue_lifetime_seconds — maximal_queue_lifetime as Postfix reads it, in
+# seconds (a number without a unit is days); nothing when it cannot be read.
+queue_lifetime_seconds() {
+    local value
+    value="$("${POSTCONF_BIN}" -h maximal_queue_lifetime 2>/dev/null || true)"
+    [[ "${value}" =~ ^([0-9]+)([smhdw]?)$ ]] || return 0
+    case "${BASH_REMATCH[2]}" in
+        s) printf '%s\n' "${BASH_REMATCH[1]}" ;;
+        m) printf '%s\n' $(( BASH_REMATCH[1] * 60 )) ;;
+        h) printf '%s\n' $(( BASH_REMATCH[1] * 3600 )) ;;
+        w) printf '%s\n' $(( BASH_REMATCH[1] * 604800 )) ;;
+        *) printf '%s\n' $(( BASH_REMATCH[1] * 86400 )) ;;
+    esac
+}
+
+# check_inbound_queue — accepted inbound mail still in the shared queue, read
+# from each message's own envelope (mail_inbound_queue_scan): waiting is a
+# failure, whatever Postfix gave as the reason, and waiting for more than a
+# day is a risk of losing it. Counts and ages only — never an address, a
+# sender or a byte of a message.
 check_inbound_queue() {
-    local problems
-    problems="$(inbound_queue_problems)"
-    if [[ -z "${problems}" ]]; then
-        ok "no inbound mail is waiting in the shared queue"
+    local summary inbound waiting at_risk oldest queues lifetime
+
+    if ! summary="$(mail_inbound_queue_scan "${POSTQUEUE_BIN}" "${POSTCAT_BIN}" "$(jq -r '.receiver.loopback_port' <<<"${PLAN}")" "$(inbound_domains)" "$(date +%s)")"; then
+        bad "the shared queue cannot be read (postqueue -j, postcat -e) — whether accepted inbound mail waits in it cannot be proved"
+        return 1
+    fi
+    QUEUE_SUMMARY="${summary}"
+    read -r inbound waiting at_risk oldest < <(jq -r '[.inbound, .waiting, .at_risk, .oldest_seconds] | @tsv' <<<"${summary}")
+    queues="$(jq -r '.queues | to_entries | map("\(.key) \(.value)") | join(", ")' <<<"${summary}")"
+
+    if (( waiting == 0 )); then
+        if (( inbound == 0 )); then
+            ok "no accepted inbound mail is in the shared queue"
+        else
+            ok "no accepted inbound mail waits in the shared queue (${inbound} on its way to the store, the oldest for $(mail_inbound_duration "${oldest}"))"
+        fi
         return 0
     fi
-    bad "${problems}"
+
+    bad "${waiting} accepted inbound message(s) wait in the shared queue instead of reaching the store (${queues}); the oldest was accepted $(mail_inbound_duration "${oldest}") ago — restore the store (install-mail-inbound --verify); Postfix then delivers them on its own"
+    if (( at_risk > 0 )); then
+        lifetime="$(queue_lifetime_seconds)"
+        if [[ -n "${lifetime}" ]]; then
+            bad "AT RISK OF LOSS: ${at_risk} inbound message(s) accepted more than $(mail_inbound_duration "${MAIL_INBOUND_QUEUE_RISK_SECONDS}") ago are still not stored. Postfix gives a message up $(mail_inbound_duration "${lifetime}") after accepting it (maximal_queue_lifetime), and an inbound message given up is lost: the oldest has $(mail_inbound_duration $(( lifetime > oldest ? lifetime - oldest : 0 ))) left"
+        else
+            bad "AT RISK OF LOSS: ${at_risk} inbound message(s) accepted more than $(mail_inbound_duration "${MAIL_INBOUND_QUEUE_RISK_SECONDS}") ago are still not stored, and maximal_queue_lifetime cannot be read — Postfix gives a message up after it, and an inbound message given up is lost"
+        fi
+    fi
+    return 1
+}
+
+# check_store_gate — what the installed store gate answers right now: whether
+# the inbound listeners take new mail for the store at all.
+check_store_gate() {
+    local gate verdict
+    gate="$(physical "${MAIL_INBOUND_STORE_GATE}")"
+
+    if [[ ! -f "${gate}" ]]; then
+        bad "the store gate ${MAIL_INBOUND_STORE_GATE} is not installed — the inbound listeners refuse every recipient (install-mail-gateway --verify)"
+        return 1
+    fi
+
+    verdict="$(printf 'request=smtpd_access_policy\n\n' \
+        | bash "${gate}" "$(physical "${MAIL_INBOUND_STORE}")" "$(jq -r '.receiver.limits.storage_reserve_bytes' <<<"${PLAN}")" \
+            "${MAIL_INBOUND_STORE_GATE_MIN_INODES}" "${MOUNTINFO_FILE}" 2>/dev/null \
+        | sed -n 's/^action=//p' | head -n 1 || true)"
+
+    case "${verdict}" in
+        DUNNO)
+            ok "the store gate admits new inbound mail: the store is mounted, writable and above its reserve of space and inodes"
+            return 0
+            ;;
+        "")
+            bad "the store gate gave no answer — the inbound listeners refuse every recipient until it does"
+            ;;
+        *)
+            bad "the store gate refuses new inbound mail now (${verdict}) — senders keep it and retry; restore the store (install-mail-inbound --verify)"
+            ;;
+    esac
     return 1
 }
 
@@ -641,14 +713,15 @@ outbound_listeners_answer() {
     (( failures == 0 ))
 }
 
-# probe_corpus — "ADDRESS<TAB>EXPECTED" for every address the proof asks the
+# probe_corpus_addresses — every address the proof asks the live inbound
+# listener about, one per line; probe_corpus — "ADDRESS<TAB>EXPECTED" for every address the proof asks the
 # live inbound listener about: the plan's own exact addresses, a well-formed
 # and a malformed identifier of every address space, another destination's
 # form, an unknown mailbox, a foreign domain and the bare Postmaster.
 # EXPECTED is accept or reject, as `mail-inbound route` judges it — the one
 # decision the listener must agree with.
-probe_corpus() {
-    local address verdict sample='01234567890abcdefghjkmnpqr'
+probe_corpus_addresses() {
+    local sample='01234567890abcdefghjkmnpqr'
 
     {
         jq -r --arg sample "${sample}" '
@@ -663,7 +736,12 @@ probe_corpus() {
                 | "\(.[0].address_space.local_part_prefix)\($sample)@\(.[1].domain)")' <<<"${PLAN}"
         printf 'probe@relay-probe.invalid\n'
         printf 'Postmaster\n'
-    } | while IFS= read -r address; do
+    } | awk 'NF'
+}
+
+probe_corpus() {
+    local address verdict
+    probe_corpus_addresses | while IFS= read -r address; do
         [[ -n "${address}" ]] || continue
         if "$(bundle_script mail-inbound)" route --recipient "${address}" >/dev/null 2>&1; then
             verdict=accept
@@ -690,10 +768,21 @@ live_proof() {
         expected+=("${verdict}")
     done <<<"${corpus}"
 
-    if ! smtp_probe_recipients 127.0.0.1 "${port}" inbound-proof.invalid "" "${addresses[@]}"; then
-        bad "the inbound loopback listener 127.0.0.1:${port} did not complete the probe (${SMTP_STAGE}: ${SMTP_REPLY})"
-        return 1
-    fi
+    # A few addresses a session: each refused recipient counts as an error of
+    # the session, and Postfix slows a session down after
+    # smtpd_soft_error_limit of them (10) and ends it after
+    # smtpd_hard_error_limit (20).
+    local start=0 replies=() ehlo=""
+    while (( start < ${#addresses[@]} )); do
+        if ! smtp_probe_recipients 127.0.0.1 "${port}" inbound-proof.invalid "" "${addresses[@]:start:PROBE_SESSION_RECIPIENTS}"; then
+            bad "the inbound loopback listener 127.0.0.1:${port} did not complete the probe (${SMTP_STAGE}: ${SMTP_REPLY})"
+            return 1
+        fi
+        replies+=("${SMTP_RCPT_REPLIES[@]}")
+        [[ -n "${ehlo}" ]] || ehlo="${SMTP_EHLO}"
+        start=$(( start + PROBE_SESSION_RECIPIENTS ))
+    done
+    SMTP_EHLO="${ehlo}"
 
     if grep -qE '^AUTH( |$)' <<<"${SMTP_EHLO}"; then
         bad "the inbound listener offers SMTP AUTH"; failures=$((failures + 1))
@@ -710,7 +799,7 @@ live_proof() {
     fi
 
     for i in "${!addresses[@]}"; do
-        reply="${SMTP_RCPT_REPLIES[${i}]:-}"
+        reply="${replies[${i}]:-}"
         case "${expected[${i}]}:${reply:0:1}" in
             accept:2|reject:5)
                 ok "RCPT TO:<${addresses[${i}]}> ${expected[${i}]}ed, as mail-inbound route judges it"
@@ -916,8 +1005,19 @@ return_to_disabled() {
     fi
 
     if [[ "${FIREWALL_MODE}" == ufw ]]; then
-        close_firewall "${previous}" \
-            || { bad "RateGuru's ufw rule for TCP 25 could not be removed"; failures=$((failures + 1)); }
+        # The address this run opened, or the record's — and every address a
+        # rule of RateGuru's own still names, so a rule an earlier run left
+        # behind is closed too, even on a host that records no address.
+        local address
+        while IFS= read -r address; do
+            [[ -n "${address}" ]] || continue
+            close_firewall "${address}" \
+                || { bad "RateGuru's ufw rule for TCP 25 to ${address} could not be removed"; failures=$((failures + 1)); }
+        done < <({ printf '%s\n' "${previous}"; ufw_own_rule_addresses; } | awk 'NF && !seen[$0]++')
+        if ufw_own_rule_present; then
+            bad "a ufw rule of RateGuru's for TCP 25 is still present — public SMTP is not proved closed"
+            failures=$((failures + 1))
+        fi
     fi
 
     read_host_state
@@ -1013,6 +1113,11 @@ classify() {
     (( COUNT_FAIL == failures_before ))
 }
 
+# ufw_own_rule_addresses — every address a rule of RateGuru's own allows TCP 25 to.
+ufw_own_rule_addresses() {
+    "${UFW_BIN}" status 2>/dev/null | awk -v comment="# ${FIREWALL_COMMENT}" '$2 == "25/tcp" && substr($0, length($0) - length(comment) + 1) == comment { print $1 }'
+}
+
 # ufw_own_rule_present — RateGuru's own rule is present, for any address.
 ufw_own_rule_present() {
     "${UFW_BIN}" status 2>/dev/null | grep -E " 25/tcp .*# ${FIREWALL_COMMENT}\$" >/dev/null
@@ -1064,6 +1169,29 @@ preflight() {
     if [[ "${INSTALLED}" == true ]]; then
         check_inbound_queue || true
     fi
+
+    check_proof_budget || true
+}
+
+# check_proof_budget — the proof on loopback stays within the inbound
+# listener's own per-client limits, which bind 127.0.0.1 like any client: one
+# MAIL FROM for each address of the corpus, the recipient-limit transaction
+# and the stored probe, in so many sessions. A plan whose proof would be cut
+# short by its own limits is refused here, not mistaken for a broken listener.
+check_proof_budget() {
+    local count messages sessions message_rate connection_rate
+    count="$(probe_corpus_addresses | wc -l | tr -d ' ')"
+    messages=$(( count + 2 ))
+    sessions=$(( (count + PROBE_SESSION_RECIPIENTS - 1) / PROBE_SESSION_RECIPIENTS + 2 ))
+    message_rate="$(jq -r '.receiver.limits.message_rate_per_client' <<<"${PLAN}")"
+    connection_rate="$(jq -r '.receiver.limits.connection_rate_per_client' <<<"${PLAN}")"
+
+    if (( messages <= message_rate && sessions <= connection_rate )); then
+        ok "the proof on loopback fits the inbound listener's own limits: ${messages} message(s) in ${sessions} session(s), within ${message_rate} messages and ${connection_rate} sessions a minute"
+        return 0
+    fi
+    bad "the proof on loopback needs ${messages} message(s) in ${sessions} session(s), more than the inbound listener's own limits of ${message_rate} messages and ${connection_rate} sessions a minute allow — raise them in mail-inbound.json, or the proof would be refused by them"
+    return 1
 }
 
 print_operator_next() {
@@ -1203,6 +1331,52 @@ run_verify() {
     exit 1
 }
 
+# run_health — read-only, and never waits for the host lock: can the store take
+# mail right now, and is accepted inbound mail waiting in the shared queue, and
+# for how long. Anything that puts accepted mail at risk fails.
+run_health() {
+    require_tools awk stat
+    load_request
+
+    COUNT_FAIL=0
+    read_host_state
+
+    if [[ "${INSTALLED}" != true ]]; then
+        HOST_STATE=not-installed
+        ok "inbound mail is not installed on this host: no inbound mail can be waiting"
+        log "INBOUND HEALTH: PASS — nothing to check"
+        result_line pass
+        return 0
+    fi
+
+    case "${PUBLIC_STATE}" in
+        disabled) HOST_STATE=installed-disabled ;;
+        enabled)  HOST_STATE=installed-enabled ;;
+        *)        HOST_STATE=drift; bad "the gateway's recorded inbound state is corrupt" ;;
+    esac
+
+    store_verify || true
+    check_store_gate || true
+    check_inbound_queue || true
+
+    local problems
+    problems="$(queue_space_problems)"
+    if [[ -z "${problems}" ]]; then
+        ok "the shared queue's file system keeps its reserve free"
+    else
+        bad "${problems}"
+    fi
+
+    if (( COUNT_FAIL == 0 )); then
+        log "INBOUND HEALTH: PASS — the store takes mail and no accepted inbound mail is waiting"
+        result_line pass
+        return 0
+    fi
+    log "INBOUND HEALTH: FAILED (${COUNT_FAIL} problem(s) above) — restore the store before accepted inbound mail is given up"
+    result_line fail
+    exit 1
+}
+
 run_rollback() {
     require_tools flock sha256sum od
     acquire_host_lock
@@ -1252,7 +1426,7 @@ run_rollback() {
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify|--rollback)
+            --check|--apply|--verify|--health|--rollback)
                 [[ -z "${MODE}" ]] || die "mode given more than once"
                 MODE="${1#--}"
                 shift
@@ -1274,7 +1448,7 @@ main() {
         esac
     done
 
-    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify or --rollback"; }
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify, --health or --rollback"; }
     [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
     [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
 
@@ -1292,6 +1466,7 @@ main() {
         check)    run_check ;;
         apply)    run_apply ;;
         verify)   run_verify ;;
+        health)   run_health ;;
         rollback) run_rollback ;;
     esac
 }

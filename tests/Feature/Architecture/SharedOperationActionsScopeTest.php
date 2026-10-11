@@ -119,6 +119,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'activate-tits-guru-inbound-smtp.yml',
         'verify-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-inbound-smtp.yml',
+        // Its inbound mail health check, read-only, and the schedule that only
+        // dispatches it on main.
+        'check-tits-guru-inbound-mail-health.yml',
+        'schedule-tits-guru-inbound-mail-health.yml',
         // tits-guru's outbound mail: its guarded activation, the rollback of
         // that activation while it is planned, and the first real delivery.
         'activate-tits-guru-mail.yml',
@@ -542,12 +546,19 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'activate-tits-guru-mail.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
         'rollback-tits-guru-mail-activation.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
         'send-tits-guru-mail-canary.yml:canary' => ['tits-guru', 'rateguru-staging-deployment'],
-        // The inbound receiver's activation and rollback change a Postfix
-        // instance and the firewall of that same machine, and its verification
-        // reads them: the same domain.
+        // The inbound activation and rollback change the host's Postfix and the
+        // firewall of that same machine, and its verification reads them: the
+        // same domain.
         'activate-tits-guru-inbound-smtp.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
         'verify-tits-guru-inbound-smtp.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
         'rollback-tits-guru-inbound-smtp.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
+        // The inbound health check is the one deliberate exception: read-only,
+        // dispatched by a schedule, and waiting for the Environment's approval
+        // before it reaches the host. In the host's domain it would hold that
+        // domain while it waits, and every six hours displace an operator's
+        // pending run; in a domain of its own it never touches either, and a
+        // check that reads a host mid-change only fails and runs again.
+        'check-tits-guru-inbound-mail-health.yml:health' => ['tits-guru', 'rateguru-mail-inbound-health'],
     ];
 
     $found = [];

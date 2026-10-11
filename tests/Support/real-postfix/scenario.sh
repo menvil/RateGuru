@@ -34,6 +34,13 @@
 #     destination names — the bare <Postmaster> into the host's own — and
 #     waits in the queue while the store cannot be written, to be delivered
 #     once it can;
+#   * the store gate: while the store volume is not mounted, is mounted
+#     read-only, or is below its reserve of space or inodes, both inbound
+#     listeners refuse at RCPT TO, temporarily — no 250 — while the submission
+#     listeners keep accepting; a missing gate refuses too;
+#   * the queue scan: a message an inbound listener accepted and Postfix
+#     deferred is counted as waiting whatever its delay reason, and a
+#     submission listener's deferred message to the same domain is not;
 #   * the shared queue: the inbound listeners refuse new mail below their own
 #     queue floor while the submission listeners still accept;
 #   * no backscatter: a bounce to a forged sender has no route off the host;
@@ -82,8 +89,15 @@ CFG="${WORK}/cfg"
 mkdir -p "${CFG}" "${WORK}/queue" "${WORK}/log" "${WORK}/tls" "${WORK}/bin"
 install -d -o postfix -g postfix -m 0700 "${WORK}/data"
 chmod 0755 "${WORK}"
+# The store: a volume of its own, as on a host — here a small tmpfs, mounted in
+# this run's mount namespace over a mount point that belongs to root.
 STORE="${WORK}/store"
-install -d -o nobody -g "$(id -gn nobody)" -m 0700 "${STORE}"
+STORE_RESERVE=4194304
+install -d -o root -g root -m 0755 "${STORE}"
+mount_store() {
+    mount -t tmpfs -o "size=16m,nr_inodes=4096,mode=0700,uid=$(id -u nobody),gid=$(id -g nobody)" rateguru-store "${STORE}"
+}
+mount_store
 
 cleanup() {
     postfix -c "${CFG}" stop >/dev/null 2>&1 || true
@@ -188,21 +202,26 @@ chmod 0600 "${WORK}/tls/privkey.pem"
 "${SCRIPTS}/mail-inbound" render-receiver > "${WORK}/receiver.json"
 
 # inbound_input STATE — what the gateway reads when the host records STATE,
-# with this run's paths for the table, the store and the certificate.
+# with this run's paths for the table, the store, the store gate and the
+# certificate, and a store reserve that fits this run's small volume.
 inbound_input() {
     jq -n --slurpfile r "${WORK}/receiver.json" --arg state "$1" --arg address "${PUBLIC}" \
         --argjson uid "$(id -u nobody)" --argjson gid "$(id -g nobody)" \
         --arg table "${CFG}/rateguru-inbound-recipients.regexp" --arg store "${STORE}" \
         --arg cert "${WORK}/tls/fullchain.pem" --arg key "${WORK}/tls/privkey.pem" \
+        --arg gate "${CFG}/rateguru-inbound-store-gate" --argjson store_reserve "${STORE_RESERVE}" \
         --argjson reserve "${2:-null}" '
         $r[0] as $r
         | {state: $state, address: (if $state == "enabled" then $address else null end),
            loopback: "127.0.0.1:\($r.loopback_port)", hostname: ($r.mx_hostnames | sort | .[0]),
            host_postmaster_domain: $r.host_postmaster_domain, domains: $r.domains,
            recipients: [$r.recipients[] | {pattern, mailbox}],
-           limits: ($r.limits + (if $reserve == null then {} else {host_reserve_bytes: $reserve} end)),
+           limits: ($r.limits + {storage_reserve_bytes: $store_reserve}
+                    + (if $reserve == null then {} else {host_reserve_bytes: $reserve} end)),
            table: $table, store: $store, uid: $uid, gid: $gid, tls_cert: $cert, tls_key: $key,
-           cleanup: "rateguru-inbound-cleanup", rewrite: "rateguru-inbound-rewrite"}'
+           cleanup: "rateguru-inbound-cleanup", rewrite: "rateguru-inbound-rewrite",
+           gate_service: "rateguru-inbound-store-gate", gate_script: $gate, gate_user: "nobody",
+           gate_min_inodes: 1024, gate_mountinfo: "/proc/self/mountinfo"}'
 }
 
 # render STATE DIR [RESERVE] — the gateway's own renderer, into DIR; the only
@@ -258,15 +277,15 @@ readback() {
     )
 }
 problems="$(readback "${WORK}/inbound-enabled.json" "${CFG}")"
-if [[ -z "${problems}" ]]; then pass "the gateway's read-back — the outbound contract and all twenty inbound requirements — passes against the real postconf"; else fail "the gateway's read-back: ${problems//$'\n'/; }"; fi
+if [[ -z "${problems}" ]]; then pass "the gateway's read-back — the outbound contract and all twenty-one inbound requirements — passes against the real postconf"; else fail "the gateway's read-back: ${problems//$'\n'/; }"; fi
 
 outbound_view() {
     {
         postconf -c "$1" -n | grep -vE '^(virtual_|config_directory|queue_directory|data_directory|maillog_file)'
         echo '--- services'
-        postconf -c "$1" -M | grep -vE '^(127\.0\.0\.1:2580|[0-9.]+:25|rateguru-inbound-[a-z]+|virtual)[[:space:]]'
+        postconf -c "$1" -M | grep -vE '^(127\.0\.0\.1:2580|[0-9.]+:25|rateguru-inbound-[a-z-]+|virtual)[[:space:]]'
         echo '--- overrides'
-        postconf -c "$1" -P | grep -vE '^(127\.0\.0\.1:2580|[0-9.]+:25|rateguru-inbound-[a-z]+)/'
+        postconf -c "$1" -P | grep -vE '^(127\.0\.0\.1:2580|[0-9.]+:25|rateguru-inbound-[a-z-]+|virtual)/'
     } | sha256sum | cut -d ' ' -f 1
 }
 expect "the outbound configuration, as postconf reads it, is the same with inbound mail enabled as without it" "$(outbound_view "${CFG}")" "$(outbound_view "${WORK}/cfg-absent")"
@@ -334,7 +353,10 @@ if [[ "${ehlo}" != *ETRN* ]]; then pass "no ETRN is offered"; else fail "ETRN is
 if [[ "${ehlo}" == *"SIZE 10485760"* ]]; then pass "the reviewed message size is announced"; else fail "SIZE is not the reviewed one: ${ehlo}"; fi
 public_ehlo="$(smtp "${PUBLIC}" 25 | awk '$1 == "EHLO"')"
 if [[ "${public_ehlo}" == *STARTTLS* ]]; then pass "the public listener offers STARTTLS"; else fail "the public listener does not offer STARTTLS: ${public_ehlo}"; fi
-if [[ "$(echo QUIT | openssl s_client -starttls smtp -connect "${PUBLIC}:25" -CAfile "${WORK}/tls/ca.pem" -verify_hostname mx1.tits.guru 2>/dev/null | grep -c 'Verify return code: 0 (ok)')" == 1 ]]; then pass "its certificate verifies for mx1.tits.guru"; else fail "the public listener's certificate does not verify for mx1.tits.guru"; fi
+# The verdict, whether s_client prints it once or — once a TLS 1.3 session
+# ticket arrives after the handshake — twice: verified, and never anything else.
+tls="$({ sleep 2; echo QUIT; } | openssl s_client -starttls smtp -connect "${PUBLIC}:25" -CAfile "${WORK}/tls/ca.pem" -verify_hostname mx1.tits.guru 2>/dev/null || true)"
+if grep -q 'Verify return code: 0 (ok)' <<<"${tls}" && ! grep -q 'Verify return code: [1-9]' <<<"${tls}"; then pass "its certificate verifies for mx1.tits.guru"; else fail "the public listener's certificate does not verify for mx1.tits.guru"; fi
 if [[ "$(smtp 127.0.0.1 2580 | awk '$1 == "CONNECT"')" == *mx1.tits.guru* ]]; then pass "the inbound listeners greet as mx1.tits.guru"; else fail "the inbound listeners greet as another name"; fi
 if [[ "$(smtp 127.0.0.1 2526 | awk '$1 == "CONNECT"')" == *mta1.tits.guru* ]]; then pass "the submission listeners still greet as mta1.tits.guru"; else fail "the submission listeners' name changed"; fi
 
@@ -349,13 +371,44 @@ for box in targets/tits-guru/support host/postmaster targets/tits-guru/bounce; d
 done
 expect "every stored message belongs to the store's account, mode 0600" "$(find "${STORE}" -type f -printf '%u %m\n' | sort -u)" "nobody 600"
 
+# virtual(8) refuses to start while message_size_limit exceeds its mailbox
+# limit: with a larger limit for the submission listeners, it still delivers.
+cp "${CFG}/main.cf" "${WORK}/main.cf.kept"
+postconf -c "${CFG}" -e message_size_limit=20971520
+postfix -c "${CFG}" reload >/dev/null 2>&1; sleep 2
+smtp 127.0.0.1 2580 'MAIL FROM:<>' 'RCPT TO:<postmaster@tits.guru>' 'DATA:Subject: with a larger global limit\n\nsizes' >/dev/null
+sleep 3
+expect "with a larger global message size limit, virtual(8) still stores inbound mail" "$(find "${STORE}/targets/tits-guru/support/new" -type f | wc -l | tr -d ' ')" 2
+cp "${WORK}/main.cf.kept" "${CFG}/main.cf"
+postfix -c "${CFG}" reload >/dev/null 2>&1; sleep 2
+
 # The store cannot be written: the message waits in the queue, then is stored.
 chown root:root "${STORE}"; chmod 0555 "${STORE}"; mv "${STORE}/targets" "${WORK}/targets-away"
 smtp 127.0.0.1 2580 'MAIL FROM:<a@sender.example>' 'RCPT TO:<support@tits.guru>' 'DATA:Subject: while the store is away\n\nfourth' >/dev/null
 if log_has 'virtual\[[0-9]+\]: [0-9A-F]+: to=<support@tits.guru>.*status=deferred \(maildir delivery failed'; then pass "while the store cannot be written, the accepted message is deferred and waits in the queue"; else fail "the message was not deferred while the store was away"; fi
+
+# The scan reads the direction from each envelope: the inbound message waits;
+# the application's message to support@tits.guru, deferred by its own route
+# (no DNS in this namespace), is a submission listener's and never counted.
+scan() {
+    (
+        # shellcheck disable=SC1091
+        source "${SCRIPTS}/mail-inbound-host"
+        # shellcheck disable=SC2329 # called by name, through the scan's arguments
+        pq() { postqueue -c "${CFG}" "$@"; }
+        # shellcheck disable=SC2329
+        pc() { postcat -c "${CFG}" "$@"; }
+        mail_inbound_queue_scan pq pc 2580 "$(jq -c '.domains' "${WORK}/receiver.json")" "$(date +%s)"
+    )
+}
+expect "the outbound message to support@tits.guru is still deferred by its own route" \
+    "$(postqueue -c "${CFG}" -j | jq -s '[.[] | select(.queue_name == "deferred") | select(any(.recipients[]; (.delay_reason // "") | test("maildir") | not))] | length')" 1
+expect "the scan counts the inbound message as waiting, and not the outbound one to the same domain" \
+    "$(scan | jq -c '{inbound, waiting, at_risk, queues}')" '{"inbound":1,"waiting":1,"at_risk":0,"queues":{"deferred":1}}'
 mv "${WORK}/targets-away" "${STORE}/targets"; chown nobody "${STORE}"; chmod 0700 "${STORE}"
 postqueue -c "${CFG}" -f; sleep 3
-expect "once it can be written, the waiting message is stored" "$(find "${STORE}/targets/tits-guru/support/new" -type f | wc -l | tr -d ' ')" 2
+expect "once it can be written, the waiting message is stored" "$(find "${STORE}/targets/tits-guru/support/new" -type f | wc -l | tr -d ' ')" 3
+expect "and the scan finds no inbound message in the queue" "$(scan | jq -c '{inbound, waiting}')" '{"inbound":0,"waiting":0}'
 
 # No backscatter: a bounce to a forged sender has no route off the host.
 chown root:root "${STORE}"; chmod 0555 "${STORE}"; mv "${STORE}/targets" "${WORK}/targets-away"
@@ -366,6 +419,44 @@ mv "${WORK}/targets-away" "${STORE}/targets"; chown nobody "${STORE}"; chmod 070
 postfix -c "${CFG}" reload >/dev/null 2>&1; postqueue -c "${CFG}" -f
 if log_has 'error\[[0-9]+\]: [0-9A-F]+: to=<victim@forged.example>.*status=bounced \(RateGuru mail gateway: no delivery route'; then pass "the bounce of an undeliverable inbound message to its forged sender has no route off the host"; else fail "a bounce to a forged sender was not stopped at the error transport"; fi
 render enabled "${CFG}"
+
+# The store gate: before any 250, both inbound listeners ask whether the store
+# can take mail now; the submission listeners never ask.
+rcpt_both() {
+    printf '%s %s' "$(smtp 127.0.0.1 2580 'MAIL FROM:<a@sender.example>' 'RCPT TO:<support@tits.guru>' | code_of RCPT)" \
+        "$(smtp "${PUBLIC}" 25 'MAIL FROM:<a@sender.example>' 'RCPT TO:<support@tits.guru>' | code_of RCPT)"
+}
+expect "with the store mounted, writable and above its reserve, both inbound listeners accept the recipient" "$(rcpt_both)" "250 250"
+queued_before="$(postqueue -c "${CFG}" -j | wc -l | tr -d ' ')"
+umount "${STORE}"
+expect "with the store volume not mounted, both refuse at RCPT TO, temporarily" "$(rcpt_both)" "451 451"
+out="$(smtp 127.0.0.1 2580 'MAIL FROM:<a@sender.example>' 'RCPT TO:<support@tits.guru>' 'DATA:Subject: never accepted\n\nsixth')"
+expect "so a message cannot even reach DATA" "$(code_of DATA <<<"${out}")" 554
+expect "and nothing new is queued" "$(postqueue -c "${CFG}" -j | wc -l | tr -d ' ')" "${queued_before}"
+expect "while the production listener still takes its recipient" "$(smtp 127.0.0.1 2526 'MAIL FROM:<noreply@tits.guru>' 'RCPT TO:<support@tits.guru>' | code_of RCPT)" 250
+expect "and the staging listener its sender" "$(smtp 127.0.0.1 2525 'MAIL FROM:<noreply@staging.invalid>' 'RCPT TO:<someone@example.org>' | code_of RCPT)" 250
+mount_store
+expect "mounted again, both accept" "$(rcpt_both)" "250 250"
+mount -o remount,ro "${STORE}"
+expect "mounted read-only, both refuse, temporarily" "$(rcpt_both)" "451 451"
+mount -o remount,rw "${STORE}"
+dd if=/dev/zero of="${STORE}/filler" bs=1M count=13 status=none
+expect "with less free space than its reserve, both refuse: insufficient storage" "$(rcpt_both)" "452 452"
+expect "while the production listener still takes its recipient" "$(smtp 127.0.0.1 2526 'MAIL FROM:<noreply@tits.guru>' 'RCPT TO:<support@tits.guru>' | code_of RCPT)" 250
+rm -f "${STORE}/filler"
+mkdir "${STORE}/inodes"; (cd "${STORE}/inodes" && seq 1 3200 | xargs touch)
+expect "with fewer free inodes than its reserve, both refuse: insufficient storage" "$(rcpt_both)" "452 452"
+rm -rf "${STORE}/inodes"
+expect "with room again, both accept" "$(rcpt_both)" "250 250"
+# A gate that cannot run is never a gate that says yes. A running gate keeps
+# answering from the store as it is at each request; a new one starts with the
+# next listener processes, so the reload is what brings the missing one in.
+mv "${CFG}/rateguru-inbound-store-gate" "${WORK}/gate-away"
+postfix -c "${CFG}" reload >/dev/null 2>&1; sleep 2
+expect "without its gate, both refuse rather than accept unchecked" "$(rcpt_both)" "451 451"
+mv "${WORK}/gate-away" "${CFG}/rateguru-inbound-store-gate"
+postfix -c "${CFG}" reload >/dev/null 2>&1; sleep 2
+expect "with its gate back, both accept" "$(rcpt_both)" "250 250"
 
 # The shared queue: the inbound listeners refuse new mail below their own floor.
 render enabled "${CFG}" 999999999999999
