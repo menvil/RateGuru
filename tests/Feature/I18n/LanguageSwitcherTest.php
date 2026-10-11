@@ -2,12 +2,14 @@
 
 use App\Models\User;
 
-it('renders language switcher with supported locales', function () {
+it('renders language switcher with supported locales, each with the flag it is declared with', function () {
     offerEveryInstalledLocale();
     $response = $this->get(route('feed'))->assertOk();
 
-    foreach (config('locales.supported') as $info) {
-        $response->assertSee($info['native']);
+    foreach (config('locales.supported') as $code => $info) {
+        $response->assertSee($info['native'])
+            ->assertSeeInOrder([$info['flag'], $info['native']])
+            ->assertSee('data-testid="locale-option-'.$code.'"', false);
     }
 });
 
@@ -19,16 +21,6 @@ it('renders language switcher for authenticated user', function () {
 
     foreach (config('locales.supported') as $info) {
         $response->assertSee($info['native']);
-    }
-});
-
-it('shows each language with the flag it is declared with', function () {
-    offerEveryInstalledLocale();
-    $response = $this->get(route('feed'))->assertOk();
-
-    foreach (config('locales.supported') as $code => $info) {
-        $response->assertSeeInOrder([$info['flag'], $info['native']])
-            ->assertSee('data-testid="locale-option-'.$code.'"', false);
     }
 });
 

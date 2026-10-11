@@ -3,29 +3,21 @@
 use App\Livewire\Theme\ThemeSwitcher;
 use App\Models\User;
 
-it('renders theme switcher on feed page', function () {
+it('renders the theme switcher on the feed with a test id for every option', function () {
     $this->get(route('feed'))
-        ->assertSee('data-testid="theme-switcher"', false);
-});
-
-it('theme switcher has test ids for all options', function () {
-    $this->get(route('feed'))
+        ->assertSee('data-testid="theme-switcher"', false)
         ->assertSee('data-testid="theme-option-system"', false)
         ->assertSee('data-testid="theme-option-light"', false)
-        ->assertSee('data-testid="theme-option-dark"', false);
+        ->assertSee('data-testid="theme-option-dark"', false)
+        ->assertSee('rg-surface', false);
 });
 
-it('theme switcher has aria labels for all options', function () {
-    $component = Livewire\Livewire::test(ThemeSwitcher::class);
-
-    $component->assertSee('aria-label="System"', false)
+it('mounts for a guest with the system preference and a label on every option', function () {
+    Livewire\Livewire::test(ThemeSwitcher::class)
+        ->assertSet('preference', 'system')
+        ->assertSee('aria-label="System"', false)
         ->assertSee('aria-label="Light"', false)
         ->assertSee('aria-label="Dark"', false);
-});
-
-it('mounts with system preference by default for guest', function () {
-    Livewire\Livewire::test(ThemeSwitcher::class)
-        ->assertSet('preference', 'system');
 });
 
 it('mounts with user preference for authenticated user', function () {

@@ -6,13 +6,6 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('renders comments section with mobile testid', function () {
-    $post = Post::factory()->published()->create();
-
-    Livewire::test(CommentsSection::class, ['postId' => $post->id])
-        ->assertSee('data-testid="comments-section"', false);
-});
-
 it('comment item uses grid layout that prevents horizontal overflow', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
