@@ -142,23 +142,14 @@ it('never mutates any asset, variant, or physical file', function () {
     $asset = createPurgeableAsset();
     $originalDeletedAt = $asset->deleted_at;
 
-    app(MediaAuditService::class)->run();
-
-    $fresh = MediaAsset::withTrashed()->find($asset->id);
-    expect($fresh->trashed())->toBeTrue()
-        ->and($fresh->deleted_at->equalTo($originalDeletedAt))->toBeTrue();
-    Storage::disk('public')->assertExists($asset->path);
-});
-
-it('does not hold the full issue set in memory when no callback is passed', function () {
-    // omitting onIssue entirely must not throw or accumulate anything —
-    // only the aggregate MediaAuditSummary is required by callers like the
-    // CLI command.
-    $asset = MediaAsset::factory()->postImage()->create();
-
+    // No onIssue callback: callers like the CLI command only need the summary.
     $summary = app(MediaAuditService::class)->run();
 
-    expect($summary->assetsChecked)->toBe(1);
+    $fresh = MediaAsset::withTrashed()->find($asset->id);
+    expect($summary->assetsChecked)->toBe(1)
+        ->and($fresh->trashed())->toBeTrue()
+        ->and($fresh->deleted_at->equalTo($originalDeletedAt))->toBeTrue();
+    Storage::disk('public')->assertExists($asset->path);
 });
 
 it('reports a failed GenerateMediaVariantsJob as a failed_generation_job issue, preserving the asset id and job context', function () {

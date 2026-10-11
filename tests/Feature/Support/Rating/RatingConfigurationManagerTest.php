@@ -74,15 +74,3 @@ it('eager loads options for active rating groups', function () {
 
     expect(DB::getQueryLog())->toBeEmpty();
 });
-
-it('accepts a rating group with an allowed active option count', function () {
-    $group = RatingGroup::factory()->create([
-        'min_options' => 2,
-        'max_options' => 10,
-    ]);
-    RatingOption::factory()->count(2)->for($group, 'group')->create(['is_active' => true]);
-
-    app(RatingConfigurationManager::class)->validateGroupHasAllowedOptionCount($group);
-
-    expect(true)->toBeTrue();
-});

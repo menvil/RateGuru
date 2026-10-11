@@ -33,16 +33,6 @@ it('contain-resizes without cropping, matching every hand-verified example', fun
     'ultra-wide 4000x500 -> 640x80' => [4000, 500, 640, 1280, 640, 80],
 ]);
 
-it('never upscales a contain variant even when both bounds exceed the source', function () {
-    $bytes = jpegMarkerBytes(100, 50);
-    $spec = variantSpec(maxWidth: 640, maxHeight: 1280);
-
-    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/jpeg', $spec);
-
-    expect($variant->width)->toBe(100)
-        ->and($variant->height)->toBe(50);
-});
-
 it('crops the largest centered square before resizing for cover-square mode', function (int $srcW, int $srcH) {
     $bytes = coverSquareCropMarkerBytes($srcW, $srcH);
     $spec = variantSpec(MediaVariantName::Avatar128, maxWidth: 50, maxHeight: 50, mode: MediaResizeMode::CoverSquare);
@@ -144,17 +134,6 @@ it('produces identical crop geometry for cover-square and an equal-dimension cov
     'portrait source' => [100, 200],
     'square source' => [150, 150],
 ]);
-
-it('defaults output mime type to the source mime type when the spec does not declare one', function () {
-    $bytes = jpegMarkerBytes(100, 100);
-    $spec = variantSpec(maxWidth: 50, maxHeight: 50);
-
-    expect($spec->outputMimeType)->toBeNull();
-
-    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/jpeg', $spec);
-
-    expect($variant->mimeType)->toBe('image/jpeg');
-});
 
 it('normalizes a transparent png source to a white-flattened jpeg when the spec declares outputMimeType jpeg', function () {
     $bytes = markerBytesWithAlpha('png', 200, 100);

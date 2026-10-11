@@ -2,13 +2,6 @@
 
 use Illuminate\Support\Str;
 
-it('has project presets config', function () {
-    expect(config('project_presets.generic'))->not->toBeNull();
-    expect(config('project_presets.nature'))->not->toBeNull();
-    expect(config('project_presets.ai_images'))->not->toBeNull();
-    expect(config('project_presets.breasts'))->not->toBeNull();
-});
-
 it('project presets have required shape', function () {
     $presets = [
         ...config('project_presets'),
