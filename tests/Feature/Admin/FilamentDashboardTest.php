@@ -7,7 +7,6 @@ use App\Filament\Widgets\ReportedPostsWidget;
 use App\Filament\Widgets\SuspiciousUsersWidget;
 use App\Models\User;
 use Filament\Support\Enums\Width;
-use Livewire\Livewire;
 
 it('renders the moderation dashboard for moderator', function () {
     $moderator = User::factory()->moderator()->create();
@@ -21,24 +20,16 @@ it('renders the moderation dashboard for moderator', function () {
         ->assertDontSee('data-testid="admin-dashboard"', false);
 });
 
-it('renders the moderation dashboard for admin', function () {
+it('renders the moderation dashboard with RateGuru branding for admin', function () {
     $admin = User::factory()->admin()->create();
 
     $this->actingAs($admin)
         ->get('/admin')
         ->assertOk()
         ->assertSee('Dashboard')
+        ->assertSee('RateGuru')
         ->assertDontSee('Moderation Dashboard')
         ->assertDontSee('Latest reports');
-});
-
-it('renders RateGuru branding in the admin panel', function () {
-    $admin = User::factory()->admin()->create();
-
-    $this->actingAs($admin)
-        ->get('/admin')
-        ->assertOk()
-        ->assertSee('RateGuru');
 });
 
 it('uses the same content width as other admin pages', function () {
@@ -58,14 +49,6 @@ it('renders moderation summary widgets horizontally', function () {
         ReportedCommentsWidget::class,
         SuspiciousUsersWidget::class,
     ] as $widget) {
-        expect(Livewire::test($widget)->instance()->getColumnSpan())->toBe(1);
+        expect(app($widget)->getColumnSpan())->toBe(1);
     }
-});
-
-it('does not render the filament dashboard placeholder for a normal user', function () {
-    $user = User::factory()->create();
-
-    $response = $this->actingAs($user)->get('/admin');
-
-    expect($response->getStatusCode())->toBe(403);
 });

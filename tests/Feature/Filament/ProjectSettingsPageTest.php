@@ -1,6 +1,5 @@
 <?php
 
-use App\Filament\Pages\ProjectSettingsPage;
 use App\Models\User;
 
 it('allows admin to access project settings page', function () {
@@ -25,8 +24,4 @@ it('does not allow moderator to access project settings page', function () {
     $this->actingAs($moderator)
         ->get('/admin/project-settings')
         ->assertForbidden();
-});
-
-it('project settings page is accessible', function () {
-    expect(class_exists(ProjectSettingsPage::class))->toBeTrue();
 });

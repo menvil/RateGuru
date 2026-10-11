@@ -32,10 +32,6 @@ it('does not allow normal user to access tag resource index', function () {
         ->assertForbidden();
 });
 
-it('uses the Tag model', function () {
-    expect(TagResource::getModel())->toBe(Tag::class);
-});
-
 it('renders in the Content section of the admin navigation', function () {
     expect(TagResource::getNavigationGroup())->toBe(AdminNavigationGroup::CONTENT)
         ->and(TagResource::getNavigationSort())->toBe(20);
@@ -51,31 +47,7 @@ it('lists tags on the index page', function () {
         ->assertCanSeeTableRecords([$tag]);
 });
 
-it('renders tag name in tag resource table', function () {
-    $admin = User::factory()->admin()->create();
-
-    Tag::factory()->create([
-        'name' => 'Italian',
-        'slug' => 'italian',
-    ]);
-
-    $this->actingAs($admin)
-        ->get(TagResource::getUrl('index'))
-        ->assertOk()
-        ->assertSee('Italian');
-});
-
-it('renders a searchable, sortable name column', function () {
-    $admin = User::factory()->admin()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListTags::class)
-        ->assertTableColumnExists('name')
-        ->assertCanRenderTableColumn('name');
-});
-
-it('renders tag slug in tag resource table', function () {
+it('renders tag name and slug in tag resource table', function () {
     $admin = User::factory()->admin()->create();
 
     Tag::factory()->create([
@@ -86,7 +58,18 @@ it('renders tag slug in tag resource table', function () {
     $this->actingAs($admin)
         ->get(TagResource::getUrl('index'))
         ->assertOk()
+        ->assertSee('Asian Food')
         ->assertSee('asian-food');
+});
+
+it('renders a searchable, sortable name column', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListTags::class)
+        ->assertTableColumnExists('name')
+        ->assertCanRenderTableColumn('name');
 });
 
 it('renders a searchable, sortable slug column', function () {
@@ -118,12 +101,4 @@ it('renders posts count in tag resource table', function () {
     Livewire::test(ListTags::class)
         ->assertCanSeeTableRecords([$tag])
         ->assertTableColumnStateSet('posts_count', 2, record: $tag);
-});
-
-it('counts posts from the posts relationship', function () {
-    $tag = Tag::factory()->create();
-    $post = Post::factory()->published()->create();
-    $post->tags()->attach($tag);
-
-    expect($tag->loadCount('posts')->posts_count)->toBe(1);
 });

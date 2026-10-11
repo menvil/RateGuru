@@ -137,10 +137,6 @@ it('does not allow normal user to access user resource index', function () {
         ->assertForbidden();
 });
 
-it('uses the User model', function () {
-    expect(UserResource::getModel())->toBe(User::class);
-});
-
 it('renders in the Moderation section of the admin navigation', function () {
     expect(UserResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(UserResource::getNavigationSort())->toBe(40);

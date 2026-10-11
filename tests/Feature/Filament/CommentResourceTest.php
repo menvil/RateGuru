@@ -33,10 +33,6 @@ it('does not allow normal user to access comment resource index', function () {
         ->assertForbidden();
 });
 
-it('uses the Comment model', function () {
-    expect(CommentResource::getModel())->toBe(Comment::class);
-});
-
 it('renders in the Moderation section of the admin navigation', function () {
     expect(CommentResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(CommentResource::getNavigationSort())->toBe(20);

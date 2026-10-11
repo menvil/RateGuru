@@ -2,7 +2,6 @@
 
 use App\Enums\CommentStatus;
 use App\Enums\ModerationActionType;
-use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Models\Comment;
 use App\Models\Post;
@@ -42,15 +41,6 @@ it('shows the hide action only for visible comments', function () {
 
     Livewire::test(ListComments::class)
         ->assertTableActionHidden('hide', $hidden);
-});
-
-it('hides the hide action from normal users', function () {
-    $user = User::factory()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
-
-    $this->actingAs($user)
-        ->get(CommentResource::getUrl('index'))
-        ->assertForbidden();
 });
 
 it('allows moderator to restore a hidden comment via the restore table action', function () {
