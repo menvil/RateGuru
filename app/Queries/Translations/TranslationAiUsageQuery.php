@@ -5,16 +5,23 @@ namespace App\Queries\Translations;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Models\TranslationAiProviderCall;
+use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Enums\TranslationStatus;
 use App\Support\Translations\Telemetry\TranslationAiErrorBreakdown;
+use App\Support\Translations\Telemetry\TranslationAiFailurePattern;
+use App\Support\Translations\Telemetry\TranslationAiFailureSeries;
 use App\Support\Translations\Telemetry\TranslationAiPricing;
 use App\Support\Translations\Telemetry\TranslationAiUsageFilter;
 use App\Support\Translations\Telemetry\TranslationAiUsageInterval;
+use App\Support\Translations\Telemetry\TranslationAiUsageModel;
 use App\Support\Translations\Telemetry\TranslationAiUsagePoint;
 use App\Support\Translations\Telemetry\TranslationAiUsageSummary;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use InvalidArgumentException;
 use LogicException;
 
@@ -22,15 +29,21 @@ use LogicException;
  * Reads Translation AI telemetry back: what the Translation AI page shows,
  * over a period and the filters a TranslationAiUsageFilter names.
  *
- *  - summary()     calls, items, tokens, estimated cost and latency, in figures;
- *  - errors()      provider and item errors by code, kept apart;
- *  - timeline()    the same figures hour by hour or day by day, for charts;
- *  - recentCalls() the calls themselves, newest first, a page at a time.
+ *  - summary()         calls, items, tokens, estimated cost and latency, in figures;
+ *  - errors()          provider and item errors by code, kept apart;
+ *  - failureSeries()   failed calls by code, and whether they came in a series;
+ *  - timeline()        the same figures hour by hour or day by day, for charts;
+ *  - recentCalls()     the calls themselves, newest first, a page at a time;
+ *  - models()          every model recorded, with its calls in a period;
+ *  - lastSucceededAt() when the calls of a filter last succeeded;
+ *  - latestSuccessOrFailure() the last call that succeeded or failed with given codes.
  *
  * Aggregate queries over translation_ai_provider_calls, the same on
  * PostgreSQL, MariaDB and SQLite, and everything in UTC. The aggregates are
- * conditional sums and a time bucket Eloquent has no expression for: the raw
- * SQL is this class's own, and every value in it is bound. Read-only.
+ * conditional sums and a time bucket Eloquent has no expression for, and, for
+ * models(), each provider and model's calls counted only inside a period
+ * beside the MAX(completed_at) of all its calls: the raw SQL is this class's
+ * own, and every value in it is bound. Read-only.
  */
 final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
@@ -46,6 +59,7 @@ final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, Stable
             ->selectRaw(
                 'COUNT(*) AS calls,
                 SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS succeeded_calls,
+                SUM(CASE WHEN status = ? AND failed_item_count > 0 THEN 1 ELSE 0 END) AS calls_with_failed_items,
                 SUM(item_count) AS items,
                 SUM(succeeded_item_count) AS succeeded_items,
                 SUM(failed_item_count) AS failed_items,
@@ -56,7 +70,7 @@ final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, Stable
                 SUM(estimated_cost_usd) AS estimated_cost_usd,
                 SUM(CASE WHEN estimated_cost_usd IS NULL THEN 1 ELSE 0 END) AS calls_with_unknown_cost,
                 AVG(latency_ms) AS average_latency_ms',
-                [TranslationStatus::Success->value],
+                [TranslationStatus::Success->value, TranslationStatus::Success->value],
             )
             ->first()
             ?->getAttributes() ?? [];
@@ -68,6 +82,7 @@ final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, Stable
             calls: $calls,
             succeededCalls: $succeededCalls,
             failedCalls: $calls - $succeededCalls,
+            callsWithFailedItems: (int) ($row['calls_with_failed_items'] ?? 0),
             items: (int) ($row['items'] ?? 0),
             succeededItems: (int) ($row['succeeded_items'] ?? 0),
             failedItems: (int) ($row['failed_items'] ?? 0),
@@ -182,16 +197,163 @@ final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, Stable
     }
 
     /**
-     * The calls themselves, newest first.
+     * The calls themselves, newest first — or, $withIssues, only those with
+     * something to look at: a failed call, or a successful one with failed
+     * items. One page is read, never the period.
      *
      * @return LengthAwarePaginator<int, TranslationAiProviderCall>
      */
-    public function recentCalls(TranslationAiUsageFilter $filter, int $perPage = 25, int $page = 1): LengthAwarePaginator
+    public function recentCalls(TranslationAiUsageFilter $filter, int $perPage = 25, int $page = 1, bool $withIssues = false): LengthAwarePaginator
     {
         return $filter->query()
+            ->when($withIssues, fn (Builder $query) => $query->where(fn (Builder $query) => $query
+                ->where('status', TranslationStatus::Failed->value)
+                ->orWhere('failed_item_count', '>', 0)))
             ->orderByDesc('completed_at')
             ->orderByDesc('id')
             ->paginate(min(max(1, $perPage), self::MAX_PER_PAGE), ['*'], 'page', max(1, $page));
+    }
+
+    /**
+     * The failed provider calls of a period by error code, most frequent
+     * first, each with its pattern: Isolated, a Burst — five or more within a
+     * sliding ten minutes — or Ongoing, a series that reaches into the fifteen
+     * minutes before $now.
+     *
+     * Read from the failed calls' codes and times only, in order, one row at a
+     * time, so a long outage is still read in constant memory.
+     *
+     * @return list<TranslationAiFailureSeries>
+     */
+    public function failureSeries(TranslationAiUsageFilter $filter, ?DateTimeInterface $now = null): array
+    {
+        $now = CarbonImmutable::instance($now ?? CarbonImmutable::now())->utc();
+        $failures = $filter->query()
+            ->where('status', TranslationStatus::Failed->value)
+            ->whereNotNull('error_code')
+            ->select(['id', 'error_code', 'completed_at'])
+            ->orderBy('error_code')
+            ->orderBy('completed_at')
+            ->orderBy('id')
+            ->cursor();
+
+        /** @var array<string, array{calls: int, first: int, last: int, window: list<int>, series: ?array{start: int, end: int, calls: int, through: int}}> $codes */
+        $codes = [];
+
+        foreach ($failures as $failure) {
+            $code = (string) $failure->error_code;
+            $at = $failure->completed_at->getTimestamp();
+            $state = $codes[$code] ?? ['calls' => 0, 'first' => $at, 'last' => $at, 'window' => [], 'series' => null];
+
+            $state['calls']++;
+            $state['last'] = $at;
+            // The times of this failure and the four before it: a series when they fall within the window.
+            $state['window'] = array_slice([...$state['window'], $at], -TranslationAiFailurePattern::SERIES_CALLS);
+
+            if (count($state['window']) === TranslationAiFailurePattern::SERIES_CALLS
+                && $at - $state['window'][0] <= TranslationAiFailurePattern::SERIES_WINDOW_SECONDS) {
+                $series = $state['series'];
+                $index = $state['calls'];
+
+                // A window overlapping the series before it extends that series; one that does not starts a new one.
+                $state['series'] = $series !== null && $series['through'] >= $index - TranslationAiFailurePattern::SERIES_CALLS + 1
+                    ? ['start' => $series['start'], 'end' => $at, 'calls' => $series['calls'] + $index - $series['through'], 'through' => $index]
+                    : ['start' => $state['window'][0], 'end' => $at, 'calls' => TranslationAiFailurePattern::SERIES_CALLS, 'through' => $index];
+            }
+
+            $codes[$code] = $state;
+        }
+
+        $at = fn (int $timestamp): CarbonImmutable => CarbonImmutable::createFromTimestamp($timestamp, 'UTC');
+        $ongoingSince = $now->getTimestamp() - TranslationAiFailurePattern::ONGOING_SECONDS;
+        $result = [];
+
+        foreach ($codes as $code => $state) {
+            $series = $state['series'];
+
+            $result[] = new TranslationAiFailureSeries(
+                errorCode: $code,
+                calls: $state['calls'],
+                firstFailedAt: $at($state['first']),
+                lastFailedAt: $at($state['last']),
+                pattern: match (true) {
+                    $series === null => TranslationAiFailurePattern::Isolated,
+                    $series['end'] >= $ongoingSince => TranslationAiFailurePattern::Ongoing,
+                    default => TranslationAiFailurePattern::Burst,
+                },
+                seriesStartedAt: $series !== null ? $at($series['start']) : null,
+                seriesEndedAt: $series !== null ? $at($series['end']) : null,
+                seriesCalls: $series['calls'] ?? 0,
+                callsSinceSeries: $series !== null ? $state['calls'] - $series['through'] : 0,
+            );
+        }
+
+        usort($result, fn (TranslationAiFailureSeries $a, TranslationAiFailureSeries $b): int => [$b->calls, $a->errorCode] <=> [$a->calls, $b->errorCode]);
+
+        return $result;
+    }
+
+    /**
+     * Every model a provider was recorded answering as — kept for the
+     * retention period — with how many of its calls completed in [$from,
+     * $until) and when it last answered at all, most recently used first.
+     * The list a model filter offers: only models that have history.
+     *
+     * @return list<TranslationAiUsageModel>
+     */
+    public function models(DateTimeInterface $from, DateTimeInterface $until): array
+    {
+        $period = new TranslationAiUsageFilter($from, $until);
+        $models = [];
+
+        $rows = TranslationAiProviderCall::query()
+            ->selectRaw(
+                'provider, model, SUM(CASE WHEN completed_at >= ? AND completed_at < ? THEN 1 ELSE 0 END) AS calls, MAX(completed_at) AS last_call_at',
+                [$period->from, $period->until],
+            )
+            ->groupBy('provider', 'model')
+            ->get();
+
+        foreach ($rows as $row) {
+            $attributes = $row->getAttributes();
+
+            $models[] = new TranslationAiUsageModel(
+                provider: (string) $attributes['provider'],
+                model: (string) $attributes['model'],
+                calls: (int) $attributes['calls'],
+                lastCallAt: CarbonImmutable::parse((string) $attributes['last_call_at'], 'UTC'),
+            );
+        }
+
+        usort($models, fn (TranslationAiUsageModel $a, TranslationAiUsageModel $b): int => [$b->lastCallAt->getTimestamp(), $a->provider, $a->model] <=> [$a->lastCallAt->getTimestamp(), $b->provider, $b->model]);
+
+        return $models;
+    }
+
+    /**
+     * The latest call of $filter that succeeded or failed with one of $codes —
+     * the last word on what those codes are about — or null when there is
+     * none. Calls that failed otherwise are passed over: a timeout says
+     * nothing about whether the credentials work.
+     */
+    public function latestSuccessOrFailure(TranslationAiUsageFilter $filter, TranslationErrorCode ...$codes): ?TranslationAiProviderCall
+    {
+        return $filter->query()
+            ->where(fn (Builder $query) => $query
+                ->where('status', TranslationStatus::Success->value)
+                ->orWhereIn('error_code', array_map(fn (TranslationErrorCode $code): string => $code->value, $codes)))
+            ->select(['id', 'status', 'error_code', 'completed_at'])
+            ->orderByDesc('completed_at')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /** When a call of $filter last succeeded, or null when none did. */
+    public function lastSucceededAt(TranslationAiUsageFilter $filter): ?CarbonImmutable
+    {
+        $at = $filter->query()->where('status', TranslationStatus::Success->value)->max('completed_at');
+
+        return is_string($at) || $at instanceof DateTimeInterface ? CarbonImmutable::parse($at, 'UTC') : null;
     }
 
     /**

@@ -126,17 +126,20 @@
     <x-admin.ui.tabs label="Post status" active="pending" :items="$tabs" />
 @endcomponent
 
+@php
+    // Paginators over nothing: the component only needs the counts. Pages link back to this card.
+    $kitPages = fn (int $total, int $page): \Illuminate\Pagination\LengthAwarePaginator => (new \Illuminate\Pagination\LengthAwarePaginator([], $total, 25, $page, ['path' => '']))->fragment('NAV-04');
+@endphp
+
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['NAV-04']])
-    <nav class="rg-admin-pagination rg-admin-kit__frame" aria-label="Pagination">
-        <span class="rg-admin-pagination__range">1–25 of 1,231</span>
-        <ul class="rg-admin-pagination__pages">
-            <li><x-admin.ui.icon-button icon="chevron-left" label="Previous page" variant="ghost" size="sm" disabled /></li>
-            <li><a class="rg-admin-pagination__page" href="#NAV-04" aria-current="page">1</a></li>
-            <li><a class="rg-admin-pagination__page" href="#NAV-04">2</a></li>
-            <li><a class="rg-admin-pagination__page" href="#NAV-04">3</a></li>
-            <li class="rg-admin-pagination__gap" aria-hidden="true">…</li>
-            <li><a class="rg-admin-pagination__page" href="#NAV-04">50</a></li>
-            <li><x-admin.ui.icon-button icon="chevron-right" label="Next page" variant="ghost" size="sm" href="#NAV-04" /></li>
-        </ul>
-    </nav>
+    <div class="rg-admin-kit__stack">
+        <x-admin.ui.pagination class="rg-admin-kit__frame" :paginator="$kitPages(1231, 1)" noun="posts" label="First page" />
+        <span class="rg-admin-kit__caption">The first page: Previous disabled, a gap before the last page.</span>
+        <x-admin.ui.pagination class="rg-admin-kit__frame" :paginator="$kitPages(1231, 25)" noun="posts" note="newest first" label="A page in the middle" />
+        <span class="rg-admin-kit__caption">In the middle: the pages either side of the current one, gaps to the first and the last.</span>
+        <x-admin.ui.pagination class="rg-admin-kit__frame" :paginator="$kitPages(1231, 50)" noun="posts" label="The last page" />
+        <span class="rg-admin-kit__caption">The last page: Next disabled.</span>
+        <x-admin.ui.pagination class="rg-admin-kit__frame" :paginator="$kitPages(12, 1)" noun="posts" label="A single page" />
+        <span class="rg-admin-kit__caption">One page: both arrows disabled.</span>
+    </div>
 @endcomponent

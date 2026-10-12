@@ -15,7 +15,9 @@
      * in the browser, and the list scrolls past 340.
      *
      * options is a list of ['value' => …, 'label' => …, 'leading' => …?
-     * (a flag), 'meta' => …?, 'trailing' => …?, 'trailingTone' => 'success'?,
+     * (a flag), or 'icon' => …? (an x-admin.ui.icon in a sunken square, for
+     * a list of things rather than languages), 'mono' => bool? (a label that
+     * is an identifier, such as a model name), 'meta' => …?, 'trailing' => …?, 'trailingTone' => 'success'?,
      * 'badge' => ['label' => …, 'tone' => …, 'dot' => bool]?, 'search' => …?,
      * 'live' => ['meta' => …, 'trailing' => …, 'complete' => …]?]. live holds
      * Alpine expressions, evaluated in the screen's scope, for an option whose
@@ -47,8 +49,12 @@
         'id' => "{$id}-option-{$index}",
         'label' => $option['label'],
         'leading' => $option['leading'] ?? '',
+        'icon' => $option['icon'] ?? null,
+        'mono' => (bool) ($option['mono'] ?? false),
         'badge' => $option['badge'] ?? null,
     ]])->all();
+    // Options that lead with an icon show it in the trigger too: one copy of each icon, the chosen option's shown.
+    $icons = array_values(array_unique(array_filter(array_column($options, 'icon'))));
 @endphp
 
 <div
@@ -146,10 +152,25 @@
         x-on:keydown.arrow-down.prevent="show()"
         x-on:keydown.arrow-up.prevent="show()"
     >
-        <span class="rg-admin-combobox__leading" aria-hidden="true" x-text="display[selected]?.leading">{{ $selected['leading'] ?? '' }}</span>
+        @if ($icons !== [])
+            <span class="rg-admin-combobox__icon" aria-hidden="true">
+                @foreach ($icons as $icon)
+                    @if (($selected['icon'] ?? null) === $icon)
+                        <x-admin.ui.icon :name="$icon" :size="16" x-show="display[selected]?.icon === '{{ $icon }}'" />
+                    @else
+                        <x-admin.ui.icon :name="$icon" :size="16" x-show="display[selected]?.icon === '{{ $icon }}'" style="display: none" />
+                    @endif
+                @endforeach
+            </span>
+        @else
+            <span class="rg-admin-combobox__leading" aria-hidden="true" x-text="display[selected]?.leading">{{ $selected['leading'] ?? '' }}</span>
+        @endif
         <span class="rg-admin-combobox__text">
             <span class="rg-admin-combobox__overline">{{ $label }}</span>
-            <span class="rg-admin-combobox__value" x-text="display[selected]?.label">{{ $selected['label'] ?? '' }}</span>
+            <span
+                @class(['rg-admin-combobox__value', 'rg-admin-combobox__value--mono' => $selected['mono'] ?? false])
+                x-bind:class="{ 'rg-admin-combobox__value--mono': display[selected]?.mono }"
+                x-text="display[selected]?.label">{{ $selected['label'] ?? '' }}</span>
         </span>
         @if (($selected['badge'] ?? null) !== null)
             <span
@@ -207,11 +228,13 @@
                     x-on:mousemove="active = @js($option['value'])"
                     x-on:click="pick(@js($option['value']))"
                 >
-                    @isset($option['leading'])
+                    @isset($option['icon'])
+                        <span class="rg-admin-combobox__option-icon" aria-hidden="true"><x-admin.ui.icon :name="$option['icon']" :size="14" /></span>
+                    @elseif (isset($option['leading']))
                         <span class="rg-admin-combobox__option-leading" aria-hidden="true">{{ $option['leading'] }}</span>
                     @endisset
                     <span class="rg-admin-combobox__option-text">
-                        <span class="rg-admin-combobox__option-label">{{ $option['label'] }}</span>
+                        <span @class(['rg-admin-combobox__option-label', 'rg-admin-combobox__option-label--mono' => $option['mono'] ?? false])>{{ $option['label'] }}</span>
                         @isset($option['meta'])
                             <span class="rg-admin-combobox__option-meta" @isset($option['live']['meta']) x-text="{{ $option['live']['meta'] }}" @endisset>{{ $option['meta'] }}</span>
                         @endisset

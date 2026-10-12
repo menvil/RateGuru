@@ -15,6 +15,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
+use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
@@ -38,7 +39,9 @@ use App\Support\TranslationEngine\Data\TranslationProviderResponse;
 use App\Support\TranslationEngine\Enums\TranslationDataClassification;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
+use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -11501,4 +11504,40 @@ function gateLivewireRequests(mixed $page): void
 function translationFieldId(mixed $page, string $unit): string
 {
     return (string) $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').id");
+}
+
+/**
+ * A Generate missing plan for $locale of $chunks provider requests of
+ * $itemsPerChunk items each — public content, the shape the planner makes —
+ * for putting a background generation in the store without a catalog.
+ */
+function translationGenerationPlan(string $locale, int $chunks = 2, int $itemsPerChunk = 3): ProjectTranslationGenerationPlan
+{
+    $requests = [];
+
+    foreach (range(1, $chunks) as $chunk) {
+        $requests[] = new TranslationBatchRequest(
+            targetLocale: $locale,
+            dataClassification: TranslationDataClassification::PublicContent,
+            items: array_map(fn (int $item): TranslationItem => new TranslationItem(
+                id: "categories:{$chunk}{$item}:name",
+                sourceLocale: 'en',
+                sourceText: "Category {$chunk}.{$item}",
+                contentType: 'categories.name',
+                multiline: false,
+            ), range(1, $itemsPerChunk)),
+        );
+    }
+
+    return new ProjectTranslationGenerationPlan($locale, TranslationDataClassification::PublicContent->value, [], 'openai', 50, 60_000, $requests, []);
+}
+
+/**
+ * A provider call recorded as failed with $code at $at, UTC — one item unless
+ * the attributes say otherwise, and an HTTP status when the failure had one.
+ */
+function failedTranslationAiCall(string $at, TranslationErrorCode $code, ?int $httpStatus = null, array $attributes = []): TranslationAiProviderCall
+{
+    return TranslationAiProviderCall::factory()->state(['item_count' => $attributes['item_count'] ?? 1])->failedWith($code, $httpStatus)
+        ->create(['completed_at' => CarbonImmutable::parse($at, 'UTC'), ...$attributes]);
 }

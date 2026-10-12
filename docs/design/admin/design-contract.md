@@ -164,7 +164,7 @@ dialog and lightbox 300 → toasts 400.
 - Colour inherits `currentColor`; navigation gray-600 (secondary), rows tertiary.
 - Navigation icons: `layout-grid` Dashboard · `image` Posts · `message-square` Comments · `flag` Reports ·
   `users` Users · `folder` Categories · `tag` Tags · `star` Rating groups · `globe` Languages · `languages`
-  Translation Center · `settings-2` Project settings · `hard-drive` Media diagnostics.
+  Translation Center · `bot` Translation AI · `settings-2` Project settings · `hard-drive` Media diagnostics.
 - No emoji in the interface. Country flags appear only next to language names.
 - Every icon-only control has a text label: `aria-label` and a tooltip. Decorative icons are `aria-hidden`.
 
@@ -185,7 +185,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
-  | Localization | Languages · Translation Center (missing count, neutral) |
+  | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
 
@@ -206,7 +206,7 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages and Translation Center are migrated: their content is Admin v2 too.
+Languages, Translation Center and Translation AI are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -324,7 +324,10 @@ These are the current migration state, not changes to the target design:
   hint. Destructive items are red-950 after a separator. Menus flip up near the bottom and close on outside
   click, scroll and Escape.
 - **Pagination (NAV-04):** footer padding 12 16, 13 gray-600; “1–25 of 1,231” tabular; pages 32 min with the
-  current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25.
+  current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25. In production it is
+  `x-admin.ui.pagination` (NAV-04), over a length-aware paginator: the range with an optional note (“newest
+  first”), the first and last pages and those either side of the current one, a gap where pages are left out;
+  each page is a link to the paginator's URL, or, given a Livewire method, a button that calls it with the page.
 - **Empty states (TBL-05):** 40 circle icon, title 15/500, body 13/18 tertiary max 380. A finished queue (“The
   queue is clear”) differs from a search with no results (“No posts match these filters” + Clear filters); an
   action only when it changes the outcome.
@@ -346,6 +349,7 @@ Grid templates used in the prototype, for reference:
 | Languages | `minmax(220px,1fr) 90px 150px 180px 190px 110px 130px` | 1060 |
 | Translation Center | `240px minmax(0,1fr) minmax(0,1fr)` | — |
 | Media diagnostics | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px` | 1100 |
+| Translation AI recent calls (production) | `96px 172px 180px 96px 52px 116px 92px 72px minmax(200px,1fr)` | 1076 |
 
 ## Forms
 
@@ -383,7 +387,9 @@ keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x
   menu of `menuitemradio` items with a check and an optional count, which may be an Alpine expression kept live
   by the screen. Enter, Space or Down open it on the checked item; Up, Down, Home and End move; Escape returns to
   the button; a choice, Tab or a click outside closes it.
-- **`x-admin.ui.combobox` (FRM-11):** the trigger (`aria-haspopup="listbox"`) opens the list with focus in its
+- **`x-admin.ui.combobox` (FRM-11):** an option leads with a flag, or, for a list of things rather than languages,
+  with an icon in a sunken square (28; 32 in the trigger), and an identifier such as a model name is set in mono.
+  The trigger (`aria-haspopup="listbox"`) opens the list with focus in its
   search, an ARIA `combobox` over a `listbox` whose active option is its `aria-activedescendant`; the search
   filters in the browser, Up and Down move, Enter chooses, Escape returns to the trigger, and an always-present
   status region says when nothing matches. Choosing dispatches a cancelable `choose` event before the value is
@@ -397,10 +403,10 @@ keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x
 
   | Tone | Labels |
   |---|---|
-  | success | Published, Visible, Active, Enabled, Completed, Saved, Resolved |
-  | warning | Pending, Open, Limited, Missing, Warning, Degraded |
-  | danger | Rejected, Banned, Failed, Critical, Not configured |
-  | neutral | Hidden, Ignored, Disabled, Inactive, Shadowbanned, Removal finalized |
+  | success | Published, Visible, Active, Enabled, Completed, Saved, Resolved, Healthy, Current |
+  | warning | Pending, Open, Limited, Missing, Warning, Degraded, Burst |
+  | danger | Rejected, Banned, Failed, Critical, Not configured, Ongoing, Systemic issue |
+  | neutral | Hidden, Ignored, Disabled, Inactive, Shadowbanned, Removal finalized, Configured, Isolated, Not current |
   | outline | Draft, Deleted by author, Archived, Default |
   | info | AI suggestion · not saved, Running, Info |
 
@@ -461,7 +467,8 @@ Localization is the first production vertical of Admin v2:
 ```text
 Localization
 ├── Languages
-└── Translation Center
+├── Translation Center
+└── Translation AI
 ```
 
 **Invariant.** Translation Center becomes the single admin editor for DB-owned translated content. After the
@@ -693,9 +700,83 @@ the database before Save.
 In production the field comes first, level with the English text beside it; under it come the counter, then the
 state badge and its note, then the actions (see the deviations below).
 
+**Translation AI** (prototype):
+
+- Top bar: “Updated 09:41”, the period (24 h · 7 days · 30 days, a segmented control) and Refresh.
+- Header: title, one sentence — technical monitoring for AI-assisted translation, read-only, translations are edited
+  in Translation Center (a link) — and the AI model combobox (FRM-11 style: “AI model”, All models or one model, a
+  status badge, a list with each model's calls in the period).
+- One card of three sections side by side, each at least 320 wide: **Provider health** (status badge; provider,
+  API key, last success, response time, success rate, retry policy, fallback provider), **Usage and cost**
+  (provider calls, translated items, tokens in · out, estimated cost two by two; calls per hour or day as stacked
+  bars, succeeded in ink under failed in red, with a legend), **Failures and issues** (a tinted line saying whether
+  anything is systemic; each error type with its count and Isolated, Burst or Ongoing; “Burst: 5 or more of one
+  type within 10 min. Ongoing: still failing in the last 15 min.”).
+- **Recent provider calls**: All / Failed, then Time · Usage · Language · Items · Tokens in / out · Cost · Latency ·
+  Result, newest first, 20 a page, with “Metadata only. Source text, prompts, translations and API keys are never
+  shown here.”
+
+**Translation AI** (production): `/admin/translation-ai` (`App\Filament\Pages\TranslationAiPage`) is the third item
+of the Localization section, after Translation Center, with the `bot` icon, drawn entirely in Admin v2 for whoever
+may manage project settings (`manage-project-settings`). It is read-only: nothing on it edits a translation or
+changes a setting, and nothing is sent to a provider — not on opening, not on Refresh.
+`App\Filament\Support\TranslationAiDiagnostics` works out everything it shows; the view queries nothing.
+
+- **State in the URL.** The period (`?period=24h`, `30d`; 7 days by default), a model (`?model=`), All or With issues
+  (`?calls=issues`) and the page of calls (`?page=`). Each change is a Livewire round trip that draws the page again;
+  a new period, model or call filter goes back to the first page; a value the page does not offer is read as its
+  default. A period is whole hours or days ending with the current one, so its chart has exactly 24, 7 or 30 points
+  and covers the calls its figures count. Times are UTC, as the application's are.
+- **Header band:** title, the sentence with the Translation Center link, then on the right the AI model combobox
+  (FRM-11, icons instead of flags, model names in mono) and under it “Updated 09:41 UTC”, the period (FRM-08) and
+  Refresh, which reads the records, the configuration and the background generations again and says so in a toast.
+- **The model filter** narrows the history, never what translates: its options are All models, then every model
+  recorded — by the name its provider reported, a dated snapshot included — with its calls in the period, the
+  configured model (or its snapshot) first and badged Current, the others Not current with their last call. The
+  configured model is listed before it has any call, “Configured now · no calls recorded”. Nothing is a fixed list.
+- **Provider health** is the configuration translations run on now — the configured provider and model, with the
+  model's dated snapshots — whatever the filter shows: Not configured (danger) when a public-content batch would be
+  refused before sending, asked the way Generate missing asks before it plans; Degraded (warning) when the last call
+  that tested the API key — a success, or a rejection of it (`authentication_failed`) — was a rejection, however few
+  failures that makes, or while a series of one provider failure of the configured model is ongoing; Healthy
+  (success, dot) after a successful call within 24 hours with neither; Configured (neutral) otherwise — a key alone
+  is never Healthy. Rows: provider, model, API key (Configured, Not configured or Not required — never the key), last
+  success, average response, p95 latency and success rate over the period, retry policy and fallback provider (None:
+  the engine has neither). The reason sits in the section's sunken footer.
+- **Usage and cost:** provider calls (and how many failed), translated items — succeeded, not sent — tokens in · out
+  (and calls without reported usage) and the estimated cost: the sum of known costs, to the cent or “< $0.01”,
+  with “n calls with unknown cost” in the due colour whenever any is unknown, and Unknown when all are — never $0
+  for an unknown cost. Under them calls per hour (24 hours) or per day, succeeded in ink under failed in red, each
+  bar named for screen readers; with no calls, an empty state instead of a chart.
+- **Failures and issues** counts failed provider calls and failed items apart and never adds them up — a timeout of
+  ten items is “1 failed call · 10 failed items”. Six types are always listed (constraint_violation,
+  provider_timeout, invalid_provider_response, rate_limited, authentication_failed, provider_unavailable), any
+  other error code once it happens. Failed calls have a pattern: Isolated; Burst — five or more with the same code
+  within a sliding ten minutes; Ongoing — such a series reaching into the last fifteen minutes. An item failure
+  only (“Provider answered”) has none, so a refused translation never reads as an outage. The line at the top says
+  “No issues in this period.”, an isolated count, the latest burst and whether anything followed, or the ongoing
+  series as a systemic issue.
+- **Recent provider calls** (TBL-01, NAV-04): Time · Usage (Interactive AI or Generate missing) · Model · Language
+  (and the tag the provider was sent, “as sr-Cyrl”) · Items · Tokens in / out · Cost · Latency · Result, newest
+  first, 25 a page read by the server. A failed call shows its code and HTTP status, a successful one with failed
+  items “9 of 10 translated” and the codes; an unknown token count or cost is “—”, named for screen readers. All /
+  With issues counts both. Only what a call records is shown: no batch id, no item, no text.
+- **Background generations** (`App\Livewire\Admin\TranslationAiGenerations`) is Generate missing as the temporary
+  store has it now: the generation of each installed language, through the store's running pointers, and the
+  viewer's own for each language until it expires, through theirs — a known list of keys read together, never a
+  scan. Each shows the language, Queued, Running or Completed, a progress bar, processed of total, ready, failed,
+  skipped, saved and discarded, who started it, and when its results expire; only counts and times reach the
+  browser. It is read again every 5 seconds while one is queued or running and on screen, and not at all once
+  none is. When the store cannot be reached it says Temporarily unavailable and the rest of the page is unaffected.
+  There is no history beyond the 48 hours a generation's results are kept.
+- **Configuration and guardrails**, folded away (a disclosure button): provider, model, pricing, provider timeout,
+  translation job timeout, queue and its retry_after, queue worker timeout (Not available — set where the worker
+  is started), temporary results store, batch TTL, retry policy, fallback provider, hourly limit and budget (Not
+  configured — not built yet) and telemetry retention, each read where it is set.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024.
+- Verified widths: 1440, 1280 and 1024; Translation AI also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -746,6 +827,14 @@ state badge and its note, then the actions (see the deviations below).
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
+| Translation AI period and Refresh | “Updated”, the period and Refresh in the top bar | in the header band, under the model filter | they drive this page's own state, and the top bar holds no screen's controls |
+| Translation AI model statuses | Default, Active and Retired models, from a fixed list | Current or Not current, from the models recorded and the one configured | the application knows which model is configured and which were used, not a lifecycle of models |
+| Translation AI health | Configured (success, dot) before telemetry existed; Degraded in red | Configured is neutral; Degraded is warning, as STS-01 has it | a configured key is not proof that translation works |
+| Translation AI recent calls | eight columns, a batch id under Generate missing, 20 a page, All / Failed | a Model column, no batch id, 25 a page, All / With issues | the call records its model and no batch; NAV-04's page size; a successful call with failed items has issues too |
+| Translation AI failures | one count per error type | failed calls and failed items side by side, item-only types without a pattern | one timeout of ten items is one failed call and ten failed items, and a refused translation is not an outage |
+| Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
+| Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
+| Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
 
 ### Tertiary text contrast
 
@@ -774,7 +863,7 @@ built.
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all but STS-04 |
 | Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–03, FRM-08, FRM-10, FRM-11 |
-| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell |
+| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
 | Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03 (TBL-04's menu as a static surface) |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
