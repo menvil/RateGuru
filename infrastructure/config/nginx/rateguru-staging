@@ -59,7 +59,7 @@ server {
     # on the list and still get the 401, so nothing here can be indexed.
     set $rateguru_staging_auth "RateGuru staging";
 
-    if ($http_user_agent ~* "(facebookexternalhit|Facebot|Twitterbot|TelegramBot|Slackbot|Slack-ImgProxy|LinkedInBot|WhatsApp|Discordbot|redditbot|vkShare)") {
+    if ($http_user_agent ~* "(facebookexternalhit|Facebot|Twitterbot|TelegramBot|Slackbot|Slack-ImgProxy|LinkedInBot|WhatsApp|Discordbot|redditbot|Pinterestbot|vkShare)") {
         set $rateguru_staging_auth off;
     }
 

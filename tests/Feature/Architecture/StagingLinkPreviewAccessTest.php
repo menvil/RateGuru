@@ -53,6 +53,7 @@ it('lets the bots that build link previews through', function (string $userAgent
     'WhatsApp' => 'WhatsApp/2.23.20.0 A',
     'Discord' => 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)',
     'Reddit' => 'Mozilla/5.0 (compatible; redditbot/1.0; +http://www.reddit.com/feedback)',
+    'Pinterest, for the picture a pin is made from' => 'Mozilla/5.0 (compatible; Pinterestbot/1.0; +http://www.pinterest.com/bot.html)',
     'VK' => 'Mozilla/5.0 (compatible; vkShare; +http://vk.com/dev/Share)',
 ]);
 
