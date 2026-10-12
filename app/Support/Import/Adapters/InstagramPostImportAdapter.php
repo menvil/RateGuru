@@ -72,7 +72,7 @@ class InstagramPostImportAdapter
     {
         try {
             $response = $this->client->get("https://www.instagram.com/p/{$shortcode}/embed/captioned/");
-        } catch (ImportFetchException) {
+        } catch (ImportFetchException|UnsafeImportUrlException) {
             return null;
         }
 

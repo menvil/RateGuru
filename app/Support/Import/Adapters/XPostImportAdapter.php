@@ -43,7 +43,7 @@ class XPostImportAdapter
                 'lang' => 'en',
                 'token' => $this->syndicationToken($postId),
             ]));
-        } catch (ImportFetchException) {
+        } catch (ImportFetchException|UnsafeImportUrlException) {
             return $this->pagePreview($url);
         }
 

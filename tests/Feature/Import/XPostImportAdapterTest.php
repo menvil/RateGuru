@@ -12,6 +12,7 @@ beforeEach(function () {
         'mobile.twitter.com' => ['104.244.42.129'],
         'cdn.syndication.twimg.com' => ['151.101.0.157'],
         'pbs.twimg.com' => ['151.101.64.159'],
+        'intranet.example' => ['10.0.0.5'],
     ]);
     Http::preventStrayRequests();
 });
@@ -112,6 +113,7 @@ it('falls back to the post page\'s Open Graph picture when the post data cannot 
 })->with([
     'not found' => fn () => fn () => Http::response('', 404),
     'not the post JSON' => fn () => fn () => Http::response('<html>blocked</html>', 200),
+    'sent somewhere it may not go' => fn () => fn () => Http::response('', 302, ['Location' => 'https://intranet.example/tweet']),
 ]);
 
 it('reads a link that is not a post from its page, without taking an avatar for its picture', function () {

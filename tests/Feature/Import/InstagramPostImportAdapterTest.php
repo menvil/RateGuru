@@ -10,6 +10,7 @@ beforeEach(function () {
         'instagram.com' => ['157.240.2.174'],
         'scontent.cdninstagram.com' => ['157.240.2.63'],
         'instagram.fsof11-1.fna.fbcdn.net' => ['157.240.2.50'],
+        'intranet.example' => ['10.0.0.5'],
     ]);
     Http::preventStrayRequests();
 });
@@ -75,6 +76,7 @@ it('keeps the Open Graph picture when the embed page has no picture or cannot be
 })->with([
     'no picture' => fn () => fn () => Http::response('<div class="Embed">This post is unavailable.</div>', 200),
     'refused' => fn () => fn () => Http::response('', 429),
+    'sent somewhere it may not go' => fn () => fn () => Http::response('', 302, ['Location' => 'https://intranet.example/embed']),
 ]);
 
 it('reads a link that is not a post from its page alone', function () {
