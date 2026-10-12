@@ -24,10 +24,16 @@
      * notice or facts under it, `footnote` for a note left of the actions, and
      * `actions` for the buttons, the primary one last. A blocked dialog
      * explains why and offers the alternative instead of a confirm action.
+     *
+     * Tones: default (light), warning, and danger for a deletion that cannot
+     * be taken back, whose confirm button is the danger variant. A record the
+     * dialog acts on goes in `details` as `.rg-admin-dialog-subject`, and
+     * what an alternative does as `.rg-admin-dialog-facts`.
      */
     $icons = [
         'default' => 'info',
         'warning' => 'circle-alert',
+        'danger' => 'triangle-alert',
     ];
 
     if (! array_key_exists($tone, $icons)) {

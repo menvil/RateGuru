@@ -206,7 +206,7 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center and Translation AI are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Categories and Tags are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -244,7 +244,9 @@ Languages, Translation Center and Translation AI are migrated: their content is 
 - **Breadcrumb:** section › destination, taken from the active navigation item without loading any record. On a
   create or edit page the destination is the last step, linked back to its list.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
-  migrated page puts its actions. A page without a permanent action, such as Languages, leaves it empty.
+  migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
+  which asks the page by a browser event to open its drawer. A page without a permanent action, such as Languages,
+  leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
   (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
   centres on the main column at every width. A page raises a toast with a browser event; see
@@ -273,9 +275,9 @@ These are the current migration state, not changes to the target design:
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation status on the content editors.** The Categories, Tags, Rating groups and options, Project
-  settings and Static pages editors edit English only and are still Filament's; the translation status the
-  prototype shows on them (locale chips, missing counts) arrives with their Admin v2 migration.
+- **Translation status on the content editors.** The Rating groups and options, Project settings and Static pages
+  editors edit English only and are still Filament's; the translation status the prototype shows on them (locale
+  chips, missing counts) arrives with their Admin v2 migration, as it did for Categories and Tags.
 
 ## Page anatomy
 
@@ -321,7 +323,12 @@ These are the current migration state, not changes to the target design:
   everything else in an ellipsis menu (ghost sm). Menus are 248–272 wide, radius 12, padding 6; items carry a 16
   icon, a 14px label and an optional 12px hint. Unavailable actions stay visible, disabled, with the reason as a
   hint. Destructive items are red-950 after a separator. Menus flip up near the bottom and close on outside
-  click, scroll and Escape.
+  click, scroll and Escape. In production it is `x-admin.ui.row-menu` with `x-admin.ui.menu-item`: a menu button
+  named for its row (“More actions for Dogs”) over a 264 menu fixed to the window, so a card that scrolls
+  sideways never clips it. Enter, Space or Down open it on the first item, Up on the last; Up, Down, Home and End
+  move; Escape closes it back to the button; a choice, Tab, a click outside, a scroll that moves its button or a
+  resize close it. An item is a link or a button; an unavailable one keeps its place in the menu and in the
+  keyboard order, marked `aria-disabled` as a menu's items are, so its reason is heard, and does nothing.
 - **Pagination (NAV-04):** footer padding 12 16, 13 gray-600; “1–25 of 1,231” tabular; pages 32 min with the
   current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25. In production it is
   `x-admin.ui.pagination` (NAV-04), over a length-aware paginator: the range with an optional note (“newest
@@ -376,8 +383,20 @@ Grid templates used in the prototype, for reference:
 - **Searchable combobox (FRM-11):** 52-high trigger, radius 12, border gray-300, overline plus value; a 420-wide
   list with search first and a 340 max height. Built for the target language with 30+ languages.
 
-In production the segmented control, the filter dropdown and the combobox are Blade components, each with the
-keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
+In production the locked identifier, the number stepper and the switch are Blade components too:
+
+- **`x-admin.ui.locked-identifier` (FRM-04):** label, the chip while generated, or a lock with “Locked” and the
+  `unlock` slot (“Change slug”) once saved; the value in mono, read-only but focusable while locked; the hint or
+  the error, and the warning notice once unlocked, all tied to the input. Attributes go to the input.
+- **`x-admin.ui.number-stepper` (FRM-05):** minus and plus named after the field (“Decrease sort order”) that step
+  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing; what is
+  typed is the server's to validate.
+- **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
+  state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
+  `wire:model` and `x-model` (`x-modelable`).
+
+The segmented control, the filter dropdown and the combobox are Blade components, each with the keyboard
+behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
 
 - **`x-admin.ui.segmented` (FRM-08):** a `radiogroup` of two to four `radio` buttons; only the checked one is a tab
   stop, the arrow keys, Home and End move the choice with the focus, and the checked option is raised and 500,
@@ -449,15 +468,20 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   in the Livewire runtime) moves focus inside, keeps it there and returns it to the trigger on close; the rest of
   the page is hidden from assistive technology and does not scroll. When the trigger has left the page by then —
   its row filtered away by the change it confirmed — focus goes to the page's heading. Both sit on
-  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light) and
-  `warning` tones; a blocked dialog is one with no confirm action. The drawer is 448 wide, or 480 with `wide`,
+  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light),
+  `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
+  blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
+  acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
+  section label. The drawer is 448 wide, or 480 with `wide`,
   never wider than the screen, with an optional `leading` and `footer`.
 - **`x-admin.ui.toast-stack` (FBK-01)** is drawn once per page by the shell. A page raises a toast with a browser
   event — `$this->dispatch('rg-admin-toast', message: '…', tone: 'success')` from Livewire, or `$dispatch` from
   Alpine — with the tone `success`, `error` or `info`. At most three stay on screen, each for 5.2 s, waiting while
   the pointer or keyboard focus is on the stack. A status region (success, info) and an alert region (error), always
   present, announce each message once; the toasts themselves are not live regions. A toast is never the only record
-  of a lasting error: the screen shows it too.
+  of a lasting error: the screen shows it too. A reversible action adds `action` — Undo, and the browser event the
+  button dispatches with its params, which the screen listens for (`#[On('activate-category')]`); pressing it
+  takes the toast away.
 
 ## Localization
 
@@ -774,9 +798,74 @@ changes a setting, and nothing is sent to a provider — not on opening, not on 
   is started), temporary results store, batch TTL, retry policy, fallback provider, hourly limit and budget (Not
   configured — not built yet) and telemetry retention, each read where it is set.
 
+## Content
+
+```text
+Content
+├── Categories
+├── Tags
+└── Rating groups
+```
+
+Categories and Tags are drawn entirely in Admin v2 (`ManageCategories`, `ManageTags`, one screen each). Their
+resources stay for routing, navigation, the policies and global search; the list, the editor and every
+confirmation are the one screen's.
+
+- **Header band (LAY-01):** the title and one sentence — the names are the English reference, other languages
+  are managed separately — followed by “Open Translation Center” on that section, for whoever may open it. Stats:
+  Categories show Active, Inactive and Missing translations; Tags show Tags, Unused and Missing translations.
+- **Top bar:** the primary Create category / Create tag, through the `TOPBAR_END` hook, for whoever may create.
+  It asks the page by a browser event to open its drawer.
+- **Table (TBL-01, TBL-02):** the grids of the [table above](#tables). The list is bounded and already on the
+  page, so the clearable search (“Search name or slug”, “Search tags”) runs in the browser and keeps `?q=`; the
+  toolbar counts “N of M”. A search that finds nothing offers Create “…”, which opens the drawer with that name.
+  Categories are in their sort order, tags by number of posts, then by name. The footer says so (“Sorted by sort
+  order. Inactive categories stay attached to their posts.” / “Sorted by number of posts.”).
+- **Name cell:** the English name — a real link to the record's drawer (`?edit=`), which a click opens in place;
+  an inactive category's in secondary ink — and under it the locale chips (STS-05) of the languages the project
+  offers besides English, each translated or missing, with “n missing” in the due colour. Missing translations,
+  in the chips' count and the stat, are counted over offered languages only, and for categories over active ones
+  only: an inactive category is not in Translation Center while visitors cannot see it, so it shows its chips but
+  is not due.
+- **Slug** in mono, as stored; **Active** (categories) a success badge with the live dot or a neutral Inactive;
+  **Sort order** and **Posts** right-aligned and tabular.
+- **Row actions (TBL-04):** Edit inline; the menu holds, for a category, Deactivate (“Hide from navigation and
+  uploads”) or Activate (“Show to visitors again”), Translate, and after a separator Delete (“Has posts · deactivate
+  instead” or “Unused”); for a tag, Merge into… unavailable (“Not available yet”), Translate, and Delete (“In use ·
+  remove it from its posts first” or “Unused”). Translate opens Translation Center on the record — its section and
+  unit, in the first offered language it is missing from — and is unavailable, with the reason, for an inactive
+  category and for whoever may not open Translation Center. On Tags, Delete is unavailable to a moderator.
+- **Activate and deactivate** apply at once, with no confirmation, and toast with Undo (FBK-01); Undo restores the
+  previous state and says so (“Dogs is active again”).
+- **Drawer (OVL-02):** “New category” / “Edit category” (tags alike), subtitled “Created in English. Translate it
+  afterwards.” or “n posts · ID n”. Name, tagged “English · reference”. Slug (FRM-04): on create it follows the
+  name — chip “Generated from name” — until the slug itself is typed; once saved it is locked, and Change slug
+  unlocks it with a warning: changing it breaks existing links, and, once it differs, “Feed links filtered by
+  “old” stop working once you save.” The server keeps a locked slug as stored whatever the browser sends. A tag's
+  slug may be left blank: it is then made from the name. Categories add Sort order (FRM-05; a new one goes last)
+  and Active (FRM-06, “Shown to visitors” / “Hidden from visitors”). Other languages lists, read-only, each offered
+  language with its stored translation, or the English fallback a visitor gets, or “Not translated yet” on create,
+  with a Missing badge, and Translate — unavailable, with the reason, until the record exists or while a category
+  is inactive. The footer has Delete on the left (it replaces the drawer with its confirmation), Cancel, and
+  Create category / Create tag or Save.
+- **Errors** say what to do: “Enter a name.”, “This slug is already used by another category. Choose another
+  one.”, “Use lowercase letters and numbers, with single hyphens between words: small-pets.”, “Enter a whole number
+  from 0 to 999,999.” The English name is held to the length its translations are held to.
+- **Delete (OVL-01):** read when the dialog is drawn. Unused, a danger confirmation — the record in a subject row,
+  “Its stored translations are deleted with it.”, Delete category / Delete tag. A category any post holds — a
+  deleted post that is kept included, which the database still counts — cannot be deleted: a warning dialog says
+  how many posts are filed under it and offers Deactivate instead, with what that does; already inactive, it has
+  nothing to confirm. A tag posts carry is a blocked dialog: remove it from those posts first. A delete that finds
+  posts after the dialog was drawn shows that dialog instead of deleting.
+- **Toasts:** “Dogs created. Translations are missing for n languages.” (n the offered languages besides
+  English), “Dogs saved”, “Dogs deleted”, “Dogs deactivated” with Undo; tags as “#zoomies …”.
+- **Access:** categories are an administrator's. Tags are curated by moderators and administrators; deleting a
+  tag, and Translation Center, are an administrator's. Every write goes through its action, which checks the
+  policy again.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Categories and Tags also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -809,7 +898,7 @@ changes a setting, and nothing is sent to a provider — not on opening, not on 
 | Status tabs | Sable Tabs use `role="tab"` without tab panels | links with `aria-current` or toggles with `aria-pressed` | they filter a list rather than switch panels |
 | Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
-| Row menus | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
+| Row menus | live in the prototype; an unavailable item is greyed | built with Categories and Tags (`x-admin.ui.row-menu`); an unavailable item stays focusable, `aria-disabled` | a menu's items are reached with the arrow keys, and the reason an item is unavailable has to be heard |
 | Disable language confirmation | *firm*: a required reason | a warning confirmation with no reason field | nothing stores a reason for a language change; asking for one and discarding it would be for show |
 | Confirmation footnote | “Recorded in the … log as …” | none on Languages | no log records a language change |
 | Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
@@ -823,7 +912,14 @@ changes a setting, and nothing is sent to a provider — not on opening, not on 
 | DOM-01 placement | the state badge and note above the target field | under the field, after the counter and before the actions; a note too long for the line wraps under the badge | the target field starts level with the English text it translates, and a long note never pushes the actions aside |
 | Languages table on narrow widths | the card scrolls the grid horizontally | tightened columns down to 876, then one labelled block per language | the screen never scrolls sideways; the locale code moves beside the names, so no column is lost |
 | Translation Center and Languages search | a plain search field | a clearable one, with × while it holds text | a query is cleared in one press |
-| Toast Undo | reversible actions toast with Undo | no Undo in the stack yet | no migrated action is reversible without confirmation; it arrives with the first one |
+| Toast Undo | Undo restores silently | Undo restores and says so (“Dogs is active again”) | the change is a write like any other, and is confirmed like one |
+| Category and tag slugs | `/c/dogs`, `/t/zoomies`, and a `pawrank.com/c/` prefix in the slug field | the slug as stored, no prefix; the warning names feed links filtered by it | categories and tags are feed filters (`/?category[]=dogs`, `/?tag=zoomies`); there are no `/c/` or `/t/` pages |
+| Categories and Tags translations note | “Translations are edited in Translation Center. Changing the English name doesn’t change them.” beside Translate | Translate alone | Translation Center is already the single editor of translations, and the cutover put no note where the language tabs were |
+| Categories and Tags locale chips | every language the prototype knows | the languages the project offers besides English; for categories, missing counted over active ones | visitors meet the offered languages, and Translation Center lists only what visitors can see |
+| Merge into… | merges a tag into another, and a tag in use offers “Merge into another tag” | unavailable (“Not available yet”); a tag in use is a blocked dialog | merging tags needs a domain action of its own, to be designed once every section is on v2 (migration plan) |
+| Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
+| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | OVL-02: one overlay at a time; a dialog opened from a drawer replaces it |
+| Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
@@ -862,10 +958,10 @@ built.
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all but STS-04 |
-| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–03, FRM-08, FRM-10, FRM-11 |
+| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–06, FRM-08, FRM-10, FRM-11 |
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
-| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03 (TBL-04's menu as a static surface) |
+| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03; TBL-04 as a live, reusable component |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
 | Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
 

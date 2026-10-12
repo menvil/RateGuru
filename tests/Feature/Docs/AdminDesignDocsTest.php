@@ -130,7 +130,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–03, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('| FRM-01–06, FRM-08, FRM-10, FRM-11 |')
         ->toContain('| DOM-01 placement |')
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -260,6 +260,34 @@ it('records the translation cutover as done, in one change, and the content scre
         ->not->toContain('| 9 | Dashboard |')
         ->and($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all());
+});
+
+it('describes Categories and Tags on v2, and leaves merging tags to be discussed once every section is', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('Content ├── Categories ├── Tags └── Rating groups')
+        ->toContain('Categories and Tags are drawn entirely in Admin v2 (`ManageCategories`, `ManageTags`, one screen each)')
+        ->toContain('The server keeps a locked slug as stored whatever the browser sends.')
+        ->toContain('Missing translations, in the chips\' count and the stat, are counted over offered languages only, and for categories over active ones only')
+        ->toContain('Merge into… unavailable (“Not available yet”)')
+        ->toContain('`x-admin.ui.row-menu` with `x-admin.ui.menu-item`')
+        ->toContain('`x-admin.ui.locked-identifier` (FRM-04)')
+        ->toContain('`x-admin.ui.number-stepper` (FRM-05)')
+        ->toContain('`x-admin.ui.switch` (FRM-06)')
+        ->toContain('A reversible action adds `action` — Undo')
+        ->toContain('| Merge into… |')
+        ->toContain('| Category and tag slugs |')
+        ->toContain('| Categories and Tags translations note |')
+        ->toContain('TBL-04 as a live, reusable component')
+        ->not->toContain('no Undo in the stack yet')
+        ->not->toContain('built when the first screen needs them');
+
+    expect($plan)
+        ->toContain('**Categories and Tags. Status: done.**')
+        ->toContain('**Deferred, to discuss once every section is on v2: merging tags.**')
+        ->toContain('the row menu shows Merge into… unavailable with “Not available yet”');
 });
 
 it('describes the Translation AI page: health of the configuration, the history filters choose, and the guardrails', function () {

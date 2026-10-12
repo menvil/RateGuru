@@ -3,6 +3,7 @@
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\TranslationCenterPage;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -863,7 +864,7 @@ it('lists what is missing, by section, with a link to the editor that manages it
         ->toContain('Georgian food<span class="rg-admin-languages__item-field">· Name</span>')
         ->toContain('<span lang="en">EN</span>“Georgian food”')
         ->toContain('Project Settings')
-        ->toMatch('/<a href="'.preg_quote(e(route('filament.admin.resources.categories.edit', ['record' => $category])), '/').'" class="rg-admin-languages__edit-source">Edit source/')
+        ->toMatch('/<a href="'.preg_quote(e(ManageCategories::getUrl(['edit' => $category->id])), '/').'" class="rg-admin-languages__edit-source">Edit source/')
         ->toContain(e(ProjectSettingsPage::getUrl()))
         ->toContain('Visitors see the English text wherever a translation is missing.');
 });
@@ -906,7 +907,7 @@ it('keeps Edit source on every missing item, beside Translate', function () {
     $drawer = (string) languagesDrawer(languagesPage()->call('showMissing', $target));
 
     expect(substr_count($drawer, 'class="rg-admin-languages__edit-source"'))->toBe(substr_count($drawer, '>Translate<'))
-        ->and($drawer)->toContain(e(route('filament.admin.resources.categories.edit', ['record' => $category])));
+        ->and($drawer)->toContain(e(ManageCategories::getUrl(['edit' => $category->id])));
 });
 
 it('sends no catalog issue to Translation Center, and offers nothing to translate when only the catalog is wrong', function () {

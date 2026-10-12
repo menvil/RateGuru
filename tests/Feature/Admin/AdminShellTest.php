@@ -17,7 +17,6 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\AdminShellNavigation;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
-use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -191,8 +190,7 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     expect($html)->toContain('<a class="rg-admin-breadcrumb__link" href="'.e($listUrl).'">'.e($active).'</a>')
         ->not->toContain('rg-admin-breadcrumb__current');
 })->with([
-    'category create' => [fn (): string => CategoryResource::getUrl('create'), 'Categories'],
-    'category edit' => [fn (): string => CategoryResource::getUrl('edit', ['record' => Category::factory()->create()]), 'Categories'],
+    'rating group create' => [fn (): string => RatingGroupResource::getUrl('create'), 'Rating groups'],
     'rating group edit' => [fn (): string => RatingGroupResource::getUrl('edit', ['record' => RatingGroup::factory()->create()]), 'Rating groups'],
     'user edit' => [fn (): string => UserResource::getUrl('edit', ['record' => User::factory()->create()]), 'Users'],
 ]);

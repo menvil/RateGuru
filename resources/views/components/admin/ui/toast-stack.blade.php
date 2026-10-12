@@ -12,6 +12,13 @@
         $dispatch('rg-admin-toast', { message: 'German enabled', tone: 'success' })
 
     tone is success (the default), error or info; duration (ms) is optional.
+
+    A reversible action offers Undo with `action`: its label, and the browser
+    event the button dispatches, with its params as the event's detail — the
+    screen listens for it, e.g. with #[On('activate-category')]. Pressing it
+    takes the toast away:
+
+        $this->dispatch('rg-admin-toast', message: 'Dogs deactivated', action: ['label' => 'Undo', 'event' => 'activate-category', 'params' => ['id' => 4]]);
     A toast waits while the pointer or keyboard focus is on the stack, so
     nobody loses one they are reading or about to dismiss.
 
@@ -42,7 +49,10 @@
             }
 
             const tone = ['success', 'error', 'info'].includes(detail?.tone) ? detail.tone : 'success'
-            const toast = { id: ++this.count, tone, message, left: Number(detail?.duration) > 0 ? Number(detail.duration) : {{ (int) $duration }}, since: 0, timer: null }
+            const action = typeof detail?.action?.label === 'string' && typeof detail?.action?.event === 'string' && detail.action.event !== ''
+                ? { label: detail.action.label, event: detail.action.event, params: detail.action.params ?? {} }
+                : null
+            const toast = { id: ++this.count, tone, message, action, left: Number(detail?.duration) > 0 ? Number(detail.duration) : {{ (int) $duration }}, since: 0, timer: null }
 
             this.toasts.slice(0, -2).forEach((old) => clearTimeout(old.timer))
             this.toasts = [...this.toasts.slice(-2), toast]
@@ -59,6 +69,10 @@
             // the same message twice in a row is heard twice.
             this[region] = ''
             setTimeout(() => this[region] = toast.message, 50)
+        },
+        act(toast) {
+            this.$dispatch(toast.action.event, toast.action.params)
+            this.remove(toast.id)
         },
         remove(id) {
             // Taken now: called from a toast's own Dismiss button, $root is
@@ -104,6 +118,9 @@
                 <x-admin.ui.icon name="circle-alert" class="rg-admin-toast__icon--error" label="Error" x-show="toast.tone === 'error'" />
                 <x-admin.ui.icon name="info" class="rg-admin-toast__icon--info" label="Info" x-show="toast.tone === 'info'" />
                 <span class="rg-admin-toast__text" x-text="toast.message"></span>
+                <template x-if="toast.action">
+                    <button type="button" class="rg-admin-toast__action" x-text="toast.action.label" x-on:click="act(toast)"></button>
+                </template>
                 <button type="button" class="rg-admin-toast__close" aria-label="Dismiss" title="Dismiss" x-on:click="remove(toast.id)">
                     <x-admin.ui.icon name="x" :size="14" />
                 </button>

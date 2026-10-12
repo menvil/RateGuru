@@ -2,7 +2,8 @@
 
 use App\Enums\UserRole;
 use App\Filament\Pages\TranslationCenterPage;
-use App\Filament\Resources\Categories\Pages\EditCategory;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -282,7 +283,7 @@ it('draws a row as the reference does: item, English and the target field with i
         ->toContain('<li class="rg-admin-constraint-chip">Single line</li>')
         ->toContain('lang="en">Rabbits &amp; rodents</div>')
         ->toContain('17 characters')
-        ->toContain('href="'.e(route('filament.admin.resources.categories.edit', ['record' => $category])).'"')
+        ->toContain('href="'.e(ManageCategories::getUrl(['edit' => $category->id])).'"')
         ->toContain("<label for=\"rg-admin-tr-14-field\" class=\"rg-admin-sr-only\">{$label} translation of Rabbits &amp; rodents · Name</label>")
         ->toContain('type="text"')
         ->toContain('placeholder="Missing · type a translation or use AI translate"')
@@ -323,7 +324,7 @@ it('links each unit to the editor of its English text', function () {
 
     expect(translationRow($page, 'project_settings:site_name'))->toContain(e(route('filament.admin.pages.project-settings')))
         ->and(translationRow($page, 'static_pages:about:title'))->toContain(e(route('filament.admin.pages.project-settings')))
-        ->and(translationRow($page, "tags:{$tag->id}:name"))->toContain(e(route('filament.admin.resources.tags.edit', ['record' => $tag])))
+        ->and(translationRow($page, "tags:{$tag->id}:name"))->toContain(e(ManageTags::getUrl(['edit' => $tag->id])))
         ->and(translationRow($page, "rating_groups:{$group->id}:label"))->toContain(e(route('filament.admin.resources.rating-groups.edit', ['record' => $group])))
         // An option is edited on its group's page.
         ->and(translationRow($page, "rating_options:{$option->id}:label"))->toContain(e(route('filament.admin.resources.rating-groups.edit', ['record' => $group])));
@@ -417,7 +418,7 @@ it('reads one unit\'s context when the drawer opens, other languages as context 
             && $context['format'] === 'Single line'
             && $context['placeholders'] === []
             && $context['usage'] === 'The category’s name on posts and in the upload form.'
-            && $context['sourceUrl'] === route('filament.admin.resources.categories.edit', ['record' => $category])
+            && $context['sourceUrl'] === ManageCategories::getUrl(['edit' => $category->id])
             && str_contains($context['target'], " · {$target}")
             && array_column($context['others'], 'code') === [$other]
             && $context['others'][0]['text'] === 'Кучета');
@@ -709,8 +710,9 @@ it('keeps what it saved when the content\'s own editor saves its English', funct
 
     translationCenter($target)->call('save', $unit, $target, 'From Translation Center');
 
-    Livewire::test(EditCategory::class, ['record' => $category->getRouteKey()])
-        ->set('data.name', 'Renamed in English')
+    Livewire::test(ManageCategories::class)
+        ->call('edit', $category->id)
+        ->set('draftName', 'Renamed in English')
         ->call('save')
         ->assertHasNoErrors();
 

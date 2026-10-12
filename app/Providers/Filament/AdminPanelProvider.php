@@ -3,6 +3,10 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Resources\Categories\CategoryResource;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Tags\Pages\ManageTags;
+use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
@@ -14,6 +18,7 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -46,6 +51,17 @@ class AdminPanelProvider extends PanelProvider
             // pages, which keep their content until each one is migrated.
             ->sidebarLivewireComponent(Sidebar::class)
             ->topbarLivewireComponent(Topbar::class)
+            // A migrated page's own action, on the right of the top bar.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::createAction(CategoryResource::canCreate(), 'Create category', 'create-category'),
+                scopes: ManageCategories::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::createAction(TagResource::canCreate(), 'Create tag', 'create-tag'),
+                scopes: ManageTags::class,
+            )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with
             // the theme switcher gone along with Filament's user menu, would
@@ -76,5 +92,17 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
             ]);
+    }
+
+    /**
+     * The primary action of a page drawn in Admin v2, in the top bar: it asks
+     * the page, by a browser event, to open what it creates. Nothing for a
+     * user who may not create.
+     */
+    private static function createAction(bool $allowed, string $label, string $event): string
+    {
+        return $allowed
+            ? view('filament.pages.taxonomy.create-action', ['label' => $label, 'event' => $event])->render()
+            : '';
     }
 }

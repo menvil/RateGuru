@@ -1,7 +1,7 @@
 <?php
 
 use App\Filament\Pages\LanguagesPage;
-use App\Filament\Resources\Tags\TagResource;
+use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
@@ -275,7 +275,7 @@ it('leaves the admin panel in English whatever the visitor chose', function () {
 
     $this->actingAs(User::factory()->admin()->create(['locale' => $chosen]))
         ->withHeaders(acceptLanguage($chosen))
-        ->get(TagResource::getUrl('create'))
+        ->get(RatingGroupResource::getUrl('create'))
         ->assertOk()
         ->assertSee('lang="en"', false);
 });

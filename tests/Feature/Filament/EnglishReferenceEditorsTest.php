@@ -3,13 +3,11 @@
 use App\Actions\Settings\SaveProjectSettingsAction;
 use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Filament\Pages\ProjectSettingsPage;
-use App\Filament\Resources\Categories\Pages\CreateCategory;
-use App\Filament\Resources\Categories\Pages\EditCategory;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
-use App\Filament\Resources\Tags\Pages\CreateTag;
-use App\Filament\Resources\Tags\Pages\EditTag;
+use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -40,11 +38,24 @@ beforeEach(function () {
 
 it('offers no translation field in any editor, for any language', function () {
     $group = RatingGroup::factory()->create();
+
+    // Categories and tags are edited in a drawer whose fields are its draft: English, and nothing else.
+    $drawers = [
+        'category' => Livewire::test(ManageCategories::class)->call('create'),
+        'category edit' => Livewire::test(ManageCategories::class)->call('edit', Category::factory()->create(['name_translations' => translationsOf('Dogs')])->id),
+        'tag' => Livewire::test(ManageTags::class)->call('create'),
+        'tag edit' => Livewire::test(ManageTags::class)->call('edit', Tag::factory()->create(['name_translations' => translationsOf('zoomies')])->id),
+    ];
+
+    foreach ($drawers as $editor => $drawer) {
+        $fields = array_map(fn (DOMElement $field): string => (string) $field->getAttribute('id'), iterator_to_array(livewireDom($drawer)->query("//*[@role='dialog']//form//input | //*[@role='dialog']//form//textarea")));
+
+        expect(array_filter(array_keys($drawer->instance()->all()), fn (string $property): bool => str_contains($property, 'translation')))->toBe([], "the {$editor} drawer holds a translation")
+            ->and(array_filter($fields, fn (string $id): bool => str_ends_with($id, '-name')))->not->toBe([], "the {$editor} drawer has no name field")
+            ->and(array_filter($fields, fn (string $id): bool => ! preg_match('/-(name|slug|sort)$/', $id)))->toBe([], "the {$editor} drawer has a field besides the English ones");
+    }
+
     $editors = [
-        'category' => [Livewire::test(CreateCategory::class), ['name']],
-        'category edit' => [Livewire::test(EditCategory::class, ['record' => Category::factory()->create()->getRouteKey()]), ['name']],
-        'tag' => [Livewire::test(CreateTag::class), ['name']],
-        'tag edit' => [Livewire::test(EditTag::class, ['record' => Tag::factory()->create()->getRouteKey()]), ['name']],
         'rating group' => [Livewire::test(CreateRatingGroup::class), ['label', 'description']],
         'rating group edit' => [Livewire::test(EditRatingGroup::class, ['record' => $group->getRouteKey()]), ['label', 'description']],
         'project settings' => [Livewire::test(ProjectSettingsPage::class), ['site_name', 'site_tagline', 'site_description', 'object_singular_name', 'object_plural_name', 'upload_cta_label', 'feed_title']],
@@ -88,14 +99,16 @@ it('keeps a category\'s and a tag\'s translations when their English name is edi
     $category = Category::factory()->create(['name' => 'Dogs', 'name_translations' => translationsOf('Dogs')]);
     $tag = Tag::factory()->create(['name' => 'zoomies', 'slug' => 'zoomies', 'name_translations' => translationsOf('zoomies')]);
 
-    Livewire::test(EditCategory::class, ['record' => $category->getRouteKey()])
-        ->fillForm(['name' => 'Good dogs'])
+    Livewire::test(ManageCategories::class)
+        ->call('edit', $category->id)
+        ->set('draftName', 'Good dogs')
         ->call('save')
-        ->assertHasNoFormErrors();
-    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
-        ->fillForm(['name' => 'Zoomies'])
+        ->assertHasNoErrors();
+    Livewire::test(ManageTags::class)
+        ->call('edit', $tag->id)
+        ->set('draftName', 'Zoomies')
         ->call('save')
-        ->assertHasNoFormErrors();
+        ->assertHasNoErrors();
 
     expect($category->fresh())->name->toBe('Good dogs')->name_translations->toBe(translationsOf('Dogs'))
         ->and($tag->fresh())->name->toBe('Zoomies')->name_translations->toBe(translationsOf('zoomies'));
@@ -119,12 +132,19 @@ it('keeps a rating group\'s and its options\' translations when their English is
 });
 
 it('creates content in English, with nothing translated yet', function () {
-    Livewire::test(CreateCategory::class)
-        ->fillForm(['name' => 'Desserts', 'slug' => 'desserts', 'sort_order' => 20, 'is_active' => true])
+    Livewire::test(ManageCategories::class)
         ->call('create')
-        ->assertHasNoFormErrors();
+        ->set('draftName', 'Desserts')
+        ->call('save')
+        ->assertHasNoErrors();
+    Livewire::test(ManageTags::class)
+        ->call('create')
+        ->set('draftName', 'zoomies')
+        ->call('save')
+        ->assertHasNoErrors();
 
-    expect(Category::query()->where('slug', 'desserts')->firstOrFail()->name_translations)->toBeEmpty();
+    expect(Category::query()->where('slug', 'desserts')->firstOrFail()->name_translations)->toBeEmpty()
+        ->and(Tag::query()->where('slug', 'zoomies')->firstOrFail()->name_translations)->toBeEmpty();
 });
 
 it('keeps the project\'s translations and the other languages of its pages when the settings are saved', function () {

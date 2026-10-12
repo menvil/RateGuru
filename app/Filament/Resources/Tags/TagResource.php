@@ -2,19 +2,20 @@
 
 namespace App\Filament\Resources\Tags;
 
-use App\Filament\Resources\Tags\Pages\CreateTag;
-use App\Filament\Resources\Tags\Pages\EditTag;
-use App\Filament\Resources\Tags\Pages\ListTags;
-use App\Filament\Resources\Tags\Schemas\TagForm;
-use App\Filament\Resources\Tags\Tables\TagsTable;
+use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Tag;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Tags: one Admin v2 screen (ManageTags) that lists them and creates and
+ * edits each in a drawer. The resource keeps the route, the navigation item,
+ * the policy checks and global search, whose results open the tag in that
+ * drawer.
+ */
 class TagResource extends Resource
 {
     protected static ?string $model = Tag::class;
@@ -32,29 +33,15 @@ class TagResource extends Resource
         return AdminNavigationGroup::CONTENT;
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return TagForm::configure($schema);
-    }
-
-    public static function table(Table $table): Table
-    {
-        return TagsTable::configure($table);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
-    }
-
     public static function getPages(): array
     {
         return [
-            'index' => ListTags::route('/'),
-            'create' => CreateTag::route('/create'),
-            'edit' => EditTag::route('/{record}/edit'),
+            'index' => ManageTags::route('/'),
         ];
+    }
+
+    public static function getGlobalSearchResultUrl(Model $record): ?string
+    {
+        return static::canEdit($record) ? ManageTags::getUrl(['edit' => $record->getKey()]) : null;
     }
 }
