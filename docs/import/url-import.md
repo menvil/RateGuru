@@ -47,15 +47,34 @@ Relative image URLs are resolved against the page URL.
 
 ### Instagram
 
-- Most content requires authentication.
-- Instagram actively blocks unauthenticated HTTP fetchers.
-- **Phase 50 behaviour:** best-effort OG attempt; graceful unsupported fallback on failure.
+- Most content requires authentication, and Instagram blocks many
+  unauthenticated fetchers, more readily from data-centre addresses.
+- A public post's page carries Open Graph tags, but its `og:image` is a small
+  square crop of the picture (351x350 is typical).
+- **Current behaviour** (`InstagramPostImportAdapter`): the title and
+  description come from the post page's Open Graph tags. For a post link
+  (`/p/`, `/reel/`, `/reels/`, `/tv/`, with or without the author in the
+  path), the picture comes from the post's embed page
+  (`/p/{shortcode}/embed/captioned/`): the widest entry of its `srcset`,
+  which is the picture as uploaded. When the embed page has no picture or
+  cannot be fetched, the Open Graph crop is kept. When the post page itself
+  is refused, the import falls back to manual upload as before.
 
 ### X / Twitter
 
-- Public tweet OG cards may be accessible in some configurations.
-- `x.com` may rate-limit or block unauthenticated requests.
-- **Phase 50 behaviour:** best-effort OG attempt; graceful unsupported fallback on failure.
+- Whether a post page carries `og:image` at all depends on the request's
+  headers and on who asks, and for a post without a picture, or a profile,
+  `og:image` is the author's avatar.
+- **Current behaviour** (`XPostImportAdapter`): for a post link (`x.com`,
+  `twitter.com` or `mobile.twitter.com`, `/{user}/status/{id}` or
+  `/i/web/status/{id}`, with or without `/photo/N` and a share query), the
+  post is read from the JSON the embed widget renders posts from
+  (`cdn.syndication.twimg.com/tweet-result`): its first photo at X's `large`
+  size (a video contributes its poster frame), its text without X's own
+  trailing media link, and its author as the title. A post without media
+  gets no picture. When that JSON cannot be had, the post page's Open Graph
+  tags are used, as for any page, except that an avatar is never taken for
+  the picture.
 
 ### Pinterest
 
@@ -191,10 +210,13 @@ test suite never performs a live DNS lookup.
 
 1. **`on_headers`** rejects immediately once an honest, oversized
    `Content-Length` is seen — before any body byte is read.
-2. **`progress`** (curl's own progress callback) aborts a genuinely large,
-   actively-streaming body within a curl-buffer-sized margin of the cap,
-   without waiting for it to finish — verified empirically against a
-   multi-gigabyte unbounded response: it aborts in well under a second.
+2. **curl's transfer-info callback** (`CURLOPT_XFERINFOFUNCTION`) stops a
+   body that passes the cap within a curl-buffer-sized margin of it, without
+   waiting for the server to finish sending or to close the connection.
+   Guzzle's own `progress` option cannot do this: its wrapper discards the
+   callback's return value, and an exception thrown from it only surfaces
+   once curl has finished, so a server that kept the connection open was read
+   until the timeout first.
 3. **An exact `strlen()` check** on the completed body is the byte-precise
    source of truth, and is what actually catches a missing, lying-small, or
    chunked `Content-Length` once the (already-bounded) transfer completes.
@@ -313,6 +335,8 @@ When disabled:
 | `DirectImageImportAdapter` | Handle direct image URLs |
 | `OpenGraphParser` | Parse OG/Twitter meta from HTML (RFC 3986 relative URL resolution) |
 | `OpenGraphImportAdapter` | Fetch page and build ImportPreview |
+| `XPostImportAdapter` | A post on X: its picture, text and author from the embed widget's JSON, Open Graph as fallback |
+| `InstagramPostImportAdapter` | An Instagram post: Open Graph text, the full-size picture from its embed page |
 | `ImportPreview` | DTO — preview result |
 | `ImportFromUrlAction` | Orchestrator action |
 | `StoreImportedImageAction` | Download a remote image to a private temp file as an UploadedFile; `cleanup()` removes it |

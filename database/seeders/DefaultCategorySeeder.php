@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Category;
 use App\Models\ProjectSettings;
+use App\Support\Translations\TranslatableField;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -22,8 +23,8 @@ class DefaultCategorySeeder extends Seeder
                 Category::query()->updateOrCreate(
                     ['slug' => $categoryData['slug']],
                     [
-                        'name' => $translations['en'],
-                        'name_translations' => $translations,
+                        'name' => $translations[TranslatableField::REFERENCE_LOCALE],
+                        'name_translations' => TranslatableField::withoutReference($translations),
                         'sort_order' => $categoryData['sort_order'],
                         'is_active' => true,
                     ],

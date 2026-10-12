@@ -8,12 +8,14 @@
     'hint' => null,
     'error' => null,
     'required' => null,
+    'tag' => null,
     'disabled' => false,
     'icon' => null,
 ])
 
 @php
-    // required: true shows "Required", false shows "Optional", null shows neither.
+    // required: true shows "Required", false shows "Optional", null shows neither;
+    // tag, when given, is a note of its own beside the label instead ("English · reference").
     $id ??= 'rg-admin-field-'.\Illuminate\Support\Str::slug($name ?? $label);
     // The caller's own descriptions come first; the field adds its hint or error.
     $describedBy = collect([
@@ -25,7 +27,9 @@
 <div {{ $attributes->only(['class', 'style'])->class(['rg-admin-field']) }}>
     <div class="rg-admin-field__head">
         <label for="{{ $id }}" class="rg-admin-label">{{ $label }}</label>
-        @if ($required === true)
+        @if ($tag !== null)
+            <span class="rg-admin-field__tag">{{ $tag }}</span>
+        @elseif ($required === true)
             <span class="rg-admin-field__tag rg-admin-field__tag--required">Required</span>
         @elseif ($required === false)
             <span class="rg-admin-field__tag">Optional</span>

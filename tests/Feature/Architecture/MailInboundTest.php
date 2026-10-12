@@ -1392,7 +1392,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
     expect($documented[1])->toBe($requirements);
 });
 
-it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation, the monitor, the certificate installer and the infrastructure verifier', function () {
+it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation, the monitor, the certificate installer, the public site and the infrastructure verifier', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-inbound');
     expect(requiredCliManifestNames())->not->toContain('mail-inbound');
 
@@ -1416,10 +1416,13 @@ it('is repository tooling, reached only by the gateway that renders its rules, t
         'infrastructure/scripts/install-mail-inbound',
         'infrastructure/scripts/install-mail-inbound-monitor',
         'infrastructure/scripts/install-mail-inbound-tls',
+        'infrastructure/scripts/prepare-public-http',
         'infrastructure/scripts/verify-infrastructure',
     ]);
 
-    // Each of them only reads it.
+    // Each of them only reads it — the public site, for the MX host names whose
+    // HTTP-01 route it must keep.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/prepare-public-http'))))->toContain('"${SCRIPT_DIR}/mail-inbound" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-gateway'))))->toContain('"${MAIL_INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-mail-inbound'))))->toContain('"${INBOUND_CLI}" render-receiver');
     expect(executableSourceLines(File::get(base_path('infrastructure/scripts/verify-infrastructure'))))->toContain('"${MAIL_INBOUND}" render-plan');

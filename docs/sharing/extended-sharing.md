@@ -48,6 +48,14 @@ Usage:
 <x-sharing.share-buttons :post="$post" />
 ```
 
+### Social buttons link through our own redirect
+
+Ad blockers' social lists hide every link to a provider's share page (`facebook.com/sharer`, `twitter.com/intent/tweet`, `t.me/share`, `wa.me`, `reddit.com/submit`, `pinterest.com/pin/create`). A visitor with one sees only copy link and email. So the social buttons link to `GET /posts/{post}/share/{provider}` (`posts.share`, `app/Http/Controllers/Sharing/SharePostController.php`) instead, and that answers with a redirect to the URL `ShareUrlBuilder` builds. A link on our own domain is left alone.
+
+`ShareProvider::sharesThroughRedirect()` decides which providers go this way. Email stays a plain `mailto:` link: no blocker hides it.
+
+The redirect only knows posts their own page would show (`PublishedPostDetailsQuery`). It answers 404 for a pending, rejected or hidden post, for a provider switched off in `config/share.php`, and for one without a share page.
+
 ### Native Web Share
 
 `resources/js/share.js` — exports `window.rgNativeShare({title, text, url})` Alpine.js component data. The `<x-share.native-share-button>` component wraps it and shows only when `navigator.share` is available.

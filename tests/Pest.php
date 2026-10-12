@@ -15,6 +15,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
+use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
@@ -38,7 +39,9 @@ use App\Support\TranslationEngine\Data\TranslationProviderResponse;
 use App\Support\TranslationEngine\Enums\TranslationDataClassification;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
+use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -548,6 +551,11 @@ function sourcedLibraryNames(): array
  * --verify from its bundle. The gateway's installer reads `mail-inbound` from
  * its bundle, as it reads `mail-routing`, once a host records inbound mail.
  *
+ * `prepare-public-http`, the public HTTP site of a planned production target,
+ * runs only from the trusted bundle its own workflows upload: host bootstrap
+ * never runs it, and it reads `mail-inbound` from that bundle for the MX host
+ * names whose HTTP-01 route it must keep.
+ *
  * `activate-mail-outbound` and `send-mail-canary` run only from a trusted bundle
  * uploaded by their own workflows: the activation copies that bundle's whole
  * infrastructure/ tree to judge the pre-activation state with it, and both
@@ -561,7 +569,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -8287,6 +8295,11 @@ function trustedToolingRefs(): array
         // and the installation of its public listener's certificate, from the
         // Certbot lineage on the host, with the hook that keeps it renewed.
         'install-tits-guru-inbound-mail-tls.yml' => 'main',
+        // tits-guru's public HTTP site, ready for its certificate: its
+        // preparation, read-only verification and rollback.
+        'prepare-tits-guru-public-http.yml' => 'main',
+        'verify-tits-guru-public-http.yml' => 'main',
+        'rollback-tits-guru-public-http.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -11501,4 +11514,440 @@ function gateLivewireRequests(mixed $page): void
 function translationFieldId(mixed $page, string $unit): string
 {
     return (string) $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').id");
+}
+
+/**
+ * A Generate missing plan for $locale of $chunks provider requests of
+ * $itemsPerChunk items each — public content, the shape the planner makes —
+ * for putting a background generation in the store without a catalog.
+ */
+function translationGenerationPlan(string $locale, int $chunks = 2, int $itemsPerChunk = 3): ProjectTranslationGenerationPlan
+{
+    $requests = [];
+
+    foreach (range(1, $chunks) as $chunk) {
+        $requests[] = new TranslationBatchRequest(
+            targetLocale: $locale,
+            dataClassification: TranslationDataClassification::PublicContent,
+            items: array_map(fn (int $item): TranslationItem => new TranslationItem(
+                id: "categories:{$chunk}{$item}:name",
+                sourceLocale: 'en',
+                sourceText: "Category {$chunk}.{$item}",
+                contentType: 'categories.name',
+                multiline: false,
+            ), range(1, $itemsPerChunk)),
+        );
+    }
+
+    return new ProjectTranslationGenerationPlan($locale, TranslationDataClassification::PublicContent->value, [], 'openai', 50, 60_000, $requests, []);
+}
+
+/**
+ * A provider call recorded as failed with $code at $at, UTC — one item unless
+ * the attributes say otherwise, and an HTTP status when the failure had one.
+ */
+function failedTranslationAiCall(string $at, TranslationErrorCode $code, ?int $httpStatus = null, array $attributes = []): TranslationAiProviderCall
+{
+    return TranslationAiProviderCall::factory()->state(['item_count' => $attributes['item_count'] ?? 1])->failedWith($code, $httpStatus)
+        ->create(['completed_at' => CarbonImmutable::parse($at, 'UTC'), ...$attributes]);
+}
+
+/*
+ * --- The public HTTP site of a planned production target ---------------------
+ *
+ * A simulated host for infrastructure/scripts/prepare-public-http, under one
+ * scratch directory: /etc/nginx with the sites a production host carries — the
+ * package's default site (default_server, root /var/www/html), the internal
+ * site as install-bootstrap-services renders it, and the committed staging and
+ * mail capture sites — the ACME webroot, the lock directory and the host's
+ * installed registry.
+ *
+ * Three stand-ins replace what a host provides. nginx prints `nginx -T` from
+ * the files as Nginx includes them, and fails `-t` when a toggle says so.
+ * systemctl answers is-active, records every other request, and on a reload
+ * "loads" the public site's file as it then is. curl answers as Nginx routes:
+ * the loaded public site's names get its ACME webroot and its 503, every other
+ * name the default site. Real Nginx is proved separately, by
+ * tests/Support/real-nginx/scenario.sh.
+ */
+
+/** The public site's file and link on the simulated host. */
+const PUBLIC_HTTP_FILE = '/etc/nginx/sites-available/rateguru-tits-guru-public';
+const PUBLIC_HTTP_LINK = '/etc/nginx/sites-enabled/rateguru-tits-guru-public';
+
+/** The package's default site, as Ubuntu ships it, its comments left out. */
+const PUBLIC_HTTP_DEFAULT_SITE = <<<'NGINX'
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+
+        root /var/www/html;
+        index index.html index.htm index.nginx-debian.html;
+
+        server_name _;
+
+        location / {
+            try_files $uri $uri/ =404;
+        }
+    }
+
+    NGINX;
+
+/**
+ * The Bash of one function call against a sourced infrastructure script,
+ * printed to stdout. @param  array<string, string>  $env
+ */
+function publicHttpBash(string $script, array $env = []): string
+{
+    $process = proc_open(['bash', '-c', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, base_path(), [...$env, 'PATH' => getenv('PATH')]);
+    $output = (string) stream_get_contents($pipes[1]);
+    $errors = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    expect(proc_close($process))->toBe(0, $errors);
+
+    return $output;
+}
+
+/** tits-guru's internal site, exactly as install-bootstrap-services renders it. */
+function publicHttpInternalSite(): string
+{
+    static $site = null;
+
+    return $site ??= publicHttpBash(<<<'BASH'
+        set -Eeuo pipefail
+        source infrastructure/scripts/install-bootstrap-services
+        registry=infrastructure/config/deployment-targets.json
+        TGT_NGINX_SITE[tits-guru]="$(jq -r '.targets["tits-guru"].nginx.site_name' "${registry}")"
+        TGT_INTERNAL_HOSTNAME[tits-guru]="$(jq -r '.targets["tits-guru"].nginx.internal_hostname' "${registry}")"
+        TGT_ROOT[tits-guru]="$(jq -r '.targets["tits-guru"].application_root' "${registry}")"
+        TGT_FPM_SOCKET[tits-guru]="$(jq -r '.targets["tits-guru"].php_fpm.socket' "${registry}")"
+        render_nginx_site tits-guru
+        BASH);
+}
+
+/** The public site prepare-public-http renders for tits-guru from the committed registry. */
+function publicHttpRender(): string
+{
+    static $render = null;
+
+    return $render ??= publicHttpBash(<<<'BASH'
+        set -Eeuo pipefail
+        source infrastructure/scripts/prepare-public-http
+        TARGET_ID=tits-guru
+        MODE=check
+        load_target
+        render_public_site
+        BASH);
+}
+
+/** @return array<string, string> */
+function publicHttpStubs(): array
+{
+    return [
+        // nginx -T prints nginx.conf, then every file it includes — conf.d/*.conf
+        // and sites-enabled/*, in glob order, a link read through — under the
+        // path it was included by. -t fails on a dangling include, or when told to.
+        'nginx' => <<<'STUB'
+            #!/bin/bash
+            export LC_ALL=C
+            fs="${STUB_FS}"
+            dump() {
+                local entry real target
+                printf '# configuration file /etc/nginx/nginx.conf:\n'
+                cat "${fs}/etc/nginx/nginx.conf"
+                printf '\n'
+                for entry in "${fs}"/etc/nginx/conf.d/*.conf "${fs}"/etc/nginx/sites-enabled/*; do
+                    [[ -e "${entry}" || -L "${entry}" ]] || continue
+                    real="${entry}"
+                    if [[ -L "${entry}" ]]; then
+                        target="$(readlink "${entry}")"
+                        case "${target}" in
+                            /*) real="${fs}${target}" ;;
+                            *) real="$(dirname "${entry}")/${target}" ;;
+                        esac
+                    fi
+                    [[ -f "${real}" ]] || { echo "nginx: [emerg] open() \"${entry#"${fs}"}\" failed" >&2; return 1; }
+                    printf '# configuration file %s:\n' "${entry#"${fs}"}"
+                    cat "${real}"
+                    printf '\n'
+                done
+            }
+            case "$1" in
+                -t)
+                    printf 'nginx -t\n' >> "${STUB_LOG}/reads.log"
+                    [[ -e "${STUB_TOGGLES}/nginx-t-fail" ]] && { echo "nginx: [emerg] the configuration is refused" >&2; exit 1; }
+                    if [[ -e "${STUB_TOGGLES}/nginx-t-fail-with-public" && -L "${fs}/etc/nginx/sites-enabled/rateguru-tits-guru-public" ]]; then
+                        echo "nginx: [emerg] the candidate is refused" >&2
+                        exit 1
+                    fi
+                    if [[ -e "${STUB_TOGGLES}/nginx-t-fail-without-public" && ! -L "${fs}/etc/nginx/sites-enabled/rateguru-tits-guru-public" ]]; then
+                        echo "nginx: [emerg] the configuration without the public site is refused" >&2
+                        exit 1
+                    fi
+                    dump >/dev/null || exit 1
+                    echo "nginx: configuration file /etc/nginx/nginx.conf test is successful" >&2
+                    ;;
+                -T)
+                    printf 'nginx -T\n' >> "${STUB_LOG}/reads.log"
+                    dump
+                    ;;
+                *)
+                    printf 'nginx %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+                    exit 1
+                    ;;
+            esac
+            STUB,
+        // A reload loads the public site's file as it is then, if it is linked.
+        'systemctl' => <<<'STUB'
+            #!/bin/bash
+            case "$1" in
+                is-active)
+                    printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log"
+                    [[ -e "${STUB_TOGGLES}/nginx-inactive" ]] && exit 3
+                    exit 0
+                    ;;
+                reload)
+                    printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+                    [[ "$2" == nginx ]] || exit 1
+                    [[ -e "${STUB_TOGGLES}/reload-fail" ]] && exit 1
+                    if [[ -e "${STUB_TOGGLES}/reload-fail-once" ]]; then rm -f "${STUB_TOGGLES}/reload-fail-once"; exit 1; fi
+                    link="${STUB_FS}/etc/nginx/sites-enabled/rateguru-tits-guru-public"
+                    if [[ -L "${link}" && -f "${STUB_FS}$(readlink "${link}")" ]]; then
+                        cp "${STUB_FS}$(readlink "${link}")" "${STUB_STATE}/live-public"
+                    else
+                        rm -f "${STUB_STATE}/live-public"
+                    fi
+                    ;;
+                *)
+                    printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+                    exit 1
+                    ;;
+            esac
+            STUB,
+        // Nginx's answer: the loaded public site's names — every name, once it is
+        // loaded, when a toggle says it took them all — get its webroot and its
+        // 503; every other name the default site, or a redirect for the MX host.
+        'curl' => <<<'STUB'
+            #!/bin/bash
+            out="" headers="" host="" url=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --output) out="$2"; shift 2 ;;
+                    --dump-header) headers="$2"; shift 2 ;;
+                    --header) host="${2#Host: }"; shift 2 ;;
+                    --write-out|--max-time|--noproxy) shift 2 ;;
+                    --*) shift ;;
+                    *) url="$1"; shift ;;
+                esac
+            done
+            printf 'curl %s %s\n' "${host}" "${url}" >> "${STUB_LOG}/reads.log"
+            [[ -e "${STUB_TOGGLES}/curl-down" ]] && exit 7
+            rest="${url#http://}"
+            path="/${rest#*/}"
+            webroot="${STUB_FS}/var/www/html"
+            respond() {
+                printf 'HTTP/1.1 %s Stub\r\n' "$1" > "${headers}"
+                [[ -z "$2" ]] || printf 'Retry-After: %s\r\n' "$2" >> "${headers}"
+                [[ -z "$4" ]] || printf 'Location: %s\r\n' "$4" >> "${headers}"
+                printf '\r\n' >> "${headers}"
+                printf '%s' "$3" > "${out}"
+                printf '%s' "$1"
+            }
+            ours=false
+            if [[ -f "${STUB_STATE}/live-public" ]]; then
+                for name in $(sed -n 's/^ *server_name \(.*\);$/\1/p' "${STUB_STATE}/live-public"); do
+                    [[ "${name}" != "${host}" ]] || ours=true
+                done
+                [[ ! -e "${STUB_TOGGLES}/public-takes-every-name" ]] || ours=true
+            fi
+            if [[ "${ours}" == true ]]; then
+                if [[ "${path}" =~ ^/\.well-known/acme-challenge/[A-Za-z0-9_-]+$ ]]; then
+                    if [[ -f "${webroot}${path}" ]]; then respond 200 "" "$(cat "${webroot}${path}")"; else respond 404 "" "not found"; fi
+                elif [[ "${path}" == /.well-known/acme-challenge/* ]]; then
+                    respond 404 "" "not found"
+                else
+                    respond 503 3600 $'Service Unavailable\n'
+                fi
+            elif [[ -e "${STUB_TOGGLES}/mx-redirects" && "${host}" == mx1.* ]]; then
+                respond 301 "" "" "https://${host}${path}"
+            elif [[ "${path}" == /.well-known/acme-challenge/* ]]; then
+                if [[ -f "${webroot}${path}" ]]; then respond 200 "" "$(cat "${webroot}${path}")"; else respond 404 "" "not found"; fi
+            else
+                respond 200 "" "Welcome to nginx!"
+            fi
+            STUB,
+    ];
+}
+
+/**
+ * A simulated production host, with OPTIONS:
+ *   sites       name => content, replacing the sites-enabled the host carries
+ *   registry    the installed registry's JSON (default: the committed one)
+ *
+ * @return array{scratch: string, fs: string, state: string, log: string, toggles: string, bin: string, run: string, env: array<string, string>}
+ */
+function publicHttpHost(array $options = []): array
+{
+    $scratch = makeScratchDir('rateguru-public-http', ['', '/fs', '/state', '/log', '/toggles', '/bin', '/run', '/tmp']);
+    $fs = $scratch.'/fs';
+
+    foreach (['/etc/nginx/sites-available', '/etc/nginx/sites-enabled', '/etc/nginx/conf.d', '/etc/nginx/snippets', '/var/www/html'] as $dir) {
+        mkdir($fs.$dir, 0o755, true);
+    }
+
+    file_put_contents($fs.'/etc/nginx/nginx.conf', "user www-data;\npid /run/nginx.pid;\n\nevents {\n    worker_connections 768;\n}\n\nhttp {\n    include /etc/nginx/mime.types;\n    default_type application/octet-stream;\n\n    include /etc/nginx/conf.d/*.conf;\n    include /etc/nginx/sites-enabled/*;\n}\n");
+    file_put_contents($fs.'/etc/nginx/mime.types', "types {\n    text/html html htm;\n    text/plain txt;\n}\n");
+    file_put_contents($fs.'/var/www/html/index.nginx-debian.html', "<h1>Welcome to nginx!</h1>\n");
+
+    $sites = $options['sites'] ?? [
+        'default' => PUBLIC_HTTP_DEFAULT_SITE,
+        'rateguru-tits-guru' => publicHttpInternalSite(),
+        'rateguru-staging' => File::get(base_path('infrastructure/config/nginx/rateguru-staging')),
+        'mailpit-staging' => File::get(base_path('infrastructure/config/nginx/mailpit-staging')),
+        'mailtrap-local-staging' => File::get(base_path('infrastructure/config/nginx/mailtrap-local-staging')),
+    ];
+
+    // The internal site is the provisioned target's own, whatever else a test lays out.
+    $sites['rateguru-tits-guru'] ??= publicHttpInternalSite();
+
+    foreach ($sites as $name => $content) {
+        file_put_contents($fs.'/etc/nginx/sites-available/'.$name, $content);
+        symlink('/etc/nginx/sites-available/'.$name, $fs.'/etc/nginx/sites-enabled/'.$name);
+    }
+
+    foreach (publicHttpStubs() as $name => $body) {
+        writeExecutable($scratch.'/bin/'.$name, $body);
+    }
+
+    file_put_contents($scratch.'/installed-registry.json', $options['registry'] ?? File::get(base_path('infrastructure/config/deployment-targets.json')));
+    foreach (['mutations.log', 'reads.log'] as $log) {
+        file_put_contents($scratch.'/log/'.$log, '');
+    }
+
+    clearstatcache();
+    $owner = (string) (posix_getpwuid(fileowner($fs))['name'] ?? '');
+    $group = (string) (posix_getgrgid(filegroup($fs))['name'] ?? '');
+
+    return [
+        'scratch' => $scratch,
+        'fs' => $fs,
+        'state' => $scratch.'/state',
+        'log' => $scratch.'/log',
+        'toggles' => $scratch.'/toggles',
+        'bin' => $scratch.'/bin',
+        'run' => $scratch.'/run',
+        'env' => [
+            'PATH' => (string) getenv('PATH'),
+            'HOME' => $scratch,
+            'TMPDIR' => $scratch.'/tmp',
+            'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+            'RATEGURU_PUBLICHTTP_EUID' => '0',
+            'RATEGURU_PUBLICHTTP_FS_ROOT' => $fs,
+            'RATEGURU_PUBLICHTTP_RUN_ROOT' => $scratch.'/run',
+            'RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY' => $scratch.'/installed-registry.json',
+            'RATEGURU_PUBLICHTTP_NGINX_BIN' => $scratch.'/bin/nginx',
+            'RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+            'RATEGURU_PUBLICHTTP_CURL_BIN' => $scratch.'/bin/curl',
+            'RATEGURU_PUBLICHTTP_FILE_OWNER' => $owner,
+            'RATEGURU_PUBLICHTTP_FILE_GROUP' => $group,
+            'RATEGURU_PUBLICHTTP_PROBE_WAIT' => '1',
+            'STUB_FS' => $fs,
+            'STUB_STATE' => $scratch.'/state',
+            'STUB_LOG' => $scratch.'/log',
+            'STUB_TOGGLES' => $scratch.'/toggles',
+        ],
+    ];
+}
+
+/**
+ * prepare-public-http --MODE --target TARGET on HOST.
+ *
+ * @param  array<string, string|null>  $env  null removes a variable
+ * @return array{0: int, 1: string}
+ */
+function publicHttpRun(array $host, string $mode, array $env = [], string $target = 'tits-guru'): array
+{
+    $environment = array_filter([...$host['env'], ...$env], static fn (?string $value): bool => $value !== null);
+
+    $process = proc_open(
+        ['bash', infraScript('prepare-public-http'), "--{$mode}", '--target', $target],
+        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+        $pipes,
+        $host['scratch'],
+        $environment,
+    );
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/** The one machine-readable result of a run, or null. @return array<string, mixed>|null */
+function publicHttpResult(string $output): ?array
+{
+    preg_match_all('/^RATEGURU_PUBLIC_HTTP_RESULT=(.*)$/m', $output, $matches);
+    expect($matches[1])->toHaveCount(1, "expected exactly one result line:\n{$output}");
+
+    return json_decode($matches[1][0], true);
+}
+
+/** HOST's stand-ins' log NAME (mutations.log, reads.log). */
+function publicHttpLog(array $host, string $name): string
+{
+    return (string) file_get_contents($host['log'].'/'.$name);
+}
+
+/** Empty HOST's logs, so a test sees what one run alone asked for. */
+function publicHttpResetLogs(array $host): void
+{
+    foreach (['mutations.log', 'reads.log'] as $name) {
+        file_put_contents($host['log'].'/'.$name, '');
+    }
+}
+
+/** A toggle the stand-ins read. */
+function publicHttpToggle(array $host, string $name, bool $on = true): void
+{
+    $on ? touch($host['toggles'].'/'.$name) : @unlink($host['toggles'].'/'.$name);
+}
+
+/**
+ * Every entry under HOST's /etc/nginx and /var/www/html but the public site's
+ * own two, as content hash, link target or directory.
+ *
+ * @return array<string, string>
+ */
+function publicHttpTree(array $host): array
+{
+    $tree = [];
+    $roots = [$host['fs'].'/etc/nginx', $host['fs'].'/var/www/html'];
+
+    foreach ($roots as $root) {
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($entries as $entry) {
+            $path = substr($entry->getPathname(), strlen($host['fs']));
+            if ($path === PUBLIC_HTTP_FILE || $path === PUBLIC_HTTP_LINK) {
+                continue;
+            }
+            $tree[$path] = $entry->isLink() ? 'link:'.readlink($entry->getPathname()) : ($entry->isDir() ? 'dir' : hash_file('sha256', $entry->getPathname()));
+        }
+    }
+
+    ksort($tree);
+
+    return $tree;
+}
+
+/** The public site of HOST, installed as --apply installs it, and loaded. */
+function publicHttpInstalled(array $host): void
+{
+    [$exit, $output] = publicHttpRun($host, 'apply');
+    expect($exit)->toBe(0, $output);
+    publicHttpResetLogs($host);
+}
+
+function publicHttpCleanup(array $host): void
+{
+    removeScratchDir($host['scratch']);
 }

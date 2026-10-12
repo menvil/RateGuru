@@ -942,6 +942,37 @@ jobs:
           mkdir -m 0755 "${work}"
           sudo unshare --net --mount bash tests/Support/real-postfix/scenario.sh "${GITHUB_WORKSPACE}" "${work}"
 
+  public-http-real-nginx:
+    name: Public HTTP on a real Nginx
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # It reads the checkout and runs a script as root: no write permission, and
+    # no token left behind in the checkout for that script to find.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Nginx, its service stopped
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends nginx
+          sudo systemctl stop nginx >/dev/null 2>&1 || true
+          nginx -v
+
+      - name: Run the scenario in a network and mount namespace of its own
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work="/tmp/rateguru-real-nginx-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+          mkdir -m 0755 "${work}"
+          sudo unshare --net --mount bash tests/Support/real-nginx/scenario.sh "${GITHUB_WORKSPACE}" "${work}"
+
   ci-summary:
     name: Summary
     if: always()
@@ -958,6 +989,7 @@ jobs:
       - dependency-audit
       - verify-shard-partition
       - mail-real-postfix
+      - public-http-real-nginx
     permissions:
       contents: read
       issues: write
@@ -1009,6 +1041,7 @@ jobs:
           SQLITE_ROLLBACK: ${{ needs['tests-sqlite'].outputs.rollback }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
           MAIL_REAL_POSTFIX_RESULT: ${{ needs['mail-real-postfix'].result }}
+          PUBLIC_HTTP_REAL_NGINX_RESULT: ${{ needs['public-http-real-nginx'].result }}
           COMPOSER_PACKAGES: ${{ needs['dependency-audit'].outputs.composer-packages }}
           COMPOSER_ADVISORIES: ${{ needs['dependency-audit'].outputs.composer-advisories }}
           NPM_PACKAGES: ${{ needs['dependency-audit'].outputs.npm-packages }}
@@ -1075,6 +1108,7 @@ jobs:
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Mail on a real Postfix | ${details(process.env.MAIL_REAL_POSTFIX_RESULT, 'inbound and outbound together · network and mount namespaces of its own')} |`,
+              `| Public HTTP on a real Nginx | ${details(process.env.PUBLIC_HTTP_REAL_NGINX_RESULT, 'ACME webroot and 503 · the MX host route kept · network and mount namespaces of its own')} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,
@@ -1136,6 +1170,7 @@ jobs:
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
           SHARD_PARTITION_RESULT: ${{ needs['verify-shard-partition'].result }}
           MAIL_REAL_POSTFIX_RESULT: ${{ needs['mail-real-postfix'].result }}
+          PUBLIC_HTTP_REAL_NGINX_RESULT: ${{ needs['public-http-real-nginx'].result }}
         run: |
           for result in \
             "$SHARD_PARTITION_RESULT" \
@@ -1148,7 +1183,8 @@ jobs:
             "$MARIADB_RESULT" \
             "$SQLITE_RESULT" \
             "$DEPENDENCY_AUDIT_RESULT" \
-            "$MAIL_REAL_POSTFIX_RESULT"
+            "$MAIL_REAL_POSTFIX_RESULT" \
+            "$PUBLIC_HTTP_REAL_NGINX_RESULT"
           do
             if [ "$result" != 'success' ]; then
               echo "At least one CI job did not succeed."

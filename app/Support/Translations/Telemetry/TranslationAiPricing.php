@@ -55,6 +55,22 @@ final class TranslationAiPricing
     }
 
     /**
+     * The model a dated snapshot is of — gpt-6-luna for gpt-6-luna-2026-09-01 —
+     * or null for a name that is not a dated snapshot. Nothing else is read
+     * into a name: gpt-6-luna-mini is not gpt-6-luna.
+     */
+    public static function snapshotOf(string $model): ?string
+    {
+        return preg_match('/^(.+)-\d{4}-\d{2}-\d{2}$/', $model, $snapshot) === 1 ? $snapshot[1] : null;
+    }
+
+    /** Whether a reported model is $model itself or a dated snapshot of it. */
+    public static function isModelOrSnapshotOf(string $reported, string $model): bool
+    {
+        return $reported === $model || self::snapshotOf($reported) === $model;
+    }
+
+    /**
      * The input and output rates of the model the provider reported: listed
      * exactly, or as the model it is a dated snapshot of. Nothing else
      * matches — gpt-6-luna-mini is not priced as gpt-6-luna.
@@ -67,11 +83,7 @@ final class TranslationAiPricing
         $pricing = config('translation.telemetry.pricing');
         $models = is_array($pricing) && is_array($pricing[$provider] ?? null) ? $pricing[$provider] : [];
 
-        $entry = $models[$model] ?? null;
-
-        if ($entry === null && preg_match('/^(.+)-\d{4}-\d{2}-\d{2}$/', $model, $snapshot) === 1) {
-            $entry = $models[$snapshot[1]] ?? null;
-        }
+        $entry = $models[$model] ?? $models[self::snapshotOf($model) ?? ''] ?? null;
 
         if (! is_array($entry)) {
             return null;

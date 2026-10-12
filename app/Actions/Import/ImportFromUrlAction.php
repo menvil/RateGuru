@@ -6,7 +6,9 @@ use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
+use App\Support\Import\Adapters\InstagramPostImportAdapter;
 use App\Support\Import\Adapters\OpenGraphImportAdapter;
+use App\Support\Import\Adapters\XPostImportAdapter;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\UrlImportValidator;
@@ -21,6 +23,8 @@ class ImportFromUrlAction
         private readonly ImportProviderDetector $detector,
         private readonly DirectImageImportAdapter $directImageAdapter,
         private readonly OpenGraphImportAdapter $openGraphAdapter,
+        private readonly XPostImportAdapter $xPostAdapter,
+        private readonly InstagramPostImportAdapter $instagramPostAdapter,
         private readonly ProjectSettingsManager $settings,
         private readonly DomainLogger $logger,
         private readonly SlowActionLogger $slowLogger,
@@ -48,10 +52,13 @@ class ImportFromUrlAction
             return $preview;
         }
 
-        // For open_graph and all social providers (best-effort via OG)
+        // A post on X or Instagram has its own way to its picture; every other
+        // page, social or not, is read for its Open Graph tags (best effort).
         try {
-            $preview = $this->slowLogger->measure('url_import.fetch', function () use ($url) {
-                return $this->openGraphAdapter->preview($url);
+            $preview = $this->slowLogger->measure('url_import.fetch', fn (): ImportPreview => match ($provider) {
+                'x' => $this->xPostAdapter->preview($url),
+                'instagram' => $this->instagramPostAdapter->preview($url),
+                default => $this->openGraphAdapter->preview($url),
             }, thresholdMs: (int) config('observability.slow_actions.external_fetch_threshold_ms', 1000));
 
             $this->logger->info('url_import.preview.succeeded', ['source_host' => $host, 'provider' => $provider]);

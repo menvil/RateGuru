@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Models\ProjectSettings;
 use App\Models\User;
 
@@ -439,7 +440,7 @@ it('opens the missing-translations drawer from the row, 480 wide, and closes it 
 
     expect($page->script('[...document.querySelectorAll(".rg-admin-drawer section h3")].map((h) => h.textContent.trim())'))
         ->toContain('Project Settings', 'Categories')
-        ->and($page->script('document.querySelector(".rg-admin-drawer a[href*=\"/categories/'.$category->id.'/edit\"]") !== null'))->toBeTrue();
+        ->and($page->script('[...document.querySelectorAll(".rg-admin-drawer a")].some((link) => link.href === '.json_encode(ManageCategories::getUrl(['edit' => $category->id])).')'))->toBeTrue();
 
     // Escape, back to the row.
     $page->keys(':focus', 'Escape');

@@ -19,7 +19,6 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Gate;
 use UnitEnum;
@@ -58,11 +57,18 @@ class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
-        // What the project stores, as it stores it: a page or a language with
-        // no text shows empty, not filled in from config. An installation
-        // without a row shows the bootstrap it would be created from.
+        // What the project stores, as it stores it: a page with no text shows
+        // empty, not filled in from config. An installation without a row
+        // shows the bootstrap it would be created from. English only: the
+        // translations are Translation Center's to edit, so they are never
+        // in this form, and saving it cannot write back a stale copy of them.
         $settings = ProjectSettings::find(1);
         $data = $settings ? $settings->toArray() : app(ProjectSettingsManager::class)->defaults();
+        $data = array_filter($data, fn (string $key): bool => ! str_ends_with($key, '_translations'), ARRAY_FILTER_USE_KEY);
+        $data['static_pages'] = array_map(
+            fn (mixed $page): array => [TranslatableField::REFERENCE_LOCALE => is_array($page) ? ($page[TranslatableField::REFERENCE_LOCALE] ?? []) : []],
+            is_array($data['static_pages'] ?? null) ? $data['static_pages'] : [],
+        );
         // Every provider is on until it is switched off; an unsaved row or
         // a provider added later must not render as an unticked box.
         $data['sign_in_providers'] = array_merge(
@@ -158,52 +164,9 @@ class ProjectSettingsPage extends Page
                     ->description(__('admin.project_settings.sign_in_description'))
                     ->schema($this->signInProviderToggles()),
 
-                Section::make('Translations')
-                    ->schema([
-                        Tabs::make('Translations')
-                            ->tabs(array_map(
-                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
-                                    ->schema([
-                                        TextInput::make("site_name_translations.{$locale}")
-                                            ->label(__('admin.fields.site_name'))
-                                            ->maxLength(120),
-                                        TextInput::make("site_tagline_translations.{$locale}")
-                                            ->label(__('admin.fields.tagline'))
-                                            ->maxLength(180),
-                                        Textarea::make("site_description_translations.{$locale}")
-                                            ->label(__('admin.fields.description'))
-                                            ->rows(3)
-                                            ->maxLength(2000),
-                                        TextInput::make("object_singular_name_translations.{$locale}")
-                                            ->label(__('admin.fields.singular_name'))
-                                            ->maxLength(80),
-                                        TextInput::make("object_plural_name_translations.{$locale}")
-                                            ->label(__('admin.fields.plural_name'))
-                                            ->maxLength(80),
-                                        TextInput::make("upload_cta_label_translations.{$locale}")
-                                            ->label(__('admin.fields.upload_cta_label'))
-                                            ->maxLength(80),
-                                        TextInput::make("feed_title_translations.{$locale}")
-                                            ->label(__('admin.fields.feed_title'))
-                                            ->maxLength(120),
-                                    ]),
-                                array_keys(config('locales.supported', [])),
-                                config('locales.supported', [])
-                            )),
-                    ])
-                    ->collapsible(),
-
                 Section::make(__('admin.project_settings.static_pages'))
                     ->description(__('admin.project_settings.static_pages_description'))
-                    ->schema([
-                        Tabs::make('StaticPages')
-                            ->tabs(array_map(
-                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
-                                    ->schema($this->staticPageSections($locale)),
-                                array_keys(config('locales.supported', [])),
-                                config('locales.supported', []),
-                            )),
-                    ])
+                    ->schema($this->staticPageSections())
                     ->collapsible(),
             ])
             ->statePath('data');
@@ -252,20 +215,22 @@ class ProjectSettingsPage extends Page
     }
 
     /** @return array<int, Section> */
-    private function staticPageSections(string $locale): array
+    private function staticPageSections(): array
     {
+        $english = TranslatableField::REFERENCE_LOCALE;
+
         return array_map(
             fn (string $pageKey): Section => Section::make(__('admin.static_pages.'.$pageKey))
                 ->schema([
                     // English is what every other language falls back to, and
                     // nothing falls back for English: it cannot be left blank.
-                    TextInput::make("static_pages.{$pageKey}.{$locale}.title")
+                    TextInput::make("static_pages.{$pageKey}.{$english}.title")
                         ->label(__('admin.fields.title'))
-                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
+                        ->required()
                         ->maxLength(160),
-                    Textarea::make("static_pages.{$pageKey}.{$locale}.content")
+                    Textarea::make("static_pages.{$pageKey}.{$english}.content")
                         ->label(__('admin.fields.content'))
-                        ->required($locale === TranslatableField::REFERENCE_LOCALE)
+                        ->required()
                         ->rows(6)
                         ->maxLength(20000),
                 ]),

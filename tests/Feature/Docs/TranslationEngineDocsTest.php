@@ -110,6 +110,8 @@ it('records Translation AI telemetry as the consumers\' record of provider calls
         ->toContain('`translation.telemetry_write_failed`')
         ->toContain('a savepoint inside a caller\'s')
         ->toContain('`App\Queries\Translations\TranslationAiUsageQuery`')
+        ->toContain('`failureSeries()`')
+        ->toContain('**The Translation AI page.** `/admin/translation-ai`')
         ->toContain('**Kept 90 days.**')
         ->toContain('`translations:purge-ai-calls`')
         ->toContain('the engine stores it nowhere');

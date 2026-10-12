@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Gate;
 /**
  * Saves one language's translation of one piece of project content — what
  * Translation Center's Save does — where that content already keeps its
- * translations, so the editors that still translate in place read and write
- * the same value.
+ * translations, beside the English its own editor writes. It is the one
+ * writer of a translation: the content's editors edit English only.
  *
  * Only the unit id, the language and the text come from the caller, and none
  * of them is trusted: the unit is found again in ProjectTranslationCatalog,

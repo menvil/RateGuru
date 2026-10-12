@@ -164,7 +164,7 @@ dialog and lightbox 300 → toasts 400.
 - Colour inherits `currentColor`; navigation gray-600 (secondary), rows tertiary.
 - Navigation icons: `layout-grid` Dashboard · `image` Posts · `message-square` Comments · `flag` Reports ·
   `users` Users · `folder` Categories · `tag` Tags · `star` Rating groups · `globe` Languages · `languages`
-  Translation Center · `settings-2` Project settings · `hard-drive` Media diagnostics.
+  Translation Center · `bot` Translation AI · `settings-2` Project settings · `hard-drive` Media diagnostics.
 - No emoji in the interface. Country flags appear only next to language names.
 - Every icon-only control has a text label: `aria-label` and a tooltip. Decorative icons are `aria-hidden`.
 
@@ -185,7 +185,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
-  | Localization | Languages · Translation Center (missing count, neutral) |
+  | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
 
@@ -206,7 +206,7 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages and Translation Center are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Categories and Tags are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -244,7 +244,9 @@ Languages and Translation Center are migrated: their content is Admin v2 too.
 - **Breadcrumb:** section › destination, taken from the active navigation item without loading any record. On a
   create or edit page the destination is the last step, linked back to its list.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
-  migrated page puts its actions. A page without a permanent action, such as Languages, leaves it empty.
+  migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
+  which asks the page by a browser event to open its drawer. A page without a permanent action, such as Languages,
+  leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
   (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
   centres on the main column at every width. A page raises a toast with a browser event; see
@@ -273,10 +275,9 @@ These are the current migration state, not changes to the target design:
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation editors in place.** Translation Center edits every unit of project content, but until the
-  translation cutover (Phase 7 of the [migration plan](migration-plan.md)) the Categories, Tags, Rating groups
-  and options, Project settings and Static pages editors keep their translation tabs. Both write the same stored
-  value, so either one shows what the other saved; there is no second copy to keep in step.
+- **Translation status on the content editors.** The Rating groups and options, Project settings and Static pages
+  editors edit English only and are still Filament's; the translation status the prototype shows on them (locale
+  chips, missing counts) arrives with their Admin v2 migration, as it did for Categories and Tags.
 
 ## Page anatomy
 
@@ -322,9 +323,17 @@ These are the current migration state, not changes to the target design:
   everything else in an ellipsis menu (ghost sm). Menus are 248–272 wide, radius 12, padding 6; items carry a 16
   icon, a 14px label and an optional 12px hint. Unavailable actions stay visible, disabled, with the reason as a
   hint. Destructive items are red-950 after a separator. Menus flip up near the bottom and close on outside
-  click, scroll and Escape.
+  click, scroll and Escape. In production it is `x-admin.ui.row-menu` with `x-admin.ui.menu-item`: a menu button
+  named for its row (“More actions for Dogs”) over a 264 menu fixed to the window, so a card that scrolls
+  sideways never clips it. Enter, Space or Down open it on the first item, Up on the last; Up, Down, Home and End
+  move; Escape closes it back to the button; a choice, Tab, a click outside, a scroll that moves its button or a
+  resize close it. An item is a link or a button; an unavailable one keeps its place in the menu and in the
+  keyboard order, marked `aria-disabled` as a menu's items are, so its reason is heard, and does nothing.
 - **Pagination (NAV-04):** footer padding 12 16, 13 gray-600; “1–25 of 1,231” tabular; pages 32 min with the
-  current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25.
+  current one sunken, hairline and 500; ghost sm arrows disabled at the ends. Page size 25. In production it is
+  `x-admin.ui.pagination` (NAV-04), over a length-aware paginator: the range with an optional note (“newest
+  first”), the first and last pages and those either side of the current one, a gap where pages are left out;
+  each page is a link to the paginator's URL, or, given a Livewire method, a button that calls it with the page.
 - **Empty states (TBL-05):** 40 circle icon, title 15/500, body 13/18 tertiary max 380. A finished queue (“The
   queue is clear”) differs from a search with no results (“No posts match these filters” + Clear filters); an
   action only when it changes the outcome.
@@ -346,6 +355,7 @@ Grid templates used in the prototype, for reference:
 | Languages | `minmax(220px,1fr) 90px 150px 180px 190px 110px 130px` | 1060 |
 | Translation Center | `240px minmax(0,1fr) minmax(0,1fr)` | — |
 | Media diagnostics | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px` | 1100 |
+| Translation AI recent calls (production) | `96px 172px 180px 96px 52px 116px 92px 72px minmax(200px,1fr)` | 1076 |
 
 ## Forms
 
@@ -373,8 +383,20 @@ Grid templates used in the prototype, for reference:
 - **Searchable combobox (FRM-11):** 52-high trigger, radius 12, border gray-300, overline plus value; a 420-wide
   list with search first and a 340 max height. Built for the target language with 30+ languages.
 
-In production the segmented control, the filter dropdown and the combobox are Blade components, each with the
-keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
+In production the locked identifier, the number stepper and the switch are Blade components too:
+
+- **`x-admin.ui.locked-identifier` (FRM-04):** label, the chip while generated, or a lock with “Locked” and the
+  `unlock` slot (“Change slug”) once saved; the value in mono, read-only but focusable while locked; the hint or
+  the error, and the warning notice once unlocked, all tied to the input. Attributes go to the input.
+- **`x-admin.ui.number-stepper` (FRM-05):** minus and plus named after the field (“Decrease sort order”) that step
+  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing; what is
+  typed is the server's to validate.
+- **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
+  state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
+  `wire:model` and `x-model` (`x-modelable`).
+
+The segmented control, the filter dropdown and the combobox are Blade components, each with the keyboard
+behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
 
 - **`x-admin.ui.segmented` (FRM-08):** a `radiogroup` of two to four `radio` buttons; only the checked one is a tab
   stop, the arrow keys, Home and End move the choice with the focus, and the checked option is raised and 500,
@@ -383,7 +405,9 @@ keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x
   menu of `menuitemradio` items with a check and an optional count, which may be an Alpine expression kept live
   by the screen. Enter, Space or Down open it on the checked item; Up, Down, Home and End move; Escape returns to
   the button; a choice, Tab or a click outside closes it.
-- **`x-admin.ui.combobox` (FRM-11):** the trigger (`aria-haspopup="listbox"`) opens the list with focus in its
+- **`x-admin.ui.combobox` (FRM-11):** an option leads with a flag, or, for a list of things rather than languages,
+  with an icon in a sunken square (28; 32 in the trigger), and an identifier such as a model name is set in mono.
+  The trigger (`aria-haspopup="listbox"`) opens the list with focus in its
   search, an ARIA `combobox` over a `listbox` whose active option is its `aria-activedescendant`; the search
   filters in the browser, Up and Down move, Enter chooses, Escape returns to the trigger, and an always-present
   status region says when nothing matches. Choosing dispatches a cancelable `choose` event before the value is
@@ -397,10 +421,10 @@ keyboard behaviour its ARIA role promises and its value exposed to `x-model` (`x
 
   | Tone | Labels |
   |---|---|
-  | success | Published, Visible, Active, Enabled, Completed, Saved, Resolved |
-  | warning | Pending, Open, Limited, Missing, Warning, Degraded |
-  | danger | Rejected, Banned, Failed, Critical, Not configured |
-  | neutral | Hidden, Ignored, Disabled, Inactive, Shadowbanned, Removal finalized |
+  | success | Published, Visible, Active, Enabled, Completed, Saved, Resolved, Healthy, Current |
+  | warning | Pending, Open, Limited, Missing, Warning, Degraded, Burst |
+  | danger | Rejected, Banned, Failed, Critical, Not configured, Ongoing, Systemic issue |
+  | neutral | Hidden, Ignored, Disabled, Inactive, Shadowbanned, Removal finalized, Configured, Isolated, Not current |
   | outline | Draft, Deleted by author, Archived, Default |
   | info | AI suggestion · not saved, Running, Info |
 
@@ -444,15 +468,20 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   in the Livewire runtime) moves focus inside, keeps it there and returns it to the trigger on close; the rest of
   the page is hidden from assistive technology and does not scroll. When the trigger has left the page by then —
   its row filtered away by the change it confirmed — focus goes to the page's heading. Both sit on
-  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light) and
-  `warning` tones; a blocked dialog is one with no confirm action. The drawer is 448 wide, or 480 with `wide`,
+  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light),
+  `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
+  blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
+  acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
+  section label. The drawer is 448 wide, or 480 with `wide`,
   never wider than the screen, with an optional `leading` and `footer`.
 - **`x-admin.ui.toast-stack` (FBK-01)** is drawn once per page by the shell. A page raises a toast with a browser
   event — `$this->dispatch('rg-admin-toast', message: '…', tone: 'success')` from Livewire, or `$dispatch` from
   Alpine — with the tone `success`, `error` or `info`. At most three stay on screen, each for 5.2 s, waiting while
   the pointer or keyboard focus is on the stack. A status region (success, info) and an alert region (error), always
   present, announce each message once; the toasts themselves are not live regions. A toast is never the only record
-  of a lasting error: the screen shows it too.
+  of a lasting error: the screen shows it too. A reversible action adds `action` — Undo, and the browser event the
+  button dispatches with its params, which the screen listens for (`#[On('activate-category')]`); pressing it
+  takes the toast away.
 
 ## Localization
 
@@ -461,14 +490,17 @@ Localization is the first production vertical of Admin v2:
 ```text
 Localization
 ├── Languages
-└── Translation Center
+├── Translation Center
+└── Translation AI
 ```
 
-**Invariant.** Translation Center becomes the single admin editor for DB-owned translated content. After the
-translation cutover, Categories, Tags, Rating groups and options, Project settings and Static pages hold their
-English reference content plus a translation status and a link to Translation Center (“Translations are edited
-in Translation Center.”) — not an editor for every language. Until that cutover the existing translation forms
-stay exactly as they are.
+**Invariant.** Translation Center is the single admin editor for DB-owned translated content. Categories, Tags,
+Rating groups and options, Project settings and Static pages edit their English reference content only — never
+an editor for every language, and no note where one was. Their editors keep no copy of a translation, so saving
+one never changes or overwrites a translation (`SaveProjectSettingsAction` refuses translations, and takes a
+static page's English alone, keeping its other languages as stored). Translation Center lists what visitors can
+see: the translations of inactive and archived content are kept, edited nowhere while it is off, and come back
+with it.
 
 **Languages** (prototype):
 
@@ -674,8 +706,7 @@ settings (`manage-project-settings`), the boundary Languages uses.
   saving it lets the server's copy go. Discard and Discard generated let suggestions go on the server too; if
   the server cannot be told, the draft stays.
 - **Not in this step.** No review states and no translation history; source fingerprints exist only to keep a
-  generated suggestion from outliving the English it was made from, and go with it. The editors that translate in
-  place keep doing so until the translation cutover (Phase 7).
+  generated suggestion from outliving the English it was made from, and go with it.
 
 **Translation field states (DOM-01)** — they must never look alike:
 
@@ -693,9 +724,148 @@ the database before Save.
 In production the field comes first, level with the English text beside it; under it come the counter, then the
 state badge and its note, then the actions (see the deviations below).
 
+**Translation AI** (prototype):
+
+- Top bar: “Updated 09:41”, the period (24 h · 7 days · 30 days, a segmented control) and Refresh.
+- Header: title, one sentence — technical monitoring for AI-assisted translation, read-only, translations are edited
+  in Translation Center (a link) — and the AI model combobox (FRM-11 style: “AI model”, All models or one model, a
+  status badge, a list with each model's calls in the period).
+- One card of three sections side by side, each at least 320 wide: **Provider health** (status badge; provider,
+  API key, last success, response time, success rate, retry policy, fallback provider), **Usage and cost**
+  (provider calls, translated items, tokens in · out, estimated cost two by two; calls per hour or day as stacked
+  bars, succeeded in ink under failed in red, with a legend), **Failures and issues** (a tinted line saying whether
+  anything is systemic; each error type with its count and Isolated, Burst or Ongoing; “Burst: 5 or more of one
+  type within 10 min. Ongoing: still failing in the last 15 min.”).
+- **Recent provider calls**: All / Failed, then Time · Usage · Language · Items · Tokens in / out · Cost · Latency ·
+  Result, newest first, 20 a page, with “Metadata only. Source text, prompts, translations and API keys are never
+  shown here.”
+
+**Translation AI** (production): `/admin/translation-ai` (`App\Filament\Pages\TranslationAiPage`) is the third item
+of the Localization section, after Translation Center, with the `bot` icon, drawn entirely in Admin v2 for whoever
+may manage project settings (`manage-project-settings`). It is read-only: nothing on it edits a translation or
+changes a setting, and nothing is sent to a provider — not on opening, not on Refresh.
+`App\Filament\Support\TranslationAiDiagnostics` works out everything it shows; the view queries nothing.
+
+- **State in the URL.** The period (`?period=24h`, `30d`; 7 days by default), a model (`?model=`), All or With issues
+  (`?calls=issues`) and the page of calls (`?page=`). Each change is a Livewire round trip that draws the page again;
+  a new period, model or call filter goes back to the first page; a value the page does not offer is read as its
+  default. A period is whole hours or days ending with the current one, so its chart has exactly 24, 7 or 30 points
+  and covers the calls its figures count. Times are UTC, as the application's are.
+- **Header band:** title, the sentence with the Translation Center link, then on the right the AI model combobox
+  (FRM-11, icons instead of flags, model names in mono) and under it “Updated 09:41 UTC”, the period (FRM-08) and
+  Refresh, which reads the records, the configuration and the background generations again and says so in a toast.
+- **The model filter** narrows the history, never what translates: its options are All models, then every model
+  recorded — by the name its provider reported, a dated snapshot included — with its calls in the period, the
+  configured model (or its snapshot) first and badged Current, the others Not current with their last call. The
+  configured model is listed before it has any call, “Configured now · no calls recorded”. Nothing is a fixed list.
+- **Provider health** is the configuration translations run on now — the configured provider and model, with the
+  model's dated snapshots — whatever the filter shows: Not configured (danger) when a public-content batch would be
+  refused before sending, asked the way Generate missing asks before it plans; Degraded (warning) when the last call
+  that tested the API key — a success, or a rejection of it (`authentication_failed`) — was a rejection, however few
+  failures that makes, or while a series of one provider failure of the configured model is ongoing; Healthy
+  (success, dot) after a successful call within 24 hours with neither; Configured (neutral) otherwise — a key alone
+  is never Healthy. Rows: provider, model, API key (Configured, Not configured or Not required — never the key), last
+  success, average response, p95 latency and success rate over the period, retry policy and fallback provider (None:
+  the engine has neither). The reason sits in the section's sunken footer.
+- **Usage and cost:** provider calls (and how many failed), translated items — succeeded, not sent — tokens in · out
+  (and calls without reported usage) and the estimated cost: the sum of known costs, to the cent or “< $0.01”,
+  with “n calls with unknown cost” in the due colour whenever any is unknown, and Unknown when all are — never $0
+  for an unknown cost. Under them calls per hour (24 hours) or per day, succeeded in ink under failed in red, each
+  bar named for screen readers; with no calls, an empty state instead of a chart.
+- **Failures and issues** counts failed provider calls and failed items apart and never adds them up — a timeout of
+  ten items is “1 failed call · 10 failed items”. Six types are always listed (constraint_violation,
+  provider_timeout, invalid_provider_response, rate_limited, authentication_failed, provider_unavailable), any
+  other error code once it happens. Failed calls have a pattern: Isolated; Burst — five or more with the same code
+  within a sliding ten minutes; Ongoing — such a series reaching into the last fifteen minutes. An item failure
+  only (“Provider answered”) has none, so a refused translation never reads as an outage. The line at the top says
+  “No issues in this period.”, an isolated count, the latest burst and whether anything followed, or the ongoing
+  series as a systemic issue.
+- **Recent provider calls** (TBL-01, NAV-04): Time · Usage (Interactive AI or Generate missing) · Model · Language
+  (and the tag the provider was sent, “as sr-Cyrl”) · Items · Tokens in / out · Cost · Latency · Result, newest
+  first, 25 a page read by the server. A failed call shows its code and HTTP status, a successful one with failed
+  items “9 of 10 translated” and the codes; an unknown token count or cost is “—”, named for screen readers. All /
+  With issues counts both. Only what a call records is shown: no batch id, no item, no text.
+- **Background generations** (`App\Livewire\Admin\TranslationAiGenerations`) is Generate missing as the temporary
+  store has it now: the generation of each installed language, through the store's running pointers, and the
+  viewer's own for each language until it expires, through theirs — a known list of keys read together, never a
+  scan. Each shows the language, Queued, Running or Completed, a progress bar, processed of total, ready, failed,
+  skipped, saved and discarded, who started it, and when its results expire; only counts and times reach the
+  browser. It is read again every 5 seconds while one is queued or running and on screen, and not at all once
+  none is. When the store cannot be reached it says Temporarily unavailable and the rest of the page is unaffected.
+  There is no history beyond the 48 hours a generation's results are kept.
+- **Configuration and guardrails**, folded away (a disclosure button): provider, model, pricing, provider timeout,
+  translation job timeout, queue and its retry_after, queue worker timeout (Not available — set where the worker
+  is started), temporary results store, batch TTL, retry policy, fallback provider, hourly limit and budget (Not
+  configured — not built yet) and telemetry retention, each read where it is set.
+
+## Content
+
+```text
+Content
+├── Categories
+├── Tags
+└── Rating groups
+```
+
+Categories and Tags are drawn entirely in Admin v2 (`ManageCategories`, `ManageTags`, one screen each). Their
+resources stay for routing, navigation, the policies and global search; the list, the editor and every
+confirmation are the one screen's.
+
+- **Header band (LAY-01):** the title and one sentence — the names are the English reference, other languages
+  are managed separately — followed by “Open Translation Center” on that section, for whoever may open it. Stats:
+  Categories show Active, Inactive and Missing translations; Tags show Tags, Unused and Missing translations.
+- **Top bar:** the primary Create category / Create tag, through the `TOPBAR_END` hook, for whoever may create.
+  It asks the page by a browser event to open its drawer.
+- **Table (TBL-01, TBL-02):** the grids of the [table above](#tables). The list is bounded and already on the
+  page, so the clearable search (“Search name or slug”, “Search tags”) runs in the browser and keeps `?q=`; the
+  toolbar counts “N of M”. A search that finds nothing offers Create “…”, which opens the drawer with that name.
+  Categories are in their sort order, tags by number of posts, then by name. The footer says so (“Sorted by sort
+  order. Inactive categories stay attached to their posts.” / “Sorted by number of posts.”).
+- **Name cell:** the English name — a real link to the record's drawer (`?edit=`), which a click opens in place;
+  an inactive category's in secondary ink — and under it the locale chips (STS-05) of the languages the project
+  offers besides English, each translated or missing, with “n missing” in the due colour. Missing translations,
+  in the chips' count and the stat, are counted over offered languages only, and for categories over active ones
+  only: an inactive category is not in Translation Center while visitors cannot see it, so it shows its chips but
+  is not due.
+- **Slug** in mono, as stored; **Active** (categories) a success badge with the live dot or a neutral Inactive;
+  **Sort order** and **Posts** right-aligned and tabular.
+- **Row actions (TBL-04):** Edit inline; the menu holds, for a category, Deactivate (“Hide from navigation and
+  uploads”) or Activate (“Show to visitors again”), Translate, and after a separator Delete (“Has posts · deactivate
+  instead” or “Unused”); for a tag, Merge into… unavailable (“Not available yet”), Translate, and Delete (“In use ·
+  remove it from its posts first” or “Unused”). Translate opens Translation Center on the record — its section and
+  unit, in the first offered language it is missing from — and is unavailable, with the reason, for an inactive
+  category and for whoever may not open Translation Center. On Tags, Delete is unavailable to a moderator.
+- **Activate and deactivate** apply at once, with no confirmation, and toast with Undo (FBK-01); Undo restores the
+  previous state and says so (“Dogs is active again”).
+- **Drawer (OVL-02):** “New category” / “Edit category” (tags alike), subtitled “Created in English. Translate it
+  afterwards.” or “n posts · ID n”. Name, tagged “English · reference”. Slug (FRM-04): on create it follows the
+  name — chip “Generated from name” — until the slug itself is typed; once saved it is locked, and Change slug
+  unlocks it with a warning: changing it breaks existing links, and, once it differs, “Feed links filtered by
+  “old” stop working once you save.” The server keeps a locked slug as stored whatever the browser sends. A tag's
+  slug may be left blank: it is then made from the name. Categories add Sort order (FRM-05; a new one goes last)
+  and Active (FRM-06, “Shown to visitors” / “Hidden from visitors”). Other languages lists, read-only, each offered
+  language with its stored translation, or the English fallback a visitor gets, or “Not translated yet” on create,
+  with a Missing badge, and Translate — unavailable, with the reason, until the record exists or while a category
+  is inactive. The footer has Delete on the left (it replaces the drawer with its confirmation), Cancel, and
+  Create category / Create tag or Save.
+- **Errors** say what to do: “Enter a name.”, “This slug is already used by another category. Choose another
+  one.”, “Use lowercase letters and numbers, with single hyphens between words: small-pets.”, “Enter a whole number
+  from 0 to 999,999.” The English name is held to the length its translations are held to.
+- **Delete (OVL-01):** read when the dialog is drawn. Unused, a danger confirmation — the record in a subject row,
+  “Its stored translations are deleted with it.”, Delete category / Delete tag. A category any post holds — a
+  deleted post that is kept included, which the database still counts — cannot be deleted: a warning dialog says
+  how many posts are filed under it and offers Deactivate instead, with what that does; already inactive, it has
+  nothing to confirm. A tag posts carry is a blocked dialog: remove it from those posts first. A delete that finds
+  posts after the dialog was drawn shows that dialog instead of deleting.
+- **Toasts:** “Dogs created. Translations are missing for n languages.” (n the offered languages besides
+  English), “Dogs saved”, “Dogs deleted”, “Dogs deactivated” with Undo; tags as “#zoomies …”.
+- **Access:** categories are an administrator's. Tags are curated by moderators and administrators; deleting a
+  tag, and Translation Center, are an administrator's. Every write goes through its action, which checks the
+  policy again.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Categories and Tags also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -728,7 +898,7 @@ state badge and its note, then the actions (see the deviations below).
 | Status tabs | Sable Tabs use `role="tab"` without tab panels | links with `aria-current` or toggles with `aria-pressed` | they filter a list rather than switch panels |
 | Tertiary text | gray-400 `#99A0AE` (2.63:1 on white) | `--rg-admin-text-tertiary` `#68707D` (5.00:1 on white, 4.67:1 on the app ground) | WCAG AA for normal text; see below |
 | Dark mode | not defined | the admin is light only; the kit draws its own light canvas | no reference to follow |
-| Row menus | live in the prototype | specified here; built when the first screen needs them | no production screen uses them yet |
+| Row menus | live in the prototype; an unavailable item is greyed | built with Categories and Tags (`x-admin.ui.row-menu`); an unavailable item stays focusable, `aria-disabled` | a menu's items are reached with the arrow keys, and the reason an item is unavailable has to be heard |
 | Disable language confirmation | *firm*: a required reason | a warning confirmation with no reason field | nothing stores a reason for a language change; asking for one and discarding it would be for show |
 | Confirmation footnote | “Recorded in the … log as …” | none on Languages | no log records a language change |
 | Languages status notes | “Disabled 21 Sep”, “Never enabled” | “Offered to visitors” / “Not offered to visitors” | no date of a language change is stored |
@@ -742,10 +912,25 @@ state badge and its note, then the actions (see the deviations below).
 | DOM-01 placement | the state badge and note above the target field | under the field, after the counter and before the actions; a note too long for the line wraps under the badge | the target field starts level with the English text it translates, and a long note never pushes the actions aside |
 | Languages table on narrow widths | the card scrolls the grid horizontally | tightened columns down to 876, then one labelled block per language | the screen never scrolls sideways; the locale code moves beside the names, so no column is lost |
 | Translation Center and Languages search | a plain search field | a clearable one, with × while it holds text | a query is cleared in one press |
-| Toast Undo | reversible actions toast with Undo | no Undo in the stack yet | no migrated action is reversible without confirmation; it arrives with the first one |
+| Toast Undo | Undo restores silently | Undo restores and says so (“Dogs is active again”) | the change is a write like any other, and is confirmed like one |
+| Category and tag slugs | `/c/dogs`, `/t/zoomies`, and a `pawrank.com/c/` prefix in the slug field | the slug as stored, no prefix; the warning names feed links filtered by it | categories and tags are feed filters (`/?category[]=dogs`, `/?tag=zoomies`); there are no `/c/` or `/t/` pages |
+| Categories and Tags translations note | “Translations are edited in Translation Center. Changing the English name doesn’t change them.” beside Translate | Translate alone | Translation Center is already the single editor of translations, and the cutover put no note where the language tabs were |
+| Categories and Tags locale chips | every language the prototype knows | the languages the project offers besides English; for categories, missing counted over active ones | visitors meet the offered languages, and Translation Center lists only what visitors can see |
+| Merge into… | merges a tag into another, and a tag in use offers “Merge into another tag” | unavailable (“Not available yet”); a tag in use is a blocked dialog | merging tags needs a domain action of its own, to be designed once every section is on v2 (migration plan) |
+| Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
+| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | OVL-02: one overlay at a time; a dialog opened from a drawer replaces it |
+| Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
+| Translation AI period and Refresh | “Updated”, the period and Refresh in the top bar | in the header band, under the model filter | they drive this page's own state, and the top bar holds no screen's controls |
+| Translation AI model statuses | Default, Active and Retired models, from a fixed list | Current or Not current, from the models recorded and the one configured | the application knows which model is configured and which were used, not a lifecycle of models |
+| Translation AI health | Configured (success, dot) before telemetry existed; Degraded in red | Configured is neutral; Degraded is warning, as STS-01 has it | a configured key is not proof that translation works |
+| Translation AI recent calls | eight columns, a batch id under Generate missing, 20 a page, All / Failed | a Model column, no batch id, 25 a page, All / With issues | the call records its model and no batch; NAV-04's page size; a successful call with failed items has issues too |
+| Translation AI failures | one count per error type | failed calls and failed items side by side, item-only types without a pattern | one timeout of ten items is one failed call and ten failed items, and a refused translation is not an outage |
+| Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
+| Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
+| Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
 
 ### Tertiary text contrast
 
@@ -773,10 +958,10 @@ built.
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all but STS-04 |
-| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–03, FRM-08, FRM-10, FRM-11 |
-| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell |
+| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–06, FRM-08, FRM-10, FRM-11 |
+| Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
-| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03 (TBL-04's menu as a static surface) |
+| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03; TBL-04 as a live, reusable component |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
 | Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
 

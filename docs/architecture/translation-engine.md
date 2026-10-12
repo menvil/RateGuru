@@ -184,7 +184,7 @@ consumer
 → TranslationService::translate(request)            returns items + one TranslationProviderCall per request
 → TranslationAiCallRecorder::record(request, result, consumer, installed language)
 → translation_ai_provider_calls                     one row per provider call
-→ TranslationAiUsageQuery                           what the Translation AI page reads
+→ TranslationAiUsageQuery                           what the Translation AI page (/admin/translation-ai) reads
 ```
 
 ```text
@@ -230,11 +230,17 @@ Translation engine  ≠  translation storage  ≠  telemetry storage
   a failed insert never aborts the caller's transaction. A call is recorded at most once, even if the same result
   is handed over twice; a Generate missing job delivered again sends nothing and so records nothing.
 - **Reading it back.** `App\Queries\Translations\TranslationAiUsageQuery`, over a half-open UTC period
-  (`TranslationAiUsageFilter`, from included, until excluded) optionally narrowed to a provider, model, installed
-  language or consumer: `summary()` (calls and items, succeeded and failed, tokens, the known estimated cost, calls
-  of unknown cost, average and p95 latency), `errors()` (provider errors by call and item errors by item),
-  `timeline()` (the same figures hour by hour or day by day, without gaps) and `recentCalls()` (newest first, a page
-  at a time).
+  (`TranslationAiUsageFilter`, from included, until excluded) optionally narrowed to a provider, model — or any of
+  several, a model with its dated snapshots — installed language or consumer: `summary()` (calls and items,
+  succeeded and failed, successful calls with failed items, tokens, the known estimated cost, calls of unknown cost,
+  average and p95 latency), `errors()` (provider errors by call and item errors by item), `failureSeries()` (failed
+  calls by code: Isolated, a Burst of five or more within ten minutes, or Ongoing when such a series reaches into
+  the last fifteen), `timeline()` (the same figures hour by hour or day by day, without gaps), `recentCalls()`
+  (newest first, a page at a time, optionally only those with issues), `models()` (every model recorded, with its
+  calls in a period) and `lastSucceededAt()`.
+- **The Translation AI page.** `/admin/translation-ai` shows all of it, read-only, beside the configured provider's
+  health and the background generations Generate missing has in its store; it asks no provider anything. See the
+  Translation AI section of `docs/design/admin/design-contract.md`.
 - **Kept 90 days.** `translation.telemetry.retention_days`; `translations:purge-ai-calls` runs daily and deletes
   older rows of this table only, in batches of 1,000, and may run any number of times.
 

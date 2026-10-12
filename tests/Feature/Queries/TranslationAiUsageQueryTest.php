@@ -3,17 +3,22 @@
 use App\Models\TranslationAiProviderCall;
 use App\Queries\Translations\TranslationAiUsageQuery;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
+use App\Support\TranslationEngine\Enums\TranslationStatus;
 use App\Support\Translations\Telemetry\TranslationAiConsumer;
+use App\Support\Translations\Telemetry\TranslationAiFailurePattern;
+use App\Support\Translations\Telemetry\TranslationAiFailureSeries;
 use App\Support\Translations\Telemetry\TranslationAiUsageFilter;
 use App\Support\Translations\Telemetry\TranslationAiUsageInterval;
+use App\Support\Translations\Telemetry\TranslationAiUsageModel;
 use App\Support\Translations\Telemetry\TranslationAiUsagePoint;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
- * Reading Translation AI telemetry back, as the Translation AI page will:
+ * Reading Translation AI telemetry back, as the Translation AI page does:
  * figures over a half-open UTC period and its filters, errors by code with
- * provider and item errors apart, a gap-free timeline, and the calls
- * themselves a page at a time.
+ * provider and item errors apart and failed calls in series, a gap-free
+ * timeline, the calls themselves a page at a time, and the models recorded.
  */
 function translationAiUsage(): TranslationAiUsageQuery
 {
@@ -69,6 +74,7 @@ it('sums a period: provider calls and items apart, tokens and the cost that is k
     expect($summary->calls)->toBe(5)
         ->and($summary->succeededCalls)->toBe(4)
         ->and($summary->failedCalls)->toBe(1)
+        ->and($summary->callsWithFailedItems)->toBe(1)
         ->and($summary->items)->toBe(27)
         ->and($summary->succeededItems)->toBe(16)
         ->and($summary->failedItems)->toBe(11)
@@ -94,6 +100,8 @@ it('narrows a period to a provider, a model, a language or a consumer', function
     'language' => [['targetLocale' => 'ru'], 2, '0.000020000000', 1],
     'consumer' => [['consumer' => TranslationAiConsumer::GenerateMissing], 3, '0.000200000000', 2],
     'consumer and model' => [['consumer' => TranslationAiConsumer::InteractiveAi, 'model' => 'gpt-6-luna-mini'], 1, '0.000000000000', 1],
+    'any of several models' => [['models' => ['gpt-6-luna-2026-09-01', 'gpt-6-luna-mini']], 4, '0.000220000000', 2],
+    'none of no models' => [['models' => []], 0, '0.000000000000', 0],
 ]);
 
 it('counts a period from its start, included, to its end, excluded', function () {
@@ -232,4 +240,142 @@ it('keeps calls that completed in the same second stable across pages', function
 it('holds a page between one and a hundred calls', function () {
     expect(translationAiUsage()->recentCalls(translationAiPeriod(), perPage: 0)->perPage())->toBe(1)
         ->and(translationAiUsage()->recentCalls(translationAiPeriod(), perPage: 1000)->perPage())->toBe(100);
+});
+
+it('lists only the calls with something to look at: a failed call, or failed items', function () {
+    $page = translationAiUsage()->recentCalls(translationAiPeriod(), withIssues: true);
+
+    expect($page->total())->toBe(2)
+        ->and($page->getCollection()->map(fn (TranslationAiProviderCall $call): string => $call->completed_at->format('H:i'))->all())->toBe(['09:45', '09:15']);
+});
+
+it('reads one page of calls, never the whole period', function () {
+    TranslationAiProviderCall::factory()->count(30)->create(['completed_at' => CarbonImmutable::parse('2026-10-01 12:00:00', 'UTC')]);
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $page = translationAiUsage()->recentCalls(translationAiPeriod(), perPage: 25, page: 2);
+    $select = collect(DB::getQueryLog())->pluck('query')->last(fn (string $query): bool => str_contains($query, 'order by'));
+    DB::disableQueryLog();
+
+    expect($page->count())->toBe(10)
+        ->and($select)->toContain('limit 25')->toContain('offset 25');
+});
+
+// =============================================================================
+// Failures in series
+// =============================================================================
+
+/** @return array<string, TranslationAiFailureSeries> */
+function failureSeriesOn(string $day, string $now): array
+{
+    $series = translationAiUsage()->failureSeries(translationAiPeriod("{$day} 00:00:00", CarbonImmutable::parse($day, 'UTC')->addDay()->toDateTimeString()), CarbonImmutable::parse($now, 'UTC'));
+
+    return collect($series)->keyBy('errorCode')->all();
+}
+
+it('tells isolated failures from a burst, and a burst from one still going on, most frequent first', function () {
+    failedTranslationAiCall('2026-11-01 08:00:00', TranslationErrorCode::RateLimited);
+    failedTranslationAiCall('2026-11-01 11:00:00', TranslationErrorCode::RateLimited);
+    foreach (['10:00:00', '10:02:00', '10:04:00', '10:06:00', '10:08:00', '12:00:00'] as $at) {
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::AuthenticationFailed);
+    }
+    foreach (['14:49:00', '14:51:00', '14:53:00', '14:55:00', '14:58:00'] as $at) {
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderUnavailable);
+    }
+
+    $series = translationAiUsage()->failureSeries(translationAiPeriod('2026-11-01', '2026-11-02'), CarbonImmutable::parse('2026-11-01 15:00:00', 'UTC'));
+
+    expect(array_map(fn (TranslationAiFailureSeries $entry): array => [$entry->errorCode, $entry->calls, $entry->pattern], $series))->toBe([
+        ['authentication_failed', 6, TranslationAiFailurePattern::Burst],
+        ['provider_unavailable', 5, TranslationAiFailurePattern::Ongoing],
+        ['rate_limited', 2, TranslationAiFailurePattern::Isolated],
+    ])
+        ->and($series[0])->toEqual(new TranslationAiFailureSeries(
+            errorCode: 'authentication_failed', calls: 6,
+            firstFailedAt: CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC'), lastFailedAt: CarbonImmutable::parse('2026-11-01 12:00:00', 'UTC'),
+            pattern: TranslationAiFailurePattern::Burst,
+            seriesStartedAt: CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC'), seriesEndedAt: CarbonImmutable::parse('2026-11-01 10:08:00', 'UTC'),
+            seriesCalls: 5, callsSinceSeries: 1,
+        ))
+        ->and([$series[2]->seriesStartedAt, $series[2]->seriesCalls, $series[2]->callsSinceSeries])->toBe([null, 0, 0]);
+});
+
+it('needs five failed calls of one code within ten minutes for a series', function (array $times, TranslationAiFailurePattern $pattern) {
+    foreach ($times as $at) {
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
+    }
+
+    expect(failureSeriesOn('2026-11-01', '2026-11-01 23:00:00')['provider_timeout']->pattern)->toBe($pattern);
+})->with([
+    'four within a minute' => [['10:00:00', '10:00:10', '10:00:20', '10:00:30'], TranslationAiFailurePattern::Isolated],
+    'five within exactly ten minutes' => [['10:00:00', '10:02:00', '10:04:00', '10:06:00', '10:10:00'], TranslationAiFailurePattern::Burst],
+    'five across ten minutes and a second' => [['10:00:00', '10:02:00', '10:04:00', '10:06:00', '10:10:01'], TranslationAiFailurePattern::Isolated],
+]);
+
+it('counts one series for windows that overlap, however long it goes on', function () {
+    foreach (range(0, 6) as $step) {
+        failedTranslationAiCall(CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC')->addMinutes(2 * $step)->toDateTimeString(), TranslationErrorCode::ProviderTimeout);
+    }
+
+    $series = failureSeriesOn('2026-11-01', '2026-11-01 23:00:00')['provider_timeout'];
+
+    expect([$series->seriesStartedAt?->format('H:i'), $series->seriesEndedAt?->format('H:i'), $series->seriesCalls, $series->callsSinceSeries])->toBe(['10:00', '10:12', 7, 0]);
+});
+
+it('calls a series ongoing while it reaches into the last fifteen minutes', function (string $now, TranslationAiFailurePattern $pattern) {
+    foreach (['10:00:00', '10:01:00', '10:02:00', '10:03:00', '10:04:00'] as $at) {
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
+    }
+
+    expect(failureSeriesOn('2026-11-01', $now)['provider_timeout']->pattern)->toBe($pattern);
+})->with([
+    'fifteen minutes after its last failure' => ['2026-11-01 10:19:00', TranslationAiFailurePattern::Ongoing],
+    'a second later' => ['2026-11-01 10:19:01', TranslationAiFailurePattern::Burst],
+]);
+
+it('reads series from failed calls only, never from failed items of a successful one', function () {
+    foreach (range(0, 5) as $minute) {
+        TranslationAiProviderCall::factory()->create([
+            'completed_at' => CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC')->addMinutes($minute),
+            'succeeded_item_count' => 9, 'failed_item_count' => 1, 'item_failures' => ['constraint_violation' => 1],
+        ]);
+    }
+
+    expect(failureSeriesOn('2026-11-01', '2026-11-01 10:06:00'))->toBe([]);
+});
+
+// =============================================================================
+// Models and the last success
+// =============================================================================
+
+it('lists every model recorded, with its calls in a period and when it last answered, most recently used first', function () {
+    expect(translationAiUsage()->models(CarbonImmutable::parse('2026-10-01', 'UTC'), CarbonImmutable::parse('2026-10-02', 'UTC')))->toEqual([
+        new TranslationAiUsageModel('openai', 'gpt-6-luna-2026-09-01', 3, CarbonImmutable::parse('2026-10-02 00:00:00', 'UTC')),
+        new TranslationAiUsageModel('local', 'qwen', 1, CarbonImmutable::parse('2026-10-01 20:00:00', 'UTC')),
+        new TranslationAiUsageModel('openai', 'gpt-6-luna-mini', 1, CarbonImmutable::parse('2026-10-01 14:30:00', 'UTC')),
+    ])
+        ->and(collect(translationAiUsage()->models(CarbonImmutable::parse('2026-12-01', 'UTC'), CarbonImmutable::parse('2026-12-02', 'UTC')))->pluck('calls')->all())->toBe([0, 0, 0]);
+});
+
+it('says when the calls of a filter last succeeded, and nothing when none did', function () {
+    expect(translationAiUsage()->lastSucceededAt(translationAiPeriod())?->format('H:i'))->toBe('20:00')
+        ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod(filters: ['provider' => 'openai']))?->format('H:i'))->toBe('14:30')
+        ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod(filters: ['models' => ['gpt-6-luna-2026-09-01']]))?->toIso8601String())->toBe('2026-10-01T14:00:00+00:00')
+        ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod('2026-12-01', '2026-12-02')))->toBeNull();
+});
+
+it('finds the latest call that succeeded or failed with the codes asked about, passing over other failures', function () {
+    $atOf = fn (?TranslationAiProviderCall $call): ?string => $call?->completed_at->format('H:i');
+
+    expect($atOf(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(), TranslationErrorCode::AuthenticationFailed)))->toBe('20:00')
+        ->and($atOf(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(filters: ['models' => ['gpt-6-luna-2026-09-01']]), TranslationErrorCode::AuthenticationFailed)))->toBe('14:00')
+        ->and(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod('2026-12-01', '2026-12-02'), TranslationErrorCode::AuthenticationFailed))->toBeNull();
+
+    failedTranslationAiCall('2026-10-01 21:00:00', TranslationErrorCode::AuthenticationFailed);
+    failedTranslationAiCall('2026-10-01 22:00:00', TranslationErrorCode::ProviderTimeout);
+
+    $latest = translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(), TranslationErrorCode::AuthenticationFailed);
+
+    expect([$atOf($latest), $latest?->status, $latest?->error_code])->toBe(['21:00', TranslationStatus::Failed, 'authentication_failed']);
 });

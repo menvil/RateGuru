@@ -17,7 +17,9 @@ not reorganize unrelated infrastructure.
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
-**NEXT: Phase 8.5 — TLS and real tits.guru public routing.** Then 8.6
+**NEXT: Phase 8.5 — TLS and real tits.guru public routing.** Its first part,
+8.5.1 (public HTTP and ACME for `tits.guru`), is implemented in the repository
+and has not run on the host. Then 8.6
 (production operations acceptance) and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
 period of its own. Bounce and reply processing, the remaining inbound mail work
@@ -1652,7 +1654,8 @@ brand that exists nowhere in this repository — and then exercised for real on
   Unified Monitoring** below. The mail safeguards required before GO LIVE
   stay in 8.6 and 8.7.
 - **Next.** **NEXT: Phase 8.5 — TLS and real tits.guru public routing**, then
-  8.6 and 8.7.
+  8.6 and 8.7. 8.5.1, public HTTP and ACME for `tits.guru`, is IMPLEMENTED in
+  the repository. **Prepare tits.guru public HTTP** has not run on the host.
 - **Not launched.** `tits-guru` is still `lifecycle=planned`, no application
   release is deployed, and nothing public serves the site. Phase 8 is not
   complete.
@@ -2407,6 +2410,77 @@ Slices, in order:
    ([`runbooks/mail-inbound.md`](runbooks/mail-inbound.md)). The public
    routing must keep `http://mx1.tits.guru/.well-known/acme-challenge/`
    answered from there, or that certificate stops renewing.
+
+   The public site is a site of its own, with its own owner, never a change to
+   the internal one ([`runbooks/public-site.md`](runbooks/public-site.md)). It
+   moves through `not-prepared` → `http-acme-ready` → `tls-ready` →
+   `public-active`, and only the first two exist.
+
+   **8.5.1 Public HTTP and ACME for `tits.guru` — IMPLEMENTED in repository,
+   not yet run on the host.**
+   - `infrastructure/scripts/prepare-public-http --check|--apply|--verify|--rollback`
+     owns `rateguru-tits-guru-public`, its file and its link, and nothing
+     else. The internal site `rateguru-tits-guru` stays
+     `install-bootstrap-services`'s and is never edited.
+   - On port 80 only, `tits.guru` answers
+     `/.well-known/acme-challenge/<token>` from `/var/www/html`, and 503 with
+     `Retry-After` for everything else. There is no TLS listener, no redirect,
+     no PHP-FPM, and no application.
+   - **`mx1.tits.guru` is protected by proof, not by assumption.** The public
+     site is never a `default_server`. Before anything is written, the loaded
+     configuration must show:
+     - an explicit `default_server` on `*:80` and `[::]:80`;
+     - no port-80 listener on a single address;
+     - no other server claiming `tits.guru`.
+
+     The run also requires `mx1.tits.guru`'s absent challenge to be answered
+     404 by another server. Where any of this cannot be proved, the run
+     refuses. The candidate is judged again before the reload, and the answers
+     of `mx1.tits.guru` and of an unlisted name are compared after it.
+   - **Transactional.** The run holds the host lock, runs `nginx -t` before the
+     one `systemctl reload nginx`, and puts the previous state back on any
+     failure, saying CRITICAL when it cannot prove that. A second `--apply` or
+     `--rollback` is a no-op.
+   - **Owns two states and its exact render, nothing more.** It owns only
+     `not-prepared` and `http-acme-ready`, and the file only when it is exactly
+     the render. A file that keeps its first line but says anything else is
+     `foreign`: an HTTPS configuration above all, and a hand edit too. Both
+     `--apply` and `--rollback` refuse it with no write, no link change and no
+     reload. When 8.5.3 moves the site to HTTPS, its installer takes the public
+     site over, and the workflows of 8.5.1 can neither return it to HTTP nor
+     remove it.
+   - **Workflows.** Prepare, Verify and Rollback tits.guru public HTTP: from
+     `main` only, in `production-tits-guru` with the bootstrap credential, the
+     two mutating ones behind `PREPARE tits-guru public HTTP` and
+     `ROLLBACK tits-guru public HTTP`. Never run on a merge.
+   - **Tests.** Simulated-host tests, plus a CI job that runs the script
+     against a real Nginx in a network and mount namespace of its own. That job
+     passed on Nginx 1.18, as on the host, and on 1.24. Its scenario also shows
+     the load-order hazard the default-server check refuses: a public site
+     loaded first does take `mx1.tits.guru`.
+   - **Not here.** No certificate for `tits.guru`, no HTTPS, no redirect, no
+     DNS change, and no deploy or activation. **The DNS A record of
+     `tits.guru` has not been checked for this.**
+
+   *Accepted on the host when:* **Prepare tits.guru public HTTP** reports
+   `http-acme-ready`, **Verify tits.guru public HTTP** and **Verify tits.guru
+   inbound SMTP** pass, and `certbot renew --dry-run --cert-name
+   mx1.tits.guru` still succeeds.
+
+   **8.5.2 The certificate for `tits.guru` — next, after 8.5.1 is accepted.**
+   - The DNS A record of `tits.guru` is checked and published if needed.
+   - The real certificate is issued by Certbot over the webroot, rehearsed
+     with `--dry-run` first.
+
+   **8.5.3 HTTPS for `tits.guru` — planned.**
+   - The certificate installed safely, with its renewal.
+   - The HTTPS installer takes the public site over (`tls-ready`), while the
+     target may still be `planned`.
+   - The mechanism that activates the public site, used for `public-active`
+     only at GO LIVE (8.7).
+
+   The order is in
+   [`runbooks/public-site.md`](runbooks/public-site.md#the-order-after-this-change).
 6. **8.6 Production operations acceptance.** Everything the launch needs,
    proved before any public traffic. No infrastructure operation performed
    during go-live should be happening for the first time.

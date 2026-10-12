@@ -31,7 +31,8 @@ admin works, and every screen is either fully v1 or fully v2.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
   the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its two fixes live in the theme.
 - The live developer UI kit, local and testing only, lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
-  NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01.
+  NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01. Later screens add the elements they need
+  under their reference IDs.
 - No existing screen, navigation item, translation form or database table changes.
 
 ### Phase 2 — Admin v2 shell and navigation
@@ -101,7 +102,7 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, is done, and the Translation AI page is next.
+**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is done.
 
 In separate steps:
 
@@ -139,9 +140,9 @@ In separate steps:
      are still missing and untouched; a partly failed batch keeps what it produced. Save, Save all generated (after
      OVL-01) and Discard go through the server, which holds the text: each suggestion is saved on its own through
      `UpdateProjectTranslationAction`, and one whose English or stored translation changed is skipped.
-   - **5D — Observability, limits and provider policies. Status: in progress.** What the engine's call metadata
-     feeds: usage and cost visibility, budgets and limits, and the retry and fallback policies the engine
-     deliberately leaves out.
+   - **5D — Observability, limits and provider policies.** What the engine's call metadata feeds: usage and cost
+     visibility, budgets and limits, and the retry and fallback policies the engine deliberately leaves out. The
+     visibility is done; the rest is deferred.
      - **5D.1 — Translation AI telemetry. Status: done.** Every request a provider was actually sent is one row of
        `translation_ai_provider_calls`, recorded by the consumer once the engine has returned — the engine itself
        still stores nothing — through one `TranslationAiCallRecorder`: AI translate, Suggest alternative and
@@ -154,36 +155,90 @@ In separate steps:
        rates or the tokens are unknown. Recording is best effort: a failed write is logged and dropped, and never
        changes, repeats or withholds a translation. `TranslationAiUsageQuery` reads it back for the page — summary,
        errors by code, an hourly or daily timeline, recent calls — and `translations:purge-ai-calls` deletes rows
-       older than 90 days, daily. No page yet.
-     - **Next: the Translation AI page**, built on `TranslationAiUsageQuery`; then budgets, limits and provider
-       policies.
-6. **Workflow** — review states, if the product needs them.
-7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
-  stop editing every language and show their English reference content, a translation status (locale chips,
-  STS-05) and a link to Translation Center. From then on Translation Center is the single admin editor for
-  DB-owned translated content. Whether it then also lists inactive and archived content, which no visitor sees
-  and which today only its own editor translates, is decided there.
+       older than 90 days, daily.
+     - **5D.2 — Translation AI page. Status: done.** `/admin/translation-ai` (`App\Filament\Pages\TranslationAiPage`),
+       the third item of Localization, is read-only technical monitoring drawn in Admin v2 as in the prototype, for
+       whoever may manage project settings; the contract's Localization section describes it. Provider health is
+       the configuration translations run on now — Not configured, Configured, Healthy or Degraded, from the
+       configuration and the calls of the configured model, never from the model filter; one rejected API key with
+       no success since is Degraded, any other failure only in a series. Usage and cost, Failures
+       and issues and Recent provider calls are the history a period (24 hours, 7 or 30 days) and an optional model
+       choose, all from the database through `TranslationAiUsageQuery`, which gained the models recorded, the last
+       success, failed calls in series (Isolated, Burst, Ongoing) and calls with issues; failed calls and failed
+       items are counted apart, and an unknown cost is never $0. Background generations reads the generation of
+       each installed language and the viewer's own through the store's pointers — never a scan — as counts and
+       times only, re-read every few seconds only while one runs; an unreachable store takes that block alone.
+       Configuration and guardrails shows the values configured, Not available for the worker's own timeout, and
+       Not configured for limits and budgets. No provider is asked anything, no setting changes, no table or
+       migration is added, and the engine and Generate missing are unchanged. Kit: NAV-04 is the reusable
+       `x-admin.ui.pagination`, and FRM-11 options can lead with an icon.
+     - **Deferred: budgets, limits and provider policies** — hourly limits, budgets, and the retry and fallback
+       policies the engine deliberately leaves out, built when real traffic shows they are needed. Until then
+       Translation AI shows them as Not configured or None. Deferred with them: a short-lived, opt-in journal of
+       what each call sent and what came back, for reviewing translation quality from Recent provider calls — it
+       would keep texts, which telemetry deliberately does not, so it needs its own decision first.
+6. **Workflow** — review states, if the product needs them. **Status: deferred.**
+7. **Translation cutover. Status: done.** In one change, in the editors as they are: Categories, Tags, Rating
+  groups and options, Project settings and Static pages stop editing every language. Their per-language tabs go
+  and each keeps its English reference content, with no note in their place: Translation Center is where
+  translations are edited, and the navigation already leads there. No data moves: the stored translations stay
+  where they are, and Translation Center already edits them, so it becomes the single admin editor for DB-owned
+  translated content at once. Saving an editor never touches a translation: the settings page holds none, and
+  `SaveProjectSettingsAction` refuses them and takes a static page's English alone, merging it, under the row's
+  lock, with the other languages as stored — so one saved in Translation Center while the page was open is kept. Translation Center keeps listing what visitors can see, as it does now: the
+  translations of inactive and archived content are kept as they are, edited nowhere while it is off, and come
+  back into Translation Center with it. The translation status the prototype shows on these screens (locale
+  chips, STS-05, and missing counts) arrives with their Admin v2 migration below.
 
 ### Then — freeze Admin UI Kit v1
 
-Once Localization runs on v2, the kit is frozen as Admin UI Kit v1: components and tokens change only through a
-reviewed design change that updates the contract, the kit and the screens using them together.
+**Status: in effect.** Localization runs on v2, so the kit is frozen as Admin UI Kit v1: components and tokens
+change only through a reviewed design change that updates the contract, the kit and the screens using them
+together. Elements the kit does not have yet are still added, each under its reference ID, with the first screen
+that needs it.
 
 ### Then — the remaining sections
 
-Migrated one at a time, each building any missing kit element first:
+Migrated one at a time, in this order, each building any missing kit element first. The content screens come
+first: after the translation cutover their prototype already has no language tabs, and each brings the
+translation status that links into Translation Center. The moderation screens follow, then the system pages.
 
-| Section | Kit elements it brings |
-|---|---|
-| Posts | TBL-03 bulk bar, FRM-07 checkbox, TBL-04 row menu popover |
-| Comments | — |
-| Reports | DOM-02 report chain, the docked 448 panel |
-| Users and user edit | FRM-06 switch, FRM-09 radio cards (FRM-08 segmented control is built) |
-| Categories and Tags | FRM-04 locked identifier (FRM-10 filter dropdown is built) |
-| Rating groups | STS-04 range slots, FRM-05 number stepper |
-| Project settings | — |
-| Media diagnostics | — |
-| Dashboard | — |
+| Order | Section | Kit elements it brings |
+|---|---|---|
+| 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
+| 2 | Rating groups and the group editor | STS-04 range slots (FRM-05 number stepper is built) |
+| 3 | Project settings and Static pages | — |
+| 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
+| 5 | Comments | — |
+| 6 | Reports | DOM-02 report chain, the docked 448 panel |
+| 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
+| 8 | Media diagnostics | — |
+
+**Categories and Tags. Status: done.** Each is one screen drawn entirely in Admin v2 (`ManageCategories`,
+`ManageTags`), as the contract's [Content](design-contract.md#content) section describes: the header band with its
+figures and Open Translation Center, the table with each record's locale chips and missing count over the offered
+languages, the browser's search with Create “…” when it finds nothing, the row menu, and a drawer that creates and
+edits — the slug generated from the name and locked once saved, Change slug with its warning, and for categories
+the sort order and Active. Categories activate and deactivate from the menu with Undo; both delete only what no
+post holds, and otherwise say why. The resources keep their routes, navigation, policies and global search, whose
+results — like Edit source in Translation Center and Languages — open the record's drawer (`?edit=`). Moderators
+curate tags as before; deleting and translating stay an administrator's. The kit elements it needed — FRM-04,
+FRM-05 and FRM-06 earlier than this table first planned — are live in `/admin/dev/ui-kit`.
+
+**Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
+keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is
+designed, the row menu shows Merge into… unavailable with “Not available yet”, and a tag posts still carry is
+explained rather than offered a merge.
+
+Each migration also brings its navigation item's operational count (see the contract's
+[Transitional omissions](design-contract.md#transitional-omissions)).
+
+Alongside, as a step of its own: Languages and Translation Center were built from the earlier delivery of the
+prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, which then becomes their
+reference.
+
+Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
+migration, and the prototype's Growth section — Games with the game editor, Experiments and Analytics.
 
 ## Definition of done for a migrated screen
 

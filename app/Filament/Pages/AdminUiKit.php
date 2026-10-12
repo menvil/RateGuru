@@ -86,7 +86,7 @@ final class AdminUiKit extends Page
             ['key' => 'foundations', 'label' => 'Foundations', 'description' => 'Tokens everything else is built from.', 'ids' => ['FND-01', 'FND-02', 'FND-03', 'FND-04']],
             ['key' => 'actions', 'label' => 'Actions', 'description' => 'Buttons, icon buttons and text actions.', 'ids' => ['ACT-01', 'ACT-02', 'ACT-03']],
             ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-05']],
-            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-08', 'FRM-10', 'FRM-11']],
+            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-08', 'FRM-10', 'FRM-11']],
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
             ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-04', 'TBL-05', 'TBL-06']],
@@ -484,6 +484,88 @@ final class AdminUiKit extends Page
                     />
                     BLADE,
             ],
+            'FRM-04' => [
+                'name' => 'Locked identifier',
+                'source' => 'Blade component · x-admin.ui.locked-identifier',
+                'kind' => 'component',
+                'purpose' => 'Slugs and keys are stable. They are generated on create and locked afterwards; unlocking shows the consequence.',
+                'specs' => [
+                    ['Create', 'chip “Generated from name” until the slug is typed'],
+                    ['Locked', 'sunken gray-50 · mono 14 gray-600 · read-only, still focusable · lock 12 “Locked”'],
+                    ['Unlock', 'text action “Change slug” beside the label (the unlock slot)'],
+                    ['Warning', 'amber notice under the field: what changing it breaks'],
+                    ['Prefix', 'optional plain lead-in inside the field, tertiary'],
+                    ['Binding', 'attributes go to the input · wire:model.blur="draftSlug"'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.locked-identifier
+                        label="Slug"
+                        id="category-slug"
+                        :value="$draftSlug"
+                        :locked="! $slugUnlocked"
+                        :warning="$slugUnlocked ? 'Feed links filtered by “dogs” stop working once you save.' : null"
+                        wire:model.blur="draftSlug"
+                    >
+                        <x-slot:unlock wire:click="unlockSlug">Change slug</x-slot:unlock>
+                    </x-admin.ui.locked-identifier>
+                    BLADE,
+                'rules' => [
+                    '!Never change a slug or key silently when the name changes.',
+                    'The server keeps a locked identifier as stored, whatever the browser sends for it.',
+                ],
+            ],
+            'FRM-05' => [
+                'name' => 'Number stepper',
+                'source' => 'Blade component · x-admin.ui.number-stepper',
+                'kind' => 'component',
+                'purpose' => 'Small whole numbers: sort order, minimum and maximum active options.',
+                'specs' => [
+                    ['Size', '40 h · 132 w · radius 10'],
+                    ['Buttons', '36 w · minus / plus 14 · named after the field (“Decrease sort order”)'],
+                    ['Value', '14 tabular · centred between hairlines · inputmode numeric'],
+                    ['Bounds', 'min and max clamp the buttons; what is typed is the server’s to validate'],
+                    ['Error', 'border red-950 + the error in place of the hint'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.number-stepper
+                        label="Sort order"
+                        id="category-sort"
+                        :value="$draftSortOrder"
+                        :min="0"
+                        hint="Lower numbers appear first."
+                        wire:model="draftSortOrder"
+                    />
+                    BLADE,
+            ],
+            'FRM-06' => [
+                'name' => 'Toggle switch',
+                'source' => 'Blade component · x-admin.ui.switch',
+                'kind' => 'component',
+                'purpose' => 'On/off settings that save with the form: Active, feature flags, providers.',
+                'specs' => [
+                    ['Track', '36×20 · radius full · ink on, gray-300 off'],
+                    ['Knob', '16 white · shadow 0 1 2 rgba(14,18,27,.24)'],
+                    ['State', 'in words beside it · a hint for each state under it'],
+                    ['Disabled', '50% opacity · really disabled · the hint gives the reason'],
+                    ['A11y', 'a button with role="switch" and aria-checked, named by its label'],
+                    ['Binding', 'wire:model or x-model on the component (x-modelable)'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.switch
+                        label="Active"
+                        id="category-active"
+                        :checked="$draftActive"
+                        on="Shown to visitors"
+                        off="Hidden from visitors"
+                        on-hint="Listed in navigation and the upload form."
+                        off-hint="Existing posts keep it. New posts can’t use it."
+                        wire:model="draftActive"
+                    />
+                    BLADE,
+                'rules' => [
+                    'A switch applies when its form is saved; one that removes access asks first when turned off.',
+                ],
+            ],
             'FRM-08' => [
                 'name' => 'Segmented control',
                 'source' => 'Blade component · x-admin.ui.segmented',
@@ -544,6 +626,7 @@ final class AdminUiKit extends Page
                     ['Trigger', '52 h · radius 12 · border gray-300 · overline + value · badge · chevrons-up-down'],
                     ['List', '420 w (max 100vw − 32) · search first · max 340 h, scrolls'],
                     ['Option', '44 h · flag · name — native · code, state, missing · %'],
+                    ['Icon', 'for a list of things rather than languages: a 28 sunken square (32 in the trigger) instead of the flag · an identifier label in mono'],
                     ['Search', 'filters in the browser · “No installed language matches.”'],
                     ['Keyboard', 'Enter, Space or arrows open · focus in the search · Up and Down move · Enter chooses · Escape back to the trigger'],
                     ['A11y', 'combobox over a listbox · aria-activedescendant · aria-selected'],
@@ -644,25 +727,24 @@ final class AdminUiKit extends Page
             ],
             'NAV-04' => [
                 'name' => 'Pagination',
-                'source' => 'CSS primitive · .rg-admin-pagination',
-                'kind' => 'primitive',
-                'purpose' => 'Table footer with range and pages.',
+                'source' => 'Blade component · x-admin.ui.pagination',
+                'kind' => 'component',
+                'purpose' => 'The footer of a list the server reads one page at a time: range and pages.',
                 'specs' => [
                     ['Footer', 'padding 12 16 · 13px gray-600'],
-                    ['Range', '“1–25 of 1,231” tabular'],
+                    ['Range', '“1–25 of 1,231 posts” tabular · optional note (“newest first”)'],
+                    ['Pages', 'first, last and either side of the current · a gap where pages are left out'],
                     ['Page', '32 min · current sunken + hairline + 500 · aria-current'],
                     ['Arrows', 'x-admin.ui.icon-button ghost sm · disabled at ends'],
+                    ['Server', 'links to the paginator’s URLs, or with action buttons that call a Livewire method with the page'],
                 ],
                 'code' => <<<'BLADE'
-                    <nav class="rg-admin-pagination" aria-label="Pagination">
-                        <span class="rg-admin-pagination__range">1–25 of 1,231</span>
-                        <ul class="rg-admin-pagination__pages">
-                            <li><x-admin.ui.icon-button icon="chevron-left" label="Previous page" variant="ghost" size="sm" disabled /></li>
-                            <li><a class="rg-admin-pagination__page" aria-current="page" href="?page=1">1</a></li>
-                            …
-                        </ul>
-                    </nav>
+                    <x-admin.ui.pagination :paginator="$calls" noun="calls" note="newest first" action="goToCallsPage" />
                     BLADE,
+                'rules' => [
+                    'Page size 25. A filter that changes goes back to the first page.',
+                    'Only a list read page by page has it; a bounded list on the page has none.',
+                ],
             ],
             'LAY-01' => [
                 'name' => 'Page header',
@@ -795,23 +877,28 @@ final class AdminUiKit extends Page
             ],
             'TBL-04' => [
                 'name' => 'Row actions and menu',
-                'source' => 'CSS primitive · .rg-admin-menu',
-                'kind' => 'primitive',
-                'purpose' => 'The one or two actions used most for a status are inline. Everything else is in the row menu, including unavailable actions with the reason. The menu is shown as a static surface; its popover behaviour arrives with the first migrated table.',
+                'source' => 'Blade components · x-admin.ui.row-menu, x-admin.ui.menu-item',
+                'kind' => 'component',
+                'purpose' => 'The one or two actions used most for a status are inline. Everything else is in the row menu, including unavailable actions with the reason.',
                 'specs' => [
                     ['Inline', 'secondary sm buttons · by status'],
-                    ['Trigger', 'icon button ellipsis ghost sm'],
-                    ['Menu', '248–272 w · radius 12 · padding 6 · shadow-popover'],
-                    ['Item', 'icon 16 + 14px label + optional 12px hint'],
-                    ['Disabled', 'tertiary · kept visible · hint gives the reason'],
+                    ['Trigger', 'icon button ellipsis ghost sm · named for its row'],
+                    ['Menu', '264 w · radius 12 · padding 6 · shadow-popover'],
+                    ['Item', 'icon 16 + 14px label + optional 12px hint · a link or a button'],
+                    ['Disabled', 'tertiary · kept in the menu and the keyboard order · aria-disabled · the hint gives the reason'],
                     ['Destructive', 'red-950 · after a separator'],
+                    ['Position', 'fixed to the window under its trigger · flips up near the bottom'],
+                    ['Closes', 'on a choice, Escape (back to the trigger), Tab, outside click, a scroll that moves its button, resize'],
+                    ['Keyboard', 'Enter, Space or Down open on the first item, Up on the last · arrows, Home, End'],
                 ],
                 'code' => <<<'BLADE'
-                    <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
-                        <x-admin.ui.button size="sm">Approve</x-admin.ui.button>
-                        <x-admin.ui.button size="sm">Reject</x-admin.ui.button>
-                        <x-admin.ui.icon-button icon="ellipsis" label="More actions" variant="ghost" size="sm" />
-                    </div>
+                    <x-admin.ui.button size="sm" wire:click="edit(4)">Edit</x-admin.ui.button>
+                    <x-admin.ui.row-menu id="category-4-actions" label="More actions for Dogs">
+                        <x-admin.ui.menu-item icon="eye-off" hint="Hide from navigation and uploads" wire:click="deactivate(4)">Deactivate</x-admin.ui.menu-item>
+                        <x-admin.ui.menu-item icon="merge" hint="Not available yet" disabled>Merge into…</x-admin.ui.menu-item>
+                        <div class="rg-admin-menu__separator" role="separator"></div>
+                        <x-admin.ui.menu-item icon="trash-2" tone="danger" hint="Unused" wire:click="askToDelete(4)">Delete</x-admin.ui.menu-item>
+                    </x-admin.ui.row-menu>
                     BLADE,
                 'rules' => [
                     '!Never hide an unavailable action; disable it and say why.',
@@ -867,6 +954,7 @@ final class AdminUiKit extends Page
                     ['Light', 'tone default · Cancel + the action, primary'],
                     ['Warning', 'tone warning · amber circle · a secondary way out, e.g. Review missing'],
                     ['Blocked', 'explains why and offers the alternative · no confirm'],
+                    ['Danger', 'tone danger · red circle · the record in a sunken subject row · confirm is the danger button'],
                     ['Focus', 'moves inside · cannot leave · returns to the trigger, or to the page heading once the trigger is gone'],
                     ['Page behind', 'hidden from assistive technology · does not scroll'],
                 ],
@@ -935,11 +1023,14 @@ final class AdminUiKit extends Page
                     ['Duration', '5.2 s · max 3 stacked · waits while hovered or focused'],
                     ['Icon', 'success green-500 · error #FF9AA2 · info gray-400'],
                     ['Screen readers', 'status region for success and info · alert region for errors · each heard once'],
-                    ['Undo', 'only for reversible actions · not wired into the stack until one needs it'],
+                    ['Undo', 'only for reversible actions · action: label and the browser event it dispatches'],
                 ],
                 'code' => <<<'BLADE'
                     {{-- Livewire --}}
                     $this->dispatch('rg-admin-toast', message: 'German enabled', tone: 'success');
+
+                    {{-- Livewire, reversible: Undo dispatches the event, which the screen listens for --}}
+                    $this->dispatch('rg-admin-toast', message: 'Dogs deactivated', action: ['label' => 'Undo', 'event' => 'activate-category', 'params' => ['id' => 4, 'undo' => true]]);
 
                     {{-- Alpine --}}
                     <button x-on:click="$dispatch('rg-admin-toast', { message: 'Copied', tone: 'info' })">…</button>

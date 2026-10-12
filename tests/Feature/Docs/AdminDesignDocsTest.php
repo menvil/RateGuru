@@ -38,7 +38,7 @@ it('names both reference files as the source of truth', function () {
         ->toContain('--rg-admin-*')
         ->toContain('x-admin.ui.*')
         ->toContain('/admin/dev/ui-kit')
-        ->toContain('Translation Center becomes the single admin editor for DB-owned translated content');
+        ->toContain('Translation Center is the single admin editor for DB-owned translated content');
 });
 
 it('plans the migration one vertical at a time, starting with localization', function () {
@@ -108,10 +108,10 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
 
     $phase4 = substr($plan, (int) strpos($plan, '### Phase 4 — Translation Center'), 200);
-    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 400);
+    $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 500);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, is done, and the Translation AI page is next.');
+        ->and($phase5)->toContain('**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is done.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -130,14 +130,14 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–03, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('| FRM-01–06, FRM-08, FRM-10, FRM-11 |')
         ->toContain('| DOM-01 placement |')
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
         ->toContain("A list's search is clearable");
 });
 
-it('splits AI suggestions into four steps, the engine, interactive and bulk suggestions done and 5D in progress', function () {
+it('splits AI suggestions into four steps, done but for 5D\'s budgets, limits and policies, and records the cutover as done', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
     $start = strpos($plan, '### Phase 5+');
     $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
@@ -154,15 +154,20 @@ it('splits AI suggestions into four steps, the engine, interactive and bulk sugg
         '**5A — Translation engine. Status: done.**',
         '**5B — Interactive AI suggestions. Status: done.**',
         '**5C — Background and bulk generation. Status: done.**',
-        '**5D — Observability, limits and provider policies. Status: in progress.**',
+        '**5D — Observability, limits and provider policies.**',
         '**5D.1 — Translation AI telemetry. Status: done.**',
+        '**5D.2 — Translation AI page. Status: done.**',
+        '**Deferred: budgets, limits and provider policies**',
+        '6. **Workflow** — review states, if the product needs them. **Status: deferred.**',
+        '7. **Translation cutover. Status: done.**',
     ];
     $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
 
     expect($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all())
-        ->and(substr_count($phase5, 'Status: done.'))->toBe(4)
-        ->and(substr_count($phase5, 'Status: in progress.'))->toBe(1)
+        ->and(substr_count($phase5, 'Status: done.'))->toBe(6)
+        ->and(substr_count($phase5, 'Status: in progress.'))->toBe(0)
+        ->and(substr_count($phase5, 'Status: deferred.'))->toBe(1)
         ->and(substr_count($phase5, 'Status: next.'))->toBe(0)
         ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
         ->and($phase5)->toContain('docs/architecture/translation-engine.md');
@@ -217,18 +222,96 @@ it('records Generate missing: background generation, persisted drafts and an exp
         ->toContain('is never retried');
 });
 
-it('records Translation AI telemetry as done and the Translation AI page as next', function () {
+it('records Translation AI telemetry and the Translation AI page as done, and budgets, limits and policies as deferred', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
 
     expect($plan)
-        ->toContain('5D.1, Translation AI telemetry, is done, and the Translation AI page is next')
+        ->toContain('of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page')
         ->toContain('**5D.1 — Translation AI telemetry. Status: done.**')
         ->toContain('`TranslationAiCallRecorder`')
         ->toContain('Provider success and item success are counted apart.')
         ->toContain('`null` — never $0 —')
         ->toContain('`translations:purge-ai-calls` deletes rows older than 90 days')
-        ->toContain('**Next: the Translation AI page**')
-        ->not->toContain('5D, observability, limits and provider policies, is next');
+        ->toContain('**5D.2 — Translation AI page. Status: done.** `/admin/translation-ai`')
+        ->toContain('never from the model filter')
+        ->toContain('one rejected API key with no success since is Degraded, any other failure only in a series')
+        ->toContain('never a scan')
+        ->toContain('Not configured for limits and budgets')
+        ->toContain('**Deferred: budgets, limits and provider policies**')
+        ->toContain('a short-lived, opt-in journal of what each call sent and what came back')
+        ->not->toContain('**Next: budgets, limits and provider policies**')
+        ->not->toContain('No page yet');
+});
+
+it('records the translation cutover as done, in one change, and the content screens first after it', function () {
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
+
+    expect($plan)
+        ->toContain('7. **Translation cutover. Status: done.** In one change, in the editors as they are')
+        ->toContain('so one saved in Translation Center while the page was open is kept')
+        ->toContain('No data moves: the stored translations stay where they are')
+        ->toContain('with no note in their place')
+        ->toContain('Translation Center keeps listing what visitors can see, as it does now')
+        ->toContain('**Status: in effect.** Localization runs on v2, so the kit is frozen as Admin UI Kit v1')
+        ->toContain('are reviewed against the current one, which then becomes their reference')
+        ->toContain('Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own')
+        ->not->toContain('| 9 | Dashboard |')
+        ->and($positions)->not->toContain(false)
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all());
+});
+
+it('describes Categories and Tags on v2, and leaves merging tags to be discussed once every section is', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('Content ├── Categories ├── Tags └── Rating groups')
+        ->toContain('Categories and Tags are drawn entirely in Admin v2 (`ManageCategories`, `ManageTags`, one screen each)')
+        ->toContain('The server keeps a locked slug as stored whatever the browser sends.')
+        ->toContain('Missing translations, in the chips\' count and the stat, are counted over offered languages only, and for categories over active ones only')
+        ->toContain('Merge into… unavailable (“Not available yet”)')
+        ->toContain('`x-admin.ui.row-menu` with `x-admin.ui.menu-item`')
+        ->toContain('`x-admin.ui.locked-identifier` (FRM-04)')
+        ->toContain('`x-admin.ui.number-stepper` (FRM-05)')
+        ->toContain('`x-admin.ui.switch` (FRM-06)')
+        ->toContain('A reversible action adds `action` — Undo')
+        ->toContain('| Merge into… |')
+        ->toContain('| Category and tag slugs |')
+        ->toContain('| Categories and Tags translations note |')
+        ->toContain('TBL-04 as a live, reusable component')
+        ->not->toContain('no Undo in the stack yet')
+        ->not->toContain('built when the first screen needs them');
+
+    expect($plan)
+        ->toContain('**Categories and Tags. Status: done.**')
+        ->toContain('**Deferred, to discuss once every section is on v2: merging tags.**')
+        ->toContain('the row menu shows Merge into… unavailable with “Not available yet”');
+});
+
+it('describes the Translation AI page: health of the configuration, the history filters choose, and the guardrails', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+
+    expect($contract)
+        ->toContain('Localization ├── Languages ├── Translation Center └── Translation AI')
+        ->toContain('**Translation AI** (prototype):')
+        ->toContain('**Translation AI** (production): `/admin/translation-ai` (`App\Filament\Pages\TranslationAiPage`)')
+        ->toContain('`bot` Translation AI')
+        ->toContain('**Provider health** is the configuration translations run on now')
+        ->toContain('a key alone is never Healthy')
+        ->toContain('Degraded (warning) when the last call that tested the API key — a success, or a rejection of it (`authentication_failed`) — was a rejection, however few failures that makes')
+        ->toContain('never $0 for an unknown cost')
+        ->toContain('never adds them up — a timeout of ten items is “1 failed call · 10 failed items”')
+        ->toContain('Burst — five or more with the same code within a sliding ten minutes')
+        ->toContain('a known list of keys read together, never a scan')
+        ->toContain('Temporarily unavailable')
+        ->toContain('queue worker timeout (Not available')
+        ->toContain('hourly limit and budget (Not configured')
+        ->toContain('`x-admin.ui.pagination` (NAV-04)')
+        ->toContain('NAV-04 as a live, reusable component')
+        ->toContain('| Translation AI period and Refresh |')
+        ->toContain('| Translation AI chart |');
 });
 
 it('records the Languages drawer\'s bridge to the editors as closed, with Translate leading to Translation Center', function () {
@@ -240,4 +323,17 @@ it('records the Languages drawer\'s bridge to the editors as closed, with Transl
         ->toContain('Translate, which opens Translation Center on that item')
         ->toContain('Catalog issues are the release\'s to fix: nothing sends them to Translation Center')
         ->not->toContain('which is not built yet');
+});
+
+it('records Translation Center as the single editor of translations, the content editors editing English only', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+
+    expect($contract)
+        ->toContain('**Invariant.** Translation Center is the single admin editor for DB-owned translated content.')
+        ->toContain('edit their English reference content only — never an editor for every language, and no note where one was')
+        ->toContain('`SaveProjectSettingsAction` refuses translations')
+        ->toContain('the translations of inactive and archived content are kept, edited nowhere while it is off')
+        ->not->toContain('**Translation editors in place.**')
+        ->not->toContain('Until that cutover the existing translation forms')
+        ->not->toContain('keep doing so until the translation cutover');
 });

@@ -4,6 +4,7 @@ use App\Enums\SocialProvider;
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Sharing\SharePostController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
@@ -23,6 +24,7 @@ Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->mi
 Route::get('/', FeedPage::class)->name('feed');
 
 Route::get('/posts/{post}', PostShow::class)->name('posts.show');
+Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
 
 Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
 

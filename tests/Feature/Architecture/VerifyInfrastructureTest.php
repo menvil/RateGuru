@@ -844,7 +844,7 @@ it('gates production verification to main before any job holds production creden
     expect($staging)->toBe(verifyInfraWorkflow('prepare-staging-host.yml')['jobs']['validate-ref']['steps'][0]['run']);
 });
 
-it('creates no subsystem-specific verification workflow beyond the signing acceptance and the inbound receiver\'s own', function () {
+it('creates no subsystem-specific verification workflow beyond the signing acceptance, the inbound receiver\'s own and the public site\'s own', function () {
     $workflows = array_map('basename', glob(base_path('.github/workflows/*.yml')) ?: []);
     $verify = array_values(array_filter($workflows, static fn (string $file): bool => str_starts_with($file, 'verify-')));
 
@@ -853,8 +853,10 @@ it('creates no subsystem-specific verification workflow beyond the signing accep
     // read-only check can give (MailSigningTest guards it), and the read-only
     // third of the inbound receiver's Activate, Verify and Rollback, which
     // Verify production infrastructure also runs as its Mail inbound group
-    // (MailInboundWorkflowTest guards it).
-    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml', 'verify-tits-guru-inbound-smtp.yml']);
+    // (MailInboundWorkflowTest guards it), and the read-only third of the
+    // public site's Prepare, Verify and Rollback (PublicHttpWorkflowTest
+    // guards it).
+    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml', 'verify-tits-guru-inbound-smtp.yml', 'verify-tits-guru-public-http.yml']);
 
     // The deep primitives stay on the host, and no workflow or action runs
     // them — except that one acceptance, through its own transport, which runs

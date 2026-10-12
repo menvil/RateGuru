@@ -663,6 +663,11 @@ last one that succeeded. A manual DNS-01 challenge (`--manual
 --preferred-challenges dns`) is **not** a working method for this domain: it
 cannot renew unattended.
 
+The public site of `tits.guru` is built to keep that route. It lists its own
+name exactly, is never a `default_server`, and is installed only when the
+configuration proves `mx1.tits.guru` stays on the server that answers it
+today. See [`public-site.md`](public-site.md#how-mx1titsguru-keeps-its-http-01-route).
+
 ### Installing it: Install tits.guru inbound mail TLS
 
 On the production host this ran on 2026-10-12, run

@@ -41,9 +41,9 @@ use UnitEnum;
  *
  * What is listed is ProjectTranslationCatalog's, the same units Languages
  * counts, so a missing translation Languages reports is one this page can
- * fill. Each translation is written where the content already keeps it, so
- * the editors that still translate in place show it too, and the other way
- * round; there is no second copy to keep in step.
+ * fill. Each translation is written where the content already keeps it,
+ * beside the English its own editor edits; this page is the only editor of a
+ * translation, and there is no second copy to keep in step.
  *
  * Drawn entirely in Admin v2. The target language is the page's one piece of
  * server state, in the URL (`?locale=`): choosing another reads that

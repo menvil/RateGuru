@@ -188,10 +188,15 @@ it('opens live confirmation dialogs at each level, built from the confirmation d
         ->toContain('Light')
         ->toContain('Warning')
         ->toContain('Blocked')
+        ->toContain('Danger')
         // Each level opens a real dialog, not a picture of one.
         ->toContain("x-if=\"dialog === 'light'\"")
         ->toContain("x-if=\"dialog === 'warning'\"")
         ->toContain("x-if=\"dialog === 'blocked'\"")
+        ->toContain("x-if=\"dialog === 'danger'\"")
+        ->toContain('rg-admin-dialog__icon--danger')
+        ->toContain('rg-admin-dialog-subject')
+        ->toContain('rg-admin-button--danger')
         ->toContain('role="dialog"')
         ->toContain('aria-modal="true"')
         ->toContain('rg-admin-dialog__icon--warning')
@@ -200,7 +205,7 @@ it('opens live confirmation dialogs at each level, built from the confirmation d
         ->toContain('Dogs can’t be deleted')
         ->toContain('Deactivate it instead');
 
-    expect(substr_count($dialogs, 'role="dialog"'))->toBe(3);
+    expect(substr_count($dialogs, 'role="dialog"'))->toBe(4);
 });
 
 it('opens a live drawer built from the drawer component', function () {
@@ -227,6 +232,9 @@ it('raises real toasts on the kit\'s one toast stack', function () {
         ->toContain('Blade component · x-admin.ui.toast-stack')
         ->toContain('Show success toast')
         ->toContain("\$dispatch('rg-admin-toast', { message: '3 posts approved and published', tone: 'success' })")
+        // Undo is live too: its event answers with a toast and changes nothing.
+        ->toContain("action: { label: 'Undo', event: 'rg-admin-kit-undo', params: {} }")
+        ->toContain('x-on:rg-admin-kit-undo.window')
         ->and(substr_count($html, 'class="rg-admin rg-admin-toast-stack"'))->toBe(1);
 });
 
@@ -253,5 +261,62 @@ it('shows the segmented control, the filter dropdown and the combobox live, from
         ->toContain('No installed language matches.');
 
     // Built for thirty languages and more.
-    expect(substr_count(adminUiKitSpecimen($html, 'FRM-11'), 'role="option"'))->toBe(32);
+    expect(substr_count(adminUiKitSpecimen($html, 'FRM-11'), 'id="kit-combobox-option-'))->toBe(32)
+        // And for a list of things, each leading with an icon, an identifier in mono.
+        ->and(adminUiKitSpecimen($html, 'FRM-11'))
+        ->toContain('id="kit-combobox-models-trigger"')
+        ->toContain('rg-admin-combobox__icon')
+        ->toContain('rg-admin-combobox__option-icon')
+        ->toContain('rg-admin-combobox__option-label rg-admin-combobox__option-label--mono');
+});
+
+it('shows pagination live from its component, at the first, a middle, the last and a single page', function () {
+    // Without Livewire's block markers, so a range reads as one text.
+    $specimen = (string) preg_replace('/<!--.*?-->/s', '', adminUiKitSpecimen($this->actingAs(User::factory()->admin()->create())->get(ADMIN_UI_KIT_URL)->getContent(), 'NAV-04'));
+
+    expect($specimen)
+        ->toContain('x-admin.ui.pagination')
+        ->toContain('1–25 of 1,231 posts')
+        ->toContain('601–625 of 1,231 posts · newest first')
+        ->toContain('1,226–1,231 of 1,231 posts')
+        ->toContain('1–12 of 12 posts')
+        ->and(substr_count($specimen, 'aria-current="page"'))->toBe(4)
+        ->and(substr_count($specimen, 'class="rg-admin-pagination__gap"'))->toBe(4);
+});
+
+it('shows the locked identifier, the number stepper and the switch live, from their components', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-04'))
+        ->toContain('Blade component · x-admin.ui.locked-identifier')
+        ->toContain('Generated from name')
+        ->toContain('rg-admin-identifier__frame--locked')
+        ->toContain('Change slug')
+        ->toContain('Changing the slug breaks existing links to this category.');
+
+    expect(adminUiKitSpecimen($html, 'FRM-05'))
+        ->toContain('Blade component · x-admin.ui.number-stepper')
+        ->toContain('aria-label="Decrease sort order"')
+        ->toContain('x-model="sort"');
+
+    expect(adminUiKitSpecimen($html, 'FRM-06'))
+        ->toContain('Blade component · x-admin.ui.switch')
+        ->toContain('role="switch"')
+        ->toContain('x-model="active"')
+        ->toMatch('/id="kit-switch-disabled"[^>]*role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
+});
+
+it('shows the row menu live, an unavailable item kept with its reason', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'TBL-04'))
+        ->toContain('Blade components · x-admin.ui.row-menu, x-admin.ui.menu-item')
+        ->toContain('id="kit-row-menu-menu"')
+        ->toContain('aria-label="More actions for Rabbits &amp; rodents"')
+        ->toMatch('/aria-disabled="true"[^>]*>.*Merge into….*Not available yet/s')
+        ->toContain('rg-admin-menu__item--danger');
 });

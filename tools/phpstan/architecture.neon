@@ -43,7 +43,7 @@ parameters:
             -
                 class: App\Queries\Translations\TranslationAiUsageQuery
                 methods: [selectRaw]
-                reason: 'Translation AI usage needs conditional sums by status and a UTC hour or day bucket per engine, without hydrating call rows; every value is bound.'
+                reason: 'Translation AI usage needs conditional sums by status, a UTC hour or day bucket per engine, and per provider and model a call count conditional on a period beside MAX(completed_at), without hydrating call rows; every value is bound.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/TranslationAiUsageQueryTest.php]
                 status: approved

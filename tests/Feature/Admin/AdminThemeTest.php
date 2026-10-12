@@ -93,8 +93,12 @@ it('keeps admin styling in the compiled theme rather than an inline stylesheet',
     $provider = (string) file_get_contents(app_path('Providers/Filament/AdminPanelProvider.php'));
     $theme = (string) file_get_contents(base_path(ADMIN_THEME_ENTRY));
 
+    // The panel registers render hooks for page actions in the top bar (TOPBAR_END);
+    // none of them may draw into the head, where an inline stylesheet would go.
     expect(resource_path('views/filament/admin/styles.blade.php'))->not->toBeFile()
-        ->and($provider)->not->toContain('PanelsRenderHook')
+        ->and($provider)->not->toContain('PanelsRenderHook::HEAD_')
+        ->and($provider)->not->toContain('PanelsRenderHook::STYLES_')
+        ->and($provider)->not->toContain('<style')
         ->and($provider)->not->toContain('filament.admin.styles')
         // The two fixes the inline stylesheet carried now live in the theme.
         ->and($theme)->toContain("input[type='checkbox']:not(:disabled)")

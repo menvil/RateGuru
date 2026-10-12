@@ -4,6 +4,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
@@ -16,7 +17,6 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\AdminShellNavigation;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
-use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -38,7 +38,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Overview' => ['Dashboard'],
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
-    'Localization' => ['Languages', 'Translation Center'],
+    'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
 ];
@@ -170,6 +170,7 @@ it('marks the destination of the current page', function (string $path, string $
     'categories' => ['/admin/categories', 'Categories'],
     'languages' => ['/admin/languages', 'Languages'],
     'translation center' => ['/admin/translation-center', 'Translation Center'],
+    'translation ai' => ['/admin/translation-ai', 'Translation AI'],
     'project settings' => ['/admin/project-settings', 'Project settings'],
     'media diagnostics' => ['/admin/media-diagnostics', 'Media diagnostics'],
 ]);
@@ -189,8 +190,7 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     expect($html)->toContain('<a class="rg-admin-breadcrumb__link" href="'.e($listUrl).'">'.e($active).'</a>')
         ->not->toContain('rg-admin-breadcrumb__current');
 })->with([
-    'category create' => [fn (): string => CategoryResource::getUrl('create'), 'Categories'],
-    'category edit' => [fn (): string => CategoryResource::getUrl('edit', ['record' => Category::factory()->create()]), 'Categories'],
+    'rating group create' => [fn (): string => RatingGroupResource::getUrl('create'), 'Rating groups'],
     'rating group edit' => [fn (): string => RatingGroupResource::getUrl('edit', ['record' => RatingGroup::factory()->create()]), 'Rating groups'],
     'user edit' => [fn (): string => UserResource::getUrl('edit', ['record' => User::factory()->create()]), 'Users'],
 ]);
@@ -261,7 +261,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(12);
+    expect($keys)->toHaveCount(13);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -278,6 +278,7 @@ it('has an Admin v2 icon for every production destination', function () {
         RatingGroupResource::class => 'star',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
+        TranslationAiPage::class => 'bot',
         ProjectSettingsPage::class => 'settings-2',
         MediaDiagnosticsPage::class => 'hard-drive',
     ]);
