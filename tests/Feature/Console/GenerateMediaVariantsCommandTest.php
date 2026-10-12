@@ -3,26 +3,30 @@
 use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
-use App\Services\Media\GdImageVariantProcessor;
-use App\Services\Media\GeneratedMediaVariant;
-use App\Services\Media\ImageVariantProcessor;
-use App\Services\Media\MediaVariantSpecification;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     Storage::fake('public');
 });
 
-function createReadyPostAsset(int $width = 2400, int $height = 1600, string $path = 'posts/2026/08/master.jpg'): MediaAsset
+/**
+ * The master is a placeholder by default: the tests that generate post
+ * variants bind RecordingImageVariantProcessor, since they check which
+ * assets and variants the command picks, not the pixels, and that double
+ * never reads the master. Pass real image bytes for a test that runs the
+ * GD processor.
+ */
+function createReadyPostAsset(int $width = 2400, int $height = 1600, string $path = 'posts/2026/08/master.jpg', string $masterBytes = 'master-bytes'): MediaAsset
 {
     $asset = MediaAsset::factory()->postImage()->dimensions($width, $height)->create(['path' => $path]);
-    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes($width, $height));
+    Storage::disk($asset->disk)->put($asset->path, $masterBytes);
 
     return $asset;
 }
 
+// Runs the real GD processor end to end through the command.
 it('generates variants for every eligible asset by default', function () {
-    $asset = createReadyPostAsset();
+    $asset = createReadyPostAsset(masterBytes: jpegMarkerBytes(2400, 1600));
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
 
@@ -30,6 +34,7 @@ it('generates variants for every eligible asset by default', function () {
 });
 
 it('skips assets that already have every applicable variant unless --force is given', function () {
+    bindRecordingImageVariantProcessor();
     $asset = createReadyPostAsset();
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
@@ -47,6 +52,7 @@ it('skips assets that already have every applicable variant unless --force is gi
 });
 
 it('filters by --asset', function () {
+    bindRecordingImageVariantProcessor();
     $target = createReadyPostAsset(path: 'posts/2026/08/target.jpg');
     $other = createReadyPostAsset(path: 'posts/2026/08/other.jpg');
 
@@ -57,6 +63,7 @@ it('filters by --asset', function () {
 });
 
 it('filters by --variant, generating only the requested variant', function () {
+    bindRecordingImageVariantProcessor();
     $asset = createReadyPostAsset();
 
     $this->artisan('media:generate-variants --variant=open_graph')->assertExitCode(0);
@@ -70,6 +77,7 @@ it('rejects an invalid --variant value', function () {
 });
 
 it('treats a variant as missing when its row exists but its physical file is gone, and --missing-only regenerates only that variant', function () {
+    $trackingProcessor = bindRecordingImageVariantProcessor();
     $asset = createReadyPostAsset();
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
@@ -87,19 +95,7 @@ it('treats a variant as missing when its row exists but its physical file is gon
     // (MediaVariantWriter's updateOrCreate() leaves ids unchanged either
     // way). Tracking exactly which specs the processor is asked to generate
     // is the only way to prove recovery touches only the missing variant.
-    $trackingProcessor = new class implements ImageVariantProcessor
-    {
-        /** @var list<string> */
-        public array $invoked = [];
-
-        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
-        {
-            $this->invoked[] = $specification->name->value;
-
-            return app(GdImageVariantProcessor::class)->generate($masterBytes, $mimeType, $specification);
-        }
-    };
-    $this->app->instance(ImageVariantProcessor::class, $trackingProcessor);
+    $trackingProcessor->invoked = [];
 
     $this->artisan('media:generate-variants --missing-only')->assertExitCode(0);
 
@@ -136,6 +132,7 @@ it('rejects an invalid --kind value', function () {
 });
 
 it('respects a small --chunk size while still processing every eligible asset', function () {
+    bindRecordingImageVariantProcessor();
     createReadyPostAsset(path: 'posts/2026/08/one.jpg');
     createReadyPostAsset(path: 'posts/2026/08/two.jpg');
     createReadyPostAsset(path: 'posts/2026/08/three.jpg');
