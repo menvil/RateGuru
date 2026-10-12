@@ -41,7 +41,11 @@
 #   * another site claiming tits.guru refuses;
 #   * --rollback removes exactly the site's file and link with one reload, a
 #     failed reload puts them back, and a second --rollback is a no-op;
-#   * Nginx is reloaded only: never started, stopped or restarted.
+#   * Nginx is reloaded only: never started, stopped or restarted;
+#   * on a host that disables IPv6 — as the production host does: disable_ipv6=1,
+#     no ::1, Nginx still bound to [::]:80 — check, apply, a second apply,
+#     verify and rollback pass on 127.0.0.1 alone, say the [::1] probes are
+#     skipped, and keep the MX host's route.
 #
 # Prints PASS and FAIL lines, and exits non-zero on any FAIL.
 
@@ -507,6 +511,76 @@ if [[ -s "${WORK}/systemctl-all.log" && -z "$(grep -Ev '^(is-active --quiet ngin
 else
     fail "systemd was asked: $(grep -Ev '^(is-active --quiet nginx|reload nginx)$' "${WORK}/systemctl-all.log" | tr '\n' ';')"
 fi
+
+# --- A host that disables IPv6 ------------------------------------------------------------
+
+# As the production host runs: net.ipv6.conf.all and lo disable_ipv6=1, no ::1
+# on lo. Nginx still binds [::]:80, and nothing answers on [::1]. Disabled in
+# this namespace only, after the rest of the scenario, by a fresh Nginx.
+nginx -s quit 2>/dev/null || true
+for _ in $(seq 1 50); do
+    [[ -s /run/nginx.pid ]] && kill -0 "$(cat /run/nginx.pid)" 2>/dev/null || break
+    sleep 0.1
+done
+sysctl -qw net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.lo.disable_ipv6=1
+expect "IPv4-only: IPv6 is disabled on loopback" "$(cat /proc/sys/net/ipv6/conf/lo/disable_ipv6)" 1
+expect "IPv4-only: ::1 is gone from lo" "$(grep -c ' lo$' /proc/net/if_inet6 || true)" 0
+nginx
+sleep 1
+MASTER="$(cat /run/nginx.pid)"
+expect "IPv4-only: Nginx is bound to [::]:80 all the same, and nothing answers on [::1]" \
+    "$(answer '[::1]' "${MX_HOST}" "/.well-known/acme-challenge/${TOKEN}" | cut -d'|' -f1)" 000
+
+expect_mx_ipv4() {
+    local got
+    got="$(answer 127.0.0.1 "${MX_HOST}" "/.well-known/acme-challenge/${TOKEN}")"
+    if [[ "${got%%|*}" == 200 && "${got##*|}" == "${TOKEN_BODY}" ]]; then
+        pass "$1: ${MX_HOST} on 127.0.0.1 serves its challenge from the webroot"
+    else
+        fail "$1: ${MX_HOST} on 127.0.0.1 answered ${got}"
+    fi
+}
+
+expect_mx_ipv4 "IPv4-only, before"
+: >"${WORK}/systemctl.log"
+
+run_public_http check
+result_is "IPv4-only: --check passes" 0 '.status == "pass" and .state == "not-prepared" and .ipv6_loopback == "disabled"'
+if grep -q 'SKIP *probes:\[::1\]' <<<"${OUTPUT}" && grep -q 'PASS *route:mx1.tits.guru:\[::\]:80' <<<"${OUTPUT}"; then
+    pass "IPv4-only: it says the [::1] probes are skipped, and still judges the [::]:80 route"
+else
+    fail "IPv4-only: the report does not show the skipped [::1] probes and the [::]:80 route"
+    show_output
+fi
+
+run_public_http apply
+result_is "IPv4-only: --apply installs the public site" 0 '.status == "pass" and .state == "http-acme-ready" and .changed and .reloaded and .ipv6_loopback == "disabled"'
+expect "IPv4-only: tits.guru's challenge token, from the webroot" \
+    "$(answer 127.0.0.1 "${PUBLIC_HOST}" "/.well-known/acme-challenge/${TOKEN}")" "200|text/plain||${TOKEN_BODY}"
+expect "IPv4-only: tits.guru / is 503 with Retry-After" "$(answer 127.0.0.1 "${PUBLIC_HOST}" /)" "503|text/plain|3600|Service Unavailable~"
+expect_mx_ipv4 "IPv4-only, after apply"
+
+: >"${WORK}/systemctl.log"
+run_public_http apply
+result_is "IPv4-only: a second --apply is a no-op" 0 '.status == "pass" and .state == "http-acme-ready" and (.changed | not) and (.reloaded | not)'
+run_public_http verify
+result_is "IPv4-only: --verify passes" 0 '.status == "pass" and .state == "http-acme-ready" and .ipv6_loopback == "disabled"'
+expect "IPv4-only: the no-op and verify reloaded nothing" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
+
+run_public_http rollback
+result_is "IPv4-only: --rollback removes the public site" 0 '.status == "pass" and .state == "not-prepared" and .changed and .reloaded and .ipv6_loopback == "disabled"'
+public_site_absent "IPv4-only, after rollback"
+got="$(answer 127.0.0.1 "${PUBLIC_HOST}" /)"
+if [[ "${got%%|*}" != 503 && "${got%%|*}" != 000 ]]; then
+    pass "IPv4-only, after rollback: ${PUBLIC_HOST} is not answered by the public site (${got%%|*})"
+else
+    fail "IPv4-only, after rollback: ${PUBLIC_HOST} answered ${got}"
+fi
+expect_mx_ipv4 "IPv4-only, after rollback"
+master_kept "IPv4-only"
+expect "IPv4-only: systemd was asked only whether Nginx is active, and to reload it" \
+    "$(grep -Evc '^(is-active --quiet nginx|reload nginx)$' "${WORK}/systemctl.log" || true)" 0
+expect "IPv4-only: every other file under /etc/nginx is unchanged" "$(etc_snapshot)" "${ETC_BEFORE}"
 
 nginx -s quit || true
 

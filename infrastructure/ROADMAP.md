@@ -18,8 +18,9 @@ not reorganize unrelated infrastructure.
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
 **NEXT: Phase 8.5 — TLS and real tits.guru public routing.** Its first part,
-8.5.1 (public HTTP and ACME for `tits.guru`), is implemented in the repository
-and has not run on the host. Then 8.6
+8.5.1 (public HTTP and ACME for `tits.guru`), is implemented in the repository.
+Its one run on the host refused safely, changing nothing, because the host
+disables IPv6; that is fixed in the repository. Then 8.6
 (production operations acceptance) and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
 period of its own. Bounce and reply processing, the remaining inbound mail work
@@ -1655,7 +1656,10 @@ brand that exists nowhere in this repository — and then exercised for real on
   stay in 8.6 and 8.7.
 - **Next.** **NEXT: Phase 8.5 — TLS and real tits.guru public routing**, then
   8.6 and 8.7. 8.5.1, public HTTP and ACME for `tits.guru`, is IMPLEMENTED in
-  the repository. **Prepare tits.guru public HTTP** has not run on the host.
+  the repository. **Prepare tits.guru public HTTP** ran once and refused before
+  changing anything, because the host disables IPv6 (run 38306251547). The
+  installer now supports such a host.
+  The site is not prepared yet.
 - **Not launched.** `tits-guru` is still `lifecycle=planned`, no application
   release is deployed, and nothing public serves the site. Phase 8 is not
   complete.
@@ -2417,7 +2421,19 @@ Slices, in order:
    `public-active`, and only the first two exist.
 
    **8.5.1 Public HTTP and ACME for `tits.guru` — IMPLEMENTED in repository,
-   not yet run on the host.**
+   not yet accepted on the host.** The first **Prepare tits.guru public HTTP**,
+   [run 38306251547](https://github.com/menvil/RateGuru/actions/runs/38306251547)
+   on 2026-10-12, refused before changing anything: `state=not-prepared`,
+   `changed=false`, `reloaded=false`. The production host disables IPv6
+   (`net.ipv6.conf.lo.disable_ipv6=1`, no `::1`), and the installer required an
+   answer on `[::1]`.
+
+   The installer now reads IPv6 on loopback from `/proc`:
+   - disabled: the `[::1]` probes are skipped, and say so;
+   - up: they stay required;
+   - unknown or inconsistent: the run refuses.
+
+   Every check of the configuration, `[::]:80` included, is unchanged.
    - `infrastructure/scripts/prepare-public-http --check|--apply|--verify|--rollback`
      owns `rateguru-tits-guru-public`, its file and its link, and nothing
      else. The internal site `rateguru-tits-guru` stays

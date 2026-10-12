@@ -261,6 +261,10 @@ it('judges the one result before it shows any of it, and fails the job unless th
     'a critical apply' => ['apply', publicHttpActionResult('apply', ['status' => 'critical', 'state' => 'unknown']), 2, 1, '**CRITICAL:**'],
     'an apply refusing a site that is not its own' => ['apply', publicHttpActionResult('apply', ['status' => 'fail', 'state' => 'foreign', 'changed' => false, 'reloaded' => false]), 1, 1, 'Refused: the public site on the host is not the one this operation installs'],
     'a rollback refusing a site that is not its own' => ['rollback', publicHttpActionResult('rollback', ['status' => 'fail', 'state' => 'foreign', 'changed' => false, 'reloaded' => false]), 1, 1, 'No file or link was changed and Nginx was not reloaded'],
+    'an apply on a host that disables IPv6' => ['apply', publicHttpActionResult('apply', ['ipv6_loopback' => 'disabled']), 0, 0, '| Answers asked on | 127.0.0.1 — IPv6 is disabled on loopback, so [::1] is skipped |'],
+    'an apply on a host with IPv6 up' => ['apply', publicHttpActionResult('apply', ['ipv6_loopback' => 'available']), 0, 0, '| Answers asked on | 127.0.0.1 and [::1] |'],
+    'an apply refused on an unknown IPv6 state' => ['apply', publicHttpActionResult('apply', ['status' => 'fail', 'state' => 'not-prepared', 'changed' => false, 'reloaded' => false, 'ipv6_loopback' => 'unknown']), 1, 1, 'refused: IPv6 on loopback could not be determined'],
+    'an IPv6 state outside the closed set' => ['apply', publicHttpActionResult('apply', ['ipv6_loopback' => 'skipped']), 0, 1, null],
     'a drifted verify' => ['verify', publicHttpActionResult('verify', ['status' => 'fail', 'state' => 'drift', 'changed' => false, 'reloaded' => false]), 1, 1, 'The host is not in a consistent state'],
     // A pass that does not mean what its mode promises is not a pass.
     'an apply passing on a live target' => ['apply', publicHttpActionResult('apply', ['lifecycle' => 'active']), 0, 1, null],

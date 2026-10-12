@@ -6,9 +6,16 @@ step only: public HTTP that answers the ACME HTTP-01 challenge, so that a real
 certificate can be issued.
 
 **State on 2026-10-12.** `prepare-public-http` and its three workflows exist in
-the repository. **None of them has run on the production host.** `tits.guru`
-has no public site yet, and its DNS A record has not been checked for this: do
-not assume it names the VPS.
+the repository. **Prepare tits.guru public HTTP** ran once on the production
+host, in run [`38306251547`](https://github.com/menvil/RateGuru/actions/runs/38306251547).
+It refused **before changing anything**:
+- the result was `status=fail`, `state=not-prepared`, `changed=false` and
+  `reloaded=false`;
+- the cause was that the host disables IPv6, so `[::1]` could not answer. That
+  is now handled; see [Hosts that disable IPv6](#hosts-that-disable-ipv6).
+
+`tits.guru` has no public site yet. Its DNS A record has not been checked for
+this either, so do not assume it names the VPS.
 
 ## The states
 
@@ -158,7 +165,7 @@ the following:
 | No port-80 listener bound to a single address | Such a listener routes that address separately, and the loopback probes could not see it. |
 | No other server whose `server_name` matches `tits.guru` (exactly, by a wildcard, or by a regular expression) | Nothing else serves it now. |
 | No `listen` or `server_name` outside a server block | A fragment included into a server would make that server's names unknowable. |
-| `mx1.tits.guru` answered by a server that is not the public site, and an absent challenge answered 404 on `127.0.0.1` and `[::1]` | Its HTTP-01 route works today and is not the public site's. |
+| `mx1.tits.guru` answered by a server that is not the public site, and an absent challenge answered 404 on `127.0.0.1` — and on `[::1]` unless the host disables IPv6 | Its HTTP-01 route works today and is not the public site's. |
 
 If any of these cannot be proved, the run **refuses**. It never deletes, edits
 or replaces the default site, or any other site, to make the checks pass.
@@ -171,6 +178,30 @@ candidate configuration must keep every MX host name and both default servers
 on exactly the servers that answered them before. After the reload, the host's
 own Nginx is asked again: `mx1.tits.guru` and an unlisted name must answer
 exactly as they did before the run.
+
+### Hosts that disable IPv6
+
+The answers are asked on `127.0.0.1` always, and on `[::1]` whenever IPv6 is
+up on loopback. Every mode reads the kernel's view first, from `/proc` only:
+- `net.ipv6.conf.lo.disable_ipv6` (`/proc/sys/net/ipv6/conf/lo/disable_ipv6`);
+- whether `::1` is on `lo` (`/proc/net/if_inet6`).
+
+| What `/proc` says | `[::1]` | Result |
+|-------------------|---------|--------|
+| `disable_ipv6=0`, `::1` on `lo` | **required**, like `127.0.0.1` | `ipv6_loopback: available`. A `[::1]` that does not answer fails the run. |
+| `disable_ipv6=1`, no `::1` — the host disables IPv6, as the production host does | skipped, with a `SKIP probes:[::1]` line saying why | `ipv6_loopback: disabled` |
+| anything else: one without the other, or a file that cannot be read | — | **refused**: IPv6 is never assumed to be disabled. `ipv6_loopback: unknown`. |
+
+Only the HTTP probes on `[::1]` are skipped. The following do not change:
+- the public site still listens on `[::]:80`; Nginx binds it with IPv6
+  disabled;
+- the `default_server` on `[::]:80` and the route of `mx1.tits.guru` on it are
+  still judged from the configuration;
+- the answers on `127.0.0.1` are always required, and an IPv4 loopback that
+  does not answer fails the run whatever IPv6 does;
+- the transaction, the ownership rules and the host lock.
+
+Nothing here turns IPv6 on or off.
 
 ## The operations
 
@@ -217,7 +248,7 @@ write, every site it keeps, and the exact render.
 3. `nginx -t`, and the candidate's routing judged again. Nothing has been
    reloaded yet.
 4. `systemctl reload nginx` — never a restart, a stop or a start.
-5. Proof on `127.0.0.1` and `[::1]`:
+5. Proof on `127.0.0.1`, and on `[::1]` unless the host disables IPv6:
    - `tits.guru` answers 503 with `Retry-After` for `/` and `/index.php`, and
      404 for an absent token;
    - `mx1.tits.guru` and an unlisted name answer exactly as in step 1;
@@ -313,6 +344,10 @@ Run again, it is a no-op.
   - `nginx -t`, reload and post-reload failures, and the CRITICAL path;
   - the no-op `--apply` and `--rollback`, `--verify` on every state, the host
     lock, and the root gate;
+  - hosts that disable IPv6: every mode on `127.0.0.1` alone, nothing asked of
+    `[::1]`. Where IPv6 is up, `[::1]` is required and a dead `[::1]` fails.
+    A dead `127.0.0.1` fails whatever IPv6 does. An IPv6 state that cannot be
+    read, or disagrees with itself, refuses;
   - the hand-off. A file that keeps the first line but holds an HTTPS
     configuration, or a hand-edited HTTP site, or the render with another mode,
     is refused by `--apply`, `--rollback`, `--check` and `--verify`. Each
@@ -329,6 +364,11 @@ Run again, it is a no-op.
   It also takes the site over with a real HTTPS configuration (a 443 listener
   and a certificate). `--apply` and `--rollback` refuse it, nothing is
   reloaded, and 443 keeps answering.
+
+  Finally it disables IPv6 in its namespace, as the production host does, and
+  starts a fresh Nginx, still bound to `[::]:80`. Check, apply, a second apply,
+  verify and rollback then pass on `127.0.0.1` alone, and the route of
+  `mx1.tits.guru` is kept.
 
   It is CI's **Public HTTP on a real Nginx** job. It has passed on Ubuntu
   22.04 (Nginx 1.18, as on the host) and on Ubuntu 24.04 (Nginx 1.24).
