@@ -251,6 +251,10 @@ Provisioning a target must not be able to put it on the public internet, and
 the way to guarantee that is for the renderer to have no notion of a public
 hostname at all.
 
+The public site is a separate site with its own owner, `prepare-public-http`,
+run by its own workflows ([`public-site.md`](public-site.md)). It never edits
+the internal one.
+
 `environment_class=staging` keeps its existing committed sources, byte for
 byte. That configuration is accepted on a real host, and migrating it for
 symmetry would buy nothing and cost a second staging acceptance.
@@ -445,7 +449,7 @@ The target now has infrastructure and nothing else. What remains, in order:
 1. the production environment file, the database and its role, the deploy
    authorization and the production GitHub credentials;
 2. the production mail gateway and the backup/offsite/retention policy;
-3. TLS and the real public routing;
+3. TLS and the real public routing ([`public-site.md`](public-site.md));
 4. the first real production deploy, rollback and operations acceptance.
 
 Until those land, the target has no secrets, no data and no public presence —

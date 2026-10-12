@@ -79,6 +79,10 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // deployment-recording implementation. Still one action per operation,
         // never a per-environment fork of any of them.
         'prepare-rateguru-host',
+        // The public HTTP site's transport: it runs exactly
+        // prepare-public-http, in the one mode its workflow fixed, and carries
+        // no material.
+        'prepare-rateguru-public-http',
         // One PROVISION implementation, for a planned production target on a
         // host that already exists. Transport only: it carries no material,
         // names no commit, and cannot build, deploy, restore, repair, prepare
@@ -128,6 +132,11 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         // and the installation of its listener's certificate, with the
         // Certbot deploy hook that keeps it renewed.
         'install-tits-guru-inbound-mail-tls.yml',
+        // tits-guru's public HTTP site: its preparation, its read-only
+        // verification and its rollback.
+        'prepare-tits-guru-public-http.yml',
+        'verify-tits-guru-public-http.yml',
+        'rollback-tits-guru-public-http.yml',
         // tits-guru's outbound mail: its guarded activation, the rollback of
         // that activation while it is planned, and the first real delivery.
         'activate-tits-guru-mail.yml',
@@ -566,6 +575,12 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // Installing the listener's certificate writes root's files and may
         // reload Postfix on that machine: the same domain.
         'install-tits-guru-inbound-mail-tls.yml:install' => ['tits-guru', 'rateguru-staging-deployment'],
+        // The public HTTP site's preparation and rollback change Nginx on that
+        // machine, which serves staging too, and its verification reads it:
+        // the same domain.
+        'prepare-tits-guru-public-http.yml:prepare' => ['tits-guru', 'rateguru-staging-deployment'],
+        'verify-tits-guru-public-http.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
+        'rollback-tits-guru-public-http.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

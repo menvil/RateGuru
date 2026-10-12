@@ -1,0 +1,463 @@
+name: Prepare RateGuru public HTTP
+description: >-
+  Install, verify or remove the public HTTP site of one planned production
+  target: run prepare-public-http from a temporary trusted bundle — and
+  nothing else.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/prepare-public-http owns every decision: which target
+# may have a public site, its file and link, the proof that the MX host's
+# HTTP-01 route and every other site stay as they are, the one reload, the
+# return to the previous state on any failure, and which state the host is in.
+# None of that is reproduced here. This action uploads the trusted
+# infrastructure/ tree, runs that one command as root in the one mode its
+# caller fixed, prints its whole report, checks there is exactly one
+# well-formed result, writes it into the job summary, and removes everything it
+# uploaded.
+#
+# WHAT IT TOUCHES. apply and rollback change the public site's own file in
+# /etc/nginx/sites-available and its link in /etc/nginx/sites-enabled, and
+# reload Nginx; verify changes nothing. None of them issues a certificate,
+# opens a TLS listener, changes DNS or the firewall, or touches the internal
+# site, another site, the webroot, Postfix or the target's lifecycle. No secret
+# but the bootstrap credential is read.
+#
+# CREDENTIAL. The privileged BOOTSTRAP credential, because Nginx's
+# configuration is root's. Never the deploy credential, and no fallback between
+# them.
+#
+# CALLER REQUIREMENT: a Bash 4.4+ runner. Remote argv is quoted with
+# ${array[@]@Q}, as the other operational actions here quote theirs, so a
+# caller runs this on `runs-on: ubuntu-24.04`.
+
+inputs:
+  operation:
+    required: true
+    description: >-
+      apply, verify or rollback, fixed by the calling workflow. Never an
+      operator's choice: each operation has a workflow of its own.
+
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. The trusted
+      bundle's registry, not this input, decides the site and its hostnames.
+
+  bootstrap-host:
+    required: true
+    description: SSH hostname or IP of the host the target lives on.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap user. Must be root, or hold passwordless
+      non-interactive sudo.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from any deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the host. Strict host key checking is
+      non-negotiable: no TOFU, no relaxed policy, no password fallback.
+
+outputs:
+  status:
+    description: "pass, fail or critical, from the operation's machine-readable result"
+    value: ${{ steps.public.outputs.status }}
+
+  state:
+    description: "not-prepared, http-acme-ready, drift or unknown"
+    value: ${{ steps.public.outputs.state }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        case "${OPERATION}" in
+          apply|verify|rollback) ;;
+          *)
+            echo "Invalid operation: ${OPERATION} (expected apply, verify or rollback)" >&2
+            exit 1
+            ;;
+        esac
+
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        # 10# forces decimal: a leading-zero port read as octal would abort
+        # (( )) and be mistaken for a passing condition by the || chain.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for this environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "This environment has no bootstrap SSH credential." >&2
+          echo "The configuration of Nginx is root-owned; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
+          exit 1
+        fi
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_public_http_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_public_http_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Verify privileged access on the host
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "The configuration of Nginx is root's; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # Only infrastructure/ — the operation resolves every owner it runs beneath
+    # it. No application code, and no material of any kind.
+    - name: Package trusted infrastructure bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-public-http-bundle.tar.gz"
+
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/prepare-public-http"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/targets"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+
+        tar --create --gzip --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+
+    - name: Upload the trusted infrastructure bundle
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-public-http-${run_tag}"
+        remote_root="/root/rateguru-public-http-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        # scp writes as the bootstrap user, so the bundle lands in that user's
+        # home and is extracted into a root-only directory before anything
+        # runs from it; the copy in the home directory is removed at once.
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s chown -R root:root %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+    - name: Run the public HTTP operation
+      id: public
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX:-}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/prepare-public-http"
+          "--${OPERATION}"
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        # The status is captured explicitly rather than allowed to abort the
+        # step: under `set -e` a failing command substitution ends the step
+        # before the captured output is printed, and the server-side report is
+        # the whole diagnosis.
+        set +e
+        public_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        public_status=$?
+        set -e
+
+        printf '%s\n' "${public_output}"
+
+        # Exactly one result line, whatever the verdict: zero means the run did
+        # not complete, two would be a broken contract.
+        count="$(grep -c '^RATEGURU_PUBLIC_HTTP_RESULT=' <<<"${public_output}" || true)"
+
+        if [[ "${count}" != "1" ]]; then
+          echo "Expected exactly one RATEGURU_PUBLIC_HTTP_RESULT line, got ${count}; the operation exited ${public_status}." >&2
+          exit 1
+        fi
+
+        json="$(grep '^RATEGURU_PUBLIC_HTTP_RESULT=' <<<"${public_output}")"
+        json="${json#RATEGURU_PUBLIC_HTTP_RESULT=}"
+
+        # The whole result is judged before any of it is shown: the target and
+        # mode it names, a verdict and a state from their closed sets, every
+        # flag a boolean, and a pass that means what its mode promises — an
+        # apply that left the site ready on a target still planned, a rollback
+        # that left no site, a verify that found a consistent state and changed
+        # nothing.
+        jq -e --arg target "${DEPLOYMENT_TARGET}" --arg mode "${OPERATION}" '
+          type == "object"
+          and .target == $target
+          and .mode == $mode
+          and (.status == "pass" or .status == "fail" or .status == "critical")
+          and (.state | IN("not-prepared", "http-acme-ready", "drift", "unknown"))
+          and (.site == null or (.site | type == "string" and test("^[a-z0-9][a-z0-9_-]*-public$")))
+          and (.hostnames | type == "array" and all(type == "string"))
+          and (.lifecycle == null or (.lifecycle | type == "string"))
+          and ([.changed, .reloaded, .rolled_back] | all(type == "boolean"))
+          and (.status != "pass"
+               or ($mode == "apply" and .state == "http-acme-ready" and .lifecycle == "planned" and (.rolled_back | not))
+               or ($mode == "rollback" and .state == "not-prepared" and (.rolled_back | not))
+               or ($mode == "verify" and (.state | IN("not-prepared", "http-acme-ready")) and (.changed | not) and (.reloaded | not)))
+        ' <<<"${json}" >/dev/null || {
+          echo "The machine-readable result is not a public HTTP result for ${DEPLOYMENT_TARGET} (${OPERATION}): ${json}" >&2
+          exit 1
+        }
+
+        {
+          echo "status=$(jq -r '.status' <<<"${json}")"
+          echo "state=$(jq -r '.state' <<<"${json}")"
+        } >> "${GITHUB_OUTPUT}"
+
+        {
+          jq -r '
+            def yesno: if . then "yes" else "no" end;
+            "## \(.target) public HTTP — \(.mode)",
+            "",
+            "| Check | Result |",
+            "| --- | --- |",
+            "| Public site | \(.site // "unknown") |",
+            "| Public hostnames | \(if (.hostnames | length) > 0 then (.hostnames | join(", ")) else "unknown" end) |",
+            "| State | **\(.state)** |",
+            "| Target lifecycle | \(.lifecycle // "unknown") |",
+            "| Changed by this run | \(.changed | yesno) |",
+            "| Nginx reloaded | \(.reloaded | yesno) |",
+            "| Put back to the previous state | \(.rolled_back | yesno) |",
+            "| **Overall** | **\(.status | ascii_upcase)** |",
+            "",
+            (if .status == "critical" then
+               "**CRITICAL:** the change failed and the previous state of the public site could not be proved. Inspect the host now: nginx -t, the file and link of the public site, and what 127.0.0.1:80 answers for every hostname. Nginx was not stopped."
+             elif .mode == "apply" and .status == "pass" then
+               "http-acme-ready: the public hostnames answer the ACME HTTP-01 challenge from /var/www/html, and 503 with Retry-After for everything else. The application is not reachable and the target stays planned; the MX host answers exactly as before. No certificate was issued and no DNS was changed. Next, in order: check the HTTP-01 route of the public hostnames and of the MX host, check the public DNS of the public hostnames, then issue the certificate with Certbot over the webroot — infrastructure/runbooks/public-site.md."
+             elif .rolled_back then
+               "The \(.mode) failed and the public site was put back as it was: Nginx answers as it did before the run."
+             elif .mode == "apply" then
+               "The installation was refused before anything changed: nothing was written and Nginx was not reloaded."
+             elif .mode == "rollback" and .status == "pass" then
+               "not-prepared: the file and link of the public site are removed. Every other site, the webroot and every certificate are as they were."
+             elif .mode == "rollback" then
+               "The removal was refused before anything changed."
+             elif .mode == "verify" and .status == "pass" then
+               "The host is in a consistent state: \(.state)."
+             else
+               "The host is not in a consistent state. The complete report is in the job log."
+             end),
+            "",
+            "The complete report is in the job log."
+          ' <<<"${json}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        # The verdict is the operation's, and its exit status must agree.
+        if [[ "$(jq -r '.status' <<<"${json}")" != "pass" ]] || (( public_status != 0 )); then
+          echo "The public HTTP ${OPERATION} for ${DEPLOYMENT_TARGET} did not pass (exit ${public_status}). The complete report is above." >&2
+          exit 1
+        fi
+
+    # Runs on failure too. Uploaded tooling must never outlive the run.
+    - name: Remove the remote infrastructure bundle
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    # By their fixed paths too: a key ssh-keygen refused was written before its
+    # path was ever exported, and must not outlive the run either.
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RUNNER_TEMP}/rateguru-public-http-bundle.tar.gz" \
+          "${RUNNER_TEMP}/rateguru_public_http_key" \
+          "${RUNNER_TEMP}/rateguru_public_http_known_hosts" \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"

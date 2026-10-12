@@ -1,0 +1,160 @@
+name: Prepare tits.guru public HTTP
+
+# The public HTTP site of tits-guru's host, ready for its certificate:
+# infrastructure/scripts/prepare-public-http --apply --target tits-guru, run
+# from trusted main tooling, after a typed confirmation.
+#
+# It installs the public site's own file and link — rateguru-tits-guru-public,
+# beside the internal site, which it never touches — and reloads Nginx: the
+# ACME HTTP-01 challenge of tits.guru is answered from /var/www/html, and every
+# other request 503 with Retry-After. Before anything is written it proves,
+# from the loaded configuration and from what the host's own Nginx answers,
+# that mx1.tits.guru keeps the HTTP-01 route its mail certificate renews over;
+# after the reload it proves it again, and any failure puts the previous state
+# back. Run again, it changes nothing.
+#
+# No certificate is issued and no TLS listener, redirect or application is
+# opened: tits-guru stays lifecycle=planned. DNS, the firewall, Postfix and
+# every other site are never touched; Nginx is reloaded, never restarted.
+# Nothing here runs on a merge or a schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly "PREPARE tits-guru public HTTP" to install the public HTTP site of tits.guru on the production host
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# tits-guru shares its physical host with staging today, so this must never run
+# halfway through a mutation of either target, nor while anything else reads
+# that machine: the domain every change to it waits in. It waits rather than
+# cancelling anything. On the host, prepare-public-http holds the host's own
+# infrastructure lock for the whole run.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  validate-confirmation:
+    name: Require the typed confirmation
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    timeout-minutes: 5
+
+    steps:
+      - name: Require exactly "PREPARE tits-guru public HTTP"
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${CONFIRMATION}" != "PREPARE tits-guru public HTTP" ]]; then
+            echo "confirmation must be exactly 'PREPARE tits-guru public HTTP' to install the public HTTP site of tits.guru on the production host" >&2
+            exit 1
+          fi
+
+          echo "Confirmed: PREPARE tits-guru public HTTP"
+
+  prepare:
+    name: Prepare tits-guru's public HTTP
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref, validate-confirmation]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate and the typed confirmation, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from the integration branch.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare on the production host
+        id: public
+        uses: ./.github/actions/prepare-rateguru-public-http
+        with:
+          operation: apply
+          deployment-target: tits-guru
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the configuration of Nginx is
+          # root's. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The action writes the result of every completed run. A run that
+      # produced no result at all says so here, rather than leaving an empty
+      # summary that could be read as nothing wrong.
+      - name: Report an incomplete run
+        if: ${{ always() && steps.public.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru public HTTP"
+            echo
+            echo "The preparation did not complete, so there is no result; the reason is in the job log. A change that could not be completed is put back to the state before the run."
+          } >> "${GITHUB_STEP_SUMMARY}"
