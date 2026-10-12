@@ -30,8 +30,8 @@ MAIL_INBOUND_STORE_MOUNT_UNIT='var-lib-rateguru\x2dmail\x2dinbound-store.mount'
 MAIL_INBOUND_STORE_USER="rateguru-mail-inbound"
 MAIL_INBOUND_STORE_GECOS="RateGuru inbound mail store"
 
-# The public listener's certificate: the operator's, copied onto the host, and
-# never generated or committed.
+# The public listener's certificate: the one Certbot holds on the host, copied
+# into place by install-mail-inbound-tls, and never generated or committed.
 MAIL_INBOUND_TLS_DIR="/etc/rateguru-mail-inbound/tls"
 MAIL_INBOUND_TLS_CERT="${MAIL_INBOUND_TLS_DIR}/fullchain.pem"
 MAIL_INBOUND_TLS_KEY="${MAIL_INBOUND_TLS_DIR}/privkey.pem"

@@ -43,11 +43,12 @@
 # nothing until the address is back, which activate-mail-inbound --verify
 # reports.
 #
-# TLS. The public listener's certificate is the operator's, copied onto the
-# host: /etc/rateguru-mail-inbound/tls/fullchain.pem and privkey.pem, regular
-# files, the key root-owned 0600. It must chain to a trusted certificate
-# authority, not expire within TLS_MIN_DAYS, cover every MX host name and
-# match its key. Nothing here generates or copies one.
+# TLS. The public listener's certificate is the one Certbot holds on the host,
+# copied into place — and again on every renewal — by install-mail-inbound-tls:
+# /etc/rateguru-mail-inbound/tls/fullchain.pem and privkey.pem, regular files,
+# the key root-owned 0600. It must chain to a trusted certificate authority,
+# not expire within TLS_MIN_DAYS, cover every MX host name and match its key.
+# This installer only judges it: nothing here generates or copies one.
 #
 # Repository tooling: run as root from a trusted bundle by activate-mail-inbound
 # and the read-only infrastructure verification, never installed on a host and

@@ -126,7 +126,7 @@ it('handles its arguments strictly, and refuses to run unprivileged', function (
         mailInboundCleanup($host);
     }
 })->with([
-    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify, --health, --rollback or --install-monitor'],
+    'no mode' => [['--target', 'tits-guru'], [], 'a mode is required: --check, --apply, --verify, --health, --rollback, --install-monitor or --install-tls'],
     'no target' => [['--apply'], [], '--apply requires --target'],
     'two modes' => [['--apply', '--verify', '--target', 'tits-guru'], [], 'mode given more than once'],
     'an invalid target' => [['--apply', '--target', '../tits-guru'], [], 'invalid target ID: ../tits-guru'],

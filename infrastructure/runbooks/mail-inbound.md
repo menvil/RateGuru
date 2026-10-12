@@ -34,7 +34,7 @@ identity and signing are not changed by any of this.
 | Public inbound SMTP — real host | **Disabled**: nothing listens on port 25 until the guarded activation has run |
 | MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Not published** — and not before public SMTP is active and verified |
 | `mx1.tits.guru` A record | **Not published**; the receiver's address is never committed |
-| TLS certificate for `mx1.tits.guru` | **The operator's** — not on the host until installed as [below](#tls-for-mx1titsguru) |
+| TLS certificate for `mx1.tits.guru` | **Certbot's, on the host**, issued over HTTP-01 by the operator; copied into place and kept current on every renewal by Install tits.guru inbound mail TLS (`install-mail-inbound-tls`) — **implemented in the repository, not yet run on the real host** — see [below](#tls-for-mx1titsguru) |
 | Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned` |
 | Inbound mail health check, every six hours | **Implemented in the repository**, unattended: it reaches the host only through a read-only monitor key, with no approval; off until an operator installs that access and turns the schedule on — see [the automatic monitor](#the-automatic-monitor) |
 | Envelope sender (Return-Path) of mail sent today | `noreply@tits.guru` — the bounce domain is not an envelope sender yet |
@@ -564,34 +564,151 @@ only:
 /etc/rateguru-mail-inbound/tls/privkey.pem     root:root 0600, a regular file
 ```
 
-Nothing is generated or committed: no key in the repository, no permanent
-self-signed certificate, and never the website's certificate. Public SMTP is
-**enabled only with a certificate that** chains to a trusted certificate
-authority (the system trust store), covers every MX host name, does not expire
-within 14 days, and matches its key. `install-mail-inbound --tls-check` says
-which of these fails, and never prints the certificate or the key. The
-outbound path's TLS and DKIM are not touched.
+Nothing is generated or committed: no key in the repository or in any log, no
+permanent self-signed certificate, and never the website's certificate. Public
+SMTP is **enabled only with a certificate that** chains to a trusted
+certificate authority (the system trust store), covers every MX host name, does
+not expire within 14 days, and matches its key. `install-mail-inbound
+--tls-check` says which of these fails, and never prints the certificate or the
+key. The outbound path's TLS and DKIM are not touched.
 
-**Installing it** (once the A record of `mx1.tits.guru` may exist — it may go
-first, before any MX):
+### Where it comes from: Certbot, over HTTP-01
 
-1. Obtain a certificate for `mx1.tits.guru` from a public ACME CA **without
-   touching the site's nginx or its certificates** — for example with
-   certbot's DNS-01 challenge, which needs one `_acme-challenge` TXT record at
-   the DNS provider and no listener at all:
-   `sudo certbot certonly --manual --preferred-challenges dns -d mx1.tits.guru`.
-2. Copy — never link — the result into place:
-   ```bash
-   sudo install -d -o root -g root -m 0755 /etc/rateguru-mail-inbound/tls
-   sudo install -o root -g root -m 0644 /etc/letsencrypt/live/mx1.tits.guru/fullchain.pem /etc/rateguru-mail-inbound/tls/fullchain.pem
-   sudo install -o root -g root -m 0600 /etc/letsencrypt/live/mx1.tits.guru/privkey.pem   /etc/rateguru-mail-inbound/tls/privkey.pem
-   sudo infrastructure/scripts/install-mail-inbound --tls-check
-   ```
-3. **Renewal** repeats step 2 and then `sudo systemctl reload
-   postfix@-.service` (from a certbot `--deploy-hook`, or by hand); Postfix
-   reads the new pair on reload, and nothing is restarted. A certificate within
-   14 days of expiry fails Verify tits.guru inbound SMTP and Verify production
-   infrastructure.
+The certificate is the one **Certbot already holds on the host** for
+`mx1.tits.guru`. The operator issues it once, by hand, through the HTTP-01
+challenge, with the webroot the host's existing Nginx already serves on port
+80:
+
+```bash
+sudo certbot certonly --webroot --webroot-path /var/www/html \
+  --cert-name mx1.tits.guru -d mx1.tits.guru
+```
+
+That needs the A record of `mx1.tits.guru` to name the host (it may be
+published before any MX record) and the existing Nginx to answer
+`http://mx1.tits.guru/.well-known/acme-challenge/` from `/var/www/html`. No
+Nginx vhost, no site certificate, no firewall rule and no DNS record other than
+that A record is changed for it; no DNS API, no other ACME client and no Certbot
+plugin is used.
+
+Certbot renews it on its own, through its systemd timer, by the same method —
+it is recorded in `/etc/letsencrypt/renewal/mx1.tits.guru.conf`. **Renewal
+therefore depends on HTTP on port 80 staying reachable for `mx1.tits.guru`**:
+should the A record, the Nginx server on port 80 or the provider's firewall for
+TCP 80 change, renewals fail, and the certificate expires 90 days after the
+last one that succeeded. A manual DNS-01 challenge (`--manual
+--preferred-challenges dns`) is **not** a working method for this domain: it
+cannot renew unattended.
+
+### Installing it: Install tits.guru inbound mail TLS
+
+The pair is never copied by hand. The workflow **Install tits.guru inbound
+mail TLS** — manual, from `main` only, behind the typed confirmation `INSTALL
+tits-guru inbound TLS`, in the `production-tits-guru` Environment with the
+bootstrap credential, waiting in the `rateguru-staging-deployment` group like
+every change to that machine — uploads the trusted `infrastructure/` tree and
+nothing else, and runs `activate-mail-inbound --install-tls --target
+tits-guru` under the host's infrastructure lock. That runs
+`install-mail-inbound-tls --apply`:
+
+1. Certbot must be installed and hold a renewal configuration for
+   `mx1.tits.guru`. Certbot is never run, and nothing is installed.
+2. The pair in `/etc/letsencrypt/live/mx1.tits.guru` is judged **before
+   anything changes**: every directory of Certbot's tree root-owned and
+   writable by no one else; both live links leading to regular root-owned files
+   directly in `/etc/letsencrypt/archive/mx1.tits.guru`, the key not readable
+   by everyone; then the certificate — every MX host name, at least 14 days
+   left, a chain to a trusted authority, the key matching.
+3. Certbot's deploy hook `/etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls`
+   is installed — root's, 0755, a regular file rendered from `main`, with
+   nothing in it that points back at the uploaded bundle.
+4. That hook is run exactly as Certbot runs it after a renewal, so the first
+   pair is copied by the same code as every renewal: staged in
+   `/etc/rateguru-mail-inbound/.tls-incoming.*`, judged there, moved in, read
+   back; on any failure the pair installed before is put back, and never is a
+   mixed pair left. Postfix, when it runs, is reloaded. If the pair does not
+   install, the hook this run installed does not stay either: the hook that
+   was there before — or none — is put back.
+5. `install-mail-inbound-tls --verify` — the hook as rendered, the pair
+   exactly the one Certbot holds, as regular files root:root 0644 and 0600, in
+   real root-owned directories no one else may write —
+   and `install-mail-inbound --tls-check`, the listener's own judge, unchanged.
+
+Run again, it changes nothing and reloads nothing. No certificate or key ever
+passes through GitHub; the uploaded tree is removed at the end of the run.
+Public SMTP, the listeners, routes, the queue and OpenDKIM are not touched.
+
+### Every renewal from then on
+
+```
+certbot.timer ─► certbot renew ─► HTTP-01 through the existing Nginx on :80 (/var/www/html)
+                    │
+                    ├─ renewed mx1.tits.guru: live/ links now lead to archive/…N.pem
+                    │    └─ deploy hook rateguru-mail-inbound-tls,
+                    │       RENEWED_LINEAGE=/etc/letsencrypt/live/mx1.tits.guru
+                    │         ├─ judge the renewed pair (paths, name, ≥ 14 days, chain, key)
+                    │         ├─ stage beside the installed pair, move in, read back
+                    │         │    any failure: the previous pair back, the hook fails,
+                    │         │    Certbot logs it, Postfix is not touched
+                    │         └─ Postfix running? ─► systemctl reload postfix@-.service
+                    │                                (never a stop, never a restart)
+                    │
+                    └─ any other certificate renewed: the hook exits at once, changes nothing
+```
+
+**A run stopped halfway.** Before the installed pair is touched, the hook
+keeps a verified copy of it in its staging directory and records there —
+synced to disk — that the pair is being replaced, with each file's SHA-256.
+Terminated, it puts that copy back on its way out; killed outright, or with
+the host going down, the next run — Install tits.guru inbound mail TLS or
+Certbot's next renewal — puts it back first, whatever Certbot holds by then,
+and only then goes on. The copy is put back only once it matches what was
+recorded, and the result is read back; when either fails, the hook says
+CRITICAL, exits 2, keeps the copy where it is and reloads nothing, and
+`install-mail-inbound-tls --verify` reports the unfinished installation until
+it is put right.
+
+A renewal the hook could not install leaves the previous pair serving; it fails
+`install-mail-inbound --tls-check` once that pair is within 14 days of expiry,
+and with it Verify tits.guru inbound SMTP and Verify production infrastructure
+— Certbot renews 30 days before expiry, so there is time to act. Postfix that is
+stopped is not started: it reads the new pair when it starts.
+
+### Checking it
+
+```bash
+# Certbot can still renew it over HTTP-01. A dry run saves nothing, and Certbot
+# runs no deploy hook on a dry run.
+sudo certbot renew --dry-run --cert-name mx1.tits.guru
+
+# The installed pair is exactly the certificate Certbot holds, as reviewed.
+sudo /etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls --verify
+
+# What Certbot's next renewal will run — with nothing renewed, it changes nothing.
+sudo env -i RENEWED_LINEAGE=/etc/letsencrypt/live/mx1.tits.guru \
+  /etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls
+```
+
+The TLS check itself, `install-mail-inbound --tls-check`, runs from a trusted
+bundle: in Install tits.guru inbound mail TLS, in every activation's preflight,
+and in Verify tits.guru inbound SMTP. Once public SMTP is open, from outside:
+`openssl s_client -starttls smtp -connect mx1.tits.guru:25 -servername
+mx1.tits.guru` shows the certificate the listener serves.
+
+### On a new VPS
+
+In this order:
+
+1. The host prepared and the site's Nginx serving port 80 from `/var/www/html`,
+   as before.
+2. The A record of `mx1.tits.guru` naming the new host's address.
+3. The certificate issued anew with the `certbot certonly --webroot` command
+   [above](#where-it-comes-from-certbot-over-http-01) — never copied from the
+   old host by hand, and never through GitHub.
+4. **Install tits.guru inbound mail TLS**, which passes only once steps 1–3
+   hold.
+5. Then the inbound activation, as [the operator order](#the-operator-order)
+   says: its preflight judges the certificate before TCP 25 opens.
 
 ## Activation, verification and rollback
 
@@ -842,7 +959,9 @@ is needed for it. In this order, and no step before the previous one passed:
 2. **Promote** `develop` → `main`.
 3. **Prepare the external conditions**: the host's public IPv4 address, inbound
    TCP 25 allowed by the provider's firewall, and the TLS certificate for
-   `mx1.tits.guru` installed as [above](#tls-for-mx1titsguru).
+   `mx1.tits.guru` issued by Certbot and installed by **Install tits.guru
+   inbound mail TLS** with `INSTALL tits-guru inbound TLS`, as
+   [above](#tls-for-mx1titsguru).
 4. **Run Activate tits.guru inbound SMTP** with
    `ACTIVATE tits-guru inbound SMTP`. It creates the store, installs inbound
    mail on the gateway's Postfix, proves it, opens TCP 25 and prints the DNS
@@ -955,7 +1074,8 @@ received.
   cannot see it; step 7 of the operator order proves it from outside.
 - **The host firewall**: ufw active, or no inbound filtering at all — any other
   filtering is refused, and the operator decides how to change it.
-- **The TLS certificate** for `mx1.tits.guru`, installed and renewing as
+- **The TLS certificate** for `mx1.tits.guru`: issued by Certbot over HTTP-01,
+  installed by Install tits.guru inbound mail TLS, and renewing as
   [above](#tls-for-mx1titsguru).
 - **Disk**: free space for the 1 GiB store plus the 2 GiB host reserve, and the
   queue's file system above that reserve.
