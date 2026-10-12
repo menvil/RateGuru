@@ -206,8 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Posts, Categories, Tags, Rating groups and Project settings are
-migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Comments, Categories, Tags, Rating groups and Project
+settings are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -270,8 +270,8 @@ These are the current migration state, not changes to the target design:
   user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
   settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
   than a partial imitation.
-- **Operational counts** (comments reported, reports open, media critical) are not shown yet; Posts shows its
-  pending count (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
+- **Operational counts** (reports open, media critical) are not shown yet; Posts shows its pending count and
+  Comments its reported comments still visible (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
   queries of its own; each count arrives with the migration of its screen, from its resource.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
@@ -1026,10 +1026,40 @@ in the list by its id.
 - **Access:** posts are moderated by moderators and administrators; finalizing is an administrator's. Every change
   goes through its moderation action, which checks the moderator, locks the post and writes the moderation log.
 
+### Comments
+
+Comments (`ListComments`) is drawn entirely in Admin v2: every comment, a tab at a time, searched and read 25 at a
+time on the server (`ModerationCommentsQuery`), newest first. The resource keeps the route, the navigation item —
+with the reported comments still visible, warning — the policy and global search, whose results open the comment
+in the list by its id.
+
+- **Header band:** “Comments publish immediately. Moderation happens after the fact, mostly from reports.” Stats:
+  Reported and Hidden.
+- **Tabs (NAV-03):** All · Visible · Hidden (a finalized removal included) · Author deleted · Reported (reported
+  and not removed for good), each with its count and an address of its own.
+- **Toolbar (TBL-02):** the search over the text, the author's username, the post's title and the comment's id
+  (“#90412”); “n comments”, or “n comments match”.
+- **Table (TBL-01):** the text in two lines — a link to it under the public post while it is visible there — over
+  its id and, once its author deleted it or its removal is final, “Read-only” (“· kept for audit” for the author's
+  deletion); the author, a link to their user page for whoever may manage them; the post's title and id; the
+  reports (STS-02); the state (STS-01) — Visible, Hidden by moderation (“Restorable”), Deleted by author, Removal
+  finalized (“Retained internally”); when it was written.
+- **Row actions (TBL-04):** Hide on a visible comment, Restore on a hidden one; a finalized removal shows “Final”.
+  The menu: Open in thread, View author, Open post in moderation — the post in the Posts list — and for an
+  administrator Finalize removal, on a hidden comment, its author's deleted one included (“Irreversible”), and
+  unavailable on a visible one (“Hide the comment first”).
+- **Hide** is a warning confirmation with an optional reason — the chips are the reasons visitors report a
+  comment with — and Undo after it; **Restore** is immediate, with Undo; **Finalize removal** is the irreversible
+  confirmation Posts has. Each says it is recorded in the moderation log.
+- **A comment that changed meanwhile** is not acted on, and the toast says so: hiding one already hidden would
+  otherwise toast a hide, and an Undo, that were someone else's.
+- **Access:** comments are moderated by moderators and administrators; finalizing is an administrator's. Nothing
+  here deletes a comment: that is its author's alone.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Categories, Tags, Rating groups and Project settings
-  also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Categories, Tags, Rating groups and
+  Project settings also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1113,6 +1143,11 @@ in the list by its id.
 | Original image | a placeholder lightbox | the original, with its size, type, file size and disk | the file is there to show |
 | Posts empty queue | “New submissions appear here automatically.” | “New submissions appear here when you refresh.” | the list is read on load and on Refresh |
 | Posts grid | `44px 56px minmax(200px,1fr) 160px 140px 80px 120px 192px`, 992 | Author 176 and Created 136, 1024 | the trust words and “Waiting 3 h 12 min” fit without wrapping |
+| Comment ids | “C-90412”, the post's “P-48166” | “#90412”, the post's “#48166” | the ids as stored, as Posts shows them |
+| Comment restore window | “Restorable until 17 Oct” | “Restorable”, until the removal is finalized | as for posts |
+| Comment Hide reasons | Spam or advertising, Harassment, Off-topic, Misinformation | Spam, Offensive, Fake, Copyright | the reasons visitors report a comment with |
+| Finalize a comment | on hidden and on any author-deleted comment | on a hidden comment, its author's deleted one included | FinalizeCommentRemovalAction finalizes a hidden comment only |
+| Comments grid | `minmax(240px,1fr) 150px 180px 80px 150px 104px 140px`, 1044 | State 170 and Created 120, 1080 | “Hidden by moderation” and the time fit without wrapping |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |

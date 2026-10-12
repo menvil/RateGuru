@@ -15,12 +15,12 @@ use App\Exceptions\Moderation\CannotFinalizeRemovalException;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ModerationListFormat;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Posts\ModerationPostsQuery;
 use App\Support\Media\PostImagePresenter;
-use Carbon\CarbonInterface;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Auth;
@@ -368,7 +368,7 @@ final class ListPosts extends Page
             ])->values()->all(),
             'stats' => [
                 'waiting' => number_format($counts['pending']),
-                'oldest' => $oldest !== null ? self::age($oldest) : '—',
+                'oldest' => $oldest !== null ? ModerationListFormat::age($oldest) : '—',
                 'reported' => number_format($counts['reported']),
             ],
             'categories' => $categories->map(fn (Category $category): array => ['value' => $category->slug, 'label' => $category->name])->all(),
@@ -419,14 +419,14 @@ final class ListPosts extends Page
             'muted' => $post->trashed() || $finalized,
             'author' => $author === null ? null : [
                 'name' => (string) ($author->username ?? $author->name),
-                'initials' => Str::upper(Str::substr((string) preg_replace('/[^\pL]/u', '', (string) ($author->username ?? $author->name)), 0, 2)),
+                'initials' => ModerationListFormat::initials((string) ($author->username ?? $author->name)),
                 'meta' => self::trust($author).' · '.number_format((int) $author->posts_count).' '.Str::plural('post', (int) $author->posts_count),
                 'url' => $authorUrl,
             ],
             'status' => self::status($post),
             'reports' => (int) $post->reports_count,
-            'created' => $post->created_at !== null ? self::when($post->created_at) : '—',
-            'waiting' => $pending ? 'Waiting '.self::age($post->created_at ?? now()) : null,
+            'created' => $post->created_at !== null ? ModerationListFormat::when($post->created_at) : '—',
+            'waiting' => $pending ? 'Waiting '.ModerationListFormat::age($post->created_at ?? now()) : null,
             'due' => $pending && $waited >= self::DUE_AFTER_MINUTES,
             'approve' => $pending,
             'reject' => $pending,
@@ -493,7 +493,7 @@ final class ListPosts extends Page
                     $post->user?->username,
                     $this->confirming['action'] === 'hide'
                         ? number_format((int) $post->reports_count).' '.Str::plural('report', (int) $post->reports_count)
-                        : ($this->confirming['action'] === 'finalize' ? self::status($post)['label'] : ($post->created_at !== null ? self::when($post->created_at) : null)),
+                        : ($this->confirming['action'] === 'finalize' ? self::status($post)['label'] : ($post->created_at !== null ? ModerationListFormat::when($post->created_at) : null)),
                 ])),
             ])->all(),
         ];
@@ -552,29 +552,6 @@ final class ListPosts extends Page
             (int) $author->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL => 'Not trusted',
             $author->role === UserRole::User && ! $author->hasVerifiedEmail() => 'Email not confirmed',
             default => 'Trusted',
-        };
-    }
-
-    /** “Today 06:29”, “Yesterday 21:40”, “03 Oct 20:15”, or with the year when it is not this one. */
-    private static function when(CarbonInterface $at): string
-    {
-        return match (true) {
-            $at->isToday() => 'Today '.$at->format('H:i'),
-            $at->isYesterday() => 'Yesterday '.$at->format('H:i'),
-            $at->isCurrentYear() => $at->format('d M H:i'),
-            default => $at->format('d M Y'),
-        };
-    }
-
-    /** How long since then: “45 min”, “3 h 12 min”, “2 d 4 h”. */
-    private static function age(CarbonInterface $since): string
-    {
-        $minutes = max(0, (int) $since->diffInMinutes(now(), true));
-
-        return match (true) {
-            $minutes < 60 => $minutes.' min',
-            $minutes < 1440 => intdiv($minutes, 60).' h '.($minutes % 60).' min',
-            default => intdiv($minutes, 1440).' d '.intdiv($minutes % 1440, 60).' h',
         };
     }
 

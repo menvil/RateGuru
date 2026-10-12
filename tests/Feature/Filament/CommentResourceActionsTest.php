@@ -1,91 +1,91 @@
 <?php
 
+use App\Actions\Comments\HideCommentAction;
 use App\Enums\CommentStatus;
 use App\Enums\ModerationActionType;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Models\Comment;
-use App\Models\Post;
+use App\Models\ModerationLog;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('allows moderator to hide a visible comment via the hide table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create(['comments_count' => 1]);
-    $comment = Comment::factory()->for($post)->create([
-        'status' => CommentStatus::Visible,
-        'body' => 'Bad comment',
-    ]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListComments::class)
-        ->callTableAction('hide', $comment, data: ['reason' => 'Abusive language.']);
-
-    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden);
-    expect($post->fresh()->comments_count)->toBe(0);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $moderator->id,
-        'action' => ModerationActionType::HideComment->value,
-        'target_type' => Comment::class,
-        'target_id' => $comment->id,
-        'reason' => 'Abusive language.',
-    ]);
+/**
+ * Moderating a comment from its row: Hide after asking, with an optional
+ * reason, and Restore at once, each through its action, which logs it — both
+ * with Undo. Nothing deletes a comment from here.
+ */
+beforeEach(function () {
+    $this->actingAs(User::factory()->moderator()->create());
 });
 
-it('shows the hide action only for visible comments', function () {
-    $moderator = User::factory()->moderator()->create();
-    $hidden = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+it('hides a visible comment after asking, with the reason when one is given, and Undo restores it', function (string $reason, ?string $logged) {
+    $comment = Comment::factory()->create(['body' => 'Visit pet-deals24.top']);
 
-    $this->actingAs($moderator);
+    $page = Livewire::test(ListComments::class)
+        ->call('askToHide', $comment->id)
+        ->assertSet('confirming', ['action' => 'hide', 'id' => $comment->id])
+        ->assertSeeHtml('Hide this comment?')
+        ->assertSeeHtml('Spam')
+        ->set('reason', $reason)
+        ->call('confirm')
+        ->assertHasNoErrors()
+        ->assertSet('confirming', null)
+        ->assertDispatched('rg-admin-toast', message: 'Comment #'.$comment->id.' hidden', action: ['label' => 'Undo', 'event' => 'restore-comment', 'params' => ['id' => $comment->id]]);
 
-    Livewire::test(ListComments::class)
-        ->assertTableActionHidden('hide', $hidden);
-});
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden)
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->sole()->reason)->toBe($logged);
 
-it('allows moderator to restore a hidden comment via the restore table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create(['comments_count' => 0]);
-    $comment = Comment::factory()->for($post)->create(['status' => CommentStatus::Hidden]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListComments::class)
-        ->callTableAction('restore', $comment, data: ['reason' => 'Restored after review.']);
+    $page->dispatch('restore-comment', id: $comment->id)
+        ->assertDispatched('rg-admin-toast', message: 'Comment #'.$comment->id.' is visible again');
 
     expect($comment->fresh()->status)->toBe(CommentStatus::Visible);
-    expect($post->fresh()->comments_count)->toBe(1);
+})->with([
+    'with a reason' => ['Spam', 'Spam'],
+    'without one' => ['', null],
+]);
 
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $moderator->id,
-        'action' => ModerationActionType::RestoreComment->value,
-        'target_type' => Comment::class,
-        'target_id' => $comment->id,
-        'reason' => 'Restored after review.',
-    ]);
+it('restores a hidden comment at once, and Undo hides it again', function () {
+    $comment = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+
+    $page = Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
+        ->call('restore', $comment->id)
+        ->assertDispatched('rg-admin-toast', message: 'Comment #'.$comment->id.' restored', action: ['label' => 'Undo', 'event' => 'hide-comment-again', 'params' => ['id' => $comment->id]]);
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Visible);
+
+    $page->dispatch('hide-comment-again', id: $comment->id);
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden);
 });
 
-it('shows the restore action only for hidden comments', function () {
-    $moderator = User::factory()->moderator()->create();
-    $visible = Comment::factory()->create(['status' => CommentStatus::Visible]);
-
-    $this->actingAs($moderator);
+it('holds a reason to its limit', function () {
+    $comment = Comment::factory()->create();
 
     Livewire::test(ListComments::class)
-        ->assertTableActionHidden('restore', $visible);
+        ->call('askToHide', $comment->id)
+        ->set('reason', str_repeat('r', ListComments::REASON_LIMIT + 1))
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'max']);
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Visible);
 });
 
-it('exposes no delete action in the moderation table, not even to admins', function () {
-    // PR-D: comment deletion is owner-only authored-content lifecycle;
-    // moderation acts through hide/restore. The generic destructive-looking
-    // Delete action was removed from the table entirely.
-    $admin = User::factory()->admin()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+it('says so, and does nothing, when the comment changed meanwhile', function () {
+    $comment = Comment::factory()->create();
+    $page = Livewire::test(ListComments::class)->call('askToHide', $comment->id);
+    app(HideCommentAction::class)->handle(User::factory()->moderator()->create(), $comment, 'Elsewhere');
 
-    $this->actingAs($admin);
+    $page->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'This comment changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
 
-    Livewire::test(ListComments::class)
-        ->assertTableActionDoesNotExist('delete');
+    expect(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(1);
+});
 
-    expect($comment->fresh()->trashed())->toBeFalse();
+it('offers no way to delete a comment, not even to administrators', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $comment = Comment::factory()->create();
+
+    expect(Livewire::test(ListComments::class)->html())->not->toContain('wire:click="delete');
+
+    $this->assertNotSoftDeleted('comments', ['id' => $comment->id]);
 });

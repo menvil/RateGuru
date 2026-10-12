@@ -180,7 +180,7 @@ it('names the author, whether they publish at once and how many posts they have'
     $post = Post::factory()->pending()->for($author)->create();
     Post::factory()->published()->for($author)->create();
 
-    $row = listedPostRow(Livewire::test(ListPosts::class), $post);
+    $row = listedRow(Livewire::test(ListPosts::class), $post);
 
     expect($row['author'])->toMatchArray([
         'name' => 'chef_ivan',
@@ -204,12 +204,12 @@ it('shows each status with its tone and note, the reports and how long a pending
 
     $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class);
 
-    expect(listedPostRow($page, $waiting))->toMatchArray(['waiting' => 'Waiting 3 h 12 min', 'due' => true])
-        ->and(listedPostRow($page, $fresh))->toMatchArray(['waiting' => 'Waiting 50 min', 'due' => false])
-        ->and(listedPostRow($page, $hidden)['status'])->toBe(['label' => 'Hidden', 'tone' => 'neutral', 'dot' => false, 'note' => 'Restorable'])
-        ->and(listedPostRow($page, $reported)['status'])->toMatchArray(['label' => 'Published', 'tone' => 'success', 'dot' => true])
-        ->and(listedPostRow($page, $reported)['reports'])->toBe(2)
-        ->and(listedPostRow($page, $deleted)['status'])->toMatchArray(['label' => 'Deleted by author', 'tone' => 'outline', 'note' => 'Retained for audit']);
+    expect(listedRow($page, $waiting))->toMatchArray(['waiting' => 'Waiting 3 h 12 min', 'due' => true])
+        ->and(listedRow($page, $fresh))->toMatchArray(['waiting' => 'Waiting 50 min', 'due' => false])
+        ->and(listedRow($page, $hidden)['status'])->toBe(['label' => 'Hidden', 'tone' => 'neutral', 'dot' => false, 'note' => 'Restorable'])
+        ->and(listedRow($page, $reported)['status'])->toMatchArray(['label' => 'Published', 'tone' => 'success', 'dot' => true])
+        ->and(listedRow($page, $reported)['reports'])->toBe(2)
+        ->and(listedRow($page, $deleted)['status'])->toMatchArray(['label' => 'Deleted by author', 'tone' => 'outline', 'note' => 'Retained for audit']);
 });
 
 it('keeps the confirmation and the open image on the server', function (string $property, mixed $value) {

@@ -18,11 +18,11 @@ it('offers restore and finalize to an admin on a reversible hidden post, restore
     $post = Post::factory()->hidden()->create();
 
     $this->actingAs(User::factory()->admin()->create());
-    expect(listedPostRow(Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class), $post))
+    expect(listedRow(Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class), $post))
         ->toMatchArray(['restore' => true, 'finalize' => 'available']);
 
     $this->actingAs(User::factory()->moderator()->create());
-    expect(listedPostRow(Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class), $post))
+    expect(listedRow(Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class), $post))
         ->toMatchArray(['restore' => true, 'finalize' => null]);
 
     // A moderator cannot open the confirmation either.
@@ -36,7 +36,7 @@ it('tells an admin to hide a published post before finalizing it', function () {
 
     $this->actingAs(User::factory()->admin()->create());
 
-    expect(listedPostRow(Livewire::withQueryParams(['status' => 'published'])->test(ListPosts::class), $post)['finalize'])->toBe('hide first');
+    expect(listedRow(Livewire::withQueryParams(['status' => 'published'])->test(ListPosts::class), $post)['finalize'])->toBe('hide first');
 });
 
 it('finalizes a hidden post after the irreversible confirmation, with its internal reason', function () {
@@ -66,7 +66,7 @@ it('finalizes a hidden post after the irreversible confirmation, with its intern
     ]);
 });
 
-it('requires a reason and the acknowledgement to finalize, and a reason through the comment table action', function () {
+it('requires a reason and the acknowledgement to finalize a post or a comment', function () {
     $admin = User::factory()->admin()->create();
     $post = Post::factory()->hidden()->create();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
@@ -81,9 +81,10 @@ it('requires a reason and the acknowledgement to finalize, and a reason through 
         ->call('confirm')
         ->assertHasErrors(['acknowledged' => 'accepted']);
 
-    Livewire::test(ListComments::class)
-        ->callTableAction('finalizeRemoval', $comment, data: ['reason' => ''])
-        ->assertHasTableActionErrors(['reason' => 'required']);
+    Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
+        ->call('askToFinalize', $comment->id)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'required', 'acknowledged' => 'accepted']);
 
     expect($post->fresh()->moderation_removed_at)->toBeNull()
         ->and($comment->fresh()->moderation_removed_at)->toBeNull();
@@ -98,33 +99,41 @@ it('leaves nothing to do on a finalized post, and shows the derived badge', func
 
     $page = Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class);
 
-    expect(listedPostRow($page, $post))->toMatchArray(['restore' => false, 'finalize' => null, 'final' => true])
-        ->and(listedPostRow($page, $post)['status']['label'])->toBe('Removal finalized');
+    expect(listedRow($page, $post))->toMatchArray(['restore' => false, 'finalize' => null, 'final' => true])
+        ->and(listedRow($page, $post)['status']['label'])->toBe('Removal finalized');
 
     $page->assertSeeHtml('Removal finalized. No further actions.');
 });
 
-it('supports finalizing hidden author-deleted comments and hides actions once finalized', function () {
+it('finalizes a hidden comment its author deleted after the irreversible confirmation, leaving nothing to do', function () {
     $admin = User::factory()->admin()->create();
 
-    // Hidden author-deleted row is reachable (withTrashed listing) and
-    // finalizable from the table.
+    // A hidden comment its author then deleted is still moderation evidence,
+    // listed and finalizable.
     $trashed = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
     Comment::query()->whereKey($trashed->id)->update(['deleted_at' => now()]);
     $record = Comment::withTrashed()->findOrFail($trashed->id);
 
     $this->actingAs($admin);
 
-    Livewire::test(ListComments::class)
-        ->assertTableActionVisible('finalizeRemoval', $record)
-        ->callTableAction('finalizeRemoval', $record, data: ['reason' => 'Internal decision.']);
+    $page = Livewire::withQueryParams(['status' => 'deleted'])->test(ListComments::class);
+
+    expect(listedRow($page, $record))->toMatchArray(['finalize' => 'available', 'restore' => false]);
+
+    $page->call('askToFinalize', $record->id)
+        ->assertSeeHtml('This can’t be undone.')
+        ->set('reason', 'Internal decision.')
+        ->set('acknowledged', true)
+        ->call('confirm')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'Removal of comment #'.$record->id.' finalized', action: null);
 
     expect(Comment::withTrashed()->findOrFail($trashed->id)->isModerationRemovalFinalized())->toBeTrue();
 
-    Livewire::test(ListComments::class)
-        ->assertTableActionHidden('restore', $record)
-        ->assertTableActionHidden('finalizeRemoval', $record)
-        ->assertSee('Removal finalized');
+    $page = Livewire::withQueryParams(['status' => 'deleted'])->test(ListComments::class);
+
+    expect(listedRow($page, $record))->toMatchArray(['finalize' => null, 'restore' => false, 'final' => true])
+        ->and(listedRow($page, $record)['state']['label'])->toBe('Removal finalized');
 });
 
 it('hides comment finalization from moderators', function () {
@@ -132,9 +141,11 @@ it('hides comment finalization from moderators', function () {
 
     $this->actingAs(User::factory()->moderator()->create());
 
-    Livewire::test(ListComments::class)
-        ->assertTableActionVisible('restore', $comment)
-        ->assertTableActionHidden('finalizeRemoval', $comment);
+    $page = Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class);
+
+    expect(listedRow($page, $comment))->toMatchArray(['finalize' => null, 'restore' => true]);
+
+    $page->call('askToFinalize', $comment->id)->assertSet('confirming', null);
 });
 
 it('renders moderation history null-safe after the target is purged', function () {

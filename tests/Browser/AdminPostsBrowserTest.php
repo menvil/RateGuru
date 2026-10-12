@@ -79,7 +79,7 @@ it('hides a post with a chosen reason only once one is given, and Undo publishes
     waitForScript($page, "document.querySelector('.rg-admin-dialog .rg-admin-button--primary').disabled");
 
     $page->click('.rg-admin-dialog .rg-admin-preset:first-child');
-    waitForScript($page, "document.getElementById('rg-admin-posts-reason').value", 'Spam');
+    waitForScript($page, "document.getElementById('rg-admin-moderation-reason').value", 'Spam');
     waitForScript($page, "! document.querySelector('.rg-admin-dialog .rg-admin-button--primary').disabled && document.querySelector('.rg-admin-dialog .rg-admin-preset').getAttribute('aria-pressed') === 'true'");
 
     $page->click('.rg-admin-dialog .rg-admin-button--primary');
