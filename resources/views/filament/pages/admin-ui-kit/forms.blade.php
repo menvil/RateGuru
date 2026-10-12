@@ -132,6 +132,26 @@
             <span class="rg-admin-kit__caption">disabled · the hint says why</span>
         </div>
     </div>
+    <div class="rg-admin-kit__row" x-data="{ google: true }">
+        <div class="rg-admin-kit__item rg-admin-kit__item--wide">
+            <x-admin.ui.card flush>
+                <x-admin.ui.switch
+                    layout="row"
+                    label="Sign in with Google"
+                    id="kit-switch-row"
+                    :checked="true"
+                    on="Enabled"
+                    on-hint="Accounts that sign in with it: 128."
+                    off-hint="Accounts that sign in with it: 128."
+                    x-model="google"
+                >
+                    <x-slot:note><x-admin.ui.badge tone="success">Configured</x-admin.ui.badge></x-slot:note>
+                </x-admin.ui.switch>
+                <x-admin.ui.switch layout="row" label="Show saved posts" id="kit-switch-row-off" on-hint="People can save posts to a private list." off-hint="People can save posts to a private list." />
+            </x-admin.ui.card>
+            <span class="rg-admin-kit__caption" x-text="`row layout · google = ${google}`">row layout · google = true</span>
+        </div>
+    </div>
 @endcomponent
 
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-08']])
@@ -143,6 +163,10 @@
         <div class="rg-admin-kit__item">
             <x-admin.ui.segmented label="Default theme" :options="['light' => 'Light', 'dark' => 'Dark', 'system' => 'System']" value="system" x-model="theme" compact />
             <span class="rg-admin-kit__caption" x-text="`compact · theme = ${theme}`">compact · theme = system</span>
+        </div>
+        <div class="rg-admin-kit__item" x-data="{ sort: 'hot' }">
+            <x-admin.ui.segmented label="Default sort" :options="['hot' => 'Hot', 'new' => 'New', 'top' => 'Top']" :icons="['hot' => 'flame', 'new' => 'clock', 'top' => 'trophy']" value="hot" x-model="sort" />
+            <span class="rg-admin-kit__caption" x-text="`icons · sort = ${sort}`">icons · sort = hot</span>
         </div>
     </div>
 @endcomponent

@@ -34,6 +34,7 @@ it('offers a switch per provider in Project settings, both on until switched off
     ProjectSettings::factory()->create();
 
     Livewire::actingAs(User::factory()->admin()->create())
+        ->withQueryParams(['tab' => 'providers'])
         ->test(ProjectSettingsPage::class)
         ->assertSee(__('admin.project_settings.sign_in_title'))
         ->assertSee(__('admin.fields.sign_in_provider', ['provider' => 'Google']))
@@ -45,9 +46,14 @@ it('offers a switch per provider in Project settings, both on until switched off
 it('saves a provider switched off, leaving the other on', function () {
     ProjectSettings::factory()->create();
 
+    // Switching one off asks first, and applies when the settings are saved.
     Livewire::actingAs(User::factory()->admin()->create())
         ->test(ProjectSettingsPage::class)
         ->set('data.sign_in_providers.facebook', false)
+        ->assertSet('confirming', 'provider:facebook')
+        ->assertSet('data.sign_in_providers.facebook', true)
+        ->call('confirmSwitchOff')
+        ->assertSet('data.sign_in_providers.facebook', false)
         ->call('save')
         ->assertHasNoErrors();
 
@@ -60,6 +66,7 @@ it('tells the admin how many accounts use each provider and which keys are missi
     config()->set('services.facebook.client_id', null);
 
     Livewire::actingAs(User::factory()->admin()->create())
+        ->withQueryParams(['tab' => 'providers'])
         ->test(ProjectSettingsPage::class)
         ->assertSee(__('admin.project_settings.sign_in_accounts', ['count' => 2]))
         ->assertSee(__('admin.project_settings.sign_in_not_configured', ['keys' => 'FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET']))

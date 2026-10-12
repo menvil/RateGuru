@@ -6,8 +6,9 @@
      *
      * The settings are a draft until Save in the top bar; the browser tells
      * the top bar whether anything is unsaved and whether Save may run, from
-     * the draft against `saved` (filament.pages.rating-group.script).
+     * the draft against `saved` (filament.pages.editor.script).
      */
+    $draft = "{ key: \$wire.draftKey, label: \$wire.draftLabel, description: \$wire.draftDescription, min: \$wire.draftMin, max: \$wire.draftMax, sort: \$wire.draftSort, active: \$wire.draftActive }";
     $ordinals = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
     $savedActive = (bool) $saved['active'];
 @endphp
@@ -15,9 +16,9 @@
 <div
     class="rg-admin rg-admin-screen"
     x-data
-    x-effect="$store.ratingGroupEditor.dirty = rgAdminRatingGroupDirty($wire); $store.ratingGroupEditor.blocked = $wire.settingsBlocked"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = $wire.settingsBlocked"
 >
-    @include('filament.pages.rating-group.script')
+    @include('filament.pages.editor.script')
 
     <section class="rg-admin-page-header" aria-labelledby="rg-admin-rating-group-title">
         <div class="rg-admin-page-header__text">

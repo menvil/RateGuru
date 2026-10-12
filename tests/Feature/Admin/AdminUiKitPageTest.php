@@ -248,6 +248,7 @@ it('shows the segmented control, the filter dropdown and the combobox live, from
         ->toContain('role="radiogroup"')
         ->toContain('Missing only')
         ->toContain('rg-admin-segmented--compact')
+        ->toContain('x-text="`icons · sort = ${sort}`"')
         ->and(adminUiKitSpecimen($html, 'FRM-10'))
         ->toContain('x-admin.ui.filter-dropdown')
         ->toContain('aria-haspopup="menu"')
@@ -305,7 +306,10 @@ it('shows the locked identifier, the number stepper and the switch live, from th
         ->toContain('Blade component · x-admin.ui.switch')
         ->toContain('role="switch"')
         ->toContain('x-model="active"')
-        ->toMatch('/id="kit-switch-disabled"[^>]*role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
+        ->toMatch('/id="kit-switch-disabled"[^>]*role="switch"[^>]*aria-checked="false"[^>]*disabled/s')
+        // And as a settings row, in a flush card.
+        ->toContain('class="rg-admin-switch-row"')
+        ->toContain('id="kit-switch-row"');
 });
 
 it('shows the row menu live, an unavailable item kept with its reason', function () {

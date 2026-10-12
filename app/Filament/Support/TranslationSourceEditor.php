@@ -19,7 +19,9 @@ final class TranslationSourceEditor
     public static function url(ProjectTranslationUnit $unit): string
     {
         return match ($unit->section) {
-            ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages => ProjectSettingsPage::getUrl(),
+            // A setting opens on its tab, a static page on its page.
+            ProjectContentSection::ProjectSettings => ProjectSettingsPage::getUrl(array_key_exists($unit->key, ProjectSettingsPage::TEXT_FIELDS['identity']) ? [] : ['tab' => 'labels']),
+            ProjectContentSection::StaticPages => ProjectSettingsPage::getUrl(['tab' => 'pages', 'page' => $unit->key]),
             // Categories and tags are edited in their list's drawer.
             ProjectContentSection::Categories => ManageCategories::getUrl(['edit' => $unit->recordId]),
             ProjectContentSection::Tags => ManageTags::getUrl(['edit' => $unit->recordId]),

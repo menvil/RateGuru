@@ -88,16 +88,33 @@ final class ContentTranslationStatus
      */
     public function translateUrl(ProjectContentSection $section, int $recordId, array $fields): string
     {
+        $units = [];
+
+        foreach ($fields as $field => $chips) {
+            $units["{$section->value}:{$recordId}:{$field}"] = $chips;
+        }
+
+        return $this->translateUnitsUrl($section, $units);
+    }
+
+    /**
+     * Translation Center on the first of these units missing from the first
+     * offered language that misses one, or on the first unit when none is.
+     *
+     * @param  array<string, list<Chip>>  $units  each unit's chips, by unit id, in the order to look at them
+     */
+    public function translateUnitsUrl(ProjectContentSection $section, array $units): string
+    {
         $codes = array_keys($this->languages());
-        $field = array_key_first($fields);
+        $unit = array_key_first($units);
         $locale = $codes[0] ?? null;
 
         foreach ($codes as $code) {
-            foreach ($fields as $name => $chips) {
+            foreach ($units as $id => $chips) {
                 $chip = collect($chips)->firstWhere('code', $code);
 
                 if ($chip !== null && $chip['value'] === null) {
-                    [$locale, $field] = [$code, $name];
+                    [$locale, $unit] = [$code, $id];
                     break 2;
                 }
             }
@@ -106,7 +123,7 @@ final class ContentTranslationStatus
         return TranslationCenterPage::getUrl(array_filter([
             'locale' => $locale,
             'section' => $section->value,
-            'unit' => "{$section->value}:{$recordId}:{$field}",
+            'unit' => $unit,
         ]));
     }
 
