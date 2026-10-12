@@ -16,20 +16,16 @@ function observabilityHealthOutput(): string
     return $output->fetch();
 }
 
-it('runs observability health command', function () {
-    $this->artisan('rateguru:observability:health')
-        ->assertExitCode(0);
-});
-
 it('shows request id config status', function () {
     $this->artisan('rateguru:observability:health')
         ->expectsOutputToContain('X-Request-Id')
         ->assertExitCode(0);
 });
 
-it('shows redaction status', function () {
+it('shows redaction and slow action logging switched on by default', function () {
     $this->artisan('rateguru:observability:health')
-        ->expectsOutputToContain('redaction')
+        ->expectsOutputToContain('Sensitive data redaction: enabled')
+        ->expectsOutputToContain('Slow action logging: enabled')
         ->assertExitCode(0);
 });
 

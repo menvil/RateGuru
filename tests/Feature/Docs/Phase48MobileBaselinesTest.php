@@ -1,9 +1,5 @@
 <?php
 
-it('mobile visual baselines document exists', function () {
-    expect(file_exists(base_path('docs/mobile/phase-48-visual-baselines.md')))->toBeTrue();
-});
-
 it('baselines document references 375px breakpoint', function () {
     $content = file_get_contents(base_path('docs/mobile/phase-48-visual-baselines.md'));
 

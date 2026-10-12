@@ -19,20 +19,12 @@ it('renders configured upload label', function () {
         ->assertSee('Upload cat');
 });
 
-it('renders feed page without feed title heading', function () {
+it('renders the fallback upload label and no feed title heading when settings row is missing', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)
         ->get(route('feed'))
         ->assertOk()
+        ->assertSee('Upload post')
         ->assertDontSee('data-testid="feed-title"', false);
-});
-
-it('renders fallback upload label when settings row is missing', function () {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->get(route('feed'))
-        ->assertOk()
-        ->assertSee('Upload post');
 });

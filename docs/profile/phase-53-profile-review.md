@@ -78,7 +78,7 @@ All saved posts are **private by default**. Rating activity is **private by defa
 - [x] Profile layout tests pass (`ProfilePageLayoutTest`)
 - [x] Profile header component tests pass (`ProfileHeaderComponentTest`)
 - [x] Profile tabs tests pass (`ProfileTabsTest`)
-- [x] Posts tab tests pass (`ProfilePostsTabTest`)
+- [x] Posts tab tests pass (`ProfilePageTest`)
 - [x] Saved tab privacy tests pass (`ProfileSavedTabTest`)
 - [x] Activity tab tests pass (`ProfileActivityTabTest`)
 - [x] Translation key tests pass (`ProfileTranslationKeysTest`)

@@ -67,7 +67,6 @@ Phase 54 implements the Observability / Logging Foundation for RateGuru. Every w
 
 ### Tests
 
-- [x] `ObservabilityConfigTest` passes
 - [x] `RequestIdMiddlewareTest` passes
 - [x] `LogContextTest` passes
 - [x] `StructuredLogContextMiddlewareTest` passes

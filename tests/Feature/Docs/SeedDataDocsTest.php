@@ -1,9 +1,5 @@
 <?php
 
-it('has seed data documentation', function () {
-    expect(file_exists(base_path('docs/dev/seed-data.md')))->toBeTrue();
-});
-
 it('documents seed commands and demo credentials warning', function () {
     $docs = file_get_contents(base_path('docs/dev/seed-data.md'));
 

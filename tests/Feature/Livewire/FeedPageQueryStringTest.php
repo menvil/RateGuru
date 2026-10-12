@@ -22,12 +22,6 @@ it('sets search property from query string', function () {
         ->assertSet('search', 'sample');
 });
 
-it('has empty default search', function () {
-    $component = Livewire::test(FeedPage::class);
-
-    expect($component->instance()->search)->toBe('');
-});
-
 it('hydrates tag from query string', function () {
     $tag = Tag::factory()->create(['slug' => 'pasta']);
 

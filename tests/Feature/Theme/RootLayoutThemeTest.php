@@ -12,23 +12,14 @@ it('renders data theme attribute in root layout', function () {
         ->assertSee('data-theme="dark"', false);
 });
 
-it('renders user theme preference in root layout', function () {
+it('renders the user theme preference in the root layout', function () {
     $user = User::factory()->create([
         'theme_preference' => 'light',
     ]);
 
     $this->actingAs($user)
         ->get(route('feed'))
-        ->assertSee('data-theme="light"', false);
-});
-
-it('renders data theme preference attribute in root layout', function () {
-    $user = User::factory()->create([
-        'theme_preference' => 'light',
-    ]);
-
-    $this->actingAs($user)
-        ->get(route('feed'))
+        ->assertSee('data-theme="light"', false)
         ->assertSee('data-theme-preference="light"', false);
 });
 

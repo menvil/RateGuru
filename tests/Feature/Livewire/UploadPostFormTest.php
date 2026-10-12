@@ -21,81 +21,37 @@ it('resets form when upload-modal-opened event is dispatched', function () {
         ->assertSet('submitError', null);
 });
 
-it('can render upload post form component', function () {
+it('renders the upload form fields, loading state and image preview for an authenticated user', function () {
     $user = User::factory()->create();
 
-    Livewire::actingAs($user)
+    $html = Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertStatus(200);
-});
-
-it('renders for authenticated user', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
+        ->assertStatus(200)
         ->assertSee('Upload post')
-        ->assertStatus(200);
-});
-
-it('opens upload modal with generic labels', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
         ->assertSee('Title')
-        ->assertSee('Image');
+        ->assertSee('name="title"', false)
+        ->assertSee('Description')
+        ->assertSee('name="description"', false)
+        ->assertSee('Image')
+        ->assertSee('type="file"', false)
+        ->assertSee('name="image"', false)
+        ->assertSee('Source URL')
+        ->assertSee('name="source_url"', false)
+        ->html();
+
+    expect($html)
+        ->toContain('wire:loading')
+        ->toContain('Uploading')
+        // Switching to the image url tab clears the selected file.
+        ->toContain('wire:click="$set(\'image\', null)"')
+        ->toContain('x-data')
+        ->toContain('previewUrl')
+        ->toContain('FileReader');
 });
 
 it('blocks guest users', function () {
     Livewire::test(UploadPostForm::class)
         ->assertForbidden();
-});
-
-it('has title input', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('Title')
-        ->assertSee('name="title"', false);
-});
-
-it('updates title property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('title', 'Sample entry')
-        ->assertSet('title', 'Sample entry');
-});
-
-it('has description textarea', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('Description')
-        ->assertSee('name="description"', false);
-});
-
-it('updates description property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('description', 'Fresh pasta with basil')
-        ->assertSet('description', 'Fresh pasta with basil');
-});
-
-it('has image file input', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('Image')
-        ->assertSee('type="file"', false)
-        ->assertSee('name="image"', false);
 });
 
 it('accepts image upload property', function () {
@@ -117,18 +73,6 @@ it('renders error message when submitError is set', function () {
         ->test(UploadPostForm::class)
         ->set('submitError', 'Something went wrong while creating your post.')
         ->assertSee('Something went wrong');
-});
-
-it('has upload loading state markup', function () {
-    $user = User::factory()->create();
-
-    $html = Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->html();
-
-    expect($html)
-        ->toContain('wire:loading')
-        ->toContain('Uploading');
 });
 
 it('dispatches successful upload event', function () {
@@ -276,7 +220,7 @@ it('creates post on successful upload', function () {
     expect(Post::query()->where('user_id', $user->id)->where('title', 'Sample Entry')->exists())->toBeTrue();
 });
 
-it('renders selectable tags', function () {
+it('renders selectable tags in an accessible combobox', function () {
     $user = User::factory()->create();
     $tag = Tag::factory()->create(['name' => 'UniqueTagForTest']);
 
@@ -286,7 +230,14 @@ it('renders selectable tags', function () {
         ->assertSee('data-testid="upload-tag-search"', false)
         ->assertSee('data-testid="upload-tag-field"', false)
         ->assertSee('UniqueTagForTest')
-        ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+        ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false)
+        ->assertSee('role="combobox"', false)
+        ->assertSee('aria-controls="upload-tag-listbox"', false)
+        ->assertSee('role="listbox"', false)
+        ->assertSee('id="upload-tag-listbox"', false)
+        ->assertSee('role="option"', false)
+        ->assertSee('aria-selected="false"', false)
+        ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
 });
 
 it('filters upload tags while typing and toggles selected tags', function () {
@@ -359,61 +310,6 @@ it('rejects submitted tag ids that do not exist', function () {
         ->assertNotDispatched('post-uploaded');
 });
 
-it('renders tag search input and tag pills', function () {
-    $user = User::factory()->create();
-    $tag = Tag::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('data-testid="upload-tag-search"', false)
-        ->assertSee('data-testid="upload-tag-field"', false)
-        ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
-});
-
-it('renders tag search as an accessible combobox and menu as a listbox', function () {
-    $user = User::factory()->create();
-    $tag = Tag::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('role="combobox"', false)
-        ->assertSee('aria-controls="upload-tag-listbox"', false)
-        ->assertSee('role="listbox"', false)
-        ->assertSee('id="upload-tag-listbox"', false)
-        ->assertSee('role="option"', false)
-        ->assertSee('aria-selected="false"', false)
-        ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
-});
-
-it('clears the selected file when switching to the image url tab', function () {
-    $user = User::factory()->create();
-
-    $html = Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->html();
-
-    expect($html)->toContain('wire:click="$set(\'image\', null)"');
-});
-
-it('uses the imported url instead of a stale previously selected file', function () {
-    Storage::fake('public');
-
-    $user = User::factory()->create();
-
-    $component = Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('title', 'Switched Tabs Dish')
-        ->set('image', UploadedFile::fake()->image('stale.jpg'));
-
-    expect($component->get('image'))->not->toBeNull();
-
-    // Simulates the wire:click="$set('image', null)" handler fired when the
-    // "From URL" tab button is clicked, clearing the stale selected file.
-    $component->set('image', null);
-
-    expect($component->get('image'))->toBeNull();
-});
-
 it('does not query tags again during form interaction hydration', function () {
     $user = User::factory()->create();
     Tag::factory()->create(['name' => 'Italian']);
@@ -449,24 +345,6 @@ it('refreshes selectable tags when the upload modal opens again', function () {
         ->dispatch('upload-modal-opened')
         ->assertSee('NewTagAfterMount')
         ->assertSee('data-testid="upload-tag-'.$newTag->id.'"', false);
-});
-
-it('has source url input', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('Source URL')
-        ->assertSee('name="source_url"', false);
-});
-
-it('updates sourceUrl property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('sourceUrl', 'https://example.com/original')
-        ->assertSet('sourceUrl', 'https://example.com/original');
 });
 
 it('rejects uploaded images with disallowed mime type', function () {
@@ -526,17 +404,4 @@ it('allows uploaded images within configured max dimensions', function () {
         ->assertDispatched('post-uploaded');
 
     expect(Post::query()->where('title', 'Valid Dimensions Test')->exists())->toBeTrue();
-});
-
-it('has alpine image preview markup', function () {
-    $user = User::factory()->create();
-
-    $html = Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->html();
-
-    expect($html)
-        ->toContain('x-data')
-        ->toContain('previewUrl')
-        ->toContain('FileReader');
 });

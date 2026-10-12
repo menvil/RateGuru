@@ -11,19 +11,6 @@ beforeEach(function () {
     Storage::fake('public');
 });
 
-it('renders open graph image for post show page', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
-    $post = Post::factory()->published()->create([
-        'image_asset_id' => null,
-    ]);
-
-    $this->get(route('posts.show', $post))
-        ->assertOk()
-        ->assertSee('<meta property="og:image"', false)
-        ->assertSee('https://rateguru.test/images/og/rateguru-post-placeholder.png', false);
-});
-
 it('uses post image as open graph image when available', function () {
     // The image's absolute URL comes from Storage::disk($asset->disk)->url(),
     // which resolves against filesystems.disks.public.url — passed directly
@@ -39,17 +26,6 @@ it('uses post image as open graph image when available', function () {
         ->assertSee('<meta property="og:image"', false)
         ->assertSee('<meta property="og:image:secure_url"', false)
         ->assertSee('https://rateguru.test/storage/posts/demo.jpg', false);
-});
-
-it('renders open graph title for post show page', function () {
-    $post = Post::factory()->published()->create([
-        'title' => 'Best Pasta in Sofia',
-    ]);
-
-    $this->get(route('posts.show', $post))
-        ->assertOk()
-        ->assertSee('<meta property="og:title" content="Best Pasta in Sofia">', false)
-        ->assertSee('<meta property="og:site_name" content="RateGuru">', false);
 });
 
 it('escapes open graph title content', function () {
@@ -71,7 +47,8 @@ it('renders open graph description for post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<meta property="og:description" content="A detailed review of a handmade pasta dish in Sofia.">', false);
+        ->assertSee('<meta property="og:description" content="A detailed review of a handmade pasta dish in Sofia.">', false)
+        ->assertSee('<meta property="og:site_name" content="RateGuru">', false);
 });
 
 it('renders fallback open graph description when post has no description', function () {

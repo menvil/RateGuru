@@ -6,16 +6,8 @@ use App\Livewire\Feed\PostFeed;
 use App\Livewire\Moderation\InlinePostModeration;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
-
-it('can render inline post moderation component', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertStatus(200);
-});
 
 it('hides inline post moderation for normal user', function () {
     $user = User::factory()->create();
@@ -38,14 +30,27 @@ it('hides inline post moderation for guest', function () {
         ->assertDontSee('Approve');
 });
 
-it('shows inline post moderation panel for moderator', function () {
+it('shows a moderator the approve, reject and reason controls for a pending post', function () {
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->pending()->create();
 
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('data-testid="inline-post-moderation-panel"', false)
-        ->assertSee('Moderator');
+        ->assertSee('Moderator')
+        ->assertSee('data-testid="moderation-approve"', false)
+        ->assertSee('Approve')
+        ->assertSee('wire:click="approve"', false)
+        ->assertSee('data-testid="moderation-reject"', false)
+        ->assertSee('Reject')
+        ->assertDontSee('data-testid="moderation-hide"', false)
+        ->assertSee('name="moderation_reason"', false)
+        ->assertSee('maxlength="1000"', false)
+        ->assertSee('id="moderation-reason-'.$post->id.'"', false)
+        ->assertSee('for="moderation-reason-'.$post->id.'"', false)
+        ->assertDontSee('id="moderation-reason"', false)
+        ->set('reason', 'Image violates rules.')
+        ->assertSet('reason', 'Image violates rules.');
 });
 
 it('shows inline post moderation panel for admin', function () {
@@ -57,63 +62,27 @@ it('shows inline post moderation panel for admin', function () {
         ->assertSee('data-testid="inline-post-moderation-panel"', false);
 });
 
-it('renders approve button for pending post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('data-testid="moderation-approve"', false)
-        ->assertSee('Approve')
-        ->assertSee('wire:click="approve"', false);
-});
-
-it('does not render approve button for published post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="moderation-approve"', false)
-        ->assertDontSee('Approve');
-});
-
-it('renders hide button for published post', function () {
+it('shows a moderator the hide controls and an unlinked admin label for a published post', function () {
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('data-testid="moderation-hide"', false)
-        ->assertSee('Hide');
-});
-
-it('does not render hide button for pending post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="moderation-hide"', false);
-});
-
-it('renders reject button for pending post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('data-testid="moderation-reject"', false)
-        ->assertSee('Reject');
-});
-
-it('does not render reject button for published post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="moderation-reject"', false);
+        ->assertSee('Hide')
+        ->assertDontSee('data-testid="moderation-approve"', false)
+        ->assertDontSee('Approve')
+        ->assertDontSee('data-testid="moderation-reject"', false)
+        ->assertDontSee('data-testid="moderation-restore"', false)
+        ->assertSee('data-testid="hide-confirmation-modal"', false)
+        ->assertSee('confirmHideOpen', false)
+        ->assertSee('Hide this post?')
+        ->assertSee('data-testid="hide-confirmation-cancel"', false)
+        ->assertSee('data-testid="hide-confirmation-confirm"', false)
+        // The panel has no post edit page, so the admin entry is a label, not a link.
+        ->assertSee('data-testid="open-in-admin-link"', false)
+        ->assertSee('Open in admin')
+        ->assertDontSee('href="http', false);
 });
 
 it('renders restore button for hidden post', function () {
@@ -124,40 +93,6 @@ it('renders restore button for hidden post', function () {
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('data-testid="moderation-restore"', false)
         ->assertSee('Restore');
-});
-
-it('does not render restore button for published post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="moderation-restore"', false);
-});
-
-it('renders hide confirmation modal markup for published post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('data-testid="hide-confirmation-modal"', false)
-        ->assertSee('confirmHideOpen', false)
-        ->assertSee('Hide this post?')
-        ->assertSee('data-testid="hide-confirmation-cancel"', false)
-        ->assertSee('data-testid="hide-confirmation-confirm"', false);
-});
-
-it('renders moderation reason input and updates reason for moderator', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('name="moderation_reason"', false)
-        ->assertSee('maxlength="1000"', false)
-        ->set('reason', 'Image violates rules.')
-        ->assertSet('reason', 'Image violates rules.');
 });
 
 it('does not render moderation reason input for normal user', function () {
@@ -308,16 +243,6 @@ it('refreshes feed when post-moderated event is dispatched', function () {
         ->assertDontSee('Visible post');
 });
 
-it('renders open in admin link placeholder for moderator', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('data-testid="open-in-admin-link"', false)
-        ->assertSee('Open in admin');
-});
-
 it('does not render open in admin link for normal user', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
@@ -328,22 +253,14 @@ it('does not render open in admin link for normal user', function () {
         ->assertDontSee('Open in admin');
 });
 
-it('does not render broken admin link when filament route is missing', function () {
+it('links the admin entry to the post edit page once the panel has one', function () {
+    Route::get('/admin/posts/{record}/edit', fn () => '')->name('filament.admin.resources.posts.edit');
+    Route::getRoutes()->refreshNameLookups();
+
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertDontSee('href="http', false);
-});
-
-it('uses per-post unique reason input id', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('id="moderation-reason-'.$post->id.'"', false)
-        ->assertSee('for="moderation-reason-'.$post->id.'"', false)
-        ->assertDontSee('id="moderation-reason"', false);
+        ->assertSee('href="'.route('filament.admin.resources.posts.edit', ['record' => $post->id]).'"', false);
 });

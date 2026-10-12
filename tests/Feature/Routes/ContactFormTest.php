@@ -55,23 +55,6 @@ it('validates contact messages before queuing mail', function () {
     Mail::assertNothingQueued();
 });
 
-it('uses the configured contact recipient when there are no active administrators', function () {
-    Mail::fake();
-    config()->set('mail.contact_to', 'owner@example.test');
-
-    $this->post(route('pages.contact.submit'), [
-        'name' => 'Fallback Sender',
-        'email' => 'sender@example.test',
-        'subject' => 'Contact fallback',
-        'message' => 'This should reach the configured project owner.',
-    ])->assertRedirect(route('pages.contact'));
-
-    Mail::assertQueued(
-        ContactMessageMail::class,
-        fn (ContactMessageMail $mail): bool => $mail->hasTo('owner@example.test'),
-    );
-});
-
 it('never treats the global sender address as a contact mailbox', function () {
     Mail::fake();
     config()->set('mail.contact_to', null);

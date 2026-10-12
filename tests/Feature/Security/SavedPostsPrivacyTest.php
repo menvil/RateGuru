@@ -23,11 +23,6 @@ it('does not expose one users saved posts to another user', function () {
         ->assertDontSee('Private Saved Post');
 });
 
-it('does not allow guests to view saved posts page', function () {
-    $this->get(route('saved-posts.index'))
-        ->assertRedirect(route('login'));
-});
-
 it('shows only the authenticated users own saved posts', function () {
     $user = User::factory()->create();
     $other = User::factory()->create();

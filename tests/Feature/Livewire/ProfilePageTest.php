@@ -9,15 +9,6 @@ use App\Models\User;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
-it('can render profile page component', function () {
-    User::factory()->create([
-        'username' => 'chef_ivan',
-    ]);
-
-    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertStatus(200);
-});
-
 it('fails profile page component for missing username', function () {
     expectLivewireModelNotFound(ProfilePage::class, ['username' => 'missing_user']);
 });

@@ -6,46 +6,35 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
-it('serves feed page on home route', function () {
-    $this->get('/')
-        ->assertOk()
-        ->assertSee('RateGuru');
-});
-
-it('renders base feed layout', function () {
-    $this->get('/')
+it('renders the guest feed shell with header search and a centred feed before a post is selected', function () {
+    $response = $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header"', false)
-        ->assertDontSee('data-testid="search-input"', false);
-});
-
-it('renders generic feed copy', function () {
-    $this->get(route('feed'))
-        ->assertOk()
-        ->assertSee('Search tags, users, posts');
-});
-
-it('renders header search with responsive submit behavior', function () {
-    $this->get('/')
-        ->assertOk()
+        ->assertDontSee('data-testid="search-input"', false)
         ->assertSee('data-testid="app-header-search"', false)
         ->assertDontSee('x-on:input.debounce.350ms', false)
         ->assertSee('x-on:search', false);
-});
 
-it('uses mobile-safe feed layout', function () {
-    $response = $this->get('/');
-    $response->assertOk();
-    $html = $response->getContent();
-    expect($html)
+    expect($response->getContent())
+        // Mobile-safe gutters and width.
         ->toContain('px-4')
-        ->toContain('max-w-');
+        ->toContain('max-w-')
+        // A centred feed, with no detail column reserved before a post is selected.
+        ->toContain('data-testid="feed-content-shell"')
+        ->toContain('max-w-[820px]')
+        ->not->toContain('data-testid="post-detail-column"')
+        ->not->toContain('data-drawer-id="post-detail-drawer"')
+        ->not->toContain('Select a post')
+        ->not->toContain('Post details will appear here.')
+        // Post cards ask for the detail column rather than opening a drawer.
+        ->toContain('select-post')
+        ->not->toContain('open-post-drawer');
 });
 
-it('renders upload modal shell for authenticated user on feed page', function () {
+it('renders the upload modal shell for an authenticated user on the feed', function () {
     $user = User::factory()->create();
 
-    $this->actingAs($user)
+    $response = $this->actingAs($user)
         ->get('/')
         ->assertOk()
         ->assertSee('Upload')
@@ -55,15 +44,15 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->assertSee('aria-hidden="true"', false)
         ->assertSee('data-testid="upload-modal"', false)
         ->assertSee('overflow-visible', false);
-});
 
-it('renders generic upload copy for authenticated users', function () {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->get(route('feed'))
-        ->assertOk()
-        ->assertSee('Upload post');
+    expect($response->getContent())
+        // Alpine opens and closes the modal, and closes it once a post is uploaded.
+        ->toContain('x-data')
+        ->toContain('open: false')
+        ->toContain('x-show')
+        ->toContain('@click')
+        ->toContain('post-uploaded.window')
+        ->toContain('open = false');
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {
@@ -134,52 +123,4 @@ it('preloads the header avatar variants relation instead of leaving resolved_ava
     // (resolved_avatar_url / resolved_avatar_srcset are both read from the
     // header markup).
     expect($variantQueries)->toBe(1);
-});
-
-it('listens for post uploaded event to close upload modal', function () {
-    $user = User::factory()->create();
-
-    $html = $this->actingAs($user)->get('/')->getContent();
-
-    expect($html)
-        ->toContain('post-uploaded.window')
-        ->toContain('open = false');
-});
-
-it('has alpine upload modal open close behavior', function () {
-    $user = User::factory()->create();
-
-    $html = $this->actingAs($user)->get('/')->getContent();
-
-    expect($html)
-        ->toContain('x-data')
-        ->toContain('open: false')
-        ->toContain('x-show')
-        ->toContain('@click');
-});
-
-it('renders centered reference feed before a post is selected', function () {
-    $html = $this->get('/')->assertOk()->getContent();
-
-    expect($html)
-        ->toContain('data-testid="feed-content-shell"')
-        ->toContain('max-w-[820px]')
-        ->not->toContain('data-testid="post-detail-column"')
-        ->not->toContain('data-drawer-id="post-detail-drawer"');
-});
-
-it('does not reserve detail column before a post is selected', function () {
-    $html = $this->get('/')->assertOk()->getContent();
-
-    expect($html)
-        ->not->toContain('Select a post')
-        ->not->toContain('Post details will appear here.');
-});
-
-it('post cards dispatch select-post for the detail column', function () {
-    $html = $this->get('/')->assertOk()->getContent();
-
-    expect($html)
-        ->toContain('select-post')
-        ->not->toContain('open-post-drawer');
 });
