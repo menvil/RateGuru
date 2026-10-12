@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderaator',
         'open_in_admin' => 'Ava halduspaneelis',
-        'approve' => 'Kinnita',
-        'reject' => 'Lükka tagasi',
         'hide' => 'Peida postitus',
         'restore' => 'Taasta',
         'hide_confirm_title' => 'Kas peita see postitus?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Kinnita peitmine',
         'reason' => 'Põhjus',
         'reason_placeholder' => 'Valikuline modereerimismärkus...',
-        'approved' => 'Postitus kinnitatud.',
         'hidden' => 'Postitus peidetud.',
-        'rejected' => 'Postitus tagasi lükatud.',
         'restored' => 'Postitus taastatud.',
         'not_allowed' => 'Sul pole lubatud postitusi modereerida.',
         'errors' => [

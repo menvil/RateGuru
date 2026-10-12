@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderátor',
         'open_in_admin' => 'Megnyitás az adminfelületen',
-        'approve' => 'Jóváhagyás',
-        'reject' => 'Elutasítás',
         'hide' => 'Bejegyzés elrejtése',
         'restore' => 'Visszaállítás',
         'hide_confirm_title' => 'Elrejted ezt a bejegyzést?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Elrejtés megerősítése',
         'reason' => 'Indok',
         'reason_placeholder' => 'Nem kötelező moderátori megjegyzés...',
-        'approved' => 'Bejegyzés jóváhagyva.',
         'hidden' => 'Bejegyzés elrejtve.',
-        'rejected' => 'Bejegyzés elutasítva.',
         'restored' => 'Bejegyzés visszaállítva.',
         'not_allowed' => 'Nincs jogosultságod bejegyzések moderálására.',
         'errors' => [

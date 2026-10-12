@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Åpne i administrasjonen',
-        'approve' => 'Godkjenn',
-        'reject' => 'Avvis',
         'hide' => 'Skjul innlegg',
         'restore' => 'Gjenopprett',
         'hide_confirm_title' => 'Skjule dette innlegget?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Bekreft skjuling',
         'reason' => 'Årsak',
         'reason_placeholder' => 'Valgfritt modereringsnotat …',
-        'approved' => 'Innlegget er godkjent.',
         'hidden' => 'Innlegget er skjult.',
-        'rejected' => 'Innlegget er avvist.',
         'restored' => 'Innlegget er gjenopprettet.',
         'not_allowed' => 'Du har ikke tillatelse til å moderere innlegg.',
         'errors' => [

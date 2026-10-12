@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Stjórnandi',
         'open_in_admin' => 'Opna í stjórnborði',
-        'approve' => 'Samþykkja',
-        'reject' => 'Hafna',
         'hide' => 'Fela færslu',
         'restore' => 'Endurheimta',
         'hide_confirm_title' => 'Fela þessa færslu?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Staðfesta að fela',
         'reason' => 'Ástæða',
         'reason_placeholder' => 'Valfrjáls athugasemd stjórnanda...',
-        'approved' => 'Færsla samþykkt.',
         'hidden' => 'Færsla falin.',
-        'rejected' => 'Færslu hafnað.',
         'restored' => 'Færsla endurheimt.',
         'not_allowed' => 'Þú hefur ekki leyfi til að stjórna færslum.',
         'errors' => [

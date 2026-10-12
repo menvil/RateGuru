@@ -11,69 +11,48 @@ use Livewire\Livewire;
 
 it('hides inline post moderation for normal user', function () {
     $user = User::factory()->create();
-    $post = Post::factory()->pending()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('data-testid="inline-post-moderation-panel"', false)
-        ->assertDontSee('Approve')
-        ->assertDontSee('Reject')
         ->assertDontSee('Hide')
         ->assertDontSee('Restore');
 });
 
 it('hides inline post moderation for guest', function () {
-    $post = Post::factory()->pending()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('data-testid="inline-post-moderation-panel"', false)
-        ->assertDontSee('Approve');
-});
-
-it('shows a moderator the approve, reject and reason controls for a pending post', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->assertSee('data-testid="inline-post-moderation-panel"', false)
-        ->assertSee('Moderator')
-        ->assertSee('data-testid="moderation-approve"', false)
-        ->assertSee('Approve')
-        ->assertSee('wire:click="approve"', false)
-        ->assertSee('data-testid="moderation-reject"', false)
-        ->assertSee('Reject')
-        ->assertDontSee('data-testid="moderation-hide"', false)
-        ->assertSee('name="moderation_reason"', false)
-        ->assertSee('maxlength="1000"', false)
-        ->assertSee('id="moderation-reason-'.$post->id.'"', false)
-        ->assertSee('for="moderation-reason-'.$post->id.'"', false)
-        ->assertDontSee('id="moderation-reason"', false)
-        ->set('reason', 'Image violates rules.')
-        ->assertSet('reason', 'Image violates rules.');
+        ->assertDontSee('Hide');
 });
 
 it('shows inline post moderation panel for admin', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->pending()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::actingAs($admin)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('data-testid="inline-post-moderation-panel"', false);
 });
 
-it('shows a moderator the hide controls and an unlinked admin label for a published post', function () {
+it('shows a moderator the hide and reason controls and an unlinked admin label for a published post', function () {
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="inline-post-moderation-panel"', false)
+        ->assertSee('Moderator')
         ->assertSee('data-testid="moderation-hide"', false)
         ->assertSee('Hide')
-        ->assertDontSee('data-testid="moderation-approve"', false)
-        ->assertDontSee('Approve')
-        ->assertDontSee('data-testid="moderation-reject"', false)
         ->assertDontSee('data-testid="moderation-restore"', false)
+        ->assertSee('name="moderation_reason"', false)
+        ->assertSee('maxlength="1000"', false)
+        ->assertSee('id="moderation-reason-'.$post->id.'"', false)
+        ->assertSee('for="moderation-reason-'.$post->id.'"', false)
+        ->assertDontSee('id="moderation-reason"', false)
         ->assertSee('data-testid="hide-confirmation-modal"', false)
         ->assertSee('confirmHideOpen', false)
         ->assertSee('Hide this post?')
@@ -97,46 +76,23 @@ it('renders restore button for hidden post', function () {
 
 it('does not render moderation reason input for normal user', function () {
     $user = User::factory()->create();
-    $post = Post::factory()->pending()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('name="moderation_reason"', false);
 });
 
-it('approves pending post from inline moderation', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->set('reason', 'Valid post.')
-        ->call('approve')
-        ->assertDispatched('post-moderated')
-        ->assertSet('error', null)
-        ->assertSet('success', 'Post approved.');
-
-    expect($post->fresh()->status)->toBe(PostStatus::Published);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $moderator->id,
-        'action' => ModerationActionType::ApprovePost->value,
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-        'reason' => 'Valid post.',
-    ]);
-});
-
-it('does not approve pending post when invoked by normal user', function () {
+it('does not hide a post when a normal user calls hide', function () {
     $user = User::factory()->create();
-    $post = Post::factory()->pending()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->call('approve')
+        ->call('hide')
         ->assertNotDispatched('post-moderated');
 
-    expect($post->fresh()->status)->toBe(PostStatus::Pending);
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
     $this->assertDatabaseCount('moderation_logs', 0);
 });
 
@@ -172,26 +128,6 @@ it('shows error when hiding non published post', function () {
         ->assertSet('error', 'Post status is invalid for this moderation action.');
 
     expect($post->fresh()->status)->toBe(PostStatus::Pending);
-});
-
-it('rejects pending post from inline moderation', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    Livewire::actingAs($moderator)
-        ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->set('reason', 'Invalid image.')
-        ->call('reject')
-        ->assertDispatched('post-moderated')
-        ->assertSet('success', 'Post rejected.');
-
-    expect($post->fresh()->status)->toBe(PostStatus::Rejected);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $moderator->id,
-        'action' => ModerationActionType::RejectPost->value,
-        'target_id' => $post->id,
-    ]);
 });
 
 it('restores hidden post from inline moderation', function () {

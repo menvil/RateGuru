@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderatör',
         'open_in_admin' => 'Yönetim panelinde aç',
-        'approve' => 'Onayla',
-        'reject' => 'Reddet',
         'hide' => 'Gönderiyi gizle',
         'restore' => 'Geri yükle',
         'hide_confirm_title' => 'Bu gönderi gizlensin mi?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Gizlemeyi onayla',
         'reason' => 'Neden',
         'reason_placeholder' => 'İsteğe bağlı moderasyon notu...',
-        'approved' => 'Gönderi onaylandı.',
         'hidden' => 'Gönderi gizlendi.',
-        'rejected' => 'Gönderi reddedildi.',
         'restored' => 'Gönderi geri yüklendi.',
         'not_allowed' => 'Gönderileri denetleme yetkiniz yok.',
         'errors' => [

@@ -172,8 +172,6 @@ return [
     'moderation' => [
         'badge' => 'Moderators',
         'open_in_admin' => 'Atvērt administrācijas panelī',
-        'approve' => 'Apstiprināt',
-        'reject' => 'Noraidīt',
         'hide' => 'Paslēpt ierakstu',
         'restore' => 'Atjaunot',
         'hide_confirm_title' => 'Paslēpt šo ierakstu?',
@@ -181,9 +179,7 @@ return [
         'confirm_hide' => 'Apstiprināt paslēpšanu',
         'reason' => 'Iemesls',
         'reason_placeholder' => 'Moderēšanas piezīme (nav obligāta)...',
-        'approved' => 'Ieraksts apstiprināts.',
         'hidden' => 'Ieraksts paslēpts.',
-        'rejected' => 'Ieraksts noraidīts.',
         'restored' => 'Ieraksts atjaunots.',
         'not_allowed' => 'Jums nav atļauts moderēt ierakstus.',
         'errors' => [

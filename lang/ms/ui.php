@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Buka dalam panel pentadbir',
-        'approve' => 'Luluskan',
-        'reject' => 'Tolak',
         'hide' => 'Sembunyikan siaran',
         'restore' => 'Pulihkan',
         'hide_confirm_title' => 'Sembunyikan siaran ini?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Sahkan sembunyi',
         'reason' => 'Sebab',
         'reason_placeholder' => 'Nota penyederhanaan pilihan...',
-        'approved' => 'Siaran diluluskan.',
         'hidden' => 'Siaran disembunyikan.',
-        'rejected' => 'Siaran ditolak.',
         'restored' => 'Siaran dipulihkan.',
         'not_allowed' => 'Anda tidak dibenarkan menyederhanakan siaran.',
         'errors' => [

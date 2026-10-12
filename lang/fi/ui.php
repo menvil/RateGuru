@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderaattori',
         'open_in_admin' => 'Avaa hallintapaneelissa',
-        'approve' => 'Hyväksy',
-        'reject' => 'Hylkää',
         'hide' => 'Piilota julkaisu',
         'restore' => 'Palauta',
         'hide_confirm_title' => 'Piilotetaanko tämä julkaisu?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Vahvista piilotus',
         'reason' => 'Syy',
         'reason_placeholder' => 'Valinnainen moderointimerkintä...',
-        'approved' => 'Julkaisu hyväksytty.',
         'hidden' => 'Julkaisu piilotettu.',
-        'rejected' => 'Julkaisu hylätty.',
         'restored' => 'Julkaisu palautettu.',
         'not_allowed' => 'Sinulla ei ole oikeutta moderoida julkaisuja.',
         'errors' => [

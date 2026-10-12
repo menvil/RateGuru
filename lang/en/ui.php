@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Open in admin',
-        'approve' => 'Approve',
-        'reject' => 'Reject',
         'hide' => 'Hide post',
         'restore' => 'Restore',
         'hide_confirm_title' => 'Hide this post?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Confirm hide',
         'reason' => 'Reason',
         'reason_placeholder' => 'Optional moderation note...',
-        'approved' => 'Post approved.',
         'hidden' => 'Post hidden.',
-        'rejected' => 'Post rejected.',
         'restored' => 'Post restored.',
         'not_allowed' => 'You are not allowed to moderate posts.',
         'errors' => [

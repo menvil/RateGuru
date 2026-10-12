@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'モデレーター',
         'open_in_admin' => '管理画面で開く',
-        'approve' => '承認',
-        'reject' => '却下',
         'hide' => '投稿を非表示',
         'restore' => '復元',
         'hide_confirm_title' => 'この投稿を非表示にしますか？',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => '非表示にする',
         'reason' => '理由',
         'reason_placeholder' => 'モデレーションのメモ（任意）...',
-        'approved' => '投稿を承認しました。',
         'hidden' => '投稿を非表示にしました。',
-        'rejected' => '投稿を却下しました。',
         'restored' => '投稿を復元しました。',
         'not_allowed' => '投稿をモデレートする権限がありません。',
         'errors' => [

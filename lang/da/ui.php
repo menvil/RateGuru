@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Åbn i administration',
-        'approve' => 'Godkend',
-        'reject' => 'Afvis',
         'hide' => 'Skjul opslag',
         'restore' => 'Gendan',
         'hide_confirm_title' => 'Skjul dette opslag?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Bekræft skjul',
         'reason' => 'Årsag',
         'reason_placeholder' => 'Valgfri moderationsnote...',
-        'approved' => 'Opslaget er godkendt.',
         'hidden' => 'Opslaget er skjult.',
-        'rejected' => 'Opslaget er afvist.',
         'restored' => 'Opslaget er gendannet.',
         'not_allowed' => 'Du har ikke tilladelse til at moderere opslag.',
         'errors' => [
