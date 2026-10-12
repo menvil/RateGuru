@@ -5,6 +5,7 @@ namespace App\Queries\Translations;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Models\TranslationAiProviderCall;
+use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Enums\TranslationStatus;
 use App\Support\Translations\Telemetry\TranslationAiErrorBreakdown;
 use App\Support\Translations\Telemetry\TranslationAiFailurePattern;
@@ -34,7 +35,8 @@ use LogicException;
  *  - timeline()        the same figures hour by hour or day by day, for charts;
  *  - recentCalls()     the calls themselves, newest first, a page at a time;
  *  - models()          every model recorded, with its calls in a period;
- *  - lastSucceededAt() when the calls of a filter last succeeded.
+ *  - lastSucceededAt() when the calls of a filter last succeeded;
+ *  - latestSuccessOrFailure() the last call that succeeded or failed with given codes.
  *
  * Aggregate queries over translation_ai_provider_calls, the same on
  * PostgreSQL, MariaDB and SQLite, and everything in UTC. The aggregates are
@@ -324,6 +326,24 @@ final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, Stable
         usort($models, fn (TranslationAiUsageModel $a, TranslationAiUsageModel $b): int => [$b->lastCallAt->getTimestamp(), $a->provider, $a->model] <=> [$a->lastCallAt->getTimestamp(), $b->provider, $b->model]);
 
         return $models;
+    }
+
+    /**
+     * The latest call of $filter that succeeded or failed with one of $codes —
+     * the last word on what those codes are about — or null when there is
+     * none. Calls that failed otherwise are passed over: a timeout says
+     * nothing about whether the credentials work.
+     */
+    public function latestSuccessOrFailure(TranslationAiUsageFilter $filter, TranslationErrorCode ...$codes): ?TranslationAiProviderCall
+    {
+        return $filter->query()
+            ->where(fn (Builder $query) => $query
+                ->where('status', TranslationStatus::Success->value)
+                ->orWhereIn('error_code', array_map(fn (TranslationErrorCode $code): string => $code->value, $codes)))
+            ->select(['id', 'status', 'error_code', 'completed_at'])
+            ->orderByDesc('completed_at')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /** When a call of $filter last succeeded, or null when none did. */

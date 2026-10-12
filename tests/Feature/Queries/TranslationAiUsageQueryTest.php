@@ -3,6 +3,7 @@
 use App\Models\TranslationAiProviderCall;
 use App\Queries\Translations\TranslationAiUsageQuery;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
+use App\Support\TranslationEngine\Enums\TranslationStatus;
 use App\Support\Translations\Telemetry\TranslationAiConsumer;
 use App\Support\Translations\Telemetry\TranslationAiFailurePattern;
 use App\Support\Translations\Telemetry\TranslationAiFailureSeries;
@@ -367,4 +368,19 @@ it('says when the calls of a filter last succeeded, and nothing when none did', 
         ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod(filters: ['provider' => 'openai']))?->format('H:i'))->toBe('14:30')
         ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod(filters: ['models' => ['gpt-6-luna-2026-09-01']]))?->toIso8601String())->toBe('2026-10-01T14:00:00+00:00')
         ->and(translationAiUsage()->lastSucceededAt(translationAiPeriod('2026-12-01', '2026-12-02')))->toBeNull();
+});
+
+it('finds the latest call that succeeded or failed with the codes asked about, passing over other failures', function () {
+    $atOf = fn (?TranslationAiProviderCall $call): ?string => $call?->completed_at->format('H:i');
+
+    expect($atOf(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(), TranslationErrorCode::AuthenticationFailed)))->toBe('20:00')
+        ->and($atOf(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(filters: ['models' => ['gpt-6-luna-2026-09-01']]), TranslationErrorCode::AuthenticationFailed)))->toBe('14:00')
+        ->and(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod('2026-12-01', '2026-12-02'), TranslationErrorCode::AuthenticationFailed))->toBeNull();
+
+    failedAiCallAt('2026-10-01 21:00:00', TranslationErrorCode::AuthenticationFailed);
+    failedAiCallAt('2026-10-01 22:00:00', TranslationErrorCode::ProviderTimeout);
+
+    $latest = translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(), TranslationErrorCode::AuthenticationFailed);
+
+    expect([$atOf($latest), $latest?->status, $latest?->error_code])->toBe(['21:00', TranslationStatus::Failed, 'authentication_failed']);
 });

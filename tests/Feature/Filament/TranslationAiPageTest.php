@@ -435,6 +435,83 @@ it('says Degraded while failures of the configured model are ongoing', function 
         ->toBe('provider_unavailable is failing repeatedly: 5 failed calls since 09:50 UTC.');
 });
 
+it('says Degraded after a single rejected API key, with no series of failures needed, and asks no provider', function () {
+    Http::preventStrayRequests();
+    Http::fake();
+    translationAiCall('2026-10-12 09:00:00', ['model' => 'gpt-6-luna-2026-09-01']);
+    failedTranslationAiCall('2026-10-12 09:40:00', TranslationErrorCode::AuthenticationFailed, 401, ['model' => 'gpt-6-luna-2026-09-01']);
+
+    $page = translationAiScreen();
+
+    expect(translationAiHealth($page)['status'])->toBe('Degraded')
+        ->and(translationAiText($page, "//section[@aria-labelledby='rg-admin-translation-ai-health']//p[contains(@class, 'rg-admin-translation-ai__section-note')]"))
+        ->toBe('The provider rejected the API key today 09:40 UTC (authentication_failed), and no call has succeeded since.')
+        // One failure: no series, so it is only the rejected key that degrades.
+        ->and(translationAiFailureRows($page)['authentication_failed'])->toBe('1 failed call 1 failed item Isolated');
+
+    Http::assertNothingSent();
+});
+
+it('stays Degraded while the calls after a rejected key say nothing about the key', function () {
+    translationAiCall('2026-10-12 08:00:00');
+    failedTranslationAiCall('2026-10-12 09:00:00', TranslationErrorCode::AuthenticationFailed, 401);
+    failedTranslationAiCall('2026-10-12 09:30:00', TranslationErrorCode::ProviderTimeout);
+    failedTranslationAiCall('2026-10-12 09:31:00', TranslationErrorCode::RateLimited, 429);
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Degraded')
+        ->and(translationAiText(translationAiScreen(), "//section[@aria-labelledby='rg-admin-translation-ai-health']//p[contains(@class, 'rg-admin-translation-ai__section-note')]"))
+        ->toBe('The provider rejected the API key today 09:00 UTC (authentication_failed), and no call has succeeded since.');
+});
+
+it('says Healthy again once a call succeeds after the rejected key', function () {
+    failedTranslationAiCall('2026-10-12 09:00:00', TranslationErrorCode::AuthenticationFailed, 401);
+    failedTranslationAiCall('2026-10-12 09:01:00', TranslationErrorCode::AuthenticationFailed, 401);
+    translationAiCall('2026-10-12 09:30:00');
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Healthy');
+});
+
+it('orders a success and a rejected key recorded in the same second as they were recorded', function (array $order, string $status) {
+    foreach ($order as $outcome) {
+        $outcome === 'rejected'
+            ? failedTranslationAiCall('2026-10-12 09:30:00', TranslationErrorCode::AuthenticationFailed, 401)
+            : translationAiCall('2026-10-12 09:30:00');
+    }
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe($status);
+})->with([
+    'the rejection last' => [['succeeded', 'rejected'], 'Degraded'],
+    'the success last' => [['rejected', 'succeeded'], 'Healthy'],
+]);
+
+it('reads the key from the configured provider and its model alone, never an older model or another provider', function () {
+    translationAiCall('2026-10-12 09:00:00', ['model' => 'gpt-6-luna-2026-09-01']);
+    failedTranslationAiCall('2026-10-12 09:30:00', TranslationErrorCode::AuthenticationFailed, 401, ['model' => 'gpt-5-luna']);
+    failedTranslationAiCall('2026-10-12 09:31:00', TranslationErrorCode::AuthenticationFailed, 401, ['provider' => 'local', 'model' => 'gpt-6-luna']);
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Healthy');
+
+    // Another dated snapshot of the configured model is the configured model.
+    failedTranslationAiCall('2026-10-12 09:40:00', TranslationErrorCode::AuthenticationFailed, 401, ['model' => 'gpt-6-luna-2026-10-01']);
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Degraded');
+});
+
+it('still needs a series before any other failure degrades the provider', function () {
+    translationAiCall('2026-10-12 09:00:00');
+    foreach (range(0, 3) as $minute) {
+        failedTranslationAiCall('2026-10-12 09:5'.$minute.':00', TranslationErrorCode::ProviderTimeout);
+    }
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Healthy');
+
+    failedTranslationAiCall('2026-10-12 09:54:00', TranslationErrorCode::ProviderTimeout);
+
+    expect(translationAiHealth(translationAiScreen())['status'])->toBe('Degraded')
+        ->and(translationAiText(translationAiScreen(), "//section[@aria-labelledby='rg-admin-translation-ai-health']//p[contains(@class, 'rg-admin-translation-ai__section-note')]"))
+        ->toBe('provider_timeout is failing repeatedly: 5 failed calls since 09:50 UTC.');
+});
+
 it('keeps the health of the configuration whatever older model the history is filtered to', function () {
     translationAiCall('2026-10-12 09:00:00', ['model' => 'gpt-6-luna-2026-09-01']);
     foreach (range(0, 5) as $minute) {

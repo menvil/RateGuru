@@ -221,9 +221,11 @@ final class TranslationAiDiagnostics
      * made on them — never from the model filter.
      *
      * Not configured: the router would refuse a batch, before sending it.
-     * Degraded: one kind of provider failure is ongoing — five or more failed
-     * calls within ten minutes, reaching into the last fifteen. Healthy: a
-     * call succeeded within the last day, and nothing is ongoing. Configured:
+     * Degraded: the provider rejected the API key and no call has succeeded
+     * since — once is enough, since a rejected key fails every call after it;
+     * or one kind of provider failure is ongoing — five or more failed calls
+     * within ten minutes, reaching into the last fifteen. Healthy: a call
+     * succeeded within the last day, and neither is the case. Configured:
      * ready, but no recent success to say it works.
      *
      * @param  list<TranslationAiUsageModel>  $models
@@ -247,6 +249,9 @@ final class TranslationAiDiagnostics
             $this->usage->failureSeries($current($now->subSeconds($recentWindow), $until), $now),
             fn (TranslationAiFailureSeries $series): bool => $series->pattern === TranslationAiFailurePattern::Ongoing,
         ));
+        // The last call that tested the key: a success, or a rejection of it. Timeouts and the like say nothing about it.
+        $keyTest = $this->usage->latestSuccessOrFailure($current($now->subYears(10), $until), TranslationErrorCode::AuthenticationFailed);
+        $keyRejectedAt = $keyTest !== null && $keyTest->status === TranslationStatus::Failed ? CarbonImmutable::instance($keyTest->completed_at)->utc() : null;
         $healthy = $lastSuccess !== null && $lastSuccess->greaterThanOrEqualTo($now->subHours(self::HEALTHY_WITHIN_HOURS));
 
         [$status, $reason] = match (true) {
@@ -259,13 +264,17 @@ final class TranslationAiDiagnostics
                     default => 'A provider setting is missing or invalid. Translations are refused before anything is sent.',
                 },
             ],
+            $keyRejectedAt !== null => [
+                ['label' => 'Degraded', 'tone' => 'warning', 'dot' => false],
+                'The provider rejected the API key '.self::moment($keyRejectedAt, $now).' UTC ('.TranslationErrorCode::AuthenticationFailed->value.'), and no call has succeeded since.',
+            ],
             $ongoing !== [] => [
                 ['label' => 'Degraded', 'tone' => 'warning', 'dot' => false],
                 $ongoing[0]->errorCode.' is failing repeatedly: '.number_format($ongoing[0]->seriesCalls).' failed calls since '.$ongoing[0]->seriesStartedAt?->format('H:i').' UTC.',
             ],
             $healthy => [
                 ['label' => 'Healthy', 'tone' => 'success', 'dot' => true],
-                'A call succeeded '.self::ago($lastSuccess, $now).', and no failure is ongoing.',
+                'A call succeeded '.self::ago($lastSuccess, $now).', the API key was not rejected since, and no failure is ongoing.',
             ],
             default => [
                 ['label' => 'Configured', 'tone' => 'neutral', 'dot' => false],

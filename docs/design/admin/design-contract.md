@@ -736,12 +736,13 @@ changes a setting, and nothing is sent to a provider — not on opening, not on 
   configured model is listed before it has any call, “Configured now · no calls recorded”. Nothing is a fixed list.
 - **Provider health** is the configuration translations run on now — the configured provider and model, with the
   model's dated snapshots — whatever the filter shows: Not configured (danger) when a public-content batch would be
-  refused before sending, asked the way Generate missing asks before it plans; Degraded (warning) while a series of one provider
-  failure of the configured model is ongoing; Healthy (success, dot) after a successful call within 24 hours with
-  nothing ongoing; Configured (neutral) otherwise — a key alone is never Healthy. Rows: provider, model, API key
-  (Configured, Not configured or Not required — never the key), last success, average response, p95 latency and
-  success rate over the period, retry policy and fallback provider (None: the engine has neither). The reason sits
-  in the section's sunken footer.
+  refused before sending, asked the way Generate missing asks before it plans; Degraded (warning) when the last call
+  that tested the API key — a success, or a rejection of it (`authentication_failed`) — was a rejection, however few
+  failures that makes, or while a series of one provider failure of the configured model is ongoing; Healthy
+  (success, dot) after a successful call within 24 hours with neither; Configured (neutral) otherwise — a key alone
+  is never Healthy. Rows: provider, model, API key (Configured, Not configured or Not required — never the key), last
+  success, average response, p95 latency and success rate over the period, retry policy and fallback provider (None:
+  the engine has neither). The reason sits in the section's sunken footer.
 - **Usage and cost:** provider calls (and how many failed), translated items — succeeded, not sent — tokens in · out
   (and calls without reported usage) and the estimated cost: the sum of known costs, to the cent or “< $0.01”,
   with “n calls with unknown cost” in the due colour whenever any is unknown, and Unknown when all are — never $0

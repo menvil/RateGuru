@@ -18,8 +18,8 @@ use Carbon\CarbonImmutable;
  * A week of Translation AI telemetry up to $now, as an administrator would
  * find it: interactive suggestions and Generate missing chunks every day on
  * the current model, one chunk with items its checks refused, an isolated
- * timeout, a burst of rejected credentials yesterday, a model without rates
- * and an older model last used three weeks ago.
+ * timeout, a burst of rejected credentials yesterday and a success since, a
+ * model without rates and an older model last used three weeks ago.
  */
 function seedTranslationAiWeek(CarbonImmutable $now): void
 {
@@ -52,6 +52,8 @@ function seedTranslationAiWeek(CarbonImmutable $now): void
     foreach (range(0, 5) as $attempt) {
         TranslationAiProviderCall::factory()->state(['item_count' => 1])->failedWith(TranslationErrorCode::AuthenticationFailed, 401)->create(['completed_at' => $now->subDay()->setTime(18, 20, $attempt * 20), 'consumer' => 'interactive_ai', 'latency_ms' => 310]);
     }
+    // The key works again, whatever the time of day the week is seeded at.
+    $call($now->subMinutes(20), $interactive);
     // A model without configured rates: its cost is unknown, never $0.
     $call($now->subHours(3), [...$interactive, 'model' => 'gpt-6-luna-mini', 'estimated_cost_usd' => null, 'input_usd_per_million_tokens' => null, 'output_usd_per_million_tokens' => null]);
     // An older model, last used three weeks ago.

@@ -159,7 +159,8 @@ In separate steps:
        the third item of Localization, is read-only technical monitoring drawn in Admin v2 as in the prototype, for
        whoever may manage project settings; the contract's Localization section describes it. Provider health is
        the configuration translations run on now — Not configured, Configured, Healthy or Degraded, from the
-       configuration and the calls of the configured model, never from the model filter. Usage and cost, Failures
+       configuration and the calls of the configured model, never from the model filter; one rejected API key with
+       no success since is Degraded, any other failure only in a series. Usage and cost, Failures
        and issues and Recent provider calls are the history a period (24 hours, 7 or 30 days) and an optional model
        choose, all from the database through `TranslationAiUsageQuery`, which gained the models recorded, the last
        success, failed calls in series (Isolated, Burst, Ongoing) and calls with issues; failed calls and failed
