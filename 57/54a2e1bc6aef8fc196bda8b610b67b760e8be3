@@ -1,0 +1,25 @@
+docs/sharing/extended-sharing.md
+  s_9ce0383c8ffad8::t_3ee95a63d422ad 57-75
+tests/Browser/SharePictureBrowserTest.php
+  s_9ce0383c8ffad8::t_721013ce774c22 1-82
+resources/js/share.js
+  s_9ce0383c8ffad8::t_5c177d049e8a2e 1-3,7,9-11,13,20-140
+app/Support/Media/PostImagePresenter.php
+  s_9ce0383c8ffad8::t_52d808cc5e9155 107-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5754a2e1bc6aef8fc196bda8b610b67b760e8be3",
+  "prompts": {},
+  "sessions": {
+    "s_9ce0383c8ffad8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39b83c43-4723-4381-aade-182a822779a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
