@@ -275,6 +275,7 @@ return [
         'submit' => '投稿を作成',
         'submitting' => 'アップロード中...',
         'success_pending' => '投稿を受け付けました。審査後に公開されます。',
+        'success_published' => '投稿を公開しました。',
         'error_generic' => '投稿の作成中に問題が発生しました。',
         'error_invalid_image' => 'この画像を処理できませんでした。別のファイルをお試しください。',
         'selected_image_alt' => '選択した画像のプレビュー',

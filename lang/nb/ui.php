@@ -275,6 +275,7 @@ return [
         'submit' => 'Opprett innlegg',
         'submitting' => 'Laster opp …',
         'success_pending' => 'Innlegget ditt er sendt inn og vises etter moderering.',
+        'success_published' => 'Innlegget ditt er publisert.',
         'error_generic' => 'Noe gikk galt under opprettelsen av innlegget ditt.',
         'error_invalid_image' => 'Dette bildet kunne ikke behandles. Prøv en annen fil.',
         'selected_image_alt' => 'Forhåndsvisning av valgt bilde',

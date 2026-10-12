@@ -277,6 +277,7 @@ return [
         'submit' => 'Sukurti įrašą',
         'submitting' => 'Įkeliama...',
         'success_pending' => 'Jūsų įrašas pateiktas ir bus parodytas po moderavimo.',
+        'success_published' => 'Jūsų įrašas paskelbtas.',
         'error_generic' => 'Kuriant įrašą įvyko klaida.',
         'error_invalid_image' => 'Nepavyko apdoroti šio paveikslėlio. Pabandykite kitą failą.',
         'selected_image_alt' => 'Pasirinkto paveikslėlio peržiūra',

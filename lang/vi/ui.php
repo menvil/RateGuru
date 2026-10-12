@@ -275,6 +275,7 @@ return [
         'submit' => 'Tạo bài đăng',
         'submitting' => 'Đang tải lên...',
         'success_pending' => 'Bài đăng của bạn đã được gửi và sẽ hiển thị sau khi được kiểm duyệt.',
+        'success_published' => 'Bài đăng của bạn đã được đăng.',
         'error_generic' => 'Đã xảy ra lỗi khi tạo bài đăng của bạn.',
         'error_invalid_image' => 'Không thể xử lý hình ảnh này. Vui lòng thử tệp khác.',
         'selected_image_alt' => 'Xem trước hình ảnh đã chọn',

@@ -275,6 +275,7 @@ return [
         'submit' => 'Gumawa ng post',
         'submitting' => 'Ina-upload...',
         'success_pending' => 'Naisumite na ang iyong post at lalabas ito pagkatapos ng moderation.',
+        'success_published' => 'Na-publish na ang iyong post.',
         'error_generic' => 'Nagkaproblema habang ginagawa ang iyong post.',
         'error_invalid_image' => 'Hindi maproseso ang larawang ito. Sumubok ng ibang file.',
         'selected_image_alt' => 'Preview ng napiling larawan',

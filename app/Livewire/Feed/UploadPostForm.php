@@ -6,6 +6,7 @@ use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\ImageInputSource;
+use App\Enums\PostStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\RatingGroup;
 use App\Models\Tag;
@@ -114,7 +115,11 @@ final class UploadPostForm extends Component
                 ));
 
                 $this->dispatch('post-uploaded', postId: $post->id);
-                $this->dispatch('toast', message: __('ui.upload.success_pending'));
+                // A trusted author's post is published at once; anyone else's
+                // waits for a moderator, and the message says which.
+                $this->dispatch('toast', message: $post->status === PostStatus::Published
+                    ? __('ui.upload.success_published')
+                    : __('ui.upload.success_pending'));
 
                 $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
                 $this->importedImageUrl = null;

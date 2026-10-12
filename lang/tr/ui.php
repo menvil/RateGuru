@@ -275,6 +275,7 @@ return [
         'submit' => 'Gönderi oluştur',
         'submitting' => 'Yükleniyor...',
         'success_pending' => 'Gönderiniz iletildi ve moderasyondan sonra görünecek.',
+        'success_published' => 'Gönderiniz yayınlandı.',
         'error_generic' => 'Gönderiniz oluşturulurken bir hata oluştu.',
         'error_invalid_image' => 'Bu görsel işlenemedi. Lütfen farklı bir dosya deneyin.',
         'selected_image_alt' => 'Seçilen görselin önizlemesi',

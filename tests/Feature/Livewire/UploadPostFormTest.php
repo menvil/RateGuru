@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
 use App\Models\Tag;
@@ -75,7 +76,7 @@ it('renders error message when submitError is set', function () {
         ->assertSee('Something went wrong');
 });
 
-it('dispatches successful upload event', function () {
+it('tells a trusted author their post is published', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
@@ -87,7 +88,26 @@ it('dispatches successful upload event', function () {
         ->set('image', $file)
         ->call('submit')
         ->assertDispatched('post-uploaded')
+        ->assertDispatched('toast', message: __('ui.upload.success_published'));
+
+    expect(Post::query()->sole()->status)->toBe(PostStatus::Published);
+});
+
+it('tells an author whose post waits for a moderator that it will appear after moderation', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create(['trust_level' => 0]);
+    $file = UploadedFile::fake()->image('dish.jpg');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Sample Entry')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertDispatched('post-uploaded')
         ->assertDispatched('toast', message: __('ui.upload.success_pending'));
+
+    expect(Post::query()->sole()->status)->toBe(PostStatus::Pending);
 });
 
 it('shows upload rate limit error without creating another post', function () {

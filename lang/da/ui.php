@@ -275,6 +275,7 @@ return [
         'submit' => 'Opret opslag',
         'submitting' => 'Uploader...',
         'success_pending' => 'Dit opslag er indsendt og vises efter moderering.',
+        'success_published' => 'Dit opslag er udgivet.',
         'error_generic' => 'Noget gik galt under oprettelsen af dit opslag.',
         'error_invalid_image' => 'Billedet kunne ikke behandles. Prøv en anden fil.',
         'selected_image_alt' => 'Forhåndsvisning af valgt billede',

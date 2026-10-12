@@ -275,6 +275,7 @@ return [
         'submit' => 'Loo postitus',
         'submitting' => 'Üleslaadimine...',
         'success_pending' => 'Sinu postitus on esitatud ja ilmub pärast modereerimist.',
+        'success_published' => 'Sinu postitus on avaldatud.',
         'error_generic' => 'Postituse loomisel tekkis viga.',
         'error_invalid_image' => 'Seda pilti ei õnnestunud töödelda. Proovi mõnda teist faili.',
         'selected_image_alt' => 'Valitud pildi eelvaade',

@@ -275,6 +275,7 @@ return [
         'submit' => 'Utwórz post',
         'submitting' => 'Przesyłanie...',
         'success_pending' => 'Twój post został wysłany i pojawi się po moderacji.',
+        'success_published' => 'Twój post został opublikowany.',
         'error_generic' => 'Coś poszło nie tak podczas tworzenia posta.',
         'error_invalid_image' => 'Nie udało się przetworzyć tego obrazu. Spróbuj użyć innego pliku.',
         'selected_image_alt' => 'Podgląd wybranego obrazu',

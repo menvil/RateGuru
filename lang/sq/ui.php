@@ -275,6 +275,7 @@ return [
         'submit' => 'Krijo postimin',
         'submitting' => 'Po ngarkohet…',
         'success_pending' => 'Postimi yt u dërgua dhe do të shfaqet pas moderimit.',
+        'success_published' => 'Postimi yt u publikua.',
         'error_generic' => 'Diçka shkoi keq gjatë krijimit të postimit.',
         'error_invalid_image' => 'Ky imazh nuk mund të përpunohej. Provo një skedar tjetër.',
         'selected_image_alt' => 'Parapamja e imazhit të zgjedhur',

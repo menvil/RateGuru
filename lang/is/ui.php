@@ -275,6 +275,7 @@ return [
         'submit' => 'Búa til færslu',
         'submitting' => 'Hleður upp...',
         'success_pending' => 'Færslan þín hefur verið send og birtist eftir yfirferð.',
+        'success_published' => 'Færslan þín hefur verið birt.',
         'error_generic' => 'Eitthvað fór úrskeiðis við að búa til færsluna.',
         'error_invalid_image' => 'Ekki tókst að vinna úr þessari mynd. Prófaðu aðra skrá.',
         'selected_image_alt' => 'Forskoðun valinnar myndar',

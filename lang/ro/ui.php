@@ -275,6 +275,7 @@ return [
         'submit' => 'Creează postarea',
         'submitting' => 'Se încarcă…',
         'success_pending' => 'Postarea ta a fost trimisă și va apărea după moderare.',
+        'success_published' => 'Postarea ta a fost publicată.',
         'error_generic' => 'A apărut o eroare la crearea postării.',
         'error_invalid_image' => 'Această imagine nu a putut fi procesată. Încearcă un alt fișier.',
         'selected_image_alt' => 'Previzualizarea imaginii selectate',

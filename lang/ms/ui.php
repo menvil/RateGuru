@@ -275,6 +275,7 @@ return [
         'submit' => 'Cipta siaran',
         'submitting' => 'Memuat naik...',
         'success_pending' => 'Siaran anda telah dihantar dan akan dipaparkan selepas disederhanakan.',
+        'success_published' => 'Siaran anda telah diterbitkan.',
         'error_generic' => 'Berlaku ralat semasa mencipta siaran anda.',
         'error_invalid_image' => 'Imej ini tidak dapat diproses. Sila cuba fail lain.',
         'selected_image_alt' => 'Pratonton imej yang dipilih',
