@@ -67,6 +67,8 @@ The reviewed boundaries are:
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `MatchedUsersQuery` for literal LIKE searches.
 - `RatingVoteCountsQuery` for grouped rating counts.
+- `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
+  call's status, and the UTC hour or day a call falls in, written per engine.
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.

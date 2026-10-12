@@ -31,3 +31,8 @@ Schedule::command('comments:purge-deleted')->daily()->withoutOverlapping();
 // MODERATION_CONTENT_RETENTION_DAYS this is a cheap safe no-op, and
 // setting the variable later enables the same schedule unchanged.
 Schedule::command('moderation:purge-content')->daily()->withoutOverlapping();
+
+// Translation AI telemetry (docs/architecture/translation-engine.md): rows of
+// translation_ai_provider_calls older than translation.telemetry.retention_days
+// (90) are deleted in small batches. Nothing else is touched.
+Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
