@@ -165,6 +165,31 @@ final class ProjectTranslationGenerationStore
         }
     }
 
+    /**
+     * The batch generating each of these languages now, by language, read
+     * together — the languages are a known list, so no key is ever searched
+     * for. A language generating nothing is left out.
+     *
+     * @param  list<string>  $locales
+     * @return array<string, string>
+     */
+    public function runningBatchIds(array $locales): array
+    {
+        return $this->pointers(array_combine($locales, array_map(self::runningKey(...), $locales)));
+    }
+
+    /**
+     * An administrator's batch for each of these languages, by language, read
+     * together; a language without one is left out.
+     *
+     * @param  list<string>  $locales
+     * @return array<string, string>
+     */
+    public function activeBatchIds(int $userId, array $locales): array
+    {
+        return $this->pointers(array_combine($locales, array_map(fn (string $locale): string => self::activeKey($userId, $locale), $locales)));
+    }
+
     // Reading -------------------------------------------------------------------------
 
     /**
@@ -380,6 +405,33 @@ final class ProjectTranslationGenerationStore
             'expiresAt' => $batch['meta']['expires_at'],
             'counts' => $counts,
             'items' => $items,
+        ];
+    }
+
+    /**
+     * The batch as monitoring may see it: its language, status, times and
+     * counts — no unit, no text, no snapshot, no message and no owner.
+     *
+     * @param  Batch  $batch
+     * @return array{locale: string, status: string, total: int, pending: int, ready: int, failed: int, skipped: int, saved: int, discarded: int, created_at: string, expires_at: string, completed_at: ?string}
+     */
+    public static function progress(array $batch): array
+    {
+        $counts = self::summary($batch)['counts'];
+
+        return [
+            'locale' => $batch['meta']['target_locale'],
+            'status' => $batch['meta']['status'],
+            'total' => $counts['total'],
+            'pending' => $counts['pending'],
+            'ready' => $counts['ready'],
+            'failed' => $counts['failed'],
+            'skipped' => $counts['skipped'],
+            'saved' => $counts['saved'],
+            'discarded' => $counts['discarded'],
+            'created_at' => $batch['meta']['created_at'],
+            'expires_at' => $batch['meta']['expires_at'],
+            'completed_at' => $batch['meta']['completed_at'],
         ];
     }
 
@@ -665,6 +717,32 @@ final class ProjectTranslationGenerationStore
     private static function chunkKey(string $batchId, string $chunkId): string
     {
         return self::PREFIX.":batch:{$batchId}:chunk:{$chunkId}";
+    }
+
+    /**
+     * The batch ids under these keys, read in one round trip.
+     *
+     * @param  array<string, string>  $keys  by language
+     * @return array<string, string>
+     */
+    private function pointers(array $keys): array
+    {
+        if ($keys === []) {
+            return [];
+        }
+
+        $values = $this->guard(fn (): iterable => $this->cache()->many(array_values($keys)));
+        $ids = [];
+
+        foreach ($keys as $locale => $key) {
+            $id = $values[$key] ?? null;
+
+            if (is_string($id)) {
+                $ids[$locale] = $id;
+            }
+        }
+
+        return $ids;
     }
 
     private function get(string $key): mixed

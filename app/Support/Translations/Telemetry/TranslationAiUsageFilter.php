@@ -11,7 +11,9 @@ use InvalidArgumentException;
 /**
  * Which recorded provider calls a Translation AI figure covers: those that
  * completed in [from, until) — from included, until not, both in UTC — and,
- * optionally, only one provider, model, installed language or consumer.
+ * optionally, only one provider, model, installed language or consumer, or
+ * only any of several models: a model with its dated snapshots, as the
+ * provider reported them.
  *
  * Half-open, so consecutive periods neither overlap nor leave a gap. Showing
  * the period in an administrator's time zone is the page's job; the bounds
@@ -30,6 +32,8 @@ final readonly class TranslationAiUsageFilter
         public ?string $model = null,
         public ?string $targetLocale = null,
         public ?TranslationAiConsumer $consumer = null,
+        /** @var list<string>|null */
+        public ?array $models = null,
     ) {
         $this->from = CarbonImmutable::instance($from)->utc();
         $this->until = CarbonImmutable::instance($until)->utc();
@@ -63,7 +67,8 @@ final readonly class TranslationAiUsageFilter
             ->when($this->provider !== null, fn (Builder $query) => $query->where('provider', $this->provider))
             ->when($this->model !== null, fn (Builder $query) => $query->where('model', $this->model))
             ->when($this->targetLocale !== null, fn (Builder $query) => $query->where('target_locale', $this->targetLocale))
-            ->when($this->consumer !== null, fn (Builder $query) => $query->where('consumer', $this->consumer?->value));
+            ->when($this->consumer !== null, fn (Builder $query) => $query->where('consumer', $this->consumer?->value))
+            ->when($this->models !== null, fn (Builder $query) => $query->whereIn('model', $this->models ?? []));
     }
 
     /** @return Builder<TranslationAiProviderCall> */

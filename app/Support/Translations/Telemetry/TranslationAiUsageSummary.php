@@ -8,7 +8,9 @@ namespace App\Support\Translations\Telemetry;
  * Provider calls and items are counted apart, because they answer different
  * questions: a call succeeded when the provider answered with something
  * usable; an item succeeded when its translation also passed every check. A
- * successful call can carry failed items, so the two success rates differ.
+ * successful call can carry failed items, so the two success rates differ;
+ * $callsWithFailedItems counts those calls — the provider answered, and some
+ * of what it answered did not pass.
  *
  * Token totals add up what providers reported; calls they reported no usage
  * for add nothing and are counted in $callsWithUnknownUsage. The estimated
@@ -21,6 +23,7 @@ final readonly class TranslationAiUsageSummary
         public int $calls,
         public int $succeededCalls,
         public int $failedCalls,
+        public int $callsWithFailedItems,
         public int $items,
         public int $succeededItems,
         public int $failedItems,

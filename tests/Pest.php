@@ -38,6 +38,7 @@ use App\Support\TranslationEngine\Data\TranslationProviderResponse;
 use App\Support\TranslationEngine\Enums\TranslationDataClassification;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
+use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
@@ -11501,4 +11502,30 @@ function gateLivewireRequests(mixed $page): void
 function translationFieldId(mixed $page, string $unit): string
 {
     return (string) $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').id");
+}
+
+/**
+ * A Generate missing plan for $locale of $chunks provider requests of
+ * $itemsPerChunk items each — public content, the shape the planner makes —
+ * for putting a background generation in the store without a catalog.
+ */
+function translationGenerationPlan(string $locale, int $chunks = 2, int $itemsPerChunk = 3): ProjectTranslationGenerationPlan
+{
+    $requests = [];
+
+    foreach (range(1, $chunks) as $chunk) {
+        $requests[] = new TranslationBatchRequest(
+            targetLocale: $locale,
+            dataClassification: TranslationDataClassification::PublicContent,
+            items: array_map(fn (int $item): TranslationItem => new TranslationItem(
+                id: "categories:{$chunk}{$item}:name",
+                sourceLocale: 'en',
+                sourceText: "Category {$chunk}.{$item}",
+                contentType: 'categories.name',
+                multiline: false,
+            ), range(1, $itemsPerChunk)),
+        );
+    }
+
+    return new ProjectTranslationGenerationPlan($locale, TranslationDataClassification::PublicContent->value, [], 'openai', 50, 60_000, $requests, []);
 }
