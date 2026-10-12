@@ -13,7 +13,9 @@ activation, and closes again through its rollback.
 The receiver is implemented in the repository. **On a host, nothing listens on
 port 25 and no MX record is published until an operator runs Activate
 tits.guru inbound SMTP and then publishes DNS by hand** — merging this changes
-no host.
+no host. On the production host that happened on 2026-10-12, and inbound SMTP
+is production-accepted: see [Production acceptance,
+2026-10-12](#production-acceptance-2026-10-12).
 
 Outbound mail has its own runbooks — [`mail-routing.md`](mail-routing.md),
 [`mail-gateway.md`](mail-gateway.md), [`mail-identity.md`](mail-identity.md),
@@ -27,22 +29,83 @@ identity and signing are not changed by any of this.
 |------|-------|
 | Inbound contract `infrastructure/config/mail-inbound.json` | **Implemented**, reviewed — schema 2 |
 | `infrastructure/scripts/mail-inbound` (`validate`, `render-plan`, `render-receiver`, `render-dns`, `route`) | **Implemented**; repository tooling, read-only |
-| Inbound listeners and delivery, rendered by `install-mail-gateway` | **Implemented in the repository**; installed on a host only by Activate tits.guru inbound SMTP |
-| Inbound store `install-mail-inbound` | **Implemented in the repository** |
-| Guarded activation `activate-mail-inbound` and its three workflows | **Implemented in the repository**; never run automatically |
+| Inbound listeners and delivery, rendered by `install-mail-gateway` | **Installed on the production host** by Activate tits.guru inbound SMTP, 2026-10-12; installed on a host only by that activation |
+| Inbound store `install-mail-inbound` | **Installed on the production host** by the same activation |
+| Guarded activation `activate-mail-inbound` and its three workflows | **Run on the production host** 2026-10-12 (Activate, then Verify); never run automatically |
 | Public inbound SMTP — committed request | **`enabled`** — a request, never the state of a host |
-| Public inbound SMTP — real host | **Disabled**: nothing listens on port 25 until the guarded activation has run |
-| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Not published** — and not before public SMTP is active and verified |
-| `mx1.tits.guru` A record | **Not published**; the receiver's address is never committed |
-| TLS certificate for `mx1.tits.guru` | **Certbot's, on the host**, issued over HTTP-01 by the operator; copied into place and kept current on every renewal by Install tits.guru inbound mail TLS (`install-mail-inbound-tls`) — **implemented in the repository, not yet run on the real host** — see [below](#tls-for-mx1titsguru) |
-| Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned` |
-| Inbound mail health check, every six hours | **Implemented in the repository**, unattended: it reaches the host only through a read-only monitor key, with no approval; off until an operator installs that access and turns the schedule on — see [the automatic monitor](#the-automatic-monitor) |
+| Public inbound SMTP — real host | **Enabled** on `213.199.41.241:25`, `enabled-verified`, and reached from outside |
+| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Published** — `MX 10 mx1.tits.guru`, after public SMTP was active and verified, confirmed by `1.1.1.1` and `8.8.8.8` |
+| `mx1.tits.guru` A record | **Published** — `213.199.41.241`, confirmed by `1.1.1.1` and `8.8.8.8`; the receiver's address is never committed to the contract |
+| TLS certificate for `mx1.tits.guru` | **Certbot's, on the host**, issued over HTTP-01 by the operator; copied into place and kept current on every renewal by Install tits.guru inbound mail TLS (`install-mail-inbound-tls`) — **installed on the production host** 2026-10-12 — see [below](#tls-for-mx1titsguru) |
+| Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned`, deferred until after the first production launch |
+| Inbound mail health check, every six hours | **Implemented in the repository, not installed and not enabled**: no monitor access on the host, no monitor Environment, the schedule off. Its setup moves into RateGuru's future unified monitoring — see [the automatic monitor](#the-automatic-monitor) |
+| 8.4B.5.2 — inbound SMTP and delivery into the store | **Production-accepted 2026-10-12** — see [Production acceptance](#production-acceptance-2026-10-12) |
 | Envelope sender (Return-Path) of mail sent today | `noreply@tits.guru` — the bounce domain is not an envelope sender yet |
 | `tits-guru` outbound mail | **Production-accepted** 2026-10-08, and untouched by any of this — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
 
 The envelope sender of every message sent today is `noreply@tits.guru`. Nothing
 here claims that sent mail already names the bounce domain: moving the
 Return-Path there is the bounce slice's change (see [the sequence](#the-sequence)).
+
+## Production acceptance, 2026-10-12
+
+8.4B.5.2 rests on these points: public SMTP that is safe, DNS, TLS, and a
+real message received and stored. Each was shown on the production host on
+2026-10-12.
+
+1. **TLS.** Install tits.guru inbound mail TLS, run
+   [`38260303027`](https://github.com/menvil/RateGuru/actions/runs/38260303027),
+   SUCCESS:
+   - Certbot's `mx1.tits.guru` pair copied into
+     `/etc/rateguru-mail-inbound/tls`;
+   - the deploy hook installed;
+   - `--verify` PASS.
+2. **Activation.** Activate tits.guru inbound SMTP, run
+   [`38260744608`](https://github.com/menvil/RateGuru/actions/runs/38260744608),
+   SUCCESS. State `enabled-verified`: public SMTP on `213.199.41.241`, TCP 25
+   opened in `ufw`.
+3. **Independent verification.** Verify tits.guru inbound SMTP, run
+   [`38261781978`](https://github.com/menvil/RateGuru/actions/runs/38261781978),
+   SUCCESS. State `enabled-verified`, with no inbound mail waiting in the
+   shared queue.
+4. **Reachable from outside.** From an outside machine, a TCP connection to
+   `213.199.41.241:25` succeeded.
+5. **Public DNS.** Both public resolvers, `1.1.1.1` and `8.8.8.8`, answer:
+   ```
+   mx1.tits.guru          A     213.199.41.241
+   tits.guru              MX 10 mx1.tits.guru
+   bounce.tx.tits.guru    MX 10 mx1.tits.guru
+   reply.tits.guru        MX 10 mx1.tits.guru
+   ```
+6. **A real message.** A real message from an outside mailbox to
+   `support@tits.guru` was received and stored in
+   `/var/lib/rateguru-mail-inbound/store/targets/tits-guru/support/new/`:
+   one message file, owned by `rateguru-mail-inbound`, mode `0600`.
+
+**Inbound SMTP and delivery into the Maildir work on the real host.**
+
+What this acceptance does **not** claim:
+
+- **Nothing processes received mail.** No Laravel model, handler or inbox
+  reads the store. Support, bounce and reply handling are 8.4B.5.3 and
+  8.4B.5.4, deferred until after the first production launch.
+- **Nothing watches inbound mail unattended.** The automatic monitor is not
+  installed and not enabled; see [the automatic
+  monitor](#the-automatic-monitor). That no longer blocks this acceptance, and
+  no check in the code was weakened for it.
+- **Nothing was probed from outside.** The relay, AUTH and limit probes from
+  outside, mail at the bounce and reply destinations, and recovery on a
+  replacement host are 8.4B.5.5's extended trials, deferred.
+
+Open before GO LIVE (ROADMAP 8.6):
+
+- **The two infrastructure checks.** Verify production infrastructure and
+  Verify staging infrastructure have not run since the activation.
+- **Mail already accepted.** It lives on this host alone: the store volume
+  and the shared Postfix queue. **No backup carries either of them** — the
+  backup and its recovery material hold neither — and nothing here claims
+  otherwise. Before GO LIVE, either they are protected and that is proved,
+  or the loss boundary is stated and accepted.
 
 ## One Postfix, listeners of their own
 
@@ -600,7 +663,16 @@ last one that succeeded. A manual DNS-01 challenge (`--manual
 --preferred-challenges dns`) is **not** a working method for this domain: it
 cannot renew unattended.
 
+The public site of `tits.guru` is built to keep that route. It lists its own
+name exactly, is never a `default_server`, and is installed only when the
+configuration proves `mx1.tits.guru` stays on the server that answers it
+today. See [`public-site.md`](public-site.md#how-mx1titsguru-keeps-its-http-01-route).
+
 ### Installing it: Install tits.guru inbound mail TLS
+
+On the production host this ran on 2026-10-12, run
+[`38260303027`](https://github.com/menvil/RateGuru/actions/runs/38260303027):
+`TLS: INSTALLED`, its verify PASS.
 
 The pair is never copied by hand. The workflow **Install tits.guru inbound
 mail TLS** — manual, from `main` only, behind the typed confirmation `INSTALL
@@ -815,6 +887,25 @@ monitor runs the same library, without the store's full verify.
 
 ## The automatic monitor
 
+**Not installed and not enabled on the production host.**
+- Install tits.guru inbound mail monitor has never run.
+- Verify tits.guru inbound SMTP (run
+  [`38261781978`](https://github.com/menvil/RateGuru/actions/runs/38261781978))
+  reports `the automatic inbound mail monitor is not installed on this host`.
+- No `production-tits-guru-monitor` Environment exists.
+- `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is not set, so the schedule
+  dispatches nothing.
+
+Its setup moves into RateGuru's future unified monitoring (ROADMAP,
+*Post-launch: Mail Processing & Unified Monitoring*). Until then:
+
+- nothing checks inbound mail unattended;
+- run **Verify tits.guru inbound SMTP** by hand. It checks the store and
+  counts accepted inbound mail waiting in the queue.
+
+What follows describes the monitor as the repository implements it, for when
+it is set up.
+
 Every six hours, without a person: **Schedule tits.guru inbound mail health**
 dispatches **Check tits.guru inbound mail health** on `main`, which asks the
 production host's **inbound mail monitor** — through a key that can do nothing
@@ -966,10 +1057,10 @@ is needed for it. In this order, and no step before the previous one passed:
    `ACTIVATE tits-guru inbound SMTP`. It creates the store, installs inbound
    mail on the gateway's Postfix, proves it, opens TCP 25 and prints the DNS
    records to publish.
-5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`. Then set up the
-   automatic monitor as [above](#setting-it-up-once) — its key, its access on
-   the host, its Environment — run **Check tits.guru inbound mail health** once
-   by hand, and turn the schedule on.
+5. **Run Verify tits.guru inbound SMTP**: `enabled-verified`. The automatic
+   monitor is not set up here any more. Its setup moves into RateGuru's
+   unified monitoring, after the first production launch; when it comes, it
+   is done as [above](#setting-it-up-once).
 6. **Publish DNS** at the DNS provider, the A record first, then the MX records:
    ```
    mx1.tits.guru          A     <the address Activate printed>
@@ -1001,6 +1092,15 @@ is needed for it. In this order, and no step before the previous one passed:
 
 If TCP 25 is not reachable from outside, or DNS is not published, 8.4B.5.2 is not
 accepted.
+
+**On the production host, 2026-10-12:**
+- **Steps 1–5:** done, through the runs in [Production
+  acceptance](#production-acceptance-2026-10-12).
+- **Steps 6–7:** DNS published, and confirmed through both resolvers. TCP 25
+  answered from outside.
+- **Steps 8–9:** one real message stored in the support Maildir.
+- **Steps 10–11:** Verify production infrastructure and Verify staging
+  infrastructure have **not** run since; they are open before GO LIVE.
 
 ## Returning to disabled
 
@@ -1035,9 +1135,9 @@ reported as drift until Rollback closes it.
    within it.*
 4. **MX records** — only after step 3 verifies: the A record of `mx1.tits.guru`
    (it may go first), then the three MX records from `render-dns`, verified
-   through public resolvers.
+   through public resolvers. *Done 2026-10-12.*
 5. **An external test message to `support@tits.guru`** — sent from an outside
-   mailbox, received, stored, and nothing else accepted.
+   mailbox, received, stored, and nothing else accepted. *Done 2026-10-12.*
 6. **Bounce reception and correlation** — the Return-Path moves to
    `b-<identifier>@bounce.tx.tits.guru`, delivery status notifications are
    received and matched to the message they report on. Moving the envelope
@@ -1056,13 +1156,13 @@ reported as drift until Rollback closes it.
 | Slice | What | State |
 |-------|------|-------|
 | 8.4B.5.1 | Inbound contract and DNS plan | **Completed** |
-| 8.4B.5.2 | Inbound SMTP on the host Postfix and guarded activation | **Implemented in repository**, awaiting real-host activation and acceptance |
-| 8.4B.5.3 | Bounce reception and correlation | Planned |
-| 8.4B.5.4 | Reply routing and the support mailbox | Planned |
-| 8.4B.5.5 | Real-host acceptance and recovery proof | Planned |
+| 8.4B.5.2 | Inbound SMTP on the host Postfix and guarded activation | **Production-accepted 2026-10-12** |
+| 8.4B.5.3 | Bounce reception and correlation | Planned — deferred until after the first production launch |
+| 8.4B.5.4 | Reply routing and the support mailbox | Planned — deferred until after the first production launch |
+| 8.4B.5.5 | Real-host acceptance and recovery proof | Planned. The MX records and the first external message are done within 8.4B.5.2; the extended trials are deferred until after the first production launch |
 
 Inbound mail is not working until a message from outside has actually been
-received.
+received. One was, on 2026-10-12.
 
 ## What the operator prepares before Activate
 
@@ -1087,7 +1187,9 @@ received.
 
 It does not process received mail: no DSN parsing, no bounce correlation, no
 `Reply-To`, no support inbox, no suppression, no Laravel model — those are
-8.4B.5.3, 8.4B.5.4 and 8.4B.6. It changes no outbound route, OpenDKIM setting,
-DKIM key, routing policy, `mail-outbound.json`, lifecycle, environment file,
+8.4B.5.3, 8.4B.5.4 and 8.4B.6, deferred until after the first production
+launch. It does not back up the store or the queue, and nothing watches
+inbound mail unattended until the monitor is set up. It changes no outbound
+route, OpenDKIM setting, DKIM key, routing policy, `mail-outbound.json`, lifecycle, environment file,
 application setting, backup schedule, deploy, GitHub secret or DNS record. It
 sends no mail, answers no message, and never prints one.

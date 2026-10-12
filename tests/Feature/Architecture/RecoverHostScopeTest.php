@@ -556,6 +556,9 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        // tits-guru's public HTTP site: its preparation, read-only
+        // verification and rollback, guarded by PublicHttpWorkflowTest.
+        'prepare-tits-guru-public-http.yml',
         'provision-tits-guru.yml',
         'recover-production.yml',
         'recover-staging.yml',
@@ -568,6 +571,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'rollback-staging.yml',
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
+        'rollback-tits-guru-public-http.yml',
         'schedule-tits-guru-inbound-mail-health.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
@@ -578,6 +582,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
         'verify-tits-guru-inbound-smtp.yml',
+        'verify-tits-guru-public-http.yml',
     ]);
 });
 

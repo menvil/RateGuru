@@ -1,0 +1,1537 @@
+#!/usr/bin/env bash
+#
+# prepare-public-http — the public HTTP endpoint of a planned production
+# target, ready for its certificate and nothing more: the ACME HTTP-01
+# challenge of every public hostname answered from the host's existing webroot,
+# and every other request answered 503 with Retry-After.
+#
+#   prepare-public-http --check    --target TARGET   read-only (root): may --apply proceed, and exactly what it would change
+#   prepare-public-http --apply    --target TARGET   install the public site and reload Nginx (root)
+#   prepare-public-http --verify   --target TARGET   read-only (root): which state the host is in, as its own Nginx answers
+#   prepare-public-http --rollback --target TARGET   remove the public site and reload Nginx (root)
+#
+# TWO SITES. A production target has two Nginx sites, with two owners:
+#
+#   <site_name>          the internal endpoint, server_name nginx.internal_hostname,
+#                        loopback only — rendered and owned by
+#                        install-bootstrap-services, never read or written here;
+#   <site_name>-public   the public endpoint, server_name every public_hostnames
+#                        entry — owned by this script alone: its file in
+#                        /etc/nginx/sites-available and its link in
+#                        /etc/nginx/sites-enabled, and nothing else.
+#
+# WHAT THE PUBLIC SITE ANSWERS, on port 80 only:
+#
+#   /.well-known/acme-challenge/<token>   the token file from /var/www/html, the
+#                                         webroot Certbot already uses: a
+#                                         regular file, served as text, never
+#                                         through a link, never executed
+#   anything else                         503, Retry-After, a fixed text body
+#
+# No TLS listener, no redirect to HTTPS, no PHP-FPM, no release tree: the
+# target is not reachable as an application through it, and stays
+# lifecycle=planned.
+#
+# THE OTHER NAMES ON PORT 80. The MX host's certificate (mx1.tits.guru for
+# tits-guru) renews over HTTP-01 through whichever server answers that name on
+# port 80 today. The public site lists its own hostnames exactly and is never a
+# default_server, so it cannot take that name — provided the server that
+# answers every unlisted name is chosen by an explicit default_server rather
+# than by load order, which a new file in sites-enabled could change. Before
+# anything is written, the loaded configuration (nginx -T) must show:
+#
+#   * an explicit default_server on *:80 and on [::]:80, in another site;
+#   * no port-80 listener bound to one address, which would route the public
+#     address apart from what the loopback probes see;
+#   * no other server whose server_name matches a public hostname — exactly,
+#     by a wildcard, or by a regular expression that cannot be evaluated here;
+#   * no listen or server_name outside a server block, in a file included into
+#     one, which would make a server's names unknowable;
+#   * the MX host name answered 404 for an absent challenge, by a server that
+#     is not the public site.
+#
+# Anything it cannot prove refuses --apply. After the file is written and
+# before Nginx is reloaded, the candidate configuration is read the same way:
+# the server answering every MX host name and the default servers must be the
+# very ones that answered before. After the reload, the host's own Nginx is
+# asked, on 127.0.0.1 and [::1]: the public hostnames answer as above, and the
+# MX host names and an unlisted name answer exactly as they did before.
+#
+# OWNERSHIP. This script owns the public site in two states only —
+# not-prepared and http-acme-ready — and only as its exact render: a regular
+# file, root:root 0644, byte for byte what it renders, and the link to it. The
+# first line alone is not ownership. When the site moves on to HTTPS, the
+# installer of that state takes the same file over in place; from then on a
+# file that still begins with this script's first line but says anything else
+# is foreign, and --apply and --rollback refuse it — no file written or
+# removed, no link created or removed, no reload — rather than return the site
+# to HTTP or delete it. A content difference is resolved by a reviewed change,
+# never by running this script again. Its own pieces left incomplete — the
+# exact render without its link — are still completed or removed.
+#
+# TRANSACTION. --apply and --rollback hold the host's infrastructure lock,
+# re-judge everything under it, validate with nginx -t before the one reload
+# (systemctl reload nginx — never a restart, never a stop), and verify after
+# it. On any failure the public site's file and link are put back as they were,
+# nginx -t is run again, Nginx is reloaded again if it had been, and the run
+# fails; when that return cannot be proved, it says CRITICAL and exits 2. Every
+# other file under /etc/nginx is compared before and after: the internal site,
+# staging and the mail capture sites are never touched. Run again with nothing
+# to change, either is a no-op: nothing written, nothing reloaded.
+#
+# NEVER: a certificate, a TLS listener, Certbot, DNS, the firewall, Postfix,
+# the default site, another site, PHP-FPM, the registry, or the lifecycle.
+#
+# Every run whose mode and target were understood ends with exactly one line
+# RATEGURU_PUBLIC_HTTP_RESULT={target, mode, status, state, site, hostnames,
+# lifecycle, changed, reloaded, rolled_back}; status is pass, fail or critical,
+# and state not-prepared, http-acme-ready, drift (its own pieces incomplete),
+# foreign (something at its paths it does not own) or unknown.
+#
+# Repository tooling: run as root from a trusted bundle by its workflows, never
+# installed on a host.
+#
+# Test overrides: the RATEGURU_PUBLICHTTP_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+umask 022
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_PUBLICHTTP_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_PUBLICHTTP_FS_ROOT '')"
+
+# The registry every decision is read from: the trusted bundle's own.
+TRUSTED_REGISTRY="$(gated_default RATEGURU_PUBLICHTTP_REGISTRY "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+
+# The registry the host's own operations read, and its one infrastructure lock:
+# the same file prepare-host and every other host-level operation hold.
+INSTALLED_REGISTRY="$(gated_default RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY /home/www/rateguru/config/deployment-targets.json)"
+RUN_ROOT="$(gated_default RATEGURU_PUBLICHTTP_RUN_ROOT /home/www/rateguru/run)"
+HOST_LOCK_NAME="host-infrastructure.lock"
+
+NGINX_BIN="$(gated_default RATEGURU_PUBLICHTTP_NGINX_BIN nginx)"
+SYSTEMCTL_BIN="$(gated_default RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN systemctl)"
+CURL_BIN="$(gated_default RATEGURU_PUBLICHTTP_CURL_BIN curl)"
+
+# Who owns Nginx's configuration: root, on a host.
+FILE_OWNER="$(gated_default RATEGURU_PUBLICHTTP_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_PUBLICHTTP_FILE_GROUP root)"
+
+# How long a reload may take to reach every worker.
+PROBE_WAIT="$(gated_default RATEGURU_PUBLICHTTP_PROBE_WAIT 15)"
+[[ "${PROBE_WAIT}" =~ ^[1-9][0-9]{0,2}$ ]] || PROBE_WAIT=15
+
+NGINX_DIR="/etc/nginx"
+SITES_AVAILABLE="/etc/nginx/sites-available"
+SITES_ENABLED="/etc/nginx/sites-enabled"
+
+# The webroot the host's Nginx already serves on port 80, where Certbot's
+# webroot plugin writes its challenge tokens.
+ACME_WEBROOT="/var/www/html"
+RETRY_AFTER=3600
+UNAVAILABLE_BODY="Service Unavailable"
+
+# The two sockets the public site listens on.
+PUBLIC_SOCKETS=("*:80" "[::]:80")
+PROBE_ADDRESSES=("127.0.0.1" "[::1]")
+
+# --- State ----------------------------------------------------------------------
+
+MODE=""
+TARGET_ID=""
+
+TARGET_LIFECYCLE=""
+TARGET_CLASS=""
+INTERNAL_SITE=""
+INTERNAL_HOSTNAME=""
+PUBLIC_SITE=""
+PUBLIC_FILE=""
+PUBLIC_LINK=""
+PUBLIC_HOSTNAMES=()
+MX_HOSTNAMES=()
+OWNER_MARKER=""
+
+WORK=""
+MAIN_BASHPID="${BASHPID}"
+HOST_LOCK_FD=""
+
+RESULT_READY=false
+RESULT_PRINTED=false
+HOST_STATE="unknown"
+CHANGED=false
+RELOADED=false
+ROLLED_BACK=false
+COUNT_FAIL=0
+
+# The open transaction: what the public site's file and link were before it.
+TRANSACTION_OPEN=false
+SAVED_FILE_PRESENT=false
+SAVED_LINK=""
+BEFORE_ROUTES=""
+BEFORE_PROBES=""
+BEFORE_SNAPSHOT=""
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+section() { printf '\n%s\n' "$*"; }
+action() { printf '[%s] %s\n' "${MODE}" "$*"; }
+
+item() {
+    local status="$1" name="$2" detail="$3"
+    printf '  %-8s %-44s %s\n' "${status}" "${name}" "${detail}"
+    [[ "${status}" != FAIL && "${status}" != CONFLICT && "${status}" != DRIFT ]] || COUNT_FAIL=$((COUNT_FAIL + 1))
+}
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  prepare-public-http --check    --target TARGET
+  prepare-public-http --apply    --target TARGET
+  prepare-public-http --verify   --target TARGET
+  prepare-public-http --rollback --target TARGET
+  prepare-public-http --help
+
+  --check     Read-only (root): whether --apply would install the public site,
+              would be a no-op, or must refuse, and exactly what it would write.
+  --apply     Root. Install the public site of a planned production target —
+              ACME HTTP-01 from /var/www/html, 503 for everything else — validate,
+              reload Nginx and prove it; any failure puts the previous state back.
+              A no-op when the site is in place and answering. Refuses a public
+              site file that is not exactly its render.
+  --verify    Read-only (root): not-prepared, http-acme-ready, drift or
+              foreign, as the files say and as the host's own Nginx answers.
+  --rollback  Root. Remove the public site's file and link, validate, reload
+              Nginx and prove it; any failure puts the site back. A no-op when
+              there is nothing to remove. Refuses a public site file that is not
+              exactly its render — an HTTPS site above all.
+
+The trusted bundle's registry decides the site and its hostnames; there is
+nothing to override.
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# --- Result -------------------------------------------------------------------------
+
+result_line() {
+    local status="$1" hostnames
+
+    [[ "${RESULT_PRINTED}" == false ]] || return 0
+    RESULT_PRINTED=true
+
+    hostnames="$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c 'map(select(. != ""))')"
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --arg state "${HOST_STATE}" --arg site "${PUBLIC_SITE}" --argjson hostnames "${hostnames}" \
+        --arg lifecycle "${TARGET_LIFECYCLE}" --argjson changed "${CHANGED}" \
+        --argjson reloaded "${RELOADED}" --argjson rolled_back "${ROLLED_BACK}" '
+        {target: $target, mode: $mode, status: $status, state: $state,
+         site: (if $site == "" then null else $site end), hostnames: $hostnames,
+         lifecycle: (if $lifecycle == "" then null else $lifecycle end),
+         changed: $changed, reloaded: $reloaded, rolled_back: $rolled_back}' \
+        | sed 's/^/RATEGURU_PUBLIC_HTTP_RESULT=/'
+}
+
+# --- Exit: the open transaction, the result ------------------------------------------
+
+on_exit() {
+    local status=$?
+
+    # A command substitution's subshell is not the run: only the main process
+    # puts anything back or speaks for the run.
+    [[ "${BASHPID}" == "${MAIN_BASHPID}" ]] || return 0
+
+    trap - EXIT
+    # Nothing interrupts the return to the previous state.
+    trap '' HUP INT PIPE TERM
+    set +e
+
+    if [[ "${TRANSACTION_OPEN}" == true ]]; then
+        TRANSACTION_OPEN=false
+        log "the ${MODE} did not complete (exit ${status}) — putting the public site back as it was"
+
+        if restore_previous_state; then
+            ROLLED_BACK=true
+            CHANGED=false
+            HOST_STATE="$(static_state)"
+            log "RESTORED: the public site's file and link are as they were before this run, nginx -t passes, and Nginx answers as before"
+            result_line fail
+            status=1
+        else
+            printf 'CRITICAL: the %s of the public site failed AND the return to the previous state could not be proved. Inspect now: nginx -t, %s and %s, and what 127.0.0.1:80 answers for every hostname.\n' \
+                "${MODE}" "${PUBLIC_FILE}" "${PUBLIC_LINK}" >&2
+            log "PUBLIC HTTP: CRITICAL — the previous state was not proved"
+            HOST_STATE=unknown
+            result_line critical
+            status=2
+        fi
+    fi
+
+    if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]]; then
+        result_line "$( (( status == 0 )) && echo pass || echo fail)"
+    fi
+
+    [[ -z "${WORK}" ]] || rm -rf -- "${WORK}"
+
+    exit "${status}"
+}
+
+# --- Preconditions ------------------------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "prepare-public-http --${MODE} must run as root (Nginx's configuration is root's)"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || die "required tool not found: ${tool}"
+    done
+}
+
+acquire_host_lock() {
+    local path="${RUN_ROOT}/${HOST_LOCK_NAME}"
+
+    [[ -d "${RUN_ROOT}" ]] \
+        || die "the operational lock directory does not exist: ${RUN_ROOT} — this host has not been bootstrapped; nothing was changed"
+
+    exec {HOST_LOCK_FD}>>"${path}" \
+        || die "could not open ${path} to claim this host's shared infrastructure; nothing was changed"
+
+    flock -n "${HOST_LOCK_FD}" \
+        || die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed"
+}
+
+make_work() {
+    WORK="$(mktemp -d "${TMPDIR:-/tmp}/rateguru-public-http-XXXXXX")" \
+        || die "cannot create a private working directory; nothing was changed"
+    chmod 0700 "${WORK}"
+}
+
+# --- The target ---------------------------------------------------------------------
+
+# public_hostname_problem NAME — why NAME cannot be a public hostname, or nothing.
+public_hostname_problem() {
+    local name="$1" label
+
+    (( ${#name} <= 253 )) || { printf 'longer than 253 characters'; return 0; }
+    [[ "${name}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] \
+        || { printf 'not a lowercase DNS name of two or more labels'; return 0; }
+    label="${name##*.}"
+    [[ "${label}" =~ ^[a-z]{2,63}$ ]] || { printf 'not under a public top-level domain'; return 0; }
+
+    case "${name}" in
+        *.internal|*.local|*.localhost|*.invalid|*.test|*.example|*.lan|*.home.arpa)
+            printf 'a reserved or internal name'
+            return 0
+            ;;
+    esac
+}
+
+load_target() {
+    local output target lifecycle_installed name problem
+
+    [[ -x "${SCRIPT_DIR}/targets" ]] \
+        || die "the registry validator is not executable: ${SCRIPT_DIR}/targets — run from a full trusted bundle; nothing was changed"
+    [[ -f "${TRUSTED_REGISTRY}" && ! -L "${TRUSTED_REGISTRY}" ]] \
+        || die "the trusted bundle has no registry: ${TRUSTED_REGISTRY} — nothing was changed"
+    output="$("${SCRIPT_DIR}/targets" validate --file "${TRUSTED_REGISTRY}" 2>&1)" \
+        || die "the trusted bundle's target registry does not validate — nothing was changed"$'\n'"${output}"
+
+    jq -e --arg t "${TARGET_ID}" '.targets | has($t)' "${TRUSTED_REGISTRY}" >/dev/null \
+        || die "unknown target: ${TARGET_ID} — not in the trusted bundle's registry; nothing was changed"
+
+    target="$(jq -c --arg t "${TARGET_ID}" '.targets[$t]' "${TRUSTED_REGISTRY}")"
+    TARGET_CLASS="$(jq -r '.environment_class' <<<"${target}")"
+    TARGET_LIFECYCLE="$(jq -r '.lifecycle' <<<"${target}")"
+    INTERNAL_SITE="$(jq -r '.nginx.site_name' <<<"${target}")"
+    INTERNAL_HOSTNAME="$(jq -r '.nginx.internal_hostname' <<<"${target}")"
+
+    [[ "${TARGET_CLASS}" == production ]] \
+        || die "${TARGET_ID} is environment_class=${TARGET_CLASS}: a public site is prepared for a production target only — staging keeps its own committed sites; nothing was changed"
+
+    [[ "${INTERNAL_SITE}" =~ ^[a-z0-9][a-z0-9_-]{0,55}$ ]] \
+        || die "${TARGET_ID}: nginx.site_name '${INTERNAL_SITE}' is not a renderable site name — nothing was changed"
+    PUBLIC_SITE="${INTERNAL_SITE}-public"
+    PUBLIC_FILE="${SITES_AVAILABLE}/${PUBLIC_SITE}"
+    PUBLIC_LINK="${SITES_ENABLED}/${PUBLIC_SITE}"
+    OWNER_MARKER="# RateGuru target ${TARGET_ID} — public HTTP endpoint."
+
+    PUBLIC_HOSTNAMES=()
+    while IFS= read -r name; do
+        PUBLIC_HOSTNAMES+=("${name}")
+    done < <(jq -r '.public_hostnames[]' <<<"${target}")
+
+    (( ${#PUBLIC_HOSTNAMES[@]} > 0 )) \
+        || die "${TARGET_ID} has no public hostname — nothing was changed"
+    [[ "$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | sort | uniq -d)" == "" ]] \
+        || die "${TARGET_ID} names a public hostname twice — nothing was changed"
+
+    load_mx_hostnames
+
+    for name in "${PUBLIC_HOSTNAMES[@]}"; do
+        problem="$(public_hostname_problem "${name}")"
+        [[ -z "${problem}" ]] \
+            || die "${TARGET_ID}: public hostname '${name}' is ${problem} — refusing to render an Nginx server_name around it; nothing was changed"
+
+        # A name another site already owns: every target's internal endpoint,
+        # and every MX host, whose certificate renews through port 80.
+        jq -e --arg n "${name}" 'any(.targets[]; .nginx.internal_hostname == $n or .health.host_header == $n)' "${TRUSTED_REGISTRY}" >/dev/null \
+            && die "${TARGET_ID}: public hostname '${name}' is an internal endpoint's name — nothing was changed"
+        if printf '%s\n' "${MX_HOSTNAMES[@]}" | grep -Fxq -- "${name}"; then
+            die "${TARGET_ID}: public hostname '${name}' is an MX host — its HTTP-01 route belongs to the certificate of the mail listener, never to the public site; nothing was changed"
+        fi
+    done
+
+    # The registry the host's own operations read must agree that the target
+    # is not live.
+    if [[ -f "${INSTALLED_REGISTRY}" && ! -L "${INSTALLED_REGISTRY}" ]] \
+        && lifecycle_installed="$(jq -er --arg t "${TARGET_ID}" '.targets[$t].lifecycle' "${INSTALLED_REGISTRY}" 2>/dev/null)"; then
+        INSTALLED_LIFECYCLE="${lifecycle_installed}"
+    else
+        INSTALLED_LIFECYCLE=""
+    fi
+}
+
+INSTALLED_LIFECYCLE=""
+
+# load_mx_hostnames — every MX host name of the trusted bundle's inbound plan.
+load_mx_hostnames() {
+    local receiver name
+
+    [[ -x "${SCRIPT_DIR}/mail-inbound" ]] \
+        || die "the inbound mail CLI is not executable: ${SCRIPT_DIR}/mail-inbound — run from a full trusted bundle; nothing was changed"
+    receiver="$("${SCRIPT_DIR}/mail-inbound" render-receiver 2>/dev/null)" \
+        || die "mail-inbound render-receiver refused the trusted bundle's inbound contract — the MX host names cannot be known; nothing was changed"
+
+    MX_HOSTNAMES=()
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] || MX_HOSTNAMES+=("${name}")
+    done < <(jq -r '.mx_hostnames[]?' <<<"${receiver}")
+
+    for name in "${MX_HOSTNAMES[@]}"; do
+        [[ "${name}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] \
+            || die "the inbound plan names an MX host that is not a host name: ${name} — nothing was changed"
+    done
+}
+
+report_target() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "environment_class=production in the trusted bundle's registry"
+
+    if [[ "${TARGET_LIFECYCLE}" == planned ]]; then
+        item PASS "target:lifecycle" "lifecycle=planned in the trusted bundle's registry — the public site never opens the application"
+    else
+        item FAIL "target:lifecycle" "lifecycle=${TARGET_LIFECYCLE} in the trusted bundle's registry — this endpoint is for a target that has not gone live, and never replaces a live site with a 503"
+    fi
+
+    if [[ -z "${INSTALLED_LIFECYCLE}" ]]; then
+        item FAIL "target:installed-registry" "${INSTALLED_REGISTRY} does not name ${TARGET_ID} — the target was not provisioned on this host"
+    elif [[ "${INSTALLED_LIFECYCLE}" == planned ]]; then
+        item PASS "target:installed-registry" "the host's own registry says lifecycle=planned too"
+    else
+        item FAIL "target:installed-registry" "the host's own registry says lifecycle=${INSTALLED_LIFECYCLE} — the host's operations would treat ${TARGET_ID} as live"
+    fi
+
+    local name
+    for name in "${PUBLIC_HOSTNAMES[@]}"; do
+        item PASS "hostname:${name}" "a public DNS name; no internal endpoint's and no MX host's (${MX_HOSTNAMES[*]:-none})"
+    done
+}
+
+# --- Files on the host ----------------------------------------------------------------
+
+# file_identity PATH — owner:group:mode of PATH, without following a link.
+file_identity() {
+    stat -c '%U:%G:%a' -- "$1" 2>/dev/null || printf '?:?:?'
+}
+
+# real_root_directory PATH — PATH is a real directory, ours, and no one else may write it.
+real_root_directory() {
+    local path phys identity mode
+    path="$1"
+    phys="$(physical "${path}")"
+
+    [[ -d "${phys}" && ! -L "${phys}" ]] || return 1
+    identity="$(file_identity "${phys}")"
+    mode="${identity##*:}"
+    [[ "${identity%:*}" == "${FILE_OWNER}:${FILE_GROUP}" ]] || return 1
+    (( (8#${mode} & 8#022) == 0 ))
+}
+
+# public_file_state — absent | ours | foreign:<why>
+#
+# Ours is exactly the render as this script installs it: a regular file,
+# FILE_OWNER:FILE_GROUP 0644, byte for byte. The first line is not enough: the
+# HTTPS installer takes the site over in place, and a file that begins like
+# this script's but says anything else is no longer this script's to rewrite
+# or remove.
+public_file_state() {
+    local phys identity
+    phys="$(physical "${PUBLIC_FILE}")"
+
+    if [[ -L "${phys}" ]]; then
+        printf 'foreign:a symbolic link\n'
+    elif [[ ! -e "${phys}" ]]; then
+        printf 'absent\n'
+    elif [[ ! -f "${phys}" ]]; then
+        printf 'foreign:not a regular file\n'
+    elif [[ "$(head -n 1 -- "${phys}" 2>/dev/null)" != "${OWNER_MARKER}" ]]; then
+        printf 'foreign:it does not begin with this script'"'"'s own first line\n'
+    elif ! cmp -s -- "${phys}" "${WORK}/candidate"; then
+        if grep -Eq '^[[:space:]]*(listen[[:space:]][^;#]*\b443\b|ssl_certificate)' "${phys}"; then
+            printf 'foreign:it holds an HTTPS configuration (a 443 listener or a certificate) — the public site has passed to the HTTPS installer, and this script never returns it to HTTP or removes it\n'
+        else
+            printf 'foreign:it begins with this script'"'"'s first line but is not its render — this script rewrites or removes only its exact render; resolve the difference by a reviewed change\n'
+        fi
+    else
+        identity="$(file_identity "${phys}")"
+        if [[ "${identity}" != "${FILE_OWNER}:${FILE_GROUP}:644" ]]; then
+            printf 'foreign:its render, but %s, not %s:%s 644 — resolve the difference by a reviewed change\n' "${identity}" "${FILE_OWNER}" "${FILE_GROUP}"
+        else
+            printf 'ours\n'
+        fi
+    fi
+}
+
+# public_link_state — absent | ours | foreign:<why>
+public_link_state() {
+    local phys content
+    phys="$(physical "${PUBLIC_LINK}")"
+
+    if [[ -L "${phys}" ]]; then
+        content="$(readlink -- "${phys}")"
+        if [[ "${content}" == "${PUBLIC_FILE}" || "${content}" == "../sites-available/${PUBLIC_SITE}" ]]; then
+            printf 'ours\n'
+        else
+            printf 'foreign:a link to %s\n' "${content}"
+        fi
+    elif [[ -e "${phys}" ]]; then
+        printf 'foreign:not a symbolic link\n'
+    else
+        printf 'absent\n'
+    fi
+}
+
+# other_links_to_public_file — every other entry of sites-enabled that leads to the public site's file.
+other_links_to_public_file() {
+    local entry content
+    for entry in "$(physical "${SITES_ENABLED}")"/* "$(physical "${SITES_ENABLED}")"/.[!.]*; do
+        [[ -L "${entry}" ]] || continue
+        [[ "${entry}" != "$(physical "${PUBLIC_LINK}")" ]] || continue
+        content="$(readlink -- "${entry}")"
+        case "${content}" in
+            "${PUBLIC_FILE}"|"../sites-available/${PUBLIC_SITE}"|"${SITES_AVAILABLE}/../sites-available/${PUBLIC_SITE}")
+                printf '%s\n' "${entry#"${FS_ROOT}"}"
+                ;;
+        esac
+    done
+}
+
+# static_state — what the files say: not-prepared, http-acme-ready, drift (its
+# own pieces incomplete) or foreign (something at its paths it does not own).
+static_state() {
+    local file link
+    file="$(public_file_state)"
+    link="$(public_link_state)"
+
+    if [[ "${file}" == foreign:* || "${link}" == foreign:* ]]; then
+        printf 'foreign\n'
+    elif [[ "${file}" == absent && "${link}" == absent ]]; then
+        printf 'not-prepared\n'
+    elif [[ "${file}" == ours && "${link}" == ours ]]; then
+        printf 'http-acme-ready\n'
+    else
+        printf 'drift\n'
+    fi
+}
+
+# nginx_snapshot — every entry of Nginx's configuration but the public site's
+# own two, as type, owner, mode and content (or link target). Compared before
+# and after a change, it proves nothing else was written.
+nginx_snapshot() {
+    local root entry rel
+    root="$(physical "${NGINX_DIR}")"
+
+    (
+        shopt -s nullglob dotglob
+        for entry in "${root}"/* "${root}"/sites-available/* "${root}"/sites-enabled/* "${root}"/conf.d/* "${root}"/snippets/*; do
+            rel="${entry#"${FS_ROOT}"}"
+            [[ "${rel}" != "${PUBLIC_FILE}" && "${rel}" != "${PUBLIC_LINK}" ]] || continue
+            if [[ -L "${entry}" ]]; then
+                printf '%s link %s\n' "${rel}" "$(readlink -- "${entry}")"
+            elif [[ -d "${entry}" ]]; then
+                printf '%s dir %s\n' "${rel}" "$(file_identity "${entry}")"
+            elif [[ -f "${entry}" ]]; then
+                printf '%s file %s %s\n' "${rel}" "$(file_identity "${entry}")" "$(sha256sum < "${entry}" | cut -c1-64)"
+            else
+                printf '%s other\n' "${rel}"
+            fi
+        done
+    ) | LC_ALL=C sort
+}
+
+# --- The render -------------------------------------------------------------------------
+
+render_public_site() {
+    printf '%s\n' \
+        "${OWNER_MARKER}" \
+        "#" \
+        "# Rendered from infrastructure/config/deployment-targets.json by" \
+        "# prepare-public-http. Do not edit on the host: --verify compares this" \
+        "# file against the render, and --rollback removes it." \
+        "#" \
+        "# Ready for a certificate, and nothing more: the ACME HTTP-01 challenge of" \
+        "# every public hostname is answered from ${ACME_WEBROOT}, and every other" \
+        "# request is 503 with Retry-After. No TLS listener, no redirect and no" \
+        "# application: PHP-FPM and the release tree are not reachable from here." \
+        "#" \
+        "# Never a default_server: a name this site does not list keeps reaching" \
+        "# the server that answered it before." \
+        "server {" \
+        "    listen 80;" \
+        "    listen [::]:80;" \
+        "" \
+        "    server_name ${PUBLIC_HOSTNAMES[*]};" \
+        "" \
+        "    access_log /var/log/nginx/${PUBLIC_SITE}-access.log;" \
+        "    error_log /var/log/nginx/${PUBLIC_SITE}-error.log;" \
+        "" \
+        "    # A challenge token as an ACME client's webroot writes it: a regular" \
+        "    # file, served as text, never through a link." \
+        "    location ~ ^/\\.well-known/acme-challenge/[A-Za-z0-9_-]+\$ {" \
+        "        root ${ACME_WEBROOT};" \
+        "        disable_symlinks on from=\$document_root;" \
+        "        types { }" \
+        "        default_type text/plain;" \
+        "        try_files \$uri =404;" \
+        "    }" \
+        "" \
+        "    location /.well-known/acme-challenge/ {" \
+        "        return 404;" \
+        "    }" \
+        "" \
+        "    location / {" \
+        "        add_header Retry-After ${RETRY_AFTER} always;" \
+        "        default_type text/plain;" \
+        "        return 503 \"${UNAVAILABLE_BODY}\\n\";" \
+        "    }" \
+        "}"
+}
+
+# --- Nginx: the service, its test, its loaded configuration ---------------------------------
+
+nginx_active() {
+    "${SYSTEMCTL_BIN}" is-active --quiet nginx >/dev/null 2>&1
+}
+
+NGINX_TEST_OUTPUT=""
+
+nginx_test() {
+    local status=0
+    NGINX_TEST_OUTPUT="$("${NGINX_BIN}" -t 2>&1)" || status=$?
+    return "${status}"
+}
+
+# The loaded configuration, read the way Nginx reads it: every file nginx -T
+# prints, tokenized by Nginx's own rules — a quoted string is one token, #
+# opens a comment only where a token starts, { } ; stand alone except the { of
+# a ${variable} — and every server block of the http context with its listen,
+# server_name and root. From that, the facts the public site's safety rests on.
+read -r -d '' NGINX_ANALYSIS <<'JQ' || true
+def files:
+  split("\n")
+  | reduce .[] as $line ({done: [], cur: null};
+      if ($line | test("^# configuration file .+:$")) then
+        (if .cur == null then . else .done += [.cur] end)
+        | .cur = {path: ($line | capture("^# configuration file (?<p>.+):$").p), lines: []}
+      elif .cur == null then .
+      else .cur.lines += [$line]
+      end)
+  | (if .cur == null then .done else .done + [.cur] end)
+  | map({path, text: (.lines | join("\n"))});
+
+def tokens:
+  [ scan("\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|#[^\\n]*|[{};]|(?:\\$\\{[^}]*\\}|[^\\s{};\"'#])(?:\\$\\{[^}]*\\}|[^\\s{};])*") ]
+  | map(select(startswith("#") | not)
+        | if startswith("\"") or startswith("'") then {t: .[1:-1], q: true} else {t: ., q: false} end);
+
+def servers($path):
+  reduce (.text | tokens)[] as $k ({stack: [], stmt: [], servers: [], loose: [], srv: null};
+    if ($k.q | not) and $k.t == "{" then
+      (.stmt[0] // "") as $name
+      | (if $name == "server" and ((.stack | length) == 0 or (.stack | last) == "http") then
+           .srv = (.servers | length)
+           | .servers += [{file: $path, n: (.servers | length), depth: ((.stack | length) + 1), listen: [], names: [], root: null}]
+         else . end)
+      | .stack += [$name]
+      | .stmt = []
+    elif ($k.q | not) and $k.t == "}" then
+      (if .srv != null and (.stack | length) == .servers[.srv].depth then .srv = null else . end)
+      | .stack |= .[:-1]
+      | .stmt = []
+    elif ($k.q | not) and $k.t == ";" then
+      (.stmt[0] // "") as $d
+      | (.stmt[1:]) as $args
+      | (if .srv != null and (.stack | length) == .servers[.srv].depth then
+           if $d == "listen" then .servers[.srv].listen += [$args]
+           elif $d == "server_name" then .servers[.srv].names += ($args | map(ascii_downcase))
+           elif $d == "root" then .servers[.srv].root = ($args[0] // null)
+           else . end
+         elif (.stack | length) == 0 and ($d == "listen" or $d == "server_name") then
+           .loose += [$d]
+         else . end)
+      | .stmt = []
+    else
+      .stmt += [$k.t]
+    end)
+  | {servers: (.servers | map(del(.depth))), loose: (.loose | unique | map({file: $path, directive: .}))};
+
+def socket:
+  .[0] as $a
+  | (.[1:] | any(. == "default_server" or . == "default")) as $default
+  | (if ($a | test("^[0-9]+$")) then {addr: "*", port: $a}
+     elif ($a | test("^\\[[^]]*\\]:[0-9]+$")) then ($a | capture("^(?<addr>\\[[^]]*\\]):(?<port>[0-9]+)$"))
+     elif ($a | test("^\\[[^]]*\\]$")) then {addr: $a, port: "80"}
+     elif ($a | startswith("unix:")) then {addr: $a, port: null}
+     elif ($a | test("^[^:]+:[0-9]+$")) then ($a | capture("^(?<addr>[^:]+):(?<port>[0-9]+)$"))
+     else {addr: $a, port: "80"} end)
+  | .addr |= (if . == "*" or . == "0.0.0.0" then "*" else . end)
+  | {socket: "\(.addr):\(.port)", addr, port, default: $default};
+
+def matches($host):
+  if startswith("~") then "regex"
+  elif . == $host then "exact"
+  elif startswith(".") and ($host == .[1:] or ($host | endswith(.))) then "wildcard"
+  elif startswith("*.") and ($host | endswith(.[1:])) then "wildcard"
+  elif endswith(".*") and ($host | startswith(.[:-1])) then "wildcard"
+  else null end;
+
+def id: "\(.file)#\(.n)";
+
+[files[] | servers(.path)] as $parsed
+| ([$parsed[].servers[]]
+    | map(.sockets = (if (.listen | length) == 0 then [["80"]] else .listen end | map(socket)))) as $all
+| ($all | map(select(.file != $own))) as $others
+| ($all | map(select(.file == $own))) as $ours
+| {
+    loose: [$parsed[].loose[]],
+    ours: ($ours | map({sockets: (.sockets | map(.socket)), defaults: (.sockets | map(select(.default) | .socket)), names})),
+    defaults: ($sockets | map(. as $s | {
+        socket: $s,
+        explicit: [$others[] | select(any(.sockets[]; .socket == $s and .default)) | id],
+        first: ([$all[] | select(any(.sockets[]; .socket == $s))][0] // null | if . == null then null else id end)
+      })),
+    specific: [$others[] | .file as $f | .sockets[] | select(.port == "80" and (.addr | IN("*", "[::]") | not)) | "\($f) \(.socket)"] | unique,
+    claimed: [$names[] as $h | $others[] | . as $srv | .names[] | matches($h) as $m | select($m != null) | {host: $h, server: ($srv | id), name: ., match: $m}],
+    routes: [$mx[] as $h | $sockets[] as $s
+      | [$all[] | select(any(.sockets[]; .socket == $s))] as $set
+      | ([$set[] | . as $srv | .names[] | matches($h) as $m | select($m != null) | {server: ($srv | id), file: $srv.file, root: $srv.root, match: $m}]) as $hits
+      | {host: $h, socket: $s,
+         served: (first($hits[] | select(.match == "exact")) // first($hits[] | select(.match == "wildcard"))
+                  // (if any($hits[]; .match == "regex") then {server: null, file: null, root: null, match: "regex"}
+                      else (first($set[] | select(any(.sockets[]; .socket == $s and .default))) // $set[0] // null
+                            | if . == null then null
+                              else {server: id, file, root, match: (if any(.sockets[]; .socket == $s and .default) then "default_server" else "load order" end)}
+                              end)
+                      end))}]
+  }
+JQ
+
+NGINX_FACTS=""
+
+# read_nginx_facts — the loaded configuration's facts, into NGINX_FACTS.
+read_nginx_facts() {
+    local names mx sockets
+
+    "${NGINX_BIN}" -T >"${WORK}/nginx-T" 2>/dev/null || return 1
+
+    names="$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c .)"
+    mx="$(printf '%s\n' "${MX_HOSTNAMES[@]}" | jq -R 'select(. != "")' | jq -s -c .)"
+    sockets="$(printf '%s\n' "${PUBLIC_SOCKETS[@]}" | jq -R . | jq -s -c .)"
+
+    NGINX_FACTS="$(jq -Rs -c --arg own "${PUBLIC_LINK}" --argjson names "${names}" --argjson mx "${mx}" \
+        --argjson sockets "${sockets}" "${NGINX_ANALYSIS}" <"${WORK}/nginx-T")" || return 1
+    rm -f -- "${WORK}/nginx-T"
+}
+
+# routes_of FACTS — the server answering every MX host name on every public
+# socket, and each socket's default server: what must not change.
+routes_of() {
+    jq -c '{routes: [.routes[] | {host, socket, server: .served.server}], defaults: [.defaults[] | {socket, explicit}]}' <<<"$1"
+}
+
+# judge_routing — the facts of the loaded configuration, judged. With the
+# public site loaded (after --apply, and in --verify), its own server too.
+judge_routing() {
+    local expect_ours="$1" facts="${NGINX_FACTS}" socket line count
+
+    if [[ -z "${facts}" ]]; then
+        item FAIL "nginx:configuration" "nginx -T could not be read or understood — the routing on port 80 cannot be proved"
+        return 0
+    fi
+
+    count="$(jq '.loose | length' <<<"${facts}")"
+    if (( count == 0 )); then
+        item PASS "nginx:fragments" "every listen and server_name is inside a server block of its own file"
+    else
+        while IFS= read -r line; do
+            item FAIL "nginx:fragments" "${line} — a fragment included into some server: that server's names and sockets cannot be known"
+        done < <(jq -r '.loose[] | "\(.directive) outside any server block in \(.file)"' <<<"${facts}")
+    fi
+
+    for socket in "${PUBLIC_SOCKETS[@]}"; do
+        count="$(jq --arg s "${socket}" '[.defaults[] | select(.socket == $s) | .explicit[]] | length' <<<"${facts}")"
+        if (( count == 1 )); then
+            item PASS "nginx:default:${socket}" "explicit default_server: $(jq -r --arg s "${socket}" '.defaults[] | select(.socket == $s) | .explicit[0]' <<<"${facts}") — a new site cannot become the server for names nobody lists"
+        else
+            item FAIL "nginx:default:${socket}" "no explicit default_server in another site (the server for unlisted names — the MX host among them — is whichever loads first: $(jq -r --arg s "${socket}" '.defaults[] | select(.socket == $s) | .first // "none"' <<<"${facts}")), and adding a site could change it"
+        fi
+    done
+
+    count="$(jq '.specific | length' <<<"${facts}")"
+    if (( count == 0 )); then
+        item PASS "nginx:addresses" "every other port-80 listener is on all addresses, as the public site's are"
+    else
+        while IFS= read -r line; do
+            item FAIL "nginx:addresses" "${line} — a port-80 listener bound to one address routes that address apart, and the loopback probes cannot prove it"
+        done < <(jq -r '.specific[]' <<<"${facts}")
+    fi
+
+    count="$(jq '.claimed | length' <<<"${facts}")"
+    if (( count == 0 )); then
+        item PASS "nginx:names" "no other server claims ${PUBLIC_HOSTNAMES[*]}"
+    else
+        while IFS= read -r line; do
+            item CONFLICT "nginx:names" "${line}"
+        done < <(jq -r '.claimed[] | "\(.server) has server_name \(.name) (\(.match)), which can answer \(.host)"' <<<"${facts}")
+    fi
+
+    while IFS= read -r line; do
+        local host sock server match root
+        IFS='|' read -r host sock server match root <<<"${line}"
+        if [[ "${match}" == regex ]]; then
+            item PASS "route:${host}:${sock}" "matched by a regular expression in another site — whatever answers it, it is not the public site, which lists exact names only"
+        elif [[ -z "${server}" ]]; then
+            item FAIL "route:${host}:${sock}" "no server listens on ${sock} — nothing answers ${host} there"
+        elif [[ "${server}" == "${PUBLIC_LINK}#"* ]]; then
+            item FAIL "route:${host}:${sock}" "answered by the public site — the MX host's HTTP-01 route would be taken from it"
+        else
+            item PASS "route:${host}:${sock}" "answered by ${server} (${match}${root:+, root ${root}}) — not the public site"
+        fi
+    done < <(jq -r '.routes[] | "\(.host)|\(.socket)|\(.served.server // "")|\(.served.match // "")|\(.served.root // "")"' <<<"${facts}")
+
+    if [[ "${expect_ours}" == true ]]; then
+        local expected_names
+        expected_names="$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c .)"
+        if jq -e --argjson names "${expected_names}" --argjson sockets "$(printf '%s\n' "${PUBLIC_SOCKETS[@]}" | jq -R . | jq -s -c .)" '
+            (.ours | length) == 1
+            and (.ours[0].names == $names)
+            and ((.ours[0].sockets | sort) == ($sockets | sort))
+            and (.ours[0].defaults == [])' <<<"${facts}" >/dev/null; then
+            item PASS "nginx:public-site" "loaded once: ${PUBLIC_HOSTNAMES[*]} on ${PUBLIC_SOCKETS[*]}, never a default_server"
+        else
+            item FAIL "nginx:public-site" "the loaded configuration does not hold the public site exactly once, with its own names and sockets and no default_server"
+        fi
+    elif [[ "$(jq '.ours | length' <<<"${facts}")" != 0 ]]; then
+        item FAIL "nginx:public-site" "the public site is loaded although its link is not in place"
+    fi
+}
+
+# --- The answers of the host's own Nginx -------------------------------------------------
+
+PROBE_TOKEN=""
+OURS_BODY_SHA=""
+
+# probe ADDRESS HOST PATH — "STATUS|RETRY_AFTER|BODY_SHA256|LOCATION" of one
+# request to the host's own Nginx on port 80; STATUS 000 when nothing answered.
+probe() {
+    local address="$1" host="$2" path="$3" code headers body retry location
+
+    headers="${WORK}/probe.headers"
+    body="${WORK}/probe.body"
+    : >"${headers}"
+    : >"${body}"
+
+    code="$("${CURL_BIN}" --silent --globoff --noproxy '*' --max-time 5 \
+        --output "${body}" --dump-header "${headers}" --write-out '%{http_code}' \
+        --header "Host: ${host}" "http://${address}${path}" 2>/dev/null)" || code="000"
+    [[ "${code}" =~ ^[0-9]{3}$ ]] || code="000"
+
+    retry="$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "retry-after" { value = $2 } END { print value }')"
+    location="$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "location" { value = $2 } END { print value }')"
+
+    printf '%s|%s|%s|%s\n' "${code}" "${retry}" "$(sha256sum <"${body}" | cut -c1-64)" "${location}"
+}
+
+# is_ours ANSWER — the public site's own 503.
+is_ours() {
+    local code retry sha location
+    IFS='|' read -r code retry sha location <<<"$1"
+    [[ "${code}" == 503 && "${retry}" == "${RETRY_AFTER}" && "${sha}" == "${OURS_BODY_SHA}" ]]
+}
+
+new_probe_token() {
+    PROBE_TOKEN="rateguru-public-http-probe-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+}
+
+# probe_unchanged_names — what every name the public site must not take
+# answers: each MX host's absent challenge, and a name nobody lists.
+probe_unchanged_names() {
+    local address host
+    for address in "${PROBE_ADDRESSES[@]}"; do
+        for host in "${MX_HOSTNAMES[@]}"; do
+            printf '%s %s %s\n' "${address}" "${host}" "$(probe "${address}" "${host}" "/.well-known/acme-challenge/${PROBE_TOKEN}")"
+        done
+        printf '%s %s %s\n' "${address}" "unlisted.invalid" "$(probe "${address}" "rateguru-unlisted-name.invalid" "/")"
+    done
+}
+
+# judge_unchanged_names ANSWERS — no name the public site must not take is answered by it.
+judge_unchanged_names() {
+    local answers="$1" address host answer code
+    while read -r address host answer; do
+        code="${answer%%|*}"
+        if is_ours "${answer}"; then
+            item FAIL "answer:${host}@${address}" "answered by the public site's 503"
+        elif [[ "${host}" == unlisted.invalid ]]; then
+            if [[ "${code}" == 000 ]]; then
+                item FAIL "answer:${host}@${address}" "nothing answered on port 80"
+            else
+                item PASS "answer:${host}@${address}" "HTTP ${code} from the default server, not the public site"
+            fi
+        elif [[ "${code}" == 404 ]]; then
+            item PASS "answer:${host}@${address}" "an absent challenge is 404 from the server that serves its webroot, not the public site"
+        else
+            item FAIL "answer:${host}@${address}" "an absent challenge answered HTTP ${code}, not 404 — the MX host's HTTP-01 route cannot be proved"
+        fi
+    done <<<"${answers}"
+}
+
+# judge_public_answers WANT — the public hostnames, as the host's own Nginx
+# answers them: WANT=ours for the public site, absent for none.
+judge_public_answers() {
+    local want="$1" address host answer code
+
+    for address in "${PROBE_ADDRESSES[@]}"; do
+        for host in "${PUBLIC_HOSTNAMES[@]}"; do
+            answer="$(probe "${address}" "${host}" "/")"
+            if [[ "${want}" == ours ]]; then
+                if is_ours "${answer}"; then
+                    item PASS "answer:${host}@${address}" "/ is 503 with Retry-After ${RETRY_AFTER} — nothing of the application"
+                else
+                    item FAIL "answer:${host}@${address}" "/ answered HTTP ${answer%%|*}, not the public site's 503"
+                fi
+
+                answer="$(probe "${address}" "${host}" "/index.php")"
+                if is_ours "${answer}"; then
+                    item PASS "answer:${host}@${address}:php" "/index.php is the same 503 — no PHP is executed"
+                else
+                    item FAIL "answer:${host}@${address}:php" "/index.php answered HTTP ${answer%%|*}, not the public site's 503"
+                fi
+
+                answer="$(probe "${address}" "${host}" "/.well-known/acme-challenge/${PROBE_TOKEN}")"
+                code="${answer%%|*}"
+                if [[ "${code}" == 404 ]]; then
+                    item PASS "answer:${host}@${address}:acme" "an absent challenge is 404 from ${ACME_WEBROOT}, not the 503"
+                else
+                    item FAIL "answer:${host}@${address}:acme" "an absent challenge answered HTTP ${code}, not 404"
+                fi
+            else
+                code="${answer%%|*}"
+                if is_ours "${answer}"; then
+                    item FAIL "answer:${host}@${address}" "still answered by the public site's 503"
+                else
+                    item PASS "answer:${host}@${address}" "HTTP ${code} — not the public site"
+                fi
+            fi
+        done
+    done
+}
+
+# wait_for_public WANT — after a reload, until the public hostname answers as
+# WANT (ours or absent) on the first probe address.
+wait_for_public() {
+    local want="$1" deadline answer
+    deadline=$(( SECONDS + PROBE_WAIT ))
+
+    while :; do
+        answer="$(probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" "/")"
+        if [[ "${want}" == ours ]] && is_ours "${answer}"; then
+            return 0
+        elif [[ "${want}" == absent ]] && ! is_ours "${answer}" && [[ "${answer%%|*}" != 000 ]]; then
+            return 0
+        fi
+        (( SECONDS < deadline )) || return 1
+        sleep 0.5
+    done
+}
+
+# --- Checks shared by every mode --------------------------------------------------------
+
+report_nginx() {
+    section "NGINX"
+
+    if nginx_active; then
+        item PASS "nginx:service" "active — it is reloaded, never started, stopped or restarted"
+    else
+        item FAIL "nginx:service" "not active — it serves the MX host's HTTP-01 challenge, and this script never starts it"
+    fi
+
+    local dir
+    for dir in "${NGINX_DIR}" "${SITES_AVAILABLE}" "${SITES_ENABLED}"; do
+        if real_root_directory "${dir}"; then
+            item PASS "layout:${dir}" "a real directory, ${FILE_OWNER}:${FILE_GROUP}, writable by no one else"
+        else
+            item FAIL "layout:${dir}" "not a real ${FILE_OWNER}:${FILE_GROUP} directory writable by no one else ($(file_identity "$(physical "${dir}")"))"
+        fi
+    done
+}
+
+report_public_paths() {
+    local state line
+
+    state="$(public_file_state)"
+    case "${state}" in
+        absent) item PASS "file:${PUBLIC_FILE}" "absent" ;;
+        ours)   item PASS "file:${PUBLIC_FILE}" "this script's, exactly the render, ${FILE_OWNER}:${FILE_GROUP} 644" ;;
+        *)      item CONFLICT "file:${PUBLIC_FILE}" "${state#foreign:} — not this script's, and never overwritten or removed by it" ;;
+    esac
+
+    state="$(public_link_state)"
+    case "${state}" in
+        absent) item PASS "link:${PUBLIC_LINK}" "absent" ;;
+        ours)   item PASS "link:${PUBLIC_LINK}" "a link to ${PUBLIC_FILE}" ;;
+        *)      item CONFLICT "link:${PUBLIC_LINK}" "${state#foreign:} — not this script's, and never replaced or removed by it" ;;
+    esac
+
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] || item CONFLICT "link:${line}" "another link to the public site's file — it would be loaded twice"
+    done < <(other_links_to_public_file)
+}
+
+report_webroot() {
+    local dir phys identity mode
+    section "ACME WEBROOT"
+
+    if real_root_directory "${ACME_WEBROOT}" \
+        && identity="$(file_identity "$(physical "${ACME_WEBROOT}")")" \
+        && mode="${identity##*:}" && (( (8#${mode} & 8#001) != 0 )); then
+        item PASS "webroot:${ACME_WEBROOT}" "a real ${FILE_OWNER}:${FILE_GROUP} directory, writable by no one else, traversable by the Nginx workers"
+    else
+        item FAIL "webroot:${ACME_WEBROOT}" "not a real ${FILE_OWNER}:${FILE_GROUP} directory, writable by no one else and traversable by the Nginx workers ($(file_identity "$(physical "${ACME_WEBROOT}")"))"
+    fi
+
+    for dir in "${ACME_WEBROOT}/.well-known" "${ACME_WEBROOT}/.well-known/acme-challenge"; do
+        phys="$(physical "${dir}")"
+        if [[ ! -e "${phys}" && ! -L "${phys}" ]]; then
+            item PASS "webroot:${dir}" "absent — Certbot creates it for a challenge and removes it after"
+        elif real_root_directory "${dir}" \
+            && identity="$(file_identity "${phys}")" && mode="${identity##*:}" && (( (8#${mode} & 8#001) != 0 )); then
+            item PASS "webroot:${dir}" "a real ${FILE_OWNER}:${FILE_GROUP} directory, writable by no one else"
+        else
+            item FAIL "webroot:${dir}" "not a real ${FILE_OWNER}:${FILE_GROUP} directory writable by no one else ($(file_identity "${phys}"))"
+        fi
+    done
+}
+
+report_internal_site() {
+    local file link phys content
+    section "KEPT AS THEY ARE"
+
+    file="${SITES_AVAILABLE}/${INTERNAL_SITE}"
+    link="${SITES_ENABLED}/${INTERNAL_SITE}"
+    phys="$(physical "${file}")"
+
+    if [[ -f "${phys}" && ! -L "${phys}" ]] \
+        && grep -Fxq "    server_name ${INTERNAL_HOSTNAME};" "${phys}" \
+        && grep -Fxq "    deny all;" "${phys}" \
+        && ! grep -Eq 'default_server|listen[[:space:]]+443' "${phys}" \
+        && ! printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | grep -Fqf - "${phys}"; then
+        item PASS "internal:${file}" "install-bootstrap-services' internal site: ${INTERNAL_HOSTNAME}, loopback only, no public name — never written here"
+    else
+        item FAIL "internal:${file}" "not the internal site install-bootstrap-services renders (${INTERNAL_HOSTNAME}, loopback only, no public name) — run Verify production infrastructure"
+    fi
+
+    phys="$(physical "${link}")"
+    content="$(readlink -- "${phys}" 2>/dev/null || true)"
+    if [[ -L "${phys}" && ( "${content}" == "${file}" || "${content}" == "../sites-available/${INTERNAL_SITE}" ) ]]; then
+        item PASS "internal:${link}" "enabled"
+    else
+        item FAIL "internal:${link}" "the internal site is not enabled as install-bootstrap-services enables it"
+    fi
+
+    local entry
+    while IFS= read -r entry; do
+        [[ -z "${entry}" ]] || printf '  %-8s %s\n' KEEP "${entry}"
+    done < <(nginx_snapshot | awk '$1 ~ "^/etc/nginx/sites-enabled/" { print $1 }')
+}
+
+# preflight WANT_ROUTES — every precondition, judged read-only.
+preflight() {
+    report_target
+    report_nginx
+
+    section "PUBLIC SITE"
+    report_public_paths
+
+    section "NGINX CONFIGURATION"
+    if nginx_test; then
+        item PASS "nginx:test" "nginx -t passes on the configuration as it is"
+    else
+        item FAIL "nginx:test" "nginx -t fails on the configuration as it is: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ')"
+    fi
+
+    if read_nginx_facts; then
+        judge_routing "$([[ "$(public_link_state)" == ours ]] && echo true || echo false)"
+    else
+        NGINX_FACTS=""
+        judge_routing false
+    fi
+
+    report_webroot
+    report_internal_site
+}
+
+# --- Modes --------------------------------------------------------------------------
+
+begin_run() {
+    load_target
+    make_work
+    render_public_site >"${WORK}/candidate"
+    OURS_BODY_SHA="$(printf '%s\n' "${UNAVAILABLE_BODY}" | sha256sum | cut -c1-64)"
+    new_probe_token
+    HOST_STATE="$(static_state)"
+
+    printf 'prepare-public-http --%s --target %s\n' "${MODE}" "${TARGET_ID}"
+    printf '  site %s (%s), hostnames %s, ACME webroot %s\n' "${PUBLIC_SITE}" "${PUBLIC_FILE}" "${PUBLIC_HOSTNAMES[*]}" "${ACME_WEBROOT}"
+}
+
+report_plan() {
+    section "PLAN"
+
+    case "${HOST_STATE}" in
+        http-acme-ready)
+            printf '  %-8s %s\n' NO-OP "the public site is in place: --apply writes nothing, and reloads Nginx only if it does not answer as the site says" ;;
+        foreign)
+            printf '  %-8s %s\n' REFUSE "something at the public site's paths is not this script's: --apply and --rollback change no file or link and reload nothing" ;;
+        not-prepared|drift)
+            [[ "$(public_file_state)" != absent ]] \
+                || printf '  %-8s %s\n' WRITE "${PUBLIC_FILE} (${FILE_OWNER}:${FILE_GROUP} 0644), the render below"
+            [[ "$(public_link_state)" == ours ]] \
+                || printf '  %-8s %s\n' LINK "${PUBLIC_LINK} -> ${PUBLIC_FILE}"
+            printf '  %-8s %s\n' TEST "nginx -t, and the candidate's routing judged again before any reload"
+            printf '  %-8s %s\n' RELOAD "systemctl reload nginx — never a restart or a stop"
+            printf '  %-8s %s\n' PROVE "the public hostnames answer the 503 and the ACME webroot; every MX host and unlisted name answers as before"
+            ;;
+    esac
+    printf '  %-8s %s\n' NEVER "a certificate, a TLS listener, a redirect, the internal site, another site, DNS, the mail gateway or the lifecycle"
+
+    printf '\n  The render:\n'
+    sed 's/^/    | /' "${WORK}/candidate"
+}
+
+run_check() {
+    begin_run
+    preflight
+
+    if [[ "${HOST_STATE}" == http-acme-ready ]]; then
+        section "ANSWERS"
+        judge_public_answers ours
+        judge_unchanged_names "$(probe_unchanged_names)"
+    else
+        section "ANSWERS"
+        judge_unchanged_names "$(probe_unchanged_names)"
+    fi
+
+    report_plan
+
+    section "RESULT"
+    if (( COUNT_FAIL == 0 )); then
+        log "CHECK: PASS — state ${HOST_STATE}; --apply may proceed"
+        result_line pass
+    else
+        log "CHECK: FAIL — ${COUNT_FAIL} problem(s); --apply would refuse before changing anything"
+        result_line fail
+        exit 1
+    fi
+}
+
+run_verify() {
+    begin_run
+    preflight
+
+    section "ANSWERS"
+    case "${HOST_STATE}" in
+        http-acme-ready)
+            judge_public_answers ours ;;
+        not-prepared)
+            judge_public_answers absent ;;
+        foreign)
+            item CONFLICT "state" "the public site is not this script's — never returned to HTTP or removed by it" ;;
+        *)
+            item DRIFT "state" "the public site's own file or link is missing — --apply completes it, --rollback removes it" ;;
+    esac
+    judge_unchanged_names "$(probe_unchanged_names)"
+
+    section "RESULT"
+    if (( COUNT_FAIL == 0 )); then
+        log "VERIFY: PASS — state ${HOST_STATE}"
+        result_line pass
+    else
+        [[ "${HOST_STATE}" != http-acme-ready ]] || HOST_STATE=drift
+        log "VERIFY: FAIL — ${COUNT_FAIL} problem(s), state ${HOST_STATE}"
+        result_line fail
+        exit 1
+    fi
+}
+
+# open_transaction — what the public site's file and link are now, so that any
+# failure from here on puts exactly that back.
+open_transaction() {
+    local phys
+    phys="$(physical "${PUBLIC_FILE}")"
+
+    if [[ -f "${phys}" ]]; then
+        cp -p -- "${phys}" "${WORK}/saved-file"
+        SAVED_FILE_PRESENT=true
+    else
+        SAVED_FILE_PRESENT=false
+    fi
+
+    phys="$(physical "${PUBLIC_LINK}")"
+    if [[ -L "${phys}" ]]; then
+        SAVED_LINK="$(readlink -- "${phys}")"
+    else
+        SAVED_LINK=""
+    fi
+
+    TRANSACTION_OPEN=true
+}
+
+# restore_previous_state — the public site's file and link as they were, the
+# configuration valid, and Nginx answering as before. Never touches another file.
+restore_previous_state() {
+    local file link ok=true after
+
+    file="$(physical "${PUBLIC_FILE}")"
+    link="$(physical "${PUBLIC_LINK}")"
+
+    if [[ -n "${SAVED_LINK}" ]]; then
+        if [[ ! -L "${link}" || "$(readlink -- "${link}")" != "${SAVED_LINK}" ]]; then
+            rm -f -- "${link}" && ln -s -- "${SAVED_LINK}" "${link}" || ok=false
+        fi
+    elif [[ -L "${link}" ]]; then
+        rm -f -- "${link}" || ok=false
+    fi
+
+    if [[ "${SAVED_FILE_PRESENT}" == true ]]; then
+        if ! cmp -s -- "${WORK}/saved-file" "${file}"; then
+            install -m 0644 -o "${FILE_OWNER}" -g "${FILE_GROUP}" -- "${WORK}/saved-file" "${file}.rateguru-restore" \
+                && mv -fT -- "${file}.rateguru-restore" "${file}" || ok=false
+        fi
+    elif [[ -e "${file}" || -L "${file}" ]]; then
+        rm -f -- "${file}" || ok=false
+    fi
+
+    if ! nginx_test; then
+        printf 'restore: nginx -t fails with the previous state put back: %s\n' "$(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ')" >&2
+        return 1
+    fi
+    log "restore: nginx -t passes with the previous state put back"
+
+    if [[ "${RELOADED}" == true ]]; then
+        if ! "${SYSTEMCTL_BIN}" reload nginx >/dev/null 2>&1; then
+            printf 'restore: systemctl reload nginx failed\n' >&2
+            return 1
+        fi
+        log "restore: Nginx reloaded with the previous state"
+        RELOADED=false
+    fi
+
+    # What every name the public site must not take answers is what it
+    # answered before this run.
+    if [[ -n "${BEFORE_PROBES}" ]]; then
+        local deadline=$(( SECONDS + PROBE_WAIT ))
+        while :; do
+            after="$(probe_unchanged_names)"
+            [[ "${after}" != "${BEFORE_PROBES}" ]] || break
+            if (( SECONDS >= deadline )); then
+                printf 'restore: the MX host and unlisted names do not answer as they did before this run\n' >&2
+                ok=false
+                break
+            fi
+            sleep 0.5
+        done
+    fi
+
+    if [[ -n "${BEFORE_SNAPSHOT}" && "$(nginx_snapshot)" != "${BEFORE_SNAPSHOT}" ]]; then
+        printf 'restore: a file under %s other than the public site changed during this run\n' "${NGINX_DIR}" >&2
+        ok=false
+    fi
+
+    [[ "${ok}" == true ]]
+}
+
+# install_public_file — the render, written beside the file and moved into
+# place: never a partly written site, never through a link.
+install_public_file() {
+    local dst tmp
+    dst="$(physical "${PUBLIC_FILE}")"
+    tmp="$(physical "${SITES_AVAILABLE}")/.${PUBLIC_SITE}.rateguru-incoming"
+
+    rm -f -- "${tmp}"
+    install -m 0644 -o "${FILE_OWNER}" -g "${FILE_GROUP}" -- "${WORK}/candidate" "${tmp}"
+    mv -fT -- "${tmp}" "${dst}"
+    cmp -s -- "${WORK}/candidate" "${dst}" || die "the public site's file does not read back as written"
+    action "wrote ${PUBLIC_FILE}"
+}
+
+# reload_and_prove WANT — nginx -t, the one reload, and the proof after it.
+reload_and_prove() {
+    local want="$1" after
+
+    nginx_test || die "nginx -t fails with the change in place: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ') — no reload was performed"
+    action "nginx -t passes"
+
+    RELOADED=true
+    "${SYSTEMCTL_BIN}" reload nginx >/dev/null 2>&1 || die "systemctl reload nginx failed"
+    action "Nginx reloaded"
+
+    wait_for_public "${want}" \
+        || die "after the reload, ${PUBLIC_HOSTNAMES[0]} does not answer as the change says within ${PROBE_WAIT}s"
+
+    after="$(probe_unchanged_names)"
+    [[ "${after}" == "${BEFORE_PROBES}" ]] \
+        || die "after the reload, an MX host or an unlisted name answers differently than before:"$'\n'"before:"$'\n'"${BEFORE_PROBES}"$'\n'"after:"$'\n'"${after}"
+    action "every MX host and unlisted name answers exactly as before"
+}
+
+run_apply() {
+    acquire_host_lock
+    begin_run
+    preflight
+
+    if (( COUNT_FAIL > 0 )); then
+        section "RESULT"
+        log "APPLY: REFUSED — ${COUNT_FAIL} problem(s) before anything changed; nothing was changed"
+        result_line fail
+        exit 1
+    fi
+
+    BEFORE_PROBES="$(probe_unchanged_names)"
+    section "ANSWERS BEFORE"
+    judge_unchanged_names "${BEFORE_PROBES}"
+    if (( COUNT_FAIL > 0 )); then
+        section "RESULT"
+        log "APPLY: REFUSED — the MX host's HTTP-01 route cannot be proved; nothing was changed"
+        result_line fail
+        exit 1
+    fi
+
+    section "APPLY"
+    if [[ "${HOST_STATE}" == http-acme-ready ]]; then
+        if wait_for_public ours; then
+            judge_public_answers ours
+            (( COUNT_FAIL == 0 )) || die "the public site is in place but does not answer as it says"
+            log "APPLY: PASS — no-op: the public site is in place and answering; nothing was written and nothing reloaded"
+            result_line pass
+            return 0
+        fi
+        action "the files are in place but Nginx does not answer from them: reloading"
+    fi
+
+    BEFORE_ROUTES="$(routes_of "${NGINX_FACTS}")"
+    BEFORE_SNAPSHOT="$(nginx_snapshot)"
+    open_transaction
+
+    # The preflight refused anything at these paths that is not this script's
+    # own: the file is either absent, or exactly the render, and never rewritten.
+    if [[ "$(public_file_state)" == absent ]]; then
+        install_public_file
+        CHANGED=true
+    fi
+
+    if [[ "$(public_link_state)" == absent ]]; then
+        ln -s -- "${PUBLIC_FILE}" "$(physical "${PUBLIC_LINK}")"
+        action "linked ${PUBLIC_LINK} -> ${PUBLIC_FILE}"
+        CHANGED=true
+    fi
+
+    # The candidate, judged before Nginx ever loads it: valid, the public site
+    # in it once, and every MX host name and default server exactly where it was.
+    nginx_test || die "nginx -t fails with the public site in place: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ') — no reload was performed"
+    read_nginx_facts || die "the candidate configuration could not be read with nginx -T — no reload was performed"
+    local count_before="${COUNT_FAIL}"
+    section "CANDIDATE"
+    judge_routing true
+    (( COUNT_FAIL == count_before )) || die "the candidate configuration fails the routing checks — no reload was performed"
+    [[ "$(routes_of "${NGINX_FACTS}")" == "${BEFORE_ROUTES}" ]] \
+        || die "with the public site in place, the server answering an MX host name or a default server would change — no reload was performed"
+    action "the candidate keeps every MX host name and default server where it was"
+
+    section "RELOAD"
+    reload_and_prove ours
+    judge_public_answers ours
+    (( COUNT_FAIL == count_before )) || die "the public site does not answer as rendered"
+
+    [[ "$(nginx_snapshot)" == "${BEFORE_SNAPSHOT}" ]] \
+        || die "a file under ${NGINX_DIR} other than the public site's changed during this run"
+
+    TRANSACTION_OPEN=false
+    CHANGED=true
+    HOST_STATE=http-acme-ready
+
+    section "RESULT"
+    log "APPLY: PASS — http-acme-ready: the public hostnames (${PUBLIC_HOSTNAMES[*]}) answer the ACME challenge from ${ACME_WEBROOT}, and 503 for everything else"
+    result_line pass
+}
+
+run_rollback() {
+    acquire_host_lock
+    load_target
+    make_work
+    render_public_site >"${WORK}/candidate"
+    OURS_BODY_SHA="$(printf '%s\n' "${UNAVAILABLE_BODY}" | sha256sum | cut -c1-64)"
+    new_probe_token
+    HOST_STATE="$(static_state)"
+
+    printf 'prepare-public-http --%s --target %s\n' "${MODE}" "${TARGET_ID}"
+
+    report_target
+    report_nginx
+    section "PUBLIC SITE"
+    report_public_paths
+
+    if (( COUNT_FAIL > 0 )); then
+        section "RESULT"
+        log "ROLLBACK: REFUSED — ${COUNT_FAIL} problem(s); nothing was changed"
+        result_line fail
+        exit 1
+    fi
+
+    if [[ "${HOST_STATE}" == not-prepared ]]; then
+        section "RESULT"
+        log "ROLLBACK: PASS — no-op: there is no public site to remove; nothing was changed"
+        result_line pass
+        return 0
+    fi
+
+    local link_present=false
+    [[ "$(public_link_state)" != ours ]] || link_present=true
+
+    BEFORE_PROBES="$(probe_unchanged_names)"
+    BEFORE_SNAPSHOT="$(nginx_snapshot)"
+    open_transaction
+
+    section "ROLLBACK"
+    if [[ "${link_present}" == true ]]; then
+        rm -f -- "$(physical "${PUBLIC_LINK}")"
+        action "removed ${PUBLIC_LINK}"
+    fi
+    if [[ "$(public_file_state)" == ours ]]; then
+        rm -f -- "$(physical "${PUBLIC_FILE}")"
+        action "removed ${PUBLIC_FILE}"
+    fi
+    CHANGED=true
+
+    if [[ "${link_present}" == true ]]; then
+        reload_and_prove absent
+        local count_before="${COUNT_FAIL}"
+        judge_public_answers absent
+        (( COUNT_FAIL == count_before )) || die "a public hostname is still answered by the public site"
+    fi
+
+    [[ "$(nginx_snapshot)" == "${BEFORE_SNAPSHOT}" ]] \
+        || die "a file under ${NGINX_DIR} other than the public site's changed during this run"
+
+    TRANSACTION_OPEN=false
+    HOST_STATE=not-prepared
+
+    section "RESULT"
+    log "ROLLBACK: PASS — not-prepared: the public site is removed; every other site, the webroot and every certificate are as they were"
+    result_line pass
+}
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--rollback)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                die "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify or --rollback"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+
+    require_tools jq
+    RESULT_READY=true
+    trap on_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 141' PIPE
+    trap 'exit 143' TERM
+
+    require_root
+    require_tools "${NGINX_BIN}" "${SYSTEMCTL_BIN}" "${CURL_BIN}" flock stat sha256sum cmp install mktemp od
+
+    case "${MODE}" in
+        check)    run_check ;;
+        apply)    run_apply ;;
+        verify)   run_verify ;;
+        rollback) run_rollback ;;
+    esac
+}
+
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped code rather than a copy of it.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

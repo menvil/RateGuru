@@ -39,6 +39,9 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        // tits-guru's public HTTP site: its preparation, read-only
+        // verification and rollback, guarded by PublicHttpWorkflowTest.
+        'prepare-tits-guru-public-http.yml',
         'provision-tits-guru.yml',
         // Host recovery's own two operator workflows, added after this work
         // and guarded by RecoverWorkflowsTest. Named for their environment,
@@ -54,6 +57,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'rollback-staging.yml',
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
+        'rollback-tits-guru-public-http.yml',
         'schedule-tits-guru-inbound-mail-health.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
@@ -64,6 +68,7 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
         'verify-tits-guru-inbound-smtp.yml',
+        'verify-tits-guru-public-http.yml',
     ]);
 
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
@@ -81,6 +86,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'configure-rateguru-target',
         'deploy-rateguru',
         'prepare-rateguru-host',
+        // The public HTTP site's transport, guarded by PublicHttpWorkflowTest.
+        'prepare-rateguru-public-http',
         // The generic target provisioner's transport, added later and guarded
         // by ProvisionRateGuruTargetActionTest. It ships with no operator
         // workflow at all, which is why the workflow list above is unchanged.
