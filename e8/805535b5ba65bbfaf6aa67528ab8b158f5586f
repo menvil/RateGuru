@@ -1,0 +1,35 @@
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_7d2d8843838027::t_2a15e6519e9138 233,251
+app/Queries/Translations/TranslationAiUsageQuery.php
+  s_7d2d8843838027::t_3a9f2a8277d30a 8,38-39,331-346
+tests/Browser/AdminTranslationAiBrowserTest.php
+  s_7d2d8843838027::t_8bbe687a9da5df 21-22,55-56
+tests/Feature/Queries/TranslationAiUsageQueryTest.php
+  s_7d2d8843838027::t_f415c39c6d6631 6,372-385
+docs/design/admin/design-contract.md
+  s_7d2d8843838027::t_d4b01588ae9012 739-741
+  s_7d2d8843838027::t_f355c8717d3c63 742-745
+tests/Feature/Filament/TranslationAiPageTest.php
+  s_7d2d8843838027::t_f415c39c6d6631 438-514
+app/Filament/Support/TranslationAiDiagnostics.php
+  s_7d2d8843838027::t_3a9f2a8277d30a 224-228,252-253,268,270,277
+  s_7d2d8843838027::t_dc032c0b84964d 254,267,269
+docs/design/admin/migration-plan.md
+  s_7d2d8843838027::t_2a15e6519e9138 162-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e8805535b5ba65bbfaf6aa67528ab8b158f5586f",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
