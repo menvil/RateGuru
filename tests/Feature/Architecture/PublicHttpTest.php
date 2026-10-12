@@ -135,8 +135,12 @@ it('installs the site with one validated reload, and every other file stays as i
     expect($exit)->toBe(0, $output);
     expect(publicHttpResult($output))->toMatchArray([
         'mode' => 'apply', 'status' => 'pass', 'state' => 'http-acme-ready', 'lifecycle' => 'planned',
-        'changed' => true, 'reloaded' => true, 'rolled_back' => false,
+        'changed' => true, 'reloaded' => true, 'rolled_back' => false, 'ipv6_loopback' => 'available',
     ]);
+
+    // IPv6 is up on this host's loopback: [::1] is asked as well as 127.0.0.1.
+    expect($output)->toContain('PASS     probes:loopback                              127.0.0.1 and [::1]: IPv6 is up on loopback, so both must answer');
+    expect(publicHttpLog($this->host, 'reads.log'))->toContain(' http://[::1]/')->toContain(' http://127.0.0.1/');
 
     expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpRender());
     expect(substr(sprintf('%o', fileperms($this->host['fs'].PUBLIC_HTTP_FILE)), -4))->toBe('0644');
@@ -713,3 +717,150 @@ it('writes nothing outside its own file and link, and never a certificate, DNS o
         expect($write)->toMatch('/PUBLIC_FILE|PUBLIC_LINK|\$\{file\}|\$\{link\}|\$\{dst\}|\$\{tmp\}|\$\{WORK\}/', "an unexpected write: {$write}");
     }
 });
+
+it('serves a host that disables IPv6: every mode passes on 127.0.0.1 alone, and nothing else is relaxed', function () {
+    publicHttpIpv6($this->host, 'disabled');
+    $before = publicHttpTree($this->host);
+    $neverIpv6 = function (): void {
+        expect(publicHttpLog($this->host, 'reads.log'))->not->toContain('http://[::1]')->toContain(' http://127.0.0.1/');
+    };
+
+    [$exit, $output] = publicHttpRun($this->host, 'check');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'not-prepared', 'ipv6_loopback' => 'disabled']);
+    expect($output)
+        ->toContain('SKIP     probes:[::1]                                 IPv6 is disabled on loopback (net.ipv6.conf.lo.disable_ipv6=1, no ::1): nothing can answer there, so its probes are skipped')
+        ->toContain('PASS     probes:loopback                              127.0.0.1, which must answer')
+        // Every check of the configuration stays: the [::]:80 default server and the MX host's route on it.
+        ->toContain('PASS     nginx:default:[::]:80')
+        ->toContain('PASS     route:mx1.tits.guru:[::]:80')
+        ->toContain('PASS     answer:mx1.tits.guru@127.0.0.1')
+        ->not->toContain('answer:mx1.tits.guru@[::1]');
+    $neverIpv6();
+
+    publicHttpResetLogs($this->host);
+    [$exit, $output] = publicHttpRun($this->host, 'apply');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'http-acme-ready', 'changed' => true, 'reloaded' => true, 'ipv6_loopback' => 'disabled']);
+    expect($output)
+        ->toContain('PASS     nginx:public-site                            loaded once: tits.guru on *:80 [::]:80, never a default_server')
+        ->toContain('[apply] every MX host and unlisted name answers exactly as before')
+        ->toContain('PASS     answer:tits.guru@127.0.0.1                   / is 503 with Retry-After 3600');
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpRender())->toContain("    listen [::]:80;\n");
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
+    $neverIpv6();
+
+    // Again: nothing written, nothing reloaded.
+    publicHttpResetLogs($this->host);
+    clearstatcache();
+    $inode = fileinode($this->host['fs'].PUBLIC_HTTP_FILE);
+    [$exit, $output] = publicHttpRun($this->host, 'apply');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'http-acme-ready', 'changed' => false, 'reloaded' => false]);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+    clearstatcache();
+    expect(fileinode($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($inode);
+
+    [$exit, $output] = publicHttpRun($this->host, 'verify');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'http-acme-ready', 'ipv6_loopback' => 'disabled']);
+    $neverIpv6();
+
+    publicHttpResetLogs($this->host);
+    [$exit, $output] = publicHttpRun($this->host, 'rollback');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'not-prepared', 'changed' => true, 'reloaded' => true, 'ipv6_loopback' => 'disabled']);
+    expect($output)->toContain('[rollback] every MX host and unlisted name answers exactly as before');
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
+    expect(publicHttpTree($this->host))->toBe($before);
+    $neverIpv6();
+});
+
+it('puts the previous state back on a host that disables IPv6, as anywhere', function () {
+    publicHttpIpv6($this->host, 'disabled');
+    publicHttpToggle($this->host, 'reload-fail-once');
+
+    [$exit, $output] = publicHttpRun($this->host, 'apply');
+
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'state' => 'not-prepared', 'rolled_back' => true, 'ipv6_loopback' => 'disabled']);
+    expect(file_exists($this->host['fs'].PUBLIC_HTTP_FILE))->toBeFalse();
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\nsystemctl reload nginx\n");
+});
+
+it('still refuses, on a host that disables IPv6, the HTTPS site that took the public site over', function () {
+    publicHttpIpv6($this->host, 'disabled');
+    publicHttpInstalled($this->host);
+    file_put_contents($this->host['fs'].PUBLIC_HTTP_FILE, publicHttpTakenOverByHttps());
+
+    foreach (['apply' => 'APPLY: REFUSED', 'rollback' => 'ROLLBACK: REFUSED'] as $mode => $verdict) {
+        [$exit, $output] = publicHttpRun($this->host, $mode);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('it holds an HTTPS configuration')->toContain($verdict);
+        expect(publicHttpResult($output))->toMatchArray(['state' => 'foreign', 'changed' => false, 'reloaded' => false]);
+    }
+
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpTakenOverByHttps());
+    expect(readlink($this->host['fs'].PUBLIC_HTTP_LINK))->toBe(PUBLIC_HTTP_FILE);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+});
+
+it('requires [::1] to answer wherever IPv6 is up on loopback', function () {
+    publicHttpToggle($this->host, 'ipv6-unreachable');
+
+    [$exit, $output] = publicHttpRun($this->host, 'apply');
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'state' => 'not-prepared', 'changed' => false, 'ipv6_loopback' => 'available']);
+    expect($output)
+        ->toContain('FAIL     answer:mx1.tits.guru@[::1]                   an absent challenge answered HTTP 000, not 404')
+        ->toContain('APPLY: REFUSED');
+    expect(file_exists($this->host['fs'].PUBLIC_HTTP_FILE))->toBeFalse();
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+
+    // And once the site is in place, a [::1] that stops answering fails verify.
+    publicHttpToggle($this->host, 'ipv6-unreachable', false);
+    publicHttpInstalled($this->host);
+    publicHttpToggle($this->host, 'ipv6-unreachable');
+    [$exit, $output] = publicHttpRun($this->host, 'verify');
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain("FAIL     answer:tits.guru@[::1]                       / answered HTTP 000, not the public site's 503");
+});
+
+it('requires 127.0.0.1 to answer, whatever IPv6 does', function (string $ipv6) {
+    publicHttpIpv6($this->host, $ipv6);
+    publicHttpToggle($this->host, 'ipv4-unreachable');
+
+    [$exit, $output] = publicHttpRun($this->host, 'apply');
+    expect($exit)->toBe(1, $output);
+    expect($output)
+        ->toContain('FAIL     answer:mx1.tits.guru@127.0.0.1               an absent challenge answered HTTP 000, not 404')
+        ->toContain('APPLY: REFUSED');
+    expect(file_exists($this->host['fs'].PUBLIC_HTTP_FILE))->toBeFalse();
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+
+    [$exit, $output] = publicHttpRun($this->host, 'verify');
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain('FAIL     answer:mx1.tits.guru@127.0.0.1');
+})->with(['available', 'disabled']);
+
+it('never takes an IPv6 state it cannot read, or that disagrees with itself, for disabled', function (string $ipv6, string $reason) {
+    publicHttpIpv6($this->host, $ipv6);
+    $before = publicHttpTree($this->host);
+
+    foreach (['check' => 'CHECK: FAIL', 'apply' => 'APPLY: REFUSED', 'verify' => 'VERIFY: FAIL', 'rollback' => 'ROLLBACK: REFUSED'] as $mode => $verdict) {
+        [$exit, $output] = publicHttpRun($this->host, $mode);
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('FAIL     probes:loopback                              '.$reason.' — whether [::1] must answer cannot be told, and IPv6 is never assumed disabled')
+            ->toContain($verdict);
+        expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'changed' => false, 'reloaded' => false, 'ipv6_loopback' => 'unknown']);
+    }
+
+    expect(file_exists($this->host['fs'].PUBLIC_HTTP_FILE))->toBeFalse();
+    expect(publicHttpTree($this->host))->toBe($before);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+})->with([
+    'enabled, without ::1' => ['enabled-without-address', 'IPv6 is enabled on loopback (disable_ipv6=0), yet ::1 is not on lo'],
+    'disabled, with ::1 still there' => ['disabled-with-address', 'IPv6 is disabled on loopback (disable_ipv6=1), yet ::1 is still on lo'],
+    'unreadable' => ['unreadable', '/proc/sys/net/ipv6/conf/lo/disable_ipv6 cannot be read'],
+]);
